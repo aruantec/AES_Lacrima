@@ -19,7 +19,6 @@ namespace AES_Core.DI;
 public static class DiLocator
 {
     private static ILifetimeScope? _scope;
-    private static IEnumerable<Assembly> _assemblyList = [];
     private static Action<ContainerBuilder>? _builderAction;
     // Registrations collected from generated module-initializers.
     private static readonly List<Action<ContainerBuilder>> _registrations = new();
@@ -27,16 +26,12 @@ public static class DiLocator
     /// <summary>
     /// Set execution assemblies
     /// </summary>
-    /// <param name="assemblies">Assemblies to use</param>
     /// <param name="customActionRegister">Optional additional registration callback to run when building the container.</param>
-    public static void SetExecutionAssemblies(IEnumerable<Assembly>? assemblies, Action<ContainerBuilder>? customActionRegister = null)
+    public static void ConfigureContainer(Action<ContainerBuilder>? customActionRegister = null)
     {
-        if (assemblies == null) return;
         _builderAction = customActionRegister;
-        //Set assembly list
-        _assemblyList = assemblies;
         //Register
-        _scope = ContainerConfig.Configure(_assemblyList, _builderAction).BeginLifetimeScope();
+        _scope = ContainerConfig.Configure(_builderAction).BeginLifetimeScope();
     }
 
     /// <summary>
