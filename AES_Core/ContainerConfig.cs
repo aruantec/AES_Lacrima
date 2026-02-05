@@ -2,8 +2,6 @@ using AES_Core.DI;
 using Autofac;
 using log4net;
 using System;
-using System.Collections.Generic;
-using System.Reflection;
 
 namespace AES_Core;
 
@@ -22,9 +20,8 @@ public static class ContainerConfig
     /// <param name="customActionRegister">Optional callback to perform additional registrations on the builder.</param>
     /// <returns>The built <see cref="IContainer"/>.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="assemblies"/> is null.</exception>
-    public static IContainer Configure(IEnumerable<Assembly> assemblies, Action<ContainerBuilder>? customActionRegister = null)
+    public static IContainer Configure(Action<ContainerBuilder>? customActionRegister = null)
     {
-        ArgumentNullException.ThrowIfNull(assemblies);
         // Log start
         Logger.Info("Running Configuration");
         // Create builder
