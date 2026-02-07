@@ -362,10 +362,6 @@ namespace AES_Lacrima.Behaviors
                 // Support leading-slash resource paths like "/Assets/..." used in XAML by some controls.
                 if (source.StartsWith("/"))
                 {
-                    // First, try an avares:// lookup against likely assemblies in order:
-                    // 1) the assembly that defines this behavior (most assets for controls live here)
-                    // 2) the AssociatedObject's assembly
-                    // 3) the entry assembly
                     try
                     {
                         var tried = new List<string>();

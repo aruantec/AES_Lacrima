@@ -1,5 +1,12 @@
 ﻿using AES_Core.DI;
+using AES_Core.Interfaces;
+using AES_Lacrima.Models;
+using Avalonia.Collections;
+using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using System;
+using System.IO;
 using System.Text.Json.Nodes;
 
 namespace AES_Lacrima.ViewModels
@@ -13,10 +20,13 @@ namespace AES_Lacrima.ViewModels
     [AutoRegister]
     public partial class MainWindowViewModel : ViewModelBase
     {
+        private IClassicDesktopStyleApplicationLifetime? AppLifetime => Avalonia.Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+
         /// <summary>
-        /// Read-only greeting text shown in the UI.
+        /// List of window buttons.
         /// </summary>
-        public string Greeting { get; } = "Welcome to AES Lacrima!";
+        [ObservableProperty]
+        private AvaloniaList<MenuItem>? _windowButtons;
 
         /// <summary>
         /// Backing field for the generated <c>WindowWidth</c> property.
@@ -48,7 +58,44 @@ namespace AES_Lacrima.ViewModels
         /// </summary>
         public override void Prepare()
         {
+            //Load persisted settings
             LoadSettings();
+            //Initialize window buttons with their respective icons and tooltips
+            WindowButtons =
+            [
+                new MenuItem() { Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "settingsgear.svg"), Tooltip = "Settings"},
+                new MenuItem() { Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "fullscreen.svg"), Tooltip = "Go Fullscreen"},
+                new MenuItem() { Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "maximize.svg"), Tooltip = "Maximize Window"},
+                new MenuItem() { Command = MinimizeWindowCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "minimize.svg"), Tooltip = "Minimize Window"},
+                new MenuItem() { Command = CloseApplicationCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "close.svg"), Tooltip = "Close Application"}
+            ];
+        }
+
+        /// <summary>
+        /// Closes the application and performs necessary cleanup operations before shutdown.
+        /// </summary>
+        [RelayCommand]
+        private void CloseApplication()
+        {
+            if (AppLifetime == null || DiLocator.ResolveViewModel<ISettingsService>() is not { } settingsService)
+                return;
+            //Save all settings
+            settingsService.SaveSettings();
+            //Dispose
+            DiLocator.Dispose();
+            //Shutdown application
+            AppLifetime.Shutdown();
+        }
+
+        /// <summary>
+        /// Minimizes the application.
+        /// </summary>
+        /// <remarks>This command has no effect if the main window is not available or is already
+        /// minimized.</remarks>
+        [RelayCommand]
+        private void MinimizeWindow()
+        {
+            AppLifetime?.MainWindow?.WindowState = Avalonia.Controls.WindowState.Minimized;
         }
 
         /// <summary>
@@ -66,7 +113,7 @@ namespace AES_Lacrima.ViewModels
         /// <summary>
         /// Called by the settings infrastructure to persist this view-model's
         /// state into the provided JSON section. Stores the current window
-        /// width and height so they can be restored on next startup.
+        /// width and height so they can be restored on the next startup.
         /// </summary>
         /// <param name="section">JSON object to populate with this view-model's settings.</param>
         protected override void OnSaveSettings(JsonObject section)
