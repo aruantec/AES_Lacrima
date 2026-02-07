@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="AES_Core/AES_Core.csproj" />
+  <Project Path="AES_Di.Generator/AES_Di.Generator.csproj" />
+  <Project Path="AES_Lacrima/AES_Lacrima.csproj" />
+</Solution>
