@@ -50,7 +50,9 @@
                         HorizontalAlignment="Right"
                         Margin="10"
                         Width="600"
-                        Background="Red"
+                        Background="Black"
+                        Opacity="0.8"
+                        CornerRadius="5"
                         IsVisible="{Binding ShowSettingsOverlay}">
 					<ScrollViewer>
 						<Grid x:DataType="vm:SettingsViewModel">
