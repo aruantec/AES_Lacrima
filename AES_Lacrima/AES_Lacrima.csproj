@@ -15,14 +15,16 @@
 
   <ItemGroup>
     <AvaloniaResource Remove="Assets\back.svg" />
+    <AvaloniaResource Remove="Assets\background.jpg" />
+    <AvaloniaResource Remove="Assets\Main\close.svg" />
+    <AvaloniaResource Remove="Assets\Main\fullscreen.svg" />
+    <AvaloniaResource Remove="Assets\Main\maximize.svg" />
+    <AvaloniaResource Remove="Assets\Main\minimize.svg" />
+    <AvaloniaResource Remove="Assets\Main\settingsgear.svg" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Models\" />
-    <Folder Include="Views\Navigation\" />
-  </ItemGroup>
-
-  <ItemGroup>
+    <PackageReference Include="AsyncImageLoader.Avalonia" Version="3.6.0" />
     <PackageReference Include="Avalonia" Version="11.3.11" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.11" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.11" />
@@ -48,6 +50,24 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="Assets\back.svg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\background.jpg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\Main\close.svg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\Main\fullscreen.svg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\Main\maximize.svg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\Main\minimize.svg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\Main\settingsgear.svg">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>

@@ -1,0 +1,90 @@
+﻿<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AES_Lacrima.ViewModels"
+             xmlns:behaviors="clr-namespace:AES_Lacrima.Behaviors"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Class="AES_Lacrima.Views.Navigation.MainTopBar"
+             x:DataType="vm:MainWindowViewModel">
+    <!-- Sets the DataContext for the previewer -->
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+    <!-- Content-->
+    <Border Height="70"
+            VerticalAlignment="Top"
+            BorderThickness="0,0,0,1"
+            Background="Black"
+            Opacity="0.8"
+            BorderBrush="DimGray"
+            CornerRadius="5,5,0,0">
+        <!--Behaviors-->
+        <Interaction.Behaviors>
+            <behaviors:WindowDragBehavior/>
+        </Interaction.Behaviors>
+        <Grid>
+			<!-- Top bar content -->
+            <Grid ColumnDefinitions="50, *">
+                <Button Grid.Column="0"
+                        Cursor="Hand"
+                        Height="30"
+                        Width="35"
+                        Background="Transparent"
+                        Margin="15,0,0,0"
+                        ToolTip.Placement="Pointer">
+                    <ToolTip.Tip>
+                        <StackPanel>
+                            <TextBlock FontSize="16" Text="Back"/>
+                        </StackPanel>
+                    </ToolTip.Tip>
+                    <Button.Template>
+                        <ControlTemplate>
+                            <Svg Path="Assets/back.svg"/>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Label Grid.Column="1" HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Content="AES LACRIMA"
+                       Foreground="White"
+                       FontSize="35"
+                       Margin="-50,0,0,0"/>
+            </Grid>
+            <!--Window buttons-->
+            <ItemsControl Height="50"
+                            ItemsSource="{Binding WindowButtons}"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Right"
+                            Margin="-5,0,5,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Cursor="Hand"
+                                Height="30"
+                                Width="35"
+                                Margin="10"
+                                Command="{Binding Command}"
+                                CommandParameter="{Binding}"
+                                ToolTip.Placement="Pointer">
+                            <ToolTip.Tip>
+                                <StackPanel>
+                                    <TextBlock FontSize="16" Text="{Binding Tooltip}"/>
+                                </StackPanel>
+                            </ToolTip.Tip>
+                            <Button.Template>
+                                <ControlTemplate>
+                                    <Svg Path="{Binding Cover}"/>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="5"/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </Grid>
+    </Border>
+</UserControl>
