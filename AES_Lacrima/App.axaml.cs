@@ -46,10 +46,7 @@ namespace AES_Lacrima
                     // Custom registrations can be added here if needed
                 });
                 // Create the main window and set its DataContext to the resolved MainWindowViewModel
-                desktop.MainWindow = new MainWindow
-                {
-                    DataContext = DiLocator.ResolveViewModel<MainWindowViewModel>()
-                };
+                desktop.MainWindow = new MainWindow();
                 // Attach closing handler to perform cleanup/save on exit
                 desktop.MainWindow.Closing += MainWindow_Closing;
             }
