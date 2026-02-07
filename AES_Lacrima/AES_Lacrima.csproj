@@ -33,7 +33,8 @@
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
-    <PackageReference Include="Svg.Controls.Avalonia" Version="11.3.9.2" />
+    <PackageReference Include="Svg.Controls.Skia.Avalonia" Version="11.3.9.2" />
+    <PackageReference Include="log4net" Version="3.2.0" />
   </ItemGroup>
 
   <ItemGroup>

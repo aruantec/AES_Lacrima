@@ -1,11 +1,11 @@
 using AES_Controls.Helpers;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.Xaml.Interactivity;
+using log4net;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -18,7 +18,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace AES_Controls.Behaviors
+namespace AES_Lacrima.Behaviors
 {
     /// <summary>
     /// Behavior that loads an SVG resource, applies a tint and optional
@@ -33,6 +33,7 @@ namespace AES_Controls.Behaviors
     /// </summary>
     public class SvgColorBehavior : Behavior<Control>
     {
+        private static readonly ILog Log = LogManager.GetLogger(typeof(SvgColorBehavior));
         private static readonly ConcurrentDictionary<string, string?> SvgTextCache = new();
         private static readonly ConcurrentDictionary<string, DateTime> FailedCache = new();
 
@@ -80,7 +81,7 @@ namespace AES_Controls.Behaviors
 
         private string? _lastTempPath;
         // Tracks in-flight load operations so concurrent requests for the same source share work
-        private static readonly ConcurrentDictionary<string, Task<string?>> _inflightLoads = new();
+        private static readonly ConcurrentDictionary<string, Task<string?>> InflightLoads = new();
 
         // Debounce helper state to combine rapid property notifications into a single ApplyToTarget call
         private readonly object _debounceLock = new();
@@ -105,14 +106,17 @@ namespace AES_Controls.Behaviors
                 // Schedule initial apply after bindings have settled
                 ScheduleApply();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log.Warn("Failed to schedule initial apply", ex);
+            }
         }
 
         private void ScheduleApply()
         {
             lock (_debounceLock)
             {
-                try { _debounceCts?.Cancel(); } catch { }
+                try { _debounceCts?.Cancel(); } catch (Exception ex) { Log.Warn("Failed to cancel debounce CTS", ex); }
                 _debounceCts = new CancellationTokenSource();
                 var ct = _debounceCts.Token;
                 _ = Task.Run(async () =>
@@ -124,7 +128,10 @@ namespace AES_Controls.Behaviors
                         await Dispatcher.UIThread.InvokeAsync(() => ApplyToTarget());
                     }
                     catch (TaskCanceledException) { }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Log.Error("Error in debounce task", ex);
+                    }
                 }, ct);
             }
         }
@@ -148,7 +155,10 @@ namespace AES_Controls.Behaviors
                     // No straightforward way to subscribe to arbitrary CLR property changes; require user to bind Source on behavior
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log.Warn("Failed to observe target path property", ex);
+            }
         }
 
         /// <summary>
@@ -185,8 +195,6 @@ namespace AES_Controls.Behaviors
                 // Run the potentially expensive SVG loading + text processing off the UI thread
                 Task.Run(async () => {
                     var swTotal = Stopwatch.StartNew();
-                    long loadMs = 0;
-                    long processMs = 0;
                     try
                     {
                         // Check caches first (cache stores raw SVG text to avoid repeated IO)
@@ -202,7 +210,7 @@ namespace AES_Controls.Behaviors
                             return;
                         }
 
-                        string? svgText = null;
+                        string? svgText;
                         var sw = Stopwatch.StartNew();
                         if (cachedRaw != null)
                         {
@@ -211,7 +219,7 @@ namespace AES_Controls.Behaviors
                         else
                         {
                             // Use in-flight dedupe so concurrent requests share work
-                            var loadTask = _inflightLoads.GetOrAdd(effectiveSource, _ => Task.Run(() => LoadSvgText(effectiveSource)));
+                            var loadTask = InflightLoads.GetOrAdd(effectiveSource, _ => Task.Run(() => LoadSvgText(effectiveSource)));
                             try
                             {
                                 svgText = await loadTask.ConfigureAwait(false);
@@ -225,21 +233,21 @@ namespace AES_Controls.Behaviors
                             finally
                             {
                                 // Remove the task from inflight map if it's the same instance
-                                _inflightLoads.TryGetValue(effectiveSource, out var existing);
+                                InflightLoads.TryGetValue(effectiveSource, out var existing);
                                 if (existing == loadTask)
-                                    _inflightLoads.TryRemove(effectiveSource, out _);
+                                    InflightLoads.TryRemove(effectiveSource, out _);
                             }
                         }
-                        sw.Stop(); loadMs = sw.ElapsedMilliseconds;
+                        sw.Stop();
                         if (svgText == null)
                         {
-                            Debug.WriteLine($"SvgColorBehavior: failed to load svg text for '{effectiveSource}' on control {associated?.GetType().FullName}");
+                            Log.Warn($"SvgColorBehavior: failed to load svg text for '{effectiveSource}' on control {associated?.GetType().FullName}");
                             FailedCache[effectiveSource] = DateTime.UtcNow;
                             return;
                         }
 
                         // Store raw svg text in cache if it wasn't cached already
-                        try { SvgTextCache[effectiveSource] = svgText; } catch { }
+                        try { SvgTextCache[effectiveSource] = svgText; } catch (Exception ex) { Log.Warn("Failed to cache SVG text", ex); }
 
                         // Apply multi-color mapping first
                         var swProc = Stopwatch.StartNew();
@@ -258,7 +266,7 @@ namespace AES_Controls.Behaviors
                         svgText = _fillRegex.Replace(svgText, "$1" + tintHex + "$3");
                         svgText = _strokeRegex.Replace(svgText, "$1" + tintHex + "$3");
 
-                        swProc.Stop(); processMs = swProc.ElapsedMilliseconds;
+                        swProc.Stop();
 
                         // After processing, set on UI thread
                         Dispatcher.UIThread.Post(() =>
@@ -282,7 +290,7 @@ namespace AES_Controls.Behaviors
                                 if (propString != null && propString.PropertyType == typeof(string))
                                 {
                                     TryRemoveTemp();
-                                    var temp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"aes_svg_{Guid.NewGuid():N}.svg");
+                                    var temp = Path.Combine(Path.GetTempPath(), $"aes_svg_{Guid.NewGuid():N}.svg");
                                     File.WriteAllText(temp, svgText, Encoding.UTF8);
                                     _lastTempPath = temp;
                                     propString.SetValue(associated, temp);
@@ -307,27 +315,21 @@ namespace AES_Controls.Behaviors
                             }
                             catch (Exception ex)
                             {
-                                Debug.WriteLine($"SvgColorBehavior: failed to set processed svg on UI thread: {ex}");
+                                Log.Error($"SvgColorBehavior: failed to set processed svg on UI thread: {ex}");
                             }
 
                             swTotal.Stop();
-                            try
-                            {
-                                var dispatchMs = swTotal.ElapsedMilliseconds - loadMs - processMs;
-                                Debug.WriteLine($"SvgColorBehavior: timings source='{effectiveSource}' load={loadMs}ms process={processMs}ms dispatch={dispatchMs}ms total={swTotal.ElapsedMilliseconds}ms");
-                            }
-                            catch { }
                         });
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"SvgColorBehavior: processing failed: {ex}");
+                        Log.Error($"SvgColorBehavior: processing failed: {ex}");
                     }
                 });
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SvgColorBehavior: apply failed: {ex}");
+                Log.Error($"SvgColorBehavior: apply failed: {ex}");
             }
         }
 
@@ -351,9 +353,9 @@ namespace AES_Controls.Behaviors
                         using var reader = new StreamReader(stream);
                         return reader.ReadToEnd();
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // fallback to other resolution attempts below
+                        Log.Warn($"Failed to load avares resource: {source}", ex);
                     }
                 }
 
@@ -383,14 +385,20 @@ namespace AES_Controls.Behaviors
                                 using var reader = new StreamReader(stream);
                                 return reader.ReadToEnd();
                             }
-                            catch { }
+                            catch (Exception ex)
+                            {
+                                Log.Warn($"Failed to load avares resource: {avares}", ex);
+                            }
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("Failed to iterate assembly candidates", ex);
+                    }
 
                     // Try app base directory first
                     var disk = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, source.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-                    Debug.WriteLine($"SvgColorBehavior: trying disk path '{disk}'");
+                    Log.Debug($"SvgColorBehavior: trying disk path '{disk}'");
                     if (File.Exists(disk)) return File.ReadAllText(disk);
 
                     // Try manifest resource lookup across loaded assemblies
@@ -402,15 +410,26 @@ namespace AES_Controls.Behaviors
                         {
                             // Common packaging uses assembly default namespace prefix -- try both with and without
                             var candidate1 = a.GetName().Name + "." + resourceName;
-                            Debug.WriteLine($"SvgColorBehavior: trying manifest resource '{candidate1}' in assembly {a.GetName().Name}");
+                            Log.Debug($"SvgColorBehavior: trying manifest resource '{candidate1}' in assembly {a.GetName().Name}");
                             using var s1 = a.GetManifestResourceStream(candidate1);
-                            if (s1 != null) { using var sr = new StreamReader(s1); return sr.ReadToEnd(); }
+                            if (s1 != null) 
+                            { 
+                                using var sr = new StreamReader(s1); 
+                                return sr.ReadToEnd(); 
+                            }
 
-                            Debug.WriteLine($"SvgColorBehavior: trying manifest resource '{resourceName}' in assembly {a.GetName().Name}");
+                            Log.Debug($"SvgColorBehavior: trying manifest resource '{resourceName}' in assembly {a.GetName().Name}");
                             using var s2 = a.GetManifestResourceStream(resourceName);
-                            if (s2 != null) { using var sr2 = new StreamReader(s2); return sr2.ReadToEnd(); }
+                            if (s2 != null) 
+                            { 
+                                using var sr2 = new StreamReader(s2); 
+                                return sr2.ReadToEnd(); 
+                            }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            Log.Warn($"Failed to load manifest resource from assembly {a.GetName().Name}", ex);
+                        }
                     }
                 }
 
@@ -423,7 +442,7 @@ namespace AES_Controls.Behaviors
                     Path.Combine(AppContext.BaseDirectory, source.Replace('/', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar)),
                 };
 
-                var entry = System.Reflection.Assembly.GetEntryAssembly();
+                var entry = Assembly.GetEntryAssembly();
                 if (entry != null)
                 {
                     var dir = Path.GetDirectoryName(entry.Location);
@@ -435,10 +454,13 @@ namespace AES_Controls.Behaviors
                 {
                     try
                     {
-                        Debug.WriteLine($"SvgColorBehavior: checking candidate path '{c}'");
+                        Log.Debug($"SvgColorBehavior: checking candidate path '{c}'");
                         if (File.Exists(c)) return File.ReadAllText(c);
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Log.Warn($"Failed to check candidate path: {c}", ex);
+                    }
                 }
 
                 // As a last resort, enumerate assemblies and log any resource names that contain the file name
@@ -450,7 +472,10 @@ namespace AES_Controls.Behaviors
                     var workspaceCandidate = Path.Combine(repoRoot, "Assets", "Player", fileNameOnly);
                     if (File.Exists(workspaceCandidate)) return File.ReadAllText(workspaceCandidate);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Log.Warn("Failed to check workspace candidate", ex);
+                }
                 foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
                 {
                     try
@@ -460,18 +485,29 @@ namespace AES_Controls.Behaviors
                         {
                             if (n.EndsWith(fileNameOnly, StringComparison.OrdinalIgnoreCase))
                             {
-                                Debug.WriteLine($"SvgColorBehavior: found embedded resource '{n}' in assembly {a.GetName().Name}");
+                                Log.Debug($"SvgColorBehavior: found embedded resource '{n}' in assembly {a.GetName().Name}");
                                 using var s = a.GetManifestResourceStream(n);
-                                if (s != null) { using var sr = new StreamReader(s); return sr.ReadToEnd(); }
+                                if (s != null) 
+                                { 
+                                    using var sr = new StreamReader(s); 
+                                    return sr.ReadToEnd(); 
+                                }
                             }
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Log.Warn($"Failed to enumerate resources in assembly {a.GetName().Name}", ex);
+                    }
                 }
 
                 return null;
             }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                Log.Error("Unexpected error in LoadSvgText", ex);
+                return null;
+            }
         }
 
         private void TryRemoveTemp()
@@ -483,7 +519,10 @@ namespace AES_Controls.Behaviors
                     File.Delete(_lastTempPath);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log.Warn("Failed to remove temp file", ex);
+            }
             finally { _lastTempPath = null; }
         }
     }

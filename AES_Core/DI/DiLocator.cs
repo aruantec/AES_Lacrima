@@ -20,7 +20,7 @@ public static class DiLocator
     private static ILifetimeScope? _scope;
     private static Action<ContainerBuilder>? _builderAction;
     // Registrations collected from generated module-initializers.
-    private static readonly List<Action<ContainerBuilder>> _registrations = new();
+    private static readonly List<Action<ContainerBuilder>> Registrations = new();
 
     /// <summary>
     /// Set execution assemblies
@@ -41,10 +41,9 @@ public static class DiLocator
     /// <param name="registration">Callback that accepts a <see cref="ContainerBuilder"/> and performs registrations.</param>
     public static void AddRegistration(Action<ContainerBuilder> registration)
     {
-        if (registration == null) return;
-        lock (_registrations)
+        lock (Registrations)
         {
-            _registrations.Add(registration);
+            Registrations.Add(registration);
         }
     }
 
@@ -56,10 +55,9 @@ public static class DiLocator
     /// <param name="builder">The Autofac <see cref="ContainerBuilder"/> to apply callbacks to.</param>
     public static void ApplyRegistrations(ContainerBuilder builder)
     {
-        if (builder == null) return;
-        lock (_registrations)
+        lock (Registrations)
         {
-            foreach (var reg in _registrations)
+            foreach (var reg in Registrations)
             {
                 try
                 {
