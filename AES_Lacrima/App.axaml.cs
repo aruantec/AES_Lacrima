@@ -10,6 +10,8 @@ using Avalonia.Markup.Xaml;
 using log4net;
 using System;
 using System.Linq;
+using AES_Lacrima.Helpers;
+using AES_Lacrima.ViewModels;
 
 namespace AES_Lacrima
 {
@@ -48,6 +50,12 @@ namespace AES_Lacrima
                 desktop.MainWindow = new MainWindow();
                 // Attach closing handler to perform cleanup/save on exit
                 desktop.MainWindow.Closing += MainWindow_Closing;
+                // use the FFmpeg locator to find the executable path
+                if (DiLocator.ResolveViewModel<SettingsViewModel>() is { } settingsViewModel
+                    && FFmpegLocator.FindFFmpegPath() is { } ffmpegPath) 
+                {
+                    settingsViewModel.FfmpegPath = ffmpegPath;
+                }
             }
 
             base.OnFrameworkInitializationCompleted();
