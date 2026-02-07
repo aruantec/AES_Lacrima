@@ -1,8 +1,7 @@
+using Autofac;
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using System.Diagnostics;
-using Autofac;
 
 namespace AES_Core.DI;
 
