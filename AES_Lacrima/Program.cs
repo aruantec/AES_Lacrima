@@ -16,7 +16,7 @@ namespace AES_Lacrima
         public static void Main(string[] args)
         {
             // Ensure Logs directory exists and configure a rolling file appender so
-            // that logs are written to Logs/app.YYYY-MM-DD.log
+            // that logs are written to Logs/log.txt
             Directory.CreateDirectory("Logs");
 
             var layout = new PatternLayout { ConversionPattern = "%date %-5level %logger - %message%newline%exception" };

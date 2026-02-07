@@ -1,4 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
+        xmlns:behaviors="using:AES_Lacrima.Behaviors"
+        xmlns:controls="using:AES_Controls"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:AES_Lacrima.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -11,7 +13,9 @@
         Title="AES Lacrima"
         Width="{Binding WindowWidth, Mode=TwoWay}"
         Height="{Binding WindowHeight, Mode=TwoWay}"
-        WindowStartupLocation="CenterOwner">
+        WindowStartupLocation="CenterOwner"
+        ExtendClientAreaChromeHints="NoChrome"
+        ExtendClientAreaToDecorationsHint="True">
 
     <!-- Sets the DataContext -->
     <Window.DataContext>
@@ -24,6 +28,51 @@
     </Design.DataContext>
 
     <Grid x:DataType="vm:MainWindowViewModel">
-        <TextBlock Text="{Binding Greeting}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <!-- Background -->
+
+        <!-- Scalable decorator and main content-->
+        <controls:ScalableDecorator Scale="2">
+			<!-- Top bar -->
+            <Border x:Name="TopBar"
+                    Height="70"
+                    VerticalAlignment="Top"
+                    BorderThickness="0,0,0,1"
+                    Background="Black"
+                    Opacity="0.8"
+                    BorderBrush="DimGray"
+                    CornerRadius="5,5,0,0">
+                <!--Behaviors-->
+                <Interaction.Behaviors>
+					<behaviors:WindowDragBehavior/>
+                </Interaction.Behaviors>
+                <!-- Top bar content -->
+                <Grid ColumnDefinitions="50, *">
+                    <Button Grid.Column="0"
+                                 Cursor="Hand"
+                                 Height="30"
+                                 Width="35"
+                                 Background="Transparent"
+                                 Margin="15,0,0,0"
+                                 ToolTip.Placement="Pointer">
+                        <ToolTip.Tip>
+                            <StackPanel>
+                                <TextBlock FontSize="16" Text="Back"/>
+                            </StackPanel>
+                        </ToolTip.Tip>
+                        <Button.Template>
+                            <ControlTemplate>
+                                <Svg Path="Assets/back.svg" Cursor="Hand"/>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <Label Grid.Column="1" HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Content="AES LACRIMA"
+                                Foreground="White"
+                                FontSize="35"
+                                Margin="-50,0,0,0"/>
+                </Grid>
+            </Border>
+        </controls:ScalableDecorator>
     </Grid>
 </Window>
