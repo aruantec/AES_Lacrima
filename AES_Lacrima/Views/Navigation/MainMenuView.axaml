@@ -1,0 +1,169 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Class="AES_Lacrima.Views.Navigation.MainMenuView">
+    <UserControl.Styles>
+        <!-- Icon button style: no hover/selection background, only a pressed opacity effect -->
+        <Style Selector="Button.icon-btn">
+            <!-- Minimal template to avoid default overlay visuals -->
+            <Setter Property="Template">
+                <ControlTemplate>
+                <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          Margin="{TemplateBinding Padding}"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Width" Value="120" />
+            <Setter Property="Height" Value="120" />
+            <Setter Property="Padding" Value="8" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.icon-btn:pointerover">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.icon-btn:pressed">
+            <!-- Keep press feedback minimal and ensure no overlay background -->
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Opacity" Value="0.85" />
+        </Style>
+        <Style Selector="Button.icon-btn:focus">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <!-- Fade labels in/out smoothly on item hover (preserve layout) -->
+        <Style Selector="StackPanel > Label">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="StackPanel:pointerover > Label">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+    </UserControl.Styles>
+    <Grid Height="180">
+        <Border Background="Black" Opacity="0.8"/>
+        <!--Content-->
+        <StackPanel HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="12">
+            <!-- Emulation -->
+            <StackPanel Width="120" HorizontalAlignment="Center">
+                <Label Content="Emulation"
+                       HorizontalAlignment="Center"
+                       FontSize="24"
+                       Foreground="White"
+                       Margin="0,0,0,-10"/>
+				<Button Classes="icon-btn">
+                        <Viewbox Stretch="Uniform" Width="76" Height="76" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Path Fill="White" Data="M7.5,10 M8,1 L24,1 C25.7,1 27,2.3 27,4 L27,12 L25,12 L25,4 C25,3.4 24.6,3 24,3 L8,3 C7.4,3 7,3.4 7,4 L7,12 L5,12 L5,4 C5,2.3 6.3,1 8,1 Z M9,4.7 L23,4.7 C23.7,4.7 24.3,5.3 24.3,6 L24.3,10.3 C24.3,11 23.7,11.6 23,11.6 L9,11.6 C8.3,11.6 7.7,11 7.7,10.3 L7.7,6 C7.7,5.3 8.3,4.7 9,4.7 Z C5.0,10 2.7,12.3 2.3,14.9 L1.2,21.7 C0.8,24.1 2.6,26.3 5.0,26.3 L8.7,26.3 C10.0,26.3 11.2,25.6 11.9,24.4 L13.0,22.6 C13.5,21.9 14.2,21.5 15.0,21.5 L17.0,21.5 C17.8,21.5 18.5,21.9 19.0,22.6 L20.1,24.4 C20.8,25.6 22.0,26.3 23.3,26.3 L27.0,26.3 C29.4,26.3 31.2,24.1 30.8,21.7 L29.7,14.9 C29.3,12.3 27.0,10 24.5,10 L7.5,10 Z M10.2,14.8 L8.7,14.8 L8.7,16.6 L6.9,16.6 L6.9,18.1 L8.7,18.1 L8.7,19.9 L10.2,19.9 L10.2,18.1 L12.0,18.1 L12.0,16.6 L10.2,16.6 L10.2,14.8 Z M22.5,15.3 A1.6,1.6 0 1 1 19.3,15.3 A1.6,1.6 0 1 1 22.5,15.3 Z M25.3,18.1 A1.6,1.6 0 1 1 22.1,18.1 A1.6,1.6 0 1 1 25.3,18.1 Z" />
+                        </Viewbox>
+                </Button>
+            </StackPanel>
+
+            <!-- Music -->
+            <StackPanel Width="120" HorizontalAlignment="Center">
+                <Label Content="Music"
+                       HorizontalAlignment="Center"
+                       FontSize="24"
+                       Foreground="White"
+                       Margin="0,0,0,-10"/>
+                <Button Classes="icon-btn">
+                    <Viewbox Stretch="Uniform" Width="76" Height="76" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Canvas Width="100" Height="100">
+                            <!-- top bars -->
+                            <Rectangle Width="70" Height="8" RadiusX="4" RadiusY="4" Fill="White" Canvas.Left="15" Canvas.Top="6" />
+                            <Rectangle Width="70" Height="8" RadiusX="4" RadiusY="4" Fill="White" Canvas.Left="15" Canvas.Top="18" />
+
+                            <!-- rounded square background -->
+                            <Rectangle Width="88" Height="64" RadiusX="12" RadiusY="12" Fill="White" Canvas.Left="6" Canvas.Top="30" />
+
+                            <!-- music note (dark) placed on top of white square -->
+                            <Path Fill="Black" Data="M62,76 C62,84 56,90 48,90 C40,90 34,84 34,76 C34,68 40,62 48,62 C50,62 54,63 58,66 L58,34 L74,32 L74,40 L62,44 L62,76 Z" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+            </StackPanel>
+
+            <!-- Video -->
+            <StackPanel Width="120" HorizontalAlignment="Center">
+                <Label Content="Video"
+                       HorizontalAlignment="Center"
+                       FontSize="24"
+                       Foreground="White"
+                       Margin="0,0,0,-10"/>
+				<Button Classes="icon-btn">
+                    <Viewbox Stretch="Uniform" Width="76" Height="76" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Canvas Width="32" Height="31">
+                            <!-- outer monitor -->
+                            <Path Fill="White"
+                                  Data="M4.5,2.0
+                                        L27.5,2.0
+                                        C29.2,2.0 30.5,3.3 30.5,5.0
+                                        L30.5,25.5
+                                        C30.5,27.2 29.2,28.5 27.5,28.5
+                                        L4.5,28.5
+                                        C2.8,28.5 1.5,27.2 1.5,25.5
+                                        L1.5,5.0
+                                        C1.5,3.3 2.8,2.0 4.5,2.0 Z" />
+
+                            <!-- bottom bar with a white border line on top -->
+                            <Rectangle Canvas.Left="1.5" Canvas.Top="20.5"
+                                       Width="29" Height="8"
+                                       Fill="Black"
+                                       Stroke="White" StrokeThickness="0.8"
+                                       RadiusX="2" RadiusY="2" />
+
+                            <!-- status pill on the bar -->
+                            <Rectangle Canvas.Left="4.1" Canvas.Top="23.0"
+                                       Width="8.0" Height="2.2"
+                                       RadiusX="1.1" RadiusY="1.1"
+                                       Fill="White" />
+
+                            <!-- play triangle on screen -->
+                            <Path Fill="Black" Data="M13.0,7.8 L13.0,17.9 L21.3,12.85 L13.0,7.8 Z" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+            </StackPanel>
+
+            <!-- Settings -->
+            <StackPanel Width="120" HorizontalAlignment="Center">
+                <Label Content="Settings"
+                       HorizontalAlignment="Center"
+                       FontSize="24"
+                       Foreground="White"
+                       Margin="0,0,0,-10"/>
+                <Button Classes="icon-btn">
+                    <Viewbox Stretch="Uniform" Width="76" Height="76" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Canvas Width="32" Height="32">
+                            <Path Fill="White" RenderTransformOrigin="0.5,0.5" Margin="-2"
+                                  Data="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.91,7.62,6.29L5.23,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.72,8.87 c-0.11,0.21-0.06,0.47,0.12,0.61l2.03,1.58C4.82,11.36,4.8,11.69,4.8,12c0,0.32,0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z">
+                                <Path.RenderTransform>
+                                    <ScaleTransform ScaleX="1.5" ScaleY="1.5" />
+                                </Path.RenderTransform>
+                            </Path>
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+            </StackPanel>
+
+        </StackPanel>
+    </Grid>
+</UserControl>

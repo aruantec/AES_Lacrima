@@ -26,7 +26,14 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
     private int _lastCount = -1;
     private bool _textureNeedsUpdate;
     private bool _isEs;
-    private readonly float _lastDelta = 1f / 60f;
+    private float _lastDelta = 1f / 60f;
+    private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
+    private long _lastTick = 0;
+    private float[] _particleData = Array.Empty<float>();
+    private float[] _bgData = new float[16];
+    private SKPaint? _skPaint = new SKPaint() { IsAntialias = true };
+    private int _frameCounter = 0;
+    private double _frameAccum = 0.0;
 
     private int _particleCount = 150;
     private System.Numerics.Vector2 _visualSize;
@@ -49,6 +56,7 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
                 return;
             case "invalidate":
                 Invalidate();
+                // start the animation loop using compositor frame callbacks
                 RegisterForNextAnimationFrameUpdate();
                 return;
             case System.Numerics.Vector2 v:
@@ -64,6 +72,7 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
                 Invalidate();
                 return;
         }
+
     }
 
     private void Cleanup()
@@ -76,10 +85,25 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
             if (_bgProgram != 0) _gl.DeleteProgram(_bgProgram);
             if (_vbo != 0) _gl.DeleteBuffer(_vbo);
             if (_bgVbo != 0) _gl.DeleteBuffer(_bgVbo);
+            // Delete vertex arrays if supported
+            try
+            {
+                if (_vao != 0) _gl.DeleteVertexArray(_vao);
+            }
+            catch { }
+            try
+            {
+                if (_bgVao != 0) _gl.DeleteVertexArray(_bgVao);
+            }
+            catch { }
             if (_texCurrent != 0) _gl.DeleteTexture(_texCurrent);
             if (_texPrevious != 0) _gl.DeleteTexture(_texPrevious);
         }
         _gl = null;
+
+        // dispose managed GPU/Skia resources
+        _skPaint?.Dispose();
+        _skPaint = null;
     }
 
     private void EnsureGl(ImmediateDrawingContext context)
@@ -92,6 +116,25 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
     public override void OnRender(ImmediateDrawingContext context)
     {
         EnsureGl(context);
+
+        // Update fallback timing each render when not using compositor frame timestamps
+        var ticks = _stopwatch.ElapsedTicks;
+        if (_lastTick != 0)
+        {
+            var dt = (ticks - _lastTick) / (double)Stopwatch.Frequency;
+            if (dt > 0) _lastDelta = (float)dt;
+        }
+        _lastTick = ticks;
+
+        // Track measured FPS
+        _frameAccum += _lastDelta;
+        _frameCounter++;
+        if (_frameAccum >= 0.5)
+        {
+            var fps = _frameCounter / _frameAccum;
+            Debug.WriteLine($"ParticleVisual measured fps={fps:F1}, dt={_lastDelta:F5}s");
+            _frameCounter = 0; _frameAccum = 0;
+        }
 
         if (_gl != null)
         {
@@ -132,7 +175,9 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
             Debug.WriteLine($"Error during rendering: {ex.Message}");
         }
 
-        if (!_isPaused) Invalidate();
+        // Request a redraw and ask the compositor for the next animation-frame update
+        Invalidate();
+        if (!_isPaused) RegisterForNextAnimationFrameUpdate();
     }
 
     private void RenderSkia(ImmediateDrawingContext context)
@@ -162,17 +207,21 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
 
         using var paint = new SKPaint();
         paint.IsAntialias = true;
+        // reuse SKPaint when possible
+        var paintToUse = _skPaint ??= new SKPaint() { IsAntialias = true };
         for (int i = 0; i < _particles.Count; i++)
         {
             var p = _particles[i];
             float px = (p.X + 1f) * 0.5f * w;
             float py = (1f - (p.Y + 1f) * 0.5f) * h; // flip Y
-            paint.Color = new SKColor((byte)(p.R * 255), (byte)(p.G * 255), (byte)(p.B * 255), (byte)(p.A * 255));
+            paintToUse.Color = new SKColor((byte)(p.R * 255), (byte)(p.G * 255), (byte)(p.B * 255), (byte)(p.A * 255));
             float radius = Math.Max(1f, p.Size * 0.05f);
-            canvas.DrawCircle(px, py, radius, paint);
+            canvas.DrawCircle(px, py, radius, paintToUse);
         }
 
-        if (!_isPaused) Invalidate();
+        // Request a redraw and ask the compositor for the next animation-frame update
+        Invalidate();
+        if (!_isPaused) RegisterForNextAnimationFrameUpdate();
     }
 
     private void InitGl(GlInterface gl)
@@ -303,7 +352,9 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
 
         float timeFactor = _lastDelta * 60f;
 
-        var data = new float[_particles.Count * 7];
+        // reuse data array to avoid allocations per-frame
+        if (_particleData.Length < _particles.Count * 7) _particleData = new float[_particles.Count * 7];
+        var data = _particleData;
         for (int i = 0; i < _particles.Count; i++)
         {
             var p = _particles[i];

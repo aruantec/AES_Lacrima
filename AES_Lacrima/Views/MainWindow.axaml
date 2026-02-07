@@ -4,9 +4,10 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:AES_Lacrima.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:helpers="using:AES_Lacrima.Helpers"
+        xmlns:locators="using:AES_Lacrima.Helpers"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:composition="clr-namespace:AES_Controls.Composition;assembly=AES_Controls"
+        xmlns:nav="clr-namespace:AES_Controls.Navigation;assembly=AES_Controls"
         xmlns:common="clr-namespace:AES_Lacrima.Views.Common"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="AES_Lacrima.Views.MainWindow"
@@ -21,7 +22,7 @@
 
     <!-- Sets the DataContext -->
     <Window.DataContext>
-        <helpers:TypeResolverExtension Type="vm:MainWindowViewModel"/>
+        <locators:TypeResolverExtension Type="vm:MainWindowViewModel"/>
     </Window.DataContext>
 
     <!-- Sets the DataContext for the previewer -->
@@ -36,9 +37,37 @@
         <composition:ParticleCompositionControl ParticleCount="100"/>
         <!-- Scalable decorator and main content-->
         <controls:ScalableDecorator Scale="2">
-			<!-- Top bar -->
-            <common:MainTopBar/>
-            <!--Bottom bar-->
+            <Grid Grid.RowDefinitions="Auto,*,Auto">
+                <!--Top bar-->
+                <common:MainTopBar Grid.Row="0"/>
+				<!--Main content-->
+                <nav:CachedContentPresenter Grid.Row="1"
+                                            TransitionsEnabled="True"
+                                            Duration="0:0:0.500"
+                                            Easing="SineEaseInOut"/>
+                <!--Settings Overlay-->
+                <Border Grid.Row="1"
+                        HorizontalAlignment="Right"
+                        Margin="10"
+                        Width="600"
+                        Background="Red"
+                        IsVisible="{Binding ShowSettingsOverlay}">
+					<ScrollViewer>
+						<Grid x:DataType="vm:SettingsViewModel">
+						    <Grid.DataContext>
+                                <locators:TypeResolverExtension Type="vm:SettingsViewModel"/>
+                            </Grid.DataContext>
+                        </Grid>
+                    </ScrollViewer>
+                </Border>
+                <!--Bottom bar-->
+                <nav:CachedContentPresenter Grid.Row="2"
+                                            CurrentViewModel="{Binding NavigationView}"
+                                            TransitionsEnabled="True"
+                                            Duration="0:0:0.500"
+                                            Easing="SineEaseInOut"
+                                            Margin="-8,0,-8,0"/>
+            </Grid>
         </controls:ScalableDecorator>
     </Grid>
 </Window>
