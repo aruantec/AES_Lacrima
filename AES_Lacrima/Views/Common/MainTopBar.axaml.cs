@@ -1,8 +1,6 @@
-﻿using Avalonia;
-using Avalonia.Controls;
-using Avalonia.Markup.Xaml;
+﻿using Avalonia.Controls;
 
-namespace AES_Lacrima.Views.Navigation;
+namespace AES_Lacrima.Views.Common;
 
 public partial class MainTopBar : UserControl
 {

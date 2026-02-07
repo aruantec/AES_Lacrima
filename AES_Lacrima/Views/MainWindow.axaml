@@ -6,8 +6,8 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:helpers="using:AES_Lacrima.Helpers"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:navigation="clr-namespace:AES_Lacrima.Views.Navigation"
         xmlns:composition="clr-namespace:AES_Controls.Composition;assembly=AES_Controls"
+        xmlns:common="clr-namespace:AES_Lacrima.Views.Common"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="AES_Lacrima.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
@@ -37,7 +37,7 @@
         <!-- Scalable decorator and main content-->
         <controls:ScalableDecorator Scale="2">
 			<!-- Top bar -->
-            <navigation:MainTopBar/>
+            <common:MainTopBar/>
             <!--Bottom bar-->
         </controls:ScalableDecorator>
     </Grid>

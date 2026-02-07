@@ -71,4 +71,15 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Views\Navigation\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="Views\Common\MainTopBar.axaml.cs">
+      <DependentUpon>MainTopBar.axaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+  </ItemGroup>
 </Project>
