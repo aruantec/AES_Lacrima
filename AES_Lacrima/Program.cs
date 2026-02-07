@@ -15,7 +15,7 @@ namespace AES_Lacrima
         [STAThread]
         public static void Main(string[] args)
         {
-            // Ensure Logs directory exists and configure a rolling file appender so
+            // Ensure the Logs directory exists and configure a rolling file appender so
             // that logs are written to Logs/log.txt
             Directory.CreateDirectory("Logs");
 

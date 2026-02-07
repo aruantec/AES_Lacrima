@@ -30,7 +30,7 @@ namespace AES_Lacrima.Helpers
 
         /// <summary>
         /// Provide the resolved instance for XAML. Throws <see cref="InvalidOperationException"/>
-        /// when <see cref="Type"/> is not specified. Uses <see cref="DiLocator.TryResolve(Type)"/>
+        /// when <see cref="Type"/> is not specified. Uses <see cref="DiLocator.TryResolve(System.Type)"/>
         /// to obtain the instance from the application's DI scope.
         /// </summary>
         /// <param name="serviceProvider">XAML service provider (unused).</param>

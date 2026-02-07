@@ -61,7 +61,7 @@
                         </ToolTip.Tip>
                         <Button.Template>
                             <ControlTemplate>
-                                <Svg Path="Assets/back.svg" Cursor="Hand"/>
+                                <Svg Path="Assets/back.svg"/>
                             </ControlTemplate>
                         </Button.Template>
                     </Button>

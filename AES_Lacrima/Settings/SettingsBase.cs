@@ -201,8 +201,7 @@ namespace AES_Lacrima.Settings
 
             try
             {
-                var typeInfo = SettingsJsonContext.Default.GetTypeInfo(typeof(T));
-                if (typeInfo != null)
+                var typeInfo = (System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>)SettingsJsonContext.Default.GetTypeInfo(typeof(T))!;
                 {
                     var node = JsonSerializer.SerializeToNode(obj, typeInfo);
                     section[name] = node;
@@ -223,11 +222,8 @@ namespace AES_Lacrima.Settings
             {
                 try
                 {
-                    var typeInfo = SettingsJsonContext.Default.GetTypeInfo(typeof(T));
-                    if (typeInfo != null)
-                    {
-                        return node.Deserialize(typeInfo) as T;
-                    }
+                    var typeInfo = (System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>)SettingsJsonContext.Default.GetTypeInfo(typeof(T))!;
+                    return node.Deserialize(typeInfo);
                 }
                 catch (Exception ex)
                 {
@@ -252,8 +248,7 @@ namespace AES_Lacrima.Settings
             {
                 // We serialize the entire collection as a list
                 var list = items.ToList();
-                var typeInfo = SettingsJsonContext.Default.GetTypeInfo(typeof(List<T>));
-                if (typeInfo != null)
+                var typeInfo = (System.Text.Json.Serialization.Metadata.JsonTypeInfo<List<T>>)SettingsJsonContext.Default.GetTypeInfo(typeof(List<T>))!;
                 {
                     var node = JsonSerializer.SerializeToNode(list, typeInfo);
                     section[containerName] = node;
@@ -276,10 +271,9 @@ namespace AES_Lacrima.Settings
             {
                 try
                 {
-                    var typeInfo = SettingsJsonContext.Default.GetTypeInfo(typeof(List<T>));
-                    if (typeInfo != null)
+                    var typeInfo = (System.Text.Json.Serialization.Metadata.JsonTypeInfo<List<T>>)SettingsJsonContext.Default.GetTypeInfo(typeof(List<T>))!;
                     {
-                        var list = node.Deserialize(typeInfo) as List<T>;
+                        var list = node.Deserialize(typeInfo);
                         if (list != null)
                         {
                             result.Clear();
