@@ -1,7 +1,6 @@
 using AES_Core.DI;
 using AES_Core.Interfaces;
 using AES_Core.Services;
-using AES_Lacrima.ViewModels;
 using AES_Lacrima.Views;
 using Avalonia;
 using Avalonia.Controls;

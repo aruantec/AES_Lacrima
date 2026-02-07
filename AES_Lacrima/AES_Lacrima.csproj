@@ -14,7 +14,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <AvaloniaResource Remove="Assets\back.svg" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Folder Include="Models\" />
+    <Folder Include="Views\Navigation\" />
   </ItemGroup>
 
   <ItemGroup>
@@ -28,15 +33,20 @@
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Svg.Controls.Avalonia" Version="11.3.9.2" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\AES_Controls\AES_Controls.csproj" />
     <ProjectReference Include="..\AES_Core\AES_Core.csproj" />
     <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
     <None Update="Assets\AES.ico">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\back.svg">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>
