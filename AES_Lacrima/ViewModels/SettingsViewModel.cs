@@ -4,10 +4,10 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace AES_Lacrima.ViewModels;
 
-internal interface ISettingsViewModel : IViewModelBase;
+public interface ISettingsViewModel : IViewModelBase;
 
 [AutoRegister]
-public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
+internal partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 {
     [ObservableProperty]
     private string? _ffmpegPath;

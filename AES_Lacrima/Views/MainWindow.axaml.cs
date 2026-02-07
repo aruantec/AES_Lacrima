@@ -8,5 +8,9 @@ namespace AES_Lacrima.Views
         {
             InitializeComponent();
         }
+
+        private void CachedContentPresenter_ActualThemeVariantChanged(object? sender, System.EventArgs e)
+        {
+        }
     }
 }
