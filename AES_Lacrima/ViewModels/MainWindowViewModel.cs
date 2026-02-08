@@ -1,7 +1,7 @@
 ﻿using AES_Core.DI;
 using AES_Core.Interfaces;
 using AES_Lacrima.Models;
-using AES_Lacrima.ViewModels.Navigation;
+using AES_Lacrima.Services;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -13,6 +13,8 @@ using System.Text.Json.Nodes;
 
 namespace AES_Lacrima.ViewModels
 {
+    public interface IMainWindowViewModel;
+
     /// <summary>
     /// View-model for the main application window. Responsible for storing
     /// window size state and the currently displayed view. The class is
@@ -20,16 +22,10 @@ namespace AES_Lacrima.ViewModels
     /// attribute so it can be resolved by the application's DI locator.
     /// </summary>
     [AutoRegister]
-    public partial class MainWindowViewModel : ViewModelBase
+    public partial class MainWindowViewModel : ViewModelBase, IMainWindowViewModel
     {
         private IClassicDesktopStyleApplicationLifetime? AppLifetime => Avalonia.Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
         private Dictionary<MenuItem, Action<Avalonia.Controls.WindowState>> _registeredMenuItems = [];
-
-        /// <summary>
-        /// Shows or hides the settings overlay.
-        /// </summary>
-        [ObservableProperty]
-        private bool _showSettingsOverlay;
 
         /// <summary>
         /// List of window buttons.
@@ -54,24 +50,18 @@ namespace AES_Lacrima.ViewModels
         private double _windowHeight = double.NaN;
 
         /// <summary>
-        /// Backing field for the generated <c>View</c> property that holds
-        /// the current view content displayed in the main window.
-        /// </summary>
-        [ObservableProperty]
-        private ViewModelBase? _view;
-
-        /// <summary>
-        /// Gets or sets the current navigation view model.
-        /// </summary>
-        [ObservableProperty]
-        private ViewModelBase? _navigationView;
-
-        /// <summary>
         /// Gets or sets the view model that manages application settings.
         /// </summary>
         [AutoResolve]
         [ObservableProperty]
         private SettingsViewModel? settingsViewModel;
+
+        /// <summary>
+        /// Provides access to the navigation service used for managing navigation within the application.
+        /// </summary>
+        [AutoResolve]
+        [ObservableProperty]
+        private NavigationService? _navigationService;
 
         /// <summary>
         /// Prepare the view-model for use. This implementation loads
@@ -80,32 +70,17 @@ namespace AES_Lacrima.ViewModels
         /// </summary>
         public override void Prepare()
         {
-            //Set main navigation view
-            var navigation = DiLocator.ResolveViewModel<MainMenuViewModel>();
-            //Set navigation command
-            navigation?.ShowSettingsCommand = ToggleSettingsOverlayCommand;
-            //Assign navigation view
-            NavigationView = navigation;
             //Load persisted settings
             LoadSettings();
             //Initialize window buttons with their respective icons and tooltips
             WindowButtons =
             [
-                new MenuItem() { Command = ToggleSettingsOverlayCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "settingsgear.svg"), Tooltip = "Settings"},
+                new MenuItem() { Command = NavigationService?.ToggleSettingsOverlayCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "settingsgear.svg"), Tooltip = "Settings"},
                 new MenuItem() { Command = FullScreenCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "fullscreen.svg"), Tooltip = "Go Fullscreen"},
                 new MenuItem() { Command = MaximizeCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "maximize.svg"), Tooltip = "Maximize Window"},
                 new MenuItem() { Command = MinimizeWindowCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "minimize.svg"), Tooltip = "Minimize Window"},
                 new MenuItem() { Command = CloseApplicationCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "close.svg"), Tooltip = "Close Application"}
             ];
-        }
-
-        /// <summary>
-        /// Toggles the visibility of the settings overlay on changed.
-        /// </summary>
-        [RelayCommand]
-        private void ToggleSettingsOverlay()
-        {
-            ShowSettingsOverlay = !ShowSettingsOverlay;
         }
 
         /// <summary>

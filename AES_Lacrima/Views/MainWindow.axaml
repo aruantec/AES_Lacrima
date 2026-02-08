@@ -66,25 +66,26 @@
                 <nav:CachedContentPresenter Grid.Row="1"
                                             TransitionsEnabled="True"
                                             Duration="0:0:0.500"
-                                            Easing="SineEaseInOut"/>
+                                            Easing="SineEaseInOut"
+                                            CurrentViewModel="{Binding NavigationService.View}"/>
                 <!--Settings Overlay-->
                 <Border x:Name="SettingsOverlay"
                         Grid.Row="1"
                         Background="#CC000000"
                         BorderThickness="0.5"
-                        Opacity="{Binding ShowSettingsOverlay, Converter={StaticResource BoolToOpacityConverter}}"
-                        IsHitTestVisible="{Binding ShowSettingsOverlay}">
+                        Opacity="{Binding NavigationService.ShowSettingsOverlay, Converter={StaticResource BoolToOpacityConverter}}"
+                        IsHitTestVisible="{Binding NavigationService.ShowSettingsOverlay}">
 					<ScrollViewer>
 						<common:SettingsOverlay Margin="5,15,0,0"/>
                     </ScrollViewer>
                 </Border>
-                <!--Bottom bar-->
+                <!--Bottom bar--><!--
                 <nav:CachedContentPresenter Grid.Row="2"
-                                            CurrentViewModel="{Binding NavigationView}"
+                                            CurrentViewModel="{Binding NavigationService.NavigationView}"
                                             TransitionsEnabled="True"
                                             Duration="0:0:0.500"
                                             Easing="SineEaseInOut"
-                                            Margin="-8,0,-8,0"/>
+                                            Margin="-8,0,-8,0"/>-->
             </Grid>
         </controls:ScalableDecorator>
     </Grid>

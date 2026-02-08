@@ -1,0 +1,16 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:navigation="using:AES_Lacrima.Views.Navigation"
+             xmlns:vm="using:AES_Lacrima.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Class="AES_Lacrima.Views.MusicView"
+             x:DataType="vm:MusicViewModel">
+    <Grid Grid.RowDefinitions="*,Auto" Background="Red">
+        <!-- Main content area -->
+
+        <!-- Menu-->
+        <navigation:MusicMenuView Grid.Row="1"/>
+    </Grid>
+</UserControl>

@@ -1,5 +1,4 @@
 ﻿using AES_Core.DI;
-using AES_Core.Interfaces;
 using Avalonia.Collections;
 using CommunityToolkit.Mvvm.ComponentModel;
 using System;
@@ -14,7 +13,7 @@ namespace AES_Lacrima.ViewModels;
 /// Marker interface for the settings view model used by the view locator
 /// and dependency injection container.
 /// </summary>
-public interface ISettingsViewModel : IViewModelBase;
+public interface ISettingsViewModel;
 
 /// <summary>
 /// Represents a shader resource with its file path and display name.
@@ -121,7 +120,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ParticleCount), ParticleCount);
         WriteSetting(section, nameof(ShowShaderToy), ShowShaderToy);
         WriteSetting(section, nameof(ShowParticles), ShowParticles);
-        WriteSetting(section, nameof(SelectedShadertoy), SelectedShadertoy?.Name ?? "");
+        WriteSetting(section, nameof(SelectedShadertoy), SelectedShadertoy?.Name ?? string.Empty);
     }
 
     /// <summary>

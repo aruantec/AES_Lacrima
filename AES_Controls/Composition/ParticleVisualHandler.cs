@@ -456,7 +456,7 @@ void main() {{
 }}";
 
     private string GetParticleFs(string shaderVersion, bool isEs) => $@"{shaderVersion}
-{(isEs ? "precision mediump float;" : "")}
+{(isEs ? "precision mediump float;" : string.Empty)}
 in vec4 vCol;
 out vec4 fragColor;
 void main() {{
@@ -475,7 +475,7 @@ void main() {{
 }}";
 
     private string GetBgFs(string shaderVersion, bool isEs) => $@"{shaderVersion}
-{(isEs ? "precision mediump float;" : "")}
+{(isEs ? "precision mediump float;" : string.Empty)}
 uniform sampler2D uTexNew;
 uniform sampler2D uTexOld;
 uniform float uFade;
