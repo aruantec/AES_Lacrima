@@ -4,7 +4,7 @@ Emulation frontend and multimedia created with Avalonia.
 NOTE:
 The current status does not yet correspond to the videos, as I am pushing the content bit by bit while I clean and organize everything. The purpose is to show what it looks like in its actual state of development.
 
-Supports Plasma6 Shader Wallpaper Shaders (Shadertoy). Simply copy the files to Shaders/Shadertoys.<br />
+Supports Plasma6 Wallpaper Shaders (Shadertoy). Simply copy the files to Shaders/Shadertoys.<br />
 [https://github.com/y4my4my4m/kde-shader-wallpaper](https://github.com/y4my4my4m/kde-shader-wallpaper/tree/master/package/contents/ui/Shaders)<br />
 
 Showcase:
