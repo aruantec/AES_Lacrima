@@ -81,7 +81,11 @@ namespace AES_Lacrima.ViewModels
         public override void Prepare()
         {
             //Set main navigation view
-            NavigationView = DiLocator.ResolveViewModel<MainMenuViewModel>();
+            var navigation = DiLocator.ResolveViewModel<MainMenuViewModel>();
+            //Set navigation command
+            navigation?.ShowSettingsCommand = ToggleSettingsOverlayCommand;
+            //Assign navigation view
+            NavigationView = navigation;
             //Load persisted settings
             LoadSettings();
             //Initialize window buttons with their respective icons and tooltips

@@ -2,8 +2,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:navigation="using:AES_Lacrima.ViewModels.Navigation"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
-             x:Class="AES_Lacrima.Views.Navigation.MainMenuView">
+             x:Class="AES_Lacrima.Views.Navigation.MainMenuView"
+             x:DataType="navigation:MainMenuViewModel">
     <UserControl.Styles>
         <!-- Icon button style: no hover/selection background, only a pressed opacity effect -->
         <Style Selector="Button.icon-btn">
@@ -150,7 +152,8 @@
                        FontSize="24"
                        Foreground="White"
                        Margin="0,0,0,-15"/>
-                <Button Classes="icon-btn">
+                <Button Classes="icon-btn"
+                        Command="{Binding ShowSettingsCommand}">
                     <Viewbox Stretch="Uniform" Width="70" Height="70" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Canvas Width="32" Height="32">
                             <Path Fill="White" RenderTransformOrigin="0.5,0.5" Margin="-2"
