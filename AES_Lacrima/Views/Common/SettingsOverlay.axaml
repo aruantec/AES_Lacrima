@@ -1,4 +1,5 @@
 <UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:behavors="using:AES_Controls.Behaviors"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:locators="using:AES_Lacrima.Helpers"
@@ -18,52 +19,73 @@
         <vm:SettingsViewModel/>
     </Design.DataContext>
 
-    <Grid>
-		<!-- UI Settings -->
-        <Label Content="UI Settings"
-                Foreground="White"
-                HorizontalAlignment="Center"
-                FontSize="25"
-                Padding="0,10,0,0"/>
-        <StackPanel Margin="30,0,0,20">
-            <TextBlock Text="Scaling" VerticalAlignment="Center" FontSize="20" Foreground="WhiteSmoke"/>
-            <!-- control row: slider + current value -->
-            <StackPanel Orientation="Horizontal">
-                <!-- bind slider value two-way to Scaler.Scale -->
-                <Slider x:Name="ScaleSlider"
-                        Background="DarkGray"
-                        Width="260"
-                        Minimum="1.0"
-                        Maximum="3.0"
-                        SmallChange="0.01"
-                        LargeChange="0.1"
-                        Value="{Binding ScaleFactor, Mode=TwoWay}" />
-                <TextBlock Text="{Binding ScaleFactor, StringFormat=' {0:0.00}X'}"
-                            VerticalAlignment="Center"
-                            Margin="8,0"
-                            Foreground="WhiteSmoke"
-                            FontSize="20"/>
-            </StackPanel>
-            <TextBlock Text="Particle count"
-                        VerticalAlignment="Center"
-                        Foreground="WhiteSmoke"
-                        FontSize="20"/>
-            <StackPanel Orientation="Horizontal">
-                <!-- Particle slider -->
-                <Slider x:Name="ParticleSlider"
-                        Background="DarkGray"
-                        Width="260"
-                        Minimum="10"
-                        Maximum="60000"
-                        SmallChange="10"
-                        LargeChange="30"
-                        Value="{Binding ParticleCount, Mode=TwoWay}" />
-                <TextBlock Text="{Binding ParticleCount, StringFormat= ' {0:0\} / 60000'}"
-                            VerticalAlignment="Center"
-                            Margin="8,0"
-                            Foreground="WhiteSmoke"
-                            FontSize="20"/>
-            </StackPanel>
-        </StackPanel>
+    <Grid Background="Transparent">
+        <TabControl Margin="15,0,0,0">
+            <!-- UI Settings tab -->
+            <TabItem Header="UI Settings">
+                <ScrollViewer>
+                    <StackPanel Margin="15,20,0,0">
+                        <TextBlock Text="Scaling" VerticalAlignment="Center" FontSize="20" Foreground="WhiteSmoke"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Slider Background="DarkGray"
+                                    Width="260"
+                                    Minimum="1.0"
+                                    Maximum="3.0"
+                                    SmallChange="0.01"
+                                    LargeChange="0.1"
+                                    Value="{Binding ScaleFactor, Mode=TwoWay}" />
+                            <TextBlock Text="{Binding ScaleFactor, StringFormat=' {0:0.00}X'}"
+                                        VerticalAlignment="Center"
+                                        Margin="8,0"
+                                        Foreground="WhiteSmoke"
+                                        FontSize="20"/>
+                        </StackPanel>
+                        <TextBlock Text="Particle count"
+                                    VerticalAlignment="Center"
+                                    Foreground="WhiteSmoke"
+                                    FontSize="20"/>
+                        <StackPanel Orientation="Horizontal">
+                            <!-- Particle slider -->
+                            <Slider x:Name="ParticleSlider"
+                                    Background="DarkGray"
+                                    Width="260"
+                                    Minimum="10"
+                                    Maximum="60000"
+                                    SmallChange="10"
+                                    LargeChange="30"
+                                    Value="{Binding ParticleCount, Mode=TwoWay}" />
+                            <TextBlock Text="{Binding ParticleCount, StringFormat=' {0:0} / 60000'}"
+                                        VerticalAlignment="Center"
+                                        Margin="8,0"
+                                        Foreground="WhiteSmoke"
+                                        FontSize="20"/>
+                        </StackPanel>
+                        <!-- Shadertoy -->
+                        <TextBlock Margin="0,15,0,15" Text="ShaderToy" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="30"/>
+                        <Separator Margin="0,0,0,15"/>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Show ShaderToy" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
+                            <ToggleSwitch FontSize="20" IsChecked="{Binding ShowShaderToy, Mode=TwoWay}" Margin="8,0"/>
+                        </StackPanel>
+                        <!-- Shadertoy selection -->
+                        <StackPanel Orientation="Horizontal"
+                                    Margin="0,10,0,15"
+                                    Spacing="10">
+							<TextBlock Text="Current" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
+                            <ComboBox Width="250" ItemsSource="{Binding ShaderToys}" DisplayMemberBinding="{Binding Name}" FontSize="16" SelectedItem="{Binding SelectedShadertoy}">
+					            <Interaction.Behaviors>
+						            <behavors:ComboBoxPopupScaler/>	
+                                </Interaction.Behaviors>	
+                            </ComboBox>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="Audio Settings">
+                <StackPanel Margin="15,20,0,0">
+                    
+                </StackPanel>
+            </TabItem>
+        </TabControl>
     </Grid>
 </UserControl>
