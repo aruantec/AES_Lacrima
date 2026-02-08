@@ -55,7 +55,8 @@
         <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
                                IsVisible="{Binding SettingsViewModel.ShowShaderToy}"/>
         <!--Particle control-->
-        <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"/>
+        <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"
+                                                IsVisible="{Binding SettingsViewModel.ShowParticles}"/>
         <!-- Scalable decorator and main content-->
         <controls:ScalableDecorator Scale="{Binding SettingsViewModel.ScaleFactor}">
             <Grid Grid.RowDefinitions="Auto,*,Auto">
