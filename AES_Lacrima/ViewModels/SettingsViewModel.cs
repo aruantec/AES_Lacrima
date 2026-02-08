@@ -1,6 +1,11 @@
 ﻿using AES_Core.DI;
 using AES_Core.Interfaces;
+using Avalonia.Collections;
 using CommunityToolkit.Mvvm.ComponentModel;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text.Json.Nodes;
 
 namespace AES_Lacrima.ViewModels;
@@ -12,12 +17,22 @@ namespace AES_Lacrima.ViewModels;
 public interface ISettingsViewModel : IViewModelBase;
 
 /// <summary>
+/// Represents a shader resource with its file path and display name.
+/// </summary>
+/// <param name="Path">The file system path to the shader resource. Cannot be null or empty.</param>
+/// <param name="Name">The display name of the shader. Cannot be null or empty.</param>
+public record ShaderItem(string Path, string Name);
+
+/// <summary>
 /// View model that exposes application settings used by the UI. Settings
 /// are loaded and saved via the inherited settings infrastructure.
 /// </summary>
 [AutoRegister]
 public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 {
+    private string _shaderToysDirectory = Path.Combine(AppContext.BaseDirectory, "Shaders", "shadertoys");
+    private string _shadersDirectory = Path.Combine(AppContext.BaseDirectory, "Shaders", "glsl");
+
     /// <summary>
     /// Backing field for the <c>FfmpegPath</c> observable property.
     /// The generated property contains the path to the ffmpeg executable
@@ -47,8 +62,26 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private bool _showShaderToy;
 
+    /// <summary>
+    /// Gets or sets the collection of shader items used by the control.
+    /// </summary>
+    /// <remarks>The collection can be modified to add, remove, or update shader items at runtime. Changes to
+    /// the collection will be observed and reflected in the control's behavior. The property may be null if no shader
+    /// items are assigned.</remarks>
+    [ObservableProperty]
+    private AvaloniaList<ShaderItem>? _shaderToys = [];
+
+    /// <summary>
+    /// Gets or sets the currently selected Shadertoy shader item.
+    /// </summary>
+    [ObservableProperty]
+    private ShaderItem? _selectedShadertoy;
+
     public override void Prepare()
     {
+        // Load shader items from the local "shaders" directory
+        ShaderToys = [.. GetLocalShaders(_shaderToysDirectory, "*.frag")];
+        // Load settings
         LoadSettings();
     }
 
@@ -62,6 +95,11 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ScaleFactor = ReadDoubleSetting(section, nameof(ScaleFactor), 1.0);
         ParticleCount = ReadDoubleSetting(section, nameof(ParticleCount), 10);
         ShowShaderToy = ReadBoolSetting(section, nameof(ShowShaderToy), false);
+        // Set the selected shadertoy if it exists
+        if (ReadStringSetting(section, nameof(SelectedShadertoy)) is { } selectedshadertoy)
+        {
+            SelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == selectedshadertoy);
+        }
     }
 
     /// <summary>
@@ -75,5 +113,21 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ScaleFactor), ScaleFactor);
         WriteSetting(section, nameof(ParticleCount), ParticleCount);
         WriteSetting(section, nameof(ShowShaderToy), ShowShaderToy);
+        WriteSetting(section, nameof(SelectedShadertoy), SelectedShadertoy?.Name ?? "");
+    }
+
+    /// <summary>
+    /// Retrieves a list of local shader files from the specified directory that match the given search pattern.
+    /// </summary>
+    /// <param name="directory">The path to the directory to search for shader files. Must be a valid directory path.</param>
+    /// <param name="pattern">The search pattern used to filter files within the directory, such as "*.shader". Supports standard wildcard
+    /// characters.</param>
+    /// <returns>A list of ShaderItem objects representing the shader files found in the directory. Returns an empty list if the
+    /// directory does not exist or no files match the pattern.</returns>
+    private List<ShaderItem> GetLocalShaders(string directory, string pattern)
+    {
+        if (!Directory.Exists(directory)) return [];
+
+        return [.. Directory.EnumerateFiles(directory, pattern).Select(file => new ShaderItem(file, Path.GetFileNameWithoutExtension(file)))];
     }
 }

@@ -52,7 +52,8 @@
         <!-- Background -->
         <Image asyncImageLoader:ImageLoader.Source="Assets/background.jpg" Stretch="UniformToFill"/>
         <!--Shadertoy-->
-        <gl:GlShaderToyControl ShaderSource="Shaders/Shadertoys/Electric.frag"/>
+        <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
+                               IsVisible="{Binding SettingsViewModel.ShowShaderToy}"/>
         <!--Particle control-->
         <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"/>
         <!-- Scalable decorator and main content-->
