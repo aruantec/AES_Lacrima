@@ -78,6 +78,9 @@
     <None Update="Assets\Main\settingsgear.svg">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="Shaders\Shadertoys\Waves.frag">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="Shaders\Shadertoys\CarTuner.frag">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
