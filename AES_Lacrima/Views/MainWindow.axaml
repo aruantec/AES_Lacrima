@@ -2,6 +2,7 @@
         xmlns:asyncImageLoader="using:AsyncImageLoader"
         xmlns:controls="using:AES_Controls"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:AES_Lacrima.Converters;assembly=AES_Lacrima"
         xmlns:vm="using:AES_Lacrima.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:locators="using:AES_Lacrima.Helpers"
@@ -30,13 +31,29 @@
         <vm:MainWindowViewModel/>
     </Design.DataContext>
 
+    <Window.Resources>
+        <local:BoolToOpacityConverter x:Key="BoolToOpacityConverter" />
+    </Window.Resources>
+
     <Grid x:DataType="vm:MainWindowViewModel">
+        <Grid.Styles>
+            <!-- Transitions for overlays to animate opacity when the property changes -->
+            <Style Selector="Border#SettingsOverlay">
+                <Setter Property="Transitions">
+                    <Setter.Value>
+                        <Transitions>
+                            <DoubleTransition Property="Opacity" Duration="0:0:0.25" />
+                        </Transitions>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </Grid.Styles>
         <!-- Background -->
         <Image asyncImageLoader:ImageLoader.Source="Assets/background.jpg" Stretch="UniformToFill"/>
         <!--Particle control-->
-        <composition:ParticleCompositionControl ParticleCount="100"/>
+        <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"/>
         <!-- Scalable decorator and main content-->
-        <controls:ScalableDecorator Scale="2">
+        <controls:ScalableDecorator Scale="{Binding SettingsViewModel.ScaleFactor}">
             <Grid Grid.RowDefinitions="Auto,*,Auto">
                 <!--Top bar-->
                 <common:MainTopBar Grid.Row="0"/>
@@ -46,20 +63,14 @@
                                             Duration="0:0:0.500"
                                             Easing="SineEaseInOut"/>
                 <!--Settings Overlay-->
-                <Border Grid.Row="1"
-                        HorizontalAlignment="Right"
-                        Margin="10"
-                        Width="600"
-                        Background="Black"
-                        Opacity="0.8"
-                        CornerRadius="5"
-                        IsVisible="{Binding ShowSettingsOverlay}">
+                <Border x:Name="SettingsOverlay"
+                        Grid.Row="1"
+                        Background="#CC000000"
+                        BorderThickness="0.5"
+                        Opacity="{Binding ShowSettingsOverlay, Converter={StaticResource BoolToOpacityConverter}}"
+                        IsHitTestVisible="{Binding ShowSettingsOverlay}">
 					<ScrollViewer>
-						<Grid x:DataType="vm:SettingsViewModel">
-						    <Grid.DataContext>
-                                <locators:TypeResolverExtension Type="vm:SettingsViewModel"/>
-                            </Grid.DataContext>
-                        </Grid>
+						<common:SettingsOverlay Margin="5,15,0,0"/>
                     </ScrollViewer>
                 </Border>
                 <!--Bottom bar-->

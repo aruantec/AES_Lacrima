@@ -32,6 +32,7 @@
                         Width="35"
                         Background="Transparent"
                         Margin="15,0,0,0"
+                        IsVisible="False"
                         ToolTip.Placement="Pointer">
                     <ToolTip.Tip>
                         <StackPanel>
