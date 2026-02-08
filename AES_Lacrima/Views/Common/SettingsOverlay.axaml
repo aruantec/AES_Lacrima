@@ -60,6 +60,11 @@
                                         Foreground="WhiteSmoke"
                                         FontSize="20"/>
                         </StackPanel>
+                        <!-- Show particles -->
+                        <StackPanel Margin="0,15,0,15" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Show Particles" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
+                            <ToggleSwitch FontSize="20" IsChecked="{Binding ShowParticles, Mode=TwoWay}" Margin="8,0"/>
+                        </StackPanel>
                         <!-- Shadertoy -->
                         <TextBlock Margin="0,15,0,15" Text="ShaderToy" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="30"/>
                         <Separator Margin="0,0,0,15"/>

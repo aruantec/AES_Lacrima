@@ -56,6 +56,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private double _particleCount = 10;
 
     /// <summary>
+    /// Gets or sets a value indicating whether particle effects are displayed.
+    /// </summary>
+    [ObservableProperty]
+    private bool _showParticles;
+
+    /// <summary>
     /// Backing field for the <c>ShowShaderToy</c> observable property.
     /// When true the ShaderToy view will be visible in the UI.
     /// </summary>
@@ -95,6 +101,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ScaleFactor = ReadDoubleSetting(section, nameof(ScaleFactor), 1.0);
         ParticleCount = ReadDoubleSetting(section, nameof(ParticleCount), 10);
         ShowShaderToy = ReadBoolSetting(section, nameof(ShowShaderToy), false);
+        ShowParticles = ReadBoolSetting(section, nameof(ShowParticles), false);
         // Set the selected shadertoy if it exists
         if (ReadStringSetting(section, nameof(SelectedShadertoy)) is { } selectedshadertoy)
         {
@@ -113,6 +120,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ScaleFactor), ScaleFactor);
         WriteSetting(section, nameof(ParticleCount), ParticleCount);
         WriteSetting(section, nameof(ShowShaderToy), ShowShaderToy);
+        WriteSetting(section, nameof(ShowParticles), ShowParticles);
         WriteSetting(section, nameof(SelectedShadertoy), SelectedShadertoy?.Name ?? "");
     }
 
