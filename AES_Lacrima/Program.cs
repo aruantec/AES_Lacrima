@@ -50,6 +50,7 @@ namespace AES_Lacrima
             => AppBuilder.Configure<App>()
                 .UsePlatformDetect()
                 .WithInterFont()
+                .With(new SkiaOptions() { MaxGpuResourceSizeBytes = 256000000 })
                 .LogToTrace();
     }
 }

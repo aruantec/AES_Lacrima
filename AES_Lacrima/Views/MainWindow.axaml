@@ -5,6 +5,7 @@
         xmlns:local="clr-namespace:AES_Lacrima.Converters;assembly=AES_Lacrima"
         xmlns:vm="using:AES_Lacrima.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:gl="using:AES_Controls.GL"
         xmlns:locators="using:AES_Lacrima.Helpers"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:composition="clr-namespace:AES_Controls.Composition;assembly=AES_Controls"
@@ -50,6 +51,8 @@
         </Grid.Styles>
         <!-- Background -->
         <Image asyncImageLoader:ImageLoader.Source="Assets/background.jpg" Stretch="UniformToFill"/>
+        <!--Shadertoy-->
+        <gl:GlShaderToyControl ShaderSource="Shaders/Shadertoys/Electric.frag"/>
         <!--Particle control-->
         <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"/>
         <!-- Scalable decorator and main content-->
