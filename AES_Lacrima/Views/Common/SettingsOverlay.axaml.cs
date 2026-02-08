@@ -10,11 +10,7 @@ public partial class SettingsOverlay : UserControl
     public SettingsOverlay()
     {
         InitializeComponent();
-
         // Show black background in the XAML designer only
-        if (Design.IsDesignMode)
-            Background = Brushes.Black;
-        else
-            Background = Brushes.Transparent;
+        Background = Design.IsDesignMode ? Brushes.Black : Brushes.Transparent;
     }
 }
