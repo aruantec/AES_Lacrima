@@ -1,7 +1,5 @@
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
-using Avalonia.Markup.Xaml;
 
 namespace AES_Lacrima.Views.Common;
 
