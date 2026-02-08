@@ -18,7 +18,9 @@
     <AvaloniaResource Remove="Assets\background.jpg" />
     <AvaloniaResource Remove="Assets\Main\close.svg" />
     <AvaloniaResource Remove="Assets\Main\fullscreen.svg" />
+    <AvaloniaResource Remove="Assets\Main\fullscreenexit.svg" />
     <AvaloniaResource Remove="Assets\Main\maximize.svg" />
+    <AvaloniaResource Remove="Assets\Main\maximizedexit.svg" />
     <AvaloniaResource Remove="Assets\Main\minimize.svg" />
     <AvaloniaResource Remove="Assets\Main\settingsgear.svg" />
   </ItemGroup>
@@ -58,7 +60,13 @@
     <None Update="Assets\Main\close.svg">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="Assets\Main\maximizedexit.svg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="Assets\Main\fullscreen.svg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\Main\fullscreenexit.svg">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="Assets\Main\maximize.svg">
