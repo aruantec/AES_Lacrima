@@ -22,7 +22,7 @@
     <Grid Background="Transparent">
         <TabControl Margin="15,0,0,0">
             <!-- UI Settings tab -->
-            <TabItem Header="UI Settings">
+            <TabItem Header="GUI" FontSize="30">
                 <ScrollViewer>
                     <StackPanel Margin="15,20,0,0">
                         <TextBlock Text="Scaling" VerticalAlignment="Center" FontSize="20" Foreground="WhiteSmoke"/>
@@ -86,7 +86,12 @@
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
-            <TabItem Header="Audio Settings">
+            <TabItem Header="Audio" FontSize="30">
+                <StackPanel Margin="15,20,0,0">
+                    
+                </StackPanel>
+            </TabItem>
+            <TabItem Header="Widgets" FontSize="30">
                 <StackPanel Margin="15,20,0,0">
                     
                 </StackPanel>

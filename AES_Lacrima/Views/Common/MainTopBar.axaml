@@ -32,7 +32,8 @@
                         Width="35"
                         Background="Transparent"
                         Margin="15,0,0,0"
-                        IsVisible="False"
+                        IsVisible="{Binding NavigationService.IsBackEnabled}"
+                        Command="{Binding NavigationService.NavigateBackCommand}"
                         ToolTip.Placement="Pointer">
                     <ToolTip.Tip>
                         <StackPanel>

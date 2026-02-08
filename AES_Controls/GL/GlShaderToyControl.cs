@@ -21,7 +21,7 @@ namespace AES_Controls.GL;
 /// </summary>
 public class GlShaderToyControl : OpenGlControlBase
 {
-    private string _processedShaderCode = "";
+    private string _processedShaderCode = string.Empty;
     private int _program, _vbo, _vao, _audioTexture;
     private readonly Stopwatch _st = Stopwatch.StartNew();
     private bool _isDirty = true;
@@ -57,7 +57,7 @@ public class GlShaderToyControl : OpenGlControlBase
     }
 
     public static readonly StyledProperty<string> ShaderSourceProperty =
-        AvaloniaProperty.Register<GlShaderToyControl, string>(nameof(ShaderSource), "");
+        AvaloniaProperty.Register<GlShaderToyControl, string>(nameof(ShaderSource), string.Empty);
 
     /// <summary>
     /// Gets or sets the shader source. This may be a raw GLSL fragment shader,
@@ -161,7 +161,7 @@ public class GlShaderToyControl : OpenGlControlBase
 
     private string ProcessShaderSource(string source)
     {
-        if (string.IsNullOrWhiteSpace(source)) return "";
+        if (string.IsNullOrWhiteSpace(source)) return string.Empty;
         // If an absolute path was provided, load it directly
         if (Path.IsPathRooted(source) && File.Exists(source)) return File.ReadAllText(source);
 
@@ -179,7 +179,7 @@ public class GlShaderToyControl : OpenGlControlBase
                 using var stream = AssetLoader.Open(new Uri(source));
                 using var reader = new StreamReader(stream);
                 return reader.ReadToEnd();
-            } catch { return ""; }
+            } catch { return string.Empty; }
         }
 
         return source;
@@ -346,7 +346,7 @@ public class GlShaderToyControl : OpenGlControlBase
     private string GetStringHash(string text)
     {
         using var sha = SHA256.Create();
-        return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(text))).Replace("-", "")[..16];
+        return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(text))).Replace("-", string.Empty)[..16];
     }
 
     private void SetUniforms(GlInterface gl, int width, int height, float scaling)
