@@ -3,7 +3,7 @@
 namespace AES_Controls.Helpers
 {
     /// <summary>
-    /// Small helper for working with the OpenGL
+    /// Small helper for working with OpenGL
     /// </summary>
     public static class GlHelper
     {
