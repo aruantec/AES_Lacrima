@@ -1,0 +1,69 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:locators="using:AES_Lacrima.Helpers"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AES_Lacrima.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Class="AES_Lacrima.Views.Common.SettingsOverlay"
+             x:DataType="vm:SettingsViewModel">
+
+    <!-- Sets the DataContext -->
+    <UserControl.DataContext>
+        <locators:TypeResolverExtension Type="vm:SettingsViewModel"/>
+    </UserControl.DataContext>
+
+    <!-- Sets the DataContext for the previewer -->
+    <Design.DataContext>
+        <vm:SettingsViewModel/>
+    </Design.DataContext>
+
+    <Grid>
+		<!-- UI Settings -->
+        <Label Content="UI Settings"
+                Foreground="White"
+                HorizontalAlignment="Center"
+                FontSize="25"
+                Padding="0,10,0,0"/>
+        <StackPanel Margin="30,0,0,20">
+            <TextBlock Text="Scaling" VerticalAlignment="Center" FontSize="20" Foreground="WhiteSmoke"/>
+            <!-- control row: slider + current value -->
+            <StackPanel Orientation="Horizontal">
+                <!-- bind slider value two-way to Scaler.Scale -->
+                <Slider x:Name="ScaleSlider"
+                        Background="DarkGray"
+                        Width="260"
+                        Minimum="1.0"
+                        Maximum="3.0"
+                        SmallChange="0.01"
+                        LargeChange="0.1"
+                        Value="{Binding ScaleFactor, Mode=TwoWay}" />
+                <TextBlock Text="{Binding ScaleFactor, StringFormat=' {0:0.00}X'}"
+                            VerticalAlignment="Center"
+                            Margin="8,0"
+                            Foreground="WhiteSmoke"
+                            FontSize="20"/>
+            </StackPanel>
+            <TextBlock Text="Particle count"
+                        VerticalAlignment="Center"
+                        Foreground="WhiteSmoke"
+                        FontSize="20"/>
+            <StackPanel Orientation="Horizontal">
+                <!-- Particle slider -->
+                <Slider x:Name="ParticleSlider"
+                        Background="DarkGray"
+                        Width="260"
+                        Minimum="10"
+                        Maximum="60000"
+                        SmallChange="10"
+                        LargeChange="30"
+                        Value="{Binding ParticleCount, Mode=TwoWay}" />
+                <TextBlock Text="{Binding ParticleCount, StringFormat= ' {0:0\} / 60000'}"
+                            VerticalAlignment="Center"
+                            Margin="8,0"
+                            Foreground="WhiteSmoke"
+                            FontSize="20"/>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</UserControl>

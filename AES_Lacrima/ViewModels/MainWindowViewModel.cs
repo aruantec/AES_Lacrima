@@ -65,6 +65,13 @@ namespace AES_Lacrima.ViewModels
         private ViewModelBase? _navigationView;
 
         /// <summary>
+        /// Gets or sets the view model that manages application settings.
+        /// </summary>
+        [AutoResolve]
+        [ObservableProperty]
+        private SettingsViewModel? settingsViewModel;
+
+        /// <summary>
         /// Prepare the view-model for use. This implementation loads
         /// persisted settings such as window size so the UI can be
         /// restored to the previous state.
