@@ -1,5 +1,6 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:converters="using:AES_Lacrima.Converters"
              x:Class="AES_Lacrima.App"
              xmlns:local="using:AES_Lacrima"
              RequestedThemeVariant="Default">
@@ -8,6 +9,22 @@
     <Application.DataTemplates>
         <local:ViewLocator/>
     </Application.DataTemplates>
+
+    <Application.Resources>
+		<converters:ColorToBrushConverter x:Key="ColorToBrushConverter"/>
+        <converters:BoolToOpacityConverter x:Key="BoolToOpacityConverter"/>
+        <converters:BoolToBrushConverter x:Key="BoolToBrushConverter"/>
+        <converters:BoolToValueConverter x:Key="BoolToValueConverter"/>
+        <!-- Digital Equalizer Gradient: Red/Orange at Bottom, Cyan/Blue at Top -->
+        <LinearGradientBrush x:Key="DigitalWaveformGradient" StartPoint="0,1" EndPoint="0,0">
+            <GradientStop Color="#FF3300" Offset="0.0"/>
+            <GradientStop Color="#FF9900" Offset="0.2"/>
+            <GradientStop Color="#FFFF00" Offset="0.4"/>
+            <GradientStop Color="#33FF00" Offset="0.6"/>
+            <GradientStop Color="#00FFFF" Offset="0.8"/>
+            <GradientStop Color="#0066FF" Offset="1.0"/>
+        </LinearGradientBrush>
+    </Application.Resources>
   
     <Application.Styles>
         <FluentTheme />

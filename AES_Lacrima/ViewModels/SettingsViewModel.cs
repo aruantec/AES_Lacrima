@@ -1,5 +1,6 @@
 ﻿using AES_Core.DI;
 using Avalonia.Collections;
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using System;
 using System.Collections.Generic;
@@ -82,6 +83,33 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private ShaderItem? _selectedShadertoy;
 
+    [ObservableProperty]
+    private Color _waveformPlayedColor = Color.Parse("RoyalBlue");
+
+    [ObservableProperty]
+    private Color _waveformUnplayedColor = Color.Parse("DimGray");
+
+    [ObservableProperty]
+    private int _waveformResolution = 4000;
+
+    [ObservableProperty]
+    private double _waveformBarGap = 0.0;
+
+    [ObservableProperty]
+    private double _waveformBlockHeight = 0.0;
+
+    [ObservableProperty]
+    private double _waveformVerticalGap = 1.0;
+
+    [ObservableProperty]
+    private int _waveformVisualBars = 64;
+
+    [ObservableProperty]
+    private bool _useWaveformGradient = true;
+
+    [ObservableProperty]
+    private bool _isWaveformSymmetric = false;
+
     public override void Prepare()
     {
         // Load shader items from the local "shaders" directory
@@ -101,6 +129,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ParticleCount = ReadDoubleSetting(section, nameof(ParticleCount), 10);
         ShowShaderToy = ReadBoolSetting(section, nameof(ShowShaderToy), false);
         ShowParticles = ReadBoolSetting(section, nameof(ShowParticles), false);
+        WaveformPlayedColor = Color.Parse(ReadStringSetting(section, nameof(WaveformPlayedColor), "RoyalBlue")!);
         // Set the selected shadertoy if it exists
         if (ReadStringSetting(section, nameof(SelectedShadertoy)) is { } selectedshadertoy)
         {
@@ -120,6 +149,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ParticleCount), ParticleCount);
         WriteSetting(section, nameof(ShowShaderToy), ShowShaderToy);
         WriteSetting(section, nameof(ShowParticles), ShowParticles);
+        WriteSetting(section, nameof(WaveformPlayedColor), WaveformPlayedColor.ToString());
         WriteSetting(section, nameof(SelectedShadertoy), SelectedShadertoy?.Name ?? string.Empty);
     }
 

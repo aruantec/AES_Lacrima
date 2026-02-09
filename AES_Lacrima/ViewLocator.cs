@@ -29,13 +29,12 @@ namespace AES_Lacrima
                 return null;
 
             var name = param.GetType().FullName!.Replace("ViewModel", "View", StringComparison.Ordinal);
-            var type = Type.GetType(name);
-
-            if (type != null)
+            // Attempt to find the view type by name and instantiate it.
+            // If the type cannot be found, return a TextBlock with an error message.
+            if (Type.GetType(name) is { } type)
             {
                 return (Control)Activator.CreateInstance(type)!;
             }
-
             return new TextBlock { Text = "Not Found: " + name };
         }
 

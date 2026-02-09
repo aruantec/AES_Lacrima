@@ -1,16 +1,131 @@
 <UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:composition="using:AES_Controls.Composition"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:navigation="using:AES_Lacrima.Views.Navigation"
+             xmlns:i="using:Avalonia.Xaml.Interactivity"
+             xmlns:player="using:AES_Controls.Player"
+             xmlns:behaviors="using:AES_Lacrima.Behaviors"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.MusicView"
              x:DataType="vm:MusicViewModel">
-    <Grid Grid.RowDefinitions="*,Auto" Background="Red">
+    <Grid Grid.RowDefinitions="*,Auto,Auto,Auto">
         <!-- Main content area -->
+        <!-- Media buttons -->
+        <Grid Grid.Row="1" Height="140">
+			<Border Background="Black" Opacity="0.8"/>
+            <StackPanel Orientation="Horizontal" Spacing="50">
+                <!-- Plus icon -->
+                <Button Height="50"
+                        Width="50"
+                        VerticalAlignment="Center"
+                        Margin="30,0,0,0"
+                        Cursor="Hand">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <!-- Top-left corner (L shape) - thinner lines -->
+                            <Rectangle Canvas.Left="0" Canvas.Top="0" Width="34" Height="8" Fill="White" />
+                            <Rectangle Canvas.Left="0" Canvas.Top="0" Width="8" Height="34" Fill="White" />
 
+                            <!-- Top-right corner -->
+                            <Rectangle Canvas.Left="66" Canvas.Top="0" Width="34" Height="8" Fill="White" />
+                            <Rectangle Canvas.Left="92" Canvas.Top="0" Width="8" Height="34" Fill="White" />
+
+                            <!-- Bottom-left corner -->
+                            <Rectangle Canvas.Left="0" Canvas.Top="66" Width="8" Height="34" Fill="White" />
+                            <Rectangle Canvas.Left="0" Canvas.Top="92" Width="34" Height="8" Fill="White" />
+
+                            <!-- Bottom-right corner -->
+                            <Rectangle Canvas.Left="92" Canvas.Top="66" Width="8" Height="34" Fill="White" />
+                            <Rectangle Canvas.Left="66" Canvas.Top="92" Width="34" Height="8" Fill="White" />
+
+                            <!-- Central plus sign -->
+                            <Rectangle Canvas.Left="46" Canvas.Top="25" Width="8" Height="50" Fill="White" />
+                            <Rectangle Canvas.Left="25" Canvas.Top="46" Width="50" Height="8" Fill="White" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+                <!--- Carousel icon -->
+                <Button Height="60"
+                        Cursor="Hand"
+                        VerticalAlignment="Center"
+                        Command="{Binding ToggleAlbumlistCommand}">
+					<Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <StackPanel Height="100" Orientation="Horizontal" Spacing="15">
+                            <!-- Left vertical bar -->
+                            <Rectangle x:Name="LeftBar" Width="8" Height="76" Fill="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}" />
+                            <!-- Central frame -->
+                            <Rectangle x:Name="CenterFrame" Width="90" Height="80" RadiusX="16" RadiusY="16" StrokeThickness="10" Stroke="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}" Fill="Transparent" />
+                            <!-- Right vertical bar -->
+                            <Rectangle x:Name="RightBar" Width="8" Height="76" Fill="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}" />
+                <!-- Attach behavior to the MusicListView via XAML in this file where used -->
+                        </StackPanel>
+                    </Viewbox>
+                </Button>
+            </StackPanel>
+            <Separator Margin="0" VerticalAlignment="Bottom"/>
+        </Grid>
+        <!-- Progressbar -->
+        <Grid Grid.Row="2">
+            <Border Background="Black" Opacity="0.8"/>
+			<player:WaveformProgressBar Margin="10,0,10,0"
+                                        IndicatorColor="Gray"
+                                        Waveform="{Binding AudioPlayer.Waveform}"
+                                        Value="{Binding AudioPlayer.Position, Mode=TwoWay}"
+                                        Maximum="{Binding AudioPlayer.Duration}"
+                                        IsLoading="{Binding AudioPlayer.IsLoadingWaveform}"
+                                        PlayedColor="{Binding SettingsViewModel.WaveformPlayedColor, Converter={StaticResource ColorToBrushConverter}}"
+                                        UnPlayedColor="{Binding SettingsViewModel.WaveformUnplayedColor, Converter={StaticResource ColorToBrushConverter}}"
+                                        BarGap="{Binding SettingsViewModel.WaveformBarGap}"
+                                        BlockHeight="{Binding SettingsViewModel.WaveformBlockHeight}"
+                                        VerticalGap="{Binding SettingsViewModel.WaveformVerticalGap}"
+                                        VisualBarCount="{Binding SettingsViewModel.WaveformVisualBars}"
+                                        BarGradient="{Binding SettingsViewModel.UseWaveformGradient, Converter={StaticResource BoolToValueConverter}, ConverterParameter={StaticResource DigitalWaveformGradient}}"
+                                        IsSymmetric="{Binding SettingsViewModel.IsWaveformSymmetric}"
+                                        Height="70"
+                                        BorderBrush="Gray"
+                                        Background="Transparent"
+                                        BorderThickness="1"
+                                        DragCompletedCommand="{Binding SetPositionCommand}"
+                                        TextForegroundColor="LightGray"
+                                        TextSize="16"
+                                        TriangleOffset="-14"/>
+            <Separator Margin="0" VerticalAlignment="Bottom"/>
+        </Grid>
         <!-- Menu-->
-        <navigation:MusicMenuView Grid.Row="1"/>
+        <navigation:MusicListView x:Name="MusicList"
+                                  Grid.Row="3">
+            <i:Interaction.Behaviors>
+                <behaviors:MaxHeightToggleBehavior IsOpen="{Binding IsAlbumlistOpen}" />
+            </i:Interaction.Behaviors>
+            <navigation:MusicListView.Transitions>
+				<Transitions>
+                    <DoubleTransition Property="MaxHeight" Duration="0:0:0.62" Easing="CubicEaseOut"/>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+                </Transitions>
+            </navigation:MusicListView.Transitions>
+        </navigation:MusicListView>
     </Grid>
 </UserControl>

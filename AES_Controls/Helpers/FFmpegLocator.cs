@@ -1,9 +1,6 @@
-﻿using System;
-using System.IO;
-using System.Linq;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
-namespace AES_Lacrima.Helpers
+namespace AES_Controls.Helpers
 {
     /// <summary>
     /// A helper class to locate the FFmpeg executable.

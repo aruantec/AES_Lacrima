@@ -132,7 +132,6 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
         if (_frameAccum >= 0.5)
         {
             var fps = _frameCounter / _frameAccum;
-            Debug.WriteLine($"ParticleVisual measured fps={fps:F1}, dt={_lastDelta:F5}s");
             _frameCounter = 0; _frameAccum = 0;
         }
 
