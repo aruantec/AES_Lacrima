@@ -1,7 +1,7 @@
 using AES_Controls.Player.Models;
 using Avalonia.Collections;
 
-namespace AES_Controls.Player;
+namespace AES_Controls.Player.Interfaces;
 
 public interface IMediaInterface
 {

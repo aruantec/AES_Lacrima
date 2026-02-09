@@ -1,4 +1,4 @@
-﻿using AES_Controls.Player;
+﻿using AES_Controls.Player.Interfaces;
 using AES_Core.DI;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
