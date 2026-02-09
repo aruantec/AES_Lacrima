@@ -6,6 +6,7 @@
              xmlns:navigation="using:AES_Lacrima.Views.Navigation"
              xmlns:i="using:Avalonia.Xaml.Interactivity"
              xmlns:player="using:AES_Controls.Player"
+             xmlns:spectrum="using:AES_Controls.Player.Spectrum"
              xmlns:behaviors="using:AES_Lacrima.Behaviors"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
@@ -13,6 +14,23 @@
              x:DataType="vm:MusicViewModel">
     <Grid Grid.RowDefinitions="*,Auto,Auto,Auto">
         <!-- Main content area -->
+        <spectrum:GlCoverDiscControl Grid.Row="0"
+                                     HorizontalAlignment="Center"
+                                     VerticalAlignment="Center"
+                                     InnerHoleRatio="0.1"
+                                     InnerRimStrokeFactor="14"
+                                     InnerRimGlowFactor="6"
+                                     Height="450"
+                                     Width="450"
+                                     IsLoading="True"
+                                     IsHitTestVisible="False"
+                                     Opacity="{Binding !IsAlbumlistOpen, Converter={StaticResource BoolToOpacityConverter}}">
+            <spectrum:GlCoverDiscControl.Transitions>
+				<Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.3"/>
+                </Transitions>
+            </spectrum:GlCoverDiscControl.Transitions>
+        </spectrum:GlCoverDiscControl>
         <!-- Media buttons -->
         <Grid Grid.Row="1" Height="140">
 			<Border Background="Black" Opacity="0.8"/>
@@ -80,7 +98,6 @@
                             <Rectangle x:Name="CenterFrame" Width="90" Height="80" RadiusX="16" RadiusY="16" StrokeThickness="10" Stroke="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}" Fill="Transparent" />
                             <!-- Right vertical bar -->
                             <Rectangle x:Name="RightBar" Width="8" Height="76" Fill="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}" />
-                <!-- Attach behavior to the MusicListView via XAML in this file where used -->
                         </StackPanel>
                     </Viewbox>
                 </Button>
