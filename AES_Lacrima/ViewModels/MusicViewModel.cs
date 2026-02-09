@@ -2,6 +2,7 @@
 using AES_Core.DI;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 
 namespace AES_Lacrima.ViewModels
@@ -23,6 +24,8 @@ namespace AES_Lacrima.ViewModels
 
         public override void Prepare()
         {
+            //Load settings
+            LoadSettings();
             //Get fresh player instances
             AudioPlayer = DiLocator.ResolveViewModel<IMediaInterface>();
         }
@@ -37,6 +40,16 @@ namespace AES_Lacrima.ViewModels
         private void ToggleAlbumlist()
         {
             IsAlbumlistOpen = !IsAlbumlistOpen;
+        }
+
+        protected override void OnLoadSettings(JsonObject section)
+        {
+            IsAlbumlistOpen = ReadBoolSetting(section, nameof(IsAlbumlistOpen), false);
+        }
+
+        protected override void OnSaveSettings(JsonObject section)
+        {
+            WriteSetting(section, nameof(IsAlbumlistOpen), IsAlbumlistOpen);
         }
     }
 }
