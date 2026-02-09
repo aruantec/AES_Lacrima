@@ -1,7 +1,7 @@
 # AES Lacrima
 Emulation frontend and multimedia created with Avalonia.
 
-NOTE:
+**NOTE**:<br />
 The current status does not yet correspond to the videos, as I am pushing the content bit by bit while I clean and organize everything. The purpose is to show what it looks like in its actual state of development.
 
 Supports Plasma6 Wallpaper(Shadertoy/Fragment) Shaders. Simply copy the *.frag files to Shaders/Shadertoys.<br />
