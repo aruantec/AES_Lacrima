@@ -9,6 +9,6 @@
         <!-- Main content area -->
 
         <!-- Main menu-->
-        <navigation:MainMenuView Grid.Row="1"/>
+        <navigation:MainMenuView Grid.Row="1" ClipToBounds="False"/>
     </Grid>
 </UserControl>

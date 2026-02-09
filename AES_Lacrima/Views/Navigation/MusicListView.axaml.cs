@@ -2,9 +2,9 @@ using Avalonia.Controls;
 
 namespace AES_Lacrima.Views.Navigation;
 
-public partial class MusicMenuView : UserControl
+public partial class MusicListView : UserControl
 {
-    public MusicMenuView()
+    public MusicListView()
     {
         InitializeComponent();
     }

@@ -103,5 +103,8 @@
       <DependentUpon>MainTopBar.axaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Compile Update="Views\Navigation\MusicListView.axaml.cs">
+      <DependentUpon>MusicListView.axaml</DependentUpon>
+    </Compile>
   </ItemGroup>
 </Project>

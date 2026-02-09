@@ -1,7 +1,11 @@
+using AES_Controls.Helpers;
+using AES_Controls.Player;
 using AES_Core.DI;
 using AES_Core.Interfaces;
 using AES_Core.Services;
+using AES_Lacrima.ViewModels;
 using AES_Lacrima.Views;
+using Autofac;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -10,8 +14,6 @@ using Avalonia.Markup.Xaml;
 using log4net;
 using System;
 using System.Linq;
-using AES_Lacrima.Helpers;
-using AES_Lacrima.ViewModels;
 
 namespace AES_Lacrima
 {
@@ -36,7 +38,7 @@ namespace AES_Lacrima
         /// main window to allow application-level cleanup such as saving
         /// settings and disposing the DI scope.
         /// </summary>
-        public override void OnFrameworkInitializationCompleted()
+        public override async void OnFrameworkInitializationCompleted()
         {
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
@@ -44,7 +46,8 @@ namespace AES_Lacrima
                 //Initialize DI Locator
                 DiLocator.ConfigureContainer(builder =>
                 {
-                    // Custom registrations can be added here if needed
+                    //Register audio player for fresh instances
+                    builder.RegisterType<AudioPlayer>().As<IMediaInterface>().InstancePerDependency();
                 });
                 // Create the main window and set its DataContext to the resolved MainWindowViewModel
                 desktop.MainWindow = new MainWindow();
@@ -56,6 +59,12 @@ namespace AES_Lacrima
                 {
                     settingsViewModel.FfmpegPath = ffmpegPath;
                 }
+                // Ensure MPV is installed and available for the application
+                await MpvSetup.EnsureInstalled();
+                // Ensure FFmpeg is installed and available for the application
+                var FfmpegManager = new FFmpegManager();
+                // Check if FFmpeg is already available before attempting installation
+                await FfmpegManager.EnsureFFmpegInstalledAsync();
             }
 
             base.OnFrameworkInitializationCompleted();
