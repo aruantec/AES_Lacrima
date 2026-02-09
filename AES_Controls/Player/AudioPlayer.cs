@@ -1,4 +1,5 @@
 using AES_Controls.Helpers;
+using AES_Controls.Player.Interfaces;
 using AES_Controls.Player.Models;
 using AES_Controls.Players;
 using Avalonia.Collections;

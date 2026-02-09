@@ -1,5 +1,6 @@
 using AES_Controls.Helpers;
 using AES_Controls.Player;
+using AES_Controls.Player.Interfaces;
 using AES_Core.DI;
 using AES_Core.Interfaces;
 using AES_Core.Services;
