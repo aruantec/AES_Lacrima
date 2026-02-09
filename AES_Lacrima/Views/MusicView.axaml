@@ -13,6 +13,7 @@
              x:Class="AES_Lacrima.Views.MusicView"
              x:DataType="vm:MusicViewModel">
     <Grid Grid.RowDefinitions="*,Auto,Auto,Auto">
+        <Border Background="Black" Opacity="0.8"/>
         <!-- Main content area -->
         <spectrum:GlCoverDiscControl Grid.Row="0"
                                      HorizontalAlignment="Center"
@@ -32,8 +33,7 @@
             </spectrum:GlCoverDiscControl.Transitions>
         </spectrum:GlCoverDiscControl>
         <!-- Media buttons -->
-        <Grid Grid.Row="1" Height="140">
-			<Border Background="Black" Opacity="0.8"/>
+        <Grid Grid.Row="1" Height="140" Background="Black">
             <StackPanel Orientation="Horizontal" Spacing="50">
                 <!-- Plus icon -->
                 <Button Height="50"
@@ -105,8 +105,7 @@
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
         <!-- Progressbar -->
-        <Grid Grid.Row="2">
-            <Border Background="Black" Opacity="0.8"/>
+        <Grid Grid.Row="2" Background="Black">
 			<player:WaveformProgressBar Margin="10,0,10,0"
                                         IndicatorColor="Gray"
                                         Waveform="{Binding AudioPlayer.Waveform}"

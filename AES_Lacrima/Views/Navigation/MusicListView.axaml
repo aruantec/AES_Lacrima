@@ -9,7 +9,6 @@
              x:DataType="vm:MusicViewModel"
              ClipToBounds="False"
              Height="266">
-    <Grid>
-        <Border Background="Black" Opacity="0.8"/>
+    <Grid Background="Black">
     </Grid>
 </UserControl>
