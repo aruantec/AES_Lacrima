@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:behavors="using:AES_Controls.Behaviors"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -34,7 +34,7 @@
                                     SmallChange="0.01"
                                     LargeChange="0.1"
                                     Value="{Binding ScaleFactor, Mode=TwoWay}" />
-                            <TextBlock Text="{Binding ScaleFactor, StringFormat=' {0:0.00}X'}"
+                            <TextBlock Text="{Binding ScaleFactor, StringFormat='{} {0:0.00}X'}"
                                         VerticalAlignment="Center"
                                         Margin="8,0"
                                         Foreground="WhiteSmoke"
@@ -54,7 +54,7 @@
                                     SmallChange="10"
                                     LargeChange="30"
                                     Value="{Binding ParticleCount, Mode=TwoWay}" />
-                            <TextBlock Text="{Binding ParticleCount, StringFormat=' {0:0} / 60000'}"
+                            <TextBlock Text="{Binding ParticleCount, StringFormat='{} {0:0} / 60000'}"
                                         VerticalAlignment="Center"
                                         Margin="8,0"
                                         Foreground="WhiteSmoke"
@@ -87,9 +87,43 @@
                 </ScrollViewer>
             </TabItem>
             <TabItem Header="Audio" FontSize="30">
-                <StackPanel Margin="15,20,0,0">
-                    
-                </StackPanel>
+                <ScrollViewer>
+                    <StackPanel Margin="15,20,0,0">
+                        <TextBlock Text="Spectrum" VerticalAlignment="Center" FontSize="20" Foreground="WhiteSmoke"/>
+                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,8">
+                            <TextBlock Text="Height" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
+                            <Slider Width="300" Minimum="50" Maximum="1000" Value="{Binding SpectrumHeight, Mode=TwoWay}"/>
+                            <TextBlock Text="{Binding SpectrumHeight, StringFormat='{} {0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,8">
+                            <TextBlock Text="Bar Width" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
+                            <Slider Width="300" Minimum="10" Maximum="100" Value="{Binding BarWidth, Mode=TwoWay}"/>
+                            <TextBlock Text="{Binding BarWidth, StringFormat='{} {0:0.##}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,8">
+                            <TextBlock Text="Bar Spacing" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
+                            <Slider Width="300" Minimum="0" Maximum="100" Value="{Binding BarSpacing, Mode=TwoWay}"/>
+                            <TextBlock Text="{Binding BarSpacing, StringFormat='{} {0:0.##}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,8" VerticalAlignment="Center">
+                            <TextBlock Text="Show Spectrum" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
+                            <ToggleSwitch IsChecked="{Binding ShowSpectrumBars, Mode=TwoWay}" Margin="8,0"/>
+                        </StackPanel>
+
+                        <!-- Spectrum gradient -->
+                        <TextBlock Margin="0,8,0,8" Text="Spectrum Gradient" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
+                        <WrapPanel Orientation="Horizontal" Margin="0,8,0,8">
+                            <ColorPicker Width="80" Height="40" Margin="0,0,10,10" Color="{Binding SpectrumColor0, Mode=TwoWay}"/>
+                            <ColorPicker Width="80" Height="40" Margin="0,0,10,10" Color="{Binding SpectrumColor1, Mode=TwoWay}"/>
+                            <ColorPicker Width="80" Height="40" Margin="0,0,10,10" Color="{Binding SpectrumColor2, Mode=TwoWay}"/>
+                            <ColorPicker Width="80" Height="40" Margin="0,0,10,10" Color="{Binding SpectrumColor3, Mode=TwoWay}"/>
+                            <ColorPicker Width="80" Height="40" Margin="0,0,10,10" Color="{Binding SpectrumColor4, Mode=TwoWay}"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </ScrollViewer>
             </TabItem>
             <TabItem Header="Widgets" FontSize="30">
                 <StackPanel Margin="15,20,0,0">
