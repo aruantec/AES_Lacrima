@@ -85,117 +85,196 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private ShaderItem? _selectedShadertoy;
 
+    /// <summary>
+    /// Gets or sets the color used for the played portion of the waveform.
+    /// </summary>
     [ObservableProperty]
     private Color _waveformPlayedColor = Color.Parse("RoyalBlue");
 
+    /// <summary>
+    /// Gets or sets the color used for the unplayed portion of the waveform.
+    /// </summary>
     [ObservableProperty]
     private Color _waveformUnplayedColor = Color.Parse("DimGray");
 
+    /// <summary>
+    /// Gets or sets the resolution (number of samples) used for generating the waveform.
+    /// </summary>
     [ObservableProperty]
     private int _waveformResolution = 4000;
 
+    /// <summary>
+    /// Gets or sets the horizontal gap between waveform bars.
+    /// </summary>
     [ObservableProperty]
     private double _waveformBarGap = 0.0;
 
+    /// <summary>
+    /// Gets or sets the height of each waveform block.
+    /// </summary>
     [ObservableProperty]
     private double _waveformBlockHeight = 0.0;
 
+    /// <summary>
+    /// Gets or sets the vertical gap between symmetric waveform halves.
+    /// </summary>
     [ObservableProperty]
     private double _waveformVerticalGap = 4.0;
 
+    /// <summary>
+    /// Gets or sets the number of visual bars to display for the waveform.
+    /// </summary>
     [ObservableProperty]
     private int _waveformVisualBars = 0;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether to use a gradient for the waveform.
+    /// </summary>
     [ObservableProperty]
     private bool _useWaveformGradient = false;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether the waveform is displayed symmetrically.
+    /// </summary>
     [ObservableProperty]
     private bool _isWaveformSymmetric = true;
 
     // Spectrum visualiser settings
+
+    /// <summary>
+    /// Gets or sets the height of the spectrum visualizer.
+    /// </summary>
     [ObservableProperty]
     private double _spectrumHeight = 60.0;
 
+    /// <summary>
+    /// Gets or sets the width of each spectrum bar.
+    /// </summary>
     [ObservableProperty]
     private double _barWidth = 4.0;
 
+    /// <summary>
+    /// Gets or sets the spacing between spectrum bars.
+    /// </summary>
     [ObservableProperty]
     private double _barSpacing = 2.0;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether spectrum bars are shown.
+    /// </summary>
     [ObservableProperty]
     private bool _showSpectrumBars = true;
 
+    /// <summary>
+    /// Gets or sets the gradient brush used for the spectrum visualizer.
+    /// </summary>
     [ObservableProperty]
-    private LinearGradientBrush? _spectrumGradient = new LinearGradientBrush
-    {
-        GradientStops =
-        [
-            new GradientStop(Color.Parse("#00CCFF"), 0.0),
-            new GradientStop(Color.Parse("#3333FF"), 0.25),
-            new GradientStop(Color.Parse("#CC00CC"), 0.5),
-            new GradientStop(Color.Parse("#FF004D"), 0.75),
-            new GradientStop(Color.Parse("#FFB300"), 1.0)
-        ]
-    };
+    private LinearGradientBrush? _spectrumGradient;
 
     // Preset palette for gradient comboboxes
-    private readonly AvaloniaList<Color> _presetSpectrumColors = new()
-    {
+    private readonly AvaloniaList<Color> _presetSpectrumColors =
+    [
         Color.Parse("#00CCFF"),
         Color.Parse("#3333FF"),
         Color.Parse("#CC00CC"),
         Color.Parse("#FF004D"),
         Color.Parse("#FFB300")
-    };
+    ];
 
+    /// <summary>
+    /// Gets the collection of preset colors used for the spectrum visualization gradient.
+    /// </summary>
     public AvaloniaList<Color> PresetSpectrumColors => _presetSpectrumColors;
 
-    // Individual colors for each gradient stop (bound to UI comboboxes)
+    /// <summary>
+    /// Gets or sets the first color in the spectrum gradient.
+    /// </summary>
     [ObservableProperty]
-    private Color _spectrumColor0 = Color.Parse("#00CCFF");
+    private Color _spectrumColor0;
 
+    /// <summary>
+    /// Gets or sets the second color in the spectrum gradient.
+    /// </summary>
     [ObservableProperty]
-    private Color _spectrumColor1 = Color.Parse("#3333FF");
+    private Color _spectrumColor1;
 
+    /// <summary>
+    /// Gets or sets the third color in the spectrum gradient.
+    /// </summary>
     [ObservableProperty]
-    private Color _spectrumColor2 = Color.Parse("#CC00CC");
+    private Color _spectrumColor2;
 
+    /// <summary>
+    /// Gets or sets the fourth color in the spectrum gradient.
+    /// </summary>
     [ObservableProperty]
-    private Color _spectrumColor3 = Color.Parse("#FF004D");
+    private Color _spectrumColor3;
 
+    /// <summary>
+    /// Gets or sets the fifth color in the spectrum gradient.
+    /// </summary>
     [ObservableProperty]
-    private Color _spectrumColor4 = Color.Parse("#FFB300");
+    private Color _spectrumColor4;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SettingsViewModel"/> class.
+    /// Sets up property monitoring to update the visualization gradient dynamically.
+    /// </summary>
     public SettingsViewModel()
     {
+        // Initialize individual colors from the preset list
+        _spectrumColor0 = _presetSpectrumColors[0];
+        _spectrumColor1 = _presetSpectrumColors[1];
+        _spectrumColor2 = _presetSpectrumColors[2];
+        _spectrumColor3 = _presetSpectrumColors[3];
+        _spectrumColor4 = _presetSpectrumColors[4];
+
         // Update gradient initially and when any spectrum color changes
         PropertyChanged += OnSettingsPropertyChanged;
         UpdateSpectrumGradient();
     }
 
+    /// <summary>
+    /// Handles property change notifications to synchronize individual color properties
+    /// with the internal collection and refresh the visual gradient.
+    /// </summary>
     private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e == null || string.IsNullOrEmpty(e.PropertyName)) return;
-        if (e.PropertyName == nameof(SpectrumColor0) || e.PropertyName == nameof(SpectrumColor1) || e.PropertyName == nameof(SpectrumColor2) || e.PropertyName == nameof(SpectrumColor3) || e.PropertyName == nameof(SpectrumColor4))
-        {
-            UpdateSpectrumGradient();
-        }
+        
+        if (e.PropertyName == nameof(SpectrumColor0)) _presetSpectrumColors[0] = SpectrumColor0;
+        else if (e.PropertyName == nameof(SpectrumColor1)) _presetSpectrumColors[1] = SpectrumColor1;
+        else if (e.PropertyName == nameof(SpectrumColor2)) _presetSpectrumColors[2] = SpectrumColor2;
+        else if (e.PropertyName == nameof(SpectrumColor3)) _presetSpectrumColors[3] = SpectrumColor3;
+        else if (e.PropertyName == nameof(SpectrumColor4)) _presetSpectrumColors[4] = SpectrumColor4;
+        else return;
+
+        UpdateSpectrumGradient();
     }
 
+    /// <summary>
+    /// Rebuilds the <see cref="SpectrumGradient"/> based on the current collection of colors,
+    /// distributing them evenly across the gradient stops.
+    /// </summary>
     private void UpdateSpectrumGradient()
     {
+        if (_presetSpectrumColors.Count == 0) return;
+
+        var stops = new GradientStops();
+        for (int i = 0; i < _presetSpectrumColors.Count; i++)
+        {
+            double offset = _presetSpectrumColors.Count > 1
+                ? (double)i / (_presetSpectrumColors.Count - 1)
+                : 0.0;
+
+            stops.Add(new GradientStop(_presetSpectrumColors[i], offset));
+        }
+
         SpectrumGradient = new LinearGradientBrush
         {
             StartPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
             EndPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-            GradientStops = new GradientStops
-            {
-                new GradientStop(SpectrumColor0, 0.0),
-                new GradientStop(SpectrumColor1, 0.25),
-                new GradientStop(SpectrumColor2, 0.5),
-                new GradientStop(SpectrumColor3, 0.75),
-                new GradientStop(SpectrumColor4, 1.0)
-            }
+            GradientStops = stops
         };
     }
 
