@@ -12,7 +12,7 @@ using System.Collections;
 using System.Collections.Specialized;
 using System.Numerics;
 
-namespace AES_Controls.Controls.Composition
+namespace AES_Controls.Composition
 {
     /// <summary>
     /// A highly custom items control that renders a 3D-styled carousel of

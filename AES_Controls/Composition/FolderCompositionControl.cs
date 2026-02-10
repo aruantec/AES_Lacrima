@@ -1,26 +1,15 @@
-﻿using Avalonia;
+﻿using AES_Controls.Helpers;
+using AES_Controls.Player.Models;
+using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
-using Avalonia.Media.Imaging;
-using System.Collections.Specialized;
-using System.Windows.Input;
-using Avalonia.Media;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using AES_Controls.Helpers;
+using Avalonia.Media;
+using System.Collections.Specialized;
+using System.Windows.Input;
 
 namespace AES_Controls.Composition;
-
-/// <summary>
-/// Represents a media item with an optional cover bitmap.
-/// </summary>
-public class MediaItem
-{
-    /// <summary>
-    /// Gets or sets the cover bitmap for the media item.
-    /// </summary>
-    public Bitmap? CoverBitmap { get; set; }
-}
 
 /// <summary>
 /// A control that displays a stack of fanned-out media items with interactive animations.

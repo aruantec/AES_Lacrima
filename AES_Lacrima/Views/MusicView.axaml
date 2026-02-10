@@ -13,7 +13,7 @@
              x:Class="AES_Lacrima.Views.MusicView"
              x:DataType="vm:MusicViewModel">
     <Grid Grid.RowDefinitions="*,Auto,Auto,Auto">
-        <Border Background="Black" Opacity="0.8"/>
+        <Border Background="Black" Opacity="0.4"/>
         
         <!-- Main content area -->
         <spectrum:GlCoverDiscControl Grid.Row="0"
@@ -35,6 +35,7 @@
         </spectrum:GlCoverDiscControl>
 
         <!-- Carousel -->
+        <composition:CompositionCarouselControl/>
 
         <!-- Spectrum -->
         <spectrum:GlSpectrumControl Spectrum="{Binding AudioPlayer.Spectrum}"
@@ -359,5 +360,6 @@
                 </Transitions>
             </navigation:MusicListView.Transitions>
         </navigation:MusicListView>
+
     </Grid>
 </UserControl>

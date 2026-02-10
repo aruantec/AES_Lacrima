@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <!-- Ensure MSVC uses /FS to avoid PDB write conflicts when multiple CL.EXE instances run -->
+    <!-- Force compiler to write per-project PDB into the intermediate directory to avoid name collisions -->
+    <CLToolAdditionalOptions>/FS /Fd$(IntDir)$(MSBuildProjectName).pdb %(CLToolAdditionalOptions)</CLToolAdditionalOptions>
+  </PropertyGroup>
+</Project>
