@@ -284,7 +284,7 @@
         </Grid>
         <!-- Progressbar -->
         <Grid Grid.Row="2" Background="Black">
-			<player:WaveformProgressBar Margin="10,0,10,0"
+			<player:WaveformProgressBar Margin="1,5,1,10"
                                         IndicatorColor="Gray"
                                         Waveform="{Binding AudioPlayer.Waveform}"
                                         Value="{Binding AudioPlayer.Position, Mode=TwoWay}"

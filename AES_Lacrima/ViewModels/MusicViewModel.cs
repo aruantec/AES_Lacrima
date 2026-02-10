@@ -28,12 +28,13 @@ namespace AES_Lacrima.ViewModels
             LoadSettings();
             //Get fresh player instances
             AudioPlayer = DiLocator.ResolveViewModel<IMediaInterface>();
+            //AudioPlayer.PlayFile(@"C:\somefile.mp3"); <-- For testing purposes
         }
 
         [RelayCommand]
         private async Task SetPosition(double position)
         {
-
+            AudioPlayer?.SetPosition(position);
         }
 
         [RelayCommand]
