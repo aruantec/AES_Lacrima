@@ -1,18 +1,17 @@
-using AES_Lacrima.ViewModels;
 using Avalonia.Media.Imaging;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using System;
 using System.Text.Json.Serialization;
 using System.Xml.Serialization;
 
-namespace AES_Lacrima.Models;
+namespace AES_Controls.Player.Models;
 
 /// <summary>
 /// Represents a media item (track) with metadata and cached images used by
 /// the UI. The model exposes properties for serialization and runtime-only
 /// properties for bitmaps and actions that should not be persisted.
 /// </summary>
-public partial class MediaItem : ViewModelBase, IDisposable
+public partial class MediaItem : ObservableObject, IDisposable
 {
     private Action<MediaItem>? _saveCoverBitmapAction;
     private Bitmap? _coverBitmap;
