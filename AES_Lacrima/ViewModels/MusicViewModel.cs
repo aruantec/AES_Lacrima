@@ -42,6 +42,31 @@ namespace AES_Lacrima.ViewModels
             IsAlbumlistOpen = !IsAlbumlistOpen;
         }
 
+        [RelayCommand]
+        private void Stop()
+        {
+            AudioPlayer?.Stop();
+        }
+
+        [RelayCommand]
+        private void TogglePlay()
+        {
+            if (AudioPlayer == null) return;
+            if (AudioPlayer.IsPlaying)
+                AudioPlayer.Pause();
+            else
+                AudioPlayer.Play();
+        }
+
+        [RelayCommand]
+        private void ToggleRepeat()
+        {
+            if (AudioPlayer != null)
+            {
+                AudioPlayer.Loop = !AudioPlayer.Loop;
+            }
+        }
+
         protected override void OnLoadSettings(JsonObject section)
         {
             IsAlbumlistOpen = ReadBoolSetting(section, nameof(IsAlbumlistOpen), false);
