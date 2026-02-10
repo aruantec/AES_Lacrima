@@ -12,6 +12,8 @@ The current status does not yet correspond to the videos, as I am pushing the co
 Supports Plasma6 Wallpaper(Shadertoy/Fragment) Shaders. Simply copy the *.frag files to Shaders/Shadertoys.<br />
 [https://github.com/y4my4my4m/kde-shader-wallpaper](https://github.com/y4my4my4m/kde-shader-wallpaper/tree/master/package/contents/ui/Shaders)<br />
 
+Some of the included shaders react to the music by using the player's spectrum data. This is currently done for demonstration purposes, and the Shadertoy control itself allows you to disable this feature by simply removing the spectrum binding.
+
 Showcase:
 
 <img width="3840" height="2004" alt="image" src="https://github.com/user-attachments/assets/d6b80046-6521-4c75-906d-3593c3650482" />
