@@ -109,6 +109,33 @@
                         </StackPanel>
                     </Viewbox>
                 </Button>
+
+                <!-- Tag editor icon -->
+                <Button Height="60"
+                        Width="60"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        ToolTip.Tip="Edit Tags">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <!-- Rounded square frame with gap at top-right -->
+                            <Path Data="M 50,18 H 30 C 20,18 18,20 18,30 V 78 C 18,88 20,92 30,92 H 78 C 88,92 92,88 92,78 V 55"
+                                  Stroke="White" StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
+                            <!-- Simple diagonal line representing the pen -->
+                            <Line StartPoint="35,80" EndPoint="92,23" Stroke="White" StrokeThickness="11" StrokeLineCap="Round" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
             </StackPanel>
             <!-- Center buttons -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="30">
