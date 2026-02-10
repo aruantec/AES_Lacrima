@@ -1,5 +1,5 @@
 # AES Lacrima
-AES stands for **"Aruan's Entertainment Software"** and is an emulation frontend and multimedia app created with Avalonia.
+AES stands for **“Aruan's Entertainment Software”** and is a personal research project as well as an emulation frontend and multimedia app created with the awesome Avalonia UI Framework.
 
 **NOTE**:<br />
 The current status does not yet correspond to the videos, as I am pushing the content bit by bit while I clean and organize everything. The purpose is to show what it looks like in its actual state of development.
