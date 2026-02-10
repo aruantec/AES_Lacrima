@@ -1,6 +1,11 @@
 # AES Lacrima
 AES stands for **“Aruan's Entertainment Software”**, formerly known as **@ES** in a small emulation community, and is a personal research project as well as an emulation frontend and multimedia app created with the awesome Avalonia UI Framework.
 
+@ES was created for the same reason that is currently being revived. 17 years ago, I set myself the challenge of mastering WPF and pushing it to its limits as far as possible. It was no easy task, and just like today, I had to deal with several obstacles that I had to overcome in order to move forward.<br />
+
+Below in my channel, you can see a brief history of the project from 17 years ago(sort by oldest).<br />
+https://www.youtube.com/@aruantec/videos
+
 **NOTE**:<br />
 The current status does not yet correspond to the videos, as I am pushing the content bit by bit while I clean and organize everything in my spare time. The purpose is to show what it looks like in its actual state of development.
 
