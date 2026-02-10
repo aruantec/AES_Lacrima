@@ -25,7 +25,7 @@
             <TabItem Header="GUI" FontSize="30">
                 <ScrollViewer>
                     <StackPanel Margin="15,20,0,0">
-                        <TextBlock Text="Scaling" VerticalAlignment="Center" FontSize="20" Foreground="WhiteSmoke"/>
+                        <TextBlock Text="Scaling" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke"/>
                         <StackPanel Orientation="Horizontal">
                             <Slider Background="DarkGray"
                                     Width="260"
@@ -86,27 +86,28 @@
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
+            <!-- Audio settings -->
             <TabItem Header="Audio" FontSize="30">
                 <ScrollViewer>
                     <StackPanel Margin="15,20,0,0">
-                        <TextBlock Text="Spectrum" VerticalAlignment="Center" FontSize="20" Foreground="WhiteSmoke"/>
-                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,8">
-                            <TextBlock Text="Height" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
-                            <Slider Width="300" Minimum="50" Maximum="1000" Value="{Binding SpectrumHeight, Mode=TwoWay}"/>
-                            <TextBlock Text="{Binding SpectrumHeight, StringFormat='{} {0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0"/>
-                        </StackPanel>
+                        <TextBlock Text="Spectrum" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,0,0,10"/>
+                        
+                        <Grid ColumnDefinitions="120, Auto, Auto" RowDefinitions="Auto, Auto, Auto" Margin="0,0,0,8">
+                            <!-- Height -->
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Height" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,8"/>
+                            <Slider Grid.Row="0" Grid.Column="1" Width="300" Minimum="50" Maximum="1000" Value="{Binding SpectrumHeight, Mode=TwoWay}" Margin="10,0,0,0"/>
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding SpectrumHeight, StringFormat='{} {0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
-                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,8">
-                            <TextBlock Text="Bar Width" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
-                            <Slider Width="300" Minimum="10" Maximum="100" Value="{Binding BarWidth, Mode=TwoWay}"/>
-                            <TextBlock Text="{Binding BarWidth, StringFormat='{} {0:0.##}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0"/>
-                        </StackPanel>
+                            <!-- Bar Width -->
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Bar Width" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,8"/>
+                            <Slider Grid.Row="1" Grid.Column="1" Width="300" Minimum="10" Maximum="100" Value="{Binding BarWidth, Mode=TwoWay}" Margin="10,0,0,0"/>
+                            <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding BarWidth, StringFormat='{} {0:0.##}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
-                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,8">
-                            <TextBlock Text="Bar Spacing" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
-                            <Slider Width="300" Minimum="0" Maximum="100" Value="{Binding BarSpacing, Mode=TwoWay}"/>
-                            <TextBlock Text="{Binding BarSpacing, StringFormat='{} {0:0.##}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0"/>
-                        </StackPanel>
+                            <!-- Bar Spacing -->
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Bar Spacing" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,8"/>
+                            <Slider Grid.Row="2" Grid.Column="1" Width="300" Minimum="0" Maximum="100" Value="{Binding BarSpacing, Mode=TwoWay}" Margin="10,0,0,0"/>
+                            <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding BarSpacing, StringFormat='{} {0:0.##}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
+                        </Grid>
 
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,8" VerticalAlignment="Center">
                             <TextBlock Text="Show Spectrum" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
