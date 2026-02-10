@@ -64,6 +64,13 @@ namespace AES_Lacrima.ViewModels
         private NavigationService? _navigationService;
 
         /// <summary>
+        /// Gets or sets the collection of spectrum data points.
+        /// </summary>
+        [ObservableProperty]
+        public AvaloniaList<double>? _spectrum;
+
+
+        /// <summary>
         /// Prepare the view-model for use. This implementation loads
         /// persisted settings such as window size so the UI can be
         /// restored to the previous state.

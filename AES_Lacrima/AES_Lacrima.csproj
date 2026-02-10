@@ -79,6 +79,18 @@
     <None Update="Assets\Main\settingsgear.svg">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="Shaders\Shadertoys\GreenWarpSpectrum.frag">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Shaders\Shadertoys\MilkdropWarpSpectrum.frag">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Shaders\Shadertoys\SpectrumBlackHole.frag">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Shaders\Shadertoys\ElectricGalaxy.frag">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="Shaders\Shadertoys\SpectrumWave.frag">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
@@ -94,10 +106,13 @@
     <None Update="Shaders\Shadertoys\Cyberpunk.frag">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Shaders\Shadertoys\Electric.frag">
+    <None Update="Shaders\Shadertoys\Lighting.frag">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="Shaders\Shadertoys\Pixelation.frag">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Shaders\Shadertoys\GalaxySpectrum.frag">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>
