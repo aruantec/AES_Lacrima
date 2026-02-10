@@ -60,7 +60,8 @@
                         VerticalAlignment="Center"
                         Margin="30,0,0,0"
                         Cursor="Hand"
-                        ToolTip.Tip="Open Media">
+                        ToolTip.Tip="Open Media"
+                        Command="{Binding OpenFolderCommand}">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">
