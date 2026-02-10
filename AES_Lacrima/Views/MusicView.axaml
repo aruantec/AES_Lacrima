@@ -14,6 +14,7 @@
              x:DataType="vm:MusicViewModel">
     <Grid Grid.RowDefinitions="*,Auto,Auto,Auto">
         <Border Background="Black" Opacity="0.8"/>
+        
         <!-- Main content area -->
         <spectrum:GlCoverDiscControl Grid.Row="0"
                                      HorizontalAlignment="Center"
@@ -32,15 +33,22 @@
                 </Transitions>
             </spectrum:GlCoverDiscControl.Transitions>
         </spectrum:GlCoverDiscControl>
+
+        <!-- Carousel -->
+
+        <!-- Spectrum -->
+
         <!-- Media buttons -->
         <Grid Grid.Row="1" Height="140" Background="Black">
-            <StackPanel Orientation="Horizontal" Spacing="50">
+            <!-- Left buttons -->
+            <StackPanel Orientation="Horizontal" Spacing="50" HorizontalAlignment="Left">
                 <!-- Plus icon -->
-                <Button Height="50"
-                        Width="50"
+                <Button Height="60"
+                        Width="60"
                         VerticalAlignment="Center"
                         Margin="30,0,0,0"
-                        Cursor="Hand">
+                        Cursor="Hand"
+                        ToolTip.Tip="Open Media">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">
@@ -53,33 +61,22 @@
                     </Button.Template>
                     <Viewbox Stretch="Uniform">
                         <Canvas Width="100" Height="100">
-                            <!-- Top-left corner (L shape) - thinner lines -->
-                            <Rectangle Canvas.Left="0" Canvas.Top="0" Width="34" Height="8" Fill="White" />
-                            <Rectangle Canvas.Left="0" Canvas.Top="0" Width="8" Height="34" Fill="White" />
-
-                            <!-- Top-right corner -->
-                            <Rectangle Canvas.Left="66" Canvas.Top="0" Width="34" Height="8" Fill="White" />
-                            <Rectangle Canvas.Left="92" Canvas.Top="0" Width="8" Height="34" Fill="White" />
-
-                            <!-- Bottom-left corner -->
-                            <Rectangle Canvas.Left="0" Canvas.Top="66" Width="8" Height="34" Fill="White" />
-                            <Rectangle Canvas.Left="0" Canvas.Top="92" Width="34" Height="8" Fill="White" />
-
-                            <!-- Bottom-right corner -->
-                            <Rectangle Canvas.Left="92" Canvas.Top="66" Width="8" Height="34" Fill="White" />
-                            <Rectangle Canvas.Left="66" Canvas.Top="92" Width="34" Height="8" Fill="White" />
+                            <!-- Rounded frame -->
+                            <Rectangle Canvas.Left="2" Canvas.Top="2" Width="96" Height="96" RadiusX="22" RadiusY="22" Stroke="White" StrokeThickness="8" Fill="Transparent" />
 
                             <!-- Central plus sign -->
-                            <Rectangle Canvas.Left="46" Canvas.Top="25" Width="8" Height="50" Fill="White" />
-                            <Rectangle Canvas.Left="25" Canvas.Top="46" Width="50" Height="8" Fill="White" />
+                            <Rectangle Canvas.Left="46" Canvas.Top="32" Width="8" Height="36" RadiusX="4" RadiusY="4" Fill="White" />
+                            <Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="White" />
                         </Canvas>
                     </Viewbox>
                 </Button>
+
                 <!--- Carousel icon -->
                 <Button Height="60"
                         Cursor="Hand"
                         VerticalAlignment="Center"
-                        Command="{Binding ToggleAlbumlistCommand}">
+                        Command="{Binding ToggleAlbumlistCommand}"
+                        ToolTip.Tip="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Show Albums, Show Carousel'}">
 					<Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">
@@ -99,6 +96,187 @@
                             <!-- Right vertical bar -->
                             <Rectangle x:Name="RightBar" Width="8" Height="76" Fill="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}" />
                         </StackPanel>
+                    </Viewbox>
+                </Button>
+            </StackPanel>
+            <!-- Center buttons -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="30">
+                <!-- Stop button -->
+                <Button Height="60"
+                        Width="60"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        Command="{Binding StopCommand}"
+                        ToolTip.Tip="Stop">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <!-- Rounded square -->
+                            <Rectangle Canvas.Left="20" Canvas.Top="20" Width="60" Height="60" RadiusX="8" RadiusY="8" Fill="White" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+
+                <!-- Previous button -->
+                <Button Height="60"
+                        Width="60"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        ToolTip.Tip="Previous">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <!-- Vertical bar -->
+                            <Rectangle Canvas.Left="10" Canvas.Top="15" Width="12" Height="70" RadiusX="6" RadiusY="6" Fill="White" />
+                            <!-- Left pointing triangle -->
+                            <Path Data="M 85,15 L 35,50 L 85,85 Z" Fill="White" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+
+                <!-- Play button -->
+                <Button Height="80"
+                        Width="80"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        Command="{Binding TogglePlayCommand}"
+                        ToolTip.Tip="{Binding AudioPlayer.IsPlaying, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Pause, Play'}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <!-- Outer circle -->
+                            <Ellipse Canvas.Left="4" Canvas.Top="4" Width="92" Height="92" Stroke="White" StrokeThickness="7" />
+                            <!-- Pause icon (two bars) -->
+                            <Rectangle Canvas.Left="35" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding AudioPlayer.IsPlaying}" />
+                            <Rectangle Canvas.Left="55" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding AudioPlayer.IsPlaying}" />
+                            <!-- Play icon (triangle) -->
+                            <Path Data="M 38,30 L 72,50 L 38,70 Z" Fill="White" IsVisible="{Binding !AudioPlayer.IsPlaying}" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+
+                <!-- Next button -->
+                <Button Height="60"
+                        Width="60"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        ToolTip.Tip="Next">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <!-- Right pointing triangle -->
+                            <Path Data="M 15,15 L 65,50 L 15,85 Z" Fill="White" />
+                            <!-- Vertical bar -->
+                            <Rectangle Canvas.Left="78" Canvas.Top="15" Width="12" Height="70" RadiusX="6" RadiusY="6" Fill="White" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+
+                <!-- Repeat button -->
+                <Button Height="60"
+                        Width="60"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        Command="{Binding ToggleRepeatCommand}"
+                        ToolTip.Tip="Repeat">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="120" Height="120">
+                            <!-- Top handle -->
+                            <Path Data="M 15,65 V 45 C 15,30 15,30 30,30 H 105 M 105,30 L 88,14 M 105,30 L 88,46"
+                                  Stroke="{Binding AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                  StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
+                            <!-- Bottom handle -->
+                            <Path Data="M 105,55 V 75 C 105,90 105,90 90,90 H 15 M 15,90 L 32,74 M 15,90 L 32,106"
+                                  Stroke="{Binding AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                  StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+            </StackPanel>
+            <!-- Right buttons -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+
+                <!-- Equalizer button -->
+                <Button Height="60"
+                        Width="60"
+                        VerticalAlignment="Center"
+                        Margin="0,0,30,0"
+                        Cursor="Hand"
+                        ToolTip.Tip="Equalizer">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <!-- Equalizer -->
+                            <Path Data="M 15,12 H 85 C 92,12 94,14 94,22 V 78 C 94,86 92,88 85,88 H 15 C 8,88 6,86 6,78 V 22 C 6,14 8,12 15,12 Z M 6,71 H 94"
+                                  Stroke="White" StrokeThickness="7.5" Fill="Transparent" />
+
+                            <!-- Slider vertical slots -->
+                            <Line StartPoint="24,25" EndPoint="24,58" Stroke="White" StrokeThickness="4.5" StrokeLineCap="Round" />
+                            <Line StartPoint="41,25" EndPoint="41,58" Stroke="White" StrokeThickness="4.5" StrokeLineCap="Round" />
+                            <Line StartPoint="58,25" EndPoint="58,58" Stroke="White" StrokeThickness="4.5" StrokeLineCap="Round" />
+                            <Line StartPoint="75,25" EndPoint="75,58" Stroke="White" StrokeThickness="4.5" StrokeLineCap="Round" />
+
+                            <!-- Bold chunky rounded knobs -->
+                            <Rectangle Canvas.Left="19" Canvas.Top="38" Width="10" Height="14" RadiusX="2" RadiusY="2" Fill="White" />
+                            <Rectangle Canvas.Left="36" Canvas.Top="22" Width="10" Height="18" RadiusX="2" RadiusY="2" Fill="White" />
+                            <Rectangle Canvas.Left="53" Canvas.Top="42" Width="10" Height="12" RadiusX="2" RadiusY="2" Fill="White" />
+                            <Rectangle Canvas.Left="70" Canvas.Top="18" Width="10" Height="24" RadiusX="2" RadiusY="2" Fill="White" />
+                        </Canvas>
                     </Viewbox>
                 </Button>
             </StackPanel>
