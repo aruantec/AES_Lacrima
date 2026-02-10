@@ -53,7 +53,9 @@
         <Image asyncImageLoader:ImageLoader.Source="Assets/background.jpg" Stretch="UniformToFill"/>
         <!--Shadertoy-->
         <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
-                               IsVisible="{Binding SettingsViewModel.ShowShaderToy}"/>
+                               IsVisible="{Binding SettingsViewModel.ShowShaderToy}"
+                               Spectrum="{Binding Spectrum}"
+                               SpectrumGradient="{Binding SettingsViewModel.SpectrumGradient}"/>
         <!--Particle control-->
         <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"
                                                 IsVisible="{Binding SettingsViewModel.ShowParticles}"/>
@@ -79,13 +81,6 @@
 						<common:SettingsOverlay Margin="5,15,0,0"/>
                     </ScrollViewer>
                 </Border>
-                <!--Bottom bar--><!--
-                <nav:CachedContentPresenter Grid.Row="2"
-                                            CurrentViewModel="{Binding NavigationService.NavigationView}"
-                                            TransitionsEnabled="True"
-                                            Duration="0:0:0.500"
-                                            Easing="SineEaseInOut"
-                                            Margin="-8,0,-8,0"/>-->
             </Grid>
         </controls:ScalableDecorator>
     </Grid>

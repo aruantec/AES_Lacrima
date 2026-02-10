@@ -10,6 +10,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Linq;
 
 namespace AES_Controls.GL;
 
@@ -103,6 +104,18 @@ public class GlShaderToyControl : OpenGlControlBase
     {
         get => GetValue(SpectrumProperty);
         set => SetValue(SpectrumProperty, value);
+    }
+
+    public static readonly StyledProperty<LinearGradientBrush?> SpectrumGradientProperty =
+        AvaloniaProperty.Register<GlShaderToyControl, LinearGradientBrush?>(nameof(SpectrumGradient));
+
+    /// <summary>
+    /// Gets or sets the gradient brush used by shaders that sample spectrum colors.
+    /// </summary>
+    public LinearGradientBrush? SpectrumGradient
+    {
+        get => GetValue(SpectrumGradientProperty);
+        set => SetValue(SpectrumGradientProperty, value);
     }
     #endregion
 
@@ -222,6 +235,13 @@ public class GlShaderToyControl : OpenGlControlBase
 
             float scaling = (float)(VisualRoot?.RenderScaling ?? 1.0);
             gl.Viewport(0, 0, (int)(Bounds.Width * scaling), (int)(Bounds.Height * scaling));
+            gl.ClearColor(0f, 0f, 0f, 0f);
+            gl.Clear(0x00004000);
+
+            gl.Enable(0x0BE2); // GL_BLEND
+            var glBlendFunc = (delegate* unmanaged[Stdcall]<int, int, void>)gl.GetProcAddress("glBlendFunc");
+            if (glBlendFunc != null) glBlendFunc(0x0302, 0x0303); // GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA
+
             gl.UseProgram(_program);
 
             SetUniforms(gl, (int)(Bounds.Width * scaling), (int)(Bounds.Height * scaling), scaling);
@@ -303,7 +323,7 @@ public class GlShaderToyControl : OpenGlControlBase
             uniform vec3 u_primary; uniform vec3 u_secondary;
             out vec4 outFragColor;
             {_processedShaderCode}
-            void main() {{ vec4 c; mainImage(c, gl_FragCoord.xy); outFragColor = vec4(c.rgb * u_fade, 1.0); }}";
+            void main() {{ vec4 c; mainImage(c, gl_FragCoord.xy); outFragColor = c; }}";
 
         if (_program != 0) gl.DeleteProgram(_program);
         _program = CreateProgram(gl, vs, fs);
@@ -361,6 +381,60 @@ public class GlShaderToyControl : OpenGlControlBase
         SetUniform3F(gl, _program, "u_primary", r, g, b);
         SetUniform3F(gl, _program, "u_secondary", 1.0f - r, 1.0f - g, 1.0f - b);
         SetUniform1F(gl, _program, "u_fade", _fadeAlpha);
+
+        var fallback = Color.FromRgb((byte)(r * 255f), (byte)(g * 255f), (byte)(b * 255f));
+        var gradientColors = GetGradientColors(SpectrumGradient, fallback);
+        SetUniform3F(gl, _program, "u_grad0", gradientColors[0].R / 255f, gradientColors[0].G / 255f, gradientColors[0].B / 255f);
+        SetUniform3F(gl, _program, "u_grad1", gradientColors[1].R / 255f, gradientColors[1].G / 255f, gradientColors[1].B / 255f);
+        SetUniform3F(gl, _program, "u_grad2", gradientColors[2].R / 255f, gradientColors[2].G / 255f, gradientColors[2].B / 255f);
+        SetUniform3F(gl, _program, "u_grad3", gradientColors[3].R / 255f, gradientColors[3].G / 255f, gradientColors[3].B / 255f);
+        SetUniform3F(gl, _program, "u_grad4", gradientColors[4].R / 255f, gradientColors[4].G / 255f, gradientColors[4].B / 255f);
+    }
+
+    private static Color[] GetGradientColors(LinearGradientBrush? brush, Color fallback)
+    {
+        var colors = new[] { fallback, fallback, fallback, fallback, fallback };
+        if (brush?.GradientStops == null || brush.GradientStops.Count == 0)
+            return colors;
+
+        var stops = brush.GradientStops.OrderBy(stop => stop.Offset).ToList();
+        if (stops.Count == 1)
+        {
+            for (int i = 0; i < colors.Length; i++)
+                colors[i] = stops[0].Color;
+            return colors;
+        }
+
+        for (int i = 0; i < colors.Length; i++)
+        {
+            double t = i / 4.0;
+            var previous = stops[0];
+            var next = stops[^1];
+            for (int j = 1; j < stops.Count; j++)
+            {
+                if (stops[j].Offset >= t)
+                {
+                    next = stops[j];
+                    previous = stops[j - 1];
+                    break;
+                }
+            }
+
+            double span = Math.Max(0.0001, next.Offset - previous.Offset);
+            double localT = (t - previous.Offset) / span;
+            colors[i] = LerpColor(previous.Color, next.Color, localT);
+        }
+
+        return colors;
+    }
+
+    private static Color LerpColor(Color start, Color end, double t)
+    {
+        t = Math.Clamp(t, 0.0, 1.0);
+        byte r = (byte)Math.Clamp(start.R + (end.R - start.R) * t, 0.0, 255.0);
+        byte g = (byte)Math.Clamp(start.G + (end.G - start.G) * t, 0.0, 255.0);
+        byte b = (byte)Math.Clamp(start.B + (end.B - start.B) * t, 0.0, 255.0);
+        return Color.FromRgb(r, g, b);
     }
 
     private int CreateProgram(GlInterface gl, string v, string f)

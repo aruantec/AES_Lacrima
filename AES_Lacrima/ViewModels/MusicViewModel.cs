@@ -22,13 +22,19 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private IMediaInterface? _audioPlayer;
 
+        [AutoResolve]
+        private MainWindowViewModel? _mainWindowViewModel;
+
         public override void Prepare()
         {
             //Load settings
             LoadSettings();
             //Get fresh player instances
             AudioPlayer = DiLocator.ResolveViewModel<IMediaInterface>();
-            //AudioPlayer.PlayFile(@"C:\somefile.mp3"); <-- For testing purposes
+            //Set main spectrum
+            _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
+            // PlayFile may be null if resolution fails; invoke only when available.
+            _ = AudioPlayer?.PlayFile(@"C:\Users\Admin\Music\WE DANCED THE NIGHT AWAY.mp3");
         }
 
         [RelayCommand]

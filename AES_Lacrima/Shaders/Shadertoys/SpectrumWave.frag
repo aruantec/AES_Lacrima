@@ -38,19 +38,26 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     
     float barMask = step(gridX, barWidth);
     float barDist = abs(p.y);
-    float barCore = smoothstep(barHeight, barHeight - 0.01, barDist) * barMask;
+    float barCore = smoothstep(barHeight, barHeight - 0.003, barDist) * barMask;
+    float capSize = 0.003;
+    float bouncePhase = fract(iTime * 0.4 + barIndex * 0.37);
+    float bounceCurve = 1.0 - (2.0 * bouncePhase - 1.0) * (2.0 * bouncePhase - 1.0);
+    float bounceHeight = (0.02 + 0.05 * barHeight) * bounceCurve;
+    float capCenter = barHeight + bounceHeight;
+    float cap = smoothstep(capSize, 0.0, abs(barDist - capCenter)) * barMask;
+    float capBlock = step(capCenter - capSize, barDist) * step(barDist, capCenter + capSize) * barMask;
     
     // Safety added to the denominator (+ 0.01) to prevent infinite values/freeze
-    float barGlow = exp(-12.0 * (barDist / (barHeight + 0.01))) * barMask;
+    float barGlow = exp(-8.0 * (barDist / (barHeight + 0.01))) * barMask;
 
     // 5. Composition (removed DNA waves)
-    float contribution = barCore + barGlow * 0.6;
-    if (contribution <= 0.002)
+    float contribution = barCore + barGlow * 0.6 + cap * 0.6 + capBlock * 0.8;
+    if (contribution <= 0.005)
     {
         discard;
     }
-    vec3 col = rainbow * contribution;
-    float mask = smoothstep(0.01, 0.03, contribution);
+    vec3 col = rainbow * (barCore + barGlow * 0.6 + cap * 0.5 + capBlock * 0.9);
+    float mask = smoothstep(0.001, 0.01, contribution);
     // Apply global fade and output (transparent where nothing is drawn)
     fragColor = vec4(col * u_fade, mask * u_fade);
 }

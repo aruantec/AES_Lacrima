@@ -49,5 +49,27 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     // Front Layer
     finalOutput += computeSilk(uv, iTime * 0.16, 1.85, 0.24, 0.63, masterColor * 1.0);
 
+    // --- Music Reactive Glow Lights ---
+    // Sample multiple bins for a more stable/average intensity
+    float bass = (texture(iChannel0, vec2(0.01, 0.25)).r + texture(iChannel0, vec2(0.05, 0.25)).r + texture(iChannel0, vec2(0.1, 0.25)).r) * 0.333;
+    float mid = (texture(iChannel0, vec2(0.15, 0.25)).r + texture(iChannel0, vec2(0.2, 0.25)).r + texture(iChannel0, vec2(0.3, 0.25)).r) * 0.333;
+    
+    // Smooth the response curve to reduce flickering and increase visibility
+    float sBass = pow(bass, 0.5) * 1.8;
+    float sMid = pow(mid, 0.5) * 1.5;
+
+    // Floating light positions with subtle movement
+    vec2 l1Pos = vec2(0.2 + 0.15 * cos(iTime * 0.45), 0.4 + 0.18 * sin(iTime * 0.62));
+    vec2 l2Pos = vec2(0.8 + 0.18 * sin(iTime * 0.55), 0.6 + 0.15 * cos(iTime * 0.38));
+    
+    // Composite Glow (Broad bloom + tight core)
+    float d1 = length(uv - l1Pos);
+    float glow1 = (smoothstep(0.6, 0.0, d1) * 0.6 + exp(-d1 * 12.0) * 0.4) * sBass;
+    
+    float d2 = length(uv - l2Pos);
+    float glow2 = (smoothstep(0.7, 0.0, d2) * 0.6 + exp(-d2 * 15.0) * 0.4) * sMid;
+    
+    finalOutput += (u_primary * glow1 * 0.8) + (u_secondary * glow2 * 0.8);
+
     fragColor = vec4(finalOutput * u_fade, 1.0);
 }
