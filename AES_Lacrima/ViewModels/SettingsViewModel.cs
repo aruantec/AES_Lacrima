@@ -99,16 +99,16 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private double _waveformBlockHeight = 0.0;
 
     [ObservableProperty]
-    private double _waveformVerticalGap = 1.0;
+    private double _waveformVerticalGap = 4.0;
 
     [ObservableProperty]
-    private int _waveformVisualBars = 64;
+    private int _waveformVisualBars = 0;
 
     [ObservableProperty]
-    private bool _useWaveformGradient = true;
+    private bool _useWaveformGradient = false;
 
     [ObservableProperty]
-    private bool _isWaveformSymmetric = false;
+    private bool _isWaveformSymmetric = true;
 
     public override void Prepare()
     {
