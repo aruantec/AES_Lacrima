@@ -1,6 +1,8 @@
 ﻿using AES_Core.DI;
+using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Media;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using System;
 using System.Collections.Generic;
@@ -110,6 +112,93 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private bool _isWaveformSymmetric = true;
 
+    // Spectrum visualiser settings
+    [ObservableProperty]
+    private double _spectrumHeight = 60.0;
+
+    [ObservableProperty]
+    private double _barWidth = 4.0;
+
+    [ObservableProperty]
+    private double _barSpacing = 2.0;
+
+    [ObservableProperty]
+    private bool _showSpectrumBars = true;
+
+    [ObservableProperty]
+    private LinearGradientBrush? _spectrumGradient = new LinearGradientBrush
+    {
+        GradientStops =
+        [
+            new GradientStop(Color.Parse("#00CCFF"), 0.0),
+            new GradientStop(Color.Parse("#3333FF"), 0.25),
+            new GradientStop(Color.Parse("#CC00CC"), 0.5),
+            new GradientStop(Color.Parse("#FF004D"), 0.75),
+            new GradientStop(Color.Parse("#FFB300"), 1.0)
+        ]
+    };
+
+    // Preset palette for gradient comboboxes
+    private readonly AvaloniaList<Color> _presetSpectrumColors = new()
+    {
+        Color.Parse("#00CCFF"),
+        Color.Parse("#3333FF"),
+        Color.Parse("#CC00CC"),
+        Color.Parse("#FF004D"),
+        Color.Parse("#FFB300")
+    };
+
+    public AvaloniaList<Color> PresetSpectrumColors => _presetSpectrumColors;
+
+    // Individual colors for each gradient stop (bound to UI comboboxes)
+    [ObservableProperty]
+    private Color _spectrumColor0 = Color.Parse("#00CCFF");
+
+    [ObservableProperty]
+    private Color _spectrumColor1 = Color.Parse("#3333FF");
+
+    [ObservableProperty]
+    private Color _spectrumColor2 = Color.Parse("#CC00CC");
+
+    [ObservableProperty]
+    private Color _spectrumColor3 = Color.Parse("#FF004D");
+
+    [ObservableProperty]
+    private Color _spectrumColor4 = Color.Parse("#FFB300");
+
+    public SettingsViewModel()
+    {
+        // Update gradient initially and when any spectrum color changes
+        PropertyChanged += OnSettingsPropertyChanged;
+        UpdateSpectrumGradient();
+    }
+
+    private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e == null || string.IsNullOrEmpty(e.PropertyName)) return;
+        if (e.PropertyName == nameof(SpectrumColor0) || e.PropertyName == nameof(SpectrumColor1) || e.PropertyName == nameof(SpectrumColor2) || e.PropertyName == nameof(SpectrumColor3) || e.PropertyName == nameof(SpectrumColor4))
+        {
+            UpdateSpectrumGradient();
+        }
+    }
+
+    private void UpdateSpectrumGradient()
+    {
+        SpectrumGradient = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+            GradientStops = new GradientStops
+            {
+                new GradientStop(SpectrumColor0, 0.0),
+                new GradientStop(SpectrumColor1, 0.25),
+                new GradientStop(SpectrumColor2, 0.5),
+                new GradientStop(SpectrumColor3, 0.75),
+                new GradientStop(SpectrumColor4, 1.0)
+            }
+        };
+    }
+
     public override void Prepare()
     {
         // Load shader items from the local "shaders" directory
@@ -129,6 +218,18 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ParticleCount = ReadDoubleSetting(section, nameof(ParticleCount), 10);
         ShowShaderToy = ReadBoolSetting(section, nameof(ShowShaderToy), false);
         ShowParticles = ReadBoolSetting(section, nameof(ShowParticles), false);
+        // Spectrum settings
+        SpectrumHeight = ReadDoubleSetting(section, nameof(SpectrumHeight), SpectrumHeight);
+        BarWidth = ReadDoubleSetting(section, nameof(BarWidth), BarWidth);
+        BarSpacing = ReadDoubleSetting(section, nameof(BarSpacing), BarSpacing);
+        ShowSpectrumBars = ReadBoolSetting(section, nameof(ShowSpectrumBars), ShowSpectrumBars);
+
+        // Individual spectrum colors (persisted as strings)
+        if (ReadStringSetting(section, nameof(SpectrumColor0)) is { } c0) SpectrumColor0 = Color.Parse(c0);
+        if (ReadStringSetting(section, nameof(SpectrumColor1)) is { } c1) SpectrumColor1 = Color.Parse(c1);
+        if (ReadStringSetting(section, nameof(SpectrumColor2)) is { } c2) SpectrumColor2 = Color.Parse(c2);
+        if (ReadStringSetting(section, nameof(SpectrumColor3)) is { } c3) SpectrumColor3 = Color.Parse(c3);
+        if (ReadStringSetting(section, nameof(SpectrumColor4)) is { } c4) SpectrumColor4 = Color.Parse(c4);
         WaveformPlayedColor = Color.Parse(ReadStringSetting(section, nameof(WaveformPlayedColor), "RoyalBlue")!);
         // Set the selected shadertoy if it exists
         if (ReadStringSetting(section, nameof(SelectedShadertoy)) is { } selectedshadertoy)
@@ -151,6 +252,18 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ShowParticles), ShowParticles);
         WriteSetting(section, nameof(WaveformPlayedColor), WaveformPlayedColor.ToString());
         WriteSetting(section, nameof(SelectedShadertoy), SelectedShadertoy?.Name ?? string.Empty);
+        // Spectrum settings
+        WriteSetting(section, nameof(SpectrumHeight), SpectrumHeight);
+        WriteSetting(section, nameof(BarWidth), BarWidth);
+        WriteSetting(section, nameof(BarSpacing), BarSpacing);
+        WriteSetting(section, nameof(ShowSpectrumBars), ShowSpectrumBars);
+
+        // Persist individual spectrum colors
+        WriteSetting(section, nameof(SpectrumColor0), SpectrumColor0.ToString());
+        WriteSetting(section, nameof(SpectrumColor1), SpectrumColor1.ToString());
+        WriteSetting(section, nameof(SpectrumColor2), SpectrumColor2.ToString());
+        WriteSetting(section, nameof(SpectrumColor3), SpectrumColor3.ToString());
+        WriteSetting(section, nameof(SpectrumColor4), SpectrumColor4.ToString());
     }
 
     /// <summary>

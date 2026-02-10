@@ -37,6 +37,17 @@
         <!-- Carousel -->
 
         <!-- Spectrum -->
+        <spectrum:GlSpectrumControl Spectrum="{Binding AudioPlayer.Spectrum}"
+                                    Grid.Row="0"
+                                    Height="{Binding SettingsViewModel.SpectrumHeight}"
+                                    VerticalAlignment="Bottom"
+                                    BarWidth="{Binding SettingsViewModel.BarWidth}"
+                                    BarSpacing="{Binding SettingsViewModel.BarSpacing}"
+                                    BlockHeight="5"
+                                    UseDeltaTime="True"
+                                    IsHitTestVisible="False"
+                                    BarGradient="{Binding SettingsViewModel.SpectrumGradient}"
+                                    IsVisible="{Binding SettingsViewModel.ShowSpectrumBars}"/>
 
         <!-- Media buttons -->
         <Grid Grid.Row="1" Height="140" Background="Black">
