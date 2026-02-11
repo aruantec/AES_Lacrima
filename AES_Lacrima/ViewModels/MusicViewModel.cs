@@ -8,9 +8,13 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System;
+using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using System.Xml.Serialization;
 
 namespace AES_Lacrima.ViewModels
 {
@@ -27,6 +31,11 @@ namespace AES_Lacrima.ViewModels
     [AutoRegister]
     internal partial class MusicViewModel : ViewModelBase, IMusicViewModel
     {
+        private bool _isAlbumlistOpen;
+
+        // Path to the JSON settings file for this view-model.
+        protected override string SettingsFilePath => Path.Combine(AppContext.BaseDirectory, "Settings", "Playlist.json");
+
         // Supported audio file types for folder scanning and playback.
         private readonly string[] _supportedTypes = ["*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4"];
 
@@ -82,12 +91,6 @@ namespace AES_Lacrima.ViewModels
         private FolderMediaItem? _selectedAlbum;
 
         /// <summary>
-        /// Indicates whether the album/folder list panel is currently open.
-        /// </summary>
-        [ObservableProperty]
-        private bool _isAlbumlistOpen;
-
-        /// <summary>
         /// Resolved settings view-model instance (injected via DI).
         /// </summary>
         [AutoResolve]
@@ -107,6 +110,17 @@ namespace AES_Lacrima.ViewModels
         /// </summary>
         [AutoResolve]
         private MainWindowViewModel? _mainWindowViewModel;
+
+        /// <summary>
+        /// Indicates whether the album/folder list panel is currently open.
+        /// </summary>
+        [XmlIgnore]
+        [JsonIgnore]
+        public bool IsAlbumlistOpen
+        {
+            get => _isAlbumlistOpen;
+            set => SetProperty(ref _isAlbumlistOpen, value);
+        }
 
         /// <summary>
         /// Prepare and initialize the view-model. Loads persisted settings
