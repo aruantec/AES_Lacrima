@@ -1277,6 +1277,7 @@ namespace AES_Controls.Composition
         private float _globalTransitionAlpha = 1.0f;
         private float _currentGlobalOpacity = 1.0f;
         private float _targetGlobalOpacity = 1.0f;
+        private float _currentGlobalOpacityVelocity = 0.0f;
         private bool _isSliderPressed;
 
         private readonly SKPaint _quadPaint = new() { IsAntialias = true, FilterQuality = SKFilterQuality.High };
@@ -1452,12 +1453,19 @@ namespace AES_Controls.Composition
                 Invalidate();
             }
 
-            // Smoothly animate global opacity target (for fade in/out)
-            if (Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.001f)
+            // Smoothly animate global opacity target (for fade in/out) using a second-order spring
+            // This produces a smoother, buttery fade compared to simple linear easing.
+            if (Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.0005f || Math.Abs(_currentGlobalOpacityVelocity) > 0.0005f)
             {
-                float diff = _targetGlobalOpacity - _currentGlobalOpacity;
-                // Simple easing
-                _currentGlobalOpacity += diff * Math.Min(1.0f, (float)(dt * 4.0));
+                // Tuned spring parameters for opacity
+                double opStiffness = 30.0; // higher -> snappier
+                double opDamping = 2.0 * Math.Sqrt(opStiffness) * 1.0; // critical-ish damping multiplier
+
+                _currentGlobalOpacityVelocity += (float)((_targetGlobalOpacity - _currentGlobalOpacity) * opStiffness - _currentGlobalOpacityVelocity * opDamping) * (float)dt;
+                _currentGlobalOpacity += _currentGlobalOpacityVelocity * (float)dt;
+                // clamp to valid range
+                if (_currentGlobalOpacity < 0f) _currentGlobalOpacity = 0f;
+                else if (_currentGlobalOpacity > 1f) _currentGlobalOpacity = 1f;
                 Invalidate();
             }
 

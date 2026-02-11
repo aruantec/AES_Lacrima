@@ -150,6 +150,9 @@ public class CachedContentPresenter : Control
 
         if (newViewModel is null) return;
 
+        // If the viewmodel didn't actually change, nothing to do
+        if (ReferenceEquals(oldViewModel, newViewModel)) return;
+
         // Get or Create the new view
         if (!_cache.TryGetValue(newViewModel, out var newViewHost))
         {
@@ -168,6 +171,12 @@ public class CachedContentPresenter : Control
             {
                 return; // Navigation was superseded
             }
+            if (!token.IsCancellationRequested)
+            {
+                // Call lifecycle hooks: old -> leave, new -> show
+                try { (oldViewModel as IViewModelBase)?.OnLeaveViewModel(); } catch { }
+                try { (newViewModel as IViewModelBase)?.OnShowViewModel(); } catch { }
+            }
         }
         else
         {
@@ -178,6 +187,9 @@ public class CachedContentPresenter : Control
             }
             newViewHost.IsVisible = true;
             newViewHost.Opacity = 1.0;
+            // Call lifecycle hooks synchronously for immediate switch
+            try { (oldViewModel as IViewModelBase)?.OnLeaveViewModel(); } catch { }
+            try { (newViewModel as IViewModelBase)?.OnShowViewModel(); } catch { }
         }
 
         if (!token.IsCancellationRequested)

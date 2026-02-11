@@ -46,6 +46,9 @@ namespace AES_Lacrima.Services
         [RelayCommand]
         private void NavigateBack()
         {
+            //Check if the current view is a MusicViewModel and set it to inactive before navigating back to fade out
+            if (View is MusicViewModel musicViewModel)
+                musicViewModel.IsActive = false;
             //Set current view to previous view
             View = _previousViewModel;
             //Set back naviation
