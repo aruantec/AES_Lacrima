@@ -48,7 +48,7 @@ namespace AES_Lacrima
                 DiLocator.ConfigureContainer(builder =>
                 {
                     //Register audio player for fresh instances
-                    builder.RegisterType<AudioPlayer>().As<IMediaInterface>().InstancePerDependency();
+                    builder.RegisterType<AudioPlayer>().As<AudioPlayer>().InstancePerDependency();
                 });
                 // Create the main window and set its DataContext to the resolved MainWindowViewModel
                 desktop.MainWindow = new MainWindow();

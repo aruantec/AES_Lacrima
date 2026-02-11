@@ -6,6 +6,12 @@
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.Navigation.MainMenuView"
              x:DataType="vm:MainContentViewModel">
+
+    <!-- Sets the DataContext for the previewer -->
+    <Design.DataContext>
+        <vm:MainContentViewModel/>
+    </Design.DataContext>
+
     <UserControl.Styles>
         <!-- Icon button style: no hover/selection background, only a pressed opacity effect -->
         <Style Selector="Button.icon-btn">

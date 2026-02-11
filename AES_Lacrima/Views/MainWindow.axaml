@@ -60,16 +60,17 @@
         <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"
                                                 IsVisible="{Binding SettingsViewModel.ShowParticles}"/>
         <!-- Scalable decorator and main content-->
-        <controls:ScalableDecorator Scale="{Binding SettingsViewModel.ScaleFactor}">
-            <Grid Grid.RowDefinitions="Auto,*,Auto">
+        <controls:ScalableDecorator Scale="{Binding SettingsViewModel.ScaleFactor}" ClipToBounds="False">
+            <Grid Grid.RowDefinitions="Auto,*,Auto" ClipToBounds="False">
                 <!--Top bar-->
                 <common:MainTopBar Grid.Row="0"/>
 				<!--Main content-->
-                <nav:CachedContentPresenter Grid.Row="1"
-                                            TransitionsEnabled="True"
-                                            Duration="0:0:0.500"
-                                            Easing="SineEaseInOut"
-                                            CurrentViewModel="{Binding NavigationService.View}"/>
+				<nav:CachedContentPresenter Grid.Row="1"
+											TransitionsEnabled="True"
+											Duration="0:0:0.500"
+											Easing="SineEaseInOut"
+											CurrentViewModel="{Binding NavigationService.View}"
+											ClipToBounds="False"/>
                 <!--Settings Overlay-->
                 <Border x:Name="SettingsOverlay"
                         Grid.Row="1"

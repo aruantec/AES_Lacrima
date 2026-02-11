@@ -1,4 +1,6 @@
 ﻿using Avalonia.Layout;
+using AES_Controls.Player.Models;
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace AES_Lacrima.Settings
@@ -7,7 +9,14 @@ namespace AES_Lacrima.Settings
     WriteIndented = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
+    // Basic UI types
     [JsonSerializable(typeof(HorizontalAlignment))]
     [JsonSerializable(typeof(VerticalAlignment))]
+    // Media model types used in persisted settings
+    [JsonSerializable(typeof(MediaItem))]
+    [JsonSerializable(typeof(FolderMediaItem))]
+    // Collections used when saving/loading view-model lists
+    [JsonSerializable(typeof(List<MediaItem>))]
+    [JsonSerializable(typeof(List<FolderMediaItem>))]
     public partial class SettingsJsonContext : JsonSerializerContext;
 }

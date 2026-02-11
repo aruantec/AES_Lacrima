@@ -1,9 +1,14 @@
-﻿using AES_Controls.Player.Interfaces;
+﻿using AES_Controls.Helpers;
+using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
+using Avalonia;
 using Avalonia.Collections;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 
@@ -22,12 +27,34 @@ namespace AES_Lacrima.ViewModels
     [AutoRegister]
     internal partial class MusicViewModel : ViewModelBase, IMusicViewModel
     {
+        private static Bitmap? _defaultFolderCover;
+
+        // Supported audio file types for folder scanning and playback.
+        private readonly string[] _supportedTypes = ["*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4"];
+
         /// <summary>
         /// Collection of folders (albums) shown in the music UI. Each
         /// <see cref="FolderMediaItem"/> may contain child <see cref="MediaItem"/> entries.
         /// </summary>
         [ObservableProperty]
         private AvaloniaList<FolderMediaItem> _albumList = [];
+
+        /// <summary>
+        /// Gets or sets the collection of media items used as cover items.
+        /// </summary>
+        /// <remarks>The collection is observable, enabling automatic UI updates when items are added,
+        /// removed, or modified.</remarks>
+        [ObservableProperty]
+        private AvaloniaList<MediaItem> _coverItems = [];
+
+        /// <summary>
+        /// Gets or sets the currently selected album in the media library.
+        /// </summary>
+        /// <remarks>This property is observable, meaning that changes to its value will notify any
+        /// listeners. It is important to ensure that the selected album is not null before performing operations that
+        /// depend on it.</remarks>
+        [ObservableProperty]
+        private FolderMediaItem? _selectedAlbum;
 
         /// <summary>
         /// Indicates whether the album/folder list panel is currently open.
@@ -47,7 +74,7 @@ namespace AES_Lacrima.ViewModels
         /// analysis (spectrum, waveform, etc.). Resolved from the DI container.
         /// </summary>
         [ObservableProperty]
-        private IMediaInterface? _audioPlayer;
+        private AudioPlayer? _audioPlayer;
 
         /// <summary>
         /// Reference to the main window view-model (auto-resolved). Used to
@@ -65,11 +92,88 @@ namespace AES_Lacrima.ViewModels
             //Load settings
             LoadSettings();
             //Get fresh player instances
-            AudioPlayer = DiLocator.ResolveViewModel<IMediaInterface>();
+            AudioPlayer = DiLocator.ResolveViewModel<AudioPlayer>();
+            //Setup equalizer
+            var equalizer = new Equalizer(AudioPlayer!);
+            //Set equalizer bands from the settings if available
+            equalizer.InitializeBands();
+            // Start metadata scrappers for any folders loaded from settings
+            StartMetadataScrappersForLoadedFolders();
             //Set main spectrum
             _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
             // PlayFile may be null if resolution fails; invoke only when available.
-            //_ = AudioPlayer?.PlayFile(@"C:\Users\Admin\Music\WE DANCED THE NIGHT AWAY.mp3");
+            _ = AudioPlayer?.PlayFile(new MediaItem() { FileName = @"C:\Users\Admin\Music\WE DANCED THE NIGHT AWAY.mp3" });
+        }
+
+        /// <summary>
+        /// Start MetadataScrapper for each folder that was loaded from settings.
+        /// Executed after the AudioPlayer has been resolved so the scrapper can use it.
+        /// </summary>
+        private void StartMetadataScrappersForLoadedFolders()
+        {
+            if (AudioPlayer == null) return;
+            if (AlbumList == null || AlbumList.Count == 0) return;
+
+            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+
+            foreach (var folder in AlbumList)
+            {
+                if (folder == null) continue;
+                if (folder.Children == null || folder.Children.Count == 0) continue;
+                _ = new MetadataScrapper(folder.Children, AudioPlayer!, _defaultFolderCover, agentInfo, 512);
+            }
+        }
+
+        /// <summary>
+        /// Generates a default cover bitmap with a musical note icon.
+        /// </summary>
+        private static Bitmap GenerateDefaultFolderCover()
+        {
+            var size = new PixelSize(400, 400);
+            var renderTarget = new RenderTargetBitmap(size, new Vector(96, 96));
+
+            using (var context = renderTarget.CreateDrawingContext())
+            {
+                // Background Radial Gradient
+                var brush = new RadialGradientBrush
+                {
+                    Center = new RelativePoint(0.5, 0.4, RelativeUnit.Relative),
+                    GradientStops =
+                    [
+                        new GradientStop(Color.Parse("#E0E0E0"), 0),
+                        new GradientStop(Color.Parse("#A0A0A0"), 1)
+                    ]
+                };
+                context.DrawRectangle(brush, null, new Rect(0, 0, size.Width, size.Height));
+
+                // Musical Note icon (Double eighth note)
+                var noteBrush = new SolidColorBrush(Color.Parse("#2D2D2D"));
+                var noteWidth = 200.0;
+                var noteLeft = 110.0;
+                var noteXOffset = (size.Width - noteWidth) / 2.0 - noteLeft;
+
+                // Note heads (slightly tilted ellipses)
+                context.DrawEllipse(noteBrush, null, new Rect(110 + noteXOffset, 260, 80, 60));
+                context.DrawEllipse(noteBrush, null, new Rect(230 + noteXOffset, 240, 80, 60));
+
+                // Stems
+                context.DrawRectangle(noteBrush, null, new Rect(175 + noteXOffset, 110, 15, 170));
+                context.DrawRectangle(noteBrush, null, new Rect(295 + noteXOffset, 90, 15, 170));
+
+                // Beam (tilted rectangle using geometry)
+                var stream = new StreamGeometry();
+                using (var ctx = stream.Open())
+                {
+                    ctx.BeginFigure(new Point(175 + noteXOffset, 110), true);
+                    ctx.LineTo(new Point(310 + noteXOffset, 90));
+                    ctx.LineTo(new Point(310 + noteXOffset, 140));
+                    ctx.LineTo(new Point(175 + noteXOffset, 160));
+                    ctx.EndFigure(true);
+                }
+                context.DrawGeometry(noteBrush, null, stream);
+            }
+
+            return renderTarget;
         }
 
         /// <summary>
@@ -98,6 +202,18 @@ namespace AES_Lacrima.ViewModels
         private void Stop()
         {
             AudioPlayer?.Stop();
+        }
+
+        [RelayCommand]
+        private void OpenSelectedMedia()
+        {
+            CoverItems = SelectedAlbum?.Children ?? [];
+        }
+
+        [RelayCommand]
+        private void Drop(FolderMediaItem item)
+        {
+
         }
 
         /// <summary>
@@ -130,6 +246,7 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private async Task OpenFolder()
         {
+            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
             // Show a native folder picker on desktop platforms.
             var lifetime = Avalonia.Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
             var storageProvider = lifetime?.MainWindow?.StorageProvider;
@@ -139,32 +256,37 @@ namespace AES_Lacrima.ViewModels
                 var folders = await storageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
                 {
                     Title = "Select folder",
-                    AllowMultiple = false
+                    AllowMultiple = false,
                 });
-
+                // If a folder was selected, create a FolderMediaItem and scan for supported audio files.
                 if (folders.Count > 0)
                 {
                     var path = folders[0].Path.LocalPath;
                     // Add selected folder as a FolderMediaItem to the album list.
                     var folderItem = new FolderMediaItem
                     {
+                        CoverBitmap = _defaultFolderCover ??= GenerateDefaultFolderCover(),
                         FileName = path,
-                        Title = System.IO.Path.GetFileName(path)
+                        Title = System.IO.Path.GetFileName(path.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))
                     };
-
+                    // Scan the folder for supported audio files and add them as children.
                     if (System.IO.Directory.Exists(path))
                     {
-                        foreach (var file in System.IO.Directory.EnumerateFiles(path))
-                        {
-                            folderItem.Children.Add(new MediaItem
+                        var mediaItems = _supportedTypes
+                            .SelectMany(pattern => System.IO.Directory.EnumerateFiles(path, pattern))
+                            .Select(file => new MediaItem
                             {
+                                CoverBitmap = _defaultFolderCover ??= GenerateDefaultFolderCover(),
                                 FileName = file,
                                 Title = System.IO.Path.GetFileName(file)
                             });
-                        }
+                        // Add found media items as children of the folder item.
+                        folderItem.Children.AddRange(mediaItems);
+                        _ = new MetadataScrapper(folderItem.Children, AudioPlayer!, _defaultFolderCover, agentInfo, 512);
                     }
-
-                    AlbumList.Add(folderItem);
+                    // Only add the folder to the album list if it contains supported audio files.
+                    if (folderItem.Children.Count > 0)
+                        AlbumList.Add(folderItem);
                 }
             }
         }
@@ -176,6 +298,30 @@ namespace AES_Lacrima.ViewModels
         protected override void OnLoadSettings(JsonObject section)
         {
             IsAlbumlistOpen = ReadBoolSetting(section, nameof(IsAlbumlistOpen), false);
+            // Load persisted album list (folders and their children)
+            AlbumList = ReadCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
+
+            // Ensure runtime-only properties (bitmaps, actions) are initialized
+            if (_defaultFolderCover == null)
+                _defaultFolderCover = GenerateDefaultFolderCover();
+
+            foreach (var folder in AlbumList)
+            {
+                if (folder.CoverBitmap == null)
+                    folder.CoverBitmap = _defaultFolderCover;
+
+                // Initialize children list elements
+                if (folder.Children == null)
+                    folder.Children = new AvaloniaList<MediaItem>();
+
+                foreach (var child in folder.Children)
+                {
+                    if (child.CoverBitmap == null)
+                        child.CoverBitmap = _defaultFolderCover;
+                    // Provide a save action that persists cover images when used
+                    child.SaveCoverBitmapAction ??= (mi) => { /* no-op in settings load */ };
+                }
+            }
         }
 
         /// <summary>
@@ -185,6 +331,8 @@ namespace AES_Lacrima.ViewModels
         protected override void OnSaveSettings(JsonObject section)
         {
             WriteSetting(section, nameof(IsAlbumlistOpen), IsAlbumlistOpen);
+            // Persist AlbumList (folders and children). We only store the serializable model data.
+            WriteCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
         }
     }
 }

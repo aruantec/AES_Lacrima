@@ -25,9 +25,10 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     private volatile bool _isInternalChange; // Guard to prevent playlist skipping
 
     /// <summary>
-    /// True when a programmatic seek operation is in progress.
+    /// Holds a reference to the current media item being processed or played.
     /// </summary>
-    public bool IsSeeking => _isSeeking;
+    /// <remarks>This field is null if no media item is currently selected or active.</remarks>
+    private MediaItem? _currentMediaItem;
 
     private readonly FfMpegSpectrumAnalyzer? _spectrumAnalyzer;
     private CancellationTokenSource? _waveformCts;
@@ -39,8 +40,34 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     private long _lastSpectrumUpdateTicks;
     private const long SpectrumThrottleIntervalTicks = 83333; // ~8.3ms for 120 FPS
 
+    /// <summary>
+    /// True when a programmatic seek operation is in progress.
+    /// </summary>
+    public bool IsSeeking => _isSeeking;
+
+    /// <summary>
+    /// Gets the media item that is currently selected or being processed, or null if no media item is selected.
+    /// </summary>
+    /// <remarks>Use this property to access the media item that is currently active in the player. If no
+    /// media item is selected, the property returns null. This property is typically used to retrieve information about
+    /// the current playback item or to perform actions based on the selected media.</remarks>
+    public MediaItem? CurrentMediaItem => _currentMediaItem;
+
+    /// <summary>
+    /// Occurs when a property value changes.
+    /// </summary>
+    /// <remarks>This event is typically used in data binding scenarios to notify subscribers that a property
+    /// has changed, allowing them to update the UI or perform other actions in response to the change.</remarks>
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    /// <summary>
+    /// Raises the PropertyChanged event for the specified property, notifying subscribers that the property's value has
+    /// changed.
+    /// </summary>
+    /// <remarks>This method uses the current synchronization context to ensure that the PropertyChanged event
+    /// is raised on the appropriate thread, which is important for UI-bound objects to avoid cross-thread operation
+    /// exceptions.</remarks>
+    /// <param name="propertyName">The name of the property that changed. This value is used to identify the property in the PropertyChanged event.</param>
     private void OnPropertyChanged(string propertyName) =>
         _syncContext?.Post(_ => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName)), null);
 
@@ -392,33 +419,36 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// Loads and starts playback of the specified file path.
     /// </summary>
     /// <param name="path">Path or URL to the media to play.</param>
-    public async Task PlayFile(string path)
+    public async Task PlayFile(MediaItem item)
     {
-        if (string.IsNullOrEmpty(path))
+        if (item == null || string.IsNullOrEmpty(item.FileName))
         {
             IsLoadingMedia = false;
             Stop();
             return;
         }
 
+        //Set the current media item
+        _currentMediaItem = item;
+        // Prepare for loading the new file
         _isInternalChange = true;
         IsLoadingMedia = true;
         OnPropertyChanged(nameof(IsLoadingMedia));
-        _loadedFile = path;
+        _loadedFile = item.FileName;
         _waveformLoadedFile = null;
 
-        InternalStop();
         // Ensure analyzer is fully stopped and path is updated before loading new file
+        InternalStop();
 
         if (EnableSpectrum)
         {
-            _spectrumAnalyzer?.SetPath(path);
+            _spectrumAnalyzer?.SetPath(item.FileName);
             _spectrumAnalyzer?.Start();
         }
         _waveformCts?.Cancel();
 
         _syncContext?.Post(_ => { Waveform.Clear(); Spectrum.Clear(); Position = 0; }, null);
-        await ExecuteCommandAsync(["loadfile", path]);
+        await ExecuteCommandAsync(["loadfile", item.FileName]);
         Play();
     }
 
@@ -739,7 +769,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     {
         if (b == null) return;
         var p = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.tmp");
-        await File.WriteAllBytesAsync(p, b); await PlayFile(p);
+        await File.WriteAllBytesAsync(p, b); await PlayFile(new MediaItem() { FileName = p });
     }
 
     /// <summary>
