@@ -52,6 +52,12 @@ namespace AES_Lacrima.ViewModels
         private MediaItem? _selectedMediaItem;
 
         /// <summary>
+        /// Gets or sets the currently highlighted media item.
+        /// </summary>
+        [ObservableProperty]
+        private MediaItem? _highlightedItem;
+
+        /// <summary>
         /// Collection of folders (albums) shown in the music UI. Each
         /// <see cref="FolderMediaItem"/> may contain child <see cref="MediaItem"/> entries.
         /// </summary>
@@ -120,6 +126,19 @@ namespace AES_Lacrima.ViewModels
             StartMetadataScrappersForLoadedFolders();
             //Set main spectrum
             _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
+        }
+
+        /// <summary>
+        /// Triggers on selected index change.
+        /// </summary>
+        /// <param name="value">Index</param>
+        partial void OnSelectedIndexChanged(int value)
+        {
+            if (CoverItems != null && CoverItems.Count > value
+                && CoverItems[SelectedIndex] is MediaItem highlighted)
+            {
+                HighlightedItem = highlighted;
+            }
         }
 
         /// <summary>
@@ -227,17 +246,21 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void OpenSelectedFolder()
         {
-            SelectedIndex = 0;
+            //Set cover items to the children of the selected album, or an empty list if null
             CoverItems = SelectedAlbum?.Children ?? [];
+            //Reset selected index to ensure the first item is highlighted when opening a new folder
+            SelectedIndex = 0;
+            //Trigger selection change to update the highlighted item
+            OnSelectedIndexChanged(0);
         }
 
         /// <summary>
-        /// Opens the specified media item and plays its associated audio file if it is valid and selected.
+        /// Opens the specified media index and plays its associated audio file if it is valid.
         /// </summary>
         [RelayCommand]
-        private void OpenSelectedItem(object item)
+        private void OpenSelectedItem(int index)
         {
-            if (CoverItems != null && CoverItems.Count > SelectedIndex
+            if (CoverItems != null && CoverItems.Count > index
                 && CoverItems[SelectedIndex] is MediaItem selectedItem)
             {
                 SelectedMediaItem = selectedItem;

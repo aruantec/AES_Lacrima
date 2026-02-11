@@ -53,7 +53,34 @@
                                                 SliderVerticalOffset="{Binding SettingsViewModel.CarouselSliderVerticalOffset}"
                                                 SliderTrackHeight="{Binding SettingsViewModel.CarouselSliderTrackHeight}"
                                                 SideTranslation="{Binding SettingsViewModel.CarouselSideTranslation}"
-                                                StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"/>
+                                                StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"
+                                                GlobalOpacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
+                                                Margin="0,0,0,100"/>
+
+        <!-- Highlighted Item Meta (Carousel center) -->
+        <StackPanel HorizontalAlignment="Center" 
+                    VerticalAlignment="Center" 
+                    Margin="0,380,0,0"
+                    Spacing="2"
+                    IsHitTestVisible="False">
+            <StackPanel.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.3"/>
+                </Transitions>
+            </StackPanel.Transitions>
+            <TextBlock Text="{Binding HighlightedItem.Title}"
+                       FontSize="28" FontWeight="SemiBold" Foreground="White"
+                       HorizontalAlignment="Center" TextAlignment="Center" 
+                       MaxWidth="1000" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Text="{Binding HighlightedItem.Artist}"
+                       FontSize="19" Foreground="#CCFFFFFF"
+                       HorizontalAlignment="Center" TextAlignment="Center"
+                       MaxWidth="900" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Text="{Binding HighlightedItem.Album}"
+                       FontSize="16" Foreground="#99FFFFFF"
+                       HorizontalAlignment="Center" TextAlignment="Center"
+                       MaxWidth="800" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
 
         <!-- Spectrum -->
         <spectrum:GlSpectrumControl Spectrum="{Binding AudioPlayer.Spectrum}"

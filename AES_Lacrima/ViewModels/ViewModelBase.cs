@@ -1,5 +1,6 @@
 ﻿using AES_Core.Interfaces;
 using AES_Lacrima.Settings;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace AES_Lacrima.ViewModels
 {
@@ -8,8 +9,14 @@ namespace AES_Lacrima.ViewModels
     /// Provides default lifecycle hooks and integrates with the
     /// application's settings persistence via <see cref="SettingsBase"/>.
     /// </summary>
-    public class ViewModelBase : SettingsBase, IViewModelBase
+    public partial class ViewModelBase : SettingsBase, IViewModelBase
     {
+        /// <summary>
+        /// Determines if the view-model is active
+        /// </summary>
+        [ObservableProperty]
+        private bool _isActive;
+
         /// <summary>
         /// Indicates whether the view-model has been prepared (initialized).
         /// Implementations should set this to <c>true</c> once one-time
@@ -25,6 +32,7 @@ namespace AES_Lacrima.ViewModels
         public virtual void Prepare()
         {
             // Override if needed
+            IsActive = true;
         }
 
         /// <summary>
@@ -35,6 +43,7 @@ namespace AES_Lacrima.ViewModels
         public virtual void OnShowViewModel()
         {
             // Override if needed
+            IsActive = true;
         }
 
         /// <summary>
@@ -45,6 +54,7 @@ namespace AES_Lacrima.ViewModels
         public virtual void OnLeaveViewModel()
         {
             // Override if needed
+            IsActive = false;
         }
     }
 }
