@@ -86,7 +86,7 @@ public class FolderCompositionControl : Control
     public FolderCompositionControl()
     {
         // Ensure a collection instance exists to allow bindings to add items
-        Items = new AvaloniaList<MediaItem>();
+        Items = [];
         // Animation timer for smooth transitions
         _animTimer = new Avalonia.Threading.DispatcherTimer(TimeSpan.FromMilliseconds(16), Avalonia.Threading.DispatcherPriority.Render, OnAnimationTick);
     }
