@@ -31,13 +31,17 @@ namespace AES_Lacrima.ViewModels
     [AutoRegister]
     internal partial class MusicViewModel : ViewModelBase, IMusicViewModel
     {
-        private bool _isAlbumlistOpen;
-
         // Path to the JSON settings file for this view-model.
         protected override string SettingsFilePath => Path.Combine(AppContext.BaseDirectory, "Settings", "Playlist.json");
 
         // Supported audio file types for folder scanning and playback.
         private readonly string[] _supportedTypes = ["*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4"];
+
+        /// <summary>
+        /// Indicates whether the album/folder list panel is currently open.
+        /// </summary>
+        [ObservableProperty]
+        private bool _isAlbumlistOpen;
 
         /// <summary>
         /// Default cover bitmap used for folders and media items that do not have a specific cover image.
@@ -110,17 +114,6 @@ namespace AES_Lacrima.ViewModels
         /// </summary>
         [AutoResolve]
         private MainWindowViewModel? _mainWindowViewModel;
-
-        /// <summary>
-        /// Indicates whether the album/folder list panel is currently open.
-        /// </summary>
-        [XmlIgnore]
-        [JsonIgnore]
-        public bool IsAlbumlistOpen
-        {
-            get => _isAlbumlistOpen;
-            set => SetProperty(ref _isAlbumlistOpen, value);
-        }
 
         /// <summary>
         /// Prepare and initialize the view-model. Loads persisted settings
