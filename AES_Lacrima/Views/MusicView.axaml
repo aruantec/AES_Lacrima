@@ -43,7 +43,8 @@
 
         <!-- Carousel -->
         <composition:CompositionCarouselControl ItemsSource="{Binding CoverItems}"
-                                                ImageBitmapProperty="CoverBitmap"/>
+                                                ImageBitmapProperty="CoverBitmap"
+                                                SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"/>
 
         <!-- Spectrum -->
         <spectrum:GlSpectrumControl Spectrum="{Binding AudioPlayer.Spectrum}"

@@ -27,10 +27,20 @@ namespace AES_Lacrima.ViewModels
     [AutoRegister]
     internal partial class MusicViewModel : ViewModelBase, IMusicViewModel
     {
-        private static Bitmap? _defaultFolderCover;
-
         // Supported audio file types for folder scanning and playback.
         private readonly string[] _supportedTypes = ["*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4"];
+
+        /// <summary>
+        /// Default cover bitmap used for folders and media items that do not have a specific cover image.
+        /// </summary>
+        [ObservableProperty]
+        private Bitmap? _defaultFolderCover;
+
+        /// <summary>
+        /// Selected index for the album list. This property can be used to track the currently selected album
+        /// </summary>
+        [ObservableProperty]
+        private int _selectedIndex;
 
         /// <summary>
         /// Collection of folders (albums) shown in the music UI. Each
@@ -120,7 +130,7 @@ namespace AES_Lacrima.ViewModels
             {
                 if (folder == null) continue;
                 if (folder.Children == null || folder.Children.Count == 0) continue;
-                _ = new MetadataScrapper(folder.Children, AudioPlayer!, _defaultFolderCover, agentInfo, 512);
+                _ = new MetadataScrapper(folder.Children, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
             }
         }
 
@@ -207,6 +217,7 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void OpenSelectedMedia()
         {
+            SelectedIndex = 0;
             CoverItems = SelectedAlbum?.Children ?? [];
         }
 
@@ -265,7 +276,7 @@ namespace AES_Lacrima.ViewModels
                     // Add selected folder as a FolderMediaItem to the album list.
                     var folderItem = new FolderMediaItem
                     {
-                        CoverBitmap = _defaultFolderCover ??= GenerateDefaultFolderCover(),
+                        CoverBitmap = DefaultFolderCover ??= GenerateDefaultFolderCover(),
                         FileName = path,
                         Title = System.IO.Path.GetFileName(path.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))
                     };
@@ -274,15 +285,20 @@ namespace AES_Lacrima.ViewModels
                     {
                         var mediaItems = _supportedTypes
                             .SelectMany(pattern => System.IO.Directory.EnumerateFiles(path, pattern))
+                            // Filter out macOS resource fork files (names that start with "._") and other dot-files
+                            .Where(file => {
+                                var name = System.IO.Path.GetFileName(file);
+                                return !(string.IsNullOrEmpty(name) || name.StartsWith("._") || name.StartsWith("."));
+                            })
                             .Select(file => new MediaItem
                             {
-                                CoverBitmap = _defaultFolderCover ??= GenerateDefaultFolderCover(),
+                                CoverBitmap = DefaultFolderCover ??= GenerateDefaultFolderCover(),
                                 FileName = file,
                                 Title = System.IO.Path.GetFileName(file)
                             });
                         // Add found media items as children of the folder item.
                         folderItem.Children.AddRange(mediaItems);
-                        _ = new MetadataScrapper(folderItem.Children, AudioPlayer!, _defaultFolderCover, agentInfo, 512);
+                        _ = new MetadataScrapper(folderItem.Children, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
                     }
                     // Only add the folder to the album list if it contains supported audio files.
                     if (folderItem.Children.Count > 0)
@@ -302,13 +318,13 @@ namespace AES_Lacrima.ViewModels
             AlbumList = ReadCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
 
             // Ensure runtime-only properties (bitmaps, actions) are initialized
-            if (_defaultFolderCover == null)
-                _defaultFolderCover = GenerateDefaultFolderCover();
+            if (DefaultFolderCover == null)
+                DefaultFolderCover = GenerateDefaultFolderCover();
 
             foreach (var folder in AlbumList)
             {
                 if (folder.CoverBitmap == null)
-                    folder.CoverBitmap = _defaultFolderCover;
+                    folder.CoverBitmap = DefaultFolderCover;
 
                 // Initialize children list elements
                 if (folder.Children == null)
@@ -317,7 +333,7 @@ namespace AES_Lacrima.ViewModels
                 foreach (var child in folder.Children)
                 {
                     if (child.CoverBitmap == null)
-                        child.CoverBitmap = _defaultFolderCover;
+                        child.CoverBitmap = DefaultFolderCover;
                     // Provide a save action that persists cover images when used
                     child.SaveCoverBitmapAction ??= (mi) => { /* no-op in settings load */ };
                 }
