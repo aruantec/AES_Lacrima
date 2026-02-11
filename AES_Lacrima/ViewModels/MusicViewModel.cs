@@ -114,7 +114,7 @@ namespace AES_Lacrima.ViewModels
             if (AudioPlayer == null) return;
             if (AlbumList == null || AlbumList.Count == 0) return;
 
-            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+            var agentInfo = "AES_Lacrima/1.0 (contact: email@gmail.com)";
 
             foreach (var folder in AlbumList)
             {
