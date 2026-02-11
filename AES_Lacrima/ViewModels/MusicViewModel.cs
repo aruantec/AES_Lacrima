@@ -43,6 +43,15 @@ namespace AES_Lacrima.ViewModels
         private int _selectedIndex;
 
         /// <summary>
+        /// Gets or sets the media item associated with this instance.
+        /// </summary>
+        /// <remarks>This property is observable. Changes to its value will raise property change
+        /// notifications, allowing data binding clients to react to updates. Ensure that the media item is properly
+        /// initialized before accessing its members.</remarks>
+        [ObservableProperty]
+        private MediaItem? _selectedMediaItem;
+
+        /// <summary>
         /// Collection of folders (albums) shown in the music UI. Each
         /// <see cref="FolderMediaItem"/> may contain child <see cref="MediaItem"/> entries.
         /// </summary>
@@ -111,8 +120,6 @@ namespace AES_Lacrima.ViewModels
             StartMetadataScrappersForLoadedFolders();
             //Set main spectrum
             _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
-            // PlayFile may be null if resolution fails; invoke only when available.
-            _ = AudioPlayer?.PlayFile(new MediaItem() { FileName = @"C:\Users\Admin\Music\WE DANCED THE NIGHT AWAY.mp3" });
         }
 
         /// <summary>
@@ -214,13 +221,34 @@ namespace AES_Lacrima.ViewModels
             AudioPlayer?.Stop();
         }
 
+        /// <summary>
+        /// Open the selected album/folder and populate the cover items with its children.
+        /// </summary>
         [RelayCommand]
-        private void OpenSelectedMedia()
+        private void OpenSelectedFolder()
         {
             SelectedIndex = 0;
             CoverItems = SelectedAlbum?.Children ?? [];
         }
 
+        /// <summary>
+        /// Opens the specified media item and plays its associated audio file if it is valid and selected.
+        /// </summary>
+        [RelayCommand]
+        private void OpenSelectedItem(object item)
+        {
+            if (CoverItems != null && CoverItems.Count > SelectedIndex
+                && CoverItems[SelectedIndex] is MediaItem selectedItem)
+            {
+                SelectedMediaItem = selectedItem;
+                AudioPlayer?.PlayFile(selectedItem);
+            }
+        }
+
+        /// <summary>
+        /// Dropped media item from the UI when the postion changes
+        /// </summary>
+        /// <param name="item"></param>
         [RelayCommand]
         private void Drop(FolderMediaItem item)
         {

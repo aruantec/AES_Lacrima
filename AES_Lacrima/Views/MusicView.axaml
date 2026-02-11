@@ -23,7 +23,7 @@
         <Border Background="Black" Opacity="0.4"/>
         
         <!-- Main content area -->
-        <spectrum:GlCoverDiscControl Grid.Row="0"
+        <!--<spectrum:GlCoverDiscControl Grid.Row="0"
                                      HorizontalAlignment="Center"
                                      VerticalAlignment="Center"
                                      InnerHoleRatio="0.1"
@@ -33,18 +33,27 @@
                                      Width="450"
                                      IsLoading="True"
                                      IsHitTestVisible="False"
+                                     Cover="{Binding SelectedMediaItem.CoverBitmap}"
                                      Opacity="{Binding !IsAlbumlistOpen, Converter={StaticResource BoolToOpacityConverter}}">
             <spectrum:GlCoverDiscControl.Transitions>
 				<Transitions>
                     <DoubleTransition Property="Opacity" Duration="0:0:0.3"/>
                 </Transitions>
             </spectrum:GlCoverDiscControl.Transitions>
-        </spectrum:GlCoverDiscControl>
+        </spectrum:GlCoverDiscControl>-->
 
         <!-- Carousel -->
         <composition:CompositionCarouselControl ItemsSource="{Binding CoverItems}"
                                                 ImageBitmapProperty="CoverBitmap"
-                                                SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"/>
+                                                SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                                                ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
+                                                ItemSpacing="{Binding SettingsViewModel.CarouselSpacing}"
+                                                ItemScale="{Binding SettingsViewModel.CarouselScale}"
+                                                VerticalOffset="{Binding SettingsViewModel.CarouselVerticalOffset}"
+                                                SliderVerticalOffset="{Binding SettingsViewModel.CarouselSliderVerticalOffset}"
+                                                SliderTrackHeight="{Binding SettingsViewModel.CarouselSliderTrackHeight}"
+                                                SideTranslation="{Binding SettingsViewModel.CarouselSideTranslation}"
+                                                StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"/>
 
         <!-- Spectrum -->
         <spectrum:GlSpectrumControl Spectrum="{Binding AudioPlayer.Spectrum}"

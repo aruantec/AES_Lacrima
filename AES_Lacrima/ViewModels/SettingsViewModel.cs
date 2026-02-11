@@ -234,6 +234,28 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         UpdateSpectrumGradient();
     }
 
+    // Carousel settings (used by CompositionCarouselControl)
+    [ObservableProperty]
+    private double _carouselSpacing = 1.0;
+
+    [ObservableProperty]
+    private double _carouselScale = 1.0;
+
+    [ObservableProperty]
+    private double _carouselVerticalOffset = 0.0;
+
+    [ObservableProperty]
+    private double _carouselSliderVerticalOffset = 60.0;
+
+    [ObservableProperty]
+    private double _carouselSliderTrackHeight = 4.0;
+
+    [ObservableProperty]
+    private double _carouselSideTranslation = 320.0;
+
+    [ObservableProperty]
+    private double _carouselStackSpacing = 160.0;
+
     /// <summary>
     /// Handles property change notifications to synchronize individual color properties
     /// with the internal collection and refresh the visual gradient.
@@ -315,6 +337,15 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             SelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == selectedshadertoy);
         }
+        
+        // Carousel settings
+        CarouselSpacing = ReadDoubleSetting(section, nameof(CarouselSpacing), CarouselSpacing);
+        CarouselScale = ReadDoubleSetting(section, nameof(CarouselScale), CarouselScale);
+        CarouselVerticalOffset = ReadDoubleSetting(section, nameof(CarouselVerticalOffset), CarouselVerticalOffset);
+        CarouselSliderVerticalOffset = ReadDoubleSetting(section, nameof(CarouselSliderVerticalOffset), CarouselSliderVerticalOffset);
+        CarouselSliderTrackHeight = ReadDoubleSetting(section, nameof(CarouselSliderTrackHeight), CarouselSliderTrackHeight);
+        CarouselSideTranslation = ReadDoubleSetting(section, nameof(CarouselSideTranslation), CarouselSideTranslation);
+        CarouselStackSpacing = ReadDoubleSetting(section, nameof(CarouselStackSpacing), CarouselStackSpacing);
     }
 
     /// <summary>
@@ -343,6 +374,15 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(SpectrumColor2), SpectrumColor2.ToString());
         WriteSetting(section, nameof(SpectrumColor3), SpectrumColor3.ToString());
         WriteSetting(section, nameof(SpectrumColor4), SpectrumColor4.ToString());
+
+        // Persist Carousel settings
+        WriteSetting(section, nameof(CarouselSpacing), CarouselSpacing);
+        WriteSetting(section, nameof(CarouselScale), CarouselScale);
+        WriteSetting(section, nameof(CarouselVerticalOffset), CarouselVerticalOffset);
+        WriteSetting(section, nameof(CarouselSliderVerticalOffset), CarouselSliderVerticalOffset);
+        WriteSetting(section, nameof(CarouselSliderTrackHeight), CarouselSliderTrackHeight);
+        WriteSetting(section, nameof(CarouselSideTranslation), CarouselSideTranslation);
+        WriteSetting(section, nameof(CarouselStackSpacing), CarouselStackSpacing);
     }
 
     /// <summary>

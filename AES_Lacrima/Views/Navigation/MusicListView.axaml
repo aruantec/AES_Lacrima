@@ -108,7 +108,7 @@
 			</ListBox.ItemTemplate>
 
 			<Interaction.Behaviors>
-                <ExecuteCommandOnDoubleTappedBehavior Command="{Binding OpenSelectedMediaCommand}"
+                <ExecuteCommandOnDoubleTappedBehavior Command="{Binding OpenSelectedFolderCommand}"
                                                       CommandParameter="{Binding SelectedAlbum}"/>
                         
                 <behaviors:ListboxItemDragBehavior DropCommand="{Binding DropCommand}"/>
