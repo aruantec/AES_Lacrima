@@ -115,6 +115,8 @@ public class CachedContentPresenter : Control
     public CachedContentPresenter()
     {
         // Setup internal panel to host cached views
+        _hostPanel.ClipToBounds = false;
+        ClipToBounds = false;
         VisualChildren.Add(_hostPanel);
         LogicalChildren.Add(_hostPanel);
     }

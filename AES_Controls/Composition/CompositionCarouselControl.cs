@@ -735,7 +735,7 @@ namespace AES_Controls.Composition
 
         private async Task<SKImage?> ToSKImageAsync(Bitmap bitmap)
         {
-            if (bitmap == null || bitmap.PixelSize.Width <= 0 || bitmap.PixelSize.Height <= 0) return null;
+            if (bitmap == null || bitmap.Format == null || bitmap.PixelSize.Width <= 0 || bitmap.PixelSize.Height <= 0) return null;
 
             int w = bitmap.PixelSize.Width;
             int h = bitmap.PixelSize.Height;

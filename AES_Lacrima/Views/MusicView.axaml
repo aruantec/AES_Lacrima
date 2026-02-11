@@ -11,8 +11,15 @@
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.MusicView"
-             x:DataType="vm:MusicViewModel">
-    <Grid Grid.RowDefinitions="*,Auto,Auto,Auto">
+             x:DataType="vm:MusicViewModel"
+             ClipToBounds="False">
+
+    <!-- Sets the DataContext for the previewer -->
+    <Design.DataContext>
+        <vm:MusicViewModel/>
+    </Design.DataContext>
+
+    <Grid Grid.RowDefinitions="*,Auto,Auto,Auto" ClipToBounds="False">
         <Border Background="Black" Opacity="0.4"/>
         
         <!-- Main content area -->
@@ -35,7 +42,8 @@
         </spectrum:GlCoverDiscControl>
 
         <!-- Carousel -->
-        <composition:CompositionCarouselControl/>
+        <composition:CompositionCarouselControl ItemsSource="{Binding CoverItems}"
+                                                ImageBitmapProperty="CoverBitmap"/>
 
         <!-- Spectrum -->
         <spectrum:GlSpectrumControl Spectrum="{Binding AudioPlayer.Spectrum}"
