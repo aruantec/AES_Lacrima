@@ -280,7 +280,8 @@ public class CachedContentPresenter : Control
             IsVisible = false,
             Opacity = 0,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            VerticalContentAlignment = VerticalAlignment.Stretch
+            VerticalContentAlignment = VerticalAlignment.Stretch,
+            ClipToBounds = false
         };
     }
 

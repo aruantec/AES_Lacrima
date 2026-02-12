@@ -97,9 +97,9 @@
 							<Grid Width="240">
 								<!-- Folder control -->
 								<composition:FolderCompositionControl Name="{Binding Title}"
-																  Items="{Binding Children}"
-																  ClipToBounds="True"
-																  MaxVisibleCovers="3"/>
+																	  Items="{Binding Children}"
+																	  ClipToBounds="True"
+																	  MaxVisibleCovers="3"/>
 								<!-- Album title overlay -->
 								<Border VerticalAlignment="Bottom" Height="50" Background="#CC000000" ClipToBounds="False">
 									<TextBlock Text="{Binding Title}" Margin="5" HorizontalAlignment="Center" TextWrapping="Wrap" Foreground="White" FontSize="18"/>

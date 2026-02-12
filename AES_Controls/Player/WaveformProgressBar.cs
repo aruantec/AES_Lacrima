@@ -310,21 +310,24 @@ namespace AES_Controls.Player
         {
             if (Waveform == null || Bounds.Width <= 0 || Bounds.Height <= 0) return;
 
-            int pxW = (int)Math.Ceiling(Bounds.Width);
-            int pxH = (int)Math.Ceiling(Bounds.Height);
+            int pxW = (int)Math.Max(1, Math.Round(Bounds.Width));
+            int pxH = (int)Math.Max(1, Math.Round(Bounds.Height));
+
+            // Only recreate if needed
+            if (_unplayedCache != null && _unplayedCache.PixelSize.Width == pxW && _unplayedCache.PixelSize.Height == pxH)
+                return;
 
             double width = Bounds.Width - WaveformMargin.Left - WaveformMargin.Right;
             double height = Bounds.Height - WaveformMargin.Top - WaveformMargin.Bottom;
             double offset = WaveformVerticalOffset + WaveformMargin.Top;
             double availableHeight = Math.Max(0, height - WaveformVerticalOffset);
-    
+
             if (width <= 0 || availableHeight <= 0) return;
 
             // Dispose old bitmaps
             _unplayedCache?.Dispose();
             _playedCache?.Dispose();
 
-            // GET THE COLORS DIRECTLY FROM YOUR PROPERTIES
             var unplayedBrush = UnPlayedColor ?? Brushes.LightGray;
             var playedBrush = PlayedColor ?? Brushes.LightBlue;
 
@@ -337,21 +340,22 @@ namespace AES_Controls.Player
             _playedCache = new RenderTargetBitmap(new PixelSize(pxW, pxH));
             using (var ctx = _playedCache.CreateDrawingContext())
             {
-                double progressRatio = (Value - Minimum) / Math.Max(1.0, (Maximum - Minimum));
-                DrawWaveformSection(ctx, playedBrush, 0, progressRatio, width, availableHeight, offset);
+                DrawWaveformSection(ctx, playedBrush, 0, 1.0, width, availableHeight, offset);
             }
         }
 
-        private void DrawWaveformSection(DrawingContext ctx, IBrush brush, double startRatio, double endRatio, double width, double availableHeight, double offset)
+        private readonly Dictionary<Color, IBrush> _brushCache = new();
+
+        internal void DrawWaveformSection(DrawingContext ctx, IBrush brush, double startRatio, double endRatio, double width, double availableHeight, double offset)
         {
             if (Waveform == null || Waveform.Count == 0) return;
-            
+
             int visualCount = VisualBarCount > 0 ? VisualBarCount : Waveform.Count;
             double barWidthRaw = width / visualCount;
             double hGap = BarGap;
             double vBlockH = BlockHeight;
             double vGap = VerticalGap;
-            
+
             double marginBottom = WaveformMargin.Bottom;
             double marginTop = WaveformMargin.Top + offset;
             double canvasHeight = Bounds.Height;
@@ -361,42 +365,28 @@ namespace AES_Controls.Player
             int startIndex = (int)(startRatio * visualCount);
             int endIndex = (int)(endRatio * visualCount);
 
-            // Use the provided brush as default, but if we have a gradient, we'll use it for played portion
             IBrush drawBrush = brush;
             bool useGradient = BarGradient != null && brush == PlayedColor;
 
             for (int i = startIndex; i < endIndex; i++)
             {
-                // Downsample Or Upsample data to match visualCount
-                float val = 0;
-                if (VisualBarCount > 0)
-                {
-                    // Fixed visual bars: take the peak in the data window for this visual bar
-                    double dataPerBar = (double)Waveform.Count / visualCount;
-                    int dataStart = (int)(i * dataPerBar);
-                    int dataEnd = (int)((i + 1) * dataPerBar);
-                    for (int d = dataStart; d < dataEnd && d < Waveform.Count; d++)
-                        if (Waveform[d] > val) val = Waveform[d];
-                }
-                else
-                {
-                    val = Waveform[i];
-                }
-
-                if (val <= 0.001) continue;
+                float val = GetWaveformValue(i, visualCount);
 
                 double barHeightTotal = Math.Clamp(val * availableHeight, 0, availableHeight);
-                double x = WaveformMargin.Left + i * barWidthRaw;
-                double xNext = WaveformMargin.Left + (i + 1) * barWidthRaw;
-                
-                double drawX = Math.Round(x + hGap / 2.0);
-                double drawXNext = Math.Round(xNext - hGap / 2.0);
-                double w = Math.Max(1.0, drawXNext - drawX);
-                
-                if (w < 1.0 && hGap > 0) continue;
+                if (barHeightTotal < 1.5) barHeightTotal = 1.5;
+
+                var (drawX, w) = CalculateBarX(i, visualCount, barWidthRaw, hGap, width);
+                if (w <= 0) continue;
 
                 if (vBlockH > 0)
                 {
+                    if (barHeightTotal < vBlockH)
+                    {
+                        double lineY = IsSymmetric ? centerY - 0.75 : bottom - 1.5;
+                        ctx.FillRectangle(drawBrush, new Rect(drawX, lineY, w, 1.5));
+                        continue;
+                    }
+
                     double startY = IsSymmetric ? centerY + (barHeightTotal / 2.0) : bottom;
                     double currentY = startY;
                     double limitY = IsSymmetric ? centerY - (barHeightTotal / 2.0) : offset;
@@ -405,34 +395,29 @@ namespace AES_Controls.Player
                     {
                         double blockTop = Math.Max(limitY, currentY - vBlockH);
                         double actualBlockH = currentY - blockTop;
-                        
-                        // Apply vertical gradient if enabled
+
                         if (useGradient)
                         {
                             double normY = 1.0 - (blockTop - offset) / availableHeight;
                             drawBrush = GetGradientColor(normY);
                         }
 
-                        var rect = new Rect(drawX, blockTop, w, actualBlockH);
-                        ctx.FillRectangle(drawBrush, rect);
+                        ctx.FillRectangle(drawBrush, new Rect(drawX, blockTop, w, actualBlockH));
 
                         if (ShowReflection && !IsSymmetric)
                         {
                             double reflOpacity = 0.3 * (1.0 - (bottom - currentY) / availableHeight);
                             ctx.FillRectangle(drawBrush, new Rect(drawX, bottom + (bottom - blockTop), w, actualBlockH), (float)reflOpacity);
                         }
-
                         currentY -= (vBlockH + vGap);
                     }
                 }
                 else
                 {
-                    // Continuous mode with vertical gradient
                     double y = IsSymmetric ? centerY - (barHeightTotal / 2.0) : bottom - barHeightTotal;
                     if (useGradient)
                     {
-                        var barRect = new Rect(drawX, y, w, barHeightTotal);
-                        ctx.FillRectangle(BarGradient!, barRect);
+                        ctx.FillRectangle(BarGradient!, new Rect(drawX, y, w, barHeightTotal));
                     }
                     else
                     {
@@ -442,25 +427,86 @@ namespace AES_Controls.Player
             }
         }
 
+        private float GetWaveformValue(int i, int visualCount)
+        {
+            if (Waveform == null || Waveform.Count == 0) return 0;
+            if (VisualBarCount > 0)
+            {
+                double dataPerBar = (double)Waveform.Count / visualCount;
+                if (dataPerBar >= 1.0)
+                {
+                    float val = 0;
+                    int dataStart = (int)(i * dataPerBar);
+                    int dataEnd = (int)((i + 1) * dataPerBar);
+                    for (int d = dataStart; d < dataEnd && d < Waveform.Count; d++)
+                        if (Waveform[d] > val) val = Waveform[d];
+                    return val;
+                }
+                else
+                {
+                    int index = (int)(i * dataPerBar);
+                    return index < Waveform.Count ? Waveform[index] : 0;
+                }
+            }
+            return i < Waveform.Count ? Waveform[i] : 0;
+        }
+
+        private (double drawX, double w) CalculateBarX(int i, int visualCount, double barWidthRaw, double hGap, double width)
+        {
+            double left = WaveformMargin.Left;
+            double x1 = left + i * barWidthRaw;
+            double x2 = (i == visualCount - 1) ? left + width : left + (i + 1) * barWidthRaw;
+
+            // Round slot boundaries to integer pixels
+            int p1 = (int)Math.Round(x1, MidpointRounding.AwayFromZero);
+            int p2 = (int)Math.Round(x2, MidpointRounding.AwayFromZero);
+
+            // Apply horizontal gap symmetrically
+            int drawX = p1 + (int)Math.Floor(hGap / 2.0);
+            int drawEnd = p2 - (int)Math.Ceiling(hGap / 2.0);
+
+            // Ensure we never collapse to 0 width if data exists and slot > 0
+            if (drawEnd <= drawX && p2 > p1) drawEnd = drawX + 1;
+
+            return (drawX, Math.Max(0, drawEnd - drawX));
+        }
+
         private IBrush GetGradientColor(double offset)
         {
             if (BarGradient == null) return Brushes.White;
             var stops = BarGradient.GradientStops.OrderBy(s => s.Offset).ToList();
             if (stops.Count == 0) return Brushes.White;
-            if (stops.Count == 1) return new SolidColorBrush(stops[0].Color);
 
-            var left = stops.LastOrDefault(s => s.Offset <= offset) ?? stops[0];
-            var right = stops.FirstOrDefault(s => s.Offset > offset) ?? stops.Last();
+            Color targetColor;
+            if (stops.Count == 1) 
+            {
+                targetColor = stops[0].Color;
+            }
+            else 
+            {
+                var left = stops.LastOrDefault(s => s.Offset <= offset) ?? stops[0];
+                var right = stops.FirstOrDefault(s => s.Offset > offset) ?? stops.Last();
 
-            if (left == right) return new SolidColorBrush(left.Color);
+                if (left == right) 
+                {
+                    targetColor = left.Color;
+                }
+                else 
+                {
+                    double t = (offset - left.Offset) / (right.Offset - left.Offset);
+                    targetColor = Color.FromArgb(
+                        (byte)(left.Color.A + t * (right.Color.A - left.Color.A)),
+                        (byte)(left.Color.R + t * (right.Color.R - left.Color.R)),
+                        (byte)(left.Color.G + t * (right.Color.G - left.Color.G)),
+                        (byte)(left.Color.B + t * (right.Color.B - left.Color.B))
+                    );
+                }
+            }
 
-            double t = (offset - left.Offset) / (right.Offset - left.Offset);
-            return new SolidColorBrush(Color.FromArgb(
-                (byte)(left.Color.A + t * (right.Color.A - left.Color.A)),
-                (byte)(left.Color.R + t * (right.Color.R - left.Color.R)),
-                (byte)(left.Color.G + t * (right.Color.G - left.Color.G)),
-                (byte)(left.Color.B + t * (right.Color.B - left.Color.B))
-            ));
+            if (_brushCache.TryGetValue(targetColor, out var cached)) return cached;
+            var newBrush = new SolidColorBrush(targetColor).ToImmutable();
+            _brushCache[targetColor] = newBrush;
+            return newBrush;
         }
 
         public override void Render(DrawingContext context)
@@ -471,12 +517,25 @@ namespace AES_Controls.Player
 
             if (_unplayedCache == null) UpdatePlayedCache();
 
-            if (_unplayedCache != null) context.DrawImage(_unplayedCache, new Rect(0, 0, width, height));
-            if (_playedCache != null) context.DrawImage(_playedCache, new Rect(0, 0, width, height));
+            if (_unplayedCache != null)
+            {
+                context.DrawImage(_unplayedCache, new Rect(0, 0, width, height));
+
+                if (_playedCache != null)
+                {
+                    double progress = (Value - Minimum) / Math.Max(1.0, (Maximum - Minimum));
+                    double clipX = WaveformMargin.Left + progress * (width - WaveformMargin.Left - WaveformMargin.Right);
+
+                    using (context.PushClip(new Rect(0, 0, clipX, height)))
+                    {
+                        context.DrawImage(_playedCache, new Rect(0, 0, width, height));
+                    }
+                }
+            }
 
             // Indicator Line
-            double progress = (Value - Minimum) / Math.Max(1.0, (Maximum - Minimum));
-            double indicatorX = Math.Round(WaveformMargin.Left + progress * (width - WaveformMargin.Left - WaveformMargin.Right));
+            double progressRatio = (Value - Minimum) / Math.Max(1.0, (Maximum - Minimum));
+            double indicatorX = Math.Round(WaveformMargin.Left + progressRatio * (width - WaveformMargin.Left - WaveformMargin.Right));
             context.FillRectangle(IndicatorColor ?? Brushes.White, new Rect(indicatorX - 1, 0, 2, height));
 
             // Triangle

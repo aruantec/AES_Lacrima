@@ -561,7 +561,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                             int count = batchCounter;
                             var batch = new float[count];
                             Array.Copy(waveformData, currentIdx - count, batch, 0, count);
-                            _syncContext?.Post(_ => { foreach (var b in batch) Waveform.Add(b); }, null);
+                            _syncContext?.Post(_ => Waveform.AddRange(batch), null);
                             batchCounter = 0;
                                 
 
@@ -571,20 +571,46 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                         if (currentBucket >= buckets) break;
                     }
                 }
-                if (currentBucket >= buckets) break;
-            }
+                    if (currentBucket >= buckets) break;
+                }
 
-            if (globalMax <= 0f) globalMax = 1f;
+                // Handle partial bucket and remaining batch items at end of file
+                if (currentBucket < buckets && samplesInBucket > 0)
+                {
+                    waveformData[currentBucket] = bucketPeak;
+                    if (bucketPeak > globalMax) globalMax = bucketPeak;
+                    currentBucket++;
+                    batchCounter++;
+                }
+
+                if (batchCounter > 0)
+                {
+                    int count = batchCounter;
+                    var batch = new float[count];
+                    Array.Copy(waveformData, currentBucket - count, batch, 0, count);
+                    _syncContext?.Post(_ => { foreach (var b in batch) Waveform.Add(b); }, null);
+                }
+
+                // Padding to ensure exactly 'buckets' items to avoid gaps in UI
+                if (currentBucket < buckets)
+                {
+                    int remaining = buckets - currentBucket;
+                    _syncContext?.Post(_ => {
+                        for (int i = 0; i < remaining; i++) Waveform.Add(0f);
+                    }, null);
+                }
+
+                if (globalMax <= 0f) globalMax = 1f;
                 
             // Final normalization for consistency
             _syncContext?.Post(_ => {
                 const float verticalGain = 1.1f;
                 const float minVisible = 0.01f;
-                    
+
                 for (int i = 0; i < Waveform.Count; i++)
                 {
                     var v = (Waveform[i] / globalMax) * verticalGain;
-                    if (Waveform[i] > 0f) v = Math.Max(v, minVisible);
+                    v = Math.Max(v, minVisible);
                     Waveform[i] = Math.Min(1f, v);
                 }
             }, null);
