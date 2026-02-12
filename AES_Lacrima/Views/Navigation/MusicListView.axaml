@@ -18,14 +18,17 @@
 	<!-- Music navigation content -->
 	<Grid Background="Black" ClipToBounds="False">
 		<!-- Album list -->
-		<ListBox ItemsSource="{Binding AlbumList}" 
-				 Background="Black" 
-				 ClipToBounds="False"
-				 Padding="0,20,0,0"
-				 SelectionMode="Multiple"
-				 SelectedItem="{Binding SelectedAlbum, Mode=TwoWay}">
-			<ListBox.Styles>
-				<Style Selector="ListBoxItem">
+		<ScrollViewer HorizontalScrollBarVisibility="Auto"
+					  VerticalScrollBarVisibility="Disabled"
+                      Focusable="False"
+					  Margin="0,20,0,10">
+			<ListBox ItemsSource="{Binding AlbumList}" 
+					 Background="Black" 
+					 ClipToBounds="False"
+					 SelectionMode="Multiple"
+					 SelectedItem="{Binding SelectedAlbum, Mode=TwoWay}">
+				<ListBox.Styles>
+					<Style Selector="ListBoxItem">
 					<Setter Property="ClipToBounds" Value="False"/>
 					<Setter Property="Background" Value="Transparent"/>
 					<Setter Property="BorderThickness" Value="0"/>
@@ -35,91 +38,93 @@
 					</Style>
 					<Style Selector="^ /template/ Border#LayoutRoot">
 						<Setter Property="ClipToBounds" Value="False"/>
-					<Setter Property="Background" Value="Transparent"/>
-					<Setter Property="BorderBrush" Value="Transparent"/>
-					<Setter Property="BorderThickness" Value="0"/>
+						<Setter Property="Background" Value="Transparent"/>
+						<Setter Property="BorderBrush" Value="Transparent"/>
+						<Setter Property="BorderThickness" Value="0"/>
 					</Style>
-				<Style Selector="^ /template/ Border">
-					<Setter Property="Background" Value="Transparent"/>
-					<Setter Property="BorderBrush" Value="Transparent"/>
-					<Setter Property="BorderThickness" Value="0"/>
-				</Style>
-				<Style Selector="^ /template/ ContentPresenter">
-					<Setter Property="Background" Value="Transparent"/>
-					<Setter Property="BorderBrush" Value="Transparent"/>
-					<Setter Property="BorderThickness" Value="0"/>
-				</Style>
-				</Style>
-				<Style Selector="ListBoxItem:pointerover">
-					<Setter Property="Background" Value="Transparent"/>
-					<Setter Property="BorderBrush" Value="Transparent"/>
-					<Setter Property="BorderThickness" Value="0"/>
-				</Style>
-				<Style Selector="ListBoxItem:selected">
-					<Setter Property="Background" Value="Transparent"/>
-					<Setter Property="BorderBrush" Value="Transparent"/>
-					<Setter Property="BorderThickness" Value="0"/>
-				</Style>
-				<Style Selector="ListBoxItem:selected:pointerover">
-					<Setter Property="Background" Value="Transparent"/>
-					<Setter Property="BorderBrush" Value="Transparent"/>
-					<Setter Property="BorderThickness" Value="0"/>
-				</Style>
-				<Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-					<Setter Property="Background" Value="Transparent"/>
-				</Style>
-				<Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
-					<Setter Property="Background" Value="Transparent"/>
-				</Style>
-				<Style Selector="ListBoxItem:selected /template/ ContentPresenter Border#SelectionOverlay">
-					<Setter Property="Opacity" Value="0"/>
-				</Style>
-				<Style Selector="ListBox /template/ ScrollContentPresenter">
-					<Setter Property="ClipToBounds" Value="False"/>
-				</Style>
-				<Style Selector="ListBox /template/ ItemsPresenter">
-					<Setter Property="ClipToBounds" Value="False"/>
-				</Style>
-				<Style Selector="ListBox /template/ ScrollViewer">
-					<Setter Property="ClipToBounds" Value="False"/>
-				</Style>
-				<Style Selector="ListBox /template/ Border">
-					<Setter Property="ClipToBounds" Value="False"/>
-				</Style>
-			</ListBox.Styles>
+					<Style Selector="^ /template/ Border">
+						<Setter Property="Background" Value="Transparent"/>
+						<Setter Property="BorderBrush" Value="Transparent"/>
+						<Setter Property="BorderThickness" Value="0"/>
+					</Style>
+					<Style Selector="^ /template/ ContentPresenter">
+						<Setter Property="Background" Value="Transparent"/>
+						<Setter Property="BorderBrush" Value="Transparent"/>
+						<Setter Property="BorderThickness" Value="0"/>
+					</Style>
+					</Style>
+					<Style Selector="ListBoxItem:pointerover">
+						<Setter Property="Background" Value="Transparent"/>
+						<Setter Property="BorderBrush" Value="Transparent"/>
+						<Setter Property="BorderThickness" Value="0"/>
+					</Style>
+					<Style Selector="ListBoxItem:selected">
+						<Setter Property="Background" Value="Transparent"/>
+						<Setter Property="BorderBrush" Value="Transparent"/>
+						<Setter Property="BorderThickness" Value="0"/>
+					</Style>
+					<Style Selector="ListBoxItem:selected:pointerover">
+						<Setter Property="Background" Value="Transparent"/>
+						<Setter Property="BorderBrush" Value="Transparent"/>
+						<Setter Property="BorderThickness" Value="0"/>
+					</Style>
+					<Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+						<Setter Property="Background" Value="Transparent"/>
+					</Style>
+					<Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+						<Setter Property="Background" Value="Transparent"/>
+					</Style>
+					<Style Selector="ListBoxItem:selected /template/ ContentPresenter Border#SelectionOverlay">
+						<Setter Property="Opacity" Value="0"/>
+					</Style>
+					<Style Selector="ListBox /template/ ScrollContentPresenter">
+						<Setter Property="ClipToBounds" Value="False"/>
+					</Style>
+					<Style Selector="ListBox /template/ ItemsPresenter">
+						<Setter Property="ClipToBounds" Value="False"/>
+					</Style>
+					<Style Selector="ListBox /template/ ScrollViewer">
+						<Setter Property="ClipToBounds" Value="False"/>
+					</Style>
+					<Style Selector="ListBox /template/ Border">
+						<Setter Property="ClipToBounds" Value="False"/>
+					</Style>
+				</ListBox.Styles>
+				<!-- Items template -->
+				<ListBox.ItemTemplate>
+					<DataTemplate>
+						<Border CornerRadius="12" Margin="0,0,0,10" ClipToBounds="True">
+							<Grid Width="240">
+								<!-- Folder control -->
+								<composition:FolderCompositionControl Name="{Binding Title}"
+																  Items="{Binding Children}"
+																  ClipToBounds="True"
+																  MaxVisibleCovers="3"/>
+								<!-- Album title overlay -->
+								<Border VerticalAlignment="Bottom" Height="50" Background="#CC000000" ClipToBounds="False">
+									<TextBlock Text="{Binding Title}" Margin="5" HorizontalAlignment="Center" TextWrapping="Wrap" Foreground="White" FontSize="18"/>
+								</Border>
+							</Grid>
+						</Border>
+					</DataTemplate>
+				</ListBox.ItemTemplate>
 
-			<!-- Items template -->
-			<ListBox.ItemTemplate>
-				<DataTemplate>
-					<Border CornerRadius="12" Margin="0,0,0,10" ClipToBounds="True">
-						<Grid Width="240">
-							<!-- Folder control -->
-							<composition:FolderCompositionControl Name="{Binding Title}"
-															  Items="{Binding Children}"
-															  ClipToBounds="True"
-															  MaxVisibleCovers="3"/>
-							<!-- Album title overlay -->
-							<Border VerticalAlignment="Bottom" Height="50" Background="#CC000000" ClipToBounds="False">
-								<TextBlock Text="{Binding Title}" Margin="5" HorizontalAlignment="Center" TextWrapping="Wrap" Foreground="White" FontSize="18"/>
-							</Border>
-						</Grid>
-					</Border>
-				</DataTemplate>
-			</ListBox.ItemTemplate>
-
-			<Interaction.Behaviors>
-                <ExecuteCommandOnDoubleTappedBehavior Command="{Binding OpenSelectedFolderCommand}"
-                                                      CommandParameter="{Binding SelectedAlbum}"/>
+				<!-- Behaviors -->
+				<Interaction.Behaviors>
+					<ExecuteCommandOnDoubleTappedBehavior Command="{Binding OpenSelectedFolderCommand}"
+														  CommandParameter="{Binding SelectedAlbum}"/>
                         
-                <behaviors:ListboxItemDragBehavior DropCommand="{Binding DropCommand}"/>
-            </Interaction.Behaviors>
+					<behaviors:ListboxItemDragBehavior DropCommand="{Binding DropCommand}"/>
+				</Interaction.Behaviors>
 
-			<!-- Items panel -->
-			<ListBox.ItemsPanel>
-				<ItemsPanelTemplate>
-					<StackPanel Orientation="Horizontal" Margin="10,0,0,0" ClipToBounds="False"/>
-				</ItemsPanelTemplate>
-			</ListBox.ItemsPanel>
-		</ListBox>
+				<!-- Items panel -->
+				<ListBox.ItemsPanel>
+					<ItemsPanelTemplate>
+						<StackPanel Orientation="Horizontal" Margin="10,0,0,0" ClipToBounds="False"/>
+					</ItemsPanelTemplate>
+				</ListBox.ItemsPanel>
+			</ListBox>
+		</ScrollViewer>
+		
 	</Grid>
 </UserControl>

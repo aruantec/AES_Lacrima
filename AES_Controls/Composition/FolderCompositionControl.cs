@@ -17,6 +17,86 @@ namespace AES_Controls.Composition;
 /// </summary>
 public class FolderCompositionControl : Control
 {
+    private class ItemState
+    {
+        public MediaItem Item { get; }
+        public double CurX { get; set; }
+        public double CurY { get; set; }
+        public double CurOpacity { get; set; }
+        public double CoverFade { get; set; }
+        public double TgtX { get; set; }
+        public double TgtY { get; set; }
+        public double TgtOpacity { get; set; }
+        public int ZIndex { get; set; }
+        public bool IsTarget { get; set; }
+        private Bitmap? _lastBitmap;
+
+        public ItemState(MediaItem item, double x, double y)
+        {
+            Item = item;
+            CurX = x;
+            CurY = y;
+            TgtX = x;
+            TgtY = y;
+            CurOpacity = 0;
+            TgtOpacity = 1;
+            _lastBitmap = item.CoverBitmap;
+            CoverFade = (_lastBitmap != null) ? 1.0 : 0.0;
+        }
+
+        public bool Update(double speed)
+        {
+            bool any = false;
+            double dx = TgtX - CurX;
+            double dy = TgtY - CurY;
+            double dop = TgtOpacity - CurOpacity;
+
+            if (Math.Abs(dx) > 0.1 || Math.Abs(dy) > 0.1)
+            {
+                CurX += dx * speed;
+                CurY += dy * speed;
+                any = true;
+            }
+            else
+            {
+                CurX = TgtX;
+                CurY = TgtY;
+            }
+
+            if (Math.Abs(dop) > 0.005)
+            {
+                CurOpacity += dop * speed;
+                any = true;
+            }
+            else
+            {
+                CurOpacity = TgtOpacity;
+            }
+
+            double targetFade = (Item.CoverBitmap != null) ? 1.0 : 0.0;
+
+            // Detect bitmap change to trigger a fresh fade-in
+            if (Item.CoverBitmap != _lastBitmap)
+            {
+                _lastBitmap = Item.CoverBitmap;
+                if (CoverFade > 0.1) CoverFade = 0.0; // Reset for a nice fade-in
+            }
+
+            double df = targetFade - CoverFade;
+            if (Math.Abs(df) > 0.005)
+            {
+                CoverFade += df * (speed * 0.75); // Slightly slower fade for covers
+                any = true;
+            }
+            else
+            {
+                CoverFade = targetFade;
+            }
+
+            return any;
+        }
+    }
+
     /// <summary>
     /// Initializes a new instance of the <see cref="FolderCompositionControl"/> class.
     /// </summary>
@@ -81,6 +161,21 @@ public class FolderCompositionControl : Control
     }
 
     /// <summary>
+    /// Defines the <see cref="DefaultCover"/> property.
+    /// </summary>
+    public static readonly StyledProperty<Bitmap?> DefaultCoverProperty =
+        AvaloniaProperty.Register<FolderCompositionControl, Bitmap?>(nameof(DefaultCover));
+
+    /// <summary>
+    /// Gets or sets the default cover bitmap to show when an item has no cover.
+    /// </summary>
+    public Bitmap? DefaultCover
+    {
+        get => GetValue(DefaultCoverProperty);
+        set => SetValue(DefaultCoverProperty, value);
+    }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="FolderCompositionControl"/> class.
     /// </summary>
     public FolderCompositionControl()
@@ -92,10 +187,7 @@ public class FolderCompositionControl : Control
     }
 
     private Avalonia.Threading.DispatcherTimer? _animTimer;
-    private double[] _curX = Array.Empty<double>();
-    private double[] _curY = Array.Empty<double>();
-    private double[] _tgtX = Array.Empty<double>();
-    private double[] _tgtY = Array.Empty<double>();
+    private readonly List<ItemState> _activeStates = new();
     private double _curPress = 1.0;
     private double _tgtPress = 1.0;
     private bool _isPointerOver;
@@ -107,8 +199,6 @@ public class FolderCompositionControl : Control
         if (Items != null)
         {
             Items.CollectionChanged += OnItemsChanged;
-            foreach (var item in Items)
-                if (item != null) item.PropertyChanged += OnItemPropertyChanged;
         }
         // Subscribe to IsPointerOver changes to handle hover interactions
         try
@@ -117,7 +207,6 @@ public class FolderCompositionControl : Control
                 .Subscribe(new SimpleObserver<bool>(over => {
                     _isPointerOver = over;
                     UpdateTargets(over);
-                    StartAnimation();
                 }));
         }
         catch { }
@@ -131,9 +220,11 @@ public class FolderCompositionControl : Control
         if (Items != null)
         {
             Items.CollectionChanged -= OnItemsChanged;
-            foreach (var item in Items)
-                if (item != null) item.PropertyChanged -= OnItemPropertyChanged;
         }
+        foreach (var state in _activeStates)
+            state.Item.PropertyChanged -= OnItemPropertyChanged;
+        _activeStates.Clear();
+
         _pointerOverSubscription?.Dispose();
         _pointerOverSubscription = null;
         _animTimer?.Stop();
@@ -164,20 +255,7 @@ public class FolderCompositionControl : Control
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-            if (e.OldItems != null)
-            {
-                foreach (var item in e.OldItems.Cast<MediaItem>())
-                    if (item != null) item.PropertyChanged -= OnItemPropertyChanged;
-            }
-            if (e.NewItems != null)
-            {
-                foreach (var item in e.NewItems.Cast<MediaItem>())
-                    if (item != null) item.PropertyChanged += OnItemPropertyChanged;
-            }
-
             UpdateTargets(_isPointerOver);
-            StartAnimation();
-            InvalidateVisual();
         });
     }
 
@@ -187,8 +265,6 @@ public class FolderCompositionControl : Control
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() => {
                 UpdateTargets(_isPointerOver);
-                StartAnimation();
-                InvalidateVisual();
             });
         }
     }
@@ -214,7 +290,7 @@ public class FolderCompositionControl : Control
     private void OnAnimationTick(object? sender, EventArgs e)
     {
         bool any = false;
-        double speed = 0.08; // interpolation factor
+        double speed = 0.12; // interpolation factor
 
         double dp = _tgtPress - _curPress;
         if (Math.Abs(dp) > 0.001)
@@ -224,41 +300,20 @@ public class FolderCompositionControl : Control
         }
         else _curPress = _tgtPress;
 
-        int len = Math.Min(_curX.Length, _tgtX.Length);
-        for (int i = 0; i < len; i++)
+        for (int i = _activeStates.Count - 1; i >= 0; i--)
         {
-            double dx = _tgtX[i] - _curX[i];
-            double dy = _tgtY[i] - _curY[i];
-            if (Math.Abs(dx) > 0.25 || Math.Abs(dy) > 0.25)
+            var state = _activeStates[i];
+            bool stateMoving = state.Update(speed);
+            any |= stateMoving;
+
+            if (!stateMoving && !state.IsTarget && state.CurOpacity <= 0.005)
             {
-                any = true;
-                _curX[i] += dx * speed;
-                _curY[i] += dy * speed;
-            }
-            else
-            {
-                _curX[i] = _tgtX[i];
-                _curY[i] = _tgtY[i];
+                state.Item.PropertyChanged -= OnItemPropertyChanged;
+                _activeStates.RemoveAt(i);
             }
         }
         InvalidateVisual();
         if (!any) StopAnimation();
-    }
-
-    /// <summary>
-    /// Ensures internal arrays used to store current and target positions are sized
-    /// to hold entries for <paramref name="count"/> items.
-    /// </summary>
-    /// <param name="count">The number of items to support.</param>
-    private void EnsureArraysSized(int count)
-    {
-        if (_curX.Length != count)
-        {
-            _curX = new double[count];
-            _curY = new double[count];
-            _tgtX = new double[count];
-            _tgtY = new double[count];
-        }
     }
 
     /// <summary>
@@ -272,91 +327,62 @@ public class FolderCompositionControl : Control
         if (bounds.Width <= 0 || bounds.Height <= 0) return;
 
         var items = Items;
-        if (items == null) return;
-
-        var contentRect = new Rect(0, 0, bounds.Width, bounds.Height);
-
-        int maxVisible = Math.Max(1, MaxVisibleCovers);
-
-        // Fill control space uniformly (square covers) so bounds are covered
-        double itemSize = Math.Max(contentRect.Width, contentRect.Height);
-
-        int count = items.Count;
-        EnsureArraysSized(count);
-
-        int actualValidCount = 0;
-        for (int i = 0; i < count; i++)
+        if (items == null)
         {
-            var it = items[i];
-            var cover = it?.CoverBitmap;
-            // Healthy check
-            if (cover != null && cover.Format != null)
-            {
-                actualValidCount++;
-            }
+             foreach (var state in _activeStates)
+                state.Item.PropertyChanged -= OnItemPropertyChanged;
+            _activeStates.Clear();
+            return;
         }
 
-        int effectiveCount = Math.Min(actualValidCount, maxVisible);
-        int skipValid = Math.Max(0, actualValidCount - maxVisible);
-
-        // Stacked position (right aligned)
+        var contentRect = new Rect(0, 0, bounds.Width, bounds.Height);
+        int maxVisible = Math.Max(1, MaxVisibleCovers);
+        double itemSize = Math.Max(contentRect.Width, contentRect.Height);
         double baseX_stacked = contentRect.Right - itemSize;
-        // Fanning margin on hover (offset per shard)
         double marginHover = itemSize * 0.18;
 
-        int validSeen = 0;
-        for (int i = 0; i < count; i++)
+        // Identifty items to show (up to maxVisible items from the end)
+        var targetedItems = new List<MediaItem>();
+        int count = items.Count;
+        int startIndex = Math.Max(0, count - maxVisible);
+        for (int i = startIndex; i < count; i++)
         {
-            var item = items[i];
-            var cover = item?.CoverBitmap;
+            var it = items[i];
+            if (it != null)
+                targetedItems.Add(it);
+        }
 
-            // A cover is valid when it's present and its Format is available.
-            bool valid = cover != null && cover.Format != null;
+        foreach (var s in _activeStates) s.IsTarget = false;
 
-            if (!valid)
+        for (int i = 0; i < targetedItems.Count; i++)
+        {
+            var it = targetedItems[i];
+            var state = _activeStates.Find(s => s.Item == it);
+
+            double tx = spread ? (baseX_stacked - (i * marginHover)) : baseX_stacked;
+            double ty = contentRect.Y;
+
+            if (state == null)
             {
-                _tgtX[i] = baseX_stacked;
-                _tgtY[i] = contentRect.Y;
-                continue;
-            }
-
-            if (validSeen < skipValid)
-            {
-                // Hidden/skipped items stay at the furthest back position 
-                _tgtX[i] = baseX_stacked;
-                _tgtY[i] = contentRect.Y;
-                validSeen++;
-                continue;
-            }
-
-            // Index among visible items (0 is first visible/backmost, effectiveCount-1 is last/frontmost)
-            int visibleIdx = validSeen - skipValid;
-
-            // Target X: 
-            // Normal (spread==false): Stacked right-aligned.
-            // Hover (spread==true): Backmost stays fixed at right, others move left to reveal.
-            double targetX;
-            if (spread)
-            {
-                // Expand to the LEFT. Frontmost (indexInFront=0) moves to the left boundary.
-                targetX = baseX_stacked - (visibleIdx * marginHover);
+                state = new ItemState(it, baseX_stacked, ty) { IsTarget = true, ZIndex = i };
+                state.Item.PropertyChanged += OnItemPropertyChanged;
+                _activeStates.Add(state);
             }
             else
             {
-                // Uniformly centered
-                targetX = baseX_stacked;
+                state.IsTarget = true;
+                state.TgtX = tx;
+                state.TgtY = ty;
+                state.TgtOpacity = 1.0;
+                state.ZIndex = i;
             }
-
-            _tgtX[i] = targetX;
-            _tgtY[i] = contentRect.Y;
-
-            if (_curX[i] == 0 && _curY[i] == 0)
-            {
-                _curX[i] = baseX_stacked;
-                _curY[i] = contentRect.Y;
-            }
-            validSeen++;
         }
+
+        foreach (var s in _activeStates)
+        {
+            if (!s.IsTarget) s.TgtOpacity = 0;
+        }
+
         StartAnimation();
     }
 
@@ -368,26 +394,19 @@ public class FolderCompositionControl : Control
             if (change.OldValue is AvaloniaList<MediaItem> old)
             {
                 old.CollectionChanged -= OnItemsChanged;
-                foreach (var item in old)
-                    if (item != null) item.PropertyChanged -= OnItemPropertyChanged;
+                foreach (var state in _activeStates)
+                    state.Item.PropertyChanged -= OnItemPropertyChanged;
+                _activeStates.Clear();
             }
             if (change.NewValue is AvaloniaList<MediaItem> @new)
             {
                 @new.CollectionChanged += OnItemsChanged;
-                foreach (var item in @new)
-                    if (item != null) item.PropertyChanged += OnItemPropertyChanged;
             }
             UpdateTargets(_isPointerOver);
-            InvalidateVisual();
         }
-        else if (change.Property == MaxVisibleCoversProperty)
+        else if (change.Property == MaxVisibleCoversProperty || change.Property == BoundsProperty || change.Property == DefaultCoverProperty)
         {
             UpdateTargets(_isPointerOver);
-            InvalidateVisual();
-        }
-        else if (change.Property == BoundsProperty)
-        {
-            InvalidateVisual();
         }
     }
 
@@ -397,8 +416,7 @@ public class FolderCompositionControl : Control
         var bounds = Bounds;
         if (bounds.Width <= 0 || bounds.Height <= 0) return;
 
-        var items = Items;
-        if (items == null || items.Count == 0) return;
+        if (_activeStates.Count == 0) return;
 
         // Ensure hit testing works everywhere
         context.FillRectangle(Brushes.Transparent, new Rect(0, 0, bounds.Width, bounds.Height));
@@ -408,82 +426,50 @@ public class FolderCompositionControl : Control
                                    Matrix.CreateTranslation(bounds.Width / 2, bounds.Height / 2)))
         {
             var contentRect = new Rect(0, 0, bounds.Width, bounds.Height);
-
-            int maxVisible = Math.Max(1, MaxVisibleCovers);
             double itemSize = Math.Max(contentRect.Width, contentRect.Height);
-            double baseX_stacked = contentRect.Right - itemSize;
+            var defaultCover = DefaultCover;
 
-            // Collect valid covers once to avoid issues if items or their properties change during rendering.
-            // Includes the Format check requested to avoid Size property exceptions.
-            var visibleCovers = new List<(Bitmap bitmap, Size size, int originalIndex)>();
-            for (int i = 0; i < items.Count; i++)
+            // Draw stack from back to front based on ZIndex
+            var sorted = _activeStates.OrderBy(s => s.ZIndex).ToList();
+            foreach (var state in sorted)
             {
-                var item = items[i];
-                var cover = item?.CoverBitmap;
-                if (cover != null && cover.Format != null)
-                {
-                    var s = cover.Size;
-                    if (s != default && s.Width > 0 && s.Height > 0)
-                        visibleCovers.Add((cover, s, i));
-                }
-            }
+                if (state.CurOpacity <= 0.001) continue;
 
-            int actualValidCount = visibleCovers.Count;
-            if (actualValidCount == 0) return;
-
-            int effectiveCount = Math.Min(actualValidCount, maxVisible);
-            int skipValid = Math.Max(0, actualValidCount - maxVisible);
-
-            // Draw stack from back to front
-            int visibleCoversCount = visibleCovers.Count;
-            int validSeen = 0;
-            for (int i = 0; i < visibleCoversCount; i++)
-            {
-                var (cover, coverSize, originalIndex) = visibleCovers[i];
-                if (cover == null) continue;
-
-                if (validSeen < skipValid)
-                {
-                    validSeen++;
-                    continue;
-                }
-
-                double x = (originalIndex < _curX.Length) ? _curX[originalIndex] : baseX_stacked;
-                double y = (originalIndex < _curY.Length) ? _curY[originalIndex] : contentRect.Y;
-
-                // Progress relative to the subset of items we are showing (back item is 0, front is 1.0)
-                int visibleIdx = validSeen - skipValid;
-
-                if (visibleIdx == 0)
-                {
-                    x = baseX_stacked;
-                }
-
-                double progress = (effectiveCount > 1) ? (double)visibleIdx / (effectiveCount - 1) : 1.0;
-                progress = Math.Clamp(progress, 0.0, 1.0);
-
-                double scale = 1.0;
-                double opacity = 1.0;
-
-                double drawWidth = itemSize * scale;
-                double drawHeight = itemSize * scale;
-
-                // Vertically center
-                double drawX = x;
-                double drawY = y + (itemSize - drawHeight) / 2.0;
-
+                double drawWidth = itemSize;
+                double drawHeight = itemSize;
+                double drawX = state.CurX;
+                double drawY = state.CurY + (itemSize - drawHeight) / 2.0;
                 var dest = new Rect(drawX, drawY, drawWidth, drawHeight);
-                var src = new Rect(0, 0, coverSize.Width, coverSize.Height);
 
                 try
                 {
-                    using (context.PushOpacity(opacity))
+                    using (context.PushOpacity(state.CurOpacity))
                     {
-                        context.DrawImage(cover, src, dest);
+                        // 1. Draw Default Cover if available
+                        if (defaultCover != null)
+                        {
+                            var defSize = defaultCover.Size;
+                            var defSrc = new Rect(0, 0, defSize.Width, defSize.Height);
+                            context.DrawImage(defaultCover, defSrc, dest);
+                        }
+
+                        // 2. Draw Actual Cover with fade
+                        var cover = state.Item.CoverBitmap;
+                        if (cover != null && cover.Format != null && state.CoverFade > 0.001)
+                        {
+                            var coverSize = cover.Size;
+                            if (coverSize != default && coverSize.Width > 0 && coverSize.Height > 0)
+                            {
+                                var src = new Rect(0, 0, coverSize.Width, coverSize.Height);
+                                using (context.PushOpacity(state.CoverFade))
+                                {
+                                    context.DrawImage(cover, src, dest);
+                                }
+                            }
+                        }
                     }
                 }
                 catch { /* Safely handle middle-of-render disposal */ }
-                validSeen++;
             }
         }
     }
