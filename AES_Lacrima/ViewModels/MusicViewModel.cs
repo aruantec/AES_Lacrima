@@ -12,9 +12,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-using System.Xml.Serialization;
 
 namespace AES_Lacrima.ViewModels
 {
@@ -95,6 +93,17 @@ namespace AES_Lacrima.ViewModels
         private FolderMediaItem? _selectedAlbum;
 
         /// <summary>
+        /// The currently loaded album whose children are displayed in the cover items.
+        /// </summary>
+        private FolderMediaItem? _loadedAlbum;
+
+        /// <summary>
+        /// The text used to filter the current album's media items in the carousel.
+        /// </summary>
+        [ObservableProperty]
+        private string? _searchText;
+
+        /// <summary>
         /// Resolved settings view-model instance (injected via DI).
         /// </summary>
         [AutoResolve]
@@ -123,9 +132,11 @@ namespace AES_Lacrima.ViewModels
         {
             //Get fresh player instances
             AudioPlayer = DiLocator.ResolveViewModel<AudioPlayer>();
+            //Subscribe to the EndReached event to automatically play the next item.
             AudioPlayer?.EndReached += async (_, _) =>
             {
-
+                // Play the next item when the current one finishes.
+                PlayNext();
             };
             //Load settings
             LoadSettings();
@@ -319,12 +330,59 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void OpenSelectedFolder()
         {
-            //Set cover items to the children of the selected album, or an empty list if null
-            CoverItems = SelectedAlbum?.Children ?? [];
-            //Reset selected index to ensure the first item is highlighted when opening a new folder
+            _loadedAlbum = SelectedAlbum;
+            ApplyFilter();
+        }
+
+        /// <summary>
+        /// Clears the search text and resets the filter.
+        /// </summary>
+        [RelayCommand]
+        private void ClearSearch()
+        {
+            SearchText = string.Empty;
+        }
+
+        /// <summary>
+        /// Handles changes to the search text and triggers the filtering of results.
+        /// </summary>
+        partial void OnSearchTextChanged(string? value) => ApplyFilter();
+
+        /// <summary>
+        /// Filters the <see cref="CoverItems"/> based on the current <see cref="SearchText"/>.
+        /// </summary>
+        private void ApplyFilter()
+        {
+            if (_loadedAlbum?.Children == null)
+            {
+                CoverItems = [];
+                SelectedIndex = 0;
+                HighlightedItem = null;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(SearchText))
+            {
+                CoverItems = _loadedAlbum.Children;
+            }
+            else
+            {
+                var filtered = _loadedAlbum.Children
+                    .Where(item =>
+                        (item.Title?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                        (item.Artist?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                        (item.Album?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false))
+                    .ToList();
+
+                CoverItems = [.. filtered];
+            }
+
             SelectedIndex = 0;
-            //Trigger selection change to update the highlighted item
-            OnSelectedIndexChanged(0);
+            // Force update highlighted item
+            if (CoverItems.Count > 0)
+                HighlightedItem = CoverItems[0];
+            else
+                HighlightedItem = null;
         }
 
         /// <summary>

@@ -16,6 +16,8 @@
         <converters:BoolToBrushConverter x:Key="BoolToBrushConverter"/>
         <converters:BoolToStringConverter x:Key="BoolToStringConverter"/>
         <converters:BoolToValueConverter x:Key="BoolToValueConverter"/>
+        <converters:TimeSpanConverter x:Key="TimeSpanConverter"/>
+        <converters:StringNotEmptyToBoolConverter x:Key="StringNotEmptyToBoolConverter"/>
         <!-- Digital Equalizer Gradient: Red/Orange at Bottom, Cyan/Blue at Top -->
         <LinearGradientBrush x:Key="DigitalWaveformGradient" StartPoint="0,1" EndPoint="0,0">
             <GradientStop Color="#FF3300" Offset="0.0"/>

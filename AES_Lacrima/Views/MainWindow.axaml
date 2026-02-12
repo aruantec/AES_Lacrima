@@ -36,7 +36,7 @@
         <local:BoolToOpacityConverter x:Key="BoolToOpacityConverter" />
     </Window.Resources>
 
-    <Grid x:DataType="vm:MainWindowViewModel">
+    <Grid x:DataType="vm:MainWindowViewModel" ClipToBounds="False">
         <Grid.Styles>
             <!-- Transitions for overlays to animate opacity when the property changes -->
             <Style Selector="Border#SettingsOverlay">
@@ -71,17 +71,18 @@
 											Easing="SineEaseInOut"
 											CurrentViewModel="{Binding NavigationService.View}"
 											ClipToBounds="False"/>
-                <!--Settings Overlay-->
-                <Border x:Name="SettingsOverlay"
-                        Grid.Row="1"
-                        Background="#99000000"
-                        BorderThickness="0.5"
-                        Opacity="{Binding NavigationService.ShowSettingsOverlay, Converter={StaticResource BoolToOpacityConverter}}"
-                        IsHitTestVisible="{Binding NavigationService.ShowSettingsOverlay}">
-					<ScrollViewer>
+				<!--Settings Overlay-->
+				<Border x:Name="SettingsOverlay"
+						Grid.Row="1"
+						Background="#F2000000"
+						BorderThickness="0.5"
+						Opacity="{Binding NavigationService.ShowSettingsOverlay, Converter={StaticResource BoolToOpacityConverter}}"
+						IsHitTestVisible="{Binding NavigationService.ShowSettingsOverlay}"
+						ClipToBounds="False">
+					<ScrollViewer ClipToBounds="False">
 						<common:SettingsOverlay Margin="5,15,0,0"/>
-                    </ScrollViewer>
-                </Border>
+					</ScrollViewer>
+				</Border>
             </Grid>
         </controls:ScalableDecorator>
     </Grid>

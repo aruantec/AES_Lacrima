@@ -69,18 +69,18 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
 
     float jitter1 = fbm(vec2(uvTwist.x * 18.0 + iTime * 0.8, iTime * 1.8)) * 0.08;
     float surge1 = fbm(vec2(uvTwist.x * 24.0 - iTime * 1.6, iTime * 2.4)) * 0.06;
-    float waveOffset1 = (binHeight1 - 0.5) * 0.38 + (jitter1 - 0.035) * (0.45 + treble);
-    waveOffset1 += (surge1 - 0.03) * (0.5 + bass);
+    float waveOffset1 = (binHeight1 - 0.5) * 0.04 + (jitter1 - 0.035) * (0.35 + treble * 0.2);
+    waveOffset1 += (surge1 - 0.03) * (0.45 + bass * 0.15);
 
     float jitter2 = fbm(vec2(uvTwist.x * 16.0 + iTime * 1.1, iTime * 2.0)) * 0.07;
     float surge2 = fbm(vec2(uvTwist.x * 20.0 - iTime * 1.3, iTime * 2.1)) * 0.05;
-    float waveOffset2 = (binHeight2 - 0.5) * 0.32 + (jitter2 - 0.03) * (0.35 + treble);
-    waveOffset2 += (surge2 - 0.025) * (0.45 + bass);
+    float waveOffset2 = (binHeight2 - 0.5) * 0.03 + (jitter2 - 0.03) * (0.3 + treble * 0.15);
+    waveOffset2 += (surge2 - 0.025) * (0.4 + bass * 0.12);
 
     float jitter3 = fbm(vec2(uvTwist.x * 22.0 + iTime * 1.4, iTime * 2.2)) * 0.06;
     float surge3 = fbm(vec2(uvTwist.x * 26.0 - iTime * 1.1, iTime * 2.6)) * 0.045;
-    float waveOffset3 = (binHeight3 - 0.5) * 0.28 + (jitter3 - 0.028) * (0.3 + treble);
-    waveOffset3 += (surge3 - 0.022) * (0.35 + bass);
+    float waveOffset3 = (binHeight3 - 0.5) * 0.02 + (jitter3 - 0.028) * (0.25 + treble * 0.12);
+    waveOffset3 += (surge3 - 0.022) * (0.35 + bass * 0.1);
 
     float band1 = smoothstep(baseThickness * 1.3, 0.0, abs(uvTwist.y - waveOffset1));
     float bandGlow1 = smoothstep(baseThickness * 5.5, 0.0, abs(uvTwist.y - waveOffset1));
@@ -100,23 +100,30 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     vec3 waveColor1 = vec3(0.08, 0.78, 0.7);
     vec3 waveColor2 = vec3(0.28, 0.7, 0.2);
     vec3 waveColor3 = vec3(0.75, 0.7, 0.18);
-    vec3 glowColor = vec3(0.45, 0.75, 0.85);
+    vec3 glowColor = vec3(0.2, 0.4, 0.5);
     float electric1 = (band1 + 0.7 * bandFuzz1) * filament;
     float electric2 = (band2 + 0.6 * bandFuzz2) * (0.8 + filament * 0.5);
     float electric3 = (band3 + 0.55 * bandFuzz3) * (0.7 + filament * 0.4);
     float depth1 = 1.0;
     float depth2 = 0.75;
     float depth3 = 0.55;
-    col += waveColor1 * electric1 * (0.45 + 1.5 * binHeight1) * depth1;
-    col += waveColor2 * electric2 * (0.38 + 1.3 * binHeight2) * depth2;
-    col += waveColor3 * electric3 * (0.3 + 1.1 * binHeight3) * depth3;
-    col += glowColor * (bandGlow1 * depth1 + bandGlow2 * 0.75 * depth2 + bandGlow3 * 0.6 * depth3) * (0.22 + 1.1 * treble);
+    col += waveColor1 * electric1 * (0.8 + 1.8 * binHeight1) * depth1;
+    col += waveColor2 * electric2 * (0.7 + 1.6 * binHeight2) * depth2;
+    col += waveColor3 * electric3 * (0.6 + 1.4 * binHeight3) * depth3;
+
+    // Emissions - use wave colors for their own glow to make them "emit light"
+    col += waveColor1 * bandGlow1 * depth1 * (0.15 + 0.6 * treble);
+    col += waveColor2 * bandGlow2 * 0.75 * depth2 * (0.12 + 0.5 * treble);
+    col += waveColor3 * bandGlow3 * 0.6 * depth3 * (0.1 + 0.4 * treble);
+
+    // General cyan glow reduced
+    col += glowColor * (bandGlow1 * depth1 + bandGlow2 * 0.75 * depth2 + bandGlow3 * 0.6 * depth3) * 0.08;
 
     float starNoise = hash(uvScreen.x * 240.0 + uvScreen.y * 420.0 + iTime * 0.3);
     float stars = step(0.995, starNoise) * pow(1.0 - d, 1.2);
     col += stars * vec3(0.45, 0.7, 0.8) * (0.2 + mid * 0.7);
 
-    col += u_primary.rgb * (0.025 / (d + 0.05)) * (0.3 + bass * 0.7);
+    col += u_primary.rgb * (0.012 / (d + 0.05)) * (0.3 + bass * 0.7);
 
     fragColor = vec4(col * u_fade, 1.0);
 }

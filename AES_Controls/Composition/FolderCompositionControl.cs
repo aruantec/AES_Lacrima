@@ -234,12 +234,16 @@ public class FolderCompositionControl : Control
     {
         base.OnPointerPressed(e);
         _tgtPress = 0.94;
+        e.Pointer.Capture(this);
         StartAnimation();
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+        if (e.Pointer.Captured == this)
+            e.Pointer.Capture(null);
+
         if (_tgtPress < 1.0)
         {
             _tgtPress = 1.0;
@@ -250,6 +254,13 @@ public class FolderCompositionControl : Control
                     Command.Execute(CommandParameter);
             }
         }
+    }
+
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        _tgtPress = 1.0;
+        StartAnimation();
     }
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)

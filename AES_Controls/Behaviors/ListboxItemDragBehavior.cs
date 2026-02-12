@@ -1160,6 +1160,15 @@ namespace AES_Controls.Behaviors
             // Process auto-scroll speed while dragging
             if (_isDragging && _lastPointerScreenPos.HasValue)
             {
+                // Smoothly interpolate towards target speed for both axes
+                _autoScrollSpeed = new Vector(
+                    _autoScrollSpeed.X + (_targetAutoScrollSpeed.X - _autoScrollSpeed.X) * AutoScrollSmoothing,
+                    _autoScrollSpeed.Y + (_targetAutoScrollSpeed.Y - _autoScrollSpeed.Y) * AutoScrollSmoothing
+                );
+
+                if (Math.Abs(_autoScrollSpeed.X) < AutoScrollStopThreshold && Math.Abs(_targetAutoScrollSpeed.X) < AutoScrollStopThreshold)
+                    _autoScrollSpeed = new Vector(0, _autoScrollSpeed.Y);
+
                 if (Math.Abs(_autoScrollSpeed.Y) < AutoScrollStopThreshold && Math.Abs(_targetAutoScrollSpeed.Y) < AutoScrollStopThreshold)
                     _autoScrollSpeed = new Vector(_autoScrollSpeed.X, 0);
             }
