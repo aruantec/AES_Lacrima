@@ -97,7 +97,7 @@
         <TextBox Height="35"
                  VerticalAlignment="Top"
                  HorizontalAlignment="Right"
-                 Margin="0,50,40,0"
+                 Margin="0,30,40,0"
                  Watermark="Search"
                  Text="{Binding SearchText, Mode=TwoWay}"
                  Classes="SlickSearch">

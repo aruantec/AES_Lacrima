@@ -3,9 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
-using Avalonia.Platform;
 using Avalonia.Rendering.Composition;
-using Avalonia.Skia;
 using Avalonia.Threading;
 using SkiaSharp;
 using System.Collections;
@@ -33,6 +31,9 @@ namespace AES_Controls.Composition
         private string? _cachedBitmapName;
         private string? _cachedFileName;
         private HashSet<System.ComponentModel.INotifyPropertyChanged> _subscribedItems = new();
+        private readonly LinkedList<object> _imageCacheLru = new();
+        private readonly Dictionary<object, LinkedListNode<object>> _imageCacheNodes = new();
+        private int _maxImageCacheEntries = 200;
 
         private int _lastVirtualizationIndex = -1;
 
@@ -107,6 +108,9 @@ namespace AES_Controls.Composition
 
         public static readonly StyledProperty<double> GlobalOpacityProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(GlobalOpacity), 1.0);
+
+        public static readonly StyledProperty<int> ImageCacheSizeProperty =
+            AvaloniaProperty.Register<CompositionCarouselControl, int>(nameof(ImageCacheSize), 200);
 
         #endregion
 
@@ -232,6 +236,12 @@ namespace AES_Controls.Composition
         {
             get => GetValue(GlobalOpacityProperty);
             set => SetValue(GlobalOpacityProperty, value);
+        }
+
+        public int ImageCacheSize
+        {
+            get => GetValue(ImageCacheSizeProperty);
+            set => SetValue(ImageCacheSizeProperty, value);
         }
 
         private Rect SliderBounds
@@ -444,6 +454,8 @@ namespace AES_Controls.Composition
             var oldPlaceholder = _sharedPlaceholder;
             
             _imageCache.Clear();
+            _imageCacheNodes.Clear();
+            _imageCacheLru.Clear();
             _sharedPlaceholder = null;
             _images.Clear();
 
@@ -526,6 +538,8 @@ namespace AES_Controls.Composition
                 _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
             else if (change.Property == GlobalOpacityProperty)
                 _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
+            else if (change.Property == ImageCacheSizeProperty)
+                UpdateImageCacheSize(change.GetNewValue<int>());
             else if (change.Property == ItemsSourceProperty || 
                      change.Property == ImageFileNamePropertyProperty || 
                      change.Property == ImageBitmapPropertyProperty)
@@ -566,7 +580,10 @@ namespace AES_Controls.Composition
             for (int i = 0; i < items.Count; i++) 
             {
                 if (_imageCache.TryGetValue(items[i], out var cached))
+                {
                     _images.Add(cached);
+                    TouchCacheItem(items[i]);
+                }
                 else
                     _images.Add(placeholder);
 
@@ -581,6 +598,12 @@ namespace AES_Controls.Composition
             _visual?.SendHandlerMessage(_images.ToArray());
 
             UpdateVirtualization();
+        }
+
+        private void UpdateImageCacheSize(int cacheSize)
+        {
+            _maxImageCacheEntries = Math.Max(1, cacheSize);
+            TrimImageCache(new Dictionary<object, int>());
         }
 
 
@@ -625,7 +648,6 @@ namespace AES_Controls.Composition
 
             // Smaller window for fluidity, faster response
             const int loadWindow = 12;
-            const int pruneThreshold = 45;
 
             // 1. Build lookup dictionary for O(1) index check
             var itemToIndex = new Dictionary<object, int>();
@@ -640,10 +662,11 @@ namespace AES_Controls.Composition
             {
                 if (ct.IsCancellationRequested) return;
                 bool exists = itemToIndex.TryGetValue(key, out int idx);
-                if (!exists || Math.Abs(idx - centerIdx) > pruneThreshold)
+                if (!exists)
                 {
                     if (_imageCache.Remove(key, out var img))
                     {
+                        RemoveCacheNode(key);
                         if (exists && idx >= 0 && idx < _images.Count)
                         {
                             var placeholder = GetPlaceholder();
@@ -708,8 +731,7 @@ namespace AES_Controls.Composition
                 try
                 {
                     if (ct.IsCancellationRequested) return;
-                    if (bitmapValue != null) realImage = await ToSKImageAsync(bitmapValue);
-                    else if (fileName != null && System.IO.File.Exists(fileName)) realImage = await Task.Run(() => LoadAndResize(fileName, cachePath), ct);
+                    realImage = await LoadImageAsync(bitmapValue, fileName, cachePath, ct);
                 }
                 catch { }
 
@@ -729,6 +751,7 @@ namespace AES_Controls.Composition
                     }
 
                     _imageCache[item] = realImage;
+                    TouchCacheItem(item);
                     if (i < _images.Count) _images[i] = realImage;
                     SetImage(i, realImage);
                 }
@@ -737,6 +760,8 @@ namespace AES_Controls.Composition
                     SetLoading(i, false);
                 }
             }
+
+            TrimImageCache(itemToIndex);
         }
 
         private async Task LoadItemsAsync(IEnumerable? itemsSource, CancellationToken ct) => await VirtualizeAsync((int)Math.Round(SelectedIndex), ct);
@@ -767,8 +792,7 @@ namespace AES_Controls.Composition
                 SKImage? realImage = null;
                 try
                 {
-                    if (bitmapValue != null) realImage = await ToSKImageAsync(bitmapValue);
-                    else if (fileName != null && System.IO.File.Exists(fileName)) realImage = await Task.Run(() => LoadAndResize(fileName, cachePath));
+                    realImage = await LoadImageAsync(bitmapValue, fileName, cachePath, CancellationToken.None);
                 }
                 catch { }
 
@@ -777,6 +801,7 @@ namespace AES_Controls.Composition
                     if (_imageCache.TryGetValue(sender, out var old))
                         _visual?.SendHandlerMessage(new DisposeImageMessage(old));
                     _imageCache[sender] = realImage;
+                    TouchCacheItem(sender);
                     SetImage(idx, realImage);
                 }
             });
@@ -864,6 +889,63 @@ namespace AES_Controls.Composition
             finally
             {
                 if (buffer != null) System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        private async Task<SKImage?> LoadImageAsync(Bitmap? bitmapValue, string? fileName, string cachePath, CancellationToken ct)
+        {
+            if (ct.IsCancellationRequested) return null;
+            if (bitmapValue != null)
+                return await ToSKImageAsync(bitmapValue);
+            if (!string.IsNullOrEmpty(fileName) && System.IO.File.Exists(fileName))
+                return await Task.Run(() => LoadAndResize(fileName, cachePath), ct);
+            return null;
+        }
+
+        private void TouchCacheItem(object key)
+        {
+            if (_imageCacheNodes.TryGetValue(key, out var node))
+            {
+                _imageCacheLru.Remove(node);
+                _imageCacheLru.AddFirst(node);
+                return;
+            }
+
+            var newNode = _imageCacheLru.AddFirst(key);
+            _imageCacheNodes[key] = newNode;
+        }
+
+        private void RemoveCacheNode(object key)
+        {
+            if (_imageCacheNodes.TryGetValue(key, out var node))
+            {
+                _imageCacheNodes.Remove(key);
+                _imageCacheLru.Remove(node);
+            }
+        }
+
+        private void TrimImageCache(Dictionary<object, int> itemToIndex)
+        {
+            while (_imageCache.Count > _maxImageCacheEntries && _imageCacheLru.Last != null)
+            {
+                var key = _imageCacheLru.Last.Value;
+                _imageCacheLru.RemoveLast();
+                _imageCacheNodes.Remove(key);
+
+                if (_imageCache.Remove(key, out var img))
+                {
+                    if (itemToIndex.TryGetValue(key, out var idx) && idx >= 0 && idx < _images.Count)
+                    {
+                        var placeholder = GetPlaceholder();
+                        _images[idx] = placeholder;
+                        _visual?.SendHandlerMessage(new UpdateImageMessage(idx, placeholder, false));
+                    }
+
+                    if (_visual != null)
+                        _visual.SendHandlerMessage(new DisposeImageMessage(img));
+                    else
+                        img.Dispose();
+                }
             }
         }
 
