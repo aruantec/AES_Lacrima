@@ -123,6 +123,10 @@ namespace AES_Lacrima.ViewModels
         {
             //Get fresh player instances
             AudioPlayer = DiLocator.ResolveViewModel<AudioPlayer>();
+            AudioPlayer?.EndReached += async (_, _) =>
+            {
+
+            };
             //Load settings
             LoadSettings();
             //Setup equalizer
@@ -248,6 +252,68 @@ namespace AES_Lacrima.ViewModels
         }
 
         /// <summary>
+        /// Play the next media item in the current album/folder.
+        /// </summary>
+        [RelayCommand]
+        private void PlayNext()
+        {
+            // Get the current index of the selected media item in the cover items list
+            GetCurrentIndex(out int currentIndex);
+            // Move to the next index
+            currentIndex++;
+            // If the current index is invalid or already at the end of the list, do nothing
+            if (currentIndex > CoverItems.Count - 1)
+                return;
+            // Set the selected media item to the next item in the list and update the selected index
+            PlayIndexSelection(currentIndex);
+        }
+
+        /// <summary>
+        /// Plays the previous item in the current album/folder.
+        /// </summary>
+        [RelayCommand]
+        private void PlayPrevious()
+        {
+            // Get the current index of the selected media item in the cover items list
+            GetCurrentIndex(out int currentIndex);
+            // Move to the next index
+            currentIndex--;
+            // If the current index is invalid or already at the end of the list, do nothing
+            if (currentIndex < 0)
+                return;
+            // Set the selected media item to the next item in the list and update the selected index
+            PlayIndexSelection(currentIndex);
+        }
+
+        /// <summary>
+        /// Plays the media item at the specified index in the cover items list.
+        /// </summary>
+        /// <param name="currentIndex"></param>
+        private void PlayIndexSelection(int currentIndex)
+        {
+            // Set the selected media item to the next item in the list and update the selected index
+            SelectedMediaItem = CoverItems[currentIndex];
+            // Set the selected index to the new current index to update the UI highlight
+            SelectedIndex = currentIndex;
+            // Move to the next index and play the corresponding media item
+            AudioPlayer?.PlayFile(SelectedMediaItem);
+        }
+
+        /// <summary>
+        /// Determines the index of the currently selected media item within the cover items list.
+        /// </summary>
+        /// <param name="currentIndex"></param>
+        private bool GetCurrentIndex(out int currentIndex)
+        {
+            currentIndex = -1;
+            // Ensure there is a selected media item and that the cover items list is valid
+            if (SelectedMediaItem == null && CoverItems == null || CoverItems.Count == 0) return false;
+            // Find the index of the currently selected media item in the cover items list
+            currentIndex = CoverItems.IndexOf(SelectedMediaItem!);
+            return true;
+        }
+
+        /// <summary>
         /// Open the selected album/folder and populate the cover items with its children.
         /// </summary>
         [RelayCommand]
@@ -336,23 +402,23 @@ namespace AES_Lacrima.ViewModels
                     {
                         CoverBitmap = DefaultFolderCover ??= GenerateDefaultFolderCover(),
                         FileName = path,
-                        Title = System.IO.Path.GetFileName(path.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))
+                        Title = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
                     };
                     // Scan the folder for supported audio files and add them as children.
-                    if (System.IO.Directory.Exists(path))
+                    if (Directory.Exists(path))
                     {
                         var mediaItems = _supportedTypes
-                            .SelectMany(pattern => System.IO.Directory.EnumerateFiles(path, pattern))
+                            .SelectMany(pattern => Directory.EnumerateFiles(path, pattern))
                             // Filter out macOS resource fork files (names that start with "._") and other dot-files
                             .Where(file => {
-                                var name = System.IO.Path.GetFileName(file);
+                                var name = Path.GetFileName(file);
                                 return !(string.IsNullOrEmpty(name) || name.StartsWith("._") || name.StartsWith("."));
                             })
                             .Select(file => new MediaItem
                             {
                                 CoverBitmap = DefaultFolderCover ??= GenerateDefaultFolderCover(),
                                 FileName = file,
-                                Title = System.IO.Path.GetFileName(file)
+                                Title = Path.GetFileName(file)
                             });
                         // Add found media items as children of the folder item.
                         folderItem.Children.AddRange(mediaItems);

@@ -216,7 +216,8 @@
                         Width="60"
                         VerticalAlignment="Center"
                         Cursor="Hand"
-                        ToolTip.Tip="Previous">
+                        ToolTip.Tip="Previous"
+                        Command="{Binding PlayPreviousCommand}">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">
@@ -272,7 +273,8 @@
                         Width="60"
                         VerticalAlignment="Center"
                         Cursor="Hand"
-                        ToolTip.Tip="Next">
+                        ToolTip.Tip="Next"
+                        Command="{Binding PlayNextCommand}">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">
