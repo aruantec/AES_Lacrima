@@ -238,8 +238,8 @@
                 </Button>
 
                 <!-- Play button -->
-                <Button Height="80"
-                        Width="80"
+                <Button Height="100"
+                        Width="100"
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding TogglePlayCommand}"
@@ -331,7 +331,7 @@
                 <Button Height="60"
                         Width="60"
                         VerticalAlignment="Center"
-                        Margin="0,0,30,0"
+                        Margin="0,0,80,0"
                         Cursor="Hand"
                         ToolTip.Tip="Equalizer">
                     <Button.Template>
@@ -364,6 +364,25 @@
                         </Canvas>
                     </Viewbox>
                 </Button>
+
+                <!-- Volume Knob -->
+                <player:RoundVolumeKnob Width="60"
+                                        Height="60"
+                                        Minimum="0"
+                                        Maximum="100"
+                                        Value="{Binding AudioPlayer.Volume, Mode=TwoWay}"
+                                        KnobBrush="WhiteSmoke"
+                                        DotBrush="DimGray"
+                                        TickBrush="DimGray"
+                                        ActiveTickBrush="WhiteSmoke"
+                                        MinTextBrush="WhiteSmoke"
+                                        MaxTextBrush="WhiteSmoke"
+                                        KnobMargin="-3"
+                                        TickThickness="2"
+                                        MaxTextSize="12"
+                                        MinTextSize="12"
+                                        HorizontalAlignment="Right"
+                                        Margin="0,0,70,0"/>
             </StackPanel>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
@@ -383,7 +402,7 @@
                                         VisualBarCount="{Binding SettingsViewModel.WaveformVisualBars}"
                                         BarGradient="{Binding SettingsViewModel.UseWaveformGradient, Converter={StaticResource BoolToValueConverter}, ConverterParameter={StaticResource DigitalWaveformGradient}}"
                                         IsSymmetric="{Binding SettingsViewModel.IsWaveformSymmetric}"
-                                        Height="70"
+                                        Height="60"
                                         BorderBrush="Gray"
                                         Background="Transparent"
                                         BorderThickness="1"
