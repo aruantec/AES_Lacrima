@@ -121,10 +121,10 @@ namespace AES_Lacrima.ViewModels
         /// </summary>
         public override void Prepare()
         {
-            //Load settings
-            LoadSettings();
             //Get fresh player instances
             AudioPlayer = DiLocator.ResolveViewModel<AudioPlayer>();
+            //Load settings
+            LoadSettings();
             //Setup equalizer
             var equalizer = new Equalizer(AudioPlayer!);
             //Set equalizer bands from the settings if available
@@ -371,6 +371,9 @@ namespace AES_Lacrima.ViewModels
         /// <param name="section">The JSON settings section for this view-model.</param>
         protected override void OnLoadSettings(JsonObject section)
         {
+            // Load persisted volume setting if available, otherwise default to 70%.
+            AudioPlayer?.Volume = ReadDoubleSetting(section, "Volume", 70.0);
+            // Load persisted album list visibility state
             IsAlbumlistOpen = ReadBoolSetting(section, nameof(IsAlbumlistOpen), false);
             // Load persisted album list (folders and their children)
             AlbumList = ReadCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
@@ -404,6 +407,7 @@ namespace AES_Lacrima.ViewModels
         /// <param name="section">The JSON settings section for this view-model.</param>
         protected override void OnSaveSettings(JsonObject section)
         {
+            WriteSetting(section, nameof(AudioPlayer.Volume), AudioPlayer!.Volume);
             WriteSetting(section, nameof(IsAlbumlistOpen), IsAlbumlistOpen);
             // Persist AlbumList (folders and children). We only store the serializable model data.
             WriteCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
