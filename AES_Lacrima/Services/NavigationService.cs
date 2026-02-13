@@ -54,7 +54,21 @@ namespace AES_Lacrima.Services
             }
             //Check if the current view is a MusicViewModel and set it to inactive before navigating back to fade out
             if (View is MusicViewModel musicViewModel)
+            {
+                if (musicViewModel.MetadataService != null && 
+                    musicViewModel.MetadataService.IsMetadataLoaded)
+                {
+                    musicViewModel.MetadataService.IsMetadataLoaded = false;
+                    return;
+                }
+                else if (musicViewModel.IsEqualizerVisible)
+                {
+                    musicViewModel.IsEqualizerVisible = false;
+                    return;
+                }
+
                 musicViewModel.IsActive = false;
+            }
             //Set current view to previous view
             View = _previousViewModel;
             //Set back naviation

@@ -8,6 +8,7 @@
              xmlns:player="using:AES_Controls.Player"
              xmlns:spectrum="using:AES_Controls.Player.Spectrum"
              xmlns:behaviors="using:AES_Lacrima.Behaviors"
+             xmlns:common="using:AES_Lacrima"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.MusicView"
@@ -202,6 +203,9 @@
             </composition:EqualizerCompositionControl>
         </Grid>
 
+        <!-- MetadataOverlay -->
+        <common:MetadataOverlay DataContext="{Binding MetadataService}"/>
+
         <!-- Media buttons -->
         <Grid Grid.Row="1" Height="140" Background="#E6000000">
             <!-- Left buttons -->
@@ -287,7 +291,8 @@
                         Width="60"
                         VerticalAlignment="Center"
                         Cursor="Hand"
-                        ToolTip.Tip="Edit Tags">
+                        ToolTip.Tip="Edit Tags"
+                        Command="{Binding OpenMetadataCommand}">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">
@@ -302,9 +307,10 @@
                         <Canvas Width="100" Height="100">
                             <!-- Rounded square frame with gap at top-right -->
                             <Path Data="M 50,18 H 30 C 20,18 18,20 18,30 V 78 C 18,88 20,92 30,92 H 78 C 88,92 92,88 92,78 V 55"
-                                  Stroke="White" StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
+                                  Stroke="{Binding IsTagIconDimmed, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,White'}"
+                                  StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
                             <!-- Simple diagonal line representing the pen -->
-                            <Line StartPoint="35,80" EndPoint="92,23" Stroke="White" StrokeThickness="11" StrokeLineCap="Round" />
+                            <Line StartPoint="35,80" EndPoint="92,23" Stroke="{Binding IsTagIconDimmed, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,White'}" StrokeThickness="11" StrokeLineCap="Round" />
                         </Canvas>
                     </Viewbox>
                 </Button>
@@ -425,8 +431,8 @@
                         Width="60"
                         VerticalAlignment="Center"
                         Cursor="Hand"
-                        Command="{Binding ToggleRepeatCommand}"
-                        ToolTip.Tip="Repeat">
+                Command="{Binding ToggleRepeatCommand}"
+                        ToolTip.Tip="{Binding NextRepeatToolTip}">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">
@@ -524,6 +530,7 @@
             </StackPanel>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
+
         <!-- Progressbar -->
         <Grid Grid.Row="2" Background="#E6000000">
 			<player:WaveformProgressBar Margin="1,5,1,10"
@@ -550,6 +557,7 @@
                                         TriangleOffset="-14"/>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
+
         <!-- Menu-->
         <navigation:MusicListView Grid.Row="3">
             <i:Interaction.Behaviors>

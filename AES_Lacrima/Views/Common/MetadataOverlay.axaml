@@ -1,0 +1,248 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:services="using:AES_Lacrima.Services"
+             xmlns:vm="using:AES_Lacrima.ViewModels"
+             mc:Ignorable="d"
+             x:Class="AES_Lacrima.MetadataOverlay"
+             x:DataType="services:MetadataService"
+             IsHitTestVisible="{Binding IsMetadataLoaded}"
+             Opacity="{Binding IsMetadataLoaded, Converter={StaticResource BoolToOpacityConverter}}">
+
+    <UserControl.Transitions>
+        <Transitions>
+            <DoubleTransition Property="Opacity" Duration="0:0:0.32" />
+        </Transitions>
+    </UserControl.Transitions>
+
+    <!-- Sets the DataContext for the previewer -->
+    <Design.DataContext>
+        <vm:MusicViewModel />
+    </Design.DataContext>
+
+    <Grid Background="#E6000000">
+        <StackPanel>
+            <Grid Margin="30,20,0,50" ColumnDefinitions="*, Auto">
+                <Label Grid.Column="0"
+                       Grid.ColumnSpan="2"
+                       Content="Metadata Editor"
+                       FontSize="45"
+                       Foreground="White"
+                       VerticalAlignment="Center"
+                       HorizontalAlignment="Left" />
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,20,0">
+                    <!-- Add -->
+                    <Button HorizontalAlignment="Right" Command="{Binding SaveMetadataCommand}">
+                        <ToolTip.Tip>
+                            <TextBlock FontSize="16" Text="Add Image" />
+                        </ToolTip.Tip>
+                        <Button.Template>
+                            <ControlTemplate>
+                                <StackPanel Orientation="Horizontal" Background="Transparent">
+                                    <Label Content="SAVE"
+                                           Foreground="White"
+                                           FontSize="27"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,-10,0"/>
+                                    <Viewbox Height="55" Width="100" Stretch="Uniform">
+                                        <Canvas Width="100" Height="100">
+                                            <!-- Outer rounded frame -->
+                                            <Rectangle Canvas.Left="8" Canvas.Top="8" Width="84" Height="84" RadiusX="14" RadiusY="14"
+                                                       Stroke="White" StrokeThickness="10" Fill="Transparent" />
+
+                                            <!-- Top inset (floppy disk notch) -->
+                                            <Rectangle Canvas.Left="28" Canvas.Top="18" Width="44" Height="28" RadiusX="8" RadiusY="8"
+                                                       Stroke="White" StrokeThickness="10" Fill="Transparent" />
+
+                                            <!-- Small vertical indicator inside notch -->
+                                            <Rectangle Canvas.Left="62" Canvas.Top="32" Width="8" Height="20" RadiusX="4" RadiusY="4"
+                                                       Fill="White" />
+                                        </Canvas>
+                                    </Viewbox>
+                                </StackPanel>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <Grid ColumnDefinitions="Auto, *, Auto, Auto">
+                <Grid Grid.Column="0"
+                      ColumnDefinitions="Auto, 450"
+                      RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto"
+                      RowSpacing="10"
+                      Margin="20,0,0,0">
+                    <Grid.Styles>
+                        <Style Selector="Label">
+                            <Setter Property="FontSize" Value="22" />
+                        </Style>
+                        <Style Selector="TextBox">
+                            <Setter Property="FontSize" Value="22" />
+                        </Style>
+                    </Grid.Styles>
+
+                    <!-- Title -->
+                    <Label Grid.Row="0" Grid.Column="0" Content="Title: "
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right" />
+                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Title, Mode=TwoWay}" VerticalAlignment="Center" />
+
+                    <!-- Album -->
+                    <Label Grid.Row="1" Grid.Column="0" Content="Album: "
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right" />
+                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Album, Mode=TwoWay}" VerticalAlignment="Center" />
+
+                    <!-- Artists -->
+                    <Label Grid.Row="2" Grid.Column="0" Content="Artists: "
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right" />
+                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Artists, Mode=TwoWay}" VerticalAlignment="Center" />
+
+                    <!-- Track -->
+                    <Label Grid.Row="3" Grid.Column="0" Content="Track: "
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right" />
+                    <TextBox Grid.Row="3" Grid.Column="1" Width="100" HorizontalAlignment="Left" Text="{Binding Track, Mode=TwoWay}" VerticalAlignment="Center" />
+
+                    <!-- Year -->
+                    <Label Grid.Row="4" Grid.Column="0" Content="Year: "
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right" />
+                    <TextBox Grid.Row="4" Grid.Column="1" Width="100" HorizontalAlignment="Left" Text="{Binding Year, Mode=TwoWay}" VerticalAlignment="Center" />
+
+                    <!-- Genre -->
+                    <Label Grid.Row="5" Grid.Column="0" Content="Genre: "
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right" />
+                    <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding Genres, Mode=TwoWay}" VerticalAlignment="Center" />
+
+                    <!-- Comment -->
+                    <Label Grid.Row="6" Grid.Column="0" Content="Comments: "
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right" />
+                    <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding Comment, Mode=TwoWay}" VerticalAlignment="Center" />
+
+                    <!-- Lyrics -->
+                    <Label Grid.Row="7" Grid.Column="0" Content="Lyrics: "
+                           Foreground="White"
+                           VerticalAlignment="Top"
+                           HorizontalAlignment="Right" />
+                    <TextBox Grid.Row="7" Grid.Column="3"
+                             Text="{Binding Lyrics, Mode=TwoWay}"
+                             VerticalAlignment="Center"
+                             TextWrapping="Wrap"
+                             Height="130" />
+
+                    <!-- Url -->
+                    <Label Grid.Row="8" Grid.Column="0" Content="Url: "
+                           Foreground="White"
+                           VerticalAlignment="Top"
+                           HorizontalAlignment="Right" />
+                    <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding FilePath, Mode=TwoWay}" VerticalAlignment="Center" />
+                </Grid>
+
+                <StackPanel Grid.Column="1" Margin="50,0,0,0" VerticalAlignment="Stretch">
+                    <StackPanel Orientation="Horizontal" Spacing="30">
+                        <Label Content="Images"
+                               FontSize="35"
+                               Foreground="White"
+                               VerticalAlignment="Top" />
+                        <ComboBox ItemsSource="{Binding ImageKinds}"
+                                  SelectedItem="{Binding SelectedImageKind, Mode=TwoWay}"
+                                  VerticalAlignment="Center"
+                                  FontSize="22" />
+
+                        <!-- Add -->
+                        <Button Command="{Binding OpenAddImageDialogCommand}">
+                            <ToolTip.Tip>
+                                <TextBlock FontSize="16" Text="Add Image" />
+                            </ToolTip.Tip>
+                            <Button.Template>
+                                <ControlTemplate>
+                                    <Viewbox Height="45" Width="100" Stretch="Uniform">
+                                        <Canvas Width="100" Height="100">
+                                            <!-- Rounded frame -->
+                                            <Rectangle Canvas.Left="2" Canvas.Top="2" Width="96" Height="96" RadiusX="22" RadiusY="22" Stroke="White" StrokeThickness="8" Fill="Transparent" />
+
+                                            <!-- Central plus sign -->
+                                            <Rectangle Canvas.Left="46" Canvas.Top="32" Width="8" Height="36" RadiusX="4" RadiusY="4" Fill="White" />
+                                            <Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="White" />
+                                        </Canvas>
+                                    </Viewbox>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </StackPanel>
+
+                    <Border Margin="0,40,0,0">
+                        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl Margin="0,0,30,0" ItemsSource="{Binding Images}" HorizontalAlignment="Stretch">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="DimGray"
+                                                CornerRadius="8"
+                                                ClipToBounds="True"
+                                                Padding="5">
+                                            <StackPanel>
+                                                <ComboBox ItemsSource="{Binding ImageKinds}"
+                                                          SelectedItem="{Binding Kind, Mode=TwoWay}"
+                                                          HorizontalAlignment="Stretch"
+                                                          Margin="-5,-3,-5,0" />
+                                                <Image Source="{Binding PreviewImage}" Stretch="UniformToFill" Width="250" Height="200" />
+
+                                                <!-- delete -->
+                                                <Button HorizontalAlignment="Right"
+                                                        Padding="5"
+                                                        Command="{Binding DeleteImageCommand}">
+                                                    <ToolTip.Tip>
+                                                        <TextBlock FontSize="16" Text="Add Image" />
+                                                    </ToolTip.Tip>
+                                                    <Button.Template>
+                                                        <ControlTemplate>
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <Label Content="DELETE"
+                                                                       VerticalAlignment="Center"
+                                                                       Foreground="White" />
+                                                                <Viewbox Height="35" Width="35" Stretch="Uniform">
+                                                                    <Canvas Width="100" Height="100">
+                                                                        <!-- Top bar / lid (capsule) -->
+                                                                        <Rectangle Canvas.Left="6" Canvas.Top="28" Width="88" Height="12" RadiusX="6" RadiusY="6" Fill="White" />
+
+                                                                        <!-- Handle centered above the lid -->
+                                                                        <Rectangle Canvas.Left="36" Canvas.Top="10" Width="28" Height="26" RadiusX="10" RadiusY="10" Fill="White" />
+
+                                                                        <!-- Body (rounded outline) - less rounded corners -->
+                                                                        <Rectangle Canvas.Left="18" Canvas.Top="40" Width="64" Height="48" RadiusX="8" RadiusY="8" Stroke="White" StrokeThickness="10" Fill="Transparent" />
+                                                                    </Canvas>
+                                                                </Viewbox>
+                                                            </StackPanel>
+                                                        </ControlTemplate>
+                                                    </Button.Template>
+                                                </Button>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel ItemSpacing="20" LineSpacing="20" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </Grid>
+</UserControl>

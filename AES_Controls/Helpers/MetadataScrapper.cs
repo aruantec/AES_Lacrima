@@ -199,16 +199,25 @@ namespace AES_Controls.Helpers
                                 out pic,
                                 out wall);
                         }
-                        return new { t = t ?? "", a = a ?? "", al, pic, wall, Success = true };
+                        var hasFrontCover = pictures != null && pictures.Any(p => p?.Type == PictureType.FrontCover);
+                        var hasEmbedded = pictures != null && pictures.Length > 0;
+                        return new { t = t ?? "", a = a ?? "", al, pic, wall, hasFrontCover, hasEmbedded, Success = true };
                     }
                     catch (Exception ex)
                     {
                         Log.Error($"Error extracting tags from {key}", ex);
-                        return new { t = Path.GetFileNameWithoutExtension(key), a = "", al = "", pic = (byte[]?)null, wall = (byte[]?)null, Success = false };
+                        return new { t = Path.GetFileNameWithoutExtension(key), a = "", al = "", pic = (byte[]?)null, wall = (byte[]?)null, hasFrontCover = false, hasEmbedded = false, Success = false };
                     }
                 }, token);
 
                 if (token.IsCancellationRequested) return;
+
+                // Log what we found in tags for diagnostics
+                try
+                {
+                    Log.Debug($"MetadataScrapper: {key} - embedded:{tagResult.hasEmbedded} frontCover:{tagResult.hasFrontCover}");
+                }
+                catch { }
 
                 await Dispatcher.UIThread.InvokeAsync(() => {
                     mi.Title = tagResult.t;
@@ -216,12 +225,17 @@ namespace AES_Controls.Helpers
                     mi.Album = tagResult.al;
                 });
 
-                if (tagResult.pic != null || tagResult.wall != null)
+                // If the tag contained any embedded pictures, always prioritize those
+                // and do not perform online lookups even if decoding fails.
+                if (tagResult.hasEmbedded)
                 {
+                    Log.Debug($"MetadataScrapper: {key} - processing embedded images (will skip online lookups)");
                     await ProcessEmbeddedImagesInternal(mi, tagResult.pic, tagResult.wall, key, token).ConfigureAwait(false);
-                    if (mi.CoverBitmap != _defaultCover) return;
+                    return;
                 }
 
+                // No embedded pictures - fall back to online services
+                Log.Debug($"MetadataScrapper: {key} - no embedded images, performing online lookup");
                 if (mi.CoverBitmap == null || mi.CoverBitmap == _defaultCover)
                 {
                     await FetchAppleMetadataInternal(mi, tagResult.t, tagResult.a, key, token).ConfigureAwait(false);
@@ -296,23 +310,65 @@ namespace AES_Controls.Helpers
 
             if (pictures == null || pictures.Length == 0) return;
 
-            foreach (var picture in pictures)
+            // Prioritize explicit front-cover images
+            if (includeCover)
             {
-                if ((!includeCover || cover != null) && (!includeWallpaper || wallpaper != null)) break;
+                foreach (var picture in pictures)
+                {
+                    if (picture == null) continue;
+                    var data = picture.Data;
+                    if (data == null) continue;
+                    // Allow FrontCover to be selected even if it exceeds the configured
+                    // embedded image byte cap — prefer honoring explicit front covers.
+                    if (maxBytes > 0 && data.Count > maxBytes && picture.Type != PictureType.FrontCover) continue;
+                    var bytes = data.Data;
+                    if (bytes == null || bytes.Length == 0) continue;
 
-                bool isWallpaper = picture.Description?.Contains("wallpaper", StringComparison.OrdinalIgnoreCase) == true;
-                if (isWallpaper && (!includeWallpaper || wallpaper != null)) continue;
-                if (!isWallpaper && (!includeCover || cover != null)) continue;
+                    if (picture.Type == PictureType.FrontCover)
+                    {
+                        cover = bytes;
+                        break;
+                    }
+                }
+            }
 
-                var data = picture.Data;
-                if (data == null) continue;
-                if (maxBytes > 0 && data.Count > maxBytes) continue;
+            // If no front cover found, pick the first non-wallpaper, non-backcover picture as cover
+            if (includeCover && cover == null)
+            {
+                foreach (var picture in pictures)
+                {
+                    if (picture == null) continue;
+                    var isWallpaper = picture.Description?.Contains("wallpaper", StringComparison.OrdinalIgnoreCase) == true;
+                    if (isWallpaper) continue;
+                    if (picture.Type == PictureType.BackCover) continue; // explicitly skip back cover
 
-                var bytes = data.Data;
-                if (bytes == null || bytes.Length == 0) continue;
+                    var data = picture.Data;
+                    if (data == null) continue;
+                    if (maxBytes > 0 && data.Count > maxBytes && picture.Type != PictureType.FrontCover) continue;
+                    var bytes = data.Data;
+                    if (bytes == null || bytes.Length == 0) continue;
 
-                if (isWallpaper) wallpaper = bytes;
-                else cover = bytes;
+                    cover = bytes;
+                    break;
+                }
+            }
+
+            // Wallpaper selection: prefer explicit illustration or description containing 'wallpaper'
+            if (includeWallpaper)
+            {
+                foreach (var picture in pictures)
+                {
+                    if (picture == null) continue;
+                    var isWallpaper = picture.Description?.Contains("wallpaper", StringComparison.OrdinalIgnoreCase) == true || picture.Type == PictureType.Illustration;
+                    if (!isWallpaper) continue;
+                    var data = picture.Data;
+                    if (data == null) continue;
+                    if (maxBytes > 0 && data.Count > maxBytes && picture.Type != PictureType.Illustration && picture.Type != PictureType.FrontCover) continue;
+                    var bytes = data.Data;
+                    if (bytes == null || bytes.Length == 0) continue;
+                    wallpaper = bytes;
+                    break;
+                }
             }
         }
 
