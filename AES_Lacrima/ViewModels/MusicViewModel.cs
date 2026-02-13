@@ -2,6 +2,7 @@
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
+using AES_Lacrima.Services;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Media;
@@ -99,12 +100,6 @@ namespace AES_Lacrima.ViewModels
         private FolderMediaItem? _selectedAlbum;
 
         /// <summary>
-        /// Gets or sets the equalizer used for audio processing.
-        /// </summary>
-        [ObservableProperty]
-        private Equalizer? _equalizer;
-
-        /// <summary>
         /// The currently loaded album whose children are displayed in the cover items.
         /// </summary>
         private FolderMediaItem? _loadedAlbum;
@@ -137,6 +132,13 @@ namespace AES_Lacrima.ViewModels
         private MainWindowViewModel? _mainWindowViewModel;
 
         /// <summary>
+        /// Gets or sets the EqualizerService instance used for audio equalization.
+        /// </summary>
+        [AutoResolve]
+        [ObservableProperty]
+        private EqualizerService? _equalizerService;
+
+        /// <summary>
         /// Prepare and initialize the view-model. Loads persisted settings
         /// and resolves required services (audio player).
         /// </summary>
@@ -153,9 +155,7 @@ namespace AES_Lacrima.ViewModels
             //Load settings
             LoadSettings();
             //Setup equalizer
-            Equalizer = new Equalizer(AudioPlayer!);
-            //Set equalizer bands from the settings if available
-            //equalizer.InitializeBands();
+            EqualizerService?.Initialize(AudioPlayer!);
             // Start metadata scrappers for any folders loaded from settings
             StartMetadataScrappersForLoadedFolders();
             //Set main spectrum

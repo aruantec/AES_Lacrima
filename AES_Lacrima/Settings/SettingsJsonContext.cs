@@ -15,8 +15,11 @@ namespace AES_Lacrima.Settings
     // Media model types used in persisted settings
     [JsonSerializable(typeof(MediaItem))]
     [JsonSerializable(typeof(FolderMediaItem))]
+    // Equalizer band model
+    [JsonSerializable(typeof(BandModel))]
     // Collections used when saving/loading view-model lists
     [JsonSerializable(typeof(List<MediaItem>))]
     [JsonSerializable(typeof(List<FolderMediaItem>))]
+    [JsonSerializable(typeof(List<BandModel>))]
     public partial class SettingsJsonContext : JsonSerializerContext;
 }

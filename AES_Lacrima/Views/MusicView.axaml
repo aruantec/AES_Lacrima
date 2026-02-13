@@ -189,7 +189,7 @@
                    Foreground="White"
                    Margin="100,20,0,10"/>
             <composition:EqualizerCompositionControl Grid.Row="1"
-                                                     Bands="{Binding Equalizer.Bands}"
+                                                     Bands="{Binding EqualizerService.Equalizer.Bands}"
                                                      Background="Transparent"
                                                      TextFontSize="22"
                                                      Margin="50"
