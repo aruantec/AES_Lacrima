@@ -10,6 +10,7 @@ using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -139,6 +140,32 @@ namespace AES_Lacrima.ViewModels
         private EqualizerService? _equalizerService;
 
         /// <summary>
+        /// Gets or sets the metadata service used for retrieving metadata information.
+        /// </summary>
+        [AutoResolve]
+        [ObservableProperty]
+        private MetadataService? _metadataService;
+
+        /// <summary>
+        /// Tooltip text describing the repeat mode that will be activated when the
+        /// repeat button is clicked (i.e. the "next" repeat state).
+        /// </summary>
+        public string NextRepeatToolTip
+        {
+            get
+            {
+                if (AudioPlayer == null) return "Repeat";
+                return AudioPlayer.RepeatMode switch
+                {
+                    RepeatMode.Off => "Repeat One",
+                    RepeatMode.One => "Repeat All",
+                    RepeatMode.All => "Turn Repeat Off",
+                    _ => "Repeat",
+                };
+            }
+        }
+
+        /// <summary>
         /// Prepare and initialize the view-model. Loads persisted settings
         /// and resolves required services (audio player).
         /// </summary>
@@ -146,6 +173,9 @@ namespace AES_Lacrima.ViewModels
         {
             //Get fresh player instances
             AudioPlayer = DiLocator.ResolveViewModel<AudioPlayer>();
+            // Listen for changes on the audio player so UI-bound helper properties
+            // (like tooltip text for repeat) get refreshed when RepeatMode changes.
+            AudioPlayer?.PropertyChanged += AudioPlayer_PropertyChanged;
             //Subscribe to the EndReached event to automatically play the next item.
             AudioPlayer?.EndReached += async (_, _) =>
             {
@@ -160,7 +190,33 @@ namespace AES_Lacrima.ViewModels
             StartMetadataScrappersForLoadedFolders();
             //Set main spectrum
             _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
+            // Listen for metadata service changes to update UI state
+            MetadataService?.PropertyChanged += MetadataService_PropertyChanged;
         }
+
+        private void MetadataService_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(MetadataService.IsMetadataLoaded))
+            {
+                OnPropertyChanged(nameof(IsTagIconDimmed));
+            }
+        }
+
+        private void AudioPlayer_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            // When the player's repeat mode changes, notify bindings for the tooltip
+            // that shows which mode will be activated when the user clicks the button.
+            if (e.PropertyName == nameof(AudioPlayer.RepeatMode) || e.PropertyName == nameof(AudioPlayer.Loop) || e.PropertyName == nameof(AudioPlayer.IsRepeatOne))
+            {
+                OnPropertyChanged(nameof(NextRepeatToolTip));
+            }
+        }
+
+        /// <summary>
+        /// True when the tag editor icon should be dimmed (DimGray). This is when
+        /// there is no highlighted item OR the metadata editor overlay is open.
+        /// </summary>
+        public bool IsTagIconDimmed => HighlightedItem == null || MetadataService?.IsMetadataLoaded == true;
 
         /// <summary>
         /// Triggers on selected index change.
@@ -173,6 +229,12 @@ namespace AES_Lacrima.ViewModels
             {
                 HighlightedItem = highlighted;
             }
+        }
+
+        partial void OnHighlightedItemChanged(MediaItem? value)
+        {
+            // Notify the dependent computed property so bindings update
+            OnPropertyChanged(nameof(IsTagIconDimmed));
         }
 
         /// <summary>
@@ -246,12 +308,27 @@ namespace AES_Lacrima.ViewModels
             return renderTarget;
         }
 
+        [RelayCommand]
+        private void OpenMetadata()
+        {
+            // If the equalizer is open, close it to ensure only one overlay is visible at a time.
+            if (IsEqualizerVisible) IsEqualizerVisible = false;
+            // If there is no highlighted item or metadata is already loaded, do nothing.
+            if (MetadataService != null && MetadataService.IsMetadataLoaded) return;
+            // Load metadata for the currently highlighted item, which will trigger the metadata editor overlay to open.
+            MetadataService?.LoadMetadataAsync(HighlightedItem!);
+        }
+
         /// <summary>
         /// Toggles the visibility of the equalizer interface.
         /// </summary>
         [RelayCommand]
         private void ToggleEqualizer()
         {
+            // If the metadata editor is open, close it to ensure only one overlay is visible at a time.
+            if (MetadataService != null && MetadataService.IsMetadataLoaded)
+                MetadataService.IsMetadataLoaded = false;
+            // Toggle the equalizer visibility state.
             IsEqualizerVisible = !IsEqualizerVisible;
         }
 
