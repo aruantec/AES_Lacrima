@@ -462,11 +462,11 @@ namespace AES_Controls.Composition
             foreach (var item in _subscribedItems) item.PropertyChanged -= Item_PropertyChanged;
             _subscribedItems.Clear();
             
-            // 1. Notify visual handler of empty list first so it stops rendering old items
+            // Notify visual handler of empty list first so it stops rendering old items
 
             _visual?.SendHandlerMessage(new List<SKImage>());
 
-            // 2. Then schedule disposal of native resources
+            // Then schedule disposal of native resources
             foreach (var img in oldCache) 
             {
                 var capturedImg = img;
@@ -535,7 +535,11 @@ namespace AES_Controls.Composition
             else if (change.Property == BackgroundProperty)
                 _visual?.SendHandlerMessage(new BackgroundMessage(GetSkColor(change.GetNewValue<IBrush>())));
             else if (change.Property == OpacityProperty)
+            {
+                // Forward opacity changes to visuals that support global opacity messaging
                 _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
+                _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
+            }
             else if (change.Property == GlobalOpacityProperty)
                 _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
             else if (change.Property == ImageCacheSizeProperty)
@@ -683,7 +687,7 @@ namespace AES_Controls.Composition
                 }
             }
 
-            // 3. Load missing items
+            // Load missing items
             int start = Math.Max(0, centerIdx - loadWindow);
             int end = Math.Min(totalCount - 1, centerIdx + loadWindow);
             var indicesToLoad = Enumerable.Range(start, end - start + 1)

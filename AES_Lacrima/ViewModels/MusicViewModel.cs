@@ -36,6 +36,12 @@ namespace AES_Lacrima.ViewModels
         private readonly string[] _supportedTypes = ["*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4"];
 
         /// <summary>
+        /// Gets or sets a value indicating whether the equalizer is visible.
+        /// </summary>
+        [ObservableProperty]
+        private bool _isEqualizerVisible;
+
+        /// <summary>
         /// Indicates whether the album/folder list panel is currently open.
         /// </summary>
         [ObservableProperty]
@@ -93,6 +99,12 @@ namespace AES_Lacrima.ViewModels
         private FolderMediaItem? _selectedAlbum;
 
         /// <summary>
+        /// Gets or sets the equalizer used for audio processing.
+        /// </summary>
+        [ObservableProperty]
+        private Equalizer? _equalizer;
+
+        /// <summary>
         /// The currently loaded album whose children are displayed in the cover items.
         /// </summary>
         private FolderMediaItem? _loadedAlbum;
@@ -141,9 +153,9 @@ namespace AES_Lacrima.ViewModels
             //Load settings
             LoadSettings();
             //Setup equalizer
-            var equalizer = new Equalizer(AudioPlayer!);
+            Equalizer = new Equalizer(AudioPlayer!);
             //Set equalizer bands from the settings if available
-            equalizer.InitializeBands();
+            //equalizer.InitializeBands();
             // Start metadata scrappers for any folders loaded from settings
             StartMetadataScrappersForLoadedFolders();
             //Set main spectrum
@@ -235,6 +247,15 @@ namespace AES_Lacrima.ViewModels
         }
 
         /// <summary>
+        /// Toggles the visibility of the equalizer interface.
+        /// </summary>
+        [RelayCommand]
+        private void ToggleEqualizer()
+        {
+            IsEqualizerVisible = !IsEqualizerVisible;
+        }
+
+        /// <summary>
         /// Set the current playback position (seconds or normalized position
         /// depending on the player implementation).
         /// </summary>
@@ -272,9 +293,20 @@ namespace AES_Lacrima.ViewModels
             GetCurrentIndex(out int currentIndex);
             // Move to the next index
             currentIndex++;
-            // If the current index is invalid or already at the end of the list, do nothing
+            // If the current index is invalid or already at the end of the list
             if (currentIndex > CoverItems.Count - 1)
-                return;
+            {
+                // If Repeat All is enabled, wrap around to the first item
+                if (AudioPlayer?.RepeatMode == RepeatMode.All)
+                {
+                    currentIndex = 0;
+                }
+                else
+                {
+                    // Otherwise, just stop or stay at the last item
+                    return;
+                }
+            }
             // Set the selected media item to the next item in the list and update the selected index
             PlayIndexSelection(currentIndex);
         }
@@ -331,6 +363,9 @@ namespace AES_Lacrima.ViewModels
         private void OpenSelectedFolder()
         {
             _loadedAlbum = SelectedAlbum;
+            // Reset repeat mode when changing albums
+            if (AudioPlayer != null)
+                AudioPlayer.RepeatMode = RepeatMode.Off;
             ApplyFilter();
         }
 
@@ -413,22 +448,42 @@ namespace AES_Lacrima.ViewModels
         /// Toggle play/pause state of the audio player.
         /// </summary>
         [RelayCommand]
-        private void TogglePlay()
+        private async Task TogglePlay()
         {
-            if (AudioPlayer == null) return;
+            if (AudioPlayer == null || AudioPlayer.IsLoadingMedia) return;
+
             if (AudioPlayer.IsPlaying)
+            {
                 AudioPlayer.Pause();
+            }
             else
-                AudioPlayer.Play();
+            {
+                // If stopped (Duration is 0 typically means no file is loaded in mpv after a stop)
+                if (AudioPlayer.Duration <= 0 && SelectedMediaItem != null)
+                {
+                    await AudioPlayer.PlayFile(SelectedMediaItem);
+                }
+                else
+                {
+                    AudioPlayer.Play();
+                }
+            }
         }
 
         /// <summary>
-        /// Toggle repeat/looping mode for the audio player.
+        /// Toggle repeat/looping mode for the audio player through 3 states: Off, One, All.
         /// </summary>
         [RelayCommand]
         private void ToggleRepeat()
         {
-            AudioPlayer?.Loop = !AudioPlayer.Loop;
+            if (AudioPlayer == null) return;
+            AudioPlayer.RepeatMode = AudioPlayer.RepeatMode switch
+            {
+                RepeatMode.Off => RepeatMode.One,
+                RepeatMode.One => RepeatMode.All,
+                RepeatMode.All => RepeatMode.Off,
+                _ => RepeatMode.Off
+            };
         }
 
         /// <summary>

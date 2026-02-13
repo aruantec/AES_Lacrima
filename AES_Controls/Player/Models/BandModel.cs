@@ -13,6 +13,14 @@ public class BandModel : ObservableObject
     public Action<BandModel>? OnGainChanged { get; set; }
 
     public string? Frequency { get; set; }
+    
+    /// <summary>
+    /// The numeric frequency in Hz, used for efficient filtering.
+    /// </summary>
+    [XmlIgnore]
+    [JsonIgnore]
+    public double NumericFrequency { get; set; }
+
     public uint Index { get; set; }
 
     public float Gain
