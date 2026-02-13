@@ -2,6 +2,7 @@ using AES_Controls.Player.Interfaces;
 using AES_Controls.Player.Models;
 using Avalonia.Collections;
 using CommunityToolkit.Mvvm.ComponentModel;
+using System.Text.RegularExpressions;
 
 namespace AES_Controls.Player;
 
@@ -44,9 +45,11 @@ public partial class Equalizer : ObservableObject, IEqualizer
             // 10-band equalizer
             for (uint i = 0; i < 10; i++)
             {
+                var freq = GetFrequencyForBand(i);
                 _bands.Add(new BandModel
                 {
-                    Frequency = $"{GetFrequencyForBand(i)} Hz",
+                    Frequency = $"{freq} Hz",
+                    NumericFrequency = freq,
                     Gain = 0,
                     Index = i,
                     OnGainChanged = ApplyBandGain
@@ -64,6 +67,16 @@ public partial class Equalizer : ObservableObject, IEqualizer
         foreach (var bandModel in Bands)
         {
             bandModel.OnGainChanged = ApplyBandGain;
+
+            // Ensure NumericFrequency is set even if bands were loaded from external sources
+            if (bandModel.NumericFrequency == 0 && !string.IsNullOrEmpty(bandModel.Frequency))
+            {
+                var match = Regex.Match(bandModel.Frequency, @"(\d+)");
+                if (match.Success && double.TryParse(match.Value, out var freq))
+                {
+                    bandModel.NumericFrequency = freq;
+                }
+            }
         }
     }
 

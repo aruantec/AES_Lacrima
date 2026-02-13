@@ -171,6 +171,37 @@
             </TextBox.InnerRightContent>
         </TextBox>
 
+        <!-- Equalizer Overlay -->
+        <Grid Background="#E6000000"
+              RowDefinitions="Auto,*"
+              IsHitTestVisible="{Binding IsEqualizerVisible}"
+              Opacity="{Binding IsEqualizerVisible, Converter={StaticResource BoolToOpacityConverter}}">
+
+            <Grid.Transitions>
+				<Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Grid.Transitions>
+
+            <Label Content="10-Band Equalizer"
+                   FontSize="30"
+                   FontWeight="SemiBold"
+                   Foreground="White"
+                   Margin="100,20,0,10"/>
+            <composition:EqualizerCompositionControl Grid.Row="1"
+                                                     Bands="{Binding Equalizer.Bands}"
+                                                     Background="Transparent"
+                                                     TextFontSize="22"
+                                                     Margin="50"
+                                                     IsFadedIn="{Binding IsEqualizerVisible}">
+                <composition:EqualizerCompositionControl.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseInOut" />
+                    </Transitions>
+                </composition:EqualizerCompositionControl.Transitions>
+            </composition:EqualizerCompositionControl>
+        </Grid>
+
         <!-- Media buttons -->
         <Grid Grid.Row="1" Height="140" Background="#E6000000">
             <!-- Left buttons -->
@@ -407,7 +438,7 @@
                         </ControlTemplate>
                     </Button.Template>
                     <Viewbox Stretch="Uniform">
-                        <Canvas Width="120" Height="120">
+                        <Canvas Width="120" Height="120" ClipToBounds="False">
                             <!-- Top handle -->
                             <Path Data="M 15,65 V 45 C 15,30 15,30 30,30 H 105 M 105,30 L 88,14 M 105,30 L 88,46"
                                   Stroke="{Binding AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
@@ -416,6 +447,16 @@
                             <Path Data="M 105,55 V 75 C 105,90 105,90 90,90 H 15 M 15,90 L 32,74 M 15,90 L 32,106"
                                   Stroke="{Binding AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
                                   StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
+
+                            <!-- "1" indicator for Repeat One state -->
+                            <TextBlock Text="1"
+                                       Foreground="{Binding AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                       FontSize="32"
+                                       FontWeight="Heavy"
+                                       Width="120"
+                                       TextAlignment="Center"
+                                       Canvas.Top="42"
+                                       IsVisible="{Binding AudioPlayer.IsRepeatOne}"/>
                         </Canvas>
                     </Viewbox>
                 </Button>
@@ -429,7 +470,8 @@
                         VerticalAlignment="Center"
                         Margin="0,0,80,0"
                         Cursor="Hand"
-                        ToolTip.Tip="Equalizer">
+                        ToolTip.Tip="Equalizer"
+                        Command="{Binding ToggleEqualizerCommand}">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">

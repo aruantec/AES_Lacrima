@@ -150,18 +150,36 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     }
 
     /// <summary>
-    /// When true the player will loop the current file.
+    /// The current repeat mode of the player.
+    /// </summary>
+    public RepeatMode RepeatMode
+    {
+        get => _repeatMode;
+        set
+        {
+            _repeatMode = value;
+            SetProperty("loop-file", value == RepeatMode.One ? "yes" : "no");
+            OnPropertyChanged(nameof(RepeatMode));
+            OnPropertyChanged(nameof(Loop));
+            OnPropertyChanged(nameof(IsRepeatOne));
+        }
+    }
+    private RepeatMode _repeatMode = RepeatMode.Off;
+
+    /// <summary>
+    /// When true the player will loop the current file or playlist.
+    /// Setting this to true will set the RepeatMode to All.
     /// </summary>
     public bool Loop
     {
-        get;
-        set
-        {
-            field = value;
-            SetProperty("loop-file", value ? "yes" : "no");
-            OnPropertyChanged(nameof(Loop));
-        }
+        get => RepeatMode != RepeatMode.Off;
+        set => RepeatMode = value ? RepeatMode.All : RepeatMode.Off;
     }
+
+    /// <summary>
+    /// Returns true if the current repeat mode is set to Repeat one.
+    /// </summary>
+    public bool IsRepeatOne => RepeatMode == RepeatMode.One;
 
     /// <summary>
     /// Indicates whether the player is currently buffering.
@@ -401,8 +419,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                     bool isEof = prop.ReadBoolValue();
 
                     // SKIP GUARD: Only trigger EndReached if not an internal change, 
-                    // not currently loading, and actually near the end of the duration
-                    if (isEof && !_isInternalChange && !IsLoadingMedia)
+                    // not currently loading, and actually near the end of the duration.
+                    // Also skip if RepeatMode is One, as mpv handles looping internally.
+                    if (isEof && !_isInternalChange && !IsLoadingMedia && RepeatMode != RepeatMode.One)
                     {
                         if (Position > (Duration - 1.5) || Duration <= 0)
                         {
@@ -625,12 +644,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// <param name="bands">Collection of band models describing frequency/gain.</param>
     public void SetEqualizerBands(AvaloniaList<BandModel> bands)
     {
-        var filters = bands.Select(b => {
-            var m = Regex.Match(b.Frequency ?? "", @"(\d+)");
-            return m.Success
-                ? $"equalizer=f={m.Value}:width_type=o:w=1:g={b.Gain.ToString(CultureInfo.InvariantCulture)}"
-                : null;
-        }).Where(x => x != null).ToList();
+        var filters = bands
+            .Select(b => $"equalizer=f={b.NumericFrequency.ToString(CultureInfo.InvariantCulture)}:width_type=o:w=1:g={b.Gain.ToString(CultureInfo.InvariantCulture)}")
+            .ToList();
 
         SetProperty("af", filters.Any() ? string.Join(",", filters) : "");
     }
@@ -645,21 +661,30 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     {
         try { _eqCts?.Cancel(); } catch { }
         try { _eqCts?.Dispose(); } catch { }
+
+        // Create a new CTS for this throttled update. We intentionally do not
+        // pass the token into Task.Delay/Task.Run to avoid TaskCanceledException
+        // being thrown (and reported as a first-chance exception) when the
+        // delay is cancelled. Instead we perform a non-cancelable delay and
+        // check the token afterwards.
         _eqCts = new CancellationTokenSource();
         var token = _eqCts.Token;
 
         Task.Run(async () =>
         {
+            // Non-cancelable delay to avoid TaskCanceledException being thrown by
+            // Task.Delay when a token is cancelled. We still honor cancellation
+            // by checking the token after the delay and skipping the update.
+            await Task.Delay(100).ConfigureAwait(false);
             try
             {
-                await Task.Delay(50, token);
                 if (!token.IsCancellationRequested)
                 {
                     SetEqualizerBands(bands);
                 }
             }
-            catch (OperationCanceledException) { }
-        }, token);
+            catch { /* swallow any exception from SetEqualizerBands */ }
+        });
     }
 
     public bool IsPlaying
