@@ -8,6 +8,11 @@
 		<Platforms>AnyCPU;x64</Platforms>
 	</PropertyGroup>
 
+	<PropertyGroup Condition="'$(Configuration)' == 'Release'">
+		<DebugType>none</DebugType>
+		<DebugSymbols>false</DebugSymbols>
+	</PropertyGroup>
+
 	<ItemGroup>
 		<PackageReference Include="Avalonia" Version="11.3.11" />
 		<PackageReference Include="Avalonia.Desktop" Version="11.3.11" />

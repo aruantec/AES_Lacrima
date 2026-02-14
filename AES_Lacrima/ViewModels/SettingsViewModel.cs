@@ -244,25 +244,25 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
     // Carousel settings (used by CompositionCarouselControl)
     [ObservableProperty]
-    private double _carouselSpacing = 1.0;
+    private double _carouselSpacing = 0.93;
 
     [ObservableProperty]
-    private double _carouselScale = 1.0;
+    private double _carouselScale = 1.88;
 
     [ObservableProperty]
-    private double _carouselVerticalOffset = 0.0;
+    private double _carouselVerticalOffset = -95.0;
 
     [ObservableProperty]
-    private double _carouselSliderVerticalOffset = 60.0;
+    private double _carouselSliderVerticalOffset = 134.0;
 
     [ObservableProperty]
-    private double _carouselSliderTrackHeight = 4.0;
+    private double _carouselSliderTrackHeight = 17.0;
 
     [ObservableProperty]
-    private double _carouselSideTranslation = 320.0;
+    private double _carouselSideTranslation = 73.0;
 
     [ObservableProperty]
-    private double _carouselStackSpacing = 160.0;
+    private double _carouselStackSpacing = 39.0;
 
     /// <summary>
     /// Handles property change notifications to synchronize individual color properties

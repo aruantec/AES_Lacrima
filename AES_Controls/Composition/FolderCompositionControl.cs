@@ -292,6 +292,32 @@ public class FolderCompositionControl : Control
         });
     }
 
+    private static Rect CalculateUniformToFillRect(Size srcSize, Rect destRect)
+    {
+        if (srcSize.Width <= 0 || srcSize.Height <= 0 || destRect.Width <= 0 || destRect.Height <= 0)
+            return new Rect(0, 0, Math.Max(0, srcSize.Width), Math.Max(0, srcSize.Height));
+
+        double srcAspect = srcSize.Width / srcSize.Height;
+        double destAspect = destRect.Width / destRect.Height;
+
+        double srcX = 0, srcY = 0, srcW = srcSize.Width, srcH = srcSize.Height;
+
+        if (srcAspect > destAspect)
+        {
+            // Image is wider than destination - crop horizontal sides
+            srcW = srcSize.Height * destAspect;
+            srcX = (srcSize.Width - srcW) / 2.0;
+        }
+        else
+        {
+            // Image is taller than destination - crop top/bottom
+            srcH = srcSize.Width / destAspect;
+            srcY = (srcSize.Height - srcH) / 2.0;
+        }
+
+        return new Rect(srcX, srcY, srcW, srcH);
+    }
+
     private void OnItemPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MediaItem.CoverBitmap))
@@ -497,7 +523,7 @@ public class FolderCompositionControl : Control
                                 var defSize = defaultCover.Size;
                                 if (defSize.Width > 0 && defSize.Height > 0)
                                 {
-                                    var defSrc = new Rect(0, 0, defSize.Width, defSize.Height);
+                                    var defSrc = CalculateUniformToFillRect(defSize, dest);
                                     context.DrawImage(defaultCover, defSrc, dest);
                                 }
                             }
@@ -516,7 +542,7 @@ public class FolderCompositionControl : Control
                                 var coverSize = cover.Size;
                                 if (coverSize.Width > 0 && coverSize.Height > 0)
                                 {
-                                    var src = new Rect(0, 0, coverSize.Width, coverSize.Height);
+                                    var src = CalculateUniformToFillRect(coverSize, dest);
                                     using (context.PushOpacity(state.CoverFade))
                                     {
                                         context.DrawImage(cover, src, dest);
