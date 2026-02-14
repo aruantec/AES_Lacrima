@@ -9,6 +9,7 @@ using SkiaSharp;
 using System.Collections;
 using System.Collections.Specialized;
 using System.Numerics;
+using log4net;
 
 namespace AES_Controls.Composition
 {
@@ -21,6 +22,8 @@ namespace AES_Controls.Composition
     public class CompositionCarouselControl : ItemsControl
     {
         #region Private Fields
+
+        private static readonly ILog Log = LogManager.GetLogger(typeof(CompositionCarouselControl));
 
         private CompositionCustomVisual? _visual;
         private List<SKImage> _images = new();
@@ -392,7 +395,7 @@ namespace AES_Controls.Composition
         private SKImage GetPlaceholder()
         {
             if (_sharedPlaceholder == null || _sharedPlaceholder.Width == 0)
-                _sharedPlaceholder = GeneratePlaceholder(0); // Generic index 0 for placeholder
+                _sharedPlaceholder = GeneratePlaceholder(); 
             return _sharedPlaceholder!;
         }
 
@@ -478,7 +481,7 @@ namespace AES_Controls.Composition
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnDetachedFromVisualTree(e);
-            try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch { }
+            try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch (Exception ex) { Log.Warn("Error canceling load during detach", ex); }
             ClearResources();
         }
         private void UpdateVirtualization()
@@ -493,7 +496,7 @@ namespace AES_Controls.Composition
                 _virtualizeDebounceTimer.Tick += (s, e) =>
                 {
                     _virtualizeDebounceTimer.Stop();
-                    try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch { }
+                    try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch (Exception ex) { Log.Warn("Error canceling load during virtualization debounce", ex); }
                     _loadCts = new CancellationTokenSource();
                     _ = VirtualizeAsync(_lastVirtualizationIndex, _loadCts.Token);
                 };
@@ -535,7 +538,6 @@ namespace AES_Controls.Composition
             {
                 // Forward opacity changes to visuals that support global opacity messaging
                 _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
-                _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
             }
             else if (change.Property == GlobalOpacityProperty)
                 _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
@@ -563,7 +565,7 @@ namespace AES_Controls.Composition
             }
 
             _lastVirtualizationIndex = -1; 
-            try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch { }
+            try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch (Exception ex) { Log.Warn("Error canceling load during items update", ex); }
             _loadCts = new CancellationTokenSource();
 
             if (ItemsSource == null)
@@ -650,7 +652,7 @@ namespace AES_Controls.Composition
             // Smaller window for fluidity, faster response
             const int loadWindow = 12;
 
-            // 1. Build lookup dictionary for O(1) index check
+            // Build lookup dictionary for O(1) index check
             var itemToIndex = new Dictionary<object, int>();
             for (int k = 0; k < totalCount; k++) 
             {
@@ -658,7 +660,7 @@ namespace AES_Controls.Composition
                 if (val != null) itemToIndex[val] = k;
             }
 
-            // 2. Prune distant items
+            // Prune distant items
             foreach (var key in _imageCache.Keys.ToList())
             {
                 if (ct.IsCancellationRequested) return;
@@ -692,7 +694,7 @@ namespace AES_Controls.Composition
                                           .ToList();
 
             var cachePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ImageCache");
-            try { if (!System.IO.Directory.Exists(cachePath)) System.IO.Directory.CreateDirectory(cachePath); } catch { }
+            try { if (!System.IO.Directory.Exists(cachePath)) System.IO.Directory.CreateDirectory(cachePath); } catch (Exception ex) { Log.Warn("Could not create ImageCache directory", ex); }
 
             foreach (int i in indicesToLoad)
             {
@@ -726,7 +728,7 @@ namespace AES_Controls.Composition
                         fileName = _propFile?.GetValue(item) as string;
                     }
                 }
-                catch { }
+                catch (Exception ex) { Log.Warn($"Failed to read image properties for item at index {i}", ex); }
 
                 SKImage? realImage = null;
                 try
@@ -734,7 +736,7 @@ namespace AES_Controls.Composition
                     if (ct.IsCancellationRequested) return;
                     realImage = await LoadImageAsync(bitmapValue, fileName, cachePath, ct);
                 }
-                catch { }
+                catch (Exception ex) { Log.Warn($"Failed to load image for item at index {i}", ex); }
 
                 if (ct.IsCancellationRequested)
                 {
@@ -787,7 +789,7 @@ namespace AES_Controls.Composition
                     if (bitmapValue == null && !string.IsNullOrEmpty(ImageFileNameProperty))
                         fileName = sender.GetType().GetProperty(ImageFileNameProperty)?.GetValue(sender) as string;
                 }
-                catch { }
+                catch (Exception ex) { Log.Warn("Failed to read image properties in PropertyChanged", ex); }
 
                 var cachePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ImageCache");
                 SKImage? realImage = null;
@@ -795,7 +797,7 @@ namespace AES_Controls.Composition
                 {
                     realImage = await LoadImageAsync(bitmapValue, fileName, cachePath, CancellationToken.None);
                 }
-                catch { }
+                catch (Exception ex) { Log.Warn("Failed to load image in PropertyChanged", ex); }
 
                 if (realImage != null)
                 {
@@ -884,7 +886,11 @@ namespace AES_Controls.Composition
                         using var resized = skBmp.Resize(new SKImageInfo(targetW, targetH), SKFilterQuality.Medium);
                         return resized != null ? SKImage.FromBitmap(resized) : SKImage.FromBitmap(skBmp);
                     }
-                    catch { return null; }
+                    catch (Exception ex)
+                    {
+                        Log.Error("ToSKImageAsync: Skia conversion failed", ex);
+                        return null;
+                    }
                 });
             }
             finally
@@ -950,29 +956,11 @@ namespace AES_Controls.Composition
             }
         }
 
-        private SKImage GeneratePlaceholder(int i, Random? random = null)
+        private SKImage GeneratePlaceholder()
         {
-            random ??= new Random(i);
             using var surface = SKSurface.Create(new SKImageInfo(300, 300));
             var canvas = surface.Canvas;
-            var color = new SKColor((byte)random.Next(256), (byte)random.Next(256), (byte)random.Next(256));
-            canvas.Clear(color);
-            using var paint = new SKPaint { Color = SKColors.White, TextSize = 40, IsAntialias = true, FakeBoldText = true, TextAlign = SKTextAlign.Center, Typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold) };
-            using var shaderPaint = new SKPaint { IsAntialias = true };
-            using var shader = SKShader.CreateLinearGradient(new SKPoint(0, 0), new SKPoint(300, 300), new[] { color, color.WithAlpha(150), color.WithAlpha(255) }, null, SKShaderTileMode.Clamp);
-            shaderPaint.Shader = shader;
-            canvas.DrawRect(new SKRect(0, 0, 300, 300), shaderPaint);
-            canvas.DrawText($"ALBUM {i}", 150, 100, paint);
-            paint.TextSize = 25;
-            paint.Color = SKColors.White.WithAlpha(200);
-            canvas.DrawText("Artist Name", 150, 240, paint);
-            paint.Style = SKPaintStyle.Stroke;
-            paint.StrokeWidth = 2;
-            canvas.DrawCircle(150, 170, 40, paint);
-            canvas.DrawCircle(150, 170, 10, paint);
-            paint.StrokeWidth = 10;
-            paint.Color = SKColors.Black.WithAlpha(100);
-            canvas.DrawRect(new SKRect(5, 5, 295, 295), paint);
+            canvas.Clear(SKColors.Transparent);
             return surface.Snapshot();
         }
 
@@ -1010,7 +998,11 @@ namespace AES_Controls.Composition
                     }
                 }
 
-            } catch { }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Error in LoadAndResize for file: {file}", ex);
+            }
             return null;
         }
 

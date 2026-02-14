@@ -125,12 +125,7 @@ public partial class MediaItem : ObservableObject, IDisposable
     public Bitmap? CoverBitmap
     {
         get => _coverBitmap;
-        set
-        {
-            var old = _coverBitmap;
-            if (SetProperty(ref _coverBitmap, value))
-                old?.Dispose();
-        }
+        set => SetProperty(ref _coverBitmap, value);
     }
 
     private Bitmap? _screenshotBitmap;
@@ -166,6 +161,14 @@ public partial class MediaItem : ObservableObject, IDisposable
                 old?.Dispose();
         }
     }
+
+    private bool _isRenaming;
+    [XmlIgnore]
+    [JsonIgnore]
+    /// <summary>
+    /// Indicates whether the item name is currently being edited in the UI.
+    /// </summary>
+    public bool IsRenaming { get => _isRenaming; set => SetProperty(ref _isRenaming, value); }
     
     [XmlIgnore]
     [JsonIgnore]

@@ -4,6 +4,7 @@ using Avalonia.Rendering.Composition;
 using Avalonia.Skia;
 using SkiaSharp;
 using System.Numerics;
+using log4net;
 
 namespace AES_Controls.Composition
 {
@@ -29,6 +30,8 @@ namespace AES_Controls.Composition
 
     public class CompositionCarouselVisualHandler : CompositionCustomVisualHandler
     {
+        private static readonly ILog Log = LogManager.GetLogger(typeof(CompositionCarouselVisualHandler));
+
         private float _visibleRange = 10;
         private bool _visibleRangeDirty = true;
         private double _targetIndex;
@@ -50,7 +53,6 @@ namespace AES_Controls.Composition
         private Dictionary<SKImage, SKShader> _shaderCache = new();
         private HashSet<int> _loadingIndices = new();
         private float _spinnerRotation = 0;
-        private static readonly SKColor[] Colors = { SKColors.Red, SKColors.Blue, SKColors.Green, SKColors.Yellow, SKColors.Purple };
 
         private int _draggingIndex = -1;
         private int _dropTargetIndex = -1;
@@ -368,7 +370,10 @@ namespace AES_Controls.Composition
                 // Always dispose if requested from UI thread as it means it's removed from UI-side cache
                 img.Dispose();
             } 
-            catch { } 
+            catch (Exception ex) 
+            {
+                Log.Warn("Failed to dispose image", ex);
+            } 
         }
 
         private void DrawQuad(SKCanvas canvas, float w, float h, Matrix4x4 model, SKImage? image, int index, float absDiff, Vector2 center, bool isRef = false)
@@ -386,11 +391,11 @@ namespace AES_Controls.Composition
             }
             if (image != null)
             {
-                if (!_dimCache.TryGetValue(image, out var dims)) { try { dims = _dimCache[image] = (image.Width, image.Height); } catch { image = null; } }
+                if (!_dimCache.TryGetValue(image, out var dims)) { try { dims = _dimCache[image] = (image.Width, image.Height); } catch (Exception ex) { Log.Debug("Error retrieving image dimensions", ex); image = null; } }
                 if (image != null && dims.Width > 0)
                 {
                     _quadPaint.Color = SKColors.White.WithAlpha((byte)(255 * opacity));
-                    if (!_shaderCache.TryGetValue(image, out var shader)) { try { _shaderCache[image] = shader = image.ToShader(); } catch { image = null; } }
+                    if (!_shaderCache.TryGetValue(image, out var shader)) { try { _shaderCache[image] = shader = image.ToShader(); } catch (Exception ex) { Log.Warn("Error creating shader from image", ex); image = null; } }
                     if (image != null && shader != null)
                     {
                         _quadPaint.Shader = shader; float sc = Math.Max(w / dims.Width, h / dims.Height); float wR = w / sc; float hR = h / sc; float xO = (dims.Width - wR) / 2f; float yO = (dims.Height - hR) / 2f;
@@ -401,9 +406,7 @@ namespace AES_Controls.Composition
                     }
                 }
             }
-            Proj(0, -w/2, -h/2); Proj(1, w/2, -h/2); Proj(2, w/2, h/2); Proj(3, -w/2, h/2);
-            _itemPath.Reset(); _itemPath.MoveTo(_vBuffer[0]); _itemPath.LineTo(_vBuffer[1]); _itemPath.LineTo(_vBuffer[2]); _itemPath.LineTo(_vBuffer[3]); _itemPath.Close();
-            _fillPaint.Color = Colors[index % Colors.Length].WithAlpha((byte)(255 * opacity)); canvas.DrawPath(_itemPath, _fillPaint);
+            // Fallback: draw nothing (transparent) if image is missing or fails to render
         }
 
         private void DrawSpinner(SKCanvas canvas, Vector2 center, Matrix4x4 model)

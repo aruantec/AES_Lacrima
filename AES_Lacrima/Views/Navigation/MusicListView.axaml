@@ -1,8 +1,9 @@
 <UserControl xmlns="https://github.com/avaloniaui"
-             xmlns:behaviors="using:AES_Controls.Behaviors"
-             xmlns:composition="using:AES_Controls.Composition"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+			 xmlns:behaviors="using:AES_Controls.Behaviors"
+			 xmlns:localBehaviors="using:AES_Lacrima.Behaviors"
+			 xmlns:composition="using:AES_Controls.Composition"
+			 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+			 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
 			 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
 			 xmlns:vm="using:AES_Lacrima.ViewModels"
 			 mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
@@ -27,6 +28,9 @@
 					 ClipToBounds="False"
 					 SelectionMode="Multiple"
 					 SelectedItem="{Binding SelectedAlbum, Mode=TwoWay}">
+				<ListBox.KeyBindings>
+					<KeyBinding Gesture="F2" Command="{Binding RenameFolderCommand}" CommandParameter="{Binding SelectedAlbum}"/>
+				</ListBox.KeyBindings>
 				<ListBox.Styles>
 					<Style Selector="ListBoxItem">
 						<Setter Property="ClipToBounds" Value="False"/>
@@ -44,6 +48,25 @@
 												<Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
 											</Canvas>
 										</Viewbox>
+									</MenuItem.Icon>
+								</MenuItem>
+								<MenuItem Header="Create Album" CornerRadius="8" Command="{Binding $parent[ListBox].DataContext.CreateAlbumCommand}">
+									<MenuItem.Icon>
+										<Viewbox Width="32" Height="32" Stretch="Uniform">
+											<Canvas Width="100" Height="100">
+												<Path Data="M 8,12 V 88 H 50 V 12 H 8 M 16,20 V 80 H 42 V 20 H 16 M 48,25 A 32,32 0 1 1 48,75 A 32,32 0 0 1 48,25 Z M 61,46 A 4,4 0 1 0 61,54 A 4,4 0 0 0 61,46" Fill="#CCFFFFFF" />
+												<Path Data="M 63,30 A 25,25 0 0 1 88,55 M 63,40 A 15,15 0 0 1 78,55" Stroke="#000000" StrokeThickness="3" StrokeLineCap="Round" />
+											</Canvas>
+										</Viewbox>
+									</MenuItem.Icon>
+								</MenuItem>
+								<MenuItem Header="Rename Album" CornerRadius="8" Command="{Binding $parent[ListBox].DataContext.RenameFolderCommand}" CommandParameter="{Binding}">
+									<MenuItem.Icon>
+										<Path Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"
+											  Fill="#CCFFFFFF"
+											  Width="32"
+											  Height="32"
+											  Stretch="Uniform"/>
 									</MenuItem.Icon>
 								</MenuItem>
 								<MenuItem Header="Delete Album" CornerRadius="8" Command="{Binding $parent[ListBox].DataContext.DeleteFolderCommand}" CommandParameter="{Binding}">
@@ -120,13 +143,45 @@
 						<Border CornerRadius="12" Margin="0,0,0,10" ClipToBounds="True" Background="Transparent">
 							<Grid Width="240">
 								<!-- Folder control -->
-								<composition:FolderCompositionControl Name="{Binding Title}"
-																	  Items="{Binding Children}"
+								<composition:FolderCompositionControl Items="{Binding Children}"
+																	  FolderCoverItem="{Binding}"
+																	  DefaultCover="{Binding $parent[ListBox].DataContext.DefaultFolderCover}"
 																	  ClipToBounds="True"
 																	  MaxVisibleCovers="3"/>
 								<!-- Album title overlay -->
 								<Border VerticalAlignment="Bottom" Height="50" Background="#CC000000" ClipToBounds="False">
-									<TextBlock Text="{Binding Title}" Margin="5" HorizontalAlignment="Center" TextWrapping="Wrap" Foreground="White" FontSize="18"/>
+									<Panel Margin="5">
+										<TextBlock Text="{Binding Title}" 
+												   IsVisible="{Binding !IsRenaming}"
+												   HorizontalAlignment="Center" 
+												   VerticalAlignment="Center"
+												   TextAlignment="Center"
+												   TextWrapping="Wrap" 
+												   Foreground="White" 
+												   FontSize="18"/>
+										<TextBox Text="{Binding Title, Mode=TwoWay}"
+												 IsVisible="{Binding IsRenaming}"
+												 HorizontalAlignment="Stretch"
+												 VerticalAlignment="Center"
+												 Padding="4"
+												 Background="#44000000"
+												 BorderThickness="0"
+												 Foreground="White"
+												 FontSize="18"
+												 TextAlignment="Center"
+												 CaretBrush="White">
+											<TextBox.KeyBindings>
+												<KeyBinding Gesture="Enter" Command="{Binding $parent[ListBox].DataContext.EndRenameCommand}" CommandParameter="{Binding}" />
+												<KeyBinding Gesture="Escape" Command="{Binding $parent[ListBox].DataContext.EndRenameCommand}" CommandParameter="{Binding}" />
+											</TextBox.KeyBindings>
+											<Interaction.Behaviors>
+												<localBehaviors:FocusOnVisibleBehavior />
+												<EventTriggerBehavior EventName="LostFocus">
+													<InvokeCommandAction Command="{Binding $parent[ListBox].DataContext.EndRenameCommand}" CommandParameter="{Binding}" />
+												</EventTriggerBehavior>
+											</Interaction.Behaviors>
+										</TextBox>
+									</Panel>
 								</Border>
 							</Grid>
 						</Border>
@@ -153,7 +208,7 @@
 		<!-- Context menu -->
 		<Grid.ContextMenu>
 			<ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
-				<MenuItem Header="Add" CornerRadius="8" Command="{Binding OpenFolderCommand}">
+				<MenuItem Header="Open Folder" CornerRadius="8" Command="{Binding OpenFolderCommand}">
 					<MenuItem.Icon>
 						<Viewbox Width="32" Height="32" Stretch="Uniform">
 							<Canvas Width="100" Height="100">
@@ -162,6 +217,16 @@
 								<!-- Central plus sign -->
 								<Rectangle Canvas.Left="46" Canvas.Top="32" Width="8" Height="36" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
 								<Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+							</Canvas>
+						</Viewbox>
+					</MenuItem.Icon>
+				</MenuItem>
+				<MenuItem Header="Create Album" CornerRadius="8" Command="{Binding CreateAlbumCommand}">
+					<MenuItem.Icon>
+						<Viewbox Width="32" Height="32" Stretch="Uniform">
+							<Canvas Width="100" Height="100">
+								<Path Data="M 8,12 V 88 H 50 V 12 H 8 M 16,20 V 80 H 42 V 20 H 16 M 48,25 A 32,32 0 1 1 48,75 A 32,32 0 0 1 48,25 Z M 61,46 A 4,4 0 1 0 61,54 A 4,4 0 0 0 61,46" Fill="#CCFFFFFF" />
+								<Path Data="M 63,30 A 25,25 0 0 1 88,55 M 63,40 A 15,15 0 0 1 78,55" Stroke="#000000" StrokeThickness="3" StrokeLineCap="Round" />
 							</Canvas>
 						</Viewbox>
 					</MenuItem.Icon>

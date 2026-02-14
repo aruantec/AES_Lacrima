@@ -4,7 +4,6 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:navigation="using:AES_Lacrima.Views.Navigation"
-             xmlns:i="using:Avalonia.Xaml.Interactivity"
              xmlns:player="using:AES_Controls.Player"
              xmlns:spectrum="using:AES_Controls.Player.Spectrum"
              xmlns:behaviors="using:AES_Lacrima.Behaviors"
@@ -586,12 +585,12 @@
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
 
-        <!-- Menu-->
-        <navigation:MusicListView Grid.Row="3">
-            <i:Interaction.Behaviors>
-                <behaviors:MaxHeightToggleBehavior IsOpen="{Binding IsAlbumlistOpen}" />
-            </i:Interaction.Behaviors>
-            <navigation:MusicListView.Transitions>
+		<!-- Menu-->
+		<navigation:MusicListView Grid.Row="3">
+			<Interaction.Behaviors>
+				<behaviors:MaxHeightToggleBehavior IsOpen="{Binding IsAlbumlistOpen}" />
+			</Interaction.Behaviors>
+			<navigation:MusicListView.Transitions>
 				<Transitions>
                     <DoubleTransition Property="MaxHeight" Duration="0:0:0.62" Easing="CubicEaseOut"/>
                     <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
