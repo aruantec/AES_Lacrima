@@ -74,7 +74,7 @@
 				<!--Settings Overlay-->
 				<Border x:Name="SettingsOverlay"
 						Grid.Row="1"
-						Background="#F2000000"
+						Background="#E6000000"
 						BorderThickness="0.5"
 						Opacity="{Binding NavigationService.ShowSettingsOverlay, Converter={StaticResource BoolToOpacityConverter}}"
 						IsHitTestVisible="{Binding NavigationService.ShowSettingsOverlay}"

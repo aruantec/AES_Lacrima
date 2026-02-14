@@ -22,8 +22,13 @@
     </Design.DataContext>
 
     <Grid Background="Transparent">
+        <Border Background="Black"
+                Height="75"
+                BorderBrush="DimGray"
+                BorderThickness="0,0,0,0.5"
+                VerticalAlignment="Top"
+                Margin="-4,-15,2,0"/>
         <TabControl Margin="15,0,0,0">
-            
             <!-- UI Settings tab -->
             <TabItem Header="GUI" FontSize="30">
                 <ScrollViewer>
@@ -164,22 +169,6 @@
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="Slider Track Height" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
                         <Slider Grid.Row="4" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="1" Maximum="40" SmallChange="1" LargeChange="2" Value="{Binding CarouselSliderTrackHeight, Mode=TwoWay}" Margin="0,0"/>
                         <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding CarouselSliderTrackHeight, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
-
-                        <!-- Carousel Preview -->
-                        <composition:CompositionCarouselControl Grid.Row="0" Grid.Column="3" Grid.RowSpan="7"
-                                                                Margin="20,0,20,0"
-                                                                ClipToBounds="False"
-                                                                ItemsSource="{Binding PreviewItems}"
-                                                                ImageBitmapProperty="CoverBitmap"
-                                                                SelectedIndex="5"
-                                                                ItemSpacing="{Binding CarouselSpacing}"
-                                                                ItemScale="{Binding CarouselScale}"
-                                                                VerticalOffset="{Binding CarouselVerticalOffset}"
-                                                                SliderVerticalOffset="{Binding CarouselSliderVerticalOffset}"
-                                                                SliderTrackHeight="{Binding CarouselSliderTrackHeight}"
-                                                                SideTranslation="{Binding CarouselSideTranslation}"
-                                                                StackSpacing="{Binding CarouselStackSpacing}"
-                                                                Height="500"/>
                     </Grid>
                 </StackPanel>
             </TabItem>
