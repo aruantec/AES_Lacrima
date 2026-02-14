@@ -32,10 +32,18 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     // --- Circular Spectrum Mapping ---
     float a = atan(uv.y, uv.x);
     float d = length(uv);
-    float normAngle = (a + 3.14159) / (2.0 * 3.14159);
-    
+
+    // Balanced Mirrored Mapping: ensures symmetry across all quadrants.
+    // We shift the mapping by 45 degrees and use a power transform to expand
+    // the treble regions visually, making the circular shape more stable.
+    float normAngle = pow(abs(cos(a + 0.78539)), 0.7);
+
     // Sample the spectrum
-    float barHeight = texture(iChannel0, vec2(normAngle, 0.5)).r;
+    float rawHeight = texture(iChannel0, vec2(normAngle, 0.5)).r;
+
+    // Visually normalize: dampen the overwhelming bass intensity (near normAngle=0)
+    // and compress the response to make high frequencies more visible.
+    float barHeight = pow(rawHeight, 0.8) * (0.6 + 0.4 * normAngle);
     float bass = texture(iChannel0, vec2(0.05, 0.5)).r;
     
     // --- Electricity Effect ---
