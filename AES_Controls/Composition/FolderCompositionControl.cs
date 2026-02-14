@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using System.Collections.Specialized;
 using System.Windows.Input;
+using log4net;
 
 namespace AES_Controls.Composition;
 
@@ -17,6 +18,8 @@ namespace AES_Controls.Composition;
 /// </summary>
 public class FolderCompositionControl : Control
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(FolderCompositionControl));
+
     private class ItemState
     {
         public MediaItem Item { get; }
@@ -176,6 +179,22 @@ public class FolderCompositionControl : Control
     }
 
     /// <summary>
+    /// Defines the <see cref="FolderCoverItem"/> property.
+    /// </summary>
+    public static readonly StyledProperty<MediaItem?> FolderCoverItemProperty =
+        AvaloniaProperty.Register<FolderCompositionControl, MediaItem?>(nameof(FolderCoverItem));
+
+    /// <summary>
+    /// Gets or sets the media item (usually the folder itself) to use for the cover 
+    /// when the <see cref="Items"/> collection is empty.
+    /// </summary>
+    public MediaItem? FolderCoverItem
+    {
+        get => GetValue(FolderCoverItemProperty);
+        set => SetValue(FolderCoverItemProperty, value);
+    }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="FolderCompositionControl"/> class.
     /// </summary>
     public FolderCompositionControl()
@@ -209,7 +228,10 @@ public class FolderCompositionControl : Control
                     UpdateTargets(over);
                 }));
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Log.Warn("Error subscribing to IsPointerOver", ex);
+        }
         // initialize positions
         UpdateTargets(_isPointerOver);
     }
@@ -338,7 +360,9 @@ public class FolderCompositionControl : Control
         if (bounds.Width <= 0 || bounds.Height <= 0) return;
 
         var items = Items;
-        if (items == null)
+        var folderItem = FolderCoverItem;
+
+        if (items == null && folderItem == null)
         {
              foreach (var state in _activeStates)
                 state.Item.PropertyChanged -= OnItemPropertyChanged;
@@ -354,13 +378,21 @@ public class FolderCompositionControl : Control
 
         // Identifty items to show (up to maxVisible items from the end)
         var targetedItems = new List<MediaItem>();
-        int count = items.Count;
-        int startIndex = Math.Max(0, count - maxVisible);
-        for (int i = startIndex; i < count; i++)
+        int count = items?.Count ?? 0;
+
+        if (count == 0 && folderItem != null)
         {
-            var it = items[i];
-            if (it != null)
-                targetedItems.Add(it);
+            targetedItems.Add(folderItem);
+        }
+        else if (items != null)
+        {
+            int startIndex = Math.Max(0, count - maxVisible);
+            for (int i = startIndex; i < count; i++)
+            {
+                var it = items[i];
+                if (it != null)
+                    targetedItems.Add(it);
+            }
         }
 
         foreach (var s in _activeStates) s.IsTarget = false;
@@ -415,7 +447,8 @@ public class FolderCompositionControl : Control
             }
             UpdateTargets(_isPointerOver);
         }
-        else if (change.Property == MaxVisibleCoversProperty || change.Property == BoundsProperty || change.Property == DefaultCoverProperty)
+        else if (change.Property == MaxVisibleCoversProperty || change.Property == BoundsProperty || 
+                 change.Property == DefaultCoverProperty || change.Property == FolderCoverItemProperty)
         {
             UpdateTargets(_isPointerOver);
         }
@@ -456,31 +489,51 @@ public class FolderCompositionControl : Control
                 {
                     using (context.PushOpacity(state.CurOpacity))
                     {
-                        // 1. Draw Default Cover if available
-                        if (defaultCover != null)
+                        // Draw Default Cover if available
+                        if (defaultCover != null && (Items == null || Items.Count == 0))
                         {
-                            var defSize = defaultCover.Size;
-                            var defSrc = new Rect(0, 0, defSize.Width, defSize.Height);
-                            context.DrawImage(defaultCover, defSrc, dest);
+                            try
+                            {
+                                var defSize = defaultCover.Size;
+                                if (defSize.Width > 0 && defSize.Height > 0)
+                                {
+                                    var defSrc = new Rect(0, 0, defSize.Width, defSize.Height);
+                                    context.DrawImage(defaultCover, defSrc, dest);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Warn("Handle potentially broken/disposed default cover implementation", ex);
+                            }
                         }
 
-                        // 2. Draw Actual Cover with fade
+                        // Draw Actual Cover with fade
                         var cover = state.Item.CoverBitmap;
-                        if (cover != null && cover.Format != null && state.CoverFade > 0.001)
+                        if (cover != null && state.CoverFade > 0.001)
                         {
-                            var coverSize = cover.Size;
-                            if (coverSize != default && coverSize.Width > 0 && coverSize.Height > 0)
+                            try
                             {
-                                var src = new Rect(0, 0, coverSize.Width, coverSize.Height);
-                                using (context.PushOpacity(state.CoverFade))
+                                var coverSize = cover.Size;
+                                if (coverSize.Width > 0 && coverSize.Height > 0)
                                 {
-                                    context.DrawImage(cover, src, dest);
+                                    var src = new Rect(0, 0, coverSize.Width, coverSize.Height);
+                                    using (context.PushOpacity(state.CoverFade))
+                                    {
+                                        context.DrawImage(cover, src, dest);
+                                    }
                                 }
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Warn("Swallow error if bitmap is disposed in the middle of a render tick", ex);
                             }
                         }
                     }
                 }
-                catch { /* Safely handle middle-of-render disposal */ }
+                catch (Exception ex)
+                {
+                    Log.Error("Safely handle middle-of-render disposal", ex);
+                }
             }
         }
     }

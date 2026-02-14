@@ -11,7 +11,6 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -392,6 +391,7 @@ namespace AES_Lacrima.ViewModels
         private async Task AddItems()
         {
             var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+            if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
             var lifetime = Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
             var storageProvider = lifetime?.MainWindow?.StorageProvider;
 
@@ -418,7 +418,6 @@ namespace AES_Lacrima.ViewModels
                         var localPath = file.Path.LocalPath;
                         var item = new MediaItem
                         {
-                            CoverBitmap = DefaultFolderCover ??= GenerateDefaultFolderCover(),
                             FileName = localPath,
                             Title = Path.GetFileName(localPath)
                         };
@@ -437,6 +436,47 @@ namespace AES_Lacrima.ViewModels
                     _ = new MetadataScrapper(newMediaItems, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
                 }
             }
+        }
+
+        /// <summary>
+        /// Creates a new empty album and adds it to the album list.
+        /// </summary>
+        [RelayCommand]
+        private void CreateAlbum()
+        {
+            var newAlbum = new FolderMediaItem
+            {
+                Title = "New Album",
+                Children = []
+            };
+            AlbumList.Add(newAlbum);
+            SelectedAlbum = newAlbum;
+            // Ensure the shared cover is initialized if it's the first time
+            if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
+        }
+
+        /// <summary>
+        /// Starts the renaming process for the specified album.
+        /// </summary>
+        [RelayCommand]
+        private void RenameFolder(FolderMediaItem? folder)
+        {
+            if (folder == null) return;
+            // Finish any other renaming
+            foreach (var album in AlbumList)
+                album.IsRenaming = false;
+
+            folder.IsRenaming = true;
+        }
+
+        /// <summary>
+        /// Ends the renaming process for the specified album.
+        /// </summary>
+        [RelayCommand]
+        private void EndRename(FolderMediaItem? folder)
+        {
+            if (folder != null)
+                folder.IsRenaming = false;
         }
 
         /// <summary>
@@ -727,6 +767,7 @@ namespace AES_Lacrima.ViewModels
         private async Task OpenFolder()
         {
             var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+            if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
             // Show a native folder picker on desktop platforms.
             var lifetime = Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
             var storageProvider = lifetime?.MainWindow?.StorageProvider;
@@ -745,7 +786,6 @@ namespace AES_Lacrima.ViewModels
                     // Add selected folder as a FolderMediaItem to the album list.
                     var folderItem = new FolderMediaItem
                     {
-                        CoverBitmap = DefaultFolderCover ??= GenerateDefaultFolderCover(),
                         FileName = path,
                         Title = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
                     };
@@ -761,7 +801,6 @@ namespace AES_Lacrima.ViewModels
                             })
                             .Select(file => new MediaItem
                             {
-                                CoverBitmap = DefaultFolderCover ??= GenerateDefaultFolderCover(),
                                 FileName = file,
                                 Title = Path.GetFileName(file)
                             });
@@ -795,17 +834,12 @@ namespace AES_Lacrima.ViewModels
 
             foreach (var folder in AlbumList)
             {
-                if (folder.CoverBitmap == null)
-                    folder.CoverBitmap = DefaultFolderCover;
-
                 // Initialize children list elements
                 if (folder.Children == null)
                     folder.Children = new AvaloniaList<MediaItem>();
 
                 foreach (var child in folder.Children)
                 {
-                    if (child.CoverBitmap == null)
-                        child.CoverBitmap = DefaultFolderCover;
                     // Provide a save action that persists cover images when used
                     child.SaveCoverBitmapAction ??= (mi) => { /* no-op in settings load */ };
                 }
