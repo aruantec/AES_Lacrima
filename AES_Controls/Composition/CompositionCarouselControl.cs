@@ -71,25 +71,25 @@ namespace AES_Controls.Composition
             AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(SelectedIndex), 0.0);
 
         public static readonly StyledProperty<double> ItemSpacingProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(ItemSpacing), 1.0);
+            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(ItemSpacing), 0.93);
 
         public static readonly StyledProperty<double> ItemScaleProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(ItemScale), 1.0);
+            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(ItemScale), 1.88);
 
         public static readonly StyledProperty<double> VerticalOffsetProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(VerticalOffset), 0.0);
+            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(VerticalOffset), -95.0);
 
         public static readonly StyledProperty<double> SliderVerticalOffsetProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(SliderVerticalOffset), 60.0);
+            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(SliderVerticalOffset), 134.0);
 
         public static readonly StyledProperty<double> SliderTrackHeightProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(SliderTrackHeight), 4.0);
+            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(SliderTrackHeight), 17.0);
 
         public static readonly StyledProperty<double> SideTranslationProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(SideTranslation), 320.0);
+            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(SideTranslation), 73.0);
 
         public static readonly StyledProperty<double> StackSpacingProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(StackSpacing), 160.0);
+            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(StackSpacing), 39.0);
 
         public static readonly StyledProperty<double> ItemWidthProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(ItemWidth), 200.0);
