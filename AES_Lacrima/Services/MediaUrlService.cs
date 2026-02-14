@@ -45,9 +45,7 @@ namespace AES_Lacrima.Services
             try
             {
                 // Remove query parameters for better compatibility with yt-dlp
-                var currentUrl = url.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-                    && url.Contains('?', StringComparison.OrdinalIgnoreCase) 
-                        ? url.Split('?')[0] : url;
+                var currentUrl = YouTubeThumbnail.GetCleanVideoLink(url);
                 // fetch data
                 var info = await YtDlpMetadata.GetMetaDataAsync(currentUrl).ConfigureAwait(false);
 
