@@ -10,6 +10,7 @@ using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
@@ -102,6 +103,61 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private AvaloniaList<FolderMediaItem> _albumList = [];
 
+        partial void OnAlbumListChanged(AvaloniaList<FolderMediaItem>? oldValue, AvaloniaList<FolderMediaItem> newValue)
+        {
+            if (oldValue != null)
+            {
+                oldValue.CollectionChanged -= AlbumList_CollectionChanged;
+                foreach (var item in oldValue) item.PropertyChanged -= Folder_PropertyChanged;
+            }
+
+            if (newValue != null)
+            {
+                newValue.CollectionChanged += AlbumList_CollectionChanged;
+                foreach (var item in newValue) item.PropertyChanged += Folder_PropertyChanged;
+            }
+        }
+
+        private void AlbumList_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (e.OldItems != null)
+                foreach (FolderMediaItem item in e.OldItems) item.PropertyChanged -= Folder_PropertyChanged;
+
+            if (e.NewItems != null)
+                foreach (FolderMediaItem item in e.NewItems) item.PropertyChanged += Folder_PropertyChanged;
+        }
+
+        private void Folder_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (sender is FolderMediaItem folder && e.PropertyName == nameof(MediaItem.Title) && folder.IsRenaming)
+            {
+                ValidateFolderTitle(folder);
+            }
+        }
+
+        private void ValidateFolderTitle(FolderMediaItem folder)
+        {
+            if (string.IsNullOrWhiteSpace(folder.Title))
+            {
+                folder.IsNameInvalid = true;
+                folder.NameInvalidMessage = "Title cannot be empty.";
+                return;
+            }
+
+            // Check for duplicate titles in AlbumList
+            var duplicate = AlbumList.Any(a => a != folder && string.Equals(a.Title, folder.Title, StringComparison.OrdinalIgnoreCase));
+            if (duplicate)
+            {
+                folder.IsNameInvalid = true;
+                folder.NameInvalidMessage = $"Another folder named '{folder.Title}' already exists.";
+            }
+            else
+            {
+                folder.IsNameInvalid = false;
+                folder.NameInvalidMessage = null;
+            }
+        }
+
         /// <summary>
         /// Gets or sets the collection of media items used as cover items.
         /// </summary>
@@ -123,13 +179,29 @@ namespace AES_Lacrima.ViewModels
         /// <summary>
         /// The currently loaded album whose children are displayed in the cover items.
         /// </summary>
+        [ObservableProperty]
         private FolderMediaItem? _loadedAlbum;
+
+        /// <summary>
+        /// Indicates whether the "No Album Loaded" message should be visible.
+        /// True when no album is currently loaded.
+        /// </summary>
+        [ObservableProperty]
+        private bool _isNoAlbumLoadedVisible = true;
 
         /// <summary>
         /// The text used to filter the current album's media items in the carousel.
         /// </summary>
         [ObservableProperty]
         private string? _searchText;
+
+        [ObservableProperty]
+        private bool _isAddUrlPopupOpen;
+
+        [ObservableProperty]
+        private string? _addUrlText;
+
+        private string? _originalFolderTitle;
 
         /// <summary>
         /// Resolved settings view-model instance (injected via DI).
@@ -183,6 +255,139 @@ namespace AES_Lacrima.ViewModels
                     _ => "Repeat",
                 };
             }
+        }
+
+        /// <summary>
+        /// Opens the "Add URL" overlay, ensuring other overlays (Equalizer, Metadata) are closed.
+        /// </summary>
+        [RelayCommand]
+        private void AddUrl()
+        {
+            // Close other overlays to ensure only one is visible at a time.
+            if (IsEqualizerVisible) IsEqualizerVisible = false;
+            if (MetadataService != null && MetadataService.IsMetadataLoaded) 
+                MetadataService.IsMetadataLoaded = false;
+
+            // Open the add-URL overlay by setting the bound property.
+            AddUrlText = string.Empty;
+            IsAddUrlPopupOpen = true;
+        }
+
+        private bool IsMediaDuplicate(string path, out MediaItem? existing)
+        {
+            existing = null;
+            if (string.IsNullOrWhiteSpace(path)) return false;
+
+            // Normalize YouTube ID if applicable
+            bool isYt = path.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || 
+                        path.Contains("youtu.be", StringComparison.OrdinalIgnoreCase);
+            var id = isYt ? YouTubeThumbnail.ExtractVideoId(path) : null;
+
+            bool Matches(MediaItem m)
+            {
+                if (string.IsNullOrEmpty(m.FileName)) return false;
+                if (m.FileName == path) return true;
+
+                if (id != null)
+                {
+                    bool itemIsYt = m.FileName.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || 
+                                   m.FileName.Contains("youtu.be", StringComparison.OrdinalIgnoreCase);
+                    if (itemIsYt)
+                    {
+                        return YouTubeThumbnail.ExtractVideoId(m.FileName) == id;
+                    }
+                }
+                return false;
+            }
+
+            // Check ALL albums in AlbumList as this is the global library source
+            foreach (var album in AlbumList)
+            {
+                if (album.Children != null)
+                {
+                    existing = album.Children.FirstOrDefault(Matches);
+                    if (existing != null) return true;
+                }
+            }
+
+            // Also check current CoverItems in case they are not yet persisted to any folder
+            if (CoverItems != null)
+            {
+                existing = CoverItems.FirstOrDefault(Matches);
+                if (existing != null) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Called whenever the add-url popup opens or closes. When it closes and the
+        /// entered text is not empty a new MediaItem is created and scanned.
+        /// </summary>
+        /// <param name="value">New popup open state.</param>
+        partial void OnIsAddUrlPopupOpenChanged(bool value)
+        {
+            // When the popup is closed, if there is text, add the media item.
+            if (!value)
+            {
+                if (!string.IsNullOrWhiteSpace(AddUrlText))
+                {
+                    var url = AddUrlText!.Trim();
+
+                    // Check for duplicate
+                    if (IsMediaDuplicate(url, out var existing))
+                    {
+                        if (existing != null && CoverItems.Contains(existing))
+                        {
+                            SelectedIndex = CoverItems.IndexOf(existing);
+                            HighlightedItem = existing;
+                        }
+                        AddUrlText = string.Empty;
+                        return;
+                    }
+
+                    var item = new MediaItem
+                    {
+                        FileName = url,
+                        Title = Path.GetFileName(url)
+                    };
+
+                    // Add to cover items collection
+                    CoverItems.Add(item);
+
+                    // Also add to the loaded album children so it persists
+                    if (LoadedAlbum?.Children != null && !ReferenceEquals(CoverItems, LoadedAlbum.Children))
+                    {
+                        if (!LoadedAlbum.Children.Any(c => c.FileName == item.FileName))
+                            LoadedAlbum.Children.Add(item);
+                    }
+
+                    // Start metadata scraping for the new item
+                    var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+                    var scanList = new AvaloniaList<MediaItem> { item };
+                    _ = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+
+                    // If it is the first item, select and highlight it
+                    if (CoverItems.Count == 1)
+                    {
+                        SelectedIndex = 0;
+                        HighlightedItem = item;
+                        IsNoAlbumLoadedVisible = false;
+                        // Clear search to make sure it's visible if we were filtered
+                        SearchText = string.Empty;
+                    }
+                }
+
+                // Clear the text for next time
+                AddUrlText = string.Empty;
+            }
+        }
+
+        [RelayCommand]
+        private void SubmitAddUrl()
+        {
+            // Close the popup; the OnIsAddUrlPopupOpenChanged handler will process the text.
+            IsAddUrlPopupOpen = false;
         }
 
         /// <summary>
@@ -376,7 +581,7 @@ namespace AES_Lacrima.ViewModels
         /// Allows adding new items to the cover items list.
         /// </summary>
         /// <returns></returns>
-        private bool CanAddItems() => _loadedAlbum != null;
+        private bool CanAddItems() => LoadedAlbum != null;
 
         /// <summary>
         /// Adds audio files to the collection of cover items by prompting the user to select one or more files from the
@@ -416,6 +621,10 @@ namespace AES_Lacrima.ViewModels
                     foreach (var file in files)
                     {
                         var localPath = file.Path.LocalPath;
+
+                        // Skip Duplicates
+                        if (IsMediaDuplicate(localPath, out _)) continue;
+
                         var item = new MediaItem
                         {
                             FileName = localPath,
@@ -426,14 +635,16 @@ namespace AES_Lacrima.ViewModels
                         CoverItems.Add(item);
 
                         // If we are currently filtered, add to the original album children too so they persist
-                        if (_loadedAlbum?.Children != null && !ReferenceEquals(CoverItems, _loadedAlbum.Children))
+                        if (LoadedAlbum?.Children != null && !ReferenceEquals(CoverItems, LoadedAlbum.Children))
                         {
-                            _loadedAlbum.Children.Add(item);
+                            if (!LoadedAlbum.Children.Any(c => c.FileName == item.FileName))
+                                LoadedAlbum.Children.Add(item);
                         }
                     }
 
                     // Scan metadata for the newly added items
-                    _ = new MetadataScrapper(newMediaItems, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+                    if (newMediaItems.Count > 0)
+                        _ = new MetadataScrapper(newMediaItems, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
                 }
             }
         }
@@ -444,9 +655,17 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void CreateAlbum()
         {
+            var baseName = "New Album";
+            var uniqueName = baseName;
+            int counter = 1;
+            while (AlbumList.Any(a => string.Equals(a.Title, uniqueName, StringComparison.OrdinalIgnoreCase)))
+            {
+                uniqueName = $"{baseName} ({counter++})";
+            }
+
             var newAlbum = new FolderMediaItem
             {
-                Title = "New Album",
+                Title = uniqueName,
                 Children = []
             };
             AlbumList.Add(newAlbum);
@@ -464,8 +683,16 @@ namespace AES_Lacrima.ViewModels
             if (folder == null) return;
             // Finish any other renaming
             foreach (var album in AlbumList)
+            {
+                if (album.IsRenaming && album.IsNameInvalid)
+                    album.Title = _originalFolderTitle;
                 album.IsRenaming = false;
+            }
 
+            // Store original title and reset validation state
+            _originalFolderTitle = folder.Title;
+            folder.IsNameInvalid = false;
+            folder.NameInvalidMessage = null;
             folder.IsRenaming = true;
         }
 
@@ -476,7 +703,31 @@ namespace AES_Lacrima.ViewModels
         private void EndRename(FolderMediaItem? folder)
         {
             if (folder != null)
+            {
+                // Force validation before closing to ensure no race conditions with property updates
+                ValidateFolderTitle(folder);
+
+                if (folder.IsNameInvalid) return;
+
                 folder.IsRenaming = false;
+                _originalFolderTitle = null;
+            }
+        }
+
+        /// <summary>
+        /// Cancels the renaming process and reverts the title.
+        /// </summary>
+        [RelayCommand]
+        private void CancelRename(FolderMediaItem? folder)
+        {
+            if (folder != null)
+            {
+                folder.Title = _originalFolderTitle;
+                folder.IsNameInvalid = false;
+                folder.NameInvalidMessage = null;
+                folder.IsRenaming = false;
+                _originalFolderTitle = null;
+            }
         }
 
         /// <summary>
@@ -634,7 +885,8 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void OpenSelectedFolder()
         {
-            _loadedAlbum = SelectedAlbum;
+            LoadedAlbum = SelectedAlbum;
+            IsNoAlbumLoadedVisible = false;
             // Reset repeat mode when changing albums
             if (AudioPlayer != null)
                 AudioPlayer.RepeatMode = RepeatMode.Off;
@@ -660,7 +912,7 @@ namespace AES_Lacrima.ViewModels
         /// </summary>
         private void ApplyFilter()
         {
-            if (_loadedAlbum?.Children == null)
+            if (LoadedAlbum?.Children == null)
             {
                 CoverItems = [];
                 SelectedIndex = 0;
@@ -670,11 +922,11 @@ namespace AES_Lacrima.ViewModels
 
             if (string.IsNullOrWhiteSpace(SearchText))
             {
-                CoverItems = _loadedAlbum.Children;
+                CoverItems = LoadedAlbum.Children;
             }
             else
             {
-                var filtered = _loadedAlbum.Children
+                var filtered = LoadedAlbum.Children
                     .Where(item =>
                         (item.Title?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
                         (item.Artist?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
@@ -783,11 +1035,49 @@ namespace AES_Lacrima.ViewModels
                 if (folders.Count > 0)
                 {
                     var path = folders[0].Path.LocalPath;
+
+                    // Check if folder already exists
+                    var existing = AlbumList.FirstOrDefault(a => a.FileName == path);
+                    if (existing != null)
+                    {
+                        // Update existing folder content
+                        if (Directory.Exists(path))
+                        {
+                            var mediaItems = _supportedTypes
+                                .SelectMany(pattern => Directory.EnumerateFiles(path, pattern))
+                                .Where(file => {
+                                    var name = Path.GetFileName(file);
+                                    return !(string.IsNullOrEmpty(name) || name.StartsWith("._") || name.StartsWith("."));
+                                })
+                                .Select(file => new MediaItem
+                                {
+                                    FileName = file,
+                                    Title = Path.GetFileName(file)
+                                }).ToList();
+
+                            var addedItems = new AvaloniaList<MediaItem>();
+                            foreach (var item in mediaItems)
+                            {
+                                if (!existing.Children.Any(c => c.FileName == item.FileName))
+                                {
+                                    existing.Children.Add(item);
+                                    addedItems.Add(item);
+                                }
+                            }
+
+                            if (addedItems.Count > 0)
+                                _ = new MetadataScrapper(addedItems, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+                        }
+                        SelectedAlbum = existing;
+                        OpenSelectedFolder();
+                        return;
+                    }
+
                     // Add selected folder as a FolderMediaItem to the album list.
                     var folderItem = new FolderMediaItem
                     {
                         FileName = path,
-                        Title = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+                        Title = GetUniqueAlbumName(Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)))
                     };
                     // Scan the folder for supported audio files and add them as children.
                     if (Directory.Exists(path))
@@ -813,6 +1103,17 @@ namespace AES_Lacrima.ViewModels
                         AlbumList.Add(folderItem);
                 }
             }
+        }
+
+        private string GetUniqueAlbumName(string baseName)
+        {
+            if (!AlbumList.Any(a => string.Equals(a.Title, baseName, StringComparison.OrdinalIgnoreCase)))
+                return baseName;
+
+            int i = 1;
+            while (AlbumList.Any(a => string.Equals(a.Title, $"{baseName} ({i})", StringComparison.OrdinalIgnoreCase)))
+                i++;
+            return $"{baseName} ({i})";
         }
 
         /// <summary>

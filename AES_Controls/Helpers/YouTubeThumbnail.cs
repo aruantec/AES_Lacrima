@@ -222,26 +222,42 @@ public abstract class YouTubeThumbnail
 
             if (isYouTube && videoId != url && videoId.Length == 11)
             {
-                return await GetVideoMetadataAsync(videoId);
+                var ytMeta = await GetVideoMetadataAsync(videoId);
+                // If YouTube specific scraping worked, return it.
+                if (!string.IsNullOrWhiteSpace(ytMeta.Title)) return ytMeta;
             }
 
-            // General online metadata (OpenGraph tags)
+            // General online metadata (OpenGraph tags) as fallback even for YouTube
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36");
+            // Use a consistent modern browser User-Agent
+            var userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+            request.Headers.Add("User-Agent", userAgent);
+            request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
+
             var res = await Client.SendAsync(request);
             if (!res.IsSuccessStatusCode) return ("", "", "", "", 0);
 
             string html = await res.Content.ReadAsStringAsync();
 
             string title = Regex.Match(html, @"<meta property=""og:title"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
-            if (string.IsNullOrEmpty(title)) title = Regex.Match(html, @"<title>(.*?)</title>", RegexOptions.IgnoreCase).Groups[1].Value;
+            if (string.IsNullOrEmpty(title)) title = Regex.Match(html, @"<meta name=""twitter:title"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
+            if (string.IsNullOrEmpty(title)) title = Regex.Match(html, @"<meta name=""title"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
+            if (string.IsNullOrEmpty(title)) title = Regex.Match(html, @"<title>(.*?)</title>", RegexOptions.IgnoreCase | RegexOptions.Singleline).Groups[1].Value;
+
+            // Trim potential suffixes from title fallbacks
+            if (!string.IsNullOrEmpty(title))
+            {
+                title = Regex.Replace(title, @"\s*-\s*YouTube$", "", RegexOptions.IgnoreCase);
+            }
 
             string author = Regex.Match(html, @"<meta property=""og:site_name"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
             if (string.IsNullOrEmpty(author)) author = Regex.Match(html, @"<meta name=""author"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
+            if (string.IsNullOrEmpty(author)) author = Regex.Match(html, @"<meta name=""twitter:creator"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
 
             string thumbUrl = Regex.Match(html, @"<meta property=""og:image"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
+            if (string.IsNullOrEmpty(thumbUrl)) thumbUrl = Regex.Match(html, @"<meta name=""twitter:image"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
 
-            return (System.Net.WebUtility.HtmlDecode(title), System.Net.WebUtility.HtmlDecode(author), thumbUrl, "", 0);
+            return (System.Net.WebUtility.HtmlDecode(title).Trim(), System.Net.WebUtility.HtmlDecode(author).Trim(), thumbUrl, "", 0);
         }
         catch
         {
@@ -258,74 +274,165 @@ public abstract class YouTubeThumbnail
     {
         try
         {
+            // Use a more realistic User-Agent to avoid consent/bot-detection pages
+            var userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
             string url = $"https://www.youtube.com/watch?v={videoId}";
+
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36");
-            
+            request.Headers.Add("User-Agent", userAgent);
+            request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
+            request.Headers.Add("Cookie", "CONSENT=YES+cb.20210328-17-p0.en+FX+417"); // Attempt to bypass consent page
+
             var res = await Client.SendAsync(request);
             string html = await res.Content.ReadAsStringAsync();
 
-            // Try ytInitialPlayerResponse first (most accurate)
-            var playerResponseMatch = Regex.Match(html, @"var ytInitialPlayerResponse\s*=\s*({.*?});");
+            // Try to find ytInitialPlayerResponse. It can be var, window, or inside a JSON object.
+            // Using a broader match and then balancing.
+            var playerResponseMatch = Regex.Match(html, @"ytInitialPlayerResponse\s*=\s*(\{.+?\});?", RegexOptions.Singleline);
+            if (!playerResponseMatch.Success)
+            {
+                // Fallback: search for it as a property in a JSON or just standalone
+                playerResponseMatch = Regex.Match(html, @"""ytInitialPlayerResponse"":\s*(\{.+?\})", RegexOptions.Singleline);
+            }
+
             if (playerResponseMatch.Success)
             {
                 try
                 {
-                    using var doc = JsonDocument.Parse(playerResponseMatch.Groups[1].Value);
-                    var root = doc.RootElement;
-                    var videoDetails = root.GetProperty("videoDetails");
-                    
-                    string title = videoDetails.GetProperty("title").GetString() ?? "";
-                    string author = videoDetails.GetProperty("author").GetString() ?? "";
-                    string thumb = "";
-                    if (videoDetails.TryGetProperty("thumbnail", out var thumbnail))
-                    {
-                        var thumbnails = thumbnail.GetProperty("thumbnails").EnumerateArray();
-                        thumb = thumbnails.LastOrDefault().GetProperty("url").GetString() ?? "";
-                    }
+                    string json = playerResponseMatch.Groups[1].Value.Trim();
+                    // Ensure we only take the balanced JSON object if regex overshot
+                    json = ExtractBalancedJson(json);
 
-                    string genre = "";
-                    uint year = 0;
-
-                    if (root.TryGetProperty("microformat", out var microformat) && 
-                        microformat.TryGetProperty("playerMicroformatRenderer", out var renderer))
+                    if (!string.IsNullOrEmpty(json))
                     {
-                        genre = renderer.TryGetProperty("category", out var cat) ? cat.GetString() ?? "" : "";
-                        
-                        if (renderer.TryGetProperty("publishDate", out var pubDate))
+                        using var doc = JsonDocument.Parse(json);
+                        var root = doc.RootElement;
+
+                        if (root.TryGetProperty("videoDetails", out var videoDetails))
                         {
-                            var dateStr = pubDate.GetString();
-                            if (!string.IsNullOrEmpty(dateStr) && dateStr.Length >= 4 && uint.TryParse(dateStr.AsSpan(0, 4), out var y))
-                                year = y;
+                            string title = videoDetails.TryGetProperty("title", out var tProp) ? tProp.GetString() ?? "" : "";
+                            string author = videoDetails.TryGetProperty("author", out var aProp) ? aProp.GetString() ?? "" : "";
+
+                            string thumb = "";
+                            if (videoDetails.TryGetProperty("thumbnail", out var thumbnail))
+                            {
+                                var thumbnails = thumbnail.GetProperty("thumbnails").EnumerateArray();
+                                thumb = thumbnails.LastOrDefault().GetProperty("url").GetString() ?? "";
+                            }
+
+                            string genre = "";
+                            uint year = 0;
+
+                            if (root.TryGetProperty("microformat", out var microformat) && 
+                                root.TryGetProperty("microformat", out var micro) && // backup check
+                                micro.TryGetProperty("playerMicroformatRenderer", out var renderer))
+                            {
+                                genre = renderer.TryGetProperty("category", out var cat) ? cat.GetString() ?? "" : "";
+                                if (renderer.TryGetProperty("publishDate", out var pubDate))
+                                {
+                                    var dateStr = pubDate.GetString();
+                                    if (!string.IsNullOrEmpty(dateStr) && dateStr.Length >= 4 && uint.TryParse(dateStr.AsSpan(0, 4), out var y))
+                                        year = y;
+                                }
+                            }
+
+                            if (!string.IsNullOrEmpty(title)) 
+                                return (System.Net.WebUtility.HtmlDecode(title).Trim(), System.Net.WebUtility.HtmlDecode(author).Trim(), thumb, genre, year);
                         }
                     }
-
-                    if (!string.IsNullOrEmpty(title)) return (title, author, thumb, genre, year);
                 }
-                catch { }
+                catch { /* fallback to meta tags */ }
             }
 
-            // Fallback to meta tags
-            string metaTitle = Regex.Match(html, @"<meta name=""title"" content=""([^""]*)""").Groups[1].Value;
-            if (string.IsNullOrEmpty(metaTitle)) metaTitle = Regex.Match(html, @"<title>(.*?) - YouTube</title>").Groups[1].Value;
+            // Fallback to meta tags with broader patterns
+            string metaTitle = Regex.Match(html, @"<meta property=""og:title"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
+            if (string.IsNullOrEmpty(metaTitle)) metaTitle = Regex.Match(html, @"<meta name=""title"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
+            if (string.IsNullOrEmpty(metaTitle)) metaTitle = Regex.Match(html, @"<meta name=""twitter:title"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
+            if (string.IsNullOrEmpty(metaTitle))
+            {
+                var titleMatch = Regex.Match(html, @"<title>(.*?)</title>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                if (titleMatch.Success)
+                {
+                    metaTitle = titleMatch.Groups[1].Value;
+                    metaTitle = Regex.Replace(metaTitle, @"\s*-\s*YouTube$", "", RegexOptions.IgnoreCase).Trim();
+                }
+            }
 
-            string metaAuthor = Regex.Match(html, @"""author"":""([^""]*)""").Groups[1].Value;
-            if (string.IsNullOrEmpty(metaAuthor)) metaAuthor = Regex.Match(html, @"<link itemprop=""name"" content=""([^""]*)""").Groups[1].Value;
+            // Sanitization: If title is generic or just "YouTube", treat as empty to trigger further fallbacks or re-scrape
+            if (!string.IsNullOrEmpty(metaTitle))
+            {
+                if (metaTitle.Equals("YouTube", StringComparison.OrdinalIgnoreCase) || 
+                    metaTitle.Equals("Google", StringComparison.OrdinalIgnoreCase))
+                    metaTitle = "";
+            }
 
-            string thumbUrl = Regex.Match(html, @"<meta property=""og:image"" content=""([^""]*)""").Groups[1].Value;
+            string metaAuthor = Regex.Match(html, @"<link itemprop=""name"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
+            if (string.IsNullOrEmpty(metaAuthor)) metaAuthor = Regex.Match(html, @"""author"":""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
+            if (string.IsNullOrEmpty(metaAuthor)) metaAuthor = Regex.Match(html, @"<meta name=""author"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
+            if (string.IsNullOrEmpty(metaAuthor)) metaAuthor = Regex.Match(html, @"<meta property=""og:site_name"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
+            if (string.IsNullOrEmpty(metaAuthor)) metaAuthor = Regex.Match(html, @"<meta name=""twitter:creator"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
+
+            string thumbUrl = Regex.Match(html, @"<meta property=""og:image"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
             if (string.IsNullOrEmpty(thumbUrl)) thumbUrl = $"https://img.youtube.com/vi/{videoId}/maxresdefault.jpg";
 
-            string metaGenre = Regex.Match(html, @"<meta itemprop=""genre"" content=""([^""]*)""").Groups[1].Value;
+            string metaGenre = Regex.Match(html, @"<meta itemprop=""genre"" content=""([^""]*)""", RegexOptions.IgnoreCase).Groups[1].Value;
             uint metaYear = 0;
-            var dateMatch = Regex.Match(html, @"<meta itemprop=""datePublished"" content=""(\d{4})");
+            var dateMatch = Regex.Match(html, @"<meta itemprop=""datePublished"" content=""(\d{4})", RegexOptions.IgnoreCase);
             if (dateMatch.Success) uint.TryParse(dateMatch.Groups[1].Value, out metaYear);
 
-            return (System.Net.WebUtility.HtmlDecode(metaTitle), System.Net.WebUtility.HtmlDecode(metaAuthor), thumbUrl, metaGenre, metaYear);
+            return (System.Net.WebUtility.HtmlDecode(metaTitle).Trim(), System.Net.WebUtility.HtmlDecode(metaAuthor).Trim(), thumbUrl, metaGenre, metaYear);
         }
         catch
         {
             return ("", "", $"https://img.youtube.com/vi/{videoId}/maxresdefault.jpg", "", 0);
         }
+    }
+
+    /// <summary>
+    /// Extracts a balanced JSON object string from a larger text starting with '{'.
+    /// </summary>
+    private static string ExtractBalancedJson(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+
+        int start = text.IndexOf('{');
+        if (start == -1) return "";
+
+        int balance = 0;
+        bool inQuotes = false;
+        bool escaped = false;
+
+        for (int i = start; i < text.Length; i++)
+        {
+            char c = text[i];
+
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            if (c == '\\')
+            {
+                escaped = true;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inQuotes = !inQuotes;
+                continue;
+            }
+
+            if (!inQuotes)
+            {
+                if (c == '{') balance++;
+                else if (c == '}') balance--;
+
+                if (balance == 0) return text.Substring(start, i - start + 1);
+            }
+        }
+        return "";
     }
 
     /// <summary>

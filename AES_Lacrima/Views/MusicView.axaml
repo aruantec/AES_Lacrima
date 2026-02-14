@@ -7,6 +7,7 @@
              xmlns:player="using:AES_Controls.Player"
              xmlns:spectrum="using:AES_Controls.Player.Spectrum"
              xmlns:behaviors="using:AES_Lacrima.Behaviors"
+             xmlns:Interaction="http://avaloniaui.net/schemas/2019/interactivity"
              xmlns:common="using:AES_Lacrima"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
@@ -21,7 +22,7 @@
 
     <Grid Grid.RowDefinitions="*,Auto,Auto,Auto" ClipToBounds="False">
         <Border Background="Black" Opacity="0.4"/>
-        
+
         <!-- Carousel -->
         <composition:CompositionCarouselControl ItemsSource="{Binding CoverItems}"
                                                 ImageBitmapProperty="CoverBitmap"
@@ -39,7 +40,7 @@
                                                 ClipToBounds="False">
         <composition:CompositionCarouselControl.ContextMenu>
             <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
-                <MenuItem Header="Add" CornerRadius="8" Command="{Binding AddItemsCommand}">
+                <MenuItem Header="Add Files" CornerRadius="8" Command="{Binding AddItemsCommand}">
                     <MenuItem.Icon>
                         <Viewbox Width="32" Height="32" Stretch="Uniform">
                             <Canvas Width="100" Height="100">
@@ -48,6 +49,26 @@
                                 <!-- Central plus sign -->
                                 <Rectangle Canvas.Left="46" Canvas.Top="32" Width="8" Height="36" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
                                 <Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+                            </Canvas>
+                        </Viewbox>
+                    </MenuItem.Icon>
+                </MenuItem>
+
+                <!-- Popup removed from the context menu and will be placed in the main visual tree so it floats properly. -->
+
+                <MenuItem Header="Add Url" CornerRadius="8" Command="{Binding AddUrlCommand}">
+                    <MenuItem.Icon>
+                        <Viewbox Width="32" Height="32" Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Monitor outline -->
+                                <Rectangle Canvas.Left="8" Canvas.Top="8" Width="84" Height="60" RadiusX="8" RadiusY="8"
+                                           Stroke="White" StrokeThickness="8" Fill="Transparent" />
+
+                                <!-- Play triangle inside monitor -->
+                                <Path Data="M48,30 L64,40 L48,50 Z" Fill="White" />
+
+                                <!-- Base bar under monitor -->
+                                <Rectangle Canvas.Left="24" Canvas.Top="76" Width="52" Height="8" RadiusX="6" RadiusY="6" Fill="White" />
                             </Canvas>
                         </Viewbox>
                     </MenuItem.Icon>
@@ -91,10 +112,20 @@
                        MaxWidth="800" TextTrimming="CharacterEllipsis"/>
         </StackPanel>
 
+        <!-- Message -->
+        <TextBlock Text="No Album Loaded"
+                   HorizontalAlignment="Center" 
+                   VerticalAlignment="Center" 
+                   Margin="0,380,0,0"
+                   FontSize="28"
+                   FontWeight="Bold"
+                   IsHitTestVisible="False"
+                   IsVisible="{Binding IsNoAlbumLoadedVisible}"/>
+
         <!-- Metadata -->
         <StackPanel Spacing="12" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="25,20,0,0">
             <StackPanel VerticalAlignment="Center" Spacing="4" Margin="2,0,0,0">
-                <TextBlock Text="{Binding SelectedMediaItem.Title, FallbackValue='No file loaded'}" FontSize="28" FontWeight="Bold"/>
+                <TextBlock Text="{Binding SelectedMediaItem.Title, FallbackValue='No File Loaded'}" FontSize="28" FontWeight="Bold"/>
                 <TextBlock Text="{Binding SelectedMediaItem.Artist}" FontSize="22" Foreground="#ccc"/>
                 <TextBlock Text="{Binding SelectedMediaItem.Album}" FontSize="22" Foreground="#888"/>
             </StackPanel>
@@ -237,41 +268,13 @@
         <Grid Grid.Row="1" Height="140" Background="#E6000000">
             <!-- Left buttons -->
             <StackPanel Orientation="Horizontal" Spacing="50" HorizontalAlignment="Left">
-                <!-- Plus icon -->
-                <Button Height="60"
-                        Width="60"
-                        VerticalAlignment="Center"
-                        Margin="30,0,0,0"
-                        Cursor="Hand"
-                        ToolTip.Tip="Open Media"
-                        Command="{Binding OpenFolderCommand}">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="Transparent" BorderThickness="0">
-                                <ContentPresenter Content="{TemplateBinding Content}"
-                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
-                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                    <Viewbox Stretch="Uniform">
-                        <Canvas Width="100" Height="100">
-                            <!-- Rounded frame -->
-                            <Rectangle Canvas.Left="2" Canvas.Top="2" Width="96" Height="96" RadiusX="22" RadiusY="22" Stroke="White" StrokeThickness="8" Fill="Transparent" />
-
-                            <!-- Central plus sign -->
-                            <Rectangle Canvas.Left="46" Canvas.Top="32" Width="8" Height="36" RadiusX="4" RadiusY="4" Fill="White" />
-                            <Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="White" />
-                        </Canvas>
-                    </Viewbox>
-                </Button>
 
                 <!--- Carousel icon -->
                 <Button Height="60"
                         Cursor="Hand"
                         VerticalAlignment="Center"
                         Command="{Binding ToggleAlbumlistCommand}"
+                        Margin="30,0,0,0"
                         ToolTip.Tip="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Show Albums, Show Carousel'}">
 					<Button.Template>
                         <ControlTemplate TargetType="Button">
@@ -592,11 +595,48 @@
 			</Interaction.Behaviors>
 			<navigation:MusicListView.Transitions>
 				<Transitions>
-                    <DoubleTransition Property="MaxHeight" Duration="0:0:0.62" Easing="CubicEaseOut"/>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
-                </Transitions>
-            </navigation:MusicListView.Transitions>
-        </navigation:MusicListView>
+					<DoubleTransition Property="MaxHeight" Duration="0:0:0.62" Easing="CubicEaseOut"/>
+					<DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+				</Transitions>
+			</navigation:MusicListView.Transitions>
+		</navigation:MusicListView>
 
-    </Grid>
+		<!-- Add Url Overlay -->
+		<Grid Background="#E6000000"
+			  Grid.RowSpan="4"
+			  IsVisible="{Binding IsAddUrlPopupOpen}"
+			  IsHitTestVisible="{Binding IsAddUrlPopupOpen}"
+			  Opacity="{Binding IsAddUrlPopupOpen, Converter={StaticResource BoolToOpacityConverter}}"
+			  ZIndex="2000">
+			<Grid.Transitions>
+				<Transitions>
+					<DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut"/>
+				</Transitions>
+			</Grid.Transitions>
+
+			<Border Background="#1A1A1A"
+					BorderBrush="#44FFFFFF"
+					BorderThickness="1"
+					CornerRadius="12"
+					Padding="30"
+					HorizontalAlignment="Center"
+					VerticalAlignment="Center">
+				<StackPanel Orientation="Horizontal" Spacing="15">
+					<TextBlock Text="Url:" VerticalAlignment="Center" Foreground="White" FontSize="24" FontWeight="SemiBold"/>
+					<TextBox Text="{Binding AddUrlText, Mode=TwoWay}"
+							 Width="450"
+							 FontSize="20"
+							 Watermark="Enter Media URL...">
+						<TextBox.KeyBindings>
+							<KeyBinding Gesture="Enter" Command="{Binding SubmitAddUrlCommand}" />
+						</TextBox.KeyBindings>
+						<Interaction.Behaviors>
+							<behaviors:FocusOnVisibleBehavior />
+						</Interaction.Behaviors>
+					</TextBox>
+				</StackPanel>
+			</Border>
+		</Grid>
+
+	</Grid>
 </UserControl>

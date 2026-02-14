@@ -168,6 +168,11 @@ namespace AES_Controls.Helpers
                         var t = file.Tag.Title;
                         var a = file.Tag.FirstPerformer;
                         var al = file.Tag.Album ?? string.Empty;
+                        var tr = file.Tag.Track;
+                        var yr = file.Tag.Year;
+                        var ge = string.Join(";", file.Tag.Genres ?? []);
+                        var co = file.Tag.Comment;
+                        var ly = file.Tag.Lyrics;
 
                         if (string.IsNullOrWhiteSpace(t))
                         {
@@ -201,12 +206,12 @@ namespace AES_Controls.Helpers
                         }
                         var hasFrontCover = pictures != null && pictures.Any(p => p?.Type == PictureType.FrontCover);
                         var hasEmbedded = pictures != null && pictures.Length > 0;
-                        return new { t = t ?? "", a = a ?? "", al, pic, wall, hasFrontCover, hasEmbedded, Success = true };
+                        return new { t = t ?? "", a = a ?? "", al, tr, yr, ge, co, ly, pic, wall, hasFrontCover, hasEmbedded, Success = true };
                     }
                     catch (Exception ex)
                     {
                         Log.Error($"Error extracting tags from {key}", ex);
-                        return new { t = Path.GetFileNameWithoutExtension(key), a = "", al = "", pic = (byte[]?)null, wall = (byte[]?)null, hasFrontCover = false, hasEmbedded = false, Success = false };
+                        return new { t = Path.GetFileNameWithoutExtension(key), a = "", al = "", tr = 0u, yr = 0u, ge = "", co = "", ly = "", pic = (byte[]?)null, wall = (byte[]?)null, hasFrontCover = false, hasEmbedded = false, Success = false };
                     }
                 }, token);
 
@@ -223,6 +228,11 @@ namespace AES_Controls.Helpers
                     mi.Title = tagResult.t;
                     mi.Artist = tagResult.a;
                     mi.Album = tagResult.al;
+                    mi.Track = tagResult.tr;
+                    mi.Year = tagResult.yr;
+                    mi.Genre = tagResult.ge;
+                    mi.Comment = tagResult.co;
+                    mi.Lyrics = tagResult.ly;
                 });
 
                 // If the tag contained any embedded pictures, always prioritize those
@@ -231,6 +241,7 @@ namespace AES_Controls.Helpers
                 {
                     Log.Debug($"MetadataScrapper: {key} - processing embedded images (will skip online lookups)");
                     await ProcessEmbeddedImagesInternal(mi, tagResult.pic, tagResult.wall, key, token).ConfigureAwait(false);
+                    await UpdateLocalMetadataAsync(mi, tagResult.pic, tagResult.wall).ConfigureAwait(false);
                     return;
                 }
 
@@ -240,6 +251,8 @@ namespace AES_Controls.Helpers
                 {
                     await FetchAppleMetadataInternal(mi, tagResult.t, tagResult.a, key, token).ConfigureAwait(false);
                 }
+
+                await UpdateLocalMetadataAsync(mi, tagResult.pic, tagResult.wall).ConfigureAwait(false);
             }
             finally
             {
@@ -432,6 +445,12 @@ namespace AES_Controls.Helpers
                 {
                     var first = results[0];
                     var artUrl = first.GetProperty("artworkUrl100").GetString()?.Replace("100x100bb", "600x600bb");
+                    var trackName = first.TryGetProperty("trackName", out var tn) ? tn.GetString() : null;
+                    var artistName = first.TryGetProperty("artistName", out var an) ? an.GetString() : null;
+                    var collectionName = first.TryGetProperty("collectionName", out var cn) ? cn.GetString() : null;
+                    var primaryGenreName = first.TryGetProperty("primaryGenreName", out var gn) ? gn.GetString() : null;
+                    var releaseDate = first.TryGetProperty("releaseDate", out var rd) ? rd.GetString() : null;
+                    var trackNumber = first.TryGetProperty("trackNumber", out var tnum) ? tnum.GetUInt32() : 0;
 
                     if (!string.IsNullOrEmpty(artUrl))
                     {
@@ -448,6 +467,13 @@ namespace AES_Controls.Helpers
 
                             AddToCoverCache(key, bmp);
                             await Dispatcher.UIThread.InvokeAsync(() => {
+                                if (string.IsNullOrWhiteSpace(mi.Title) || mi.Title == mi.FileName) mi.Title = trackName;
+                                if (string.IsNullOrWhiteSpace(mi.Artist)) mi.Artist = artistName;
+                                if (string.IsNullOrWhiteSpace(mi.Album)) mi.Album = collectionName;
+                                if (string.IsNullOrWhiteSpace(mi.Genre)) mi.Genre = primaryGenreName;
+                                if (mi.Year == 0 && DateTime.TryParse(releaseDate, out var dt)) mi.Year = (uint)dt.Year;
+                                if (mi.Track == 0) mi.Track = trackNumber;
+
                                 mi.CoverBitmap = bmp;
                                 mi.CoverFound = true;
                                 mi.SaveCoverBitmapAction = item => TrySaveEmbeddedCover(item, imgData);
@@ -489,12 +515,7 @@ namespace AES_Controls.Helpers
                 string url = mi.FileName;
 
                 // Use a safe hash for the cache filename to avoid illegal characters
-                string cacheId;
-                using (var sha = System.Security.Cryptography.SHA1.Create())
-                {
-                    var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(url));
-                    cacheId = BitConverter.ToString(hash).Replace("-", "").ToLower();
-                }
+                string cacheId = BinaryMetadataHelper.GetCacheId(url);
 
                 var cachePath = Path.Combine(AppContext.BaseDirectory, "Cache", cacheId + ".meta");
                 var cacheDir = Path.GetDirectoryName(cachePath);
@@ -503,40 +524,53 @@ namespace AES_Controls.Helpers
                 if (File.Exists(cachePath))
                 {
                     var meta = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath));
-                    await Dispatcher.UIThread.InvokeAsync(async () =>
+
+                    // Check if cache contains valid info or just leftovers from a failed previous scrape
+                    bool isPlaceholder = meta == null || string.IsNullOrWhiteSpace(meta.Title) || 
+                                       url.Contains(meta.Title, StringComparison.OrdinalIgnoreCase);
+
+                    if (!isPlaceholder)
                     {
-                        if (meta == null) return;
-
-                        //Load basic info from metadata
-                        if (!string.IsNullOrWhiteSpace(meta.Title))
-                            mi.Title = meta.Title;
-                        if (!string.IsNullOrWhiteSpace(meta.Artist))
-                            mi.Artist = meta.Artist;
-                        if (!string.IsNullOrWhiteSpace(meta.Album))
-                            mi.Album = meta.Album;
-                        if (meta.Year > 0)
-                            mi.Year = meta.Year;
-                        if (!string.IsNullOrWhiteSpace(meta.Genre))
-                            mi.Genre = meta.Genre;
-
-                        //Load cover from metadata
-                        var cover = meta.Images?.FirstOrDefault(x => x.Kind != TagImageKind.Wallpaper);
-                        if (cover != null)
+                        await Dispatcher.UIThread.InvokeAsync(async () =>
                         {
-                            var mi_bmp = await Task.Run(() => {
-                                using var ms = new MemoryStream(cover.Data);
-                                return _maxThumbnailWidth.HasValue
-                                    ? Bitmap.DecodeToWidth(ms, _maxThumbnailWidth.Value)
-                                    : new Bitmap(ms);
-                            });
-                            
-                            AddToCoverCache(mi.FileName!, mi_bmp);
-                            mi.CoverBitmap = mi_bmp;
-                            mi.CoverFound = true;
-                        }
+                            if (meta == null) return;
 
-                    });
-                    return;
+                            //Load basic info from metadata
+                            if (!string.IsNullOrWhiteSpace(meta.Title))
+                                mi.Title = meta.Title;
+                            if (!string.IsNullOrWhiteSpace(meta.Artist))
+                                mi.Artist = meta.Artist;
+                            if (!string.IsNullOrWhiteSpace(meta.Album))
+                                mi.Album = meta.Album;
+                            if (meta.Year > 0)
+                                mi.Year = meta.Year;
+                            if (!string.IsNullOrWhiteSpace(meta.Genre))
+                                mi.Genre = meta.Genre;
+                            if (meta.Track > 0)
+                                mi.Track = meta.Track;
+                            if (!string.IsNullOrWhiteSpace(meta.Comment))
+                                mi.Comment = meta.Comment;
+                            if (!string.IsNullOrWhiteSpace(meta.Lyrics))
+                                mi.Lyrics = meta.Lyrics;
+
+                            //Load cover from metadata
+                            var cover = meta.Images?.FirstOrDefault(x => x.Kind != TagImageKind.Wallpaper);
+                            if (cover != null)
+                            {
+                                var mi_bmp = await Task.Run(() => {
+                                    using var ms = new MemoryStream(cover.Data);
+                                    return _maxThumbnailWidth.HasValue
+                                        ? Bitmap.DecodeToWidth(ms, _maxThumbnailWidth.Value)
+                                        : new Bitmap(ms);
+                                });
+
+                                AddToCoverCache(mi.FileName!, mi_bmp);
+                                mi.CoverBitmap = mi_bmp;
+                                mi.CoverFound = true;
+                            }
+                        });
+                        return;
+                    }
                 }
 
                 var (videoTitle, videoAuthor, thumbUrl, videoGenre, videoYear) = await YouTubeThumbnail.GetOnlineMetadataAsync(url).ConfigureAwait(false);
@@ -544,8 +578,14 @@ namespace AES_Controls.Helpers
 
                 // Immediately set title/artist/genre/year on UI
                 await Dispatcher.UIThread.InvokeAsync(() => {
-                    if (string.IsNullOrWhiteSpace(mi.Title) || mi.Title == mi.FileName)
+                    // Overwrite title if it is empty, matches the full URL, or contains the title (likely placeholder like video ID)
+                    bool isPlaceholder = string.IsNullOrWhiteSpace(mi.Title) || 
+                                       mi.Title == mi.FileName || 
+                                       (mi.FileName != null && mi.FileName.Contains(mi.Title));
+
+                    if (isPlaceholder)
                         mi.Title = videoTitle;
+
                     if (string.IsNullOrWhiteSpace(mi.Artist))
                         mi.Artist = videoAuthor;
                     if (mi.Year == 0 && videoYear > 0)
@@ -554,59 +594,95 @@ namespace AES_Controls.Helpers
                         mi.Genre = videoGenre;
                 });
 
+                byte[]? data = null;
                 if (!string.IsNullOrEmpty(thumbUrl))
                 {
                     await _throttle.WaitAsync();
                     try
                     {
-                        var data = await _http.GetByteArrayAsync(thumbUrl).ConfigureAwait(false);
-                        if (!IsWithinEmbeddedImageCap(data)) return;
-
-                        // UI Update for cover
-                        await Dispatcher.UIThread.InvokeAsync(() => {
-                            using var ms = new MemoryStream(data);
-                            mi.CoverBitmap = _maxThumbnailWidth.HasValue
-                                ? Bitmap.DecodeToWidth(ms, _maxThumbnailWidth.Value)
-                                : new Bitmap(ms);
-                            mi.CoverFound = true;
-                        });
-
-                        // Save to Cache conforming to CustomMetadata
-                        _ = Task.Run(() => {
-                            try
-                            {
-                                var metadata = new CustomMetadata
-                                {
-                                    Title = videoTitle,
-                                    Artist = videoAuthor,
-                                    Genre = videoGenre,
-                                    Year = videoYear,
-                                    Images = new List<ImageData>
-                                    {
-                                        new ImageData
-                                        {
-                                            Data = data,
-                                            MimeType = "image/jpeg",
-                                            Kind = TagImageKind.Cover
-                                        }
-                                    }
-                                };
-
-                                using (var fs = File.Create(cachePath))
-                                {
-                                    JsonSerializer.Serialize(fs, metadata);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Log.Error($"Failed to save metadata to cache: {cachePath}", ex);
-                            }
-                        });
+                        data = await _http.GetByteArrayAsync(thumbUrl).ConfigureAwait(false);
+                        if (IsWithinEmbeddedImageCap(data))
+                        {
+                            // UI Update for cover
+                            await Dispatcher.UIThread.InvokeAsync(() => {
+                                using var ms = new MemoryStream(data);
+                                mi.CoverBitmap = _maxThumbnailWidth.HasValue
+                                    ? Bitmap.DecodeToWidth(ms, _maxThumbnailWidth.Value)
+                                    : new Bitmap(ms);
+                                mi.CoverFound = true;
+                                mi.SaveCoverBitmapAction = item => TrySaveEmbeddedCover(item, data);
+                            });
+                        }
+                        else
+                        {
+                            data = null; // Reset if too large
+                        }
                     }
+                    catch (Exception ex) { Log.Error($"Failed to fetch online thumbnail for {mi.FileName}", ex); }
                     finally { _throttle.Release(); }
                 }
+
+                // Persist collected metadata and thumbnail to local sidecar file
+                await UpdateLocalMetadataAsync(mi, data, null).ConfigureAwait(false);
             }
             catch (Exception ex) { Log.Error($"Error setting up online metadata for {mi.FileName}", ex); }
+        }
+
+        /// <summary>
+        /// Creates or updates a sidecar .meta file in the cache directory containing all possible info.
+        /// </summary>
+        private async Task UpdateLocalMetadataAsync(MediaItem mi, byte[]? pic, byte[]? wall)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(mi.FileName)) return;
+
+                string cacheId = BinaryMetadataHelper.GetCacheId(mi.FileName);
+
+                var cachePath = Path.Combine(AppContext.BaseDirectory, "Cache", cacheId + ".meta");
+                var cacheDir = Path.GetDirectoryName(cachePath);
+                if (!string.IsNullOrEmpty(cacheDir) && !Directory.Exists(cacheDir))
+                    Directory.CreateDirectory(cacheDir);
+
+                var metadata = new CustomMetadata
+                {
+                    Title = mi.Title ?? "",
+                    Artist = mi.Artist ?? "",
+                    Album = mi.Album ?? "",
+                    Track = mi.Track,
+                    Year = mi.Year,
+                    Genre = mi.Genre ?? "",
+                    Comment = mi.Comment ?? "",
+                    Lyrics = mi.Lyrics ?? "",
+                    Images = []
+                };
+
+                if (pic != null)
+                {
+                    metadata.Images.Add(new ImageData
+                    {
+                        Data = pic,
+                        Kind = TagImageKind.Cover,
+                        MimeType = "image/png"
+                    });
+                }
+
+                if (wall != null)
+                {
+                    metadata.Images.Add(new ImageData
+                    {
+                        Data = wall,
+                        Kind = TagImageKind.Wallpaper,
+                        MimeType = "image/png"
+                    });
+                }
+
+                await Task.Run(() => BinaryMetadataHelper.SaveMetadata(cachePath, metadata));
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Failed to update local metadata cache for {mi.FileName}", ex);
+            }
         }
 
         /// <summary>
@@ -712,12 +788,7 @@ namespace AES_Controls.Helpers
                 // Handle online media by saving to sidecar metadata
                 if (!File.Exists(item.FileName) && (item.FileName.Contains("youtu", StringComparison.OrdinalIgnoreCase) || item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase)))
                 {
-                    string cacheId;
-                    using (var sha = SHA1.Create())
-                    {
-                        var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(item.FileName));
-                        cacheId = BitConverter.ToString(hash).Replace("-", "").ToLower();
-                    }
+                    string cacheId = BinaryMetadataHelper.GetCacheId(item.FileName);
                     var cachePath = Path.Combine(AppContext.BaseDirectory, "Cache", cacheId + ".meta");
 
                     var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();

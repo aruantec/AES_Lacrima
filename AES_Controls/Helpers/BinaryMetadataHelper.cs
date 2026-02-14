@@ -1,5 +1,7 @@
 using AES_Code.Models;
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace AES_Code.Helpers;
@@ -99,5 +101,16 @@ public static class BinaryMetadataHelper
             Debug.WriteLine($"JSON Parsing Error: {ex.Message}");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Generates a unique, filename-safe cache ID for a given URL or file path using SHA1 hashing.
+    /// </summary>
+    public static string GetCacheId(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return "unknown";
+        using var sha = SHA1.Create();
+        var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(path));
+        return BitConverter.ToString(hash).Replace("-", "").ToLower();
     }
 }
