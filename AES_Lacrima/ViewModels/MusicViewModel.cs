@@ -74,6 +74,9 @@ namespace AES_Lacrima.ViewModels
         private FolderMediaItem? _selectedAlbum;
 
         [ObservableProperty]
+        private AvaloniaList<MediaItem> _playbackQueue = [];
+
+        [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(AddItemsCommand))]
         [NotifyCanExecuteChangedFor(nameof(AddUrlCommand))]
         private FolderMediaItem? _loadedAlbum;
@@ -361,7 +364,7 @@ namespace AES_Lacrima.ViewModels
         {
             if (!GetCurrentIndex(out int currentIndex)) return;
             currentIndex++;
-            if (currentIndex > CoverItems.Count - 1)
+            if (currentIndex > PlaybackQueue.Count - 1)
             {
                 if (AudioPlayer?.RepeatMode == RepeatMode.All)
                     currentIndex = 0;
@@ -399,6 +402,7 @@ namespace AES_Lacrima.ViewModels
             if (CoverItems != null && CoverItems.Count > index
                 && CoverItems[index] is MediaItem selectedItem)
             {
+                PlaybackQueue = CoverItems;
                 SelectedMediaItem = selectedItem;
                 await PlayMediaItemAsync(selectedItem);
             }
@@ -421,7 +425,10 @@ namespace AES_Lacrima.ViewModels
             else
             {
                 if (AudioPlayer.Duration <= 0 && SelectedMediaItem != null)
+                {
+                    if (PlaybackQueue == null || PlaybackQueue.Count == 0) PlaybackQueue = CoverItems;
                     await PlayMediaItemAsync(SelectedMediaItem);
+                }
                 else
                     AudioPlayer.Play();
             }
@@ -749,9 +756,16 @@ namespace AES_Lacrima.ViewModels
 
         private async Task PlayIndexSelection(int currentIndex)
         {
-            if (currentIndex < 0 || currentIndex >= CoverItems.Count) return;
-            SelectedMediaItem = CoverItems[currentIndex];
-            SelectedIndex = currentIndex;
+            if (currentIndex < 0 || currentIndex >= PlaybackQueue.Count) return;
+            SelectedMediaItem = PlaybackQueue[currentIndex];
+
+            // Sync UI selection if the item exists in the currently viewed collection
+            if (CoverItems != null)
+            {
+                int viewIndex = CoverItems.IndexOf(SelectedMediaItem);
+                if (viewIndex != -1) SelectedIndex = viewIndex;
+            }
+
             await PlayMediaItemAsync(SelectedMediaItem);
         }
 
@@ -776,8 +790,8 @@ namespace AES_Lacrima.ViewModels
         private bool GetCurrentIndex(out int currentIndex)
         {
             currentIndex = -1;
-            if (SelectedMediaItem == null && CoverItems == null || CoverItems.Count == 0) return false;
-            currentIndex = CoverItems.IndexOf(SelectedMediaItem!);
+            if (SelectedMediaItem == null || PlaybackQueue == null || PlaybackQueue.Count == 0) return false;
+            currentIndex = PlaybackQueue.IndexOf(SelectedMediaItem!);
             return true;
         }
 
