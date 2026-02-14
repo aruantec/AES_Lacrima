@@ -40,6 +40,7 @@
                                                 ClipToBounds="False">
         <composition:CompositionCarouselControl.ContextMenu>
             <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
+                <!-- Add Files -->
                 <MenuItem Header="Add Files" CornerRadius="8" Command="{Binding AddItemsCommand}">
                     <MenuItem.Icon>
                         <Viewbox Width="32" Height="32" Stretch="Uniform">
@@ -54,8 +55,7 @@
                     </MenuItem.Icon>
                 </MenuItem>
 
-                <!-- Popup removed from the context menu and will be placed in the main visual tree so it floats properly. -->
-
+                <!-- Add Url -->
                 <MenuItem Header="Add Url" CornerRadius="8" Command="{Binding AddUrlCommand}">
                     <MenuItem.Icon>
                         <Viewbox Width="32" Height="32" Stretch="Uniform">
@@ -74,7 +74,27 @@
                     </MenuItem.Icon>
                 </MenuItem>
 
-                <MenuItem Header="Delete" CornerRadius="8" Command="{Binding DeletePointedItemCommand}">
+                <!-- Edit Metadata -->
+                <MenuItem Header="Edit Metadata" CornerRadius="8" 
+                          Command="{Binding OpenMetadataCommand}" 
+                          CommandParameter="{Binding PointedIndex}"
+                          IsVisible="{Binding IsItemPointed}">
+                    <MenuItem.Icon>
+                        <Viewbox Width="32" Height="32" Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Rounded square frame with gap at top-right -->
+                                <Path Data="M 50,18 H 30 C 20,18 18,20 18,30 V 78 C 18,88 20,92 30,92 H 78 C 88,92 92,88 92,78 V 55"
+                                      Stroke="#CCFFFFFF"
+                                      StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
+                                <!-- Simple diagonal line representing the pen -->
+                                <Line StartPoint="35,80" EndPoint="92,23" Stroke="#CCFFFFFF" StrokeThickness="11" StrokeLineCap="Round" />
+                            </Canvas>
+                        </Viewbox>
+                    </MenuItem.Icon>
+                </MenuItem>
+
+                <!-- Delete -->
+                <MenuItem Header="Delete" CornerRadius="8" Command="{Binding DeletePointedItemCommand}" IsVisible="{Binding IsItemPointed}">
                     <MenuItem.Icon>
                         <Path Data="M6,19A2,2 0 0,0 8,21h8a2,2 0 0,0 2-2V7H6v12zM19,4h-3.5l-1-1h-5l-1,1H5v2h14V4z"
                               Fill="#CCFFFFFF"
@@ -274,7 +294,7 @@
                         Cursor="Hand"
                         VerticalAlignment="Center"
                         Command="{Binding ToggleAlbumlistCommand}"
-                        Margin="30,0,0,0"
+                        Margin="50,0,0,0"
                         ToolTip.Tip="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Show Albums, Show Carousel'}">
 					<Button.Template>
                         <ControlTemplate TargetType="Button">
@@ -315,36 +335,8 @@
                         </StackPanel>
                     </Viewbox>
                 </Button>
-
-                <!-- Tag editor icon -->
-                <Button Height="60"
-                        Width="60"
-                        VerticalAlignment="Center"
-                        Cursor="Hand"
-                        ToolTip.Tip="Edit Tags"
-                        Command="{Binding OpenMetadataCommand}">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="Transparent" BorderThickness="0">
-                                <ContentPresenter Content="{TemplateBinding Content}"
-                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
-                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                    <Viewbox Stretch="Uniform">
-                        <Canvas Width="100" Height="100">
-                            <!-- Rounded square frame with gap at top-right -->
-                            <Path Data="M 50,18 H 30 C 20,18 18,20 18,30 V 78 C 18,88 20,92 30,92 H 78 C 88,92 92,88 92,78 V 55"
-                                  Stroke="{Binding IsTagIconDimmed, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,White'}"
-                                  StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
-                            <!-- Simple diagonal line representing the pen -->
-                            <Line StartPoint="35,80" EndPoint="92,23" Stroke="{Binding IsTagIconDimmed, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,White'}" StrokeThickness="11" StrokeLineCap="Round" />
-                        </Canvas>
-                    </Viewbox>
-                </Button>
             </StackPanel>
+
             <!-- Center buttons -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="30">
                 <!-- Stop button -->
