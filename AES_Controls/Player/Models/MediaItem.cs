@@ -169,7 +169,23 @@ public partial class MediaItem : ObservableObject, IDisposable
     /// Indicates whether the item name is currently being edited in the UI.
     /// </summary>
     public bool IsRenaming { get => _isRenaming; set => SetProperty(ref _isRenaming, value); }
-    
+
+    private bool _isNameInvalid;
+    [XmlIgnore]
+    [JsonIgnore]
+    /// <summary>
+    /// Indicates whether the current name is invalid (e.g., a duplicate).
+    /// </summary>
+    public bool IsNameInvalid { get => _isNameInvalid; set => SetProperty(ref _isNameInvalid, value); }
+
+    private string? _nameInvalidMessage;
+    [XmlIgnore]
+    [JsonIgnore]
+    /// <summary>
+    /// Error message to display when the name is invalid.
+    /// </summary>
+    public string? NameInvalidMessage { get => _nameInvalidMessage; set => SetProperty(ref _nameInvalidMessage, value); }
+
     [XmlIgnore]
     [JsonIgnore]
     /// <summary>

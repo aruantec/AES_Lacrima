@@ -159,20 +159,28 @@
 												   TextWrapping="Wrap" 
 												   Foreground="White" 
 												   FontSize="18"/>
-										<TextBox Text="{Binding Title, Mode=TwoWay}"
+										<TextBox Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
 												 IsVisible="{Binding IsRenaming}"
 												 HorizontalAlignment="Stretch"
 												 VerticalAlignment="Center"
 												 Padding="4"
 												 Background="#44000000"
-												 BorderThickness="0"
+												 Classes.invalid="{Binding IsNameInvalid}"
 												 Foreground="White"
 												 FontSize="18"
 												 TextAlignment="Center"
-												 CaretBrush="White">
+												 CaretBrush="White"
+												 ToolTip.Tip="{Binding NameInvalidMessage}"
+												 ToolTip.IsOpen="{Binding IsNameInvalid}">
+											<TextBox.Styles>
+												<Style Selector="TextBox.invalid /template/ Border#PART_BorderElement">
+													<Setter Property="BorderThickness" Value="2"/>
+													<Setter Property="BorderBrush" Value="Red"/>
+												</Style>
+											</TextBox.Styles>
 											<TextBox.KeyBindings>
 												<KeyBinding Gesture="Enter" Command="{Binding $parent[ListBox].DataContext.EndRenameCommand}" CommandParameter="{Binding}" />
-												<KeyBinding Gesture="Escape" Command="{Binding $parent[ListBox].DataContext.EndRenameCommand}" CommandParameter="{Binding}" />
+												<KeyBinding Gesture="Escape" Command="{Binding $parent[ListBox].DataContext.CancelRenameCommand}" CommandParameter="{Binding}" />
 											</TextBox.KeyBindings>
 											<Interaction.Behaviors>
 												<localBehaviors:FocusOnVisibleBehavior />

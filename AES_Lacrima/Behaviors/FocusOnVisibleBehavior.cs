@@ -13,9 +13,9 @@ public class FocusOnVisibleBehavior : Behavior<Control>
     protected override void OnAttached()
     {
         base.OnAttached();
-        AssociatedObject.PropertyChanged += AssociatedObject_PropertyChanged;
+        AssociatedObject?.PropertyChanged += AssociatedObject_PropertyChanged;
         // Check initial state if it's already visible when attached
-        if (AssociatedObject.IsVisible)
+        if (AssociatedObject != null && AssociatedObject.IsVisible)
         {
             FocusAndSelect();
         }
@@ -34,7 +34,7 @@ public class FocusOnVisibleBehavior : Behavior<Control>
         // Use Dispatcher to ensure focus is set after layout/visibility change
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            AssociatedObject.Focus();
+            AssociatedObject?.Focus();
             if (AssociatedObject is TextBox textBox)
             {
                 textBox.SelectAll();

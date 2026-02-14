@@ -69,32 +69,46 @@ namespace AES_Lacrima.Services
 
             if (!File.Exists(FilePath))
             {
+                // Pre-populate with current media item info while loading from cache
+                Title = item.Title;
+                Artists = item.Artist;
+                Album = item.Album;
+                Track = item.Track;
+                Year = item.Year;
+                Genres = item.Genre;
+                Comment = item.Comment;
+                Lyrics = item.Lyrics;
+                IsOnlineMedia = true;
+
                 await Task.Run(() =>
                 {
-                    // Get video id
-                    var videoId = YouTubeThumbnail.ExtractVideoId(FilePath!);
+                    // Get unique cache id for the URL/Online item
+                    var cacheId = BinaryMetadataHelper.GetCacheId(FilePath!);
                     // Construct metadata path
-                    var metaData = Path.Combine(AppContext.BaseDirectory, "Cache", videoId) + ".meta";
+                    var metaData = Path.Combine(AppContext.BaseDirectory, "Cache", cacheId) + ".meta";
                     // Load metadata
                     if (BinaryMetadataHelper.LoadMetadata(metaData) is not { } metadata)
                         return;
 
-                    // Set properties
-                    Title = metadata.Title;
-                    Album = metadata.Album;
-                    Artists = metadata.Artist;
-                    Track = metadata.Track;
-                    Year = metadata.Year;
-                    Lyrics = metadata.Lyrics;
-                    Genres = metadata.Genre;
-                    Comment = metadata.Comment;
-                    IsOnlineMedia = true;
+                    // Set properties on UI thread
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        Title = metadata.Title;
+                        Album = metadata.Album;
+                        Artists = metadata.Artist;
+                        Track = metadata.Track;
+                        Year = metadata.Year;
+                        Lyrics = metadata.Lyrics;
+                        Genres = metadata.Genre;
+                        Comment = metadata.Comment;
+                        IsOnlineMedia = true;
 
-                    // Clear images and dispose
-                    foreach (var old in Images)
-                        old.Dispose();
+                        // Clear images and dispose
+                        foreach (var old in Images)
+                            old.Dispose();
 
-                    Images.Clear();
+                        Images.Clear();
+                    });
 
                     // Load images
                     var newImages = metadata.Images
@@ -173,46 +187,49 @@ namespace AES_Lacrima.Services
             {
                 if (!File.Exists(FilePath) && FilePath != null && FilePath.Contains("youtu", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Get video id
-                    var videoId = YouTubeThumbnail.ExtractVideoId(FilePath);
+                    // Get unique cache id
+                    var cacheId = BinaryMetadataHelper.GetCacheId(FilePath);
                     // Construct metadata path
-                    var metaData = Path.Combine(AppContext.BaseDirectory, "Cache", videoId) + ".meta";
-                    // Save metadata
-                    if (File.Exists(metaData))
-                    {
-                        try
-                        {
-                            var customMetadata = new CustomMetadata
-                            {
-                                Title = Title!,
-                                Artist = Artists!,
-                                Album = Album!,
-                                Track = Track,
-                                Year = Year,
-                                Lyrics = Lyrics!,
-                                Genre = Genres!,
-                                Comment = Comment!,
-                                Images = [.. Images.Select(img => new ImageData
-                                {
-                                    Data = img.Data,
-                                    MimeType = img.MimeType,
-                                    Kind = img.Kind
-                                })],
-                                Videos = [.. Images.Where(img => img.Kind == TagImageKind.LiveWallpaper)
-                                    .Select(img => new VideoData
-                                    {
-                                        MimeType = img.MimeType,
-                                        Data = img.Data,
-                                        Kind = img.Kind
-                                    })]
-                            };
+                    var metaData = Path.Combine(AppContext.BaseDirectory, "Cache", cacheId) + ".meta";
 
-                            BinaryMetadataHelper.SaveMetadata(metaData, customMetadata);
-                        }
-                        catch (Exception e)
+                    // Ensure Cache directory exists
+                    var metaDir = Path.GetDirectoryName(metaData);
+                    if (!string.IsNullOrEmpty(metaDir) && !Directory.Exists(metaDir))
+                        Directory.CreateDirectory(metaDir);
+
+                    // Save metadata
+                    try
+                    {
+                        var customMetadata = new CustomMetadata
                         {
-                            s_log.Error("Failed to save metadata cache", e);
-                        }
+                            Title = Title!,
+                            Artist = Artists!,
+                            Album = Album!,
+                            Track = Track,
+                            Year = Year,
+                            Lyrics = Lyrics!,
+                            Genre = Genres!,
+                            Comment = Comment!,
+                            Images = [.. Images.Select(img => new ImageData
+                            {
+                                Data = img.Data,
+                                MimeType = img.MimeType,
+                                Kind = img.Kind
+                            })],
+                            Videos = [.. Images.Where(img => img.Kind == TagImageKind.LiveWallpaper)
+                                .Select(img => new VideoData
+                                {
+                                    MimeType = img.MimeType,
+                                    Data = img.Data,
+                                    Kind = img.Kind
+                                })]
+                        };
+
+                        BinaryMetadataHelper.SaveMetadata(metaData, customMetadata);
+                    }
+                    catch (Exception e)
+                    {
+                        s_log.Error("Failed to save metadata cache", e);
                     }
 
                     // Set cover bitmap in current media item
