@@ -357,9 +357,9 @@ namespace AES_Lacrima.ViewModels
         private void Stop() => AudioPlayer?.Stop();
 
         [RelayCommand]
-        private void PlayNext()
+        private async Task PlayNext()
         {
-            GetCurrentIndex(out int currentIndex);
+            if (!GetCurrentIndex(out int currentIndex)) return;
             currentIndex++;
             if (currentIndex > CoverItems.Count - 1)
             {
@@ -368,16 +368,16 @@ namespace AES_Lacrima.ViewModels
                 else
                     return;
             }
-            PlayIndexSelection(currentIndex);
+            await PlayIndexSelection(currentIndex);
         }
 
         [RelayCommand]
-        private void PlayPrevious()
+        private async Task PlayPrevious()
         {
-            GetCurrentIndex(out int currentIndex);
+            if (!GetCurrentIndex(out int currentIndex)) return;
             currentIndex--;
             if (currentIndex < 0) return;
-            PlayIndexSelection(currentIndex);
+            await PlayIndexSelection(currentIndex);
         }
 
         [RelayCommand]
@@ -394,13 +394,13 @@ namespace AES_Lacrima.ViewModels
         private void ClearSearch() => SearchText = string.Empty;
 
         [RelayCommand]
-        private void OpenSelectedItem(int index)
+        private async Task OpenSelectedItem(int index)
         {
             if (CoverItems != null && CoverItems.Count > index
-                && CoverItems[SelectedIndex] is MediaItem selectedItem)
+                && CoverItems[index] is MediaItem selectedItem)
             {
                 SelectedMediaItem = selectedItem;
-                _ = PlayMediaItemAsync(selectedItem);
+                await PlayMediaItemAsync(selectedItem);
             }
         }
 
@@ -527,7 +527,8 @@ namespace AES_Lacrima.ViewModels
         {
             AudioPlayer = DiLocator.ResolveViewModel<AudioPlayer>();
             AudioPlayer?.PropertyChanged += AudioPlayer_PropertyChanged;
-            AudioPlayer?.EndReached += async (_, _) => PlayNext();
+            AudioPlayer?.EndReached += async (_, _) => 
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(PlayNext);
             LoadSettings();
             EqualizerService?.Initialize(AudioPlayer!);
             StartMetadataScrappersForLoadedFolders();
@@ -746,11 +747,12 @@ namespace AES_Lacrima.ViewModels
 
         private bool CanAddItems() => LoadedAlbum != null;
 
-        private void PlayIndexSelection(int currentIndex)
+        private async Task PlayIndexSelection(int currentIndex)
         {
+            if (currentIndex < 0 || currentIndex >= CoverItems.Count) return;
             SelectedMediaItem = CoverItems[currentIndex];
             SelectedIndex = currentIndex;
-            _ = PlayMediaItemAsync(SelectedMediaItem);
+            await PlayMediaItemAsync(SelectedMediaItem);
         }
 
         /// <summary>

@@ -30,9 +30,9 @@ namespace AES_Lacrima.Services
         {
             if (item == null || item.FileName == null || !YtDlpManager.IsInstalled) return;
             // Load online urls
-            item.OnlineUrls = await HandleStreamFile(item.FileName);
+            item.OnlineUrls = await HandleStreamFile(item.FileName).ConfigureAwait(false);
             // Play audio
-            await audioPlayer.PlayFile(item);
+            await audioPlayer.PlayFile(item).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -49,7 +49,7 @@ namespace AES_Lacrima.Services
                     && url.Contains('?', StringComparison.OrdinalIgnoreCase) 
                         ? url.Split('?')[0] : url;
                 // fetch data
-                var info = await YtDlpMetadata.GetMetaDataAsync(currentUrl);
+                var info = await YtDlpMetadata.GetMetaDataAsync(currentUrl).ConfigureAwait(false);
 
                 // best 1080p video
                 var bestVideo = info.VideoFormats
