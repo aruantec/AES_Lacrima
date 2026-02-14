@@ -29,11 +29,21 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     vec2 res = iResolution.xy;
     vec2 uv = (fragCoord - 0.5 * res) / res.y;
     
+    // --- Circular Spectrum Mapping ---
     float a = atan(uv.y, uv.x);
     float d = length(uv);
-    float normAngle = (a + 3.14159) / (2.0 * 3.14159);
-    
-    float barHeight = texture(iChannel0, vec2(normAngle, 0.5)).r;
+
+    // Balanced Mirrored Mapping: ensures symmetry across all quadrants.
+    // We shift the mapping by 45 degrees and use a power transform to expand
+    // the treble regions visually, making the circular shape more stable.
+    float normAngle = pow(abs(cos(a + 0.78539)), 0.7);
+
+    // Sample the spectrum
+    float rawHeight = texture(iChannel0, vec2(normAngle, 0.5)).r;
+
+    // Visually normalize: dampen the overwhelming bass intensity (near normAngle=0)
+    // and compress the response to make high frequencies more visible.
+    float barHeight = pow(rawHeight, 0.8) * (0.6 + 0.4 * normAngle);
     float bass = texture(iChannel0, vec2(0.04, 0.5)).r;
     float mid = texture(iChannel0, vec2(0.25, 0.5)).r;
     float treble = texture(iChannel0, vec2(0.75, 0.5)).r;
@@ -58,7 +68,8 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     float barCount = 96.0;
     float sector = floor(normAngle * barCount);
     float bin = (sector + 0.5) / barCount;
-    float binHeight = texture(iChannel0, vec2(bin, 0.5)).r;
+    float binRaw = texture(iChannel0, vec2(bin, 0.5)).r;
+    float binHeight = pow(binRaw, 0.8) * (0.6 + 0.4 * bin);
     float barEdge = abs(fract(normAngle * barCount) - 0.5);
     float barMask = smoothstep(0.48, 0.2, barEdge);
     float barRadius = baseRadius + 0.06 + binHeight * 0.6;

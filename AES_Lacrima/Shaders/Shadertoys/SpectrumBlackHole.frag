@@ -5,14 +5,21 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     vec2 res = iResolution.xy;
     vec2 uv = (fragCoord - 0.5 * res) / res.y;
     
-    // Polar coordinates
+    // --- Circular Spectrum Mapping ---
     float a = atan(uv.y, uv.x);
     float d = length(uv);
-    float normAngle = (a + 3.141591) / 6.283182; // Normalized angle 0-1
-    
+
+    // Balanced Mirrored Mapping: ensures symmetry across all quadrants.
+    // We shift the mapping by 45 degrees and use a power transform to expand
+    // the treble regions visually, making the circular shape more stable.
+    float normAngle = pow(abs(cos(a + 0.78539)), 0.7);
+
     // Sample Spectrum (Frequency data)
-    float spec = texture(iChannel0, vec2(normAngle, 0.25)).r;
-    
+    float rawSpec = texture(iChannel0, vec2(normAngle, 0.25)).r;
+
+    // Visually normalize: dampen dominant bass and boost high-end visibility.
+    float spec = pow(rawSpec, 0.8) * (0.6 + 0.4 * normAngle);
+
     // Sample Waveform (Time domain data)
     float wave = texture(iChannel0, vec2(normAngle, 0.75)).r;
     
@@ -28,8 +35,9 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     float barPos = (barIdx + 0.5) / numBars;
     
     // Get single freq sample for this bar
-    float barFreq = texture(iChannel0, vec2(barPos, 0.25)).r;
-    
+    float barFreqRaw = texture(iChannel0, vec2(barPos, 0.25)).r;
+    float barFreq = pow(barFreqRaw, 0.8) * (0.6 + 0.4 * barPos);
+
     // Bar geometry
     float angleInBar = fract(normAngle * numBars);
     float barWidth = 0.75; // Space between bars
