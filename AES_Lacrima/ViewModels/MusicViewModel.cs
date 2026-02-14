@@ -764,8 +764,8 @@ namespace AES_Lacrima.ViewModels
         {
             if (AudioPlayer == null || item == null || item.FileName == null || _mediaUrlService == null) return;
             // Check if the item is a URL and resolve it if necessary
-            if (item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase))
-                await _mediaUrlService.OpenMediaItemAsync(AudioPlayer, item);
+            if (item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase) || item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                    await _mediaUrlService.OpenMediaItemAsync(AudioPlayer, item);
             // Play file
             else
                 await AudioPlayer.PlayFile(item);

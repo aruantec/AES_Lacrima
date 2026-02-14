@@ -19,7 +19,7 @@ namespace AES_Controls.Helpers
 {
     /// <summary>
     /// Provides background metadata extraction and cover art retrieval for media items.
-    /// Supports local tagging via TagLib#, Apple/iTunes API searches, and online metadata (YouTube).
+    /// Supports local tagging via TagLib#, Apple/iTunes API searches, and online metadata.
     /// </summary>
     public sealed class MetadataScrapper : IDisposable
     {
@@ -504,7 +504,7 @@ namespace AES_Controls.Helpers
         }
 
         /// <summary>
-        /// Attempts to find and apply metadata for a URL (e.g. YouTube).
+        /// Attempts to find and apply metadata for a URL.
         /// Checks local cache first before fetching from online providers.
         /// </summary>
         public async Task SetupOnlineMetadata(MediaItem mi)
