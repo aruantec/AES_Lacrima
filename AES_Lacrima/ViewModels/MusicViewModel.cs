@@ -88,6 +88,12 @@ namespace AES_Lacrima.ViewModels
         private string? _searchText;
 
         [ObservableProperty]
+        private string? _searchAlbumText;
+
+        [ObservableProperty]
+        private AvaloniaList<FolderMediaItem> _filteredAlbumList = [];
+
+        [ObservableProperty]
         private bool _isAddUrlPopupOpen;
 
         [ObservableProperty]
@@ -397,6 +403,9 @@ namespace AES_Lacrima.ViewModels
         private void ClearSearch() => SearchText = string.Empty;
 
         [RelayCommand]
+        private void ClearSearchAlbum() => SearchAlbumText = string.Empty;
+
+        [RelayCommand]
         private async Task OpenSelectedItem(int index)
         {
             if (CoverItems != null && CoverItems.Count > index
@@ -530,6 +539,11 @@ namespace AES_Lacrima.ViewModels
 
         #region Constructor/Prepare
         // Constructor/Prepare
+        public MusicViewModel()
+        {
+            FilteredAlbumList = AlbumList;
+        }
+
         public override void Prepare()
         {
             AudioPlayer = DiLocator.ResolveViewModel<AudioPlayer>();
@@ -541,6 +555,10 @@ namespace AES_Lacrima.ViewModels
             StartMetadataScrappersForLoadedFolders();
             _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
             MetadataService?.PropertyChanged += MetadataService_PropertyChanged;
+
+            // Ensure filters are in sync after load
+            ApplyAlbumFilter();
+            ApplyFilter();
         }
         #endregion
 
@@ -558,6 +576,7 @@ namespace AES_Lacrima.ViewModels
                 newValue.CollectionChanged += AlbumList_CollectionChanged;
                 foreach (var item in newValue) item.PropertyChanged += Folder_PropertyChanged;
             }
+            ApplyAlbumFilter();
         }
 
         partial void OnIsAddUrlPopupOpenChanged(bool value)
@@ -615,6 +634,8 @@ namespace AES_Lacrima.ViewModels
         partial void OnHighlightedItemChanged(MediaItem? value) => OnPropertyChanged(nameof(IsTagIconDimmed));
 
         partial void OnSearchTextChanged(string? value) => ApplyFilter();
+
+        partial void OnSearchAlbumTextChanged(string? value) => ApplyAlbumFilter();
         #endregion
 
         #region Private methods
@@ -625,6 +646,33 @@ namespace AES_Lacrima.ViewModels
                 foreach (FolderMediaItem item in e.OldItems) item.PropertyChanged -= Folder_PropertyChanged;
             if (e.NewItems != null)
                 foreach (FolderMediaItem item in e.NewItems) item.PropertyChanged += Folder_PropertyChanged;
+
+            ApplyAlbumFilter();
+        }
+
+        private void ApplyAlbumFilter()
+        {
+            if (AlbumList == null)
+            {
+                FilteredAlbumList = [];
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(SearchAlbumText))
+            {
+                FilteredAlbumList = AlbumList;
+            }
+            else
+            {
+                var filtered = AlbumList.Where(a => 
+                    (a.Title?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (a.Children?.Any(c => 
+                        (c.Title?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                        (c.Artist?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                        (c.Album?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false)) ?? false))
+                    .ToList();
+                FilteredAlbumList = [.. filtered];
+            }
         }
 
         private void Folder_PropertyChanged(object? sender, PropertyChangedEventArgs e)
