@@ -93,6 +93,17 @@ public abstract class YouTubeThumbnail
     }
 
     /// <summary>
+    /// Cleans up a URL or video ID to its canonical watch format.
+    /// </summary>
+    /// <param name="url">The URL or video ID to clean.</param>
+    /// <returns>The canonical YouTube URL, or the original input if no video ID could be extracted.</returns>
+    public static string GetCleanVideoLink(string url)
+    {
+        var id = ExtractVideoIdWithRegex(url);
+        return id != null ? $"https://www.youtube.com/watch?v={id}" : url;
+    }
+
+    /// <summary>
     /// Generates a collection of possible thumbnail and image URLs for a given video and channel.
     /// </summary>
     /// <param name="videoId">The 11-character video ID.</param>
