@@ -67,7 +67,13 @@ namespace AES_Lacrima.ViewModels
         /// </summary>
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(DeletePointedItemCommand))]
+        [NotifyPropertyChangedFor(nameof(IsItemPointed))]
         private int _pointedIndex = -1;
+
+        /// <summary>
+        /// Gets a value indicating whether an item in the carousel is currently being pointed at.
+        /// </summary>
+        public bool IsItemPointed => PointedIndex != -1 && PointedIndex < CoverItems.Count;
 
         /// <summary>
         /// The folder currently being pointed at (e.g. via mouse hover) in the album list.
@@ -180,6 +186,8 @@ namespace AES_Lacrima.ViewModels
         /// The currently loaded album whose children are displayed in the cover items.
         /// </summary>
         [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(AddItemsCommand))]
+        [NotifyCanExecuteChangedFor(nameof(AddUrlCommand))]
         private FolderMediaItem? _loadedAlbum;
 
         /// <summary>
@@ -260,7 +268,7 @@ namespace AES_Lacrima.ViewModels
         /// <summary>
         /// Opens the "Add URL" overlay, ensuring other overlays (Equalizer, Metadata) are closed.
         /// </summary>
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(CanAddItems))]
         private void AddUrl()
         {
             // Close other overlays to ensure only one is visible at a time.
@@ -755,14 +763,24 @@ namespace AES_Lacrima.ViewModels
         /// overlay is displayed at a time. This method does not perform any action if the metadata is already
         /// loaded.</remarks>
         [RelayCommand]
-        private void OpenMetadata()
+        private void OpenMetadata(object? parameter)
         {
             // If the equalizer is open, close it to ensure only one overlay is visible at a time.
             if (IsEqualizerVisible) IsEqualizerVisible = false;
-            // If there is no highlighted item or metadata is already loaded, do nothing.
-            if (MetadataService != null && MetadataService.IsMetadataLoaded) return;
-            // Load metadata for the currently highlighted item, which will trigger the metadata editor overlay to open.
-            MetadataService?.LoadMetadataAsync(HighlightedItem!);
+
+            MediaItem? target = null;
+            if (parameter is MediaItem mi) target = mi;
+            else if (parameter is int index && index >= 0 && index < CoverItems.Count) target = CoverItems[index];
+            else target = HighlightedItem;
+
+            if (target == null) return;
+
+            // If metadata is already loaded, reset it to allow opening the overlay for the new target
+            if (MetadataService != null && MetadataService.IsMetadataLoaded)
+                MetadataService.IsMetadataLoaded = false;
+
+            // Load metadata for the target item, which will trigger the metadata editor overlay to open.
+            MetadataService?.LoadMetadataAsync(target);
         }
 
         /// <summary>
