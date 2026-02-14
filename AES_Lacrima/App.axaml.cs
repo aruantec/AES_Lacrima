@@ -66,6 +66,9 @@ namespace AES_Lacrima
                 var FfmpegManager = new FFmpegManager();
                 // Check if FFmpeg is already available before attempting installation
                 await FfmpegManager.EnsureFFmpegInstalledAsync();
+                // Ensure yt-dlp is installed and available for the application
+                var ytDlpManager = new YtDlpManager();
+                await ytDlpManager.EnsureInstalledAsync();
             }
 
             base.OnFrameworkInitializationCompleted();

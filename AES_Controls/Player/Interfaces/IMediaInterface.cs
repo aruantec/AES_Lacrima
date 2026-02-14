@@ -106,13 +106,14 @@ public interface IMediaInterface
     void PrepareLoad();
 
     /// <summary>
-    /// Plays the specified media file asynchronously.
+    /// Plays the specified media file asynchronously as either audio or video.
     /// </summary>
-    /// <remarks>Ensure that the media item is properly initialized and accessible before calling this method.
-    /// This method may throw exceptions if the media file is not found or cannot be played.</remarks>
-    /// <param name="mediaItem">The media item to be played. This parameter cannot be null and must represent a valid media file.</param>
+    /// <remarks>Ensure that the specified media item is accessible and valid before calling this method. An
+    /// exception may be thrown if the media file cannot be found or accessed.</remarks>
+    /// <param name="mediaItem">The media item to play. Must contain a valid file path and any required metadata.</param>
+    /// <param name="video">true to play the media as a video; otherwise, false to play as audio only. The default is false.</param>
     /// <returns>A task that represents the asynchronous operation of playing the media file.</returns>
-    Task PlayFile(MediaItem mediaItem);
+    Task PlayFile(MediaItem mediaItem, bool video = false);
     /// <summary>
     /// Play media from bytes
     /// </summary>
