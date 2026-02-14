@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:composition="using:AES_Controls.Composition"
+             xmlns:controls="using:AES_Controls"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -283,6 +284,24 @@
 
         <!-- MetadataOverlay -->
         <common:MetadataOverlay DataContext="{Binding MetadataService}"/>
+
+        <!-- Loading control -->
+        <StackPanel HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="5"
+                    IsHitTestVisible="False">
+            <StackPanel.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                    <Binding Path="AudioPlayer.IsLoadingMedia"/>
+                    <Binding Path="AudioPlayer.IsBuffering"/>
+                </MultiBinding>
+            </StackPanel.IsVisible>
+		    <controls:LoadingControl Width="90"
+                                     Height="90"/>
+            <Label Content="Loading..."
+                   FontSize="32"
+                   Foreground="White"/>
+        </StackPanel>
 
         <!-- Media buttons -->
         <Grid Grid.Row="1" Height="140" Background="#E6000000">

@@ -437,7 +437,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// Loads and starts playback of the specified file path.
     /// </summary>
     /// <param name="path">Path or URL to the media to play.</param>
-    public async Task PlayFile(MediaItem item)
+    public async Task PlayFile(MediaItem item, bool video = false)
     {
         if (item == null || string.IsNullOrEmpty(item.FileName))
         {
@@ -446,13 +446,18 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             return;
         }
 
+        // Check if the file is a URL and if OnlineUrls are available for selection
+        var fileToPlay = item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase) && item.OnlineUrls != null && item.OnlineUrls.HasValue 
+            ? video ? item.OnlineUrls.Value.Item1 : item.OnlineUrls.Value.Item2 
+            : item.FileName; 
+
         //Set the current media item
         _currentMediaItem = item;
         // Prepare for loading the new file
         _isInternalChange = true;
         IsLoadingMedia = true;
         OnPropertyChanged(nameof(IsLoadingMedia));
-        _loadedFile = item.FileName;
+        _loadedFile = fileToPlay;
         _waveformLoadedFile = null;
 
         // Ensure analyzer is fully stopped and path is updated before loading new file
@@ -460,13 +465,13 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
         if (EnableSpectrum)
         {
-            _spectrumAnalyzer?.SetPath(item.FileName);
+            _spectrumAnalyzer?.SetPath(fileToPlay);
             _spectrumAnalyzer?.Start();
         }
         _waveformCts?.Cancel();
 
         _syncContext?.Post(_ => { Waveform.Clear(); Spectrum.Clear(); Position = 0; }, null);
-        await ExecuteCommandAsync(["loadfile", item.FileName]);
+        await ExecuteCommandAsync(["loadfile", fileToPlay]);
         Play();
     }
 
