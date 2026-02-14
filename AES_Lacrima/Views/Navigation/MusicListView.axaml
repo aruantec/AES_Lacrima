@@ -3,9 +3,9 @@
              xmlns:composition="using:AES_Controls.Composition"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             xmlns:vm="using:AES_Lacrima.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+			 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+			 xmlns:vm="using:AES_Lacrima.ViewModels"
+			 mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.Navigation.MusicListView"
              x:DataType="vm:MusicViewModel"
              ClipToBounds="False"
@@ -23,17 +23,41 @@
                       Focusable="False"
 					  Margin="0,20,0,10">
 			<ListBox ItemsSource="{Binding AlbumList}" 
-					 Background="Black" 
+					 Background="Transparent" 
 					 ClipToBounds="False"
 					 SelectionMode="Multiple"
 					 SelectedItem="{Binding SelectedAlbum, Mode=TwoWay}">
 				<ListBox.Styles>
 					<Style Selector="ListBoxItem">
-					<Setter Property="ClipToBounds" Value="False"/>
-					<Setter Property="Background" Value="Transparent"/>
-					<Setter Property="BorderThickness" Value="0"/>
-					<Setter Property="BorderBrush" Value="Transparent"/>
-					<Style Selector="^ /template/ ContentPresenter">
+						<Setter Property="ClipToBounds" Value="False"/>
+						<Setter Property="Background" Value="Transparent"/>
+						<Setter Property="BorderThickness" Value="0"/>
+						<Setter Property="BorderBrush" Value="Transparent"/>
+						<Setter Property="ContextMenu">
+							<ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
+								<MenuItem Header="Open Folder" CornerRadius="8" Command="{Binding $parent[ListBox].DataContext.OpenFolderCommand}">
+									<MenuItem.Icon>
+										<Viewbox Width="32" Height="32" Stretch="Uniform">
+											<Canvas Width="100" Height="100">
+												<Rectangle Canvas.Left="2" Canvas.Top="2" Width="96" Height="96" RadiusX="22" RadiusY="22" Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" />
+												<Rectangle Canvas.Left="46" Canvas.Top="32" Width="8" Height="36" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+												<Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+											</Canvas>
+										</Viewbox>
+									</MenuItem.Icon>
+								</MenuItem>
+								<MenuItem Header="Delete Album" CornerRadius="8" Command="{Binding $parent[ListBox].DataContext.DeleteFolderCommand}" CommandParameter="{Binding}">
+									<MenuItem.Icon>
+										<Path Data="M6,19A2,2 0 0,0 8,21h8a2,2 0 0,0 2-2V7H6v12zM19,4h-3.5l-1-1h-5l-1,1H5v2h14V4z"
+												Fill="#CCFFFFFF"
+												Width="32"
+												Height="32"
+												Stretch="Uniform"/>
+									</MenuItem.Icon>
+								</MenuItem>
+							</ContextMenu>
+						</Setter>
+						<Style Selector="^ /template/ ContentPresenter">
 						<Setter Property="ClipToBounds" Value="False"/>
 					</Style>
 					<Style Selector="^ /template/ Border#LayoutRoot">
@@ -93,7 +117,7 @@
 				<!-- Items template -->
 				<ListBox.ItemTemplate>
 					<DataTemplate>
-						<Border CornerRadius="12" Margin="0,0,0,10" ClipToBounds="True">
+						<Border CornerRadius="12" Margin="0,0,0,10" ClipToBounds="True" Background="Transparent">
 							<Grid Width="240">
 								<!-- Folder control -->
 								<composition:FolderCompositionControl Name="{Binding Title}"
@@ -126,5 +150,23 @@
 			</ListBox>
 		</ScrollViewer>
 		
+		<!-- Context menu -->
+		<Grid.ContextMenu>
+			<ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
+				<MenuItem Header="Add" CornerRadius="8" Command="{Binding OpenFolderCommand}">
+					<MenuItem.Icon>
+						<Viewbox Width="32" Height="32" Stretch="Uniform">
+							<Canvas Width="100" Height="100">
+								<!-- Rounded frame -->
+								<Rectangle Canvas.Left="2" Canvas.Top="2" Width="96" Height="96" RadiusX="22" RadiusY="22" Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" />
+								<!-- Central plus sign -->
+								<Rectangle Canvas.Left="46" Canvas.Top="32" Width="8" Height="36" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+								<Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+							</Canvas>
+						</Viewbox>
+					</MenuItem.Icon>
+				</MenuItem>
+			</ContextMenu>
+		</Grid.ContextMenu>
 	</Grid>
 </UserControl>

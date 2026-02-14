@@ -416,6 +416,14 @@ namespace AES_Controls.Behaviors
             ResetFlags();
             if (AssociatedObject == null) return;
 
+            // Ignore right-click to allow context menus
+            var properties = e.GetCurrentPoint(AssociatedObject).Properties;
+            if (properties.IsRightButtonPressed)
+            {
+                e.Handled = true;
+                return;
+            }
+
             var srcControl = e.Source as Control;
             if (IsOnButton(srcControl)) return;
 

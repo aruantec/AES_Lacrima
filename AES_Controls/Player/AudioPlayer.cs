@@ -8,7 +8,6 @@ using LibMPVSharp.Extensions;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
-using System.Text.RegularExpressions;
 
 namespace AES_Controls.Player;
 
@@ -800,6 +799,14 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     { 
         InternalStop();
         IsLoadingMedia = false; 
+    }
+
+    /// <summary>
+    /// Clears the current media item, setting it to null.
+    /// </summary>
+    public void ClearMedia()
+    {
+        _currentMediaItem = null;
     }
 
     private void InternalStop()

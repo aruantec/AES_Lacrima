@@ -11,6 +11,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -62,6 +63,25 @@ namespace AES_Lacrima.ViewModels
         private int _selectedIndex;
 
         /// <summary>
+        /// Index of the item currently being pointed at (e.g. via right-click for context menu).
+        /// </summary>
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(DeletePointedItemCommand))]
+        private int _pointedIndex = -1;
+
+        /// <summary>
+        /// The folder currently being pointed at (e.g. via mouse hover) in the album list.
+        /// </summary>
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsFolderPointed))]
+        private FolderMediaItem? _pointedFolder;
+
+        /// <summary>
+        /// Gets a value indicating whether a folder is currently being pointed at.
+        /// </summary>
+        public bool IsFolderPointed => PointedFolder != null;
+
+        /// <summary>
         /// Gets or sets the media item associated with this instance.
         /// </summary>
         /// <remarks>This property is observable. Changes to its value will raise property change
@@ -89,6 +109,7 @@ namespace AES_Lacrima.ViewModels
         /// <remarks>The collection is observable, enabling automatic UI updates when items are added,
         /// removed, or modified.</remarks>
         [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(AddItemsCommand))]
         private AvaloniaList<MediaItem> _coverItems = [];
 
         /// <summary>
@@ -224,7 +245,7 @@ namespace AES_Lacrima.ViewModels
         /// <param name="value">Index</param>
         partial void OnSelectedIndexChanged(int value)
         {
-            if (CoverItems != null && CoverItems.Count > value
+            if (value >= 0 && CoverItems != null && CoverItems.Count > value
                 && CoverItems[SelectedIndex] is MediaItem highlighted)
             {
                 HighlightedItem = highlighted;
@@ -308,6 +329,140 @@ namespace AES_Lacrima.ViewModels
             return renderTarget;
         }
 
+        /// <summary>
+        /// Determines whether the currently pointed item can be deleted.
+        /// </summary>
+        private bool CanDeletePointedItem() => PointedIndex != -1 && PointedIndex < CoverItems.Count;
+
+        /// <summary>
+        /// Deletes the currently pointed or highlighted item from the cover items list. Stops playback if the item
+        /// being deleted is currently selected for playback.
+        /// </summary>
+        /// <remarks>If a valid pointed index is set, the item at that index is deleted; otherwise, the
+        /// highlighted item is removed. If the item to be deleted is currently playing, playback is stopped and the
+        /// selection is cleared before removal. This command can only be executed when deletion is permitted, as
+        /// determined by the CanDeletePointedItem method.</remarks>
+        [RelayCommand(CanExecute = nameof(CanDeletePointedItem))]
+        private void DeletePointedItem()
+        {
+            var itemToDelete = PointedIndex != -1 && CoverItems.Count > PointedIndex 
+                ? CoverItems[PointedIndex] 
+                : HighlightedItem;
+
+            if (itemToDelete == null) return;
+            // If the item to delete is currently playing, stop playback before removing it.
+            if (itemToDelete == SelectedMediaItem)
+            {
+                AudioPlayer?.Stop();
+                AudioPlayer?.ClearMedia();
+                SelectedMediaItem = null;
+            }
+            // Remove the item from the cover items list.
+            CoverItems.Remove(itemToDelete);
+            // Select previous item if possible, otherwise clear selection
+            if (CoverItems.Count > 0)
+            {
+                var newIndex = Math.Max(0, PointedIndex - 1);
+                HighlightedItem = CoverItems[newIndex];
+                SelectedIndex = newIndex;
+            }
+            else
+            {
+                HighlightedItem = null;
+                SelectedIndex = -1;
+            }
+        }
+
+        /// <summary>
+        /// Allows adding new items to the cover items list.
+        /// </summary>
+        /// <returns></returns>
+        private bool CanAddItems() => _loadedAlbum != null;
+
+        /// <summary>
+        /// Adds audio files to the collection of cover items by prompting the user to select one or more files from the
+        /// file system.
+        /// </summary>
+        /// <remarks>This method opens a file picker dialog allowing the user to select multiple audio
+        /// files. The selected files are added to the CoverItems collection and, if applicable, to the currently loaded
+        /// album's children. Metadata for the newly added items is scanned asynchronously after they are added. This
+        /// command can only execute if the CanAddItems condition is met.</remarks>
+        /// <returns>A task that represents the asynchronous operation.</returns>
+        [RelayCommand(CanExecute = nameof(CanAddItems))]
+        private async Task AddItems()
+        {
+            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+            var lifetime = Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+            var storageProvider = lifetime?.MainWindow?.StorageProvider;
+
+            if (storageProvider != null && CoverItems != null)
+            {
+                var files = await storageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+                {
+                    Title = "Add Audio Files",
+                    AllowMultiple = true,
+                    FileTypeFilter = new[]
+                    {
+                        new Avalonia.Platform.Storage.FilePickerFileType("Audio Files")
+                        {
+                            Patterns = _supportedTypes
+                        }
+                    }
+                });
+
+                if (files != null && files.Count > 0)
+                {
+                    var newMediaItems = new AvaloniaList<MediaItem>();
+                    foreach (var file in files)
+                    {
+                        var localPath = file.Path.LocalPath;
+                        var item = new MediaItem
+                        {
+                            CoverBitmap = DefaultFolderCover ??= GenerateDefaultFolderCover(),
+                            FileName = localPath,
+                            Title = Path.GetFileName(localPath)
+                        };
+                        newMediaItems.Add(item);
+
+                        CoverItems.Add(item);
+
+                        // If we are currently filtered, add to the original album children too so they persist
+                        if (_loadedAlbum?.Children != null && !ReferenceEquals(CoverItems, _loadedAlbum.Children))
+                        {
+                            _loadedAlbum.Children.Add(item);
+                        }
+                    }
+
+                    // Scan metadata for the newly added items
+                    _ = new MetadataScrapper(newMediaItems, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Deletes the specified folder or the currently pointed folder from the album list.
+        /// </summary>
+        [RelayCommand]
+        private void DeleteFolder(FolderMediaItem? folder)
+        {
+            var target = folder ?? PointedFolder;
+            if (target != null)
+            {
+                AlbumList.Remove(target);
+                if (target == PointedFolder)
+                {
+                    PointedFolder = null;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Opens the metadata editor overlay for the currently highlighted item, loading the associated metadata if it
+        /// is not already loaded.
+        /// </summary>
+        /// <remarks>If the equalizer is currently visible, it will be closed to ensure that only one
+        /// overlay is displayed at a time. This method does not perform any action if the metadata is already
+        /// loaded.</remarks>
         [RelayCommand]
         private void OpenMetadata()
         {
@@ -573,7 +728,7 @@ namespace AES_Lacrima.ViewModels
         {
             var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
             // Show a native folder picker on desktop platforms.
-            var lifetime = Avalonia.Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+            var lifetime = Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
             var storageProvider = lifetime?.MainWindow?.StorageProvider;
 
             if (storageProvider != null)

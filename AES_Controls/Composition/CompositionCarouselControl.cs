@@ -112,6 +112,9 @@ namespace AES_Controls.Composition
         public static readonly StyledProperty<int> ImageCacheSizeProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, int>(nameof(ImageCacheSize), 200);
 
+        public static readonly StyledProperty<int> PointedItemIndexProperty =
+            AvaloniaProperty.Register<CompositionCarouselControl, int>(nameof(PointedItemIndex), -1);
+
         #endregion
 
         #region Public Properties
@@ -242,6 +245,12 @@ namespace AES_Controls.Composition
         {
             get => GetValue(ImageCacheSizeProperty);
             set => SetValue(ImageCacheSizeProperty, value);
+        }
+
+        public int PointedItemIndex
+        {
+            get => GetValue(PointedItemIndexProperty);
+            set => SetValue(PointedItemIndexProperty, value);
         }
 
         private Rect SliderBounds
@@ -424,28 +433,16 @@ namespace AES_Controls.Composition
             if (_images.Count == 0) return -1;
             var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
 
-            // Primary approach: map pointer X to a slot using same logic as dragging drop target
+            // Primary approach: Use robust hit testing to identify an actual item being clicked
+            int hit = HitTest(point, size, _uiCurrentIndex);
+            if (hit != -1) return hit;
+
+            // Fallback: map pointer X to a slot using linear mapping for "empty space" clicks
             double centerX = size.X / 2.0;
             double itemWidth = ItemWidth * ItemScale * ItemSpacing;
             double relativeX = point.X - centerX;
             double targetFloat = _uiCurrentIndex + (relativeX / (itemWidth * 1.5));
-            int candidate = (int)Math.Clamp(Math.Round(targetFloat), 0, Math.Max(0, _images.Count - 1));
-
-            // Check candidate and neighbors using actual polygon containment (more accurate for perspective)
-            int[] toCheck = { candidate, candidate - 1, candidate + 1 };
-            var center = new Vector2(size.X / 2, (float)(size.Y / 2 + VerticalOffset));
-            float w = (float)(ItemWidth * ItemScale); float h = (float)(ItemHeight * ItemScale); float spacing = (float)ItemSpacing;
-            foreach (var idx in toCheck)
-            {
-                if (idx >= 0 && idx < _images.Count)
-                {
-                    if (IsPointInItem(point, idx, center, w, h, spacing, _uiCurrentIndex, (float)ItemScale))
-                        return idx;
-                }
-            }
-
-            // Fallback: return candidate slot
-            return candidate;
+            return (int)Math.Clamp(Math.Round(targetFloat), 0, Math.Max(0, _images.Count - 1));
         }
 
         private void ClearResources()
@@ -1122,9 +1119,18 @@ namespace AES_Controls.Composition
 
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
+            var pos = e.GetPosition(this);
+            var pointerProps = e.GetCurrentPoint(this).Properties;
+            if (pointerProps.IsRightButtonPressed)
+            {
+                var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
+                PointedItemIndex = HitTest(pos, size, _uiCurrentIndex);
+                e.Handled = true;
+                return;
+            }
+
             base.OnPointerPressed(e);
             Focus();
-            var pos = e.GetPosition(this);
             _isPressed = true;
             _startPoint = _prevPoint = pos;
             _prevTime = e.Timestamp;
@@ -1168,15 +1174,8 @@ namespace AES_Controls.Composition
             {
                 _visual?.SendHandlerMessage(new DragPositionMessage(new Vector2((float)point.X, (float)point.Y)));
 
-                // Determine drop target slot
-                double centerX = Bounds.Width / 2.0;
-                double itemWidth = ItemWidth * ItemScale * ItemSpacing;
-                double relativeX = point.X - centerX;
-                
-                // Adjust for current scroll position to find visual slot
-                double targetFloat = _uiCurrentIndex + (relativeX / (itemWidth * 1.5)); // Increased divisor for smoother target selection
-                int targetIndex = (int)Math.Clamp(Math.Round(targetFloat), 0, _images.Count - 1);
-                
+                int targetIndex = IndexAtPoint(point);
+
                 _visual?.SendHandlerMessage(new DropTargetMessage(targetIndex));
 
                 if (!_autoScrollTimer!.IsEnabled) _autoScrollTimer.Start();
@@ -1221,11 +1220,7 @@ namespace AES_Controls.Composition
             if (_isDragging)
             {
                 // Determine drop target one last time to be sure
-                double centerX = Bounds.Width / 2.0;
-                double itemWidth = ItemWidth * ItemScale * ItemSpacing;
-                double relativeX = e.GetPosition(this).X - centerX;
-                double targetFloat = _uiCurrentIndex + (relativeX / (itemWidth * 1.5));
-                int targetIndex = (int)Math.Clamp(Math.Round(targetFloat), 0, _images.Count - 1);
+                int targetIndex = IndexAtPoint(e.GetPosition(this));
 
                 if (targetIndex != _draggingIndex)
                 {
