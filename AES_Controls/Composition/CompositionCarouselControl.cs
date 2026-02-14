@@ -645,6 +645,11 @@ namespace AES_Controls.Composition
         private async Task VirtualizeAsync(int centerIdx, CancellationToken ct)
         {
             if (ItemsSource == null) return;
+
+            // Capture property names on UI thread before we switch to background threads
+            string? bitmapProp = ImageBitmapProperty;
+            string? fileProp = ImageFileNameProperty;
+
             var list = ItemsSource as IList ?? ItemsSource.Cast<object>().ToList();
             int totalCount = list.Count;
             if (totalCount == 0) return;
@@ -676,7 +681,7 @@ namespace AES_Controls.Composition
                             _images[idx] = placeholder;
                             _visual?.SendHandlerMessage(new UpdateImageMessage(idx, placeholder, false));
                         }
-                        
+
                         var imgToDispose = img;
                         if (_visual != null)
                             _visual.SendHandlerMessage(new DisposeImageMessage(imgToDispose));
@@ -709,21 +714,21 @@ namespace AES_Controls.Composition
                 try
                 {
                     var type = item.GetType();
-                    if (!string.IsNullOrEmpty(ImageBitmapProperty))
+                    if (!string.IsNullOrEmpty(bitmapProp))
                     {
-                        if (_propBitmap == null || _cachedBitmapName != ImageBitmapProperty)
+                        if (_propBitmap == null || _cachedBitmapName != bitmapProp)
                         {
-                            _propBitmap = type.GetProperty(ImageBitmapProperty);
-                            _cachedBitmapName = ImageBitmapProperty;
+                            _propBitmap = type.GetProperty(bitmapProp);
+                            _cachedBitmapName = bitmapProp;
                         }
                         bitmapValue = _propBitmap?.GetValue(item) as Bitmap;
                     }
-                    if (bitmapValue == null && !string.IsNullOrEmpty(ImageFileNameProperty))
+                    if (bitmapValue == null && !string.IsNullOrEmpty(fileProp))
                     {
-                        if (_propFile == null || _cachedFileName != ImageFileNameProperty)
+                        if (_propFile == null || _cachedFileName != fileProp)
                         {
-                            _propFile = type.GetProperty(ImageFileNameProperty);
-                            _cachedFileName = ImageFileNameProperty;
+                            _propFile = type.GetProperty(fileProp);
+                            _cachedFileName = fileProp;
                         }
                         fileName = _propFile?.GetValue(item) as string;
                     }
@@ -746,17 +751,26 @@ namespace AES_Controls.Composition
 
                 if (realImage != null && realImage.Width > 0)
                 {
-                    // FIX: Dispose old image if it was replaced (e.g. by another load or property change)
-                    if (_imageCache.TryGetValue(item, out var oldImg))
+                    await Dispatcher.UIThread.InvokeAsync(() =>
                     {
-                        if (_visual != null) _visual.SendHandlerMessage(new DisposeImageMessage(oldImg));
-                        else oldImg.Dispose();
-                    }
+                        if (ct.IsCancellationRequested)
+                        {
+                            realImage.Dispose();
+                            return;
+                        }
 
-                    _imageCache[item] = realImage;
-                    TouchCacheItem(item);
-                    if (i < _images.Count) _images[i] = realImage;
-                    SetImage(i, realImage);
+                        // Dispose old image if it was replaced (e.g. by another load or property change)
+                        if (_imageCache.TryGetValue(item, out var oldImg))
+                        {
+                            if (_visual != null) _visual.SendHandlerMessage(new DisposeImageMessage(oldImg));
+                            else oldImg.Dispose();
+                        }
+
+                        _imageCache[item] = realImage;
+                        TouchCacheItem(item);
+                        if (i < _images.Count) _images[i] = realImage;
+                        SetImage(i, realImage);
+                    });
                 }
                 else
                 {
@@ -772,9 +786,13 @@ namespace AES_Controls.Composition
 
         private void Item_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            if (sender == null || (e.PropertyName != ImageBitmapProperty && e.PropertyName != ImageFileNameProperty)) return;
             Dispatcher.UIThread.Post(async () =>
             {
+                string? bitmapProp = ImageBitmapProperty;
+                string? fileProp = ImageFileNameProperty;
+
+                if (sender == null || (e.PropertyName != bitmapProp && e.PropertyName != fileProp)) return;
+
                 var items = ItemsSource?.Cast<object>().ToList();
                 int idx = items?.IndexOf(sender) ?? -1;
                 if (idx == -1) return;
@@ -783,11 +801,11 @@ namespace AES_Controls.Composition
                 string? fileName = null;
                 try
                 {
-                    if (!string.IsNullOrEmpty(ImageBitmapProperty))
-                        bitmapValue = sender.GetType().GetProperty(ImageBitmapProperty)?.GetValue(sender) as Bitmap;
+                    if (!string.IsNullOrEmpty(bitmapProp))
+                        bitmapValue = sender.GetType().GetProperty(bitmapProp)?.GetValue(sender) as Bitmap;
 
-                    if (bitmapValue == null && !string.IsNullOrEmpty(ImageFileNameProperty))
-                        fileName = sender.GetType().GetProperty(ImageFileNameProperty)?.GetValue(sender) as string;
+                    if (bitmapValue == null && !string.IsNullOrEmpty(fileProp))
+                        fileName = sender.GetType().GetProperty(fileProp)?.GetValue(sender) as string;
                 }
                 catch (Exception ex) { Log.Warn("Failed to read image properties in PropertyChanged", ex); }
 
