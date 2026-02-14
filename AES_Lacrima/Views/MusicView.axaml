@@ -639,28 +639,43 @@
 				</Transitions>
 			</Grid.Transitions>
 
-			<Border Background="#1A1A1A"
-					BorderBrush="#44FFFFFF"
-					BorderThickness="1"
-					CornerRadius="12"
-					Padding="30"
-					HorizontalAlignment="Center"
-					VerticalAlignment="Center">
-				<StackPanel Orientation="Horizontal" Spacing="15">
-					<TextBlock Text="Url:" VerticalAlignment="Center" Foreground="White" FontSize="24" FontWeight="SemiBold"/>
-					<TextBox Text="{Binding AddUrlText, Mode=TwoWay}"
-							 Width="450"
-							 FontSize="20"
-							 Watermark="Enter Media URL...">
-						<TextBox.KeyBindings>
-							<KeyBinding Gesture="Enter" Command="{Binding SubmitAddUrlCommand}" />
-						</TextBox.KeyBindings>
-						<Interaction.Behaviors>
-							<behaviors:FocusOnVisibleBehavior />
-						</Interaction.Behaviors>
-					</TextBox>
-				</StackPanel>
-			</Border>
+			<TextBox Text="{Binding AddUrlText, Mode=TwoWay}"
+					 Width="450"
+					 Height="45"
+					 VerticalAlignment="Center"
+					 HorizontalAlignment="Center"
+					 FontSize="18"
+					 Watermark="Enter Url here"
+					 Background="#CC141414"
+					 Foreground="White"
+					 BorderBrush="#44FFFFFF"
+					 BorderThickness="1"
+					 CornerRadius="22"
+					 Padding="10,0"
+					 VerticalContentAlignment="Center">
+				<TextBox.Styles>
+					<Style Selector="TextBox /template/ Border#PART_BorderElement">
+						<Setter Property="CornerRadius" Value="22"/>
+					</Style>
+				</TextBox.Styles>
+				<TextBox.InnerLeftContent>
+					<Viewbox Width="24" Height="24" Margin="10,0,0,0">
+						<Canvas Width="100" Height="100">
+							<Rectangle Canvas.Left="8" Canvas.Top="8" Width="84" Height="60" RadiusX="8" RadiusY="8"
+									   Stroke="White" StrokeThickness="8" Fill="Transparent" />
+							<Path Data="M48,30 L64,40 L48,50 Z" Fill="White" />
+							<Rectangle Canvas.Left="24" Canvas.Top="76" Width="52" Height="8" RadiusX="6" RadiusY="6" Fill="White" />
+						</Canvas>
+					</Viewbox>
+				</TextBox.InnerLeftContent>
+				<TextBox.KeyBindings>
+					<KeyBinding Gesture="Enter" Command="{Binding SubmitAddUrlCommand}" />
+					<KeyBinding Gesture="Escape" Command="{Binding SubmitAddUrlCommand}" />
+				</TextBox.KeyBindings>
+				<Interaction.Behaviors>
+					<behaviors:FocusOnVisibleBehavior />
+				</Interaction.Behaviors>
+			</TextBox>
 		</Grid>
 
 	</Grid>
