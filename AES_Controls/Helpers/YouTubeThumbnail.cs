@@ -4,17 +4,17 @@ using System.Text.Json;
 namespace AES_Controls.Helpers;
 
 /// <summary>
-/// Represents a collection of YouTube-related image URLs, including thumbnails, video frames, and channel images.
+/// Represents a collection of image URLs, including thumbnails, video frames, and channel images.
 /// </summary>
 public class ThumbnailUrls
 {
     /// <summary>
-    /// Gets or sets the 11-character YouTube video ID.
+    /// Gets or sets the 11-character video ID.
     /// </summary>
     public required string VideoId { get; set; }
 
     /// <summary>
-    /// Gets or sets the YouTube channel ID.
+    /// Gets or sets the channel ID.
     /// </summary>
     public string? ChannelId { get; set; }
 
@@ -45,7 +45,7 @@ public class ThumbnailUrls
 }
 
 /// <summary>
-/// Provides utility methods for extracting YouTube metadata and downloading thumbnails.
+/// Provides utility methods for extracting metadata and downloading thumbnails.
 /// </summary>
 public abstract class YouTubeThumbnail
 {
@@ -58,16 +58,16 @@ public abstract class YouTubeThumbnail
     }
 
     /// <summary>
-    /// Extracts a YouTube video ID from a URL using regular expressions.
+    /// Extracts a video ID from a URL using regular expressions.
     /// </summary>
-    /// <param name="url">The YouTube URL or potential video ID.</param>
+    /// <param name="url">The URL or potential video ID.</param>
     /// <returns>The extracted 11-character video ID, or null if not found.</returns>
     public static string? ExtractVideoIdWithRegex(string url)
     {
         if (string.IsNullOrWhiteSpace(url))
             return null;
 
-        // Pattern that matches all common YouTube URL formats
+        // Pattern that matches all common URL formats
         var patterns = new[]
         {
             @"(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})",
@@ -95,8 +95,8 @@ public abstract class YouTubeThumbnail
     /// <summary>
     /// Generates a collection of possible thumbnail and image URLs for a given video and channel.
     /// </summary>
-    /// <param name="videoId">The 11-character YouTube video ID.</param>
-    /// <param name="channelId">Optional YouTube channel ID.</param>
+    /// <param name="videoId">The 11-character video ID.</param>
+    /// <param name="channelId">Optional channel ID.</param>
     /// <returns>A <see cref="ThumbnailUrls"/> object containing the generated URLs.</returns>
     public static ThumbnailUrls GetAllThumbnailUrls(string videoId, string? channelId = null)
     {
@@ -140,9 +140,9 @@ public abstract class YouTubeThumbnail
     }
 
     /// <summary>
-    /// Attempts to extract the channel ID and author name from a YouTube video page.
+    /// Attempts to extract the channel ID and author name from a video page.
     /// </summary>
-    /// <param name="videoId">The 11-character YouTube video ID.</param>
+    /// <param name="videoId">The 11-character video ID.</param>
     /// <returns>A tuple containing the channel ID and channel name.</returns>
     public static async Task<(string? channelId, string? channelName)> ExtractChannelInfoFromVideo(string videoId)
     {
@@ -209,7 +209,7 @@ public abstract class YouTubeThumbnail
     }
 
     /// <summary>
-    /// Retrieves online metadata for a given URL, prioritizing YouTube if detected.
+    /// Retrieves online metadata for a given URL, prioritizing if detected.
     /// </summary>
     /// <param name="url">The URL to fetch metadata for.</param>
     /// <returns>A tuple containing Title, Author, ThumbnailUrl, Genre, and Year.</returns>
@@ -223,11 +223,11 @@ public abstract class YouTubeThumbnail
             if (isYouTube && videoId != url && videoId.Length == 11)
             {
                 var ytMeta = await GetVideoMetadataAsync(videoId);
-                // If YouTube specific scraping worked, return it.
+                // If specific scraping worked, return it.
                 if (!string.IsNullOrWhiteSpace(ytMeta.Title)) return ytMeta;
             }
 
-            // General online metadata (OpenGraph tags) as fallback even for YouTube
+            // General online metadata (OpenGraph tags) as fallback
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             // Use a consistent modern browser User-Agent
             var userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -266,9 +266,9 @@ public abstract class YouTubeThumbnail
     }
 
     /// <summary>
-    /// Specifically fetches YouTube video metadata by parsing the video's watch page.
+    /// Specifically fetches video metadata by parsing the video's watch page.
     /// </summary>
-    /// <param name="videoId">The 11-character YouTube video ID.</param>
+    /// <param name="videoId">The 11-character video ID.</param>
     /// <returns>A tuple containing Title, Author, ThumbnailUrl, Genre, and Year.</returns>
     public static async Task<(string Title, string Author, string ThumbnailUrl, string Genre, uint Year)> GetVideoMetadataAsync(string videoId)
     {
@@ -358,7 +358,7 @@ public abstract class YouTubeThumbnail
                 }
             }
 
-            // Sanitization: If title is generic or just "YouTube", treat as empty to trigger further fallbacks or re-scrape
+            // Sanitization: If title is generic, treat as empty to trigger further fallbacks or re-scrape
             if (!string.IsNullOrEmpty(metaTitle))
             {
                 if (metaTitle.Equals("YouTube", StringComparison.OrdinalIgnoreCase) || 
@@ -472,9 +472,9 @@ public abstract class YouTubeThumbnail
     }
 
     /// <summary>
-    /// Discovers and downloads all available thumbnails, video frames, and channel images for a YouTube video.
+    /// Discovers and downloads all available thumbnails, video frames, and channel images for a video.
     /// </summary>
-    /// <param name="videoId">The 11-character YouTube video ID.</param>
+    /// <param name="videoId">The 11-character video ID.</param>
     /// <param name="outputDirectory">The directory where images will be saved.</param>
     public static async Task DownloadAllAvailableThumbnails(string videoId, string outputDirectory)
     {
@@ -601,13 +601,13 @@ public abstract class YouTubeThumbnail
     }
 
     /// <summary>
-    /// Extracts a 11-character YouTube video ID from various YouTube URL formats.
+    /// Extracts a 11-character video ID from various URL formats.
     /// </summary>
     /// <param name="input">The URL or string containing the video ID.</param>
     /// <returns>The extracted video ID or the original input if no match is found.</returns>
     public static string ExtractVideoId(string input)
     {
-        // Handle different YouTube URL formats
+        // Handle different URL formats
         if (input.Contains("youtube.com/watch?v="))
         {
             var match = Regex.Match(input, @"[?&]v=([^&]+)");

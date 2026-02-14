@@ -10,11 +10,22 @@ using System.Threading.Tasks;
 
 namespace AES_Lacrima.Services
 {
+    /// <summary>
+    /// Service for handling media URLs, specifically for online streaming content.
+    /// </summary>
     public interface IMediaUrlService;
 
+    /// <summary>
+    /// Implementation of <see cref="IMediaUrlService"/> that uses yt-dlp to resolve streaming URLs.
+    /// </summary>
     [AutoRegister]
     internal partial class MediaUrlService : ViewModelBase, IMediaUrlService
     {
+        /// <summary>
+        /// Opens a media item, resolving its online stream URLs if necessary, and starts playback.
+        /// </summary>
+        /// <param name="audioPlayer">The audio player instance to use for playback.</param>
+        /// <param name="item">The media item to open and play.</param>
         public async Task OpenMediaItemAsync(AudioPlayer audioPlayer, MediaItem item)
         {
             if (item == null || item.FileName == null || !YtDlpManager.IsInstalled) return;
@@ -24,12 +35,21 @@ namespace AES_Lacrima.Services
             await audioPlayer.PlayFile(item);
         }
 
+        /// <summary>
+        /// Resolves the best available video and audio stream URLs for a given source URL using yt-dlp.
+        /// </summary>
+        /// <param name="url">The source URL to process.</param>
+        /// <returns>A tuple containing the video URL and audio URL.</returns>
         private async Task<(string, string)> HandleStreamFile(string url)
         {
             try
             {
+                // Remove query parameters for better compatibility with yt-dlp
+                var currentUrl = url.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                    && url.Contains('?', StringComparison.OrdinalIgnoreCase) 
+                        ? url.Split('?')[0] : url;
                 // fetch data
-                var info = await YtDlpMetadata.GetMetaDataAsync(url);
+                var info = await YtDlpMetadata.GetMetaDataAsync(currentUrl);
 
                 // best 1080p video
                 var bestVideo = info.VideoFormats
