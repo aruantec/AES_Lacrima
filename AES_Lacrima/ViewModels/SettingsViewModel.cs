@@ -115,13 +115,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// Gets or sets the horizontal gap between waveform bars.
     /// </summary>
     [ObservableProperty]
-    private double _waveformBarGap = 0.0;
+    private double _waveformBarGap;
 
     /// <summary>
     /// Gets or sets the height of each waveform block.
     /// </summary>
     [ObservableProperty]
-    private double _waveformBlockHeight = 0.0;
+    private double _waveformBlockHeight;
 
     /// <summary>
     /// Gets or sets the vertical gap between symmetric waveform halves.
@@ -133,13 +133,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// Gets or sets the number of visual bars to display for the waveform.
     /// </summary>
     [ObservableProperty]
-    private int _waveformVisualBars = 0;
+    private int _waveformVisualBars;
 
     /// <summary>
     /// Gets or sets a value indicating whether to use a gradient for the waveform.
     /// </summary>
     [ObservableProperty]
-    private bool _useWaveformGradient = false;
+    private bool _useWaveformGradient;
 
     /// <summary>
     /// Gets or sets a value indicating whether the waveform is displayed symmetrically.
@@ -270,7 +270,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// </summary>
     private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e == null || string.IsNullOrEmpty(e.PropertyName)) return;
+        if (string.IsNullOrEmpty(e.PropertyName)) return;
         
         if (e.PropertyName == nameof(SpectrumColor0)) _presetSpectrumColors[0] = SpectrumColor0;
         else if (e.PropertyName == nameof(SpectrumColor1)) _presetSpectrumColors[1] = SpectrumColor1;
@@ -340,8 +340,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     {
         ScaleFactor = ReadDoubleSetting(section, nameof(ScaleFactor), 1.0);
         ParticleCount = ReadDoubleSetting(section, nameof(ParticleCount), 10);
-        ShowShaderToy = ReadBoolSetting(section, nameof(ShowShaderToy), false);
-        ShowParticles = ReadBoolSetting(section, nameof(ShowParticles), false);
+        ShowShaderToy = ReadBoolSetting(section, nameof(ShowShaderToy));
+        ShowParticles = ReadBoolSetting(section, nameof(ShowParticles));
         // Spectrum settings
         SpectrumHeight = ReadDoubleSetting(section, nameof(SpectrumHeight), SpectrumHeight);
         BarWidth = ReadDoubleSetting(section, nameof(BarWidth), BarWidth);

@@ -31,7 +31,7 @@ namespace AES_Lacrima.Services
     [AutoRegister]
     internal partial class MetadataService : ViewModelBase, IMetadataService
     {
-        private static readonly ILog s_log = LogManager.GetLogger(typeof(MetadataService));
+        private static readonly ILog SLog = LogManager.GetLogger(typeof(MetadataService));
 
         private MediaItem? _currentSelectedMedia;
 
@@ -60,11 +60,8 @@ namespace AES_Lacrima.Services
 
         public async Task LoadMetadataAsync(MediaItem item)
         {
-            if (item == null)
-                return;
-
             _currentSelectedMedia = item;
-            FilePath = item?.FileName;
+            FilePath = item.FileName;
             IsOnlineMedia = false;
 
             if (!File.Exists(FilePath))
@@ -229,7 +226,7 @@ namespace AES_Lacrima.Services
                     }
                     catch (Exception e)
                     {
-                        s_log.Error("Failed to save metadata cache", e);
+                        SLog.Error("Failed to save metadata cache", e);
                     }
 
                     // Set cover bitmap in current media item
@@ -307,11 +304,11 @@ namespace AES_Lacrima.Services
                     && _musicViewModel.AudioPlayer != null)
                 {
                     // Pause music playback
-                    var (Position, WasPlaying) = await _musicViewModel.AudioPlayer.SuspendForEditingAsync();
+                    var (position, wasPlaying) = await _musicViewModel.AudioPlayer.SuspendForEditingAsync();
                     // Save tag
                     tlFile.Save();
                     // Resume music playback
-                    await _musicViewModel.AudioPlayer.ResumeAfterEditingAsync(_currentSelectedMedia!.FileName!, Position, WasPlaying);
+                    await _musicViewModel.AudioPlayer.ResumeAfterEditingAsync(_currentSelectedMedia!.FileName!, position, wasPlaying);
                 }
                 else
                 {
@@ -334,12 +331,10 @@ namespace AES_Lacrima.Services
                     using var ms = new MemoryStream(wallpaperImage.Data);
                     _currentSelectedMedia.WallpaperBitmap = new Bitmap(ms);
                 }
-
-                return;
             }
             catch (Exception ex)
             {
-                s_log.Error("Failed to save metadata to file", ex);
+                SLog.Error("Failed to save metadata to file", ex);
             }
             finally
             {
@@ -428,7 +423,7 @@ namespace AES_Lacrima.Services
 
         private void OnDeleteImage(TagImageModel img)
         {
-            Dispatcher.UIThread.Post(() => { Images?.Remove(img); img.Dispose(); });
+            Dispatcher.UIThread.Post(() => { Images.Remove(img); img.Dispose(); });
         }
 
         private static PictureType MapKindToPictureType(TagImageModel model) => model.Kind switch
@@ -494,7 +489,7 @@ namespace AES_Lacrima.Services
             }
             catch (Exception ex)
             {
-                s_log.Warn("Failed to generate thumbnail for live wallpaper", ex);
+                SLog.Warn("Failed to generate thumbnail for live wallpaper", ex);
                 // Fallback: set to null or default
                 await Dispatcher.UIThread.InvokeAsync(() => { model.Image = null; });
             }

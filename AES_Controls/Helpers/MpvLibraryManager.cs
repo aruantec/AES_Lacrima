@@ -16,7 +16,7 @@ public partial class MpvLibraryManager : ObservableObject
 {
     private const string Repo = "zhongfly/mpv-winbuild";
     private readonly string _destFolder = AppContext.BaseDirectory;
-    private static readonly HttpClient _client = new();
+    private static readonly HttpClient Client = new();
 
     /// <summary>
     /// Percentage (0-100) representing the current download progress when
@@ -69,8 +69,8 @@ public partial class MpvLibraryManager : ObservableObject
     /// <param name="libName">The library filename to extract (for example "libmpv-2.dll").</param>
     private async Task DownloadWindowsLgplAsync(string libName)
     {
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; MpvDownloader)");
-        var response = await _client.GetStringAsync($"https://api.github.com/repos/{Repo}/releases/latest");
+        Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; MpvDownloader)");
+        var response = await Client.GetStringAsync($"https://api.github.com/repos/{Repo}/releases/latest");
         using var doc = JsonDocument.Parse(response);
 
         JsonElement? found = null;
@@ -120,7 +120,7 @@ public partial class MpvLibraryManager : ObservableObject
     {
         if (string.IsNullOrEmpty(url)) return;
 
-        using var response = await _client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+        using var response = await Client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
         var totalBytes = response.Content.Headers.ContentLength ?? -1L;
 
         string tempFile = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
@@ -156,7 +156,28 @@ public partial class MpvLibraryManager : ObservableObject
             }
         }
 
-        try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
+        // On macOS some consumers expect the SONAME/lib name to be 'libmpv.2.dylib'.
+        // If we just extracted 'libmpv.dylib', create a copy named 'libmpv.2.dylib' so
+        // the runtime can find the expected filename.
+        try
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && string.Equals(libName, "libmpv.dylib", StringComparison.OrdinalIgnoreCase))
+            {
+                var extracted = Path.Combine(_destFolder, "libmpv.dylib");
+                var alt = Path.Combine(_destFolder, "libmpv.2.dylib");
+                if (File.Exists(extracted) && !File.Exists(alt))
+                {
+                    File.Copy(extracted, alt, true);
+                    Debug.WriteLine($"Created macOS alternate lib name: {alt}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Failed to create alternate macOS lib name: {ex.Message}");
+        }
+
+        try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch (Exception ex) { Debug.WriteLine($"Failed to delete temporary mpv archive: {ex.Message}"); }
     }
 
     /// <summary>
@@ -197,6 +218,19 @@ public partial class MpvLibraryManager : ObservableObject
                     File.Copy(fullPath, destination, true);
 
                     Console.WriteLine($"Successfully localized {libName} from {path}");
+                    // On macOS ensure alternate SONAME filename is also present
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && string.Equals(libName, "libmpv.dylib", StringComparison.OrdinalIgnoreCase))
+                    {
+                        try
+                        {
+                            var altDest = Path.Combine(_destFolder, "libmpv.2.dylib");
+                            if (!File.Exists(altDest)) File.Copy(destination, altDest, true);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Warning: could not create libmpv.2.dylib copy: {ex.Message}");
+                        }
+                    }
                     found = true;
                     break;
                 }
