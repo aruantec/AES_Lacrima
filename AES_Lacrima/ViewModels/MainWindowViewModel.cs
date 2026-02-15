@@ -54,7 +54,7 @@ namespace AES_Lacrima.ViewModels
         /// </summary>
         [AutoResolve]
         [ObservableProperty]
-        private SettingsViewModel? settingsViewModel;
+        private SettingsViewModel? _settingsViewModel;
 
         /// <summary>
         /// Provides access to the navigation service used for managing navigation within the application.
@@ -67,7 +67,7 @@ namespace AES_Lacrima.ViewModels
         /// Gets or sets the collection of spectrum data points.
         /// </summary>
         [ObservableProperty]
-        public AvaloniaList<double>? _spectrum;
+        private AvaloniaList<double>? _spectrum;
 
 
         /// <summary>

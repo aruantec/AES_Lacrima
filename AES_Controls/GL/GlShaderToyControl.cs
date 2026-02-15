@@ -10,7 +10,6 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
-using System.Linq;
 
 namespace AES_Controls.GL;
 
@@ -41,8 +40,8 @@ public class GlShaderToyControl : OpenGlControlBase
     private readonly List<IDisposable> _propertySubscriptions = new();
 
     private static string CachePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Cache", "ShaderCache");
-    private const int GL_PROGRAM_BINARY_LENGTH = 0x8741;
-    private const int GL_LINK_STATUS = 0x8B82;
+    private const int GlProgramBinaryLength = 0x8741;
+    private const int GlLinkStatus = 0x8B82;
 
     #region Styled Properties
     public static readonly StyledProperty<bool> IsRenderingPausedProperty =
@@ -264,7 +263,7 @@ public class GlShaderToyControl : OpenGlControlBase
         var src = Spectrum;
         if (src == null || src.Count == 0) return;
 
-        int srcCount = 0;
+        int srcCount;
         lock (src)
         {
             srcCount = Math.Min(src.Count, _snapshot.Length);
@@ -272,7 +271,11 @@ public class GlShaderToyControl : OpenGlControlBase
         }
 
         float maxV = 0.0001f;
-        for (int i = 0; i < srcCount; i++) if (_snapshot[i] > maxV) maxV = (float)_snapshot[i];
+        for (int i = 0; i < srcCount; i++)
+            lock (src)
+            {
+                if (_snapshot[i] > maxV) maxV = (float)_snapshot[i];
+            }
 
         // FIX: Stretch the data to fill the 512-wide texture
         // This prevents the "half-dead" spectrum issue
@@ -341,16 +344,21 @@ public class GlShaderToyControl : OpenGlControlBase
                 var func = (delegate* unmanaged[Stdcall]<int, int, void*, int, void>)gl.GetProcAddress("glProgramBinary");
                 if (func != null) func(prg, format, pData, data.Length);
             }
-            int success = 0; gl.GetProgramiv(prg, GL_LINK_STATUS, &success);
+            int success = 0; gl.GetProgramiv(prg, GlLinkStatus, &success);
             if (success != 0) return prg;
             gl.DeleteProgram(prg); reader.Close(); File.Delete(file);
-        } catch { }
+        }
+        catch
+        {
+            // ignored
+        }
+
         return 0;
     }
 
     private unsafe void SaveProgramBinary(GlInterface gl, int prg, string file)
     {
-        int length = 0; gl.GetProgramiv(prg, GL_PROGRAM_BINARY_LENGTH, &length);
+        int length = 0; gl.GetProgramiv(prg, GlProgramBinaryLength, &length);
         if (length <= 0) return;
         byte[] buffer = new byte[length];
         int retLen = 0, format = 0;
@@ -485,7 +493,11 @@ public class GlShaderToyControl : OpenGlControlBase
         {
             foreach (var d in _propertySubscriptions) d.Dispose();
         }
-        catch { }
+        catch
+        {
+            // ignored
+        }
+
         _propertySubscriptions.Clear();
     }
 }

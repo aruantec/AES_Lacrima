@@ -1,10 +1,10 @@
-using AES_Code.Models;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using AES_Code.Models;
 
-namespace AES_Code.Helpers;
+namespace AES_Controls.Helpers;
 
 /// <summary>
 /// Represents a container for media metadata and associated binary resources (images, videos).

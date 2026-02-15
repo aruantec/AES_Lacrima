@@ -15,7 +15,7 @@ public partial class YtDlpManager : ObservableObject
 {
     private const string Repo = "yt-dlp/yt-dlp";
     private readonly string _destFolder = AppContext.BaseDirectory;
-    private static readonly HttpClient _client = new();
+    private static readonly HttpClient Client = new();
 
     /// <summary>
     /// Gets a value indicating whether yt-dlp is locally installed in the application directory.
@@ -69,10 +69,10 @@ public partial class YtDlpManager : ObservableObject
     /// </summary>
     private async Task DownloadLatestAsync()
     {
-        _client.DefaultRequestHeaders.UserAgent.Clear();
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; YtDlpDownloader)");
+        Client.DefaultRequestHeaders.UserAgent.Clear();
+        Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; YtDlpDownloader)");
         
-        var response = await _client.GetStringAsync($"https://api.github.com/repos/{Repo}/releases/latest");
+        var response = await Client.GetStringAsync($"https://api.github.com/repos/{Repo}/releases/latest");
         using var doc = JsonDocument.Parse(response);
 
         string targetAsset = GetPlatformAssetName();
@@ -104,7 +104,7 @@ public partial class YtDlpManager : ObservableObject
     /// </summary>
     private async Task DownloadWithProgressAsync(string url, string assetName)
     {
-        using var response = await _client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+        using var response = await Client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
         var totalBytes = response.Content.Headers.ContentLength ?? -1L;
 
         string tempFile = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
@@ -156,11 +156,18 @@ public partial class YtDlpManager : ObservableObject
                 {
                     Process.Start(new ProcessStartInfo("chmod", $"+x \"{destPath}\"") { CreateNoWindow = true })?.WaitForExit();
                 }
-                catch { }
+                catch
+                {
+                    // ignored
+                }
             }
         }
 
-        try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
+        try { if (File.Exists(tempFile)) File.Delete(tempFile); }
+        catch
+        {
+            // ignored
+        }
     }
 
     private string GetPlatformAssetName()

@@ -1,3 +1,11 @@
+using System.Buffers;
+using System.Collections;
+using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Numerics;
+using System.Reflection;
+using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -5,11 +13,8 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
-using SkiaSharp;
-using System.Collections;
-using System.Collections.Specialized;
-using System.Numerics;
 using log4net;
+using SkiaSharp;
 
 namespace AES_Controls.Composition
 {
@@ -29,11 +34,11 @@ namespace AES_Controls.Composition
         private List<SKImage> _images = new();
         private Dictionary<object, SKImage> _imageCache = new();
         private SKImage? _sharedPlaceholder;
-        private System.Reflection.PropertyInfo? _propBitmap;
-        private System.Reflection.PropertyInfo? _propFile;
+        private PropertyInfo? _propBitmap;
+        private PropertyInfo? _propFile;
         private string? _cachedBitmapName;
         private string? _cachedFileName;
-        private HashSet<System.ComponentModel.INotifyPropertyChanged> _subscribedItems = new();
+        private HashSet<INotifyPropertyChanged> _subscribedItems = new();
         private readonly LinkedList<object> _imageCacheLru = new();
         private readonly Dictionary<object, LinkedListNode<object>> _imageCacheNodes = new();
         private int _maxImageCacheEntries = 200;
@@ -59,16 +64,21 @@ namespace AES_Controls.Composition
         private bool _isDragging;
         private bool _isSliderPressed;
         private int _draggingIndex = -1;
-        private Point _dragStartPoint;
         private DispatcherTimer? _autoScrollTimer;
         private double _autoScrollVelocity;
+
+        // Projection cache to reduce heavy math during hit-testing and pointer moves
+        private Dictionary<int, (Point p1, Point p2, Point p3, Point p4, float scale)> _projPolyCache = new();
+        private Vector2 _projCacheSize = new Vector2(0,0);
+        private double _projCacheForIndex = double.NaN;
+        private int _projCacheCenterIdx = -1;
 
         #endregion
 
         #region Static Fields (Styled Properties)
 
         public static readonly StyledProperty<double> SelectedIndexProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(SelectedIndex), 0.0);
+            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(SelectedIndex));
 
         public static readonly StyledProperty<double> ItemSpacingProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(ItemSpacing), 0.93);
@@ -97,11 +107,11 @@ namespace AES_Controls.Composition
         public static readonly StyledProperty<double> ItemHeightProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(ItemHeight), 200.0);
 
-        public static readonly StyledProperty<System.Windows.Input.ICommand?> ItemSelectedCommandProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, System.Windows.Input.ICommand?>(nameof(ItemSelectedCommand));
+        public static readonly StyledProperty<ICommand?> ItemSelectedCommandProperty =
+            AvaloniaProperty.Register<CompositionCarouselControl, ICommand?>(nameof(ItemSelectedCommand));
 
-        public static readonly StyledProperty<System.Windows.Input.ICommand?> ItemDoubleClickedCommandProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, System.Windows.Input.ICommand?>(nameof(ItemDoubleClickedCommand));
+        public static readonly StyledProperty<ICommand?> ItemDoubleClickedCommandProperty =
+            AvaloniaProperty.Register<CompositionCarouselControl, ICommand?>(nameof(ItemDoubleClickedCommand));
 
         public static readonly StyledProperty<string?> ImageFileNamePropertyProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, string?>(nameof(ImageFileNameProperty));
@@ -275,7 +285,7 @@ namespace AES_Controls.Composition
         /// Command executed when an item is selected. The command parameter
         /// will be the selected index (int).
         /// </summary>
-        public System.Windows.Input.ICommand? ItemSelectedCommand
+        public ICommand? ItemSelectedCommand
         {
             get => GetValue(ItemSelectedCommandProperty);
             set => SetValue(ItemSelectedCommandProperty, value);
@@ -285,7 +295,7 @@ namespace AES_Controls.Composition
         /// Command executed when an item is double-clicked. The command
         /// parameter will be the index (int) of the double-clicked item.
         /// </summary>
-        public System.Windows.Input.ICommand? ItemDoubleClickedCommand
+        public ICommand? ItemDoubleClickedCommand
         {
             get => GetValue(ItemDoubleClickedCommandProperty);
             set => SetValue(ItemDoubleClickedCommandProperty, value);
@@ -312,11 +322,11 @@ namespace AES_Controls.Composition
             _autoScrollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
             _autoScrollTimer.Tick += AutoScrollTimer_Tick;
 
-            _uiSyncTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, (s, e) =>
+            _uiSyncTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, (_, _) =>
             {
-                long currentTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                long currentTicks = Stopwatch.GetTimestamp();
                 if (_uiLastTicks == 0) _uiLastTicks = currentTicks;
-                double dt = (double)(currentTicks - _uiLastTicks) / System.Diagnostics.Stopwatch.Frequency;
+                double dt = (double)(currentTicks - _uiLastTicks) / Stopwatch.Frequency;
                 _uiLastTicks = currentTicks;
 
                 if (dt > 0.1) dt = 0.1;
@@ -366,7 +376,7 @@ namespace AES_Controls.Composition
             if (index >= 0 && index < _images.Count)
             {
                 _images[index] = image;
-                _visual?.SendHandlerMessage(new UpdateImageMessage(index, image, false));
+                _visual?.SendHandlerMessage(new UpdateImageMessage(index, image));
             }
         }
 
@@ -399,34 +409,79 @@ namespace AES_Controls.Composition
             return _sharedPlaceholder!;
         }
 
-        // Compute projected center of item `i` using the same math used for rendering so hit-testing matches visuals
-        private (Vector2 proj, float scale) ProjectedCenterForIndex(int i, double currentIndex, Vector2 size)
+        // Ensure projection cache is populated for the relevant visible range around currentIndex
+        private void EnsureProjectionCache(double currentIndex, Vector2 size)
         {
+            // simple invalidation heuristics: if size changed significantly or index moved enough, rebuild
+            if (_projCacheCenterIdx >= 0 && _projCacheSize == size && Math.Abs(_projCacheForIndex - currentIndex) < 0.001) return;
+
+            _projPolyCache.Clear();
+            _projCacheSize = size;
+            _projCacheForIndex = currentIndex;
+            _projCacheCenterIdx = (int)Math.Round(currentIndex);
+
+            if (_images.Count == 0 || size.X <= 0 || size.Y <= 0) return;
+
             float scaleVal = (float)ItemScale;
-            float w = (float)ItemWidth * scaleVal;
-            float h = (float)ItemHeight * scaleVal;
+            float itemWidth = (float)ItemWidth * scaleVal;
+            float itemHeight = (float)ItemHeight * scaleVal;
             var center = new Vector2(size.X / 2, (float)(size.Y / 2 + VerticalOffset));
+            float spacing = (float)ItemSpacing;
 
-            float diff = (float)(i - currentIndex);
-            float absDiff = Math.Abs(diff);
+            int visibleRange = (int)Math.Max(10, (size.X / 2.0 / Math.Max(0.1, spacing * scaleVal) - SideTranslation) / Math.Max(1.0, StackSpacing)) + 5;
+            int start = Math.Max(0, (int)Math.Floor(currentIndex - visibleRange));
+            int end = Math.Min(Math.Max(0, _images.Count - 1), (int)Math.Ceiling(currentIndex + visibleRange));
 
-            const float sideRot = 0.95f;
-            float sideTrans = (float)SideTranslation;
-            float stackSpace = (float)StackSpacing;
+            for (int i = start; i <= end; i++)
+            {
+                float diff = (float)(i - currentIndex);
+                float absDiff = Math.Abs(diff);
 
-            float transition = (float)Math.Tanh(diff * 2.0f);
-            float rotationY = -transition * sideRot;
-            float stackFactor = (float)Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f);
-            float translationX = (transition * sideTrans + stackFactor * stackSpace) * (float)ItemSpacing * scaleVal;
-            float translationZ = (float)(-Math.Pow(absDiff, 0.7f) * 220f * (float)ItemSpacing * scaleVal);
+                const float sideRot = 0.95f;
+                float sideTrans = (float)SideTranslation;
+                float stackSpace = (float)StackSpacing;
 
-            float centerPop = 0.18f * (float)Math.Exp(-absDiff * absDiff * 6.0f);
-            float itemPerspectiveScale = Math.Max(0.1f, (1.0f + centerPop) - (absDiff * 0.06f));
+                float transition = (float)Math.Tanh(diff * 2.0f);
+                float rotationY = -transition * sideRot;
+                float stackFactor = Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f);
+                float translationX = (transition * sideTrans + stackFactor * stackSpace) * spacing * scaleVal;
+                float translationZ = (float)(-Math.Pow(absDiff, 0.7f) * 220f * spacing * scaleVal);
 
-            var matrix = Matrix4x4.CreateTranslation(new Vector3(translationX, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
-            var vt = Vector3.Transform(new Vector3(0, 0, 0), matrix);
-            float s = 1000f / (1000f - vt.Z);
-            return (new Vector2(center.X + vt.X * s, center.Y + vt.Y * s), s);
+                float centerPop = 0.18f * (float)Math.Exp(-absDiff * absDiff * 6.0f);
+                float itemPerspectiveScale = Math.Max(0.1f, (1.0f + centerPop) - (absDiff * 0.06f));
+
+                var matrix = Matrix4x4.CreateTranslation(new Vector3(translationX, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
+
+                Vector2 TransformProj(Vector3 v) { var vt = Vector3.Transform(v, matrix); float s = 1000f / (1000f - vt.Z); return new Vector2(center.X + vt.X * s, center.Y + vt.Y * s); }
+
+                var p1 = TransformProj(new Vector3(-itemWidth/2, -itemHeight/2, 0));
+                var p2 = TransformProj(new Vector3(itemWidth/2, -itemHeight/2, 0));
+                var p3 = TransformProj(new Vector3(itemWidth/2, itemHeight/2, 0));
+                var p4 = TransformProj(new Vector3(-itemWidth/2, itemHeight/2, 0));
+                float scale = 1000f / (1000f - translationZ);
+
+                _projPolyCache[i] = (p1.ToPoint(), p2.ToPoint(), p3.ToPoint(), p4.ToPoint(), scale);
+            }
+        }
+
+        private void ClearProjectionCache()
+        {
+            _projPolyCache.Clear();
+            _projCacheForIndex = double.NaN;
+            _projCacheCenterIdx = -1;
+            _projCacheSize = new Vector2(0,0);
+        }
+
+        // Helper for polygon hit testing
+        private static double Cross(Point a, Point b, Point c) => (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);
+
+        private static bool PointInQuad(Point p, Point p1, Point p2, Point p3, Point p4)
+        {
+            double c1 = Cross(p1, p2, p);
+            double c2 = Cross(p2, p3, p);
+            double c3 = Cross(p3, p4, p);
+            double c4 = Cross(p4, p1, p);
+            return (c1 >= 0 && c2 >= 0 && c3 >= 0 && c4 >= 0) || (c1 <= 0 && c2 <= 0 && c3 <= 0 && c4 <= 0);
         }
 
         // Determine which logical slot the pointer is over using the UI-smoothed index and X position mapping.
@@ -483,6 +538,7 @@ namespace AES_Controls.Composition
             base.OnDetachedFromVisualTree(e);
             try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch (Exception ex) { Log.Warn("Error canceling load during detach", ex); }
             ClearResources();
+            ClearProjectionCache();
         }
         private void UpdateVirtualization()
         {
@@ -512,6 +568,7 @@ namespace AES_Controls.Composition
             {
                 _visual?.SendHandlerMessage(change.GetNewValue<double>());
                 UpdateVirtualization();
+                ClearProjectionCache();
                 if (_uiSyncTimer != null && !_uiSyncTimer.IsEnabled) _uiSyncTimer.Start();
             }
             else if (change.Property == ItemSpacingProperty)
@@ -590,7 +647,7 @@ namespace AES_Controls.Composition
                 else
                     _images.Add(placeholder);
 
-                if (items[i] is System.ComponentModel.INotifyPropertyChanged inpc)
+                if (items[i] is INotifyPropertyChanged inpc)
                 {
                     if (_subscribedItems.Add(inpc)) inpc.PropertyChanged += Item_PropertyChanged;
                 }
@@ -679,7 +736,7 @@ namespace AES_Controls.Composition
                         {
                             var placeholder = GetPlaceholder();
                             _images[idx] = placeholder;
-                            _visual?.SendHandlerMessage(new UpdateImageMessage(idx, placeholder, false));
+                            _visual?.SendHandlerMessage(new UpdateImageMessage(idx, placeholder));
                         }
 
                         var imgToDispose = img;
@@ -698,8 +755,8 @@ namespace AES_Controls.Composition
                                           .OrderBy(i => Math.Abs(i - centerIdx))
                                           .ToList();
 
-            var cachePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ImageCache");
-            try { if (!System.IO.Directory.Exists(cachePath)) System.IO.Directory.CreateDirectory(cachePath); } catch (Exception ex) { Log.Warn("Could not create ImageCache directory", ex); }
+            var cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ImageCache");
+            try { if (!Directory.Exists(cachePath)) Directory.CreateDirectory(cachePath); } catch (Exception ex) { Log.Warn("Could not create ImageCache directory", ex); }
 
             foreach (int i in indicesToLoad)
             {
@@ -781,12 +838,9 @@ namespace AES_Controls.Composition
             TrimImageCache(itemToIndex);
         }
 
-        private async Task LoadItemsAsync(IEnumerable? itemsSource, CancellationToken ct) => await VirtualizeAsync((int)Math.Round(SelectedIndex), ct);
-
-
-        private void Item_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        private void Item_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            Dispatcher.UIThread.Post(async () =>
+            Dispatcher.UIThread.Post(async void () =>
             {
                 string? bitmapProp = ImageBitmapProperty;
                 string? fileProp = ImageFileNameProperty;
@@ -809,7 +863,7 @@ namespace AES_Controls.Composition
                 }
                 catch (Exception ex) { Log.Warn("Failed to read image properties in PropertyChanged", ex); }
 
-                var cachePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ImageCache");
+                var cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ImageCache");
                 SKImage? realImage = null;
                 try
                 {
@@ -828,15 +882,15 @@ namespace AES_Controls.Composition
             });
         }
 
-        private async Task<SKImage?> ToSKImageAsync(Bitmap bitmap)
+        private async Task<SKImage?> ToSkImageAsync(Bitmap bitmap)
         {
-            if (bitmap == null || bitmap.Format == null || bitmap.PixelSize.Width <= 0 || bitmap.PixelSize.Height <= 0) return null;
+            if (bitmap.Format == null || bitmap.PixelSize.Width <= 0 || bitmap.PixelSize.Height <= 0) return null;
 
             int w = bitmap.PixelSize.Width;
             int h = bitmap.PixelSize.Height;
             int stride = w * 4;
             int bufferSize = h * stride;
-            byte[]? buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(bufferSize);
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
 
             bool success = false;
             try
@@ -857,7 +911,7 @@ namespace AES_Controls.Composition
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"ToSKImage: CopyPixels failed: {ex.Message}");
+                        Debug.WriteLine($"ToSKImage: CopyPixels failed: {ex.Message}");
                     }
                 });
 
@@ -880,7 +934,7 @@ namespace AES_Controls.Composition
                             {
                                 fixed (byte* p = buffer)
                                 {
-                                    System.Buffer.MemoryCopy(p, (void*)skBmp.GetPixels(), skBmp.ByteCount, skBmp.ByteCount);
+                                    Buffer.MemoryCopy(p, (void*)skBmp.GetPixels(), skBmp.ByteCount, skBmp.ByteCount);
                                 }
                             }
                             else
@@ -893,7 +947,7 @@ namespace AES_Controls.Composition
                                 }
                                 fixed (byte* p = buffer)
                                 {
-                                    System.Buffer.MemoryCopy(p, (void*)skBmp.GetPixels(), skBmp.ByteCount, skBmp.ByteCount);
+                                    Buffer.MemoryCopy(p, (void*)skBmp.GetPixels(), skBmp.ByteCount, skBmp.ByteCount);
                                 }
                             }
                         }
@@ -913,7 +967,7 @@ namespace AES_Controls.Composition
             }
             finally
             {
-                if (buffer != null) System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+                ArrayPool<byte>.Shared.Return(buffer);
             }
         }
 
@@ -921,8 +975,8 @@ namespace AES_Controls.Composition
         {
             if (ct.IsCancellationRequested) return null;
             if (bitmapValue != null)
-                return await ToSKImageAsync(bitmapValue);
-            if (!string.IsNullOrEmpty(fileName) && System.IO.File.Exists(fileName))
+                return await ToSkImageAsync(bitmapValue);
+            if (!string.IsNullOrEmpty(fileName) && File.Exists(fileName))
                 return await Task.Run(() => LoadAndResize(fileName, cachePath), ct);
             return null;
         }
@@ -963,7 +1017,7 @@ namespace AES_Controls.Composition
                     {
                         var placeholder = GetPlaceholder();
                         _images[idx] = placeholder;
-                        _visual?.SendHandlerMessage(new UpdateImageMessage(idx, placeholder, false));
+                        _visual?.SendHandlerMessage(new UpdateImageMessage(idx, placeholder));
                     }
 
                     if (_visual != null)
@@ -986,8 +1040,8 @@ namespace AES_Controls.Composition
         {
             try
             {
-                var cachedFile = System.IO.Path.Combine(cachePath, System.IO.Path.GetFileName(file));
-                if (System.IO.File.Exists(cachedFile))
+                var cachedFile = Path.Combine(cachePath, Path.GetFileName(file));
+                if (File.Exists(cachedFile))
                 {
                     using var data = SKData.Create(cachedFile);
                     if (data != null) return SKImage.FromEncodedData(data);
@@ -1010,7 +1064,7 @@ namespace AES_Controls.Composition
                     {
                         var img = SKImage.FromBitmap(resized);
                         using (var data = img.Encode(SKEncodedImageFormat.Png, 80))
-                        using (var stream = System.IO.File.Create(cachedFile))
+                        using (var stream = File.Create(cachedFile))
                             data.SaveTo(stream);
                         return img;
                     }
@@ -1061,6 +1115,7 @@ namespace AES_Controls.Composition
         protected override void OnSizeChanged(SizeChangedEventArgs e)
         {
             base.OnSizeChanged(e);
+            ClearProjectionCache();
             if (_visual != null)
             {
                 var logicalSize = new Vector2((float)e.NewSize.Width, (float)e.NewSize.Height);
@@ -1100,7 +1155,6 @@ namespace AES_Controls.Composition
                 {
                     _isDragging = true;
                     _draggingIndex = hit;
-                    _dragStartPoint = _prevPoint;
                     _visual?.SendHandlerMessage(new DragStateMessage(_draggingIndex, true));
                     _visual?.SendHandlerMessage(new DragPositionMessage(new Vector2((float)_prevPoint.X, (float)_prevPoint.Y)));
                     _visual?.SendHandlerMessage(new DropTargetMessage(_draggingIndex));
@@ -1296,6 +1350,9 @@ namespace AES_Controls.Composition
         {
             if (_images.Count == 0 || size.X <= 0 || size.Y <= 0) return -1;
 
+            // Ensure cache populated for current frame to avoid heavy math in tight loops
+            EnsureProjectionCache(currentIndex, size);
+
             float scaleVal = (float)ItemScale;
             float itemWidth = (float)ItemWidth * scaleVal;
             float itemHeight = (float)ItemHeight * scaleVal;
@@ -1322,6 +1379,12 @@ namespace AES_Controls.Composition
 
         private bool IsPointInItem(Point p, int i, Vector2 center, float w, float h, float spacing, double currentIndex, float scale)
         {
+            // Use cached polygon if available
+            if (_projPolyCache.TryGetValue(i, out var poly))
+            {
+                return PointInQuad(p, poly.p1, poly.p2, poly.p3, poly.p4);
+            }
+
             float diff = (float)(i - currentIndex);
             float absDiff = Math.Abs(diff);
 
@@ -1334,7 +1397,7 @@ namespace AES_Controls.Composition
             float rotationY = -transition * sideRot;
             
             // Smoother stack transition using a slight power curve
-            float stackFactor = (float)Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f);
+            float stackFactor = Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f);
             float translationX = (transition * sideTrans + stackFactor * stackSpace) * spacing * scale;
             
             // Smooth Z transition
@@ -1349,11 +1412,11 @@ namespace AES_Controls.Composition
             Vector2 Proj(Vector3 v) { var vt = Vector3.Transform(v, matrix); float s = 1000f / (1000f - vt.Z); return new Vector2(center.X + vt.X * s, center.Y + vt.Y * s); }
             var p1 = Proj(new Vector3(-w/2, -h/2, 0)); var p2 = Proj(new Vector3(w/2, -h/2, 0)); var p3 = Proj(new Vector3(w/2, h/2, 0)); var p4 = Proj(new Vector3(-w/2, h/2, 0));
             
-            double Cross(Point a, Point b, Point c) => (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);
-            var c1 = Cross(p1.ToPoint(), p2.ToPoint(), p); var c2 = Cross(p2.ToPoint(), p3.ToPoint(), p); var c3 = Cross(p3.ToPoint(), p4.ToPoint(), p); var c4 = Cross(p4.ToPoint(), p1.ToPoint(), p);
-            return (c1 >= 0 && c2 >= 0 && c3 >= 0 && c4 >= 0) || (c1 <= 0 && c2 <= 0 && c3 <= 0 && c4 <= 0);
+            return PointInQuad(p, p1.ToPoint(), p2.ToPoint(), p3.ToPoint(), p4.ToPoint());
         }
 
         #endregion
     }
 }
+
+
