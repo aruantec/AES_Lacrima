@@ -3,7 +3,7 @@
              xmlns:converters="using:AES_Lacrima.Converters"
              x:Class="AES_Lacrima.App"
              xmlns:local="using:AES_Lacrima"
-             RequestedThemeVariant="Default">
+             RequestedThemeVariant="Dark">
              <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
 
     <Application.DataTemplates>

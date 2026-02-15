@@ -8,6 +8,8 @@ using LibMPVSharp.Extensions;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
+using log4net;
 
 namespace AES_Controls.Player;
 
@@ -18,6 +20,8 @@ namespace AES_Controls.Player;
 /// </summary>
 public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyPropertyChanged, IDisposable
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(AudioPlayer));
+
     private string? _loadedFile, _waveformLoadedFile;
     private readonly SynchronizationContext? _syncContext;
     private volatile bool _isLoadingMedia, _isSeeking;
@@ -262,7 +266,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         if (OperatingSystem.IsMacOS())
         {
             SetProperty("ao", "coreaudio");
-            try { ExecuteCommandAsync(["set", "coreaudio-change-device", "no"]); } catch { }
+            try { ExecuteCommandAsync(new[] { "set", "coreaudio-change-device", "no" }); }
+            catch (Exception ex) { Log.Error("Failed to set coreaudio-change-device", ex); }
         }
         else if (OperatingSystem.IsWindows())
         {
@@ -283,21 +288,23 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
         MpvEvent += OnMpvEvent;
 
-        Waveform = [];
-        Spectrum = [];
+        Waveform = new AvaloniaList<float>();
+        Spectrum = new AvaloniaList<double>();
 
         // Always create the analyzer, so it's ready if EnabledSpectrum is toggled
         _spectrumAnalyzer = new FfMpegSpectrumAnalyzer(Spectrum, this);
 
-        Playing += async (s, e) =>
+        Playing += (s, e) =>
         {
             if (IsPlaying && !string.IsNullOrEmpty(_loadedFile))
             {
                 // FIX: Only re-generate waveform if it hasn't been generated for this file yet
                 if (EnableWaveform && (_waveformLoadedFile != _loadedFile))
                 {
-                    try { _waveformCts?.Cancel(); } catch { }
-                    try { _waveformCts?.Dispose(); } catch { }
+                    try { _waveformCts?.Cancel(); }
+                    catch (Exception ex) { Log.Warn("Failed to cancel waveform CTS", ex); }
+                    try { _waveformCts?.Dispose(); }
+                    catch (Exception ex) { Log.Warn("Failed to dispose waveform CTS", ex); }
                     _waveformCts = new CancellationTokenSource();
                     _ = GenerateWaveformAsync(_loadedFile, _waveformCts.Token, WaveformBuckets);
                 }
@@ -436,10 +443,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// <summary>
     /// Loads and starts playback of the specified file path.
     /// </summary>
-    /// <param name="path">Path or URL to the media to play.</param>
     public async Task PlayFile(MediaItem item, bool video = false)
     {
-        if (item == null || string.IsNullOrEmpty(item.FileName))
+        if (string.IsNullOrEmpty(item.FileName))
         {
             IsLoadingMedia = false;
             Stop();
@@ -485,12 +491,14 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         {
             if (_activeFfmpegProcess != null && !_activeFfmpegProcess.HasExited)
             {
-                try { _activeFfmpegProcess.Kill(true); } catch { }
-                try { await _activeFfmpegProcess.WaitForExitAsync(token); } catch { }
+                try { _activeFfmpegProcess.Kill(true); }
+                catch (Exception ex) { Log.Warn("Failed to kill existing ffmpeg process", ex); }
+                try { await _activeFfmpegProcess.WaitForExitAsync(token); }
+                catch (Exception ex) { Log.Warn("Error waiting for existing ffmpeg process to exit", ex); }
                 _activeFfmpegProcess.Dispose();
             }
         }
-        catch { }
+        catch (Exception ex) { Log.Warn("Error while attempting to stop active ffmpeg process", ex); }
 
         IsLoadingWaveform = true;
 
@@ -504,11 +512,11 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
             // Wait for a valid duration. 
             // For long files (1h+), mpv might take a split second to probe it.
-            var duration = (double)Duration;
+            var duration = Duration;
             for (int i = 0; i < 50 && duration <= 0; i++)
             {
                 await Task.Delay(100, token);
-                duration = (double)Duration;
+                duration = Duration;
             }
 
             if (duration <= 0) duration = 300; // Final fallback
@@ -538,7 +546,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             if (proc == null) return;
             _activeFfmpegProcess = proc;
 
-            try { proc.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
+            try { proc.PriorityClass = ProcessPriorityClass.BelowNormal; }
+            catch (Exception ex) { Log.Debug("Failed to set ffmpeg process priority", ex); }
 
             using var output = proc.StandardOutput.BaseStream;
 
@@ -558,7 +567,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                 if (token.IsCancellationRequested) break;
                     
                 // PERFORMANCE: Use Span and MemoryMarshal for fast sample conversion
-                var samples = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, short>(buffer.AsSpan(0, bytesRead));
+                var samples = MemoryMarshal.Cast<byte, short>(buffer.AsSpan(0, bytesRead));
 
                 foreach (var sample in samples)
                 {
@@ -638,7 +647,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                 }
             }, null);
         }
-        catch { }
+        catch (Exception ex) { Log.Error($"Error generating waveform for {path}", ex); }
         finally { IsLoadingWaveform = false; }
     }
 
@@ -663,8 +672,10 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// <param name="bands">Equalizer band definitions.</param>
     public void SetEqualizerBandsThrottled(AvaloniaList<BandModel> bands)
     {
-        try { _eqCts?.Cancel(); } catch { }
-        try { _eqCts?.Dispose(); } catch { }
+        try { _eqCts?.Cancel(); }
+        catch (Exception ex) { Log.Warn("Failed to cancel eq CTS", ex); }
+        try { _eqCts?.Dispose(); }
+        catch (Exception ex) { Log.Warn("Failed to dispose eq CTS", ex); }
 
         // Create a new CTS for this throttled update. We intentionally do not
         // pass the token into Task.Delay/Task.Run to avoid TaskCanceledException
@@ -687,7 +698,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                     SetEqualizerBands(bands);
                 }
             }
-            catch { /* swallow any exception from SetEqualizerBands */ }
+            catch (Exception ex) { Log.Warn("SetEqualizerBandsThrottled: exception while setting bands", ex); }
         });
     }
 
@@ -750,7 +761,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             if (_activeFfmpegProcess != null && !_activeFfmpegProcess.HasExited)
                 _activeFfmpegProcess.Kill(true);
         }
-        catch { }
+        catch (Exception ex) { Log.Warn("Error killing active ffmpeg process during SuspendForEditing", ex); }
 
         InternalStop();
         await Task.Delay(300); // Wait for OS handle release
@@ -774,11 +785,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         await ExecuteCommandAsync(["loadfile", path]);
 
         // WAIT for MPV to initialize the file before seeking
-        int timeout = 0;
         while (_isLoadingMedia)
         {
             await Task.Delay(50);
-            timeout++;
         }
 
         SetPosition(position);
@@ -841,28 +850,39 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// </summary>
     public new void Dispose()
     {
-        try { MpvEvent -= OnMpvEvent; } catch { }
-        try { _spectrumAnalyzer?.Stop(); } catch { }
-        try { _spectrumAnalyzer?.SetPath(""); } catch { }
+        try { MpvEvent -= OnMpvEvent; }
+        catch (Exception ex) { Log.Warn("Failed to remove mpv event handler", ex); }
+        try { _spectrumAnalyzer?.Stop(); }
+        catch (Exception ex) { Log.Warn("Failed to stop spectrum analyzer", ex); }
+        try { _spectrumAnalyzer?.SetPath(""); }
+        catch (Exception ex) { Log.Warn("Failed to clear spectrum analyzer path", ex); }
 
-        try { _waveformCts?.Cancel(); } catch { }
-        try { _waveformCts?.Dispose(); } catch { }
+        try { _waveformCts?.Cancel(); }
+        catch (Exception ex) { Log.Warn("Failed to cancel waveform CTS during dispose", ex); }
+        try { _waveformCts?.Dispose(); }
+        catch (Exception ex) { Log.Warn("Failed to dispose waveform CTS during dispose", ex); }
         _waveformCts = null;
 
-        try { _eqCts?.Cancel(); } catch { }
-        try { _eqCts?.Dispose(); } catch { }
+        try { _eqCts?.Cancel(); }
+        catch (Exception ex) { Log.Warn("Failed to cancel eq CTS during dispose", ex); }
+        try { _eqCts?.Dispose(); }
+        catch (Exception ex) { Log.Warn("Failed to dispose eq CTS during dispose", ex); }
         _eqCts = null;
 
         try
         {
             if (_activeFfmpegProcess != null && !_activeFfmpegProcess.HasExited)
             {
-                try { _activeFfmpegProcess.Kill(true); } catch { }
-                try { _activeFfmpegProcess.WaitForExit(100); } catch { }
+                try { _activeFfmpegProcess.Kill(true); }
+                catch (Exception ex) { Log.Warn("Failed to kill active ffmpeg process during dispose", ex); }
+                try { _activeFfmpegProcess.WaitForExit(100); }
+                catch (Exception ex) { Log.Warn("Error waiting for ffmpeg exit during dispose", ex); }
             }
-            try { _activeFfmpegProcess?.Dispose(); } catch { }
+            try { _activeFfmpegProcess?.Dispose(); }
+            catch (Exception ex) { Log.Warn("Failed to dispose ffmpeg process", ex); }
         }
-        catch { }
+        catch (Exception ex) { Log.Warn("Error while disposing ffmpeg process", ex); }
         _activeFfmpegProcess = null;
     }
 }
+

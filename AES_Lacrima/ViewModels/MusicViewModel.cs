@@ -23,7 +23,7 @@ namespace AES_Lacrima.ViewModels
     /// Marker interface for the music view-model used by the view locator and
     /// dependency injection container.
     /// </summary>
-    public interface IMusicViewModel;
+    public interface IMusicViewModel { }
 
     /// <summary>
     /// View-model responsible for music playback and album/folder management
@@ -34,7 +34,7 @@ namespace AES_Lacrima.ViewModels
     {
         #region Private fields
         // Private fields
-        private readonly string[] _supportedTypes = ["*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4"];
+        private readonly string[] _supportedTypes = new[] { "*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4" };
 
         [ObservableProperty]
         private bool _isEqualizerVisible;
@@ -64,17 +64,17 @@ namespace AES_Lacrima.ViewModels
         private MediaItem? _highlightedItem;
 
         [ObservableProperty]
-        private AvaloniaList<FolderMediaItem> _albumList = [];
+        private AvaloniaList<FolderMediaItem> _albumList = new AvaloniaList<FolderMediaItem>();
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(AddItemsCommand))]
-        private AvaloniaList<MediaItem> _coverItems = [];
+        private AvaloniaList<MediaItem> _coverItems = new AvaloniaList<MediaItem>();
 
         [ObservableProperty]
         private FolderMediaItem? _selectedAlbum;
 
         [ObservableProperty]
-        private AvaloniaList<MediaItem> _playbackQueue = [];
+        private AvaloniaList<MediaItem> _playbackQueue = new AvaloniaList<MediaItem>();
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(AddItemsCommand))]
@@ -91,7 +91,7 @@ namespace AES_Lacrima.ViewModels
         private string? _searchAlbumText;
 
         [ObservableProperty]
-        private AvaloniaList<FolderMediaItem> _filteredAlbumList = [];
+        private AvaloniaList<FolderMediaItem> _filteredAlbumList = new AvaloniaList<FolderMediaItem>();
 
         [ObservableProperty]
         private bool _isAddUrlPopupOpen;
@@ -206,7 +206,7 @@ namespace AES_Lacrima.ViewModels
             var lifetime = Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
             var storageProvider = lifetime?.MainWindow?.StorageProvider;
 
-            if (storageProvider != null && CoverItems != null)
+            if (storageProvider != null)
             {
                 var files = await storageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
                 {
@@ -221,7 +221,7 @@ namespace AES_Lacrima.ViewModels
                     }
                 });
 
-                if (files != null && files.Count > 0)
+                if (files.Count > 0)
                 {
                     var newMediaItems = new AvaloniaList<MediaItem>();
                     foreach (var file in files)
@@ -264,7 +264,7 @@ namespace AES_Lacrima.ViewModels
             var newAlbum = new FolderMediaItem
             {
                 Title = uniqueName,
-                Children = []
+                Children = new AvaloniaList<MediaItem>()
             };
             AlbumList.Add(newAlbum);
             SelectedAlbum = newAlbum;
@@ -332,7 +332,7 @@ namespace AES_Lacrima.ViewModels
         {
             if (IsEqualizerVisible) IsEqualizerVisible = false;
 
-            MediaItem? target = null;
+            MediaItem? target;
             if (parameter is MediaItem mi) target = mi;
             else if (parameter is int index && index >= 0 && index < CoverItems.Count) target = CoverItems[index];
             else target = HighlightedItem;
@@ -354,7 +354,7 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
-        private async Task SetPosition(double position)
+        private void SetPosition(double position)
         {
             AudioPlayer?.SetPosition(position);
         }
@@ -408,8 +408,7 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private async Task OpenSelectedItem(int index)
         {
-            if (CoverItems != null && CoverItems.Count > index
-                && CoverItems[index] is MediaItem selectedItem)
+            if (CoverItems.Count > index && CoverItems[index] is { } selectedItem)
             {
                 PlaybackQueue = CoverItems;
                 SelectedMediaItem = selectedItem;
@@ -435,7 +434,7 @@ namespace AES_Lacrima.ViewModels
             {
                 if (AudioPlayer.Duration <= 0 && SelectedMediaItem != null)
                 {
-                    if (PlaybackQueue == null || PlaybackQueue.Count == 0) PlaybackQueue = CoverItems;
+                    if (PlaybackQueue.Count == 0) PlaybackQueue = CoverItems;
                     await PlayMediaItemAsync(SelectedMediaItem);
                 }
                 else
@@ -451,7 +450,6 @@ namespace AES_Lacrima.ViewModels
             {
                 RepeatMode.Off => RepeatMode.One,
                 RepeatMode.One => RepeatMode.All,
-                RepeatMode.All => RepeatMode.Off,
                 _ => RepeatMode.Off
             };
         }
@@ -571,11 +569,9 @@ namespace AES_Lacrima.ViewModels
                 oldValue.CollectionChanged -= AlbumList_CollectionChanged;
                 foreach (var item in oldValue) item.PropertyChanged -= Folder_PropertyChanged;
             }
-            if (newValue != null)
-            {
-                newValue.CollectionChanged += AlbumList_CollectionChanged;
-                foreach (var item in newValue) item.PropertyChanged += Folder_PropertyChanged;
-            }
+            // Subscribe to changes in the new list
+            newValue.CollectionChanged += AlbumList_CollectionChanged;
+            foreach (var item in newValue) item.PropertyChanged += Folder_PropertyChanged;
             ApplyAlbumFilter();
         }
 
@@ -624,35 +620,28 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnSelectedIndexChanged(int value)
         {
-            if (value >= 0 && CoverItems != null && CoverItems.Count > value
-                && CoverItems[SelectedIndex] is MediaItem highlighted)
+            // Use the incoming value (new SelectedIndex) to avoid referencing the property which may have changed
+            if (value >= 0 && value < CoverItems.Count && CoverItems[value] is { } highlighted)
             {
                 HighlightedItem = highlighted;
             }
         }
 
-        partial void OnHighlightedItemChanged(MediaItem? value) => OnPropertyChanged(nameof(IsTagIconDimmed));
-
-        partial void OnSearchTextChanged(string? value) => ApplyFilter();
-
-        partial void OnSearchAlbumTextChanged(string? value) => ApplyAlbumFilter();
-        #endregion
-
-        #region Private methods
-        // Private methods
         private void AlbumList_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
-            if (e.OldItems != null)
-                foreach (FolderMediaItem item in e.OldItems) item.PropertyChanged -= Folder_PropertyChanged;
-            if (e.NewItems != null)
-                foreach (FolderMediaItem item in e.NewItems) item.PropertyChanged += Folder_PropertyChanged;
+            // To avoid nullable/analysis issues with the event args, detach and re-attach handlers for all current items.
+            foreach (var itm in AlbumList)
+                itm.PropertyChanged -= Folder_PropertyChanged;
+            foreach (var itm in AlbumList)
+                itm.PropertyChanged += Folder_PropertyChanged;
 
             ApplyAlbumFilter();
         }
 
         private void ApplyAlbumFilter()
         {
-            if (AlbumList == null)
+            // AlbumList is always initialized; treat empty list as 'no albums'
+            if (AlbumList.Count == 0)
             {
                 FilteredAlbumList = [];
                 return;
@@ -664,14 +653,15 @@ namespace AES_Lacrima.ViewModels
             }
             else
             {
-                var filtered = AlbumList.Where(a => 
+                var filtered = AlbumList.Where(a =>
                     (a.Title?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (a.Children?.Any(c => 
-                        (c.Title?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                        (c.Artist?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                        (c.Album?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false)) ?? false))
-                    .ToList();
-                FilteredAlbumList = [.. filtered];
+                    // Children is never null (FolderMediaItem initializes it), so skip null check
+                    a.Children.Any(c =>
+                         (c.Title?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                         (c.Artist?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                         (c.Album?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false))
+                    ).ToList();
+                FilteredAlbumList = new AvaloniaList<FolderMediaItem>(filtered);
             }
         }
 
@@ -724,16 +714,13 @@ namespace AES_Lacrima.ViewModels
                 return false;
             }
             foreach (var album in AlbumList)
-                if (album.Children != null)
-                {
-                    existing = album.Children.FirstOrDefault(Matches);
-                    if (existing != null) return true;
-                }
-            if (CoverItems != null)
             {
-                existing = CoverItems.FirstOrDefault(Matches);
+                // Children is initialized and never null
+                existing = album.Children.FirstOrDefault(Matches);
                 if (existing != null) return true;
             }
+            existing = CoverItems.FirstOrDefault(Matches);
+            if (existing != null) return true;
             return false;
         }
 
@@ -751,11 +738,11 @@ namespace AES_Lacrima.ViewModels
 
         private void StartMetadataScrappersForLoadedFolders()
         {
-            if (AudioPlayer == null || AlbumList == null || AlbumList.Count == 0) return;
+            if (AudioPlayer == null || AlbumList.Count == 0) return;
             var agentInfo = "AES_Lacrima/1.0 (contact: email@gmail.com)";
             foreach (var folder in AlbumList)
             {
-                if (folder == null || folder.Children == null || folder.Children.Count == 0) continue;
+                if (folder == null || folder.Children.Count == 0) continue;
                 _ = new MetadataScrapper(folder.Children, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
             }
         }
@@ -769,11 +756,11 @@ namespace AES_Lacrima.ViewModels
                 var brush = new RadialGradientBrush
                 {
                     Center = new RelativePoint(0.5, 0.4, RelativeUnit.Relative),
-                    GradientStops =
-                    [
+                    GradientStops = new GradientStops
+                    {
                         new GradientStop(Color.Parse("#E0E0E0"), 0),
                         new GradientStop(Color.Parse("#A0A0A0"), 1)
-                    ]
+                    }
                 };
                 context.DrawRectangle(brush, null, new Rect(0, 0, size.Width, size.Height));
                 var noteBrush = new SolidColorBrush(Color.Parse("#2D2D2D"));
@@ -808,11 +795,8 @@ namespace AES_Lacrima.ViewModels
             SelectedMediaItem = PlaybackQueue[currentIndex];
 
             // Sync UI selection if the item exists in the currently viewed collection
-            if (CoverItems != null)
-            {
-                int viewIndex = CoverItems.IndexOf(SelectedMediaItem);
-                if (viewIndex != -1) SelectedIndex = viewIndex;
-            }
+            int viewIndex = CoverItems.IndexOf(SelectedMediaItem);
+            if (viewIndex != -1) SelectedIndex = viewIndex;
 
             await PlayMediaItemAsync(SelectedMediaItem);
         }
@@ -826,11 +810,11 @@ namespace AES_Lacrima.ViewModels
         /// <returns>A task that represents the asynchronous operation of playing the media item.</returns>
         private async Task PlayMediaItemAsync(MediaItem item)
         {
-            if (AudioPlayer == null || item == null || item.FileName == null || _mediaUrlService == null) return;
+            // 'item' is non-nullable; only check other nullable dependencies and the file name
+            if (AudioPlayer == null || _mediaUrlService == null || item.FileName == null) return;
             // Check if the item is a URL and resolve it if necessary
             if (item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase) || item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                    await _mediaUrlService.OpenMediaItemAsync(AudioPlayer, item);
-            // Play file
+                await _mediaUrlService.OpenMediaItemAsync(AudioPlayer, item);
             else
                 await AudioPlayer.PlayFile(item);
         }
@@ -838,16 +822,16 @@ namespace AES_Lacrima.ViewModels
         private bool GetCurrentIndex(out int currentIndex)
         {
             currentIndex = -1;
-            if (SelectedMediaItem == null || PlaybackQueue == null || PlaybackQueue.Count == 0) return false;
-            currentIndex = PlaybackQueue.IndexOf(SelectedMediaItem!);
-            return true;
+            if (SelectedMediaItem == null || PlaybackQueue.Count == 0) return false;
+            currentIndex = PlaybackQueue.IndexOf(SelectedMediaItem);
+            return currentIndex != -1;
         }
 
         private void ApplyFilter()
         {
             if (LoadedAlbum?.Children == null)
             {
-                CoverItems = [];
+                CoverItems = new AvaloniaList<MediaItem>();
                 SelectedIndex = 0;
                 HighlightedItem = null;
                 return;
@@ -862,7 +846,7 @@ namespace AES_Lacrima.ViewModels
                         (item.Artist?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
                         (item.Album?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false))
                     .ToList();
-                CoverItems = [.. filtered];
+                CoverItems = new AvaloniaList<MediaItem>(filtered);
             }
             SelectedIndex = 0;
             if (CoverItems.Count > 0) HighlightedItem = CoverItems[0];
@@ -890,14 +874,15 @@ namespace AES_Lacrima.ViewModels
 
         protected override void OnLoadSettings(JsonObject section)
         {
-            AudioPlayer?.Volume = ReadDoubleSetting(section, "Volume", 70.0);
-            IsAlbumlistOpen = ReadBoolSetting(section, nameof(IsAlbumlistOpen), false);
-            AlbumList = ReadCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
+            var ap = AudioPlayer;
+            if (ap != null) ap.Volume = ReadDoubleSetting(section, "Volume", 70.0);
+             IsAlbumlistOpen = ReadBoolSetting(section, nameof(IsAlbumlistOpen));
+             AlbumList = ReadCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
             if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
             foreach (var folder in AlbumList)
             {
-                if (folder.Children == null) folder.Children = new AvaloniaList<MediaItem>();
-                foreach (var child in folder.Children) child.SaveCoverBitmapAction ??= (_) => { };
+                // Children is initialized by FolderMediaItem; ensure runtime safety
+                foreach (var child in folder.Children) child.SaveCoverBitmapAction ??= _ => { };
             }
         }
 
@@ -910,3 +895,19 @@ namespace AES_Lacrima.ViewModels
         #endregion
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

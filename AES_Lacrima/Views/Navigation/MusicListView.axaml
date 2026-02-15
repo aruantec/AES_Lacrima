@@ -38,8 +38,8 @@
 						<Setter Property="BorderThickness" Value="0"/>
 						<Setter Property="BorderBrush" Value="Transparent"/>
 						<Setter Property="ContextMenu">
-							<ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
-								<MenuItem Header="Open Folder" CornerRadius="8" Command="{Binding $parent[ListBox].DataContext.OpenFolderCommand}">
+							<ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0" x:DataType="vm:MusicViewModel">
+								<MenuItem  Header="Open Folder" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).OpenFolderCommand}">
 									<MenuItem.Icon>
 										<Viewbox Width="32" Height="32" Stretch="Uniform">
 											<Canvas Width="100" Height="100">
@@ -50,7 +50,7 @@
 										</Viewbox>
 									</MenuItem.Icon>
 								</MenuItem>
-								<MenuItem Header="Create Album" CornerRadius="8" Command="{Binding $parent[ListBox].DataContext.CreateAlbumCommand}">
+								<MenuItem Header="Create Album" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).CreateAlbumCommand}">
 									<MenuItem.Icon>
 										<Viewbox Width="32" Height="32" Stretch="Uniform">
 											<Canvas Width="100" Height="100">
@@ -60,7 +60,7 @@
 										</Viewbox>
 									</MenuItem.Icon>
 								</MenuItem>
-								<MenuItem Header="Rename Album" CornerRadius="8" Command="{Binding $parent[ListBox].DataContext.RenameFolderCommand}" CommandParameter="{Binding}">
+								<MenuItem Header="Rename Album" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).RenameFolderCommand}" CommandParameter="{Binding}">
 									<MenuItem.Icon>
 										<Path Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"
 											  Fill="#CCFFFFFF"
@@ -69,7 +69,7 @@
 											  Stretch="Uniform"/>
 									</MenuItem.Icon>
 								</MenuItem>
-								<MenuItem Header="Delete Album" CornerRadius="8" Command="{Binding $parent[ListBox].DataContext.DeleteFolderCommand}" CommandParameter="{Binding}">
+								<MenuItem Header="Delete Album" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).DeleteFolderCommand}" CommandParameter="{Binding}">
 									<MenuItem.Icon>
 										<Path Data="M6,19A2,2 0 0,0 8,21h8a2,2 0 0,0 2-2V7H6v12zM19,4h-3.5l-1-1h-5l-1,1H5v2h14V4z"
 												Fill="#CCFFFFFF"
@@ -145,7 +145,7 @@
 								<!-- Folder control -->
 								<composition:FolderCompositionControl Items="{Binding Children}"
 																	  FolderCoverItem="{Binding}"
-																	  DefaultCover="{Binding $parent[ListBox].DataContext.DefaultFolderCover}"
+																	  DefaultCover="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).DefaultFolderCover}"
 																	  ClipToBounds="True"
 																	  MaxVisibleCovers="3"/>
 								<!-- Album title overlay -->
@@ -179,13 +179,13 @@
 												</Style>
 											</TextBox.Styles>
 											<TextBox.KeyBindings>
-												<KeyBinding Gesture="Enter" Command="{Binding $parent[ListBox].DataContext.EndRenameCommand}" CommandParameter="{Binding}" />
-												<KeyBinding Gesture="Escape" Command="{Binding $parent[ListBox].DataContext.CancelRenameCommand}" CommandParameter="{Binding}" />
+												<KeyBinding Gesture="Enter" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).EndRenameCommand}" CommandParameter="{Binding}" />
+												<KeyBinding Gesture="Escape" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).CancelRenameCommand}" CommandParameter="{Binding}" />
 											</TextBox.KeyBindings>
 											<Interaction.Behaviors>
 												<localBehaviors:FocusOnVisibleBehavior />
 												<EventTriggerBehavior EventName="LostFocus">
-													<InvokeCommandAction Command="{Binding $parent[ListBox].DataContext.EndRenameCommand}" CommandParameter="{Binding}" />
+													<InvokeCommandAction Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).EndRenameCommand}" CommandParameter="{Binding}" />
 												</EventTriggerBehavior>
 											</Interaction.Behaviors>
 										</TextBox>
