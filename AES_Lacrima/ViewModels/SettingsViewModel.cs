@@ -168,10 +168,16 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private double _barSpacing = 2.0;
 
     /// <summary>
-    /// Gets or sets a value indicating whether spectrum bars are shown.
+    /// Gets or sets a value indicating whether spectrum bars are shown in the main view.
     /// </summary>
     [ObservableProperty]
-    private bool _showSpectrumBars = true;
+    private bool _showSpectrum = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether spectrum bars are shown in the music view.
+    /// </summary>
+    [ObservableProperty]
+    private bool _showMusicSpectrum = true;
 
     /// <summary>
     /// Gets or sets the gradient brush used for the spectrum visualizer.
@@ -346,7 +352,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         SpectrumHeight = ReadDoubleSetting(section, nameof(SpectrumHeight), SpectrumHeight);
         BarWidth = ReadDoubleSetting(section, nameof(BarWidth), BarWidth);
         BarSpacing = ReadDoubleSetting(section, nameof(BarSpacing), BarSpacing);
-        ShowSpectrumBars = ReadBoolSetting(section, nameof(ShowSpectrumBars), ShowSpectrumBars);
+        ShowSpectrum = ReadBoolSetting(section, nameof(ShowSpectrum), ShowSpectrum);
+        ShowMusicSpectrum = ReadBoolSetting(section, nameof(ShowMusicSpectrum), ShowMusicSpectrum);
 
         // Individual spectrum colors (persisted as strings)
         if (ReadStringSetting(section, nameof(SpectrumColor0)) is { } c0) SpectrumColor0 = Color.Parse(c0);
@@ -389,7 +396,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(SpectrumHeight), SpectrumHeight);
         WriteSetting(section, nameof(BarWidth), BarWidth);
         WriteSetting(section, nameof(BarSpacing), BarSpacing);
-        WriteSetting(section, nameof(ShowSpectrumBars), ShowSpectrumBars);
+        WriteSetting(section, nameof(ShowSpectrum), ShowSpectrum);
+        WriteSetting(section, nameof(ShowMusicSpectrum), ShowMusicSpectrum);
 
         // Persist individual spectrum colors
         WriteSetting(section, nameof(SpectrumColor0), SpectrumColor0.ToString());

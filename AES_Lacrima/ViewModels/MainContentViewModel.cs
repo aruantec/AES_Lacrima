@@ -1,5 +1,6 @@
 ﻿using AES_Core.DI;
 using AES_Lacrima.Services;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 namespace AES_Lacrima.ViewModels
@@ -23,6 +24,14 @@ namespace AES_Lacrima.ViewModels
         /// </summary>
         [AutoResolve]
         private NavigationService? _navigationService;
+
+        [AutoResolve]
+        [ObservableProperty]
+        private MusicViewModel? _musicViewModel;
+
+        [AutoResolve]
+        [ObservableProperty]
+        private SettingsViewModel? _settingsViewModel;
 
         /// <summary>
         /// Command that navigates to the emulation view.

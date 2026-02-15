@@ -6,7 +6,7 @@
              xmlns:locators="using:AES_Lacrima.Helpers"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AES_Lacrima.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             mc:Ignorable="d"
              x:Class="AES_Lacrima.Views.Common.SettingsOverlay"
              x:DataType="vm:SettingsViewModel"
              ClipToBounds="False">
@@ -73,6 +73,11 @@
                             <TextBlock Text="Show Particles" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
                             <ToggleSwitch FontSize="20" IsChecked="{Binding ShowParticles, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
+                        <!-- Show spectrum -->
+                        <StackPanel Margin="0,15,0,15" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Show Spectrum" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
+                            <ToggleSwitch FontSize="20" IsChecked="{Binding ShowSpectrum, Mode=TwoWay}" Margin="8,0"/>
+                        </StackPanel>
                         <!-- Shadertoy -->
                         <TextBlock Margin="0,15,0,15" Text="ShaderToy" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="30"/>
                         <Separator Margin="0,0,0,15"/>
@@ -120,7 +125,7 @@
 
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,8" VerticalAlignment="Center">
                             <TextBlock Text="Show Spectrum" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
-                            <ToggleSwitch IsChecked="{Binding ShowSpectrumBars, Mode=TwoWay}" Margin="8,0"/>
+                            <ToggleSwitch IsChecked="{Binding ShowMusicSpectrum, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
 
                         <!-- Spectrum gradient -->
@@ -163,7 +168,7 @@
                         <TextBlock Grid.Row="6" Grid.Column="2" Text="{Binding CarouselStackSpacing, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Slider Vertical Offset" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
-                        <Slider Grid.Row="3" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="200" SmallChange="1" LargeChange="5" Value="{Binding CarouselSliderVerticalOffset, Mode=TwoWay}" Margin="0,0"/>
+                        <Slider Grid.Row="3" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="{Binding $parent[UserControl].Bounds.Height}" SmallChange="1" LargeChange="5" Value="{Binding CarouselSliderVerticalOffset, Mode=TwoWay}" Margin="0,0"/>
                         <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding CarouselSliderVerticalOffset, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="Slider Track Height" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>

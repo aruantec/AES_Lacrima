@@ -22,7 +22,7 @@
     </Design.DataContext>
 
     <Grid Grid.RowDefinitions="*,Auto,Auto,Auto" ClipToBounds="False">
-        <Border Background="Black" Opacity="0.4"/>
+        <Border Background="#0F0F0F" Grid.RowSpan="2"/>
 
         <!-- Carousel -->
         <composition:CompositionCarouselControl ItemsSource="{Binding CoverItems}"
@@ -171,7 +171,7 @@
                                     UseDeltaTime="True"
                                     IsHitTestVisible="False"
                                     BarGradient="{Binding SettingsViewModel.SpectrumGradient}"
-                                    IsVisible="{Binding SettingsViewModel.ShowSpectrumBars}"/>
+                                    IsVisible="{Binding SettingsViewModel.ShowMusicSpectrum}"/>
 
         <!-- Search Bar (on top) -->
         <TextBox HorizontalAlignment="Right"
