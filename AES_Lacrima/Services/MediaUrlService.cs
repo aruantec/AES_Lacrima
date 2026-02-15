@@ -28,7 +28,7 @@ namespace AES_Lacrima.Services
         /// <param name="item">The media item to open and play.</param>
         public async Task OpenMediaItemAsync(AudioPlayer audioPlayer, MediaItem item)
         {
-            if (item.FileName == null || !YtDlpManager.IsInstalled) return;
+            if (item.FileName == null) return;
             // Load online urls
             item.OnlineUrls = await HandleStreamFile(item.FileName).ConfigureAwait(false);
             // Play audio

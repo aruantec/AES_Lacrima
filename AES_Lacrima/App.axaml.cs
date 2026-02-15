@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Runtime.InteropServices;
 using AES_Controls.Helpers;
 using AES_Controls.Player;
 using AES_Core.DI;
@@ -66,8 +67,11 @@ namespace AES_Lacrima
                 // Check if FFmpeg is already available before attempting installation
                 await ffmpegManager.EnsureFFmpegInstalledAsync();
                 // Ensure yt-dlp is installed and available for the application
-                var ytDlpManager = new YtDlpManager();
-                await ytDlpManager.EnsureInstalledAsync();
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    var ytDlpManager = new YtDlpManager();
+                    await ytDlpManager.EnsureInstalledAsync();   
+                }
             }
 
             base.OnFrameworkInitializationCompleted();
