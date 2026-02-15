@@ -46,12 +46,6 @@ namespace AES_Lacrima.Services
         [RelayCommand]
         private void NavigateBack()
         {
-            //Check if the settings overlay is open and close it
-            if (ShowSettingsOverlay)
-            {
-                ShowSettingsOverlay = false;
-                return;
-            }
             //Check if the current view is a MusicViewModel and set it to inactive before navigating back to fade out
             if (View is MusicViewModel musicViewModel)
             {
