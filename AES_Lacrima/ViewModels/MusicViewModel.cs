@@ -548,11 +548,11 @@ namespace AES_Lacrima.ViewModels
             AudioPlayer?.PropertyChanged += AudioPlayer_PropertyChanged;
             AudioPlayer?.EndReached += async (_, _) => await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(PlayNext);
             EqualizerService?.Initialize(AudioPlayer!);
-            StartMetadataScrappersForLoadedFolders();
             _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
-            MetadataService?.PropertyChanged += MetadataService_PropertyChanged;
 
             LoadSettings();
+            StartMetadataScrappersForLoadedFolders();
+            MetadataService?.PropertyChanged += MetadataService_PropertyChanged;
 
             // Ensure filters are in sync after load
             ApplyAlbumFilter();
