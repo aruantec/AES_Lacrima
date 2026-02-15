@@ -12,6 +12,7 @@ using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Windows.Input;
 using log4net;
+using Action = System.Action;
 
 namespace AES_Controls.Behaviors
 {
@@ -166,9 +167,9 @@ namespace AES_Controls.Behaviors
         private DispatcherTimer? _autoScrollTimer;
         private DispatcherTimer? _glueTimer;
 
-        private Vector _autoScrollSpeed = default;
-        private Vector _targetAutoScrollSpeed = default;
-        private Vector _manualScrollDelta = default;
+        private Vector _autoScrollSpeed;
+        private Vector _targetAutoScrollSpeed;
+        private Vector _manualScrollDelta;
 
         /// <summary>
         /// Stores active animations for containers to allow cancellation.
@@ -289,7 +290,7 @@ namespace AES_Controls.Behaviors
             if (_scrollViewer == null) return;
 
             // Use accumulated delta for smooth kinetic manual scrolling
-            const double ScrollIntensity = 120.0;
+            const double scrollIntensity = 120.0;
             
             double deltaX = e.Delta.X;
             double deltaY = e.Delta.Y;
@@ -306,8 +307,8 @@ namespace AES_Controls.Behaviors
             }
 
             _manualScrollDelta = new Vector(
-                _manualScrollDelta.X - deltaX * ScrollIntensity,
-                _manualScrollDelta.Y - deltaY * ScrollIntensity
+                _manualScrollDelta.X - deltaX * scrollIntensity,
+                _manualScrollDelta.Y - deltaY * scrollIntensity
             );
 
             // Ensure timer is running to process the manual scroll delta
@@ -331,9 +332,9 @@ namespace AES_Controls.Behaviors
             if (e.Action == NotifyCollectionChangedAction.Add)
             {
                 if (e.NewStartingIndex >= 0 && e.NewStartingIndex <= _itemDimensions.Count)
-                    _itemDimensions.Insert(e.NewStartingIndex, new ItemDimension(AssociatedObject?.ContainerFromIndex(e.NewStartingIndex) as Control, _itemsPanel, e.NewStartingIndex));
+                    _itemDimensions.Insert(e.NewStartingIndex, new ItemDimension(AssociatedObject?.ContainerFromIndex(e.NewStartingIndex), _itemsPanel, e.NewStartingIndex));
                 else
-                    _itemDimensions.Add(new ItemDimension(AssociatedObject?.ContainerFromIndex(e.NewStartingIndex) as Control, _itemsPanel, e.NewStartingIndex));
+                    _itemDimensions.Add(new ItemDimension(AssociatedObject?.ContainerFromIndex(e.NewStartingIndex), _itemsPanel, e.NewStartingIndex));
             }
             else if (e.Action == NotifyCollectionChangedAction.Remove)
             {
@@ -443,9 +444,9 @@ namespace AES_Controls.Behaviors
 
                 // Multi-selection check: gather selected items if the clicked item is part of the selection
                 var selection = AssociatedObject.Selection;
-                bool isClickedItemSelected = selection != null && selection.IsSelected(_currentDraggedIndex);
+                bool isClickedItemSelected = selection.IsSelected(_currentDraggedIndex);
                 
-                if (isClickedItemSelected && selection != null)
+                if (isClickedItemSelected)
                 {
                     int itemCount = AssociatedObject.Items.Count;
                     for (int i = 0; i < itemCount; i++)
@@ -453,7 +454,7 @@ namespace AES_Controls.Behaviors
                         if (selection.IsSelected(i))
                         {
                             _draggedIndices.Add(i);
-                            if (AssociatedObject.ContainerFromIndex(i) is Control container)
+                            if (AssociatedObject.ContainerFromIndex(i) is { } container)
                                 _draggedContainers.Add(container);
                         }
                     }
@@ -480,7 +481,7 @@ namespace AES_Controls.Behaviors
                 for (int i = 0; i < totalCount; i++)
                 {
                     var container = AssociatedObject.ContainerFromIndex(i);
-                    _itemDimensions.Add(new ItemDimension(container as Control, _itemsPanel, i));
+                    _itemDimensions.Add(new ItemDimension(container, _itemsPanel, i));
                 }
 
                 EstimateMissingDimensions();
@@ -706,7 +707,7 @@ namespace AES_Controls.Behaviors
                     var finalDx = targetP.X - itemStartP.X;
                     var finalDy = targetP.Y - itemStartP.Y;
 
-                    System.Action? onDone = (container == capturedDragged) ? () =>
+                    Action? onDone = (container == capturedDragged) ? () =>
                     {
                         try
                         {
@@ -751,7 +752,7 @@ namespace AES_Controls.Behaviors
         /// <summary>
         /// Animates a control to a target relative position.
         /// </summary>
-        private void AnimateTranslate(Control control, double toX, double toY, int durationMs, System.Action? completed = null)
+        private void AnimateTranslate(Control control, double toX, double toY, int durationMs, Action? completed = null)
         {
             if (control.RenderTransform is not TranslateTransform t)
             {
@@ -846,7 +847,7 @@ namespace AES_Controls.Behaviors
             var preservedSelection = new List<object>();
             try
             {
-                if (AssociatedObject.SelectedItems is IList selList)
+                if (AssociatedObject.SelectedItems is { } selList)
                 {
                     foreach (var s in selList)
                         preservedSelection.Add(s!);
@@ -894,7 +895,7 @@ namespace AES_Controls.Behaviors
                     // Restore selection by re-selecting the preserved objects (if present)
                     try
                     {
-                        if (AssociatedObject.SelectedItems is IList selList2)
+                        if (AssociatedObject.SelectedItems is { } selList2)
                         {
                             selList2.Clear();
                             foreach (var o in preservedSelection)
@@ -925,7 +926,7 @@ namespace AES_Controls.Behaviors
                 // Restore selection by re-selecting the preserved objects (if present)
                 try
                 {
-                    if (AssociatedObject.SelectedItems is IList selList2)
+                    if (AssociatedObject.SelectedItems is { } selList2)
                     {
                         selList2.Clear();
                         foreach (var o in preservedSelection)
@@ -957,7 +958,7 @@ namespace AES_Controls.Behaviors
                 // Restore selection by re-selecting the preserved objects (if present)
                 try
                 {
-                    if (AssociatedObject.SelectedItems is IList selList3)
+                    if (AssociatedObject.SelectedItems is { } selList3)
                     {
                         selList3.Clear();
                         foreach (var o in preservedSelection)
@@ -984,7 +985,7 @@ namespace AES_Controls.Behaviors
             for (int i = 0; i < itemsCount; i++)
             {
                 var c = AssociatedObject.ContainerFromIndex(i);
-                if (c is Control control)
+                if (c is { } control)
                 {
                     control.RenderTransform = new TranslateTransform(0, 0);
                     control.ZIndex = 0;
@@ -1252,7 +1253,7 @@ namespace AES_Controls.Behaviors
                 if (dim.IsEstimated)
                 {
                     var c = AssociatedObject.ContainerFromIndex(i);
-                    if (c is Control control && control.Bounds.Width > 0.001)
+                    if (c is { } control && control.Bounds.Width > 0.001)
                     {
                         dim.Update(control, _itemsPanel, i);
                     }

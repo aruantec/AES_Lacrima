@@ -129,7 +129,7 @@ public partial class FFmpegManager : ObservableObject
         try
         {
             var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-            process.Exited += (s, e) => tcs.SetResult(process.ExitCode == 0);
+            process.Exited += (_, _) => tcs.SetResult(process.ExitCode == 0);
             process.Start();
         }
         catch (Exception ex)
