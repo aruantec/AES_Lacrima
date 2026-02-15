@@ -4,7 +4,6 @@ using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using System.Collections.Specialized;
@@ -215,10 +214,7 @@ public class FolderCompositionControl : Control
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
-        if (Items != null)
-        {
-            Items.CollectionChanged += OnItemsChanged;
-        }
+        Items.CollectionChanged += OnItemsChanged;
         // Subscribe to IsPointerOver changes to handle hover interactions
         try
         {
@@ -239,10 +235,7 @@ public class FolderCompositionControl : Control
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
-        if (Items != null)
-        {
-            Items.CollectionChanged -= OnItemsChanged;
-        }
+        Items.CollectionChanged -= OnItemsChanged;
         foreach (var state in _activeStates)
             state.Item.PropertyChanged -= OnItemPropertyChanged;
         _activeStates.Clear();
@@ -388,25 +381,25 @@ public class FolderCompositionControl : Control
         var items = Items;
         var folderItem = FolderCoverItem;
 
-        if (items == null && folderItem == null)
+        if (folderItem == null)
         {
              foreach (var state in _activeStates)
                 state.Item.PropertyChanged -= OnItemPropertyChanged;
-            _activeStates.Clear();
-            return;
+             _activeStates.Clear();
+             return;
         }
 
         var contentRect = new Rect(0, 0, bounds.Width, bounds.Height);
         int maxVisible = Math.Max(1, MaxVisibleCovers);
         double itemSize = Math.Max(contentRect.Width, contentRect.Height);
-        double baseX_stacked = contentRect.Right - itemSize;
+        double baseXStacked = contentRect.Right - itemSize;
         double marginHover = itemSize * 0.18;
 
         // Identifty items to show (up to maxVisible items from the end)
         var targetedItems = new List<MediaItem>();
         int count = items?.Count ?? 0;
 
-        if (count == 0 && folderItem != null)
+        if (count == 0)
         {
             targetedItems.Add(folderItem);
         }
@@ -416,8 +409,7 @@ public class FolderCompositionControl : Control
             for (int i = startIndex; i < count; i++)
             {
                 var it = items[i];
-                if (it != null)
-                    targetedItems.Add(it);
+                targetedItems.Add(it);
             }
         }
 
@@ -428,12 +420,12 @@ public class FolderCompositionControl : Control
             var it = targetedItems[i];
             var state = _activeStates.Find(s => s.Item == it);
 
-            double tx = spread ? (baseX_stacked - (i * marginHover)) : baseX_stacked;
+            double tx = spread ? (baseXStacked - (i * marginHover)) : baseXStacked;
             double ty = contentRect.Y;
 
             if (state == null)
             {
-                state = new ItemState(it, baseX_stacked, ty) { IsTarget = true, ZIndex = i };
+                state = new ItemState(it, baseXStacked, ty) { IsTarget = true, ZIndex = i };
                 state.Item.PropertyChanged += OnItemPropertyChanged;
                 _activeStates.Add(state);
             }

@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
 using Avalonia;
@@ -28,15 +29,13 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
     private bool _isEs;
     private float _lastDelta = 1f / 60f;
     private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
-    private long _lastTick = 0;
+    private long _lastTick;
     private float[] _particleData = Array.Empty<float>();
-    private float[] _bgData = new float[16];
-    private SKPaint? _skPaint = new SKPaint() { IsAntialias = true };
-    private int _frameCounter = 0;
-    private double _frameAccum = 0.0;
+    private SKPaint? _skPaint = new() { IsAntialias = true };
+    private double _frameAccum;
 
     private int _particleCount = 150;
-    private System.Numerics.Vector2 _visualSize;
+    private Vector2 _visualSize;
     private Bitmap? _backgroundBitmap;
     private Stretch _stretch = Stretch.UniformToFill;
     private bool _isPaused;
@@ -59,7 +58,7 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
                 // start the animation loop using compositor frame callbacks
                 RegisterForNextAnimationFrameUpdate();
                 return;
-            case System.Numerics.Vector2 v:
+            case Vector2 v:
                 _visualSize = v;
                 Invalidate();
                 return;
@@ -90,12 +89,20 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
             {
                 if (_vao != 0) _gl.DeleteVertexArray(_vao);
             }
-            catch { }
+            catch
+            {
+                // ignored
+            }
+
             try
             {
                 if (_bgVao != 0) _gl.DeleteVertexArray(_bgVao);
             }
-            catch { }
+            catch
+            {
+                // ignored
+            }
+
             if (_texCurrent != 0) _gl.DeleteTexture(_texCurrent);
             if (_texPrevious != 0) _gl.DeleteTexture(_texPrevious);
         }
@@ -128,11 +135,9 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
 
         // Track measured FPS
         _frameAccum += _lastDelta;
-        _frameCounter++;
         if (_frameAccum >= 0.5)
         {
-            var fps = _frameCounter / _frameAccum;
-            _frameCounter = 0; _frameAccum = 0;
+            _frameAccum = 0;
         }
 
         if (_gl != null)
@@ -207,7 +212,7 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
         using var paint = new SKPaint();
         paint.IsAntialias = true;
         // reuse SKPaint when possible
-        var paintToUse = _skPaint ??= new SKPaint() { IsAntialias = true };
+        var paintToUse = _skPaint ??= new SKPaint { IsAntialias = true };
         for (int i = 0; i < _particles.Count; i++)
         {
             var p = _particles[i];

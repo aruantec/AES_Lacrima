@@ -42,7 +42,7 @@ internal record EqualizerRenderMarginMessage(float Margin);
 /// Message that sets the label margins (left, top, right, bottom) used to
 /// position left-side labels and frequency labels.
 /// </summary>
-internal record EqualizerLabelMarginMessage(float Left, float Top, float Right, float Bottom);
+internal record EqualizerLabelMarginMessage(float Left, float Top, float Bottom);
 
 /// <summary>
 /// Message that sets the explicit label gap between the left label block and
@@ -72,13 +72,12 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
     private int _activeBandIndex = -1;
     private bool _isPointerDown;
 
-    private float _renderMargin = 0f;
+    private float _renderMargin;
 
     // Label margins and gap
     private float _labelMarginLeft = 8f;
-    private float _labelMarginTop = 0f;
-    private float _labelMarginRight = 0f;
-    private float _labelMarginBottom = 0f;
+    private float _labelMarginTop;
+    private float _labelMarginBottom;
     private float _labelGap = 40f;
 
     // Text margin (single value forwarded as Margin)
@@ -122,12 +121,6 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
                     _textMargin = ts.Margin;
                 }
 
-    /// <summary>
-    /// Handles incoming messages sent from the control. Supported message types
-    /// include size updates, band lists, styling messages and interaction
-    /// state changes. Passing <c>null</c> triggers cleanup of native resources.
-    /// </summary>
-    /// <param name="message">The message object sent by the control.</param>
                 Invalidate();
                 return;
             case EqualizerActiveBandMessage ab:
@@ -142,7 +135,6 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
             case EqualizerLabelMarginMessage lm:
                 _labelMarginLeft = lm.Left;
                 _labelMarginTop = lm.Top;
-                _labelMarginRight = lm.Right;
                 _labelMarginBottom = lm.Bottom;
                 Invalidate();
                 return;
@@ -155,13 +147,6 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
                 Invalidate();
                 return;
         }
-
-    /// <summary>
-    /// Called to render the visual using the provided <see cref="ImmediateDrawingContext"/>.
-    /// This method uses SkiaSharp to draw tracks, knobs, labels and fills for
-    /// the equalizer bands.
-    /// </summary>
-    /// <param name="context">The immediate drawing context from the composition system.</param>
     }
 
     /// <summary>
@@ -200,7 +185,11 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
         // Measure left label block width (use left-aligned labels: 10dB, 0dB, -10dB)
         var leftLabels = new[] { "10dB", "0dB", "-10dB" };
         float maxLabelWidth = 0f;
-        using var leftPaint = new SKPaint { IsAntialias = true, Color = _textPaint.Color, TextSize = _textPaint.TextSize, TextAlign = SKTextAlign.Right };
+        using var leftPaint = new SKPaint();
+        leftPaint.IsAntialias = true;
+        leftPaint.Color = _textPaint.Color;
+        leftPaint.TextSize = _textPaint.TextSize;
+        leftPaint.TextAlign = SKTextAlign.Right;
         foreach (var s in leftLabels)
         {
             var w = leftPaint.MeasureText(s);
@@ -261,7 +250,11 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
             using var linePath = new SKPath();
             linePath.MoveTo(points[0]);
             for (int i = 1; i < points.Length; i++) linePath.LineTo(points[i]);
-            using var linePaint = new SKPaint { IsAntialias = true, StrokeWidth = 3f, Style = SKPaintStyle.Stroke, Color = new SKColor(120, 190, 255, 220) };
+            using var linePaint = new SKPaint();
+            linePaint.IsAntialias = true;
+            linePaint.StrokeWidth = 3f;
+            linePaint.Style = SKPaintStyle.Stroke;
+            linePaint.Color = new SKColor(120, 190, 255, 220);
             canvas.DrawPath(linePath, linePaint);
         }
 
@@ -305,8 +298,12 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
         if (_textPaint == null) return;
         // Draw left-side vertical labels forming the L
         // Draw left labels using a temporary right-aligned paint
-        using (var lp = new SKPaint { IsAntialias = true, Color = _textPaint.Color, TextSize = _textPaint.TextSize, TextAlign = SKTextAlign.Right })
+        using (var lp = new SKPaint())
         {
+            lp.IsAntialias = true;
+            lp.Color = _textPaint.Color;
+            lp.TextSize = _textPaint.TextSize;
+            lp.TextAlign = SKTextAlign.Right;
             float baseX = leftPadding + _labelMarginLeft + maxLabelWidth; // right edge for right-aligned labels
             float halfText = lp.TextSize * 0.5f;
             float maxYpos = trackTop + halfText;

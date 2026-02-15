@@ -1,3 +1,6 @@
+using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Numerics;
 using AES_Controls.Player.Models;
 using Avalonia;
 using Avalonia.Collections;
@@ -7,9 +10,6 @@ using Avalonia.Media;
 using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
 using SkiaSharp;
-using System.Collections.Specialized;
-using System.ComponentModel;
-using System.Numerics;
 
 namespace AES_Controls.Composition;
 
@@ -99,7 +99,7 @@ public class EqualizerCompositionControl : Control
     }
 
     public static readonly StyledProperty<double> RenderMarginProperty =
-        AvaloniaProperty.Register<EqualizerCompositionControl, double>(nameof(RenderMargin), 0.0);
+        AvaloniaProperty.Register<EqualizerCompositionControl, double>(nameof(RenderMargin));
 
     /// <summary>
     /// Margin (in pixels) between the control bounds and the rendered content.
@@ -155,7 +155,7 @@ public class EqualizerCompositionControl : Control
         UpdateBackground();
         UpdateBands();
         // Start with fade according to property
-        this.Opacity = IsFadedIn ? 1.0 : 0.0;
+        Opacity = IsFadedIn ? 1.0 : 0.0;
     }
 
     /// <summary>
@@ -176,11 +176,6 @@ public class EqualizerCompositionControl : Control
             ElementComposition.SetElementChildVisual(this, null);
             _visual = null;
         }
-
-    /// <summary>
-    /// Called when the control is detached from the visual tree. Cleans up
-    /// composition visuals and unsubscribes from band events.
-    /// </summary>
     }
 
     /// <summary>
@@ -278,7 +273,7 @@ public class EqualizerCompositionControl : Control
         _visual.SendHandlerMessage(new EqualizerRenderMarginMessage((float)RenderMargin));
         // Send label margin (Thickness) so visual can position labels exactly
         var lm = LabelMargin;
-        _visual.SendHandlerMessage(new EqualizerLabelMarginMessage((float)lm.Left, (float)lm.Top, (float)lm.Right, (float)lm.Bottom));
+        _visual.SendHandlerMessage(new EqualizerLabelMarginMessage((float)lm.Left, (float)lm.Top, (float)lm.Bottom));
         // Send explicit LabelGap as an additive gap value from the left LTR corner into the content area
         _visual.SendHandlerMessage(new EqualizerLabelGapMessage((float)LabelGap));
     }
@@ -410,7 +405,7 @@ public class EqualizerCompositionControl : Control
         // Estimate left label block width using font size and character count (approximate)
         float approxCharWidth = (float)TextFontSize * 0.55f;
         float maxLeftLabelWidth = 0f;
-        foreach (var b in _subscribedBands)
+        foreach (var unused in _subscribedBands)
         {
             var s = "10dB";
             var w = s.Length * approxCharWidth;

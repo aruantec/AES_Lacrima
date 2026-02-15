@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Rendering.Composition;
@@ -42,7 +43,7 @@ namespace AES_Controls.Composition
         private float _itemScale = 1.0f;
         private float _itemWidth = 200.0f;
         private float _itemHeight = 200.0f;
-        private float _verticalOffset = 0.0f;
+        private float _verticalOffset;
         private float _sliderVerticalOffset = 60.0f;
         private float _sliderTrackHeight = 4.0f;
         private float _sideTranslation = 320.0f;
@@ -52,26 +53,24 @@ namespace AES_Controls.Composition
         private List<SKImage> _images = new();
         private Dictionary<SKImage, SKShader> _shaderCache = new();
         private HashSet<int> _loadingIndices = new();
-        private float _spinnerRotation = 0;
+        private float _spinnerRotation;
 
         private int _draggingIndex = -1;
         private int _dropTargetIndex = -1;
         private double _smoothDropTargetIndex = -1;
         private Vector2 _dragPosition;
-        private bool _isDropping = false;
+        private bool _isDropping;
         private float _dropAlpha = 1.0f;
         private float _globalTransitionAlpha = 1.0f;
         private float _currentGlobalOpacity = 1.0f;
         private float _targetGlobalOpacity = 1.0f;
-        private float _currentGlobalOpacityVelocity = 0.0f;
+        private float _currentGlobalOpacityVelocity;
         private bool _isSliderPressed;
 
         private readonly SKPaint _quadPaint = new() { IsAntialias = true, FilterQuality = SKFilterQuality.High };
         // Projection / depth tuning to reduce perspective distortion on side items
         private readonly float _projectionDistance = 2500f; // larger => weaker perspective
-        private readonly SKPaint _fillPaint = new() { IsAntialias = true, Style = SKPaintStyle.Fill };
         private readonly SKPaint _spinnerPaint = new() { IsAntialias = true, StrokeCap = SKStrokeCap.Round, StrokeWidth = 4, Style = SKPaintStyle.Stroke };
-        private readonly SKPath _itemPath = new();
         private readonly SKPaint _sliderPaint = new() { IsAntialias = true };
         private readonly SKMaskFilter _blurFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 5);
         private readonly SKMaskFilter _sliderBlurFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 2);
@@ -92,14 +91,12 @@ namespace AES_Controls.Composition
 
         private readonly SKColor _thumbColor2 = SKColor.Parse("#F0F0F0");
 
-        private readonly SKColor _trackColor3 = SKColor.Parse("#F0F0F0");
-
         public override void OnMessage(object message)
         {
             if (message is double index) 
             { 
                 _targetIndex = index; 
-                if (_lastTicks == 0) _lastTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
                 RegisterForNextAnimationFrameUpdate(); 
             }
             else if (message is Vector2 size) { _visualSize = size; _visibleRangeDirty = true; Invalidate(); }
@@ -109,7 +106,7 @@ namespace AES_Controls.Composition
                 var newImgs = new HashSet<SKImage>(imgs.Where(i => i != null));
                 foreach (var img in _images) 
                 {
-                    if (img != null && !newImgs.Contains(img)) 
+                    if (!newImgs.Contains(img)) 
                     {
                         _dimCache.Remove(img);
                         DisposeShaderOnly(img);
@@ -125,7 +122,7 @@ namespace AES_Controls.Composition
                     var oldImg = _images[update.Index];
                     var newImg = update.Image;
 
-                    if (oldImg != null && oldImg != newImg)
+                    if (oldImg != newImg)
                     {
                         _dimCache.Remove(oldImg);
                         DisposeShaderOnly(oldImg);
@@ -195,9 +192,9 @@ namespace AES_Controls.Composition
 
         public override void OnAnimationFrameUpdate()
         {
-            long currentTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+            long currentTicks = Stopwatch.GetTimestamp();
             if (_lastTicks == 0) _lastTicks = currentTicks;
-            double dt = (double)(currentTicks - _lastTicks) / System.Diagnostics.Stopwatch.Frequency;
+            double dt = (double)(currentTicks - _lastTicks) / Stopwatch.Frequency;
             _lastTicks = currentTicks;
             if (dt > 0.1) dt = 0.1;
 
@@ -279,7 +276,7 @@ namespace AES_Controls.Composition
             if (_visibleRangeDirty)
             {
                 float itemUnit = Math.Max(0.1f, _itemSpacing * _itemScale);
-                _visibleRange = (float)Math.Max(10, (_visualSize.X / 2f / itemUnit - _sideTranslation) / Math.Max(1f, _stackSpacing)) + 8;
+                _visibleRange = Math.Max(10, (_visualSize.X / 2f / itemUnit - _sideTranslation) / Math.Max(1f, _stackSpacing)) + 8;
                 _visibleRangeDirty = false;
             }
             
@@ -291,7 +288,6 @@ namespace AES_Controls.Composition
 
             // Apply global opacity multiplier from composition-level fade
             canvas.Save();
-            var prevAlpha = canvas.TotalMatrix; // not directly setting alpha; use paint alpha in RenderItem via _currentGlobalOpacity
             for (int i = start; i < centerIdx; i++) RenderItem(canvas, i, center, baseW, baseH);
             for (int i = end; i > centerIdx; i--) RenderItem(canvas, i, center, baseW, baseH);
             if (centerIdx >= 0 && centerIdx < total) RenderItem(canvas, centerIdx, center, baseW, baseH);
@@ -331,17 +327,17 @@ namespace AES_Controls.Composition
             float visualI = i;
             if (_draggingIndex != -1 && _smoothDropTargetIndex != -1 && i != _draggingIndex)
             {
-                float rank = (i < _draggingIndex) ? (float)i : (float)(i - 1);
+                float rank = (i < _draggingIndex) ? i : (float)(i - 1);
                 float slotDiff = rank - (float)_smoothDropTargetIndex;
                 float shiftStrength = 1.0f / (1.0f + (float)Math.Exp(-(slotDiff + 0.5f) * 8.0f));
                 float parting = (float)Math.Exp(-(slotDiff + 0.5f) * (slotDiff + 0.5f) * 2.0f);
                 float partedVisualI = rank + shiftStrength + (slotDiff < -0.5f ? -0.25f : 0.25f) * parting;
-                if (_isDropping) visualI = partedVisualI + ((float)i - partedVisualI) * (float)(1.0 - Math.Pow(1.0 - _dropAlpha, 3));
+                if (_isDropping) visualI = partedVisualI + (i - partedVisualI) * (float)(1.0 - Math.Pow(1.0 - _dropAlpha, 3));
                 else visualI = partedVisualI;
             }
             float diff = (float)(visualI - _currentIndex); float absDiff = Math.Abs(diff);
             float rotationY = -(float)Math.Tanh(diff * 2.0f) * 0.95f;
-            float stackFactor = (float)Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f);
+            float stackFactor = Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f);
             float translationX = ((float)Math.Tanh(diff * 2.0f) * _sideTranslation + stackFactor * _stackSpacing) * _itemSpacing * _itemScale;
             float translationY = 0; float translationZ = (float)(-Math.Pow(absDiff, 0.7f) * 220f * _itemSpacing * _itemScale);
 
@@ -354,10 +350,10 @@ namespace AES_Controls.Composition
             }
             var matrix = Matrix4x4.CreateTranslation(new Vector3(translationX, translationY, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(scale);
             SKImage? img = (i >= 0 && i < _images.Count) ? _images[i] : null;
-            DrawQuad(canvas, itemWidth, itemHeight, matrix, img, i, (i == _draggingIndex ? 0 : absDiff), center);
+            DrawQuad(canvas, itemWidth, itemHeight, matrix, img, (i == _draggingIndex ? 0 : absDiff), center);
             if (_loadingIndices.Contains(i)) DrawSpinner(canvas, center, matrix);
             var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemHeight + 25, 0) * matrix;
-            DrawQuad(canvas, itemWidth, itemHeight, refMat, img, i, (i == _draggingIndex ? 0 : absDiff), center, true);
+            DrawQuad(canvas, itemWidth, itemHeight, refMat, img, (i == _draggingIndex ? 0 : absDiff), center, true);
         }
 
         private void DisposeShaderOnly(SKImage? img) { if (img != null && _shaderCache.Remove(img, out var shader)) shader.Dispose(); }
@@ -376,7 +372,7 @@ namespace AES_Controls.Composition
             } 
         }
 
-        private void DrawQuad(SKCanvas canvas, float w, float h, Matrix4x4 model, SKImage? image, int index, float absDiff, Vector2 center, bool isRef = false)
+        private void DrawQuad(SKCanvas canvas, float w, float h, Matrix4x4 model, SKImage? image, float absDiff, Vector2 center, bool isRef = false)
         {
             float opacity = (float)(isRef ? 0.08 : 1.0) * (float)(1.0 - absDiff * 0.2) * _globalTransitionAlpha * _currentGlobalOpacity;
             if (opacity < 0.01f) return;
@@ -402,7 +398,7 @@ namespace AES_Controls.Composition
                         _tBuffer[0] = new SKPoint(xO, yO); _tBuffer[1] = new SKPoint(xO + wR, yO); _tBuffer[2] = new SKPoint(xO + wR, yO + hR); _tBuffer[3] = new SKPoint(xO, yO + hR);
                         Proj(0, -w/2, -h/2); Proj(1, w/2, -h/2); Proj(2, w/2, h/2); Proj(3, -w/2, h/2);
                         canvas.DrawVertices(SKVertexMode.Triangles, _vBuffer, _tBuffer, null, QuadIndices, _quadPaint);
-                        _quadPaint.Shader = null; return;
+                        _quadPaint.Shader = null;
                     }
                 }
             }

@@ -143,7 +143,7 @@ public class ComboBoxPopupScaler : Behavior<ComboBox>
 
         var popup = combo.GetVisualDescendants().OfType<Popup>().FirstOrDefault();
         if (popup == null) return;
-        if (popup.Child is Control child)
+        if (popup.Child is { } child)
         {
             child.MinWidth = currentWidth;
             child.Width = currentWidth;

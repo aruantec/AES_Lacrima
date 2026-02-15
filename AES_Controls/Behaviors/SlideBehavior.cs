@@ -89,8 +89,6 @@ namespace AES_Controls.Behaviors
                 transform = (control.RenderTransform as TranslateTransform)!;
             }
 
-            if (transform == null) return; // Cannot animate if render transform is non-null and not TranslateTransform
-
             if (isOpen)
             {
                 transform.X = 0;

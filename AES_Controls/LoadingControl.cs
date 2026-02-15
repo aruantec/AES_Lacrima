@@ -27,7 +27,7 @@ public class LoadingControl : Control
 
     public LoadingControl()
     {
-        _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(5), DispatcherPriority.Render, (s, args) =>
+        _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(5), DispatcherPriority.Render, (_, _) =>
         {
             _loadingAngle = (_loadingAngle + 1.5) % 360;
             InvalidateVisual();
