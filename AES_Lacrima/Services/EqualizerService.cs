@@ -46,7 +46,7 @@ namespace AES_Lacrima.Services
         protected override void OnLoadSettings(JsonObject section)
         {
             // Read persisted bands (if any) and hold until Initialize is called
-            _loadedBands = ReadCollectionSetting<BandModel>(section, "Bands", "Band", null);
+            _loadedBands = ReadCollectionSetting<BandModel>(section, "Bands", "Band");
         }
 
         protected override void OnSaveSettings(JsonObject section)

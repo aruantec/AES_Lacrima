@@ -1,6 +1,8 @@
+using System;
+using System.Linq;
+using System.Runtime.InteropServices;
 using AES_Controls.Helpers;
 using AES_Controls.Player;
-using AES_Controls.Player.Interfaces;
 using AES_Core.DI;
 using AES_Core.Interfaces;
 using AES_Core.Services;
@@ -13,8 +15,6 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Data.Core.Plugins;
 using Avalonia.Markup.Xaml;
 using log4net;
-using System;
-using System.Linq;
 
 namespace AES_Lacrima
 {
@@ -23,7 +23,7 @@ namespace AES_Lacrima
     /// configuring dependency injection, creating the main window and
     /// performing application-level initialization tasks.
     /// </summary>
-    public partial class App : Application
+    public class App : Application
     {
         private static readonly ILog Logger = LogManager.GetLogger(typeof(App));
         public override void Initialize()
@@ -63,12 +63,15 @@ namespace AES_Lacrima
                 // Ensure MPV is installed and available for the application
                 await MpvSetup.EnsureInstalled();
                 // Ensure FFmpeg is installed and available for the application
-                var FfmpegManager = new FFmpegManager();
+                var ffmpegManager = new FFmpegManager();
                 // Check if FFmpeg is already available before attempting installation
-                await FfmpegManager.EnsureFFmpegInstalledAsync();
+                await ffmpegManager.EnsureFFmpegInstalledAsync();
                 // Ensure yt-dlp is installed and available for the application
-                var ytDlpManager = new YtDlpManager();
-                await ytDlpManager.EnsureInstalledAsync();
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    var ytDlpManager = new YtDlpManager();
+                    await ytDlpManager.EnsureInstalledAsync();   
+                }
             }
 
             base.OnFrameworkInitializationCompleted();

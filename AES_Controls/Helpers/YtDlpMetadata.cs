@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Text.Json;
+using System.Runtime.InteropServices;
 
 namespace AES_Controls.Helpers;
 
@@ -58,9 +59,9 @@ public sealed class MediaInfo
     public string? ThumbnailUrl { get; init; }
 
     // Available formats
-    public IReadOnlyList<VideoFormat> VideoFormats { get; init; } = [];
-    public IReadOnlyList<AudioFormat> AudioFormats { get; init; } = [];
-    public IReadOnlyList<MuxedFormat> MuxedFormats { get; init; } = [];
+    public IReadOnlyList<VideoFormat> VideoFormats { get; init; } = Array.Empty<VideoFormat>();
+    public IReadOnlyList<AudioFormat> AudioFormats { get; init; } = Array.Empty<AudioFormat>();
+    public IReadOnlyList<MuxedFormat> MuxedFormats { get; init; } = Array.Empty<MuxedFormat>();
 }
 
 public sealed class VideoFormat
@@ -99,18 +100,47 @@ public static class YtDlpMetadata
 {
     public static async Task<MediaInfo> GetMetaDataAsync(string videoUrl, CancellationToken cancellationToken = default)
     {
+        // Choose the platform-appropriate executable name and try to locate it in PATH.
+        string preferred = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp";
+        string fallback = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp" : "yt-dlp.exe";
+
+        string? exePath = FindExecutable(preferred, fallback);
+        if (exePath == null)
+            exePath = preferred; // let process rely on PATH and let it fail with a clear message
+
         var psi = new ProcessStartInfo
         {
-            FileName = "yt-dlp.exe",
-            Arguments = "-J \"" + videoUrl + "\"",
+            FileName = exePath,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
 
-        using var process = Process.Start(psi)
-            ?? throw new InvalidOperationException("Failed to start yt-dlp.");
+        // Prefer safe argument passing when supported
+        try
+        {
+            psi.ArgumentList.Add("-J");
+            psi.ArgumentList.Add(videoUrl);
+        }
+        catch
+        {
+            // Fall back to quoted arguments for runtimes that don't support ArgumentList
+            psi.Arguments = "-J \"" + videoUrl.Replace("\"", "\\\"") + "\"";
+        }
+
+        Process? process;
+        try
+        {
+            process = Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to start yt-dlp ('{exePath}'). Make sure yt-dlp is installed and on PATH. Error: {ex.Message}");
+        }
+
+        if (process == null)
+            throw new InvalidOperationException($"Failed to start yt-dlp ('{exePath}').");
 
         var json = await process.StandardOutput.ReadToEndAsync(cancellationToken);
         var error = await process.StandardError.ReadToEndAsync(cancellationToken);
@@ -212,5 +242,25 @@ public static class YtDlpMetadata
             AudioFormats = audios,
             MuxedFormats = muxed
         };
+    }
+
+    // Try to find one of the provided executable names in the system PATH. Returns a full path or null.
+    private static string? FindExecutable(params string[] names)
+    {
+        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        var parts = pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var dir in parts)
+        {
+            try
+            {
+                foreach (var name in names)
+                {
+                    var candidate = Path.Combine(dir, name);
+                    if (File.Exists(candidate)) return candidate;
+                }
+            }
+            catch { /* ignore bad PATH entries */ }
+        }
+        return null;
     }
 }

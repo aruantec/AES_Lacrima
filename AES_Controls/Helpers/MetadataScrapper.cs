@@ -1,4 +1,3 @@
-using AES_Code.Helpers;
 using AES_Code.Models;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
@@ -177,7 +176,7 @@ namespace AES_Controls.Helpers
                         if (string.IsNullOrWhiteSpace(t))
                         {
                             var fileName = Path.GetFileNameWithoutExtension(key);
-                            var match = Regex.Match(fileName, @"^(.*?)\s*[-–—]\s*(.*)$");
+                            var match = Regex.Match(fileName, @"^(.*?)\s*[-ï¿½ï¿½]\s*(.*)$");
                             if (match.Success)
                             {
                                 a = string.IsNullOrWhiteSpace(a) ? match.Groups[1].Value.Trim() : a;
@@ -332,7 +331,7 @@ namespace AES_Controls.Helpers
                     var data = picture.Data;
                     if (data == null) continue;
                     // Allow FrontCover to be selected even if it exceeds the configured
-                    // embedded image byte cap — prefer honoring explicit front covers.
+                    // embedded image byte cap ï¿½ prefer honoring explicit front covers.
                     if (maxBytes > 0 && data.Count > maxBytes && picture.Type != PictureType.FrontCover) continue;
                     var bytes = data.Data;
                     if (bytes == null || bytes.Length == 0) continue;

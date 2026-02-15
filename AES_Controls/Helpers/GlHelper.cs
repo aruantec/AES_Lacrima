@@ -25,10 +25,10 @@ namespace AES_Controls.Helpers
                 // Fallback to a default version string if GL_VERSION is not available
                 return ("#version 330 core", false);
             }
-            bool isES = version.Contains("ES");
+            bool isEs = version.Contains("ES");
 
             string shaderVersion;
-            if (isES)
+            if (isEs)
             {
                 shaderVersion = "#version 300 es";
             }
@@ -49,7 +49,7 @@ namespace AES_Controls.Helpers
                         shaderVersion = "#version 130";
                 }
             }
-            return (shaderVersion, isES);
+            return (shaderVersion, isEs);
         }
     }
 }
