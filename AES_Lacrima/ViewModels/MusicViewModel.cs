@@ -546,13 +546,13 @@ namespace AES_Lacrima.ViewModels
         {
             AudioPlayer = DiLocator.ResolveViewModel<AudioPlayer>();
             AudioPlayer?.PropertyChanged += AudioPlayer_PropertyChanged;
-            AudioPlayer?.EndReached += async (_, _) => 
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(PlayNext);
-            LoadSettings();
+            AudioPlayer?.EndReached += async (_, _) => await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(PlayNext);
             EqualizerService?.Initialize(AudioPlayer!);
             StartMetadataScrappersForLoadedFolders();
             _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
             MetadataService?.PropertyChanged += MetadataService_PropertyChanged;
+
+            LoadSettings();
 
             // Ensure filters are in sync after load
             ApplyAlbumFilter();
