@@ -60,26 +60,27 @@
         <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"
                                                 IsVisible="{Binding SettingsViewModel.ShowParticles}"/>
         <!-- Scalable decorator and main content-->
-        <controls:ScalableDecorator Scale="{Binding SettingsViewModel.ScaleFactor}" ClipToBounds="False">
-            <Grid Grid.RowDefinitions="Auto,*,Auto" ClipToBounds="False">
+        <controls:ScalableDecorator Scale="{Binding SettingsViewModel.ScaleFactor}">
+            <Grid Grid.RowDefinitions="Auto,*" ColumnDefinitions="60*,40*">
                 <!--Top bar-->
-                <common:MainTopBar Grid.Row="0"/>
+                <common:MainTopBar Grid.Row="0" Grid.ColumnSpan="2"/>
 				<!--Main content-->
 				<nav:CachedContentPresenter Grid.Row="1"
+                                            Grid.ColumnSpan="2"
 											TransitionsEnabled="True"
 											Duration="0:0:0.500"
 											Easing="SineEaseInOut"
-											CurrentViewModel="{Binding NavigationService.View}"
-											ClipToBounds="False"/>
+											CurrentViewModel="{Binding NavigationService.View}"/>
 				<!--Settings Overlay-->
 				<Border x:Name="SettingsOverlay"
 						Grid.Row="1"
+                        Grid.Column="1"
 						Background="#E6000000"
-						BorderThickness="0.5"
+                        BorderBrush="DimGray"
+						BorderThickness="0.5,0,0,0"
 						Opacity="{Binding NavigationService.ShowSettingsOverlay, Converter={StaticResource BoolToOpacityConverter}}"
-						IsHitTestVisible="{Binding NavigationService.ShowSettingsOverlay}"
-						ClipToBounds="False">
-					<ScrollViewer ClipToBounds="False">
+						IsHitTestVisible="{Binding NavigationService.ShowSettingsOverlay}">
+					<ScrollViewer>
 						<common:SettingsOverlay Margin="5,15,0,0"/>
 					</ScrollViewer>
 				</Border>
