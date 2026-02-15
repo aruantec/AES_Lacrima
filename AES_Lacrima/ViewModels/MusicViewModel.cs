@@ -874,11 +874,10 @@ namespace AES_Lacrima.ViewModels
 
         protected override void OnLoadSettings(JsonObject section)
         {
-            var ap = AudioPlayer;
-            if (ap != null) ap.Volume = ReadDoubleSetting(section, "Volume", 70.0);
-             IsAlbumlistOpen = ReadBoolSetting(section, nameof(IsAlbumlistOpen));
-             AlbumList = ReadCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
-            if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
+            AudioPlayer?.Volume = ReadDoubleSetting(section, "Volume", 70.0);
+            IsAlbumlistOpen = ReadBoolSetting(section, nameof(IsAlbumlistOpen));
+            AlbumList = ReadCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
+            DefaultFolderCover ??= GenerateDefaultFolderCover();
             foreach (var folder in AlbumList)
             {
                 // Children is initialized by FolderMediaItem; ensure runtime safety

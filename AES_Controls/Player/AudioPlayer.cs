@@ -35,6 +35,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
     private readonly FfMpegSpectrumAnalyzer? _spectrumAnalyzer;
     private CancellationTokenSource? _waveformCts;
+    private readonly TaskCompletionSource _initTcs = new();
+    private double _volume = 70;
 
     // Track the active ffmpeg process to prevent resource exhaustion on macOS
     private Process? _activeFfmpegProcess;
@@ -108,7 +110,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         set
         {
             field = value;
-            SetProperty("demuxer-max-bytes", $"{value}M");
+            if (_initTcs.Task.IsCompleted)
+                SetProperty("demuxer-max-bytes", $"{value}M");
         }
     } = 32;
 
@@ -116,12 +119,15 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// Playback volume (0..100).
     /// </summary>
     public double Volume
-
     {
-        get => GetPropertyDouble("volume");
+        get => _initTcs.Task.IsCompleted ? GetPropertyDouble("volume") : _volume;
         set
         {
-            SetProperty("volume", value);
+            _volume = value;
+            if (_initTcs.Task.IsCompleted)
+            {
+                SetProperty("volume", value);
+            }
             OnPropertyChanged(nameof(Volume));
         }
     }
@@ -161,7 +167,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         set
         {
             _repeatMode = value;
-            SetProperty("loop-file", value == RepeatMode.One ? "yes" : "no");
+            if (_initTcs.Task.IsCompleted)
+                SetProperty("loop-file", value == RepeatMode.One ? "yes" : "no");
+
             OnPropertyChanged(nameof(RepeatMode));
             OnPropertyChanged(nameof(Loop));
             OnPropertyChanged(nameof(IsRepeatOne));
@@ -256,40 +264,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     {
         _syncContext = SynchronizationContext.Current;
 
-        // Register properties for observation
-        ObservableProperty(Properties.Duration, MpvFormat.MPV_FORMAT_DOUBLE);
-        ObservableProperty(Properties.TimePos, MpvFormat.MPV_FORMAT_DOUBLE);
-        ObservableProperty("paused-for-cache", MpvFormat.MPV_FORMAT_FLAG);
-        ObservableProperty("eof-reached", MpvFormat.MPV_FORMAT_FLAG);
-
-        // --- OS-SPECIFIC AUDIO INITIALIZATION ---
-        if (OperatingSystem.IsMacOS())
-        {
-            SetProperty("ao", "coreaudio");
-            try { ExecuteCommandAsync(new[] { "set", "coreaudio-change-device", "no" }); }
-            catch (Exception ex) { Log.Error("Failed to set coreaudio-change-device", ex); }
-        }
-        else if (OperatingSystem.IsWindows())
-        {
-            SetProperty("ao", "wasapi");
-            SetProperty("audio-resample-filter-size", "16");
-        }
-        else
-        {
-            SetProperty("ao", "pulse,alsa");
-        }
-
-        SetProperty("keep-open", "always");
-        SetProperty("cache", "yes");
-        // Reduce cache size to prevent massive memory usage when multiple players are used for streaming
-        // 32MB is more than enough for audio and sufficient for background wallpapers.
-        SetProperty("demuxer-max-bytes", "32M");
-        SetProperty("demuxer-readahead-secs", "10");
-
-        MpvEvent += OnMpvEvent;
-
-        Waveform = new AvaloniaList<float>();
-        Spectrum = new AvaloniaList<double>();
+        Waveform = [];
+        Spectrum = [];
 
         // Always create the analyzer, so it's ready if EnabledSpectrum is toggled
         _spectrumAnalyzer = new FfMpegSpectrumAnalyzer(Spectrum, this);
@@ -298,7 +274,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         {
             if (IsPlaying && !string.IsNullOrEmpty(_loadedFile))
             {
-                // FIX: Only re-generate waveform if it hasn't been generated for this file yet
+                // Only re-generate waveform if it hasn't been generated for this file yet
                 if (EnableWaveform && (_waveformLoadedFile != _loadedFile))
                 {
                     try { _waveformCts?.Cancel(); }
@@ -310,6 +286,58 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                 }
             }
         };
+
+        // Offload heavy MPV initialization to avoid blocking the UI thread
+        _ = Task.Run(InitializeMpvAsync);
+    }
+
+    private async Task InitializeMpvAsync()
+    {
+        try
+        {
+            // Register properties for observation
+            ObservableProperty(Properties.Duration, MpvFormat.MPV_FORMAT_DOUBLE);
+            ObservableProperty(Properties.TimePos, MpvFormat.MPV_FORMAT_DOUBLE);
+            ObservableProperty("paused-for-cache", MpvFormat.MPV_FORMAT_FLAG);
+            ObservableProperty("eof-reached", MpvFormat.MPV_FORMAT_FLAG);
+
+            // --- OS-SPECIFIC AUDIO INITIALIZATION ---
+            if (OperatingSystem.IsMacOS())
+            {
+                SetProperty("ao", "coreaudio");
+                try { await ExecuteCommandAsync(["set", "coreaudio-change-device", "no"]); }
+                catch (Exception ex) { Log.Error("Failed to set coreaudio-change-device", ex); }
+            }
+            else if (OperatingSystem.IsWindows())
+            {
+                SetProperty("ao", "wasapi");
+                SetProperty("audio-resample-filter-size", "16");
+            }
+            else
+            {
+                SetProperty("ao", "pulse,alsa");
+            }
+
+            SetProperty("keep-open", "always");
+            SetProperty("cache", "yes");
+            SetProperty("demuxer-max-bytes", $"{CacheSize}M");
+            SetProperty("demuxer-readahead-secs", "10");
+            SetProperty("volume", _volume);
+            SetProperty("loop-file", RepeatMode == RepeatMode.One ? "yes" : "no");
+            SetProperty("demuxer-max-bytes", $"{CacheSize}M");
+
+            MpvEvent += OnMpvEvent;
+
+            // Mark initialization as complete ONLY after we've applied the final property sync.
+            _initTcs.SetResult();
+
+            OnPropertyChanged(nameof(Volume));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Failed to initialize AudioPlayer asynchronously", ex);
+            _initTcs.TrySetException(ex);
+        }
     }
 
     /// <summary>
@@ -445,6 +473,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// </summary>
     public async Task PlayFile(MediaItem item, bool video = false)
     {
+        await _initTcs.Task;
         if (string.IsNullOrEmpty(item.FileName))
         {
             IsLoadingMedia = false;
@@ -752,6 +781,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// </summary>
     public async Task<(double Position, bool WasPlaying)> SuspendForEditingAsync()
     {
+        await _initTcs.Task;
         var state = (Position, IsPlaying);
         _spectrumAnalyzer?.Stop();
         _waveformCts?.Cancel();
@@ -777,6 +807,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// <param name="wasPlaying">Whether playback should resume.</param>
     public async Task ResumeAfterEditingAsync(string path, double position, bool wasPlaying)
     {
+        await _initTcs.Task;
         _isInternalChange = true;
         IsLoadingMedia = true;
         _loadedFile = path;
@@ -839,6 +870,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// <param name="m">MIME type hint (unused).</param>
     public async Task PlayBytes(byte[]? b, string m = "video/mp4")
     {
+        await _initTcs.Task;
         if (b == null) return;
         var p = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.tmp");
         await File.WriteAllBytesAsync(p, b); await PlayFile(new MediaItem() { FileName = p });

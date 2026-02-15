@@ -25,7 +25,7 @@ namespace AES_Lacrima
             // Use a single file appender that writes to Logs/log.txt
             var fileAppender = new FileAppender
             {
-                AppendToFile = true,
+                AppendToFile = false,
                 File = Path.Combine("Logs", "log.txt"),
                 Layout = layout,
                 LockingModel = new FileAppender.MinimalLock()

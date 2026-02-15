@@ -1,11 +1,14 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:gl="using:AES_Controls.GL"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:navigation="using:AES_Lacrima.Views.Navigation"
+             xmlns:spectrum="using:AES_Controls.Player.Spectrum"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.MainContentView"
+             x:DataType="vm:MainContentViewModel"
              ClipToBounds="False">
 
     <!-- Sets the DataContext for the previewer -->
@@ -15,6 +18,17 @@
 
     <Grid Grid.RowDefinitions="*,Auto" ClipToBounds="False">
         <!-- Main content area -->
+        <spectrum:GlSpectrumControl Spectrum="{Binding MusicViewModel.AudioPlayer.Spectrum}"
+                                    Grid.Row="1"
+                                    Height="{Binding SettingsViewModel.SpectrumHeight}"
+                                    VerticalAlignment="Bottom"
+                                    BarWidth="{Binding SettingsViewModel.BarWidth}"
+                                    BarSpacing="{Binding SettingsViewModel.BarSpacing}"
+                                    BlockHeight="5"
+                                    UseDeltaTime="True"
+                                    IsHitTestVisible="False"
+                                    BarGradient="{Binding SettingsViewModel.SpectrumGradient}"
+                                    IsVisible="{Binding SettingsViewModel.ShowSpectrum}"/>
 
         <!-- Main menu-->
         <navigation:MainMenuView Grid.Row="1" ClipToBounds="False"/>
