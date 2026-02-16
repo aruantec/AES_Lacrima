@@ -56,9 +56,7 @@
                                IsVisible="{Binding SettingsViewModel.ShowShaderToy}"
                                Spectrum="{Binding Spectrum}"
                                SpectrumGradient="{Binding SettingsViewModel.SpectrumGradient}"/>
-        <!--Particle control-->
-        <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"
-                                                IsVisible="{Binding SettingsViewModel.ShowParticles}"/>
+        
         <!-- Scalable decorator and main content-->
         <controls:ScalableDecorator Scale="{Binding SettingsViewModel.ScaleFactor}">
             <Grid Grid.RowDefinitions="Auto,*" ColumnDefinitions="60*,40*">
@@ -86,5 +84,9 @@
 				</Border>
             </Grid>
         </controls:ScalableDecorator>
+
+        <!--Particle control-->
+        <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"
+                                                IsVisible="{Binding SettingsViewModel.ShowParticles}"/>
     </Grid>
 </Window>

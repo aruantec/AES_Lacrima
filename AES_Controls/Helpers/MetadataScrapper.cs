@@ -26,14 +26,14 @@ namespace AES_Controls.Helpers
 
         /// <summary>The default limit for embedded image extraction (4MB).</summary>
         internal const int DefaultMaxEmbeddedImageBytes = 4 * 1024 * 1024;
+        private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(10) };
+        private static readonly SemaphoreSlim SharedThrottle = new(6);
         private readonly AvaloniaList<MediaItem> _playlist;
         private readonly Bitmap _defaultCover;
-        private readonly HttpClient _http = new();
         private readonly ConcurrentDictionary<string, Bitmap> _coverCache = new(StringComparer.OrdinalIgnoreCase);
 
         private readonly ConcurrentDictionary<string, CancellationTokenSource> _loadingCts = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentQueue<string> _cacheOrder = new();
-        private readonly SemaphoreSlim _throttle = new(6);
         private readonly int? _maxThumbnailWidth;
         private readonly int _maxCacheEntries;
         private readonly int _maxEmbeddedImageBytes;
@@ -65,12 +65,11 @@ namespace AES_Controls.Helpers
             _maxThumbnailWidth = maxThumbnailWidth;
             _maxCacheEntries = Math.Max(1, maxCacheEntries);
             _maxEmbeddedImageBytes = maxEmbeddedImageBytes;
-            _http.Timeout = TimeSpan.FromSeconds(10);
 
             // Set User-Agent for HTTP requests to improve compatibility with providers like Apple
-            if (!string.IsNullOrEmpty(agentInfo))
+            if (!string.IsNullOrEmpty(agentInfo) && !SharedHttpClient.DefaultRequestHeaders.UserAgent.Any())
             {
-                try { _http.DefaultRequestHeaders.UserAgent.ParseAdd(agentInfo); }
+                try { SharedHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd(agentInfo); }
                 catch (Exception ex) { Log.Warn($"Failed to parse User-Agent: {agentInfo}", ex); }
             }
             // Enqueue initial load for existing items in the playlist
@@ -138,8 +137,8 @@ namespace AES_Controls.Helpers
             }
 
             // Global throttle for metadata extraction to prevent OOM with large playlists
-            await _throttle.WaitAsync(externalToken ?? CancellationToken.None);
-            
+            await SharedThrottle.WaitAsync(externalToken ?? CancellationToken.None);
+
             try
             {
                 var cts = new CancellationTokenSource();
@@ -259,7 +258,7 @@ namespace AES_Controls.Helpers
             {
                 await Dispatcher.UIThread.InvokeAsync(() => mi.IsLoadingCover = false);
                 _loadingCts.TryRemove(key, out _);
-                _throttle.Release();
+                SharedThrottle.Release();
             }
         }
 
@@ -438,7 +437,7 @@ namespace AES_Controls.Helpers
                 string itunesQuery = Uri.EscapeDataString(query.Trim());
                 string url = $"https://itunes.apple.com/search?term={itunesQuery}&entity=song&limit=1";
 
-                var response = await _http.GetStringAsync(url, token).ConfigureAwait(false);
+                var response = await SharedHttpClient.GetStringAsync(url, token).ConfigureAwait(false);
                 using var doc = JsonDocument.Parse(response);
                 var results = doc.RootElement.GetProperty("results");
 
@@ -457,7 +456,7 @@ namespace AES_Controls.Helpers
                     {
                         try
                         {
-                            var imgData = await _http.GetByteArrayAsync(artUrl, token).ConfigureAwait(false);
+                            var imgData = await SharedHttpClient.GetByteArrayAsync(artUrl, token).ConfigureAwait(false);
                             if (!IsWithinEmbeddedImageCap(imgData)) return false;
                             var bmp = await Task.Run(() => {
                                 using var ms = new MemoryStream(imgData);
@@ -598,10 +597,10 @@ namespace AES_Controls.Helpers
                 byte[]? data = null;
                 if (!string.IsNullOrEmpty(thumbUrl))
                 {
-                    await _throttle.WaitAsync();
+                    await SharedThrottle.WaitAsync();
                     try
                     {
-                        data = await _http.GetByteArrayAsync(thumbUrl).ConfigureAwait(false);
+                        data = await SharedHttpClient.GetByteArrayAsync(thumbUrl).ConfigureAwait(false);
                         if (IsWithinEmbeddedImageCap(data))
                         {
                             // UI Update for cover
@@ -620,7 +619,7 @@ namespace AES_Controls.Helpers
                         }
                     }
                     catch (Exception ex) { Log.Error($"Failed to fetch online thumbnail for {mi.FileName}", ex); }
-                    finally { _throttle.Release(); }
+                    finally { SharedThrottle.Release(); }
                 }
 
                 // Persist collected metadata and thumbnail to local sidecar file
@@ -856,8 +855,6 @@ namespace AES_Controls.Helpers
             _disposed = true;
             _playlist.CollectionChanged -= Playlist_CollectionChanged;
             foreach (var cts in _loadingCts.Values) { try { cts.Cancel(); } catch (Exception ex) { Log.Debug("Error canceling load during dispose", ex); } cts.Dispose(); }
-            _http.Dispose();
-            _throttle.Dispose();
 
             // Dispose and clear cached bitmaps
             try

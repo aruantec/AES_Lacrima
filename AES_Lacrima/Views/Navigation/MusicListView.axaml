@@ -19,16 +19,15 @@
 	<!-- Music navigation content -->
 	<Grid Background="Black" ClipToBounds="False">
 		<!-- Album list -->
-		<ScrollViewer HorizontalScrollBarVisibility="Auto"
-					  VerticalScrollBarVisibility="Disabled"
-					  Focusable="False"
-					  Margin="0,20,0,10">
-			<ListBox ItemsSource="{Binding FilteredAlbumList}" 
-					 Background="Transparent" 
-					 ClipToBounds="False"
-					 SelectionMode="Multiple"
-					 SelectedItem="{Binding SelectedAlbum, Mode=TwoWay}">
-				<ListBox.KeyBindings>
+		<ListBox ItemsSource="{Binding FilteredAlbumList}" 
+				 Background="Transparent" 
+				 ClipToBounds="False"
+				 SelectionMode="Multiple"
+				 SelectedItem="{Binding SelectedAlbum, Mode=TwoWay}"
+				 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+				 ScrollViewer.VerticalScrollBarVisibility="Disabled"
+				 Margin="0,20,0,10">
+			<ListBox.KeyBindings>
 					<KeyBinding Gesture="F2" Command="{Binding RenameFolderCommand}" CommandParameter="{Binding SelectedAlbum}"/>
 				</ListBox.KeyBindings>
 				<ListBox.Styles>
@@ -207,11 +206,10 @@
 				<!-- Items panel -->
 				<ListBox.ItemsPanel>
 					<ItemsPanelTemplate>
-						<StackPanel Orientation="Horizontal" Margin="10,0,0,0" ClipToBounds="False"/>
+						<VirtualizingStackPanel Orientation="Horizontal" Margin="10,0,0,0" ClipToBounds="False"/>
 					</ItemsPanelTemplate>
 				</ListBox.ItemsPanel>
 			</ListBox>
-		</ScrollViewer>
 
 		<!-- Search Bar (on top) -->
 		<TextBox HorizontalAlignment="Right"

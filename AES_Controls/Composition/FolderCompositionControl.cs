@@ -214,7 +214,10 @@ public class FolderCompositionControl : Control
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
-        Items.CollectionChanged += OnItemsChanged;
+        if (Items != null)
+        {
+            Items.CollectionChanged += OnItemsChanged;
+        }
         // Subscribe to IsPointerOver changes to handle hover interactions
         try
         {
@@ -235,7 +238,10 @@ public class FolderCompositionControl : Control
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
-        Items.CollectionChanged -= OnItemsChanged;
+        if (Items != null)
+        {
+            Items.CollectionChanged -= OnItemsChanged;
+        }
         foreach (var state in _activeStates)
             state.Item.PropertyChanged -= OnItemPropertyChanged;
         _activeStates.Clear();
