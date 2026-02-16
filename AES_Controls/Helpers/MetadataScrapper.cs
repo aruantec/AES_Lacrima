@@ -110,6 +110,8 @@ namespace AES_Controls.Helpers
         /// </summary>
         private Task EnqueueLoadFor(MediaItem mi)
         {
+            if (mi.CoverBitmap == null) mi.CoverBitmap = _defaultCover;
+
             if (!string.IsNullOrWhiteSpace(mi.Title) && mi.CoverBitmap != null && mi.CoverBitmap != _defaultCover)
                 return Task.CompletedTask;
 

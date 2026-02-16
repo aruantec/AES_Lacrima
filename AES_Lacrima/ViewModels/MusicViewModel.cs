@@ -232,7 +232,8 @@ namespace AES_Lacrima.ViewModels
                         var item = new MediaItem
                         {
                             FileName = localPath,
-                            Title = Path.GetFileName(localPath)
+                            Title = Path.GetFileName(localPath),
+                            CoverBitmap = DefaultFolderCover
                         };
                         newMediaItems.Add(item);
                         CoverItems.Add(item);
@@ -253,6 +254,7 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void CreateAlbum()
         {
+            if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
             var baseName = "New Album";
             var uniqueName = baseName;
             int counter = 1;
@@ -264,11 +266,12 @@ namespace AES_Lacrima.ViewModels
             var newAlbum = new FolderMediaItem
             {
                 Title = uniqueName,
-                Children = new AvaloniaList<MediaItem>()
+                Children = new AvaloniaList<MediaItem>(),
+                CoverBitmap = DefaultFolderCover
             };
             AlbumList.Add(newAlbum);
             SelectedAlbum = newAlbum;
-            if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
+            OpenSelectedFolder();
         }
 
         [RelayCommand]
@@ -486,7 +489,8 @@ namespace AES_Lacrima.ViewModels
                                 .Select(file => new MediaItem
                                 {
                                     FileName = file,
-                                    Title = Path.GetFileName(file)
+                                    Title = Path.GetFileName(file),
+                                    CoverBitmap = DefaultFolderCover
                                 }).ToList();
 
                             var addedItems = new AvaloniaList<MediaItem>();
@@ -510,7 +514,8 @@ namespace AES_Lacrima.ViewModels
                     var folderItem = new FolderMediaItem
                     {
                         FileName = path,
-                        Title = GetUniqueAlbumName(Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)))
+                        Title = GetUniqueAlbumName(Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))),
+                        CoverBitmap = DefaultFolderCover
                     };
                     if (Directory.Exists(path))
                     {
@@ -523,13 +528,18 @@ namespace AES_Lacrima.ViewModels
                             .Select(file => new MediaItem
                             {
                                 FileName = file,
-                                Title = Path.GetFileName(file)
+                                Title = Path.GetFileName(file),
+                                CoverBitmap = DefaultFolderCover
                             });
                         folderItem.Children.AddRange(mediaItems);
                         _ = new MetadataScrapper(folderItem.Children, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
                     }
                     if (folderItem.Children.Count > 0)
+                    {
                         AlbumList.Add(folderItem);
+                        SelectedAlbum = folderItem;
+                        OpenSelectedFolder();
+                    }
                 }
             }
         }
@@ -539,7 +549,8 @@ namespace AES_Lacrima.ViewModels
         // Constructor/Prepare
         public MusicViewModel()
         {
-            FilteredAlbumList = AlbumList;
+            // Ensure the initial AlbumList is registered for changes (CollectionChanged and PropertyChanged on items)
+            OnAlbumListChanged(null, AlbumList);
         }
 
         public override void Prepare()
@@ -592,10 +603,12 @@ namespace AES_Lacrima.ViewModels
                         AddUrlText = string.Empty;
                         return;
                     }
+                    if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
                     var item = new MediaItem
                     {
                         FileName = url,
-                        Title = Path.GetFileName(url)
+                        Title = Path.GetFileName(url),
+                        CoverBitmap = DefaultFolderCover
                     };
                     CoverItems.Add(item);
                     if (LoadedAlbum?.Children != null && !ReferenceEquals(CoverItems, LoadedAlbum.Children))
@@ -640,13 +653,6 @@ namespace AES_Lacrima.ViewModels
 
         private void ApplyAlbumFilter()
         {
-            // AlbumList is always initialized; treat empty list as 'no albums'
-            if (AlbumList.Count == 0)
-            {
-                FilteredAlbumList = [];
-                return;
-            }
-
             if (string.IsNullOrWhiteSpace(SearchAlbumText))
             {
                 FilteredAlbumList = AlbumList;
