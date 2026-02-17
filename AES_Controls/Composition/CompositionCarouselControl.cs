@@ -377,6 +377,7 @@ namespace AES_Controls.Composition
             {
                 _images[index] = image;
                 _visual?.SendHandlerMessage(new UpdateImageMessage(index, image));
+                ClearProjectionCache();
             }
         }
 
@@ -434,6 +435,15 @@ namespace AES_Controls.Composition
 
             for (int i = start; i <= end; i++)
             {
+                float w = itemWidth;
+                float h = itemHeight;
+                if (i >= 0 && i < _images.Count && _images[i] is SKImage img)
+                {
+                    float aspect = (float)img.Width / img.Height;
+                    if (aspect > 1.1f || aspect < 0.9f)
+                        w = h * aspect;
+                }
+
                 float diff = (float)(i - currentIndex);
                 float absDiff = Math.Abs(diff);
 
@@ -454,10 +464,10 @@ namespace AES_Controls.Composition
 
                 Vector2 TransformProj(Vector3 v) { var vt = Vector3.Transform(v, matrix); float s = 1000f / (1000f - vt.Z); return new Vector2(center.X + vt.X * s, center.Y + vt.Y * s); }
 
-                var p1 = TransformProj(new Vector3(-itemWidth/2, -itemHeight/2, 0));
-                var p2 = TransformProj(new Vector3(itemWidth/2, -itemHeight/2, 0));
-                var p3 = TransformProj(new Vector3(itemWidth/2, itemHeight/2, 0));
-                var p4 = TransformProj(new Vector3(-itemWidth/2, itemHeight/2, 0));
+                var p1 = TransformProj(new Vector3(-w/2, -h/2, 0));
+                var p2 = TransformProj(new Vector3(w/2, -h/2, 0));
+                var p3 = TransformProj(new Vector3(w/2, h/2, 0));
+                var p4 = TransformProj(new Vector3(-w/2, h/2, 0));
                 float scale = 1000f / (1000f - translationZ);
 
                 _projPolyCache[i] = (p1.ToPoint(), p2.ToPoint(), p3.ToPoint(), p4.ToPoint(), scale);
@@ -654,9 +664,10 @@ namespace AES_Controls.Composition
             }
             
             _propBitmap = null; _propFile = null; _cachedBitmapName = null; _cachedFileName = null;
-            
+
             _visual?.SendHandlerMessage(_images.ToArray());
 
+            ClearProjectionCache();
             UpdateVirtualization();
         }
 
@@ -1379,6 +1390,13 @@ namespace AES_Controls.Composition
 
         private bool IsPointInItem(Point p, int i, Vector2 center, float w, float h, float spacing, double currentIndex, float scale)
         {
+            if (i >= 0 && i < _images.Count && _images[i] is SKImage img)
+            {
+                float aspect = (float)img.Width / img.Height;
+                if (aspect > 1.1f || aspect < 0.9f)
+                    w = h * aspect;
+            }
+
             // Use cached polygon if available
             if (_projPolyCache.TryGetValue(i, out var poly))
             {

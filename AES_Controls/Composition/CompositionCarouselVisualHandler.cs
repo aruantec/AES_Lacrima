@@ -179,6 +179,7 @@ namespace AES_Controls.Composition
             else if (message is GlobalOpacityMessage gom)
             {
                 _targetGlobalOpacity = (float)Math.Clamp(gom.Value, 0.0, 1.0);
+                if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
                 RegisterForNextAnimationFrameUpdate();
             }
             else if (message is SliderPressedMessage spm) { _isSliderPressed = spm.IsPressed; Invalidate(); }
@@ -260,6 +261,10 @@ namespace AES_Controls.Composition
                 RegisterForNextAnimationFrameUpdate();
                 Invalidate();
             }
+            else
+            {
+                _lastTicks = 0;
+            }
         }
 
         public override void OnRender(ImmediateDrawingContext context)
@@ -322,8 +327,24 @@ namespace AES_Controls.Composition
             _sliderPaint.Style = SKPaintStyle.Stroke; _sliderPaint.StrokeWidth = 1.0f; _sliderPaint.Color = SKColors.Black.WithAlpha((byte)(50 * g)); canvas.DrawRoundRect(thumbRect, 8, 8, _sliderPaint);
         }
 
-        private void RenderItem(SKCanvas canvas, int i, Vector2 center, float itemWidth, float itemHeight)
+        private void RenderItem(SKCanvas canvas, int i, Vector2 center, float baseWidth, float baseHeight)
         {
+            SKImage? img = (i >= 0 && i < _images.Count) ? _images[i] : null;
+            float itemW = baseWidth;
+            float itemH = baseHeight;
+
+            if (img != null && !_loadingIndices.Contains(i))
+            {
+                if (!_dimCache.TryGetValue(img, out var dims)) { try { dims = _dimCache[img] = (img.Width, img.Height); } catch { dims = (0, 0); } }
+                if (dims.Width > 0 && dims.Height > 0)
+                {
+                    float aspect = (float)dims.Width / dims.Height;
+                    // Respect dimensions: adjust width based on aspect ratio, keeping height constant
+                    if (aspect > 1.1f || aspect < 0.9f)
+                        itemW = baseHeight * aspect;
+                }
+            }
+
             float visualI = i;
             if (_draggingIndex != -1 && _smoothDropTargetIndex != -1 && i != _draggingIndex)
             {
@@ -332,6 +353,7 @@ namespace AES_Controls.Composition
                 float shiftStrength = 1.0f / (1.0f + (float)Math.Exp(-(slotDiff + 0.5f) * 8.0f));
                 float parting = (float)Math.Exp(-(slotDiff + 0.5f) * (slotDiff + 0.5f) * 2.0f);
                 float partedVisualI = rank + shiftStrength + (slotDiff < -0.5f ? -0.25f : 0.25f) * parting;
+
                 if (_isDropping) visualI = partedVisualI + (i - partedVisualI) * (float)(1.0 - Math.Pow(1.0 - _dropAlpha, 3));
                 else visualI = partedVisualI;
             }
@@ -345,15 +367,14 @@ namespace AES_Controls.Composition
             float scale = Math.Max(0.1f, (1.0f + centerPop) - (absDiff * 0.06f));
             if (i == _draggingIndex)
             {
-                if (_isDropping) { float eased = (float)(1.0 - Math.Pow(1.0 - _dropAlpha, 3)); float zS = (1000f - _itemWidth * _itemScale) / 1000f; float dX = (_dragPosition.X - center.X) * zS; float dY = (_dragPosition.Y - center.Y) * zS; translationX = dX + (translationX - dX) * eased; translationY = dY + (translationY - dY) * eased; translationZ = _itemWidth * _itemScale + (translationZ - _itemWidth * _itemScale) * eased; scale = 0.82f + (scale - 0.82f) * eased; rotationY *= eased; }
-                else { translationZ = _itemWidth * _itemScale; float zS = (1000f - translationZ) / 1000f; translationX = (_dragPosition.X - center.X) * zS; translationY = (_dragPosition.Y - center.Y) * zS; scale = 0.82f; rotationY = 0; }
+                if (_isDropping) { float eased = (float)(1.0 - Math.Pow(1.0 - _dropAlpha, 3)); float zS = (1000f - itemW) / 1000f; float dX = (_dragPosition.X - center.X) * zS; float dY = (_dragPosition.Y - center.Y) * zS; translationX = dX + (translationX - dX) * eased; translationY = dY + (translationY - dY) * eased; translationZ = itemW + (translationZ - itemW) * eased; scale = 0.82f + (scale - 0.82f) * eased; rotationY *= eased; }
+                else { translationZ = itemW; float zS = (1000f - translationZ) / 1000f; translationX = (_dragPosition.X - center.X) * zS; translationY = (_dragPosition.Y - center.Y) * zS; scale = 0.82f; rotationY = 0; }
             }
             var matrix = Matrix4x4.CreateTranslation(new Vector3(translationX, translationY, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(scale);
-            SKImage? img = (i >= 0 && i < _images.Count) ? _images[i] : null;
-            DrawQuad(canvas, itemWidth, itemHeight, matrix, img, (i == _draggingIndex ? 0 : absDiff), center);
+            DrawQuad(canvas, itemW, itemH, matrix, img, (i == _draggingIndex ? 0 : absDiff), center);
             if (_loadingIndices.Contains(i)) DrawSpinner(canvas, center, matrix);
-            var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemHeight + 25, 0) * matrix;
-            DrawQuad(canvas, itemWidth, itemHeight, refMat, img, (i == _draggingIndex ? 0 : absDiff), center, true);
+            var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
+            DrawQuad(canvas, itemW, itemH, refMat, img, (i == _draggingIndex ? 0 : absDiff), center, true);
         }
 
         private void DisposeShaderOnly(SKImage? img) { if (img != null && _shaderCache.Remove(img, out var shader)) shader.Dispose(); }
@@ -376,33 +397,51 @@ namespace AES_Controls.Composition
         {
             float opacity = (float)(isRef ? 0.08 : 1.0) * (float)(1.0 - absDiff * 0.2) * _globalTransitionAlpha * _currentGlobalOpacity;
             if (opacity < 0.01f) return;
+
             void Proj(int idx, float x, float y)
             {
                 var vt = Vector3.Transform(new Vector3(x, y, 0), model);
                 float s = _projectionDistance / (_projectionDistance - vt.Z);
-                // clamp projection scale to avoid extreme foreshortening on very wide/close items
                 if (s < 0.5f) s = 0.5f;
                 else if (s > 1.6f) s = 1.6f;
                 _vBuffer[idx] = new SKPoint(center.X + vt.X * s, center.Y + vt.Y * s);
             }
+
             if (image != null)
             {
-                if (!_dimCache.TryGetValue(image, out var dims)) { try { dims = _dimCache[image] = (image.Width, image.Height); } catch (Exception ex) { Log.Debug("Error retrieving image dimensions", ex); image = null; } }
+                if (!_dimCache.TryGetValue(image, out var dims)) { try { dims = _dimCache[image] = (image.Width, image.Height); } catch { image = null; } }
                 if (image != null && dims.Width > 0)
                 {
                     _quadPaint.Color = SKColors.White.WithAlpha((byte)(255 * opacity));
-                    if (!_shaderCache.TryGetValue(image, out var shader)) { try { _shaderCache[image] = shader = image.ToShader(); } catch (Exception ex) { Log.Warn("Error creating shader from image", ex); image = null; } }
+                    if (!_shaderCache.TryGetValue(image, out var shader)) { try { _shaderCache[image] = shader = image.ToShader(); } catch { image = null; } }
                     if (image != null && shader != null)
                     {
-                        _quadPaint.Shader = shader; float sc = Math.Max(w / dims.Width, h / dims.Height); float wR = w / sc; float hR = h / sc; float xO = (dims.Width - wR) / 2f; float yO = (dims.Height - hR) / 2f;
-                        _tBuffer[0] = new SKPoint(xO, yO); _tBuffer[1] = new SKPoint(xO + wR, yO); _tBuffer[2] = new SKPoint(xO + wR, yO + hR); _tBuffer[3] = new SKPoint(xO, yO + hR);
-                        Proj(0, -w/2, -h/2); Proj(1, w/2, -h/2); Proj(2, w/2, h/2); Proj(3, -w/2, h/2);
-                        canvas.DrawVertices(SKVertexMode.Triangles, _vBuffer, _tBuffer, null, QuadIndices, _quadPaint);
+                        _quadPaint.Shader = shader;
+                        float sc = Math.Max(w / dims.Width, h / dims.Height);
+                        float wR = w / sc; float hR = h / sc;
+                        float xO = (dims.Width - wR) / 2f; float yO = (dims.Height - hR) / 2f;
+
+                        int horizontalSegments = (w > h * 1.25f) ? 8 : (w > h ? 4 : 2);
+                        if (isRef) horizontalSegments = 1;
+
+                        for (int s = 0; s < horizontalSegments; s++)
+                        {
+                            float x0 = -w / 2 + (w * s / horizontalSegments);
+                            float x1 = -w / 2 + (w * (s + 1) / horizontalSegments);
+                            float tX0 = xO + (wR * s / horizontalSegments);
+                            float tX1 = xO + (wR * (s + 1) / horizontalSegments);
+
+                            Proj(0, x0, -h / 2); Proj(1, x1, -h / 2); Proj(2, x1, h / 2); Proj(3, x0, h / 2);
+                            _tBuffer[0] = new SKPoint(tX0, yO); _tBuffer[1] = new SKPoint(tX1, yO);
+                            _tBuffer[2] = new SKPoint(tX1, yO + hR); _tBuffer[3] = new SKPoint(tX0, yO + hR);
+
+                            canvas.DrawVertices(SKVertexMode.Triangles, _vBuffer, _tBuffer, null, QuadIndices, _quadPaint);
+                        }
                         _quadPaint.Shader = null;
+                        return;
                     }
                 }
             }
-            // Fallback: draw nothing (transparent) if image is missing or fails to render
         }
 
         private void DrawSpinner(SKCanvas canvas, Vector2 center, Matrix4x4 model)
