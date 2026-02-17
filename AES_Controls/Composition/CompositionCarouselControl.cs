@@ -128,6 +128,9 @@ namespace AES_Controls.Composition
         public static readonly StyledProperty<int> PointedItemIndexProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, int>(nameof(PointedItemIndex), -1);
 
+        public static readonly StyledProperty<bool> UseFullCoverSizeProperty =
+            AvaloniaProperty.Register<CompositionCarouselControl, bool>(nameof(UseFullCoverSize), false);
+
         #endregion
 
         #region Public Properties
@@ -264,6 +267,16 @@ namespace AES_Controls.Composition
         {
             get => GetValue(PointedItemIndexProperty);
             set => SetValue(PointedItemIndexProperty, value);
+        }
+
+        /// <summary>
+        /// When true, items will be rendered with their actual source aspect ratio. 
+        /// When false (default), all items are forced to a square.
+        /// </summary>
+        public bool UseFullCoverSize
+        {
+            get => GetValue(UseFullCoverSizeProperty);
+            set => SetValue(UseFullCoverSizeProperty, value);
         }
 
         private Rect SliderBounds
@@ -437,7 +450,7 @@ namespace AES_Controls.Composition
             {
                 float w = itemWidth;
                 float h = itemHeight;
-                if (i >= 0 && i < _images.Count && _images[i] is SKImage img)
+                if (UseFullCoverSize && i >= 0 && i < _images.Count && _images[i] is SKImage img)
                 {
                     float aspect = (float)img.Width / img.Height;
                     if (aspect > 1.1f || aspect < 0.9f)
@@ -451,16 +464,18 @@ namespace AES_Controls.Composition
                 float sideTrans = (float)SideTranslation;
                 float stackSpace = (float)StackSpacing;
 
-                float transition = (float)Math.Tanh(diff * 2.0f);
-                float rotationY = -transition * sideRot;
-                float stackFactor = Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f);
-                float translationX = (transition * sideTrans + stackFactor * stackSpace) * spacing * scaleVal;
-                float translationZ = (float)(-Math.Pow(absDiff, 0.7f) * 220f * spacing * scaleVal);
+                float transitionEase = (float)Math.Tanh(diff * 2.2f);
+                float rotationY = -transitionEase * sideRot;
+                float stackFactor = Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f) * stackSpace;
+                float translationXBeforeRatio = (transitionEase * sideTrans + stackFactor) * spacing * scaleVal;
+
+                float widthRatio = w / (itemWidth > 0 ? itemWidth : 1f);
+                float translationZ = (float)(-Math.Pow(absDiff, 0.8f) * 220f * spacing * scaleVal);
 
                 float centerPop = 0.18f * (float)Math.Exp(-absDiff * absDiff * 6.0f);
                 float itemPerspectiveScale = Math.Max(0.1f, (1.0f + centerPop) - (absDiff * 0.06f));
 
-                var matrix = Matrix4x4.CreateTranslation(new Vector3(translationX, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
+                var matrix = Matrix4x4.CreateTranslation(new Vector3(translationXBeforeRatio * widthRatio, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
 
                 Vector2 TransformProj(Vector3 v) { var vt = Vector3.Transform(v, matrix); float s = 1000f / (1000f - vt.Z); return new Vector2(center.X + vt.X * s, center.Y + vt.Y * s); }
 
@@ -608,6 +623,11 @@ namespace AES_Controls.Composition
             }
             else if (change.Property == GlobalOpacityProperty)
                 _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
+            else if (change.Property == UseFullCoverSizeProperty)
+            {
+                _visual?.SendHandlerMessage(new UseFullCoverSizeMessage(change.GetNewValue<bool>()));
+                ClearProjectionCache();
+            }
             else if (change.Property == ImageCacheSizeProperty)
                 UpdateImageCacheSize(change.GetNewValue<int>());
             else if (change.Property == ItemsSourceProperty || 
@@ -1119,6 +1139,7 @@ namespace AES_Controls.Composition
                 _visual.SendHandlerMessage(new StackSpacingMessage(StackSpacing));
                 _visual.SendHandlerMessage(new BackgroundMessage(GetSkColor(Background)));
                 _visual.SendHandlerMessage(new GlobalOpacityMessage(GlobalOpacity));
+                _visual.SendHandlerMessage(new UseFullCoverSizeMessage(UseFullCoverSize));
                 if (ItemsSource != null) UpdateItems();
             }
         }
@@ -1390,7 +1411,7 @@ namespace AES_Controls.Composition
 
         private bool IsPointInItem(Point p, int i, Vector2 center, float w, float h, float spacing, double currentIndex, float scale)
         {
-            if (i >= 0 && i < _images.Count && _images[i] is SKImage img)
+            if (UseFullCoverSize && i >= 0 && i < _images.Count && _images[i] is SKImage img)
             {
                 float aspect = (float)img.Width / img.Height;
                 if (aspect > 1.1f || aspect < 0.9f)
@@ -1410,22 +1431,18 @@ namespace AES_Controls.Composition
             float sideTrans = (float)SideTranslation;  
             float stackSpace = (float)StackSpacing; 
 
-            // Smoothly interpolate between center and stack states
-            float transition = (float)Math.Tanh(diff * 2.0f);
-            float rotationY = -transition * sideRot;
-            
-            // Smoother stack transition using a slight power curve
-            float stackFactor = Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f);
-            float translationX = (transition * sideTrans + stackFactor * stackSpace) * spacing * scale;
-            
-            // Smooth Z transition
-            float translationZ = (float)(-Math.Pow(absDiff, 0.7f) * 220f * spacing * scale);
+            float transitionEase = (float)Math.Tanh(diff * 2.2f);
+            float rotationY = -transitionEase * sideRot;
+            float stackFactor = Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f) * stackSpace;
+            float translationXBeforeRatio = (transitionEase * sideTrans + stackFactor) * spacing * scale;
+            float widthRatio = w / ((float)ItemWidth * scale);
 
-            // Center pop effect: adds a smooth zoom for the item in the middle
+            float translationZ = (float)(-Math.Pow(absDiff, 0.8f) * 220f * spacing * scale);
+
             float centerPop = 0.18f * (float)Math.Exp(-absDiff * absDiff * 6.0f);
             float itemPerspectiveScale = Math.Max(0.1f, (1.0f + centerPop) - (absDiff * 0.06f));
-            
-            var matrix = Matrix4x4.CreateTranslation(new Vector3(translationX, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
+
+            var matrix = Matrix4x4.CreateTranslation(new Vector3(translationXBeforeRatio * widthRatio, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
             
             Vector2 Proj(Vector3 v) { var vt = Vector3.Transform(v, matrix); float s = 1000f / (1000f - vt.Z); return new Vector2(center.X + vt.X * s, center.Y + vt.Y * s); }
             var p1 = Proj(new Vector3(-w/2, -h/2, 0)); var p2 = Proj(new Vector3(w/2, -h/2, 0)); var p3 = Proj(new Vector3(w/2, h/2, 0)); var p4 = Proj(new Vector3(-w/2, h/2, 0));

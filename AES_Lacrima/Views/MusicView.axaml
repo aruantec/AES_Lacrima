@@ -37,6 +37,7 @@
                                                 SliderTrackHeight="{Binding SettingsViewModel.CarouselSliderTrackHeight}"
                                                 SideTranslation="{Binding SettingsViewModel.CarouselSideTranslation}"
                                                 StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"
+                                                UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
                                                 GlobalOpacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
                                                 ClipToBounds="False">
         <composition:CompositionCarouselControl.ContextMenu>

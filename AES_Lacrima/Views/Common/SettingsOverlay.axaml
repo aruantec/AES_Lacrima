@@ -146,7 +146,7 @@
                 <StackPanel Margin="15,20,0,0">
                     <TextBlock Text="Setup" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,0,0,10"/>
 
-                    <Grid ColumnDefinitions="Auto, 320, Auto, *" RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto" Margin="0,0,0,8" HorizontalAlignment="Stretch" ClipToBounds="False">
+                    <Grid ColumnDefinitions="Auto, 320, Auto, *" RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto" Margin="0,0,0,8" HorizontalAlignment="Stretch" ClipToBounds="False">
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Item Spacing" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
                         <Slider Grid.Row="0" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0.2" Maximum="3.0" SmallChange="0.01" LargeChange="0.1" Value="{Binding CarouselSpacing, Mode=TwoWay}" Margin="0,0"/>
                         <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding CarouselSpacing, StringFormat='{}{0:0.00}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
@@ -159,6 +159,14 @@
                         <Slider Grid.Row="2" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="-400" Maximum="400" SmallChange="1" LargeChange="10" Value="{Binding CarouselVerticalOffset, Mode=TwoWay}" Margin="0,0"/>
                         <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding CarouselVerticalOffset, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Slider Vertical Offset" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
+                        <Slider Grid.Row="3" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="{Binding $parent[UserControl].Bounds.Height}" SmallChange="1" LargeChange="5" Value="{Binding CarouselSliderVerticalOffset, Mode=TwoWay}" Margin="0,0"/>
+                        <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding CarouselSliderVerticalOffset, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Slider Track Height" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
+                        <Slider Grid.Row="4" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="1" Maximum="40" SmallChange="1" LargeChange="2" Value="{Binding CarouselSliderTrackHeight, Mode=TwoWay}" Margin="0,0"/>
+                        <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding CarouselSliderTrackHeight, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
+
                         <TextBlock Grid.Row="5" Grid.Column="0" Text="Side Translation" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
                         <Slider Grid.Row="5" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="1000" SmallChange="1" LargeChange="10" Value="{Binding CarouselSideTranslation, Mode=TwoWay}" Margin="0,0"/>
                         <TextBlock Grid.Row="5" Grid.Column="2" Text="{Binding CarouselSideTranslation, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
@@ -167,13 +175,8 @@
                         <Slider Grid.Row="6" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="400" SmallChange="1" LargeChange="10" Value="{Binding CarouselStackSpacing, Mode=TwoWay}" Margin="0,0"/>
                         <TextBlock Grid.Row="6" Grid.Column="2" Text="{Binding CarouselStackSpacing, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Slider Vertical Offset" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
-                        <Slider Grid.Row="3" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="{Binding $parent[UserControl].Bounds.Height}" SmallChange="1" LargeChange="5" Value="{Binding CarouselSliderVerticalOffset, Mode=TwoWay}" Margin="0,0"/>
-                        <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding CarouselSliderVerticalOffset, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
-
-                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Slider Track Height" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
-                        <Slider Grid.Row="4" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="1" Maximum="40" SmallChange="1" LargeChange="2" Value="{Binding CarouselSliderTrackHeight, Mode=TwoWay}" Margin="0,0"/>
-                        <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding CarouselSliderTrackHeight, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Full Cover Size" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
+                        <ToggleSwitch Grid.Row="7" Grid.Column="1" IsChecked="{Binding CarouselUseFullCoverSize, Mode=TwoWay}" HorizontalAlignment="Left" Margin="30,0,0,0"/>
                     </Grid>
                 </StackPanel>
             </TabItem>
