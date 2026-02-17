@@ -1,12 +1,14 @@
 using AES_Code.Models;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
+using Avalonia;
 using Avalonia.Collections;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
-using Avalonia.Platform;
 using Avalonia.Threading;
 using log4net;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -61,10 +63,12 @@ namespace AES_Controls.Helpers
             //Initializers
             _playlist = playlist;
             _player = player;
-            _defaultCover = defaultCover ?? new Bitmap(AssetLoader.Open(new Uri("avares://AES_Lacrima/Assets/cover_placeholder.png")));
+
             _maxThumbnailWidth = maxThumbnailWidth;
             _maxCacheEntries = Math.Max(1, maxCacheEntries);
             _maxEmbeddedImageBytes = maxEmbeddedImageBytes;
+
+            _defaultCover = defaultCover ?? PlaceholderGenerator.GenerateMusicPlaceholder(480, 400);
 
             // Set User-Agent for HTTP requests to improve compatibility with providers like Apple
             if (!string.IsNullOrEmpty(agentInfo) && !SharedHttpClient.DefaultRequestHeaders.UserAgent.Any())

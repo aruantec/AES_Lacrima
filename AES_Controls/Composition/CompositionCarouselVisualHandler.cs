@@ -46,7 +46,7 @@ namespace AES_Controls.Composition
         private long _lastTicks;
         private float _itemSpacing = 1.0f;
         private float _itemScale = 1.0f;
-        private float _itemWidth = 200.0f;
+        private float _itemWidth = 240.0f;
         private float _itemHeight = 200.0f;
         private float _verticalOffset;
         private float _sliderVerticalOffset = 60.0f;
@@ -388,11 +388,8 @@ namespace AES_Controls.Composition
                 {
                     float aspect = (float)dims.Width / dims.Height;
                     // Respect dimensions: adjust width based on aspect ratio, keeping height constant
-                    if (aspect > 1.1f || aspect < 0.9f)
-                    {
-                        float targetW = baseHeight * aspect;
-                        itemW = baseWidth + (targetW - baseWidth) * _fullCoverSizeFactor;
-                    }
+                    float targetW = baseHeight * aspect;
+                    itemW = baseWidth + (targetW - baseWidth) * _fullCoverSizeFactor;
                 }
             }
 

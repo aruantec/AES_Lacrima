@@ -322,10 +322,24 @@ namespace AES_Lacrima.ViewModels
             var target = folder ?? PointedFolder;
             if (target != null)
             {
+                // If a song from this album is currently playing, stop the player
+                if (AudioPlayer?.CurrentMediaItem != null && target.Children.Contains(AudioPlayer.CurrentMediaItem))
+                {
+                    AudioPlayer.Stop();
+                }
+
                 AlbumList.Remove(target);
                 if (target == PointedFolder)
                 {
                     PointedFolder = null;
+                }
+
+                // If the deleted album was the one loaded in the view, clear the view
+                if (target == LoadedAlbum)
+                {
+                    LoadedAlbum = null;
+                    IsNoAlbumLoadedVisible = true;
+                    ApplyFilter();
                 }
             }
         }
@@ -753,43 +767,7 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private static Bitmap GenerateDefaultFolderCover()
-        {
-            var size = new PixelSize(400, 400);
-            var renderTarget = new RenderTargetBitmap(size, new Vector(96, 96));
-            using (var context = renderTarget.CreateDrawingContext())
-            {
-                var brush = new RadialGradientBrush
-                {
-                    Center = new RelativePoint(0.5, 0.4, RelativeUnit.Relative),
-                    GradientStops = new GradientStops
-                    {
-                        new GradientStop(Color.Parse("#E0E0E0"), 0),
-                        new GradientStop(Color.Parse("#A0A0A0"), 1)
-                    }
-                };
-                context.DrawRectangle(brush, null, new Rect(0, 0, size.Width, size.Height));
-                var noteBrush = new SolidColorBrush(Color.Parse("#2D2D2D"));
-                var noteWidth = 200.0;
-                var noteLeft = 110.0;
-                var noteXOffset = (size.Width - noteWidth) / 2.0 - noteLeft;
-                context.DrawEllipse(noteBrush, null, new Rect(110 + noteXOffset, 260, 80, 60));
-                context.DrawEllipse(noteBrush, null, new Rect(230 + noteXOffset, 240, 80, 60));
-                context.DrawRectangle(noteBrush, null, new Rect(175 + noteXOffset, 110, 15, 170));
-                context.DrawRectangle(noteBrush, null, new Rect(295 + noteXOffset, 90, 15, 170));
-                var stream = new StreamGeometry();
-                using (var ctx = stream.Open())
-                {
-                    ctx.BeginFigure(new Point(175 + noteXOffset, 110), true);
-                    ctx.LineTo(new Point(310 + noteXOffset, 90));
-                    ctx.LineTo(new Point(310 + noteXOffset, 140));
-                    ctx.LineTo(new Point(175 + noteXOffset, 160));
-                    ctx.EndFigure(true);
-                }
-                context.DrawGeometry(noteBrush, null, stream);
-            }
-            return renderTarget;
-        }
+        private static Bitmap GenerateDefaultFolderCover() => PlaceholderGenerator.GenerateMusicPlaceholder();
 
         private bool CanDeletePointedItem() => PointedIndex != -1 && PointedIndex < CoverItems.Count;
 

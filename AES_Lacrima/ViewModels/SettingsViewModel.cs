@@ -1,13 +1,13 @@
-﻿using AES_Core.DI;
+﻿using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
+using AES_Core.DI;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Media;
-using Avalonia.Media.Imaging;
-using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -325,7 +325,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         LoadSettings();
 
         // Generate dummy preview items
-        var defaultCover = GenerateDefaultFolderCover();
+        var defaultCover = PlaceholderGenerator.GenerateMusicPlaceholder();
         var items = new List<FolderMediaItem>();
         for (int i = 1; i <= 10; i++)
         {
@@ -434,57 +434,5 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (!Directory.Exists(directory)) return [];
 
         return [.. Directory.EnumerateFiles(directory, pattern).Select(file => new ShaderItem(file, Path.GetFileNameWithoutExtension(file)))];
-    }
-
-    /// <summary>
-    /// Generates a default cover bitmap with a musical note icon.
-    /// </summary>
-    private static Bitmap GenerateDefaultFolderCover()
-    {
-        var size = new PixelSize(400, 400);
-        var renderTarget = new RenderTargetBitmap(size, new Vector(96, 96));
-
-        using (var context = renderTarget.CreateDrawingContext())
-        {
-            // Background Radial Gradient
-            var brush = new RadialGradientBrush
-            {
-                Center = new RelativePoint(0.5, 0.4, RelativeUnit.Relative),
-                GradientStops =
-                [
-                    new GradientStop(Color.Parse("#E0E0E0"), 0),
-                    new GradientStop(Color.Parse("#A0A0A0"), 1)
-                ]
-            };
-            context.DrawRectangle(brush, null, new Rect(0, 0, size.Width, size.Height));
-
-            // Musical Note icon (Double eighth note)
-            var noteBrush = new SolidColorBrush(Color.Parse("#2D2D2D"));
-            var noteWidth = 200.0;
-            var noteLeft = 110.0;
-            var noteXOffset = (size.Width - noteWidth) / 2.0 - noteLeft;
-
-            // Note heads (slightly tilted ellipses)
-            context.DrawEllipse(noteBrush, null, new Rect(110 + noteXOffset, 260, 80, 60));
-            context.DrawEllipse(noteBrush, null, new Rect(230 + noteXOffset, 240, 80, 60));
-
-            // Stems
-            context.DrawRectangle(noteBrush, null, new Rect(175 + noteXOffset, 110, 15, 170));
-            context.DrawRectangle(noteBrush, null, new Rect(295 + noteXOffset, 90, 15, 170));
-
-            // Beam (tilted rectangle using geometry)
-            var stream = new StreamGeometry();
-            using (var ctx = stream.Open())
-            {
-                ctx.BeginFigure(new Point(175 + noteXOffset, 110), true);
-                ctx.LineTo(new Point(310 + noteXOffset, 90));
-                ctx.LineTo(new Point(310 + noteXOffset, 140));
-                ctx.LineTo(new Point(175 + noteXOffset, 160));
-                ctx.EndFigure(true);
-            }
-            context.DrawGeometry(noteBrush, null, stream);
-        }
-
-        return renderTarget;
     }
 }
