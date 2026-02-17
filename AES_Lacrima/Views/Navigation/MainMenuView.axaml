@@ -183,7 +183,7 @@
             </StackPanel>
 
             <Border Height="40"
-                    Background="#383838"
+                    Background="#0F0F0F"
                     Width="600"
                     CornerRadius="8,8,0,0"/>
         </StackPanel>

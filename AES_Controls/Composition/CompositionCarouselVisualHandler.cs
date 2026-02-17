@@ -24,6 +24,10 @@ namespace AES_Controls.Composition
     internal record GlobalOpacityMessage(double Value);
     internal record UpdateImageMessage(int Index, SKImage? Image, bool IsLoading = false);
     internal record UseFullCoverSizeMessage(bool Value);
+    internal record UpdateCoverFoundMessage(int Index, bool Found);
+    internal record ResetCoverFoundMessage(HashSet<int> Indices);
+    internal record UpdateOverlayHoverMessage(int Index, int ButtonId);
+    internal record UpdateOverlayPressedMessage(int Index, int ButtonId);
     internal record DisposeImageMessage(SKImage Image);
     internal record DragStateMessage(int Index, bool IsDragging);
     internal record DragPositionMessage(Vector2 Position);
@@ -49,6 +53,11 @@ namespace AES_Controls.Composition
         private float _sliderTrackHeight = 4.0f;
         private float _sideTranslation = 320.0f;
         private float _stackSpacing = 160.0f;
+        private HashSet<int> _coverFoundIndices = new();
+        private int _hoveredItemIndex = -1;
+        private int _hoveredButtonId = 0;
+        private int _pressedItemIndex = -1;
+        private int _pressedButtonId = 0;
         private Vector2 _visualSize;
         private SKColor _backgroundColor = SKColors.Transparent;
         private List<SKImage> _images = new();
@@ -68,12 +77,20 @@ namespace AES_Controls.Composition
         private float _currentGlobalOpacityVelocity;
         private bool _isSliderPressed;
         private bool _useFullCoverSize;
+        private bool _fullCoverSizeInitialized;
+        private float _fullCoverSizeFactor;
+        private float _fullCoverSizeVelocity;
 
         private readonly SKPaint _quadPaint = new() { IsAntialias = true, FilterQuality = SKFilterQuality.High };
         // Projection / depth tuning to reduce perspective distortion on side items
         private readonly float _projectionDistance = 2500f; // larger => weaker perspective
         private readonly SKPaint _spinnerPaint = new() { IsAntialias = true, StrokeCap = SKStrokeCap.Round, StrokeWidth = 4, Style = SKPaintStyle.Stroke };
         private readonly SKPaint _sliderPaint = new() { IsAntialias = true };
+        private readonly SKPaint _overlayBgPaint = new() { IsAntialias = true, Color = SKColors.Black.WithAlpha(180) };
+        private readonly SKPaint _overlayTextPaint = new() { IsAntialias = true, Color = SKColors.White, TextSize = 24, TextAlign = SKTextAlign.Center };
+        private readonly SKPaint _okButtonPaint = new() { IsAntialias = true, Color = SKColor.Parse("#4CAF50") };
+        private readonly SKPaint _cancelButtonPaint = new() { IsAntialias = true, Color = SKColor.Parse("#F44336") };
+        private readonly SKPaint _buttonTextPaint = new() { IsAntialias = true, Color = SKColors.White, TextSize = 20, TextAlign = SKTextAlign.Center, FakeBoldText = true };
         private readonly SKMaskFilter _blurFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 5);
         private readonly SKMaskFilter _sliderBlurFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 2);
         private readonly Dictionary<SKImage, (int Width, int Height)> _dimCache = new();
@@ -185,7 +202,22 @@ namespace AES_Controls.Composition
                 RegisterForNextAnimationFrameUpdate();
             }
             else if (message is SliderPressedMessage spm) { _isSliderPressed = spm.IsPressed; Invalidate(); }
-            else if (message is UseFullCoverSizeMessage ufcs) { _useFullCoverSize = ufcs.Value; Invalidate(); }
+            else if (message is UseFullCoverSizeMessage ufcs) 
+            { 
+                _useFullCoverSize = ufcs.Value; 
+                if (!_fullCoverSizeInitialized)
+                {
+                    _fullCoverSizeFactor = _useFullCoverSize ? 1.0f : 0.0f;
+                    _fullCoverSizeInitialized = true;
+                }
+                if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
+                RegisterForNextAnimationFrameUpdate();
+                Invalidate(); 
+            }
+            else if (message is UpdateCoverFoundMessage ucf) { if (ucf.Found) _coverFoundIndices.Add(ucf.Index); else _coverFoundIndices.Remove(ucf.Index); Invalidate(); }
+            else if (message is ResetCoverFoundMessage rcf) { _coverFoundIndices = rcf.Indices; Invalidate(); }
+            else if (message is UpdateOverlayHoverMessage ohover) { _hoveredItemIndex = ohover.Index; _hoveredButtonId = ohover.ButtonId; Invalidate(); }
+            else if (message is UpdateOverlayPressedMessage opress) { _pressedItemIndex = opress.Index; _pressedButtonId = opress.ButtonId; Invalidate(); }
         }
 
         private void ClearSliderShaders()
@@ -258,7 +290,20 @@ namespace AES_Controls.Composition
                 Invalidate();
             }
 
-            bool isAnimating = Math.Abs(distance) > 0.0001 || Math.Abs(_currentVelocity) > 0.0001 || _globalTransitionAlpha < 1.0f || Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.001f || _isDropping || _draggingIndex != -1;
+            // Smoothly animate full cover size factor
+            float targetFactor = _useFullCoverSize ? 1.0f : 0.0f;
+            if (Math.Abs(_fullCoverSizeFactor - targetFactor) > 0.0005f || Math.Abs(_fullCoverSizeVelocity) > 0.0005f)
+            {
+                double stiffness = 40.0;
+                double damping = 2.0 * Math.Sqrt(stiffness) * 1.0;
+                _fullCoverSizeVelocity += (float)((targetFactor - _fullCoverSizeFactor) * stiffness - _fullCoverSizeVelocity * damping) * (float)dt;
+                _fullCoverSizeFactor += _fullCoverSizeVelocity * (float)dt;
+                if (_fullCoverSizeFactor < 0f) _fullCoverSizeFactor = 0f;
+                else if (_fullCoverSizeFactor > 1f) _fullCoverSizeFactor = 1f;
+                Invalidate();
+            }
+
+            bool isAnimating = Math.Abs(distance) > 0.0001 || Math.Abs(_currentVelocity) > 0.0001 || _globalTransitionAlpha < 1.0f || Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.001f || Math.Abs(_fullCoverSizeFactor - targetFactor) > 0.001f || _isDropping || _draggingIndex != -1;
             if (isAnimating || _loadingIndices.Count > 0) 
             {
                 RegisterForNextAnimationFrameUpdate();
@@ -336,7 +381,7 @@ namespace AES_Controls.Composition
             float itemW = baseWidth;
             float itemH = baseHeight;
 
-            if (_useFullCoverSize && img != null && !_loadingIndices.Contains(i))
+            if (img != null && !_loadingIndices.Contains(i) && _fullCoverSizeFactor > 0.001f)
             {
                 if (!_dimCache.TryGetValue(img, out var dims)) { try { dims = _dimCache[img] = (img.Width, img.Height); } catch { dims = (0, 0); } }
                 if (dims.Width > 0 && dims.Height > 0)
@@ -344,7 +389,10 @@ namespace AES_Controls.Composition
                     float aspect = (float)dims.Width / dims.Height;
                     // Respect dimensions: adjust width based on aspect ratio, keeping height constant
                     if (aspect > 1.1f || aspect < 0.9f)
-                        itemW = baseHeight * aspect;
+                    {
+                        float targetW = baseHeight * aspect;
+                        itemW = baseWidth + (targetW - baseWidth) * _fullCoverSizeFactor;
+                    }
                 }
             }
 
@@ -372,7 +420,7 @@ namespace AES_Controls.Composition
             float centerPop = 0.18f * (float)Math.Exp(-absDiff * absDiff * 6.0f);
             float scale = Math.Max(0.1f, (1.0f + centerPop) - (absDiff * 0.06f));
 
-            float curWidthRatio = _useFullCoverSize ? itemW / (baseWidth > 0 ? baseWidth : 1.0f) : 1.0f;
+            float curWidthRatio = itemW / (baseWidth > 0 ? baseWidth : 1.0f);
             float finalTranslationX = translationX * curWidthRatio;
 
             if (i == _draggingIndex)
@@ -402,6 +450,81 @@ namespace AES_Controls.Composition
 
             var matrix = Matrix4x4.CreateTranslation(new Vector3(finalTranslationX, translationY, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(scale);
             DrawQuad(canvas, itemW, itemH, matrix, img, (i == _draggingIndex ? 0 : absDiff), center);
+
+            if (_coverFoundIndices.Contains(i))
+            {
+                void ProjToBuffer(SKPoint[] buffer, float x, float y, float sMult = 1.0f, float midX = 0, float midY = 0)
+                {
+                    float dx = (x - midX) * sMult;
+                    float dy = (y - midY) * sMult;
+                    var vt = Vector3.Transform(new Vector3(midX + dx, midY + dy, 0), matrix);
+                    float s = _projectionDistance / (_projectionDistance - vt.Z);
+                    if (s < 0.5f) s = 0.5f; else if (s > 1.6f) s = 1.6f;
+                    buffer[0] = new SKPoint(center.X + vt.X * s, center.Y + vt.Y * s);
+                }
+                SKPoint[] pt = new SKPoint[1];
+
+                float overlayH = itemH * 0.35f;
+                float topY = itemH / 2 - overlayH;
+                float botY = itemH / 2;
+
+                // Draw background manually using vertices to handle tilt
+                SKPoint[] rectV = new SKPoint[4];
+                void FillRectV(float x1, float y1, float x2, float y2, float sMult = 1.0f) {
+                   float midX = (x1 + x2) / 2;
+                   float halfW = (x2 - x1) / 2 * sMult;
+                   float midY = (y1 + y2) / 2;
+                   float halfH = (y2 - y1) / 2 * sMult;
+
+                   var v1 = new Vector3(midX - halfW, midY - halfH, 0);
+                   var v2 = new Vector3(midX + halfW, midY - halfH, 0);
+                   var v3 = new Vector3(midX + halfW, midY + halfH, 0);
+                   var v4 = new Vector3(midX - halfW, midY + halfH, 0);
+
+                   var vt1 = Vector3.Transform(v1, matrix); float st1 = _projectionDistance/(_projectionDistance-vt1.Z); rectV[0]=new SKPoint(center.X+vt1.X*st1, center.Y+vt1.Y*st1);
+                   var vt2 = Vector3.Transform(v2, matrix); float st2 = _projectionDistance/(_projectionDistance-vt2.Z); rectV[1]=new SKPoint(center.X+vt2.X*st2, center.Y+vt2.Y*st2);
+                   var vt3 = Vector3.Transform(v3, matrix); float st3 = _projectionDistance/(_projectionDistance-vt3.Z); rectV[2]=new SKPoint(center.X+vt3.X*st3, center.Y+vt3.Y*st3);
+                   var vt4 = Vector3.Transform(v4, matrix); float st4 = _projectionDistance/(_projectionDistance-vt4.Z); rectV[3]=new SKPoint(center.X+vt4.X*st4, center.Y+vt4.Y*st4);
+                }
+
+                FillRectV(-itemW/2, topY, itemW/2, botY);
+                canvas.DrawVertices(SKVertexMode.TriangleFan, rectV, null, null, null, _overlayBgPaint);
+
+                ProjToBuffer(pt, 0, topY + 40);
+                canvas.DrawText("Cover found", pt[0].X, pt[0].Y, _overlayTextPaint);
+
+                float btnW = itemW * 0.4f;
+                float btnH = itemH * 0.15f;
+                float btnGap = itemW * 0.05f;
+                float btnY = itemH / 2 - btnH - 12;
+
+                // OK Button effect
+                _okButtonPaint.Color = SKColor.Parse("#4CAF50");
+                float okScale = 1.0f;
+                if (_hoveredItemIndex == i && _hoveredButtonId == 1) _okButtonPaint.Color = SKColor.Parse("#66BB6A");
+                if (_pressedItemIndex == i && _pressedButtonId == 1) { _okButtonPaint.Color = SKColor.Parse("#388E3C"); okScale = 0.95f; }
+
+                float okMidX = -btnW / 2 - btnGap / 2;
+                float btnMidY = btnY + btnH / 2;
+
+                FillRectV(-btnW - btnGap / 2, btnY, -btnGap / 2, btnY + btnH, okScale);
+                canvas.DrawVertices(SKVertexMode.TriangleFan, rectV, null, null, null, _okButtonPaint);
+                ProjToBuffer(pt, okMidX, btnMidY + 7, okScale, okMidX, btnMidY);
+                canvas.DrawText("SAVE", pt[0].X, pt[0].Y, _buttonTextPaint);
+
+                // Cancel Button effect
+                _cancelButtonPaint.Color = SKColor.Parse("#F44336");
+                float cancelScale = 1.0f;
+                if (_hoveredItemIndex == i && _hoveredButtonId == 2) _cancelButtonPaint.Color = SKColor.Parse("#EF5350");
+                if (_pressedItemIndex == i && _pressedButtonId == 2) { _cancelButtonPaint.Color = SKColor.Parse("#D32F2F"); cancelScale = 0.95f; }
+
+                float cancelMidX = btnW / 2 + btnGap / 2;
+                FillRectV(btnGap / 2, btnY, btnGap / 2 + btnW, btnY + btnH, cancelScale);
+                canvas.DrawVertices(SKVertexMode.TriangleFan, rectV, null, null, null, _cancelButtonPaint);
+                ProjToBuffer(pt, cancelMidX, btnMidY + 7, cancelScale, cancelMidX, btnMidY);
+                canvas.DrawText("Skip", pt[0].X, pt[0].Y, _buttonTextPaint);
+            }
+
             if (_loadingIndices.Contains(i)) DrawSpinner(canvas, center, matrix);
             var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
             DrawQuad(canvas, itemW, itemH, refMat, img, (i == _draggingIndex ? 0 : absDiff), center, true);

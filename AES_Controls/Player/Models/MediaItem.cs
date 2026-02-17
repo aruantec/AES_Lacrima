@@ -102,7 +102,11 @@ public partial class MediaItem : ObservableObject, IDisposable
     /// Indicates whether a cover image was found (used to show save/cancel
     /// UI). This property is not serialized.
     /// </summary>
-    public bool CoverFound { get => _coverFound; set => SetProperty(ref _coverFound, value); }
+    public bool CoverFound 
+    {
+        get => _coverFound;
+        set => SetProperty(ref _coverFound, value);
+    }
     
     [XmlIgnore]
     [JsonIgnore]

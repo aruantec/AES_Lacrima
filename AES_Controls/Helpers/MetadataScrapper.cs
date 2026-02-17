@@ -283,7 +283,6 @@ namespace AES_Controls.Helpers
 
                     await Dispatcher.UIThread.InvokeAsync(() => {
                         mi.CoverBitmap = bmp;
-                        mi.CoverFound = true;
                     });
                 }
                 if (wall != null)
@@ -566,7 +565,6 @@ namespace AES_Controls.Helpers
 
                                 AddToCoverCache(mi.FileName!, mi_bmp);
                                 mi.CoverBitmap = mi_bmp;
-                                mi.CoverFound = true;
                             }
                         });
                         return;

@@ -63,6 +63,8 @@ namespace AES_Controls.Composition
         private DispatcherTimer? _longPressTimer;
         private bool _isDragging;
         private bool _isSliderPressed;
+        private int _lastHoveredItem = -1, _lastHoveredButton = 0;
+        private int _lastPressedItem = -1, _lastPressedButton = 0;
         private int _draggingIndex = -1;
         private DispatcherTimer? _autoScrollTimer;
         private double _autoScrollVelocity;
@@ -687,6 +689,16 @@ namespace AES_Controls.Composition
 
             _visual?.SendHandlerMessage(_images.ToArray());
 
+            // Initial CoverFound sync
+            var coverFoundSet = new HashSet<int>();
+            for (int i = 0; i < items.Count; i++)
+            {
+                var prop = items[i]?.GetType().GetProperty("CoverFound");
+                if (prop != null && prop.GetValue(items[i]) is bool found && found)
+                    coverFoundSet.Add(i);
+            }
+            _visual?.SendHandlerMessage(new ResetCoverFoundMessage(coverFoundSet));
+
             ClearProjectionCache();
             UpdateVirtualization();
         }
@@ -717,6 +729,18 @@ namespace AES_Controls.Composition
                             _images.RemoveAt(e.OldStartingIndex);
                             _images.Insert(e.NewStartingIndex, img);
                             _visual.SendHandlerMessage(_images);
+
+                            // Re-sync CoverFound on move
+                            var list = ItemsSource as IList ?? ItemsSource?.Cast<object>().ToList();
+                            if (list != null)
+                            {
+                                var set = new HashSet<int>();
+                                for (int i = 0; i < list.Count; i++) {
+                                    var p = list[i]?.GetType().GetProperty("CoverFound");
+                                    if (p != null && p.GetValue(list[i]) is bool found && found) set.Add(i);
+                                }
+                                _visual.SendHandlerMessage(new ResetCoverFoundMessage(set));
+                            }
                         }
                         break;
                     case NotifyCollectionChangedAction.Add:
@@ -876,11 +900,19 @@ namespace AES_Controls.Composition
                 string? bitmapProp = ImageBitmapProperty;
                 string? fileProp = ImageFileNameProperty;
 
-                if (sender == null || (e.PropertyName != bitmapProp && e.PropertyName != fileProp)) return;
+                if (sender == null || (e.PropertyName != bitmapProp && e.PropertyName != fileProp && e.PropertyName != "CoverFound")) return;
 
-                var items = ItemsSource?.Cast<object>().ToList();
-                int idx = items?.IndexOf(sender) ?? -1;
+                var list = ItemsSource as IList ?? ItemsSource?.Cast<object>().ToList();
+                int idx = list?.IndexOf(sender) ?? -1;
                 if (idx == -1) return;
+
+                if (e.PropertyName == "CoverFound")
+                {
+                    var prop = sender.GetType().GetProperty("CoverFound");
+                    if (prop != null && prop.GetValue(sender) is bool found)
+                        _visual?.SendHandlerMessage(new UpdateCoverFoundMessage(idx, found));
+                    return;
+                }
 
                 Bitmap? bitmapValue = null;
                 string? fileName = null;
@@ -1246,6 +1278,25 @@ namespace AES_Controls.Composition
 
             int hitIndex = IndexAtPoint(pos);
             if (e.ClickCount == 2 && hitIndex != -1) ItemDoubleClickedCommand?.Execute(hitIndex);
+
+            if (hitIndex != -1)
+            {
+                var list = ItemsSource as IList ?? ItemsSource?.Cast<object>().ToList();
+                if (list != null && hitIndex < list.Count)
+                {
+                    var item = list[hitIndex];
+                    var cfProp = item?.GetType().GetProperty("CoverFound");
+                    if (cfProp != null && cfProp.GetValue(item) is bool found && found)
+                    {
+                        int btn = HitTestOverlayButtons(pos, hitIndex, new Vector2((float)Bounds.Width, (float)Bounds.Height));
+                        if (btn != 0)
+                        {
+                            _lastPressedItem = hitIndex; _lastPressedButton = btn;
+                            _visual?.SendHandlerMessage(new UpdateOverlayPressedMessage(hitIndex, btn));
+                        }
+                    }
+                }
+            }
         }
 
         private void UpdateSliderPosition(double x)
@@ -1291,6 +1342,30 @@ namespace AES_Controls.Composition
             }
             _prevPoint = point;
             _prevTime = e.Timestamp;
+
+            if (!_isDragging && !_isSliderPressed)
+            {
+                int hIdx = IndexAtPoint(point);
+                int hBtn = 0;
+                if (hIdx != -1)
+                {
+                    var list = ItemsSource as IList ?? ItemsSource?.Cast<object>().ToList();
+                    if (list != null && hIdx < list.Count)
+                    {
+                        var item = list[hIdx];
+                        var cfProp = item?.GetType().GetProperty("CoverFound");
+                        if (cfProp != null && cfProp.GetValue(item) is bool found && found)
+                            hBtn = HitTestOverlayButtons(point, hIdx, new Vector2((float)Bounds.Width, (float)Bounds.Height));
+                    }
+                }
+
+                if (hIdx != _lastHoveredItem || hBtn != _lastHoveredButton)
+                {
+                    _lastHoveredItem = hIdx; _lastHoveredButton = hBtn;
+                    _visual?.SendHandlerMessage(new UpdateOverlayHoverMessage(hIdx, hBtn));
+                    Cursor = hBtn != 0 ? new Cursor(StandardCursorType.Hand) : null;
+                }
+            }
         }
 
         private void MoveItem(int from, int to)
@@ -1307,6 +1382,13 @@ namespace AES_Controls.Composition
         {
             _longPressTimer?.Stop();
             _autoScrollTimer?.Stop();
+
+            if (_lastPressedItem != -1)
+            {
+                _visual?.SendHandlerMessage(new UpdateOverlayPressedMessage(-1, 0));
+                _lastPressedItem = -1; _lastPressedButton = 0;
+            }
+
             if (_isSliderPressed)
             {
                 _isSliderPressed = false;
@@ -1357,6 +1439,29 @@ namespace AES_Controls.Composition
                     int hitIndex = IndexAtPoint(point);
                     if (hitIndex != -1)
                     {
+                        var list = ItemsSource as IList ?? ItemsSource?.Cast<object>().ToList();
+                        if (list != null && hitIndex < list.Count)
+                        {
+                            var item = list[hitIndex];
+                            var cfProp = item?.GetType().GetProperty("CoverFound");
+                            if (cfProp != null && cfProp.GetValue(item) is bool found && found)
+                            {
+                                int btn = HitTestOverlayButtons(point, hitIndex, new Vector2((float)Bounds.Width, (float)Bounds.Height));
+                                if (btn == 1) // OK
+                                {
+                                    var cmd = item.GetType().GetProperty("SaveCoverBitmapCommand")?.GetValue(item) as ICommand;
+                                    cmd?.Execute(null);
+                                    return;
+                                }
+                                else if (btn == 2) // Cancel
+                                {
+                                    var cmd = item.GetType().GetProperty("CancelCommand")?.GetValue(item) as ICommand;
+                                    cmd?.Execute(null);
+                                    return;
+                                }
+                            }
+                        }
+
                         SelectedIndex = hitIndex;
                         ItemSelectedCommand?.Execute(hitIndex);
                     }
@@ -1443,10 +1548,63 @@ namespace AES_Controls.Composition
             float itemPerspectiveScale = Math.Max(0.1f, (1.0f + centerPop) - (absDiff * 0.06f));
 
             var matrix = Matrix4x4.CreateTranslation(new Vector3(translationXBeforeRatio * widthRatio, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
-            
+
             Vector2 Proj(Vector3 v) { var vt = Vector3.Transform(v, matrix); float s = 1000f / (1000f - vt.Z); return new Vector2(center.X + vt.X * s, center.Y + vt.Y * s); }
             var p1 = Proj(new Vector3(-w/2, -h/2, 0)); var p2 = Proj(new Vector3(w/2, -h/2, 0)); var p3 = Proj(new Vector3(w/2, h/2, 0)); var p4 = Proj(new Vector3(-w/2, h/2, 0));
-            
+
+            return PointInQuad(p, p1.ToPoint(), p2.ToPoint(), p3.ToPoint(), p4.ToPoint());
+        }
+
+        private int HitTestOverlayButtons(Point p, int i, Vector2 size)
+        {
+            float scaleVal = (float)ItemScale;
+            float spacing = (float)ItemSpacing;
+            float w = (float)ItemWidth * scaleVal;
+            float h = (float)ItemHeight * scaleVal;
+
+            if (i >= 0 && i < _images.Count && _images[i] is SKImage img)
+            {
+                float aspect = (float)img.Width / img.Height;
+                if (aspect > 1.1f || aspect < 0.9f) w = h * aspect;
+            }
+
+            float currentIndex = (float)_uiCurrentIndex;
+            var center = new Vector2(size.X / 2, (float)(size.Y / 2 + VerticalOffset));
+            float diff = (float)(i - currentIndex);
+            float absDiff = Math.Abs(diff);
+
+            const float sideRot = 0.95f;   
+            float sideTrans = (float)SideTranslation;  
+            float stackSpace = (float)StackSpacing; 
+
+            float transitionEase = (float)Math.Tanh(diff * 2.2f);
+            float rotationY = -transitionEase * sideRot;
+            float stackFactor = Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f) * stackSpace;
+            float translationXBeforeRatio = (transitionEase * sideTrans + stackFactor) * spacing * scaleVal;
+            float widthRatio = w / ((float)ItemWidth * scaleVal);
+            float translationZ = (float)(-Math.Pow(absDiff, 0.8f) * 220f * spacing * scaleVal);
+            float centerPop = 0.18f * (float)Math.Exp(-absDiff * absDiff * 6.0f);
+            float itemPerspectiveScale = Math.Max(0.1f, (1.0f + centerPop) - (absDiff * 0.06f));
+
+            var matrix = Matrix4x4.CreateTranslation(new Vector3(translationXBeforeRatio * widthRatio, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
+
+            float btnW = w * 0.4f;
+            float btnH = h * 0.15f;
+            float btnGap = w * 0.05f;
+            float btnY = h / 2 - btnH - 12;
+
+            if (PointInProjectedRect(p, SKRect.Create(-btnW - btnGap / 2, btnY, btnW, btnH), matrix, center)) return 1;
+            if (PointInProjectedRect(p, SKRect.Create(btnGap / 2, btnY, btnW, btnH), matrix, center)) return 2;
+            return 0;
+        }
+
+        private bool PointInProjectedRect(Point p, SKRect rect, Matrix4x4 matrix, Vector2 center)
+        {
+            Vector2 Proj(Vector3 v) { var vt = Vector3.Transform(v, matrix); float s = 1000f / (1000f - vt.Z); return new Vector2(center.X + vt.X * s, center.Y + vt.Y * s); }
+            var p1 = Proj(new Vector3(rect.Left, rect.Top, 0));
+            var p2 = Proj(new Vector3(rect.Right, rect.Top, 0));
+            var p3 = Proj(new Vector3(rect.Right, rect.Bottom, 0));
+            var p4 = Proj(new Vector3(rect.Left, rect.Bottom, 0));
             return PointInQuad(p, p1.ToPoint(), p2.ToPoint(), p3.ToPoint(), p4.ToPoint());
         }
 
