@@ -104,7 +104,7 @@ namespace AES_Controls.Composition
             AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(StackSpacing), 39.0);
 
         public static readonly StyledProperty<double> ItemWidthProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(ItemWidth), 200.0);
+            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(ItemWidth), 240.0);
 
         public static readonly StyledProperty<double> ItemHeightProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(ItemHeight), 200.0);
@@ -1519,8 +1519,7 @@ namespace AES_Controls.Composition
             if (UseFullCoverSize && i >= 0 && i < _images.Count && _images[i] is SKImage img)
             {
                 float aspect = (float)img.Width / img.Height;
-                if (aspect > 1.1f || aspect < 0.9f)
-                    w = h * aspect;
+                w = h * aspect;
             }
 
             // Use cached polygon if available
