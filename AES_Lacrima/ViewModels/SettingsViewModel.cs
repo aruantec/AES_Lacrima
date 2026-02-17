@@ -270,6 +270,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private double _carouselStackSpacing = 39.0;
 
+    [ObservableProperty]
+    private bool _carouselUseFullCoverSize = false;
+
     /// <summary>
     /// Handles property change notifications to synchronize individual color properties
     /// with the internal collection and refresh the visual gradient.
@@ -376,6 +379,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         CarouselSliderTrackHeight = ReadDoubleSetting(section, nameof(CarouselSliderTrackHeight), CarouselSliderTrackHeight);
         CarouselSideTranslation = ReadDoubleSetting(section, nameof(CarouselSideTranslation), CarouselSideTranslation);
         CarouselStackSpacing = ReadDoubleSetting(section, nameof(CarouselStackSpacing), CarouselStackSpacing);
+        CarouselUseFullCoverSize = ReadBoolSetting(section, nameof(CarouselUseFullCoverSize), CarouselUseFullCoverSize);
     }
 
     /// <summary>
@@ -414,6 +418,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(CarouselSliderTrackHeight), CarouselSliderTrackHeight);
         WriteSetting(section, nameof(CarouselSideTranslation), CarouselSideTranslation);
         WriteSetting(section, nameof(CarouselStackSpacing), CarouselStackSpacing);
+        WriteSetting(section, nameof(CarouselUseFullCoverSize), CarouselUseFullCoverSize);
     }
 
     /// <summary>

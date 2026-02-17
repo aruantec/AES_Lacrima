@@ -23,6 +23,7 @@ namespace AES_Controls.Composition
     internal record BackgroundMessage(SKColor Color);
     internal record GlobalOpacityMessage(double Value);
     internal record UpdateImageMessage(int Index, SKImage? Image, bool IsLoading = false);
+    internal record UseFullCoverSizeMessage(bool Value);
     internal record DisposeImageMessage(SKImage Image);
     internal record DragStateMessage(int Index, bool IsDragging);
     internal record DragPositionMessage(Vector2 Position);
@@ -66,6 +67,7 @@ namespace AES_Controls.Composition
         private float _targetGlobalOpacity = 1.0f;
         private float _currentGlobalOpacityVelocity;
         private bool _isSliderPressed;
+        private bool _useFullCoverSize;
 
         private readonly SKPaint _quadPaint = new() { IsAntialias = true, FilterQuality = SKFilterQuality.High };
         // Projection / depth tuning to reduce perspective distortion on side items
@@ -183,6 +185,7 @@ namespace AES_Controls.Composition
                 RegisterForNextAnimationFrameUpdate();
             }
             else if (message is SliderPressedMessage spm) { _isSliderPressed = spm.IsPressed; Invalidate(); }
+            else if (message is UseFullCoverSizeMessage ufcs) { _useFullCoverSize = ufcs.Value; Invalidate(); }
         }
 
         private void ClearSliderShaders()
@@ -333,7 +336,7 @@ namespace AES_Controls.Composition
             float itemW = baseWidth;
             float itemH = baseHeight;
 
-            if (img != null && !_loadingIndices.Contains(i))
+            if (_useFullCoverSize && img != null && !_loadingIndices.Contains(i))
             {
                 if (!_dimCache.TryGetValue(img, out var dims)) { try { dims = _dimCache[img] = (img.Width, img.Height); } catch { dims = (0, 0); } }
                 if (dims.Width > 0 && dims.Height > 0)
@@ -358,19 +361,46 @@ namespace AES_Controls.Composition
                 else visualI = partedVisualI;
             }
             float diff = (float)(visualI - _currentIndex); float absDiff = Math.Abs(diff);
-            float rotationY = -(float)Math.Tanh(diff * 2.0f) * 0.95f;
-            float stackFactor = Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f);
-            float translationX = ((float)Math.Tanh(diff * 2.0f) * _sideTranslation + stackFactor * _stackSpacing) * _itemSpacing * _itemScale;
-            float translationY = 0; float translationZ = (float)(-Math.Pow(absDiff, 0.7f) * 220f * _itemSpacing * _itemScale);
+
+            float transitionEase = (float)Math.Tanh(diff * 2.2f);
+            float rotationY = -transitionEase * 0.95f;
+            float stackFactor = Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f) * _stackSpacing;
+            float translationX = (transitionEase * _sideTranslation + stackFactor) * _itemSpacing * _itemScale;
+            float translationY = 0;
+            float translationZ = (float)(-Math.Pow(absDiff, 0.8f) * 220f * _itemSpacing * _itemScale);
 
             float centerPop = 0.18f * (float)Math.Exp(-absDiff * absDiff * 6.0f);
             float scale = Math.Max(0.1f, (1.0f + centerPop) - (absDiff * 0.06f));
+
+            float curWidthRatio = _useFullCoverSize ? itemW / (baseWidth > 0 ? baseWidth : 1.0f) : 1.0f;
+            float finalTranslationX = translationX * curWidthRatio;
+
             if (i == _draggingIndex)
             {
-                if (_isDropping) { float eased = (float)(1.0 - Math.Pow(1.0 - _dropAlpha, 3)); float zS = (1000f - itemW) / 1000f; float dX = (_dragPosition.X - center.X) * zS; float dY = (_dragPosition.Y - center.Y) * zS; translationX = dX + (translationX - dX) * eased; translationY = dY + (translationY - dY) * eased; translationZ = itemW + (translationZ - itemW) * eased; scale = 0.82f + (scale - 0.82f) * eased; rotationY *= eased; }
-                else { translationZ = itemW; float zS = (1000f - translationZ) / 1000f; translationX = (_dragPosition.X - center.X) * zS; translationY = (_dragPosition.Y - center.Y) * zS; scale = 0.82f; rotationY = 0; }
+                if (_isDropping)
+                {
+                    float eased = (float)(1.0 - Math.Pow(1.0 - _dropAlpha, 3));
+                    float zS = (1000f - itemW) / 1000f;
+                    float dX = (_dragPosition.X - center.X) * zS;
+                    float dY = (_dragPosition.Y - center.Y) * zS;
+                    finalTranslationX = dX + (finalTranslationX - dX) * eased;
+                    translationY = dY + (translationY - dY) * eased;
+                    translationZ = itemW + (translationZ - itemW) * eased;
+                    scale = 0.82f + (scale - 0.82f) * eased;
+                    rotationY *= eased;
+                }
+                else
+                {
+                    translationZ = itemW;
+                    float zS = (1000f - translationZ) / 1000f;
+                    finalTranslationX = (_dragPosition.X - center.X) * zS;
+                    translationY = (_dragPosition.Y - center.Y) * zS;
+                    scale = 0.82f;
+                    rotationY = 0;
+                }
             }
-            var matrix = Matrix4x4.CreateTranslation(new Vector3(translationX, translationY, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(scale);
+
+            var matrix = Matrix4x4.CreateTranslation(new Vector3(finalTranslationX, translationY, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(scale);
             DrawQuad(canvas, itemW, itemH, matrix, img, (i == _draggingIndex ? 0 : absDiff), center);
             if (_loadingIndices.Contains(i)) DrawSpinner(canvas, center, matrix);
             var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
