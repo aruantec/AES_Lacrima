@@ -474,7 +474,7 @@ namespace AES_Controls.Helpers
                                 if (mi.Track == 0) mi.Track = trackNumber;
 
                                 mi.CoverBitmap = bmp;
-                                mi.CoverFound = true;
+                                mi.CoverFound = !string.IsNullOrEmpty(mi.FileName) && File.Exists(mi.FileName);
                                 mi.SaveCoverBitmapAction = item => TrySaveEmbeddedCover(item, imgData);
                             });
                             return true;
@@ -607,7 +607,7 @@ namespace AES_Controls.Helpers
                                 mi.CoverBitmap = _maxThumbnailWidth.HasValue
                                     ? Bitmap.DecodeToWidth(ms, _maxThumbnailWidth.Value)
                                     : new Bitmap(ms);
-                                mi.CoverFound = true;
+                                mi.CoverFound = !string.IsNullOrEmpty(mi.FileName) && File.Exists(mi.FileName);
                                 mi.SaveCoverBitmapAction = item => TrySaveEmbeddedCover(item, data);
                             });
                         }
