@@ -438,14 +438,6 @@ namespace AES_Lacrima.Behaviors
                     Path.Combine(AppContext.BaseDirectory, source.Replace('/', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar)),
                 };
 
-                var entry = Assembly.GetEntryAssembly();
-                if (entry != null)
-                {
-                    var dir = Path.GetDirectoryName(entry.Location);
-                    if (!string.IsNullOrEmpty(dir))
-                        candidates.Add(Path.Combine(dir, source.Replace('/', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar)));
-                }
-
                 foreach (var c in candidates.Distinct())
                 {
                     try

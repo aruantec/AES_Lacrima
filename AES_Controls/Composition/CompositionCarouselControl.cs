@@ -1449,13 +1449,13 @@ namespace AES_Controls.Composition
                                 int btn = HitTestOverlayButtons(point, hitIndex, new Vector2((float)Bounds.Width, (float)Bounds.Height));
                                 if (btn == 1) // OK
                                 {
-                                    var cmd = item.GetType().GetProperty("SaveCoverBitmapCommand")?.GetValue(item) as ICommand;
+                                    var cmd = item?.GetType().GetProperty("SaveCoverBitmapCommand")?.GetValue(item) as ICommand;
                                     cmd?.Execute(null);
                                     return;
                                 }
                                 else if (btn == 2) // Cancel
                                 {
-                                    var cmd = item.GetType().GetProperty("CancelCommand")?.GetValue(item) as ICommand;
+                                    var cmd = item?.GetType().GetProperty("CancelCommand")?.GetValue(item) as ICommand;
                                     cmd?.Execute(null);
                                     return;
                                 }

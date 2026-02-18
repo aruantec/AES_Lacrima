@@ -19,6 +19,9 @@ namespace AES_Controls.Player
         public static readonly StyledProperty<IList<float>?> WaveformProperty =
             AvaloniaProperty.Register<WaveformProgressBar, IList<float>?>(nameof(Waveform));
 
+        public static readonly StyledProperty<bool> IsDraggingProperty =
+            AvaloniaProperty.Register<WaveformProgressBar, bool>(nameof(IsDragging));
+
         public static readonly StyledProperty<ICommand?> DragCompletedCommandProperty =
             AvaloniaProperty.Register<WaveformProgressBar, ICommand?>(nameof(DragCompletedCommand));
 
@@ -130,6 +133,8 @@ namespace AES_Controls.Player
         public double VerticalGap { get => GetValue(VerticalGapProperty); set => SetValue(VerticalGapProperty, value); }
         /// <summary>Number of visual bars to render (0 = use waveform sample count).</summary>
         public int VisualBarCount { get => GetValue(VisualBarCountProperty); set => SetValue(VisualBarCountProperty, value); }
+        /// <summary>Whether the user is currently dragging the progress bar.</summary>
+        public bool IsDragging { get => GetValue(IsDraggingProperty); set => SetValue(IsDraggingProperty, value); }
         /// <summary>Optional gradient brush for bar fill when played.</summary>
         public LinearGradientBrush? BarGradient { get => GetValue(BarGradientProperty); set => SetValue(BarGradientProperty, value); }
         /// <summary>Whether to draw a reflected copy of bars below the baseline.</summary>
@@ -138,7 +143,6 @@ namespace AES_Controls.Player
         public bool IsSymmetric { get => GetValue(IsSymmetricProperty); set => SetValue(IsSymmetricProperty, value); }
         #endregion
 
-        private bool _isDragging;
         private double _lastValue;
         private Point? _lastMousePosition;
         private double _loadingAngle;
@@ -246,7 +250,7 @@ namespace AES_Controls.Player
 
         private void UpdateTimer_Tick(object? sender, EventArgs e)
         {
-            if (!_isDragging && Math.Abs(Value - _lastValue) > 0.0001)
+            if (!IsDragging && Math.Abs(Value - _lastValue) > 0.0001)
             {
                 _lastValue = Value;
                 UpdatePlayedCache();
@@ -266,7 +270,7 @@ namespace AES_Controls.Player
         #region Pointer Handling
         private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
         {
-            _isDragging = true;
+            IsDragging = true;
             e.Pointer.Capture(this);
             UpdateValueFromPointer(e);
         }
@@ -274,7 +278,7 @@ namespace AES_Controls.Player
         private void OnPointerMoved(object? sender, PointerEventArgs e)
         {
             _lastMousePosition = e.GetPosition(this);
-            if (_isDragging)
+            if (IsDragging)
                 UpdateValueFromPointer(e);
             else
                 InvalidateVisual();
@@ -282,12 +286,16 @@ namespace AES_Controls.Player
 
         private void OnPointerReleased(object? sender, PointerReleasedEventArgs e)
         {
-            if (_isDragging)
+            if (IsDragging)
             {
-                _isDragging = false;
+                // Update value one last time to ensure we are at the release point
                 UpdateValueFromPointer(e);
-                e.Pointer.Capture(null);
+                
+                // Execute command BEFORE clearing IsDragging to maintain seek-gate in player
                 DragCompletedCommand?.Execute(Value);
+                
+                IsDragging = false;
+                e.Pointer.Capture(null);
             }
         }
 

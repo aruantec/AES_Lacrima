@@ -46,6 +46,15 @@
                         </ControlTemplate>
                     </Button.Template>
                 </Button>
+                <!-- Logo -->
+                <Label Grid.Column="1" HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Content="AES LACRIMA"
+                       Foreground="Black"
+                       FontSize="35"
+                       Opacity="0.2"
+                       Margin="-48,-2,0,0"/>
+                <!-- Logo main content -->
                 <Label Grid.Column="1" HorizontalAlignment="Center"
                        VerticalAlignment="Center"
                        Content="AES LACRIMA"
