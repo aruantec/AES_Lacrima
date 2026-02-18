@@ -130,6 +130,9 @@
     <None Update="Shaders\Shadertoys\GalaxySpectrum.frag">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="Shaders\Shadertoys\ElectricBlur.frag">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>
