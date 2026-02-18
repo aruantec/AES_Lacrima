@@ -60,6 +60,27 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
         col += bgCol * glow * (0.3 + vol * 0.7) * (1.0 - fI * 0.1);
     }
 
+    for(int i = 0; i < 7; i++) {
+        float fI = float(i);
+        float layerTime = iTime * 0.85 - fI * 0.025;
+
+        // Intermediate parallax
+        float pX = uv.x * 1.3 + (fI - 3.5) * 0.022 * sin(iTime * 0.28);
+        float pUvScreenX = pX * (res.y / res.x) + 0.5;
+
+        float yPath = 0.09 * sin(pX * 1.6 + layerTime * 0.45);
+        float jitter = (fbm(vec2(pX * 8.0 + layerTime, layerTime * 1.8)) * 2.0 - 1.0) * 0.06 * (1.0 + mid);
+
+        float currentY = yPath + jitter - 0.075; 
+        float dist = abs(uv.y - currentY);
+
+        float colorMix = smoothstep(0.0, 1.0, pUvScreenX);
+        vec3 midCol = mix(vec3(0.0, 0.08, 0.5), vec3(0.0, 0.5, 0.1), colorMix); 
+
+        float glow = exp(-dist * 35.0) * 0.7;
+        col += midCol * glow * (0.4 + vol * 1.2) * (1.0 - fI * 0.12);
+    }
+
     // Render multiple layers of electrical arcs with time offsets to simulate motion blur/persistence
     const int numLayers = 10;
     for(int i = 0; i < numLayers; i++) {
