@@ -38,7 +38,6 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
 
     vec3 col = vec3(0.0);
 
-    // --- BACKGROUND PLANE (Distant copy with different parallax) ---
     for(int i = 0; i < 5; i++) {
         float fI = float(i);
         float layerTime = iTime * 0.7 - fI * 0.03;
@@ -56,8 +55,8 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
         float colorMix = smoothstep(-0.2, 1.2, pUvScreenX);
         vec3 bgCol = mix(vec3(0.0, 0.05, 0.3), vec3(0.0, 0.3, 0.05), colorMix); 
 
-        float glow = exp(-dist * 30.0) * 0.5;
-        col += bgCol * glow * (0.3 + vol * 0.7) * (1.0 - fI * 0.1);
+        float glow = exp(-dist * 50.0) * 0.35;
+        col += bgCol * glow * (0.2 + vol * 0.5) * (1.0 - fI * 0.1);
     }
 
     for(int i = 0; i < 7; i++) {
@@ -77,8 +76,8 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
         float colorMix = smoothstep(0.0, 1.0, pUvScreenX);
         vec3 midCol = mix(vec3(0.0, 0.08, 0.5), vec3(0.0, 0.5, 0.1), colorMix); 
 
-        float glow = exp(-dist * 35.0) * 0.7;
-        col += midCol * glow * (0.4 + vol * 1.2) * (1.0 - fI * 0.12);
+        float glow = exp(-dist * 60.0) * 0.45;
+        col += midCol * glow * (0.3 + vol * 0.8) * (1.0 - fI * 0.12);
     }
 
     // Render multiple layers of electrical arcs with time offsets to simulate motion blur/persistence
@@ -129,23 +128,23 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
         float sparkIntensity = 0.3 + 1.4 * spark;
 
         // Electric Arc: Core + Inner Glow + Outer Glow (Sharpened)
-        float coreWidth = (0.006 + 0.005 * beat) * (1.0 - 0.4 * greenBoost);
+        float coreWidth = (0.005 + 0.004 * beat) * (1.0 - 0.4 * greenBoost);
         float core = smoothstep(coreWidth, 0.0, dist); 
-        float innerGlow = exp(-dist * (40.0 + 25.0 * greenBoost - 15.0 * beat)) * (0.9 + 0.6 * beat); 
-        float outerGlow = exp(-dist * 12.0) * 0.15;
+        float innerGlow = exp(-dist * (60.0 + 30.0 * greenBoost - 15.0 * beat)) * (0.5 + 0.4 * beat); 
+        float outerGlow = exp(-dist * 20.0) * 0.08;
 
         // Fade out layers for the blur effect
         float layerAlpha = pow(1.0 - (fI / float(numLayers)), 2.0);
 
         // Final color assembly for the layer
-        col += layerCol * (core * (4.0 + 1.5 * greenBoost) + innerGlow + outerGlow) * sparkIntensity * layerAlpha * (0.4 + vol * 2.5);
+        col += layerCol * (core * (4.0 + 1.5 * greenBoost) + innerGlow + outerGlow) * sparkIntensity * layerAlpha * (0.4 + vol * 1.8);
     }
 
     // Add secondary "ghost" arcs that flash with high frequencies
     if (treble > 0.6) {
         float ghostJitter = (fbm(vec2(uv.x * 20.0, iTime * 10.0)) * 2.0 - 1.0) * 0.05;
         float ghostDist = abs(uv.y - ghostJitter);
-        col += vec3(0.5, 0.8, 1.0) * exp(-ghostDist * 50.0) * (treble - 0.6) * 2.0;
+        col += vec3(0.5, 0.8, 1.0) * exp(-ghostDist * 80.0) * (treble - 0.6) * 1.2;
     }
 
     // Subtle background vignette
