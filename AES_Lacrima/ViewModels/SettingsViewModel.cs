@@ -5,12 +5,14 @@ using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
+using System.Threading.Tasks;
 
 namespace AES_Lacrima.ViewModels;
 
@@ -248,6 +250,109 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         UpdateSpectrumGradient();
     }
 
+    /// <summary>
+    /// Gets or sets the FFmpeg manager for managing installations and updates.
+    /// </summary>
+    [AutoResolve]
+    [ObservableProperty]
+    private FFmpegManager? _ffmpegManager;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether FFmpeg is currently installed.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isFfmpegInstalled;
+
+    /// <summary>
+    /// Gets or sets the currently installed FFmpeg version.
+    /// </summary>
+    [ObservableProperty]
+    private string? _ffmpegVersion;
+
+    /// <summary>
+    /// Gets or sets the version of an available FFmpeg update.
+    /// </summary>
+    [ObservableProperty]
+    private string? _ffmpegUpdateVersion;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether an FFmpeg update is currently available.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isFfmpegUpdateAvailable;
+
+    /// <summary>
+    /// Refreshes the information about the current FFmpeg installation and updates.
+    /// </summary>
+    [RelayCommand]
+    private async Task RefreshFFmpegInfo()
+    {
+        if (FfmpegManager == null) return;
+        FfmpegManager.ReportActivity(true);
+        try
+        {
+            IsFfmpegInstalled = FfmpegManager.IsFFmpegAvailable();
+            FfmpegVersion = await FfmpegManager.GetCurrentVersionAsync();
+            var updateDetails = await FfmpegManager.CheckForUpdateDetailsAsync();
+            IsFfmpegUpdateAvailable = updateDetails?.UpdateAvailable ?? false;
+            FfmpegUpdateVersion = updateDetails?.NewVersion;
+
+            if (!IsFfmpegInstalled)
+            {
+                FfmpegManager.Status = "FFmpeg check completed: Not found.";
+            }
+            else if (IsFfmpegUpdateAvailable)
+            {
+                FfmpegManager.Status = $"FFmpeg update found: {FfmpegUpdateVersion}.";
+            }
+            else
+            {
+                FfmpegManager.Status = $"FFmpeg is up to date ({FfmpegVersion}).";
+            }
+        }
+        catch (Exception ex)
+        {
+            FfmpegManager.Status = $"FFmpeg check failed: {ex.Message}";
+        }
+        finally
+        {
+            FfmpegManager.ReportActivity(false);
+        }
+    }
+
+    /// <summary>
+    /// Installs FFmpeg using the system's package manager.
+    /// </summary>
+    [RelayCommand]
+    private async Task InstallFFmpeg()
+    {
+        if (FfmpegManager == null) return;
+        await FfmpegManager.InstallAsync();
+        await RefreshFFmpegInfo();
+    }
+
+    /// <summary>
+    /// Updates FFmpeg to the latest available version using the system's package manager.
+    /// </summary>
+    [RelayCommand]
+    private async Task UpdateFFmpeg()
+    {
+        if (FfmpegManager == null) return;
+        await FfmpegManager.UpgradeAsync();
+        await RefreshFFmpegInfo();
+    }
+
+    /// <summary>
+    /// Uninstalls FFmpeg from the system using the package manager.
+    /// </summary>
+    [RelayCommand]
+    private async Task UninstallFFmpeg()
+    {
+        if (FfmpegManager == null) return;
+        await FfmpegManager.UninstallAsync();
+        await RefreshFFmpegInfo();
+    }
+
     // Carousel settings (used by CompositionCarouselControl)
     [ObservableProperty]
     private double _carouselSpacing = 0.93;
@@ -323,6 +428,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ShaderToys = [.. GetLocalShaders(_shaderToysDirectory, "*.frag")];
         // Load settings
         LoadSettings();
+
+        // Refresh FFmpeg info
+        _ = RefreshFFmpegInfo();
 
         // Generate dummy preview items
         var defaultCover = PlaceholderGenerator.GenerateMusicPlaceholder();
