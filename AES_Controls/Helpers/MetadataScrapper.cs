@@ -29,7 +29,7 @@ namespace AES_Controls.Helpers
         /// <summary>The default limit for embedded image extraction (4MB).</summary>
         internal const int DefaultMaxEmbeddedImageBytes = 4 * 1024 * 1024;
         private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(10) };
-        private static readonly SemaphoreSlim SharedThrottle = new(6);
+        private static readonly SemaphoreSlim SharedThrottle = new(3);
         private readonly AvaloniaList<MediaItem> _playlist;
         private readonly Bitmap _defaultCover;
         private readonly ConcurrentDictionary<string, Bitmap> _coverCache = new(StringComparer.OrdinalIgnoreCase);
@@ -76,11 +76,16 @@ namespace AES_Controls.Helpers
                 try { SharedHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd(agentInfo); }
                 catch (Exception ex) { Log.Warn($"Failed to parse User-Agent: {agentInfo}", ex); }
             }
-            // Enqueue initial load for existing items in the playlist
+            // Enqueue initial load for existing items in the playlist with incremental delays to avoid UI stutters
             _ = Task.Run(async () =>
             {
                 var items = _playlist.ToArray();
-                foreach (var mi in items) await EnqueueLoadFor(mi);
+                for (int i = 0; i < items.Length; i++)
+                {
+                    // Delay slightly every 5 items to allow UI thread breathing room
+                    if (items.Length > 15 && i % 5 == 0) await Task.Delay(10);
+                    await EnqueueLoadFor(items[i]);
+                }
             });
             // Subscribe to playlist changes to handle new items and removals
             _playlist.CollectionChanged += Playlist_CollectionChanged;
@@ -237,7 +242,10 @@ namespace AES_Controls.Helpers
                     mi.Genre = tagResult.ge;
                     mi.Comment = tagResult.co;
                     mi.Lyrics = tagResult.ly;
-                });
+                }, DispatcherPriority.Background);
+
+                // Small yield to UI thread
+                await Task.Delay(1, token);
 
                 // If the tag contained any embedded pictures, always prioritize those
                 // and do not perform online lookups even if decoding fails.

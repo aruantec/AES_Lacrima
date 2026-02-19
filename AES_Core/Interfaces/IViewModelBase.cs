@@ -37,4 +37,10 @@ public interface IViewModelBase
     /// Load persisted settings and apply them to the view-model.
     /// </summary>
     void LoadSettings();
+
+    /// <summary>
+    /// Load persisted settings and apply them to the view-model asynchronously.
+    /// </summary>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    System.Threading.Tasks.Task LoadSettingsAsync();
 }

@@ -9,6 +9,8 @@ namespace AES_Controls.Helpers
     /// </summary>
     public static class PlaceholderGenerator
     {
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<(int, int), Bitmap> _cache = new();
+
         /// <summary>
         /// Generates a default cover bitmap with a musical note icon.
         /// </summary>
@@ -17,6 +19,8 @@ namespace AES_Controls.Helpers
         /// <returns>A new <see cref="Bitmap"/> containing the placeholder graphic.</returns>
         public static Bitmap GenerateMusicPlaceholder(int width = 400, int height = 400)
         {
+            if (_cache.TryGetValue((width, height), out var cached)) return cached;
+
             var size = new PixelSize(width, height);
             var renderTarget = new RenderTargetBitmap(size, new Vector(96, 96));
 
@@ -66,6 +70,7 @@ namespace AES_Controls.Helpers
                 context.DrawGeometry(noteBrush, null, stream);
             }
 
+            _cache[(width, height)] = renderTarget;
             return renderTarget;
         }
     }
