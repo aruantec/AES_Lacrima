@@ -183,9 +183,10 @@
             </StackPanel>
 
             <Border Height="40"
+                    Width="700"
                     Background="White"
-                    Width="600"
-                    CornerRadius="8,8,0,0"/>
+                    CornerRadius="8,8,0,0"
+                    Opacity="0.6"/>
         </StackPanel>
     </Grid>
 </UserControl>

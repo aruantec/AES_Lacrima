@@ -2,6 +2,7 @@
 using AES_Lacrima.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System.Text.Json.Nodes;
 
 namespace AES_Lacrima.ViewModels
 {
@@ -18,6 +19,18 @@ namespace AES_Lacrima.ViewModels
     [AutoRegister]
     internal partial class MainContentViewModel : ViewModelBase, IMainContentViewModel
     {
+        [ObservableProperty]
+        private double _playerInfoLeft = double.NaN;
+
+        [ObservableProperty]
+        private double _playerInfoTop = double.NaN;
+
+        [ObservableProperty]
+        private double _playerInfoWidth = 500;
+
+        [ObservableProperty]
+        private double _playerInfoHeight = double.NaN;
+
         /// <summary>
         /// Provides access to the navigation service used for managing
         /// navigation within the application. Resolved by the DI container.
@@ -67,6 +80,34 @@ namespace AES_Lacrima.ViewModels
         private void ShowSettings()
         {
             _navigationService?.ToggleSettingsOverlayCommand.Execute(null);
+        }
+
+        public override void Prepare()
+        {
+            base.Prepare();
+            LoadSettings();
+        }
+
+        protected override void OnLoadSettings(JsonObject section)
+        {
+            PlayerInfoLeft = ReadDoubleSetting(section, nameof(PlayerInfoLeft), double.NaN);
+            PlayerInfoTop = ReadDoubleSetting(section, nameof(PlayerInfoTop), double.NaN);
+            PlayerInfoWidth = ReadDoubleSetting(section, nameof(PlayerInfoWidth), 300);
+            PlayerInfoHeight = ReadDoubleSetting(section, nameof(PlayerInfoHeight), double.NaN);
+        }
+
+        protected override void OnSaveSettings(JsonObject section)
+        {
+            WriteSetting(section, nameof(PlayerInfoLeft), PlayerInfoLeft);
+            WriteSetting(section, nameof(PlayerInfoTop), PlayerInfoTop);
+            WriteSetting(section, nameof(PlayerInfoWidth), PlayerInfoWidth);
+            WriteSetting(section, nameof(PlayerInfoHeight), PlayerInfoHeight);
+        }
+
+        [RelayCommand]
+        private void SaveWidgetSettings()
+        {
+            SaveSettings();
         }
     }
 }
