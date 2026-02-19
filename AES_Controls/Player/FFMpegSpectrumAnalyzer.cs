@@ -18,6 +18,7 @@ namespace AES_Controls.Players
     {
         private readonly AvaloniaList<double> _spectrum;
         private readonly AudioPlayer _player;
+        private readonly FFmpegManager? _ffmpegManager;
         private string? _path;
         private Process? _ffmpegProcess;
         private CancellationTokenSource? _cts;
@@ -32,10 +33,12 @@ namespace AES_Controls.Players
         /// </summary>
         /// <param name="spectrum">Collection to receive spectrum values.</param>
         /// <param name="player">AudioPlayer used to determine playback state and timing.</param>
-        public FfMpegSpectrumAnalyzer(AvaloniaList<double> spectrum, AudioPlayer player)
+        /// <param name="ffmpegManager">Manager to report activity status.</param>
+        public FfMpegSpectrumAnalyzer(AvaloniaList<double> spectrum, AudioPlayer player, FFmpegManager? ffmpegManager = null)
         {
             _spectrum = spectrum;
             _player = player;
+            _ffmpegManager = ffmpegManager;
             _processedSeconds = 0.0;
         }
 
@@ -89,7 +92,12 @@ namespace AES_Controls.Players
             _cts?.Cancel();
             _cts?.Dispose();
             _cts = new CancellationTokenSource();
-            _analysisTask = Task.Run(() => AnalyzeSpectrum(_cts.Token), _cts.Token);
+            _ffmpegManager?.ReportActivity(true);
+
+            _analysisTask = Task.Run(() => {
+                try { AnalyzeSpectrum(_cts.Token); }
+                finally { _ffmpegManager?.ReportActivity(false); }
+            }, _cts.Token);
         }
 
         /// <summary>

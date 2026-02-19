@@ -62,10 +62,12 @@ namespace AES_Lacrima
                 }
                 // Ensure MPV is installed and available for the application
                 await MpvSetup.EnsureInstalled();
-                // Ensure FFmpeg is installed and available for the application
-                var ffmpegManager = new FFmpegManager();
-                // Check if FFmpeg is already available before attempting installation
-                await ffmpegManager.EnsureFFmpegInstalledAsync();
+                // Obtain a single shared FFmpeg manager to track status and installation
+                var ffmpegManager = DiLocator.ResolveViewModel<FFmpegManager>();
+                if (ffmpegManager != null)
+                {
+                    await ffmpegManager.EnsureFFmpegInstalledAsync();
+                }
                 // Ensure yt-dlp is installed and available for the application
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 {

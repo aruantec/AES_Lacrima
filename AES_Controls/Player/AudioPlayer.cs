@@ -34,6 +34,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     private MediaItem? _currentMediaItem;
 
     private readonly FfMpegSpectrumAnalyzer? _spectrumAnalyzer;
+    private readonly FFmpegManager? _ffmpegManager;
     private CancellationTokenSource? _waveformCts;
     private readonly TaskCompletionSource _initTcs = new();
     private double _volume = 70;
@@ -260,32 +261,25 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// Creates a new <see cref="AudioPlayer"/> instance and configures
     /// default mpv properties and event handlers.
     /// </summary>
-    public AudioPlayer()
+    /// <param name="ffmpegManager">Manager to report activity status for external processes.</param>
+    public AudioPlayer(FFmpegManager? ffmpegManager = null)
     {
         _syncContext = SynchronizationContext.Current;
+        _ffmpegManager = ffmpegManager;
+
+        if (_ffmpegManager != null)
+        {
+            _ffmpegManager.RequestFfmpegTermination += OnRequestFfmpegTermination;
+            _ffmpegManager.InstallationCompleted += OnFfmpegInstallationCompleted;
+        }
 
         Waveform = [];
         Spectrum = [];
 
         // Always create the analyzer, so it's ready if EnabledSpectrum is toggled
-        _spectrumAnalyzer = new FfMpegSpectrumAnalyzer(Spectrum, this);
+        _spectrumAnalyzer = new FfMpegSpectrumAnalyzer(Spectrum, this, _ffmpegManager);
 
-        Playing += (s, e) =>
-        {
-            if (IsPlaying && !string.IsNullOrEmpty(_loadedFile))
-            {
-                // Only re-generate waveform if it hasn't been generated for this file yet
-                if (EnableWaveform && (_waveformLoadedFile != _loadedFile))
-                {
-                    try { _waveformCts?.Cancel(); }
-                    catch (Exception ex) { Log.Warn("Failed to cancel waveform CTS", ex); }
-                    try { _waveformCts?.Dispose(); }
-                    catch (Exception ex) { Log.Warn("Failed to dispose waveform CTS", ex); }
-                    _waveformCts = new CancellationTokenSource();
-                    _ = GenerateWaveformAsync(_loadedFile, _waveformCts.Token, WaveformBuckets);
-                }
-            }
-        };
+        Playing += (s, e) => CheckAndStartFfmpegTasks();
 
         // Offload heavy MPV initialization to avoid blocking the UI thread
         _ = Task.Run(InitializeMpvAsync);
@@ -337,6 +331,44 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         {
             Log.Error("Failed to initialize AudioPlayer asynchronously", ex);
             _initTcs.TrySetException(ex);
+        }
+    }
+
+    private void OnRequestFfmpegTermination()
+    {
+        _spectrumAnalyzer?.Stop();
+        _waveformCts?.Cancel();
+        try { _activeFfmpegProcess?.Kill(true); } catch { }
+    }
+
+    private void OnFfmpegInstallationCompleted(object? sender, FFmpegManager.InstallationCompletedEventArgs e)
+    {
+        if (e.Success)
+        {
+            _syncContext?.Post(_ => CheckAndStartFfmpegTasks(), null);
+        }
+    }
+
+    private void CheckAndStartFfmpegTasks()
+    {
+        if (string.IsNullOrEmpty(_loadedFile)) return;
+
+        // Start spectrum if playing and enabled
+        if (IsPlaying && EnableSpectrum && !IsSeeking)
+        {
+            _spectrumAnalyzer?.SetStartPosition(Position);
+            _spectrumAnalyzer?.Start();
+        }
+
+        // Start waveform if missing or not for the current file
+        if (EnableWaveform && (_waveformLoadedFile != _loadedFile))
+        {
+            try { _waveformCts?.Cancel(); }
+            catch (Exception ex) { Log.Warn("Failed to cancel waveform CTS", ex); }
+            try { _waveformCts?.Dispose(); }
+            catch (Exception ex) { Log.Warn("Failed to dispose waveform CTS", ex); }
+            _waveformCts = new CancellationTokenSource();
+            _ = GenerateWaveformAsync(_loadedFile, _waveformCts.Token, WaveformBuckets);
         }
     }
 
@@ -516,6 +548,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         if (!EnableWaveform || string.IsNullOrEmpty(path) || buckets <= 0) return;
         _waveformLoadedFile = path;
 
+        _ffmpegManager?.ReportActivity(true);
         try
         {
             if (_activeFfmpegProcess != null && !_activeFfmpegProcess.HasExited)
@@ -677,7 +710,11 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             }, null);
         }
         catch (Exception ex) { Log.Error($"Error generating waveform for {path}", ex); }
-        finally { IsLoadingWaveform = false; }
+        finally
+        {
+            IsLoadingWaveform = false;
+            _ffmpegManager?.ReportActivity(false);
+        }
     }
 
     /// <summary>
@@ -882,6 +919,12 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// </summary>
     public new void Dispose()
     {
+        if (_ffmpegManager != null)
+        {
+            _ffmpegManager.RequestFfmpegTermination -= OnRequestFfmpegTermination;
+            _ffmpegManager.InstallationCompleted -= OnFfmpegInstallationCompleted;
+        }
+
         try { MpvEvent -= OnMpvEvent; }
         catch (Exception ex) { Log.Warn("Failed to remove mpv event handler", ex); }
         try { _spectrumAnalyzer?.Stop(); }

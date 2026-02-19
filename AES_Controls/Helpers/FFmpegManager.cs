@@ -1,9 +1,8 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
-using System;
+﻿using AES_Core.DI;
+using CommunityToolkit.Mvvm.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -14,8 +13,36 @@ namespace AES_Controls.Helpers;
 /// Exposes a simple status and busy indicator and provides an async method
 /// to ensure FFmpeg is installed (using platform-specific installers).
 /// </summary>
+[AutoRegister]
 public partial class FFmpegManager : ObservableObject
 {
+    /// <summary>
+    /// Event raised when FFmpeg processes should be terminated (e.g., before uninstallation).
+    /// </summary>
+    public event Action? RequestFfmpegTermination;
+
+    /// <summary>
+    /// Attempts to stop all active FFmpeg processes across the application.
+    /// Broadcasts <see cref="RequestFfmpegTermination"/> and kills lingering ffmpeg processes.
+    /// </summary>
+    public void KillAllFfmpegActivity()
+    {
+        // 1. Notify listeners to cancel operations
+        RequestFfmpegTermination?.Invoke();
+
+        // 2. Kill all ffmpeg child processes (best effort)
+        try
+        {
+            var processes = Process.GetProcessesByName("ffmpeg");
+            foreach (var p in processes)
+            {
+                try { p.Kill(true); }
+                catch { }
+            }
+        }
+        catch { }
+    }
+
     /// <summary>
     /// Human readable status text for display in the UI.
     /// This backing field is populated by the <see cref="ObservablePropertyAttribute"/> source generator.
@@ -23,12 +50,49 @@ public partial class FFmpegManager : ObservableObject
     [ObservableProperty]
     private string _status = "Idle";
 
+    private int _activeTaskCount;
+    private int _lastExitCode;
+
     /// <summary>
     /// Indicates an ongoing operation (installation in progress).
     /// This backing field is populated by the <see cref="ObservablePropertyAttribute"/> source generator.
     /// </summary>
     [ObservableProperty]
     private bool _isBusy;
+
+    partial void OnIsBusyChanged(bool value)
+    {
+        if (!value) UpdateStatusInternal();
+    }
+
+    /// <summary>
+    /// Reports FFmpeg activity (e.g. background analysis or decoding) to updating the status label.
+    /// </summary>
+    /// <param name="isActive">True if background FFmpeg activity is starting; false if it has stopped.</param>
+    public void ReportActivity(bool isActive)
+    {
+        if (isActive) Interlocked.Increment(ref _activeTaskCount);
+        else Interlocked.Decrement(ref _activeTaskCount);
+        
+        // Ensure count doesn't drop below zero due to race conditions or mismatched calls
+        if (_activeTaskCount < 0) Interlocked.Exchange(ref _activeTaskCount, 0);
+
+        UpdateStatusInternal();
+    }
+
+    private void UpdateStatusInternal()
+    {
+        if (IsBusy) return;
+        
+        if (_activeTaskCount > 0)
+        {
+            Status = $"FFmpeg is active ({_activeTaskCount} task(s))";
+        }
+        else if (string.IsNullOrEmpty(Status) || Status == "Idle" || Status.StartsWith("FFmpeg is active"))
+        {
+            Status = "Idle";
+        }
+    }
 
     /// <summary>
     /// Ensures that FFmpeg is available on the system. If FFmpeg cannot be
@@ -62,7 +126,7 @@ public partial class FFmpegManager : ObservableObject
 
         bool success = await RunPlatformInstaller();
 
-        Status = success ? "FFmpeg installation successful." : "FFmpeg installation failed.";
+        Status = success ? "FFmpeg installation successful." : $"FFmpeg installation failed (Exit code: {_lastExitCode}).";
         IsBusy = false;
 
         InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(success, Status));
@@ -80,24 +144,24 @@ public partial class FFmpegManager : ObservableObject
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            result = await ExecuteCommandAsync("winget", "upgrade --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements");
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            result = await ExecuteCommandAsync("brew", "upgrade ffmpeg");
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            result = await ExecuteCommandAsync("sudo", "apt-get install -y ffmpeg");
-        }
+                result = await ExecuteCommandAsync("winget", "upgrade --id Gyan.FFmpeg -e --silent --accept-source-agreements --accept-package-agreements");
+                }
+                else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                {
+                    result = await ExecuteCommandAsync("brew", "upgrade ffmpeg");
+                }
+                else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                {
+                    result = await ExecuteCommandAsync("sudo", "apt-get install -y ffmpeg");
+                }
 
-        Status = result ? "FFmpeg upgrade completed." : "FFmpeg upgrade failed.";
-        IsBusy = false;
+                IsBusy = false;
+                Status = result ? "FFmpeg upgrade completed." : $"FFmpeg upgrade failed (Exit code: {_lastExitCode}).";
 
-        InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(result, Status));
+                InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(result, Status));
 
-        return result;
-    }
+                return result;
+            }
 
     /// <summary>
     /// Checks whether an update is available for FFmpeg through the platform package manager.
@@ -256,6 +320,9 @@ public partial class FFmpegManager : ObservableObject
     /// </summary>
     public async Task<bool> UninstallAsync()
     {
+        KillAllFfmpegActivity();
+        await Task.Delay(500); // Give processes a moment to terminate
+
         IsBusy = true;
         Status = "Uninstalling FFmpeg...";
 
@@ -263,7 +330,7 @@ public partial class FFmpegManager : ObservableObject
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            result = await ExecuteCommandAsync("winget", "uninstall --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements");
+            result = await ExecuteCommandAsync("winget", "uninstall --id Gyan.FFmpeg -e --silent");
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
@@ -274,8 +341,9 @@ public partial class FFmpegManager : ObservableObject
             result = await ExecuteCommandAsync("sudo", "apt-get remove -y ffmpeg");
         }
 
-        Status = result ? "FFmpeg uninstalled." : "FFmpeg uninstall failed.";
         IsBusy = false;
+
+        Status = result ? "FFmpeg uninstalled." : $"FFmpeg uninstall failed (Exit code: {(_lastExitCode == 0 ? "Unknown" : _lastExitCode)}).";
 
         InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(result, Status));
 
@@ -283,14 +351,22 @@ public partial class FFmpegManager : ObservableObject
     }
 
     /// <summary>
-    /// Checks if FFmpeg is accessible via the system PATH.
+    /// Gets the current version of FFmpeg installed in the system PATH.
     /// </summary>
+    public async Task<string?> GetCurrentVersionAsync()
+    {
+        var output = await ExecuteCommandCaptureAsync("ffmpeg", "-version");
+        if (string.IsNullOrEmpty(output)) return null;
+        var firstLine = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return ExtractVersionFromText(firstLine ?? string.Empty);
+    }
+
     /// <summary>
     /// Checks whether FFmpeg is accessible via the system PATH by attempting
     /// to start the process with the <c>-version</c> argument.
     /// </summary>
     /// <returns><c>true</c> when FFmpeg appears available; otherwise <c>false</c>.</returns>
-    private bool IsFFmpegAvailable()
+    public bool IsFFmpegAvailable()
     {
         try
         {
@@ -323,7 +399,7 @@ public partial class FFmpegManager : ObservableObject
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             // Using -e (exact) and gyan builds which are the standard for Windows
-            return await ExecuteCommandAsync("winget", "install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements");
+            return await ExecuteCommandAsync("winget", "install --id Gyan.FFmpeg -e --silent --accept-source-agreements --accept-package-agreements");
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
@@ -363,7 +439,11 @@ public partial class FFmpegManager : ObservableObject
         try
         {
             var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-            process.Exited += (_, _) => tcs.SetResult(process.ExitCode == 0);
+            process.Exited += (_, _) =>
+            {
+                _lastExitCode = process.ExitCode;
+                tcs.SetResult(process.ExitCode == 0);
+            };
             process.Start();
         }
         catch (Exception ex)
