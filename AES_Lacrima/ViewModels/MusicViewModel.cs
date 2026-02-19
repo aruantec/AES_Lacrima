@@ -193,7 +193,7 @@ namespace AES_Lacrima.ViewModels
             }
             else
             {
-                HighlightedItem = null;
+                HighlightedItem = new MediaItem { Title = string.Empty, Artist = string.Empty, Album = string.Empty };
                 SelectedIndex = -1;
             }
         }
@@ -565,6 +565,21 @@ namespace AES_Lacrima.ViewModels
         {
             // Ensure the initial AlbumList is registered for changes (CollectionChanged and PropertyChanged on items)
             OnAlbumListChanged(null, AlbumList);
+
+            // Initialize selected/highlighted media items to avoid null reference bindings in the view
+            SelectedMediaItem = new MediaItem
+            {
+                Title = "No File Loaded",
+                Artist = string.Empty,
+                Album = string.Empty
+            };
+
+            HighlightedItem = new MediaItem
+            {
+                Title = string.Empty,
+                Artist = string.Empty,
+                Album = string.Empty
+            };
         }
 
         public override void Prepare()
@@ -817,7 +832,7 @@ namespace AES_Lacrima.ViewModels
             {
                 CoverItems = new AvaloniaList<MediaItem>();
                 SelectedIndex = 0;
-                HighlightedItem = null;
+                HighlightedItem = new MediaItem { Title = string.Empty, Artist = string.Empty, Album = string.Empty };
                 return;
             }
             if (string.IsNullOrWhiteSpace(SearchText))
@@ -834,7 +849,7 @@ namespace AES_Lacrima.ViewModels
             }
             SelectedIndex = 0;
             if (CoverItems.Count > 0) HighlightedItem = CoverItems[0];
-            else HighlightedItem = null;
+            else HighlightedItem = new MediaItem { Title = string.Empty, Artist = string.Empty, Album = string.Empty };
         }
 
         private string GetUniqueAlbumName(string baseName)

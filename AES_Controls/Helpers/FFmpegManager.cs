@@ -1,6 +1,11 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
+using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace AES_Controls.Helpers;
 
@@ -39,6 +44,19 @@ public partial class FFmpegManager : ObservableObject
             return;
         }
 
+        await InstallAsync();
+    }
+
+    /// <summary>
+    /// Raised when an installation/upgrade/uninstall operation completes.
+    /// </summary>
+    public event EventHandler<InstallationCompletedEventArgs>? InstallationCompleted;
+
+    /// <summary>
+    /// Installs FFmpeg using the platform-specific installer and raises <see cref="InstallationCompleted"/>.
+    /// </summary>
+    public async Task InstallAsync()
+    {
         IsBusy = true;
         Status = "FFmpeg not found. Starting installation...";
 
@@ -46,6 +64,222 @@ public partial class FFmpegManager : ObservableObject
 
         Status = success ? "FFmpeg installation successful." : "FFmpeg installation failed.";
         IsBusy = false;
+
+        InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(success, Status));
+    }
+
+    /// <summary>
+    /// Attempts to upgrade FFmpeg using the platform-specific package manager.
+    /// </summary>
+    public async Task<bool> UpgradeAsync()
+    {
+        IsBusy = true;
+        Status = "Starting FFmpeg upgrade...";
+
+        bool result = false;
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            result = await ExecuteCommandAsync("winget", "upgrade --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements");
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            result = await ExecuteCommandAsync("brew", "upgrade ffmpeg");
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            result = await ExecuteCommandAsync("sudo", "apt-get install -y ffmpeg");
+        }
+
+        Status = result ? "FFmpeg upgrade completed." : "FFmpeg upgrade failed.";
+        IsBusy = false;
+
+        InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(result, Status));
+
+        return result;
+    }
+
+    /// <summary>
+    /// Checks whether an update is available for FFmpeg through the platform package manager.
+    /// This performs a best-effort check and may return false when detection is inconclusive.
+    /// </summary>
+    public async Task<bool> CheckForUpdateAsync()
+    {
+        var details = await CheckForUpdateDetailsAsync();
+        return details?.UpdateAvailable ?? false;
+    }
+
+    /// <summary>
+    /// Returns detailed information about an available FFmpeg update (best-effort).
+    /// </summary>
+    public async Task<CheckUpdateResult?> CheckForUpdateDetailsAsync()
+    {
+        try
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                // Try JSON output first
+                var json = await ExecuteCommandCaptureAsync("winget", "upgrade --id Gyan.FFmpeg --output json");
+                if (!string.IsNullOrEmpty(json) && json.TrimStart().StartsWith("["))
+                {
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(json);
+                        foreach (var el in doc.RootElement.EnumerateArray())
+                        {
+                            foreach (var prop in el.EnumerateObject())
+                            {
+                                var name = prop.Name;
+                                if (name.IndexOf("available", StringComparison.OrdinalIgnoreCase) >= 0 || string.Equals(name, "AvailableVersion", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    var ver = prop.Value.GetString();
+                                    if (!string.IsNullOrEmpty(ver))
+                                        return new CheckUpdateResult(true, ver, json);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // Fallback: text parsing
+                var output = await ExecuteCommandCaptureAsync("winget", "upgrade --id Gyan.FFmpeg");
+                if (string.IsNullOrWhiteSpace(output)) return new CheckUpdateResult(false, null, output);
+
+                if (output.Contains("No applicable upgrade", StringComparison.OrdinalIgnoreCase) || output.Contains("No applicable upgrades", StringComparison.OrdinalIgnoreCase))
+                    return new CheckUpdateResult(false, null, output);
+
+                var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var line in lines)
+                {
+                    if (line.IndexOf("Gyan.FFmpeg", StringComparison.OrdinalIgnoreCase) >= 0 || line.IndexOf("ffmpeg", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        var ver = ExtractVersionFromText(line);
+                        if (!string.IsNullOrEmpty(ver)) return new CheckUpdateResult(true, ver, output);
+                    }
+                }
+
+                return new CheckUpdateResult(false, null, output);
+            }
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                var infoJson = await ExecuteCommandCaptureAsync("brew", "info --json=v2 ffmpeg");
+                var installed = await ExecuteCommandCaptureAsync("brew", "list --versions ffmpeg");
+
+                string? latest = null;
+                if (!string.IsNullOrEmpty(infoJson) && infoJson.TrimStart().StartsWith("{"))
+                {
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(infoJson);
+                        if (doc.RootElement.TryGetProperty("formulae", out var arr) && arr.GetArrayLength() > 0)
+                        {
+                            var f = arr[0];
+                            if (f.TryGetProperty("versions", out var versions) && versions.TryGetProperty("stable", out var stable))
+                            {
+                                latest = stable.GetString();
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                var installedVersion = ExtractVersionFromText(installed ?? string.Empty);
+                if (!string.IsNullOrEmpty(latest) && !string.Equals(latest, installedVersion, StringComparison.OrdinalIgnoreCase))
+                    return new CheckUpdateResult(true, latest, infoJson + "\n" + (installed ?? string.Empty));
+
+                return new CheckUpdateResult(false, null, infoJson + "\n" + (installed ?? string.Empty));
+            }
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                var output = await ExecuteCommandCaptureAsync("bash", "-lc \"apt-cache policy ffmpeg\"");
+                if (string.IsNullOrWhiteSpace(output)) return new CheckUpdateResult(false, null, output);
+
+                string? candidate = null;
+                string? installed = null;
+                var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var line in lines)
+                {
+                    var trimmed = line.Trim();
+                    if (trimmed.StartsWith("Candidate:", StringComparison.OrdinalIgnoreCase))
+                        candidate = trimmed.Substring("Candidate:".Length).Trim();
+                    if (trimmed.StartsWith("Installed:", StringComparison.OrdinalIgnoreCase))
+                        installed = trimmed.Substring("Installed:".Length).Trim();
+                }
+
+                if (!string.IsNullOrEmpty(candidate) && !string.Equals(candidate, installed, StringComparison.OrdinalIgnoreCase) && candidate != "(none)")
+                    return new CheckUpdateResult(true, candidate, output);
+
+                return new CheckUpdateResult(false, null, output);
+            }
+
+            return new CheckUpdateResult(false, null, null);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"CheckForUpdateDetailsAsync error: {ex.Message}");
+            return new CheckUpdateResult(false, null, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Result of a detailed update check.
+    /// </summary>
+    public sealed class CheckUpdateResult
+    {
+        public CheckUpdateResult(bool updateAvailable, string? newVersion, string? rawOutput)
+        {
+            UpdateAvailable = updateAvailable;
+            NewVersion = newVersion;
+            RawOutput = rawOutput;
+        }
+
+        public bool UpdateAvailable { get; }
+        public string? NewVersion { get; }
+        public string? RawOutput { get; }
+    }
+
+    private static string? ExtractVersionFromText(string input)
+    {
+        if (string.IsNullOrEmpty(input)) return null;
+        var m = Regex.Match(input, @"\d+:?\d+(?:[.\-_]\d+)+");
+        if (m.Success) return m.Value;
+
+        m = Regex.Match(input, @"\d+(?:\.\d+)+");
+        return m.Success ? m.Value : null;
+    }
+
+    /// <summary>
+    /// Uninstalls FFmpeg via the platform-specific package manager.
+    /// </summary>
+    public async Task<bool> UninstallAsync()
+    {
+        IsBusy = true;
+        Status = "Uninstalling FFmpeg...";
+
+        bool result = false;
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            result = await ExecuteCommandAsync("winget", "uninstall --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements");
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            result = await ExecuteCommandAsync("brew", "uninstall ffmpeg");
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            result = await ExecuteCommandAsync("sudo", "apt-get remove -y ffmpeg");
+        }
+
+        Status = result ? "FFmpeg uninstalled." : "FFmpeg uninstall failed.";
+        IsBusy = false;
+
+        InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(result, Status));
+
+        return result;
     }
 
     /// <summary>
@@ -139,5 +373,61 @@ public partial class FFmpegManager : ObservableObject
         }
 
         return tcs.Task;
+    }
+
+    /// <summary>
+    /// Executes a command and captures its standard output. Returns the captured output (may be empty) or null on error.
+    /// </summary>
+    private async Task<string?> ExecuteCommandCaptureAsync(string fileName, string args)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = args,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            using var process = new Process { StartInfo = startInfo };
+            var outputBuilder = new StringBuilder();
+
+            process.Start();
+
+            var output = await process.StandardOutput.ReadToEndAsync();
+            var error = await process.StandardError.ReadToEndAsync();
+
+            await process.WaitForExitAsync();
+
+            if (!string.IsNullOrEmpty(error) && string.IsNullOrEmpty(output))
+            {
+                return error;
+            }
+
+            return output;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"ExecuteCommandCaptureAsync error: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Event args for completion events raised after install/upgrade/uninstall operations.
+    /// </summary>
+    public sealed class InstallationCompletedEventArgs : EventArgs
+    {
+        public InstallationCompletedEventArgs(bool success, string message)
+        {
+            Success = success;
+            Message = message;
+        }
+
+        public bool Success { get; }
+        public string Message { get; }
     }
 }

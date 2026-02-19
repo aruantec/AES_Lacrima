@@ -120,15 +120,15 @@
                     <DoubleTransition Property="Opacity" Duration="0:0:0.3"/>
                 </Transitions>
             </StackPanel.Transitions>
-            <TextBlock Text="{Binding HighlightedItem.Title}"
+            <TextBlock Text="{Binding HighlightedItem.Title, FallbackValue=''}"
                        FontSize="28" FontWeight="SemiBold" Foreground="White"
                        HorizontalAlignment="Center" TextAlignment="Center" 
                        MaxWidth="1000" TextTrimming="CharacterEllipsis"/>
-            <TextBlock Text="{Binding HighlightedItem.Artist}"
+            <TextBlock Text="{Binding HighlightedItem.Artist, FallbackValue=''}"
                        FontSize="19" Foreground="#CCFFFFFF"
                        HorizontalAlignment="Center" TextAlignment="Center"
                        MaxWidth="900" TextTrimming="CharacterEllipsis"/>
-            <TextBlock Text="{Binding HighlightedItem.Album}"
+            <TextBlock Text="{Binding HighlightedItem.Album, FallbackValue=''}"
                        FontSize="16" Foreground="#99FFFFFF"
                        HorizontalAlignment="Center" TextAlignment="Center"
                        MaxWidth="800" TextTrimming="CharacterEllipsis"/>
@@ -148,8 +148,8 @@
         <StackPanel Spacing="12" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="25,20,0,0">
             <StackPanel VerticalAlignment="Center" Spacing="4" Margin="2,0,0,0">
                 <TextBlock Text="{Binding SelectedMediaItem.Title, FallbackValue='No File Loaded'}" FontSize="28" FontWeight="Bold"/>
-                <TextBlock Text="{Binding SelectedMediaItem.Artist}" FontSize="22" Foreground="#ccc"/>
-                <TextBlock Text="{Binding SelectedMediaItem.Album}" FontSize="22" Foreground="#888"/>
+                <TextBlock Text="{Binding SelectedMediaItem.Artist, FallbackValue=''}" FontSize="22" Foreground="#ccc"/>
+                <TextBlock Text="{Binding SelectedMediaItem.Album, FallbackValue=''}" FontSize="22" Foreground="#888"/>
             </StackPanel>
             <TextBlock FontSize="33">
                 <TextBlock.Text>
