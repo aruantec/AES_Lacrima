@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Threading;
 
 namespace AES_Lacrima.Settings
@@ -21,6 +22,12 @@ namespace AES_Lacrima.Settings
     /// </summary>
     public abstract class SettingsBase : ObservableObject, ISetting
     {
+        private static readonly JsonSerializerOptions SharedSerializerOptions = new()
+        {
+            WriteIndented = true,
+            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
+        };
+
         /// <summary>
         /// Default path for the settings file. Derived classes can override this
         /// property to change where settings are stored.
@@ -69,7 +76,7 @@ namespace AES_Lacrima.Settings
                     try
                     {
                         var content = File.ReadAllText(SettingsFilePath);
-                        root = JsonNode.Parse(content)?.AsObject() ?? new JsonObject();
+                        root = JsonSerializer.Deserialize<JsonNode>(content, SharedSerializerOptions)?.AsObject() ?? new JsonObject();
                     }
                     catch { root = new JsonObject(); }
                 }
@@ -107,8 +114,7 @@ namespace AES_Lacrima.Settings
                     root.Remove(ViewModelsSectionName);
                 }
 
-                var options = new JsonSerializerOptions { WriteIndented = true };
-                File.WriteAllText(SettingsFilePath, root.ToJsonString(options));
+                File.WriteAllText(SettingsFilePath, root.ToJsonString(SharedSerializerOptions));
             }
         }
 
@@ -126,7 +132,7 @@ namespace AES_Lacrima.Settings
                 try
                 {
                     var content = File.ReadAllText(SettingsFilePath);
-                    root = JsonNode.Parse(content)?.AsObject() ?? new JsonObject();
+                    root = JsonSerializer.Deserialize<JsonNode>(content, SharedSerializerOptions)?.AsObject() ?? new JsonObject();
                 }
                 catch { return; }
 
@@ -160,7 +166,7 @@ namespace AES_Lacrima.Settings
                 try
                 {
                     var content = File.ReadAllText(SettingsFilePath);
-                    root = JsonNode.Parse(content)?.AsObject() ?? new JsonObject();
+                    root = JsonSerializer.Deserialize<JsonNode>(content, SharedSerializerOptions)?.AsObject() ?? new JsonObject();
                 }
                 catch { return; }
 
@@ -171,8 +177,7 @@ namespace AES_Lacrima.Settings
                         if (vmsElement.Count == 0)
                             root.Remove(ViewModelsSectionName);
 
-                        var options = new JsonSerializerOptions { WriteIndented = true };
-                        File.WriteAllText(SettingsFilePath, root.ToJsonString(options));
+                        File.WriteAllText(SettingsFilePath, root.ToJsonString(SharedSerializerOptions));
                     }
                 }
             }

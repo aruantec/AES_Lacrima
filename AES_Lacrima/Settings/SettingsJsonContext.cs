@@ -8,7 +8,8 @@ namespace AES_Lacrima.Settings
     [JsonSourceGenerationOptions(
     WriteIndented = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    UseStringEnumConverter = true)]
+    UseStringEnumConverter = true,
+    NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals)]
     // Basic UI types
     [JsonSerializable(typeof(HorizontalAlignment))]
     [JsonSerializable(typeof(VerticalAlignment))]

@@ -6,6 +6,7 @@
              xmlns:navigation="using:AES_Lacrima.Views.Navigation"
              xmlns:spectrum="using:AES_Controls.Player.Spectrum"
              xmlns:vm="using:AES_Lacrima.ViewModels"
+             xmlns:widgets="using:AES_Controls.Widgets"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.MainContentView"
              x:DataType="vm:MainContentViewModel"
@@ -16,8 +17,55 @@
         <vm:MainContentViewModel/>
     </Design.DataContext>
 
-    <Grid Grid.RowDefinitions="*,Auto" ClipToBounds="False">
-        <!-- Main content area -->
+	<Grid Grid.RowDefinitions="*,Auto" ClipToBounds="False">
+		<!-- Widgets -->
+		<Panel Grid.RowSpan="2">
+			<widgets:WidgetControl x:Name="PlayerInfo" 
+								   Background="Transparent"
+								   Left="{Binding PlayerInfoLeft, Mode=TwoWay}"
+								   Top="{Binding PlayerInfoTop, Mode=TwoWay}"
+								   Width="{Binding PlayerInfoWidth, Mode=TwoWay}"
+								   Height="{Binding PlayerInfoHeight, Mode=TwoWay}"
+								   HorizontalAlignment="Center"
+								   VerticalAlignment="Center"
+								   MoveResizeEndedCommand="{Binding SaveWidgetSettingsCommand}">
+				<!--Title, artist and album-->
+                    <StackPanel Margin="22,0,20,0" VerticalAlignment="Center" HorizontalAlignment="Center">
+    
+                        <TextBlock Text="{Binding MusicViewModel.SelectedMediaItem.Title}"
+                                   IsVisible="{Binding MusicViewModel.SelectedMediaItem.Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                   FontSize="32" FontWeight="Bold" Foreground="White" TextWrapping="Wrap"
+                                   HorizontalAlignment="Center" TextAlignment="Left"
+                                   MaxWidth="{Binding Bounds.Width, ElementName=PlayerInfo}"/>
+
+                        <TextBlock Text="{Binding MusicViewModel.SelectedMediaItem.Artist}"
+                                   IsVisible="{Binding MusicViewModel.SelectedMediaItem.Artist, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                   FontSize="24" Foreground="White" Margin="2,0,0,0" TextWrapping="Wrap"
+                                   HorizontalAlignment="Center" TextAlignment="Left"
+                                   MaxWidth="{Binding Bounds.Width, ElementName=PlayerInfo}"/>
+
+                        <TextBlock Text="{Binding MusicViewModel.SelectedMediaItem.Album}"
+                                   IsVisible="{Binding MusicViewModel.SelectedMediaItem.Album, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                   FontSize="24" Foreground="DarkGray" TextWrapping="Wrap"
+                                   HorizontalAlignment="Center" TextAlignment="Left"
+                                   MaxWidth="{Binding Bounds.Width, ElementName=PlayerInfo}"/>
+
+                        <TextBlock IsVisible="{Binding MusicViewModel.AudioPlayer.Duration, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                   FontSize="40" Foreground="White" Margin="2,10,0,0" TextWrapping="Wrap"
+                                   HorizontalAlignment="Center" TextAlignment="Left"
+                                   MaxWidth="{Binding Bounds.Width, ElementName=PlayerInfo}">
+                            <TextBlock.Text>
+                                <MultiBinding StringFormat="{}{0} / {1}">
+                                    <Binding Path="MusicViewModel.AudioPlayer.Position" Converter="{StaticResource TimeSpanConverter}" />
+                                    <Binding Path="MusicViewModel.AudioPlayer.Duration" Converter="{StaticResource TimeSpanConverter}" />
+                                </MultiBinding>
+                            </TextBlock.Text>
+                        </TextBlock>
+                    </StackPanel>
+            </widgets:WidgetControl>
+        </Panel>
+
+        <!-- Spectrum -->
         <spectrum:GlSpectrumControl Spectrum="{Binding MusicViewModel.AudioPlayer.Spectrum}"
                                     Grid.Row="1"
                                     Height="{Binding SettingsViewModel.SpectrumHeight}"
