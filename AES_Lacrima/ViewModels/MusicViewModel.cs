@@ -5,7 +5,6 @@ using AES_Core.DI;
 using AES_Lacrima.Services;
 using Avalonia;
 using Avalonia.Collections;
-using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -584,19 +583,32 @@ namespace AES_Lacrima.ViewModels
 
         public override void Prepare()
         {
+            // Resolve dependencies quickly on UI thread
             AudioPlayer = DiLocator.ResolveViewModel<AudioPlayer>();
             AudioPlayer?.PropertyChanged += AudioPlayer_PropertyChanged;
             AudioPlayer?.EndReached += async (_, _) => await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(PlayNext);
-            EqualizerService?.Initialize(AudioPlayer!);
-            _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
 
-            LoadSettings();
-            StartMetadataScrappersForLoadedFolders();
-            MetadataService?.PropertyChanged += MetadataService_PropertyChanged;
+            // Offload heavy initialization including equalizer and settings loading to a background thread
+            // to ensure the UI remains responsive when the music view is first opened.
+            _ = Task.Run(async () =>
+            {
+                // Initialize equalizer and load settings off-thread
+                if (EqualizerService != null) await EqualizerService.InitializeAsync(AudioPlayer!);
+                await LoadSettingsAsync();
 
-            // Ensure filters are in sync after load
-            ApplyAlbumFilter();
-            ApplyFilter();
+                // Marshal UI state updates and filters back to the dispatcher
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
+                    MetadataService?.PropertyChanged += MetadataService_PropertyChanged;
+
+                    StartMetadataScrappersForLoadedFolders();
+                    ApplyAlbumFilter();
+                    ApplyFilter();
+                    IsNoAlbumLoadedVisible = LoadedAlbum == null;
+                    IsPrepared = true;
+                });
+            });
         }
         #endregion
 

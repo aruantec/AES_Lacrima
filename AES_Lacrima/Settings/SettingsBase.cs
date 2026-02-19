@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace AES_Lacrima.Settings
 {
@@ -42,10 +43,10 @@ namespace AES_Lacrima.Settings
         private const string ViewModelsSectionName = "ViewModels";
 
         /// <summary>
-        /// Process-wide lock used to serialize access to the settings file so
+        /// Process-wide semaphore used to serialize access to the settings file so
         /// concurrent reads/writes do not corrupt the file.
         /// </summary>
-        private static readonly Lock FileLock = new();
+        private static readonly SemaphoreSlim FileLock = new(1, 1);
 
         /// <summary>
         /// Save this object's settings into the flat ViewModels section.
@@ -53,7 +54,8 @@ namespace AES_Lacrima.Settings
         /// </summary>
         public void SaveSettings()
         {
-            lock (FileLock)
+            FileLock.Wait();
+            try
             {
                 // Ensure the directory for the settings file exists. Use full path to handle
                 // relative or unusual SettingsFilePath values and fall back to AppContext.BaseDirectory.
@@ -116,6 +118,58 @@ namespace AES_Lacrima.Settings
 
                 File.WriteAllText(SettingsFilePath, root.ToJsonString(SharedSerializerOptions));
             }
+            finally
+            {
+                FileLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// Load settings for this object from Settings.json (if present) asynchronously.
+        /// Calls OnLoadSettings for derived classes to read values.
+        /// </summary>
+        public async Task LoadSettingsAsync()
+        {
+            await FileLock.WaitAsync();
+            JsonObject? section = null;
+            try
+            {
+                if (!File.Exists(SettingsFilePath)) return;
+
+                var content = await File.ReadAllTextAsync(SettingsFilePath);
+                var root = JsonSerializer.Deserialize<JsonNode>(content, SharedSerializerOptions)?.AsObject();
+
+                if (root != null && root.TryGetPropertyValue(ViewModelsSectionName, out var vmsNode) && vmsNode is JsonObject vmsElement)
+                {
+                    if (vmsElement.TryGetPropertyValue(GetType().Name, out var sectionNode) && sectionNode is JsonObject s)
+                    {
+                        section = s;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to load settings from '{SettingsFilePath}': {ex.Message}");
+            }
+            finally
+            {
+                FileLock.Release();
+            }
+
+            if (section != null)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    try
+                    {
+                        OnLoadSettings(section);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"OnLoadSettings failed for {GetType().Name}: {ex.Message}");
+                    }
+                });
+            }
         }
 
         /// <summary>
@@ -124,7 +178,8 @@ namespace AES_Lacrima.Settings
         /// </summary>
         public void LoadSettings()
         {
-            lock (FileLock)
+            FileLock.Wait();
+            try
             {
                 if (!File.Exists(SettingsFilePath)) return;
 
@@ -151,6 +206,10 @@ namespace AES_Lacrima.Settings
                     Debug.WriteLine($"Settings fail for {GetType().Name}: {ex.Message}");
                 }
             }
+            finally
+            {
+                FileLock.Release();
+            }
         }
 
         /// <summary>
@@ -158,7 +217,8 @@ namespace AES_Lacrima.Settings
         /// </summary>
         public void RemoveSavedSection()
         {
-            lock (FileLock)
+            FileLock.Wait();
+            try
             {
                 if (!File.Exists(SettingsFilePath)) return;
 
@@ -180,6 +240,10 @@ namespace AES_Lacrima.Settings
                         File.WriteAllText(SettingsFilePath, root.ToJsonString(SharedSerializerOptions));
                     }
                 }
+            }
+            finally
+            {
+                FileLock.Release();
             }
         }
 

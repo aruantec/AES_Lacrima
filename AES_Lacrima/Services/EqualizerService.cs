@@ -43,6 +43,30 @@ namespace AES_Lacrima.Services
             Equalizer.InitializeBands();
         }
 
+        /// <summary>
+        /// Asynchronously initializes the equalizer using the specified media interface.
+        /// If persisted bands exist they will be applied to the equalizer.
+        /// </summary>
+        /// <param name="player">The media interface used to apply equalizer settings.</param>
+        /// <returns>A task representing the initialization operation.</returns>
+        public async System.Threading.Tasks.Task InitializeAsync(IMediaInterface player)
+        {
+            // Load persisted settings (bands) before creating the Equalizer instance
+            await LoadSettingsAsync();
+
+            // Create the Equalizer instance with the media player
+            Equalizer = new Equalizer(player);
+
+            // Apply previously loaded bands if available
+            if (_loadedBands != null && _loadedBands.Count > 0)
+            {
+                Equalizer.Bands = _loadedBands;
+            }
+
+            // Ensure callbacks are wired for existing bands
+            Equalizer.InitializeBands();
+        }
+
         protected override void OnLoadSettings(JsonObject section)
         {
             // Read persisted bands (if any) and hold until Initialize is called
