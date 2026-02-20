@@ -222,7 +222,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
     /// <summary>
     /// Gets or sets the fourth color in the spectrum gradient.
-    /// </summary>
+    /// </summary]
     [ObservableProperty]
     private Color _spectrumColor3;
 
@@ -258,6 +258,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private FFmpegManager? _ffmpegManager;
 
     /// <summary>
+    /// Gets or sets the libmpv manager for managing installations.
+    /// </summary>
+    [AutoResolve]
+    [ObservableProperty]
+    private MpvLibraryManager? _mpvManager;
+
+    /// <summary>
     /// Gets or sets a value indicating whether FFmpeg is currently installed.
     /// </summary>
     [ObservableProperty]
@@ -282,10 +289,34 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private bool _isFfmpegUpdateAvailable;
 
     /// <summary>
+    /// Gets or sets a value indicating whether libmpv is currently installed.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isMpvInstalled;
+
+    /// <summary>
+    /// Gets or sets the currently installed libmpv version.
+    /// </summary>
+    [ObservableProperty]
+    private string? _mpvVersion;
+
+    /// <summary>
+    /// Collection of available libmpv versions from GitHub (for Windows builds).
+    /// </summary>
+    [ObservableProperty]
+    private AvaloniaList<MpvReleaseInfo> _availableMpvVersions = new();
+
+    /// <summary>
+    /// The currently selected version from the available versions list.
+    /// </summary>
+    [ObservableProperty]
+    private MpvReleaseInfo? _selectedMpvVersion;
+
+    /// <summary>
     /// Refreshes the information about the current FFmpeg installation and updates.
     /// </summary>
     [RelayCommand]
-    private async Task RefreshFFmpegInfo()
+    public async Task RefreshFFmpegInfo()
     {
         if (FfmpegManager == null) return;
         FfmpegManager.ReportActivity(true);
@@ -318,6 +349,92 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             FfmpegManager.ReportActivity(false);
         }
+    }
+
+    /// <summary>
+    /// Refreshes information about the libmpv installation and fetches available versions from GitHub.
+    /// </summary>
+    [RelayCommand]
+    public async Task RefreshMpvInfo()
+    {
+        if (MpvManager == null) return;
+        
+        MpvManager.ReportActivity(true);
+        try
+        {
+            IsMpvInstalled = MpvManager.IsLibraryInstalled();
+            MpvVersion = await MpvManager.GetCurrentVersionAsync();
+            var versions = await MpvManager.GetAvailableVersionsAsync();
+            
+            AvailableMpvVersions.Clear();
+            foreach (var v in versions) AvailableMpvVersions.Add(v);
+
+            if (SelectedMpvVersion == null && AvailableMpvVersions.Count > 0)
+            {
+                SelectedMpvVersion = AvailableMpvVersions[0];
+            }
+
+            if (!IsMpvInstalled)
+            {
+                if (MpvManager.IsNewVersionPending())
+                    MpvManager.Status = "Installation is staged and will be applied on the next restart.";
+                else if (File.Exists(Path.Combine(AppContext.BaseDirectory, "libmpv-2.dll.delete")))
+                    MpvManager.Status = "libmpv is uninstalled.";
+                else
+                    MpvManager.Status = "libmpv check completed: Not found.";
+
+                MpvVersion = null;
+            }
+            else if (MpvManager.IsNewVersionPending())
+            {
+                MpvManager.Status = $"Update is staged and will be applied on restart (Current: {MpvVersion ?? "Unknown"}).";
+            }
+            else if (MpvManager.IsPendingRestart)
+            {
+                MpvManager.Status = $"libmpv is marked for removal or modification on next restart (Current: {MpvVersion ?? "Unknown"}).";
+            }
+            else
+            {
+                MpvManager.Status = $"libmpv is installed ({MpvVersion ?? "Unknown version"}).";
+            }
+        }
+        finally
+        {
+            MpvManager.ReportActivity(false);
+        }
+    }
+
+    /// <summary>
+    /// Installs libmpv for the current platform.
+    /// </summary>
+    [RelayCommand]
+    private async Task InstallMpv()
+    {
+        if (MpvManager == null) return;
+        await MpvManager.EnsureLibraryInstalledAsync();
+        await RefreshMpvInfo();
+    }
+
+    /// <summary>
+    /// Installs a specific version of libmpv for Windows.
+    /// </summary>
+    [RelayCommand]
+    private async Task InstallSpecificMpvVersion()
+    {
+        if (MpvManager == null || SelectedMpvVersion == null) return;
+        await MpvManager.InstallVersionAsync(SelectedMpvVersion.Tag);
+        await RefreshMpvInfo();
+    }
+
+    /// <summary>
+    /// Uninstalls libmpv from the application directory.
+    /// </summary>
+    [RelayCommand]
+    private async Task UninstallMpv()
+    {
+        if (MpvManager == null) return;
+        await MpvManager.UninstallAsync();
+        await RefreshMpvInfo();
     }
 
     /// <summary>

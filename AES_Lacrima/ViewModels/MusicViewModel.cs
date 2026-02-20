@@ -104,10 +104,6 @@ namespace AES_Lacrima.ViewModels
         private AudioPlayer? _audioPlayer;
         #endregion
 
-        #region Static fields
-        // Static fields
-        #endregion
-
         #region Public properties
         // Public properties
         public bool IsItemPointed => PointedIndex != -1 && PointedIndex < CoverItems.Count;
@@ -211,7 +207,7 @@ namespace AES_Lacrima.ViewModels
                 {
                     Title = "Add Audio Files",
                     AllowMultiple = true,
-                    FileTypeFilter = new[]
+                    FileTypeFilter = new[] 
                     {
                         new Avalonia.Platform.Storage.FilePickerFileType("Audio Files")
                         {
@@ -583,17 +579,15 @@ namespace AES_Lacrima.ViewModels
 
         public override void Prepare()
         {
-            // Resolve dependencies quickly on UI thread
-            AudioPlayer = DiLocator.ResolveViewModel<AudioPlayer>();
-            AudioPlayer?.PropertyChanged += AudioPlayer_PropertyChanged;
-            AudioPlayer?.EndReached += async (_, _) => await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(PlayNext);
+            // Manual initialization of the AudioPlayer to control its lifecycle and avoid early DLL locking
+            InitializeAudioPlayer();
 
             // Offload heavy initialization including equalizer and settings loading to a background thread
             // to ensure the UI remains responsive when the music view is first opened.
             _ = Task.Run(async () =>
             {
                 // Initialize equalizer and load settings off-thread
-                if (EqualizerService != null) await EqualizerService.InitializeAsync(AudioPlayer!);
+                if (EqualizerService != null && AudioPlayer != null) await EqualizerService.InitializeAsync(AudioPlayer);
                 await LoadSettingsAsync();
 
                 // Marshal UI state updates and filters back to the dispatcher
@@ -609,6 +603,23 @@ namespace AES_Lacrima.ViewModels
                     IsPrepared = true;
                 });
             });
+        }
+
+        private void InitializeAudioPlayer()
+        {
+            // Dispose any existing instance to ensure native handles are released
+            _audioPlayer?.Dispose();
+
+            // Create a fresh instance manually
+            // We resolve the managers from DI to pass them into the player
+            var ffmpegManager = DiLocator.ResolveViewModel<FFmpegManager>();
+            var mpvManager = DiLocator.ResolveViewModel<MpvLibraryManager>();
+
+            AudioPlayer = new AudioPlayer(ffmpegManager, mpvManager);
+
+            // Re-subscribe to events
+            AudioPlayer.PropertyChanged += AudioPlayer_PropertyChanged;
+            AudioPlayer.EndReached += async (_, _) => await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(PlayNext);
         }
         #endregion
 
@@ -898,13 +909,58 @@ namespace AES_Lacrima.ViewModels
 
         protected override void OnSaveSettings(JsonObject section)
         {
-            WriteSetting(section, "Volume", AudioPlayer!.Volume);
+            if (AudioPlayer != null) WriteSetting(section, "Volume", AudioPlayer.Volume);
             WriteSetting(section, nameof(IsAlbumlistOpen), IsAlbumlistOpen);
             WriteCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
         }
         #endregion
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
