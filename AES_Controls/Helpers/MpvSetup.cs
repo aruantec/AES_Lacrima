@@ -11,7 +11,7 @@ namespace AES_Controls.Helpers;
 public static class MpvSetup
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(MpvSetup));
-    private static readonly string AppFolder = AppContext.BaseDirectory;
+    private static readonly string AppFolder = AppDomain.CurrentDomain.BaseDirectory;
 
     /// <summary>
     /// Ensures that the platform-specific libmpv library is present in the
@@ -26,6 +26,10 @@ public static class MpvSetup
         string fullPath = Path.Combine(AppFolder, libName);
         bool skipAutoSetup = false;
 
+        Log.Info($"Checking libmpv in: {fullPath}");
+        Log.Info($"MpvSetup starting check. Base directory: {AppFolder}");
+        Log.Info($"Target library path: {Path.GetFullPath(fullPath)}");
+
         // CLEANUP: Attempt to remove any pending-delete/update files from previous sessions
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
@@ -37,6 +41,7 @@ public static class MpvSetup
                 // 1. Process uninstalls stashed via .delete marker
                 if (File.Exists(deleteMarker))
                 {
+                    Log.Info("Found .delete marker; skipping auto-installation.");
                     skipAutoSetup = true;
 
                     if (File.Exists(fullPath))
@@ -44,10 +49,10 @@ public static class MpvSetup
                         try 
                         { 
                              File.Delete(fullPath); 
-                                   try { File.Delete(deleteMarker); } catch (Exception ex) { Log.Warn($"Failed to delete {deleteMarker}", ex); }
-                                  Log.Info("Applied pending libmpv uninstallation.");
-                             } 
-                             catch (IOException ex)
+                             try { File.Delete(deleteMarker); } catch (Exception ex) { Log.Warn($"Failed to delete {deleteMarker}", ex); }
+                             Log.Info("Applied pending libmpv uninstallation.");
+                        } 
+                        catch (IOException ex)
                         {
                             Log.Warn($"libmpv is locked; attempting rename trick for cleanup: {ex.Message}");
                             // If locked at startup, move it out of the way using a unique GUID name
@@ -55,6 +60,8 @@ public static class MpvSetup
                             { 
                                 string tempDel = fullPath + "." + Guid.NewGuid().ToString("N") + ".delete";
                                 File.Move(fullPath, tempDel);
+                                try { File.Delete(deleteMarker); } catch { }
+                                Log.Info($"Renamed following locked file to: {tempDel}");
                             } catch (Exception moveEx) { Log.Error($"Rename trick failed for {fullPath}", moveEx); }
                         }
                     }
@@ -68,6 +75,7 @@ public static class MpvSetup
                 // 2. Process updates stashed as .update (usually when rename trick failed)
                 if (!skipAutoSetup && File.Exists(updatePath))
                 {
+                    Log.Info($"Found pending update file: {Path.GetFullPath(updatePath)}");
                     try
                     {
                         if (File.Exists(fullPath))
@@ -81,13 +89,22 @@ public static class MpvSetup
                                  try { File.Move(fullPath, tempDel); } catch (Exception moveEx) { Log.Error($"Rename trick failed for {fullPath} update", moveEx); }
                              }
                         }
-                             File.Move(updatePath, fullPath);
-                            Log.Info("Applied pending libmpv update.");
-                        }
-                        catch (Exception ex)
+
+                        // Check again if target is cleared before moving
+                        if (!File.Exists(fullPath))
                         {
-                            Log.Error($"Could not apply pending update: {ex.Message}", ex);
+                            File.Move(updatePath, fullPath);
+                            Log.Info("Applied pending libmpv update successfully.");
                         }
+                        else
+                        {
+                            Log.Error("Could not apply update: target file still exists and is likely locked.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"Could not apply pending update: {ex.Message}", ex);
+                    }
                 }
 
                 // 3. Absolute cleanup for any GUID-based .delete files from THIS or previous runs
