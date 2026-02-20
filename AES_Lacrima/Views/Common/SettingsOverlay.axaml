@@ -313,6 +313,67 @@
                                      Width="400"
                                      HorizontalAlignment="Left"
                                      VerticalAlignment="Top"/>
+
+                        <!-- yt-dlp Management Section -->
+                        <TextBlock Text="yt-dlp Status" FontSize="20" Foreground="WhiteSmoke" Margin="0,30,0,10"/>
+                        <Separator Margin="0,0,0,15"/>
+
+                        <StackPanel Spacing="10" Margin="0,0,0,15">
+                            <TextBlock Text="{Binding YtDlp.Status}" FontSize="16" Foreground="DarkGray"/>
+
+                            <StackPanel Orientation="Horizontal" Spacing="40" Margin="0,0,0,10">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Text="CURRENT VERSION" FontSize="14" Foreground="DarkGray" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding YtDlpVersion, FallbackValue='Not Found'}" FontSize="18" Foreground="WhiteSmoke"/>
+                                </StackPanel>
+                                <StackPanel Spacing="5" IsVisible="{Binding IsYtDlpUpdateAvailable}">
+                                    <TextBlock Text="UPDATE AVAILABLE" FontSize="14" Foreground="Gold" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding YtDlpUpdateVersion}" FontSize="18" Foreground="Gold"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <!-- Install Button -->
+                            <Button Content="Install yt-dlp"
+                                    Command="{Binding InstallYtDlpCommand}"
+                                    IsVisible="{Binding !IsYtDlpInstalled}"
+                                    IsEnabled="{Binding !YtDlp.IsBusy}"
+                                    Padding="15,8"/>
+
+                            <!-- Update Button -->
+                            <Button Content="Update"
+                                    Command="{Binding UpdateYtDlpCommand}"
+                                    IsVisible="{Binding IsYtDlpUpdateAvailable}"
+                                    IsEnabled="{Binding !YtDlp.IsBusy}"
+                                    Padding="15,8"
+                                    Background="Gold"
+                                    Foreground="Black"/>
+
+                            <!-- Uninstall Button (Red) -->
+                            <Button Content="Uninstall"
+                                    Background="#F44336"
+                                    Foreground="White"
+                                    Command="{Binding UninstallYtDlpCommand}"
+                                    IsVisible="{Binding IsYtDlpInstalled}"
+                                    IsEnabled="{Binding !YtDlp.IsBusy}"
+                                    Padding="15,8"/>
+
+                            <!-- Refresh/Check Updates -->
+                            <Button Content="Check for Updates"
+                                    Command="{Binding RefreshYtDlpInfoCommand}"
+                                    IsEnabled="{Binding !YtDlp.IsBusy}"
+                                    Padding="15,8"/>
+                        </StackPanel>
+
+                        <!-- Activity Indicator if yt-dlp manager is busy -->
+                        <ProgressBar IsIndeterminate="True"
+                                     IsVisible="{Binding YtDlp.IsBusy}"
+                                     Margin="0,30,0,0"
+                                     Height="2"
+                                     Width="400"
+                                     HorizontalAlignment="Left"
+                                     VerticalAlignment="Top"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

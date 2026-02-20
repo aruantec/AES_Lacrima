@@ -119,10 +119,10 @@ namespace AES_Lacrima.ViewModels
             //Load persisted settings
             LoadSettings();
 
-            // Hook up MpvManager if SettingsViewModel is already available
+            // Hook up MpvManager and YtDlpManager if SettingsViewModel is already available
             if (SettingsViewModel != null)
             {
-                OnSettingsViewModelChanged(SettingsViewModel);
+                SubscribeToMpvManager(SettingsViewModel.MpvManager);
             }
 
             //Initialize window buttons with their respective icons and tooltips

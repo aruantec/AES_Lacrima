@@ -265,6 +265,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private MpvLibraryManager? _mpvManager;
 
     /// <summary>
+    /// Gets or sets the yt-dlp manager for managing installations.
+    /// </summary>
+    [AutoResolve]
+    [ObservableProperty]
+    private YtDlpManager? _ytDlp;
+
+    /// <summary>
     /// Gets or sets a value indicating whether FFmpeg is currently installed.
     /// </summary>
     [ObservableProperty]
@@ -299,6 +306,30 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// </summary>
     [ObservableProperty]
     private string? _mpvVersion;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether yt-dlp is currently installed.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isYtDlpInstalled;
+
+    /// <summary>
+    /// Gets or sets the currently installed yt-dlp version.
+    /// </summary>
+    [ObservableProperty]
+    private string? _ytDlpVersion;
+
+    /// <summary>
+    /// Gets or sets the version of an available yt-dlp update.
+    /// </summary>
+    [ObservableProperty]
+    private string? _ytDlpUpdateVersion;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a yt-dlp update is currently available.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isYtDlpUpdateAvailable;
 
     /// <summary>
     /// Collection of available libmpv versions from GitHub (for Windows builds).
@@ -470,6 +501,77 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         await RefreshFFmpegInfo();
     }
 
+    /// <summary>
+    /// Refreshes information about the yt-dlp installation and checks for updates.
+    /// </summary>
+    [RelayCommand]
+    public async Task RefreshYtDlpInfo()
+    {
+        if (YtDlp == null) return;
+
+        try
+        {
+            IsYtDlpInstalled = YtDlpManager.IsInstalled;
+            YtDlpVersion = await YtDlp.GetCurrentVersionAsync();
+            YtDlpUpdateVersion = await YtDlp.GetLatestVersionAsync();
+
+            IsYtDlpUpdateAvailable = !string.IsNullOrEmpty(YtDlpVersion) && 
+                                     !string.IsNullOrEmpty(YtDlpUpdateVersion) && 
+                                     !YtDlpVersion.Equals(YtDlpUpdateVersion);
+
+            if (!IsYtDlpInstalled)
+            {
+                YtDlp.Status = "yt-dlp check completed: Not found.";
+                YtDlpVersion = null;
+            }
+            else if (IsYtDlpUpdateAvailable)
+            {
+                YtDlp.Status = $"yt-dlp update found: {YtDlpUpdateVersion}.";
+            }
+            else
+            {
+                YtDlp.Status = $"yt-dlp is up to date ({YtDlpVersion}).";
+            }
+        }
+        catch (Exception ex)
+        {
+            YtDlp.Status = $"yt-dlp check failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Installs yt-dlp for the current platform.
+    /// </summary>
+    [RelayCommand]
+    private async Task InstallYtDlp()
+    {
+        if (YtDlp == null) return;
+        await YtDlp.EnsureInstalledAsync();
+        await RefreshYtDlpInfo();
+    }
+
+    /// <summary>
+    /// Updates yt-dlp to the latest available version.
+    /// </summary>
+    [RelayCommand]
+    private async Task UpdateYtDlp()
+    {
+        if (YtDlp == null) return;
+        await YtDlp.UpdateAsync();
+        await RefreshYtDlpInfo();
+    }
+
+    /// <summary>
+    /// Uninstalls yt-dlp from the application directory.
+    /// </summary>
+    [RelayCommand]
+    private async Task UninstallYtDlp()
+    {
+        if (YtDlp == null) return;
+        await YtDlp.UninstallAsync();
+        await RefreshYtDlpInfo();
+    }
+
     // Carousel settings (used by CompositionCarouselControl)
     [ObservableProperty]
     private double _carouselSpacing = 0.93;
@@ -546,8 +648,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         // Load settings
         LoadSettings();
 
-        // Refresh FFmpeg info
+        // Refresh status info for all external tools
         _ = RefreshFFmpegInfo();
+        _ = RefreshMpvInfo();
+        _ = RefreshYtDlpInfo();
 
         // Generate dummy preview items
         var defaultCover = PlaceholderGenerator.GenerateMusicPlaceholder();
