@@ -65,6 +65,13 @@ namespace AES_Lacrima
                     await ffmpegManager.EnsureFFmpegInstalledAsync();
                 }
 
+                // Ensure yt-dlp is installed and available for the application
+                var ytDlpManager = DiLocator.ResolveViewModel<YtDlpManager>();
+                if (ytDlpManager != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    await ytDlpManager.EnsureInstalledAsync();
+                }
+
                 // use the FFmpeg locator to find the executable path and refresh settings info
                 if (DiLocator.ResolveViewModel<SettingsViewModel>() is { } settingsViewModel)
                 {
@@ -74,13 +81,7 @@ namespace AES_Lacrima
                     }
                     _ = settingsViewModel.RefreshFFmpegInfo();
                     _ = settingsViewModel.RefreshMpvInfo();
-                }
-
-                // Ensure yt-dlp is installed and available for the application
-                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                {
-                    var ytDlpManager = new YtDlpManager();
-                    await ytDlpManager.EnsureInstalledAsync();   
+                    _ = settingsViewModel.RefreshYtDlpInfo();
                 }
             }
 
