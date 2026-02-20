@@ -43,31 +43,39 @@ namespace AES_Lacrima
         {
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
+                // Ensure MPV is installed/updated and files are swapped correctly before DI loads anything
+                await MpvSetup.EnsureInstalled();
+
                 DisableAvaloniaDataAnnotationValidation();
                 //Initialize DI Locator
                 DiLocator.ConfigureContainer(builder =>
                 {
                     //Register audio player for fresh instances
-                    builder.RegisterType<AudioPlayer>().As<AudioPlayer>().InstancePerDependency();
+                    //builder.RegisterType<AudioPlayer>().As<AudioPlayer>().InstancePerDependency();
                 });
                 // Create the main window and set its DataContext to the resolved MainWindowViewModel
                 desktop.MainWindow = new MainWindow();
                 // Attach closing handler to perform cleanup/save on exit
                 desktop.MainWindow.Closing += MainWindow_Closing;
-                // use the FFmpeg locator to find the executable path
-                if (DiLocator.ResolveViewModel<SettingsViewModel>() is { } settingsViewModel
-                    && FFmpegLocator.FindFFmpegPath() is { } ffmpegPath) 
-                {
-                    settingsViewModel.FfmpegPath = ffmpegPath;
-                }
-                // Ensure MPV is installed and available for the application
-                await MpvSetup.EnsureInstalled();
+
                 // Obtain a single shared FFmpeg manager to track status and installation
                 var ffmpegManager = DiLocator.ResolveViewModel<FFmpegManager>();
                 if (ffmpegManager != null)
                 {
                     await ffmpegManager.EnsureFFmpegInstalledAsync();
                 }
+
+                // use the FFmpeg locator to find the executable path and refresh settings info
+                if (DiLocator.ResolveViewModel<SettingsViewModel>() is { } settingsViewModel)
+                {
+                    if (FFmpegLocator.FindFFmpegPath() is { } ffmpegPath)
+                    {
+                        settingsViewModel.FfmpegPath = ffmpegPath;
+                    }
+                    _ = settingsViewModel.RefreshFFmpegInfo();
+                    _ = settingsViewModel.RefreshMpvInfo();
+                }
+
                 // Ensure yt-dlp is installed and available for the application
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 {

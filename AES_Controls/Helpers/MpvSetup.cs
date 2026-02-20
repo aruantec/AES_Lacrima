@@ -1,4 +1,5 @@
 ﻿using System.Runtime.InteropServices;
+using log4net;
 
 namespace AES_Controls.Helpers;
 
@@ -9,6 +10,7 @@ namespace AES_Controls.Helpers;
 /// </summary>
 public static class MpvSetup
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(MpvSetup));
     private static readonly string AppFolder = AppContext.BaseDirectory;
 
     /// <summary>
@@ -22,19 +24,99 @@ public static class MpvSetup
         // Identify the library name for the current OS
         string libName = GetLibName();
         string fullPath = Path.Combine(AppFolder, libName);
+        bool skipAutoSetup = false;
 
-        // CHECK: If it exists, do nothing (Directly addresses your request)
-        if (File.Exists(fullPath))
+        // CLEANUP: Attempt to remove any pending-delete/update files from previous sessions
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            return;
+            try
+            {
+                string updatePath = fullPath + ".update";
+                string deleteMarker = fullPath + ".delete";
+
+                // 1. Process uninstalls stashed via .delete marker
+                if (File.Exists(deleteMarker))
+                {
+                    skipAutoSetup = true;
+
+                    if (File.Exists(fullPath))
+                    {
+                        try 
+                        { 
+                             File.Delete(fullPath); 
+                                   try { File.Delete(deleteMarker); } catch (Exception ex) { Log.Warn($"Failed to delete {deleteMarker}", ex); }
+                                  Log.Info("Applied pending libmpv uninstallation.");
+                             } 
+                             catch (IOException ex)
+                        {
+                            Log.Warn($"libmpv is locked; attempting rename trick for cleanup: {ex.Message}");
+                            // If locked at startup, move it out of the way using a unique GUID name
+                            try 
+                            { 
+                                string tempDel = fullPath + "." + Guid.NewGuid().ToString("N") + ".delete";
+                                File.Move(fullPath, tempDel);
+                            } catch (Exception moveEx) { Log.Error($"Rename trick failed for {fullPath}", moveEx); }
+                        }
+                    }
+                    else
+                    {
+                        // Library is already gone, remove the marker too
+                        try { File.Delete(deleteMarker); } catch (Exception ex) { Log.Warn($"Failed to remove stale {deleteMarker}", ex); }
+                    }
+                }
+
+                // 2. Process updates stashed as .update (usually when rename trick failed)
+                if (!skipAutoSetup && File.Exists(updatePath))
+                {
+                    try
+                    {
+                        if (File.Exists(fullPath))
+                        {
+                             try { File.Delete(fullPath); }
+                             catch (IOException ex)
+                             {
+                                 Log.Warn($"libmpv is locked during update; attempting rename trick: {ex.Message}");
+                                 // Rename trick as fallback at startup
+                                 string tempDel = fullPath + "." + Guid.NewGuid().ToString("N") + ".delete";
+                                 try { File.Move(fullPath, tempDel); } catch (Exception moveEx) { Log.Error($"Rename trick failed for {fullPath} update", moveEx); }
+                             }
+                        }
+                             File.Move(updatePath, fullPath);
+                            Log.Info("Applied pending libmpv update.");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Error($"Could not apply pending update: {ex.Message}", ex);
+                        }
+                }
+
+                // 3. Absolute cleanup for any GUID-based .delete files from THIS or previous runs
+                if (Directory.Exists(AppFolder))
+                {
+                    foreach (var delFile in Directory.EnumerateFiles(AppFolder, libName + ".*.delete"))
+                    {
+                        try { File.Delete(delFile); } catch (Exception ex) { Log.Warn($"Failed to cleanup {delFile}", ex); }
+                    }
+                    // Legacy cleanup
+                    foreach (var oldFile in Directory.EnumerateFiles(AppFolder, libName + ".*.old"))
+                    {
+                        try { File.Delete(oldFile); } catch (Exception ex) { Log.Warn($"Failed to cleanup {oldFile}", ex); }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error("An error occurred during MpvSetup cleanup", ex);
+            }
         }
 
-        // SETUP: Only runs if file is missing
-        Console.WriteLine($"{libName} missing. Starting automatic setup...");
+        if (skipAutoSetup) return;
 
+        // SETUP: Always attempt to initialize through manager to get status if needed
         try
         {
-            var manager = new MpvLibraryManager(); // From the previous code
+            // Resolve the manager from DI if available, otherwise fallback to new instance
+            var manager = AES_Core.DI.DiLocator.ResolveViewModel<MpvLibraryManager>() ?? new MpvLibraryManager();
             await manager.EnsureLibraryInstalledAsync();
         }
         catch (Exception ex)

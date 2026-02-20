@@ -245,6 +245,74 @@
                                      Width="400"
                                      HorizontalAlignment="Left"
                                      VerticalAlignment="Top"/>
+
+                        <!-- libmpv Management Section -->
+                        <TextBlock Text="libmpv Status" FontSize="20" Foreground="WhiteSmoke" Margin="0,30,0,10"/>
+                        <Separator Margin="0,0,0,15"/>
+
+                        <StackPanel Spacing="10" Margin="0,0,0,15">
+                            <TextBlock Text="{Binding MpvManager.Status}" FontSize="16" Foreground="DarkGray"/>
+
+                            <StackPanel Orientation="Horizontal" Spacing="40" Margin="0,0,0,10" IsVisible="{Binding IsMpvInstalled}">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Text="CURRENT VERSION" FontSize="14" Foreground="DarkGray" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding MpvVersion, FallbackValue='Not Found'}" FontSize="18" Foreground="WhiteSmoke"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Spacing="20">
+                                <TextBlock Text="Available Versions (Win builds)" VerticalAlignment="Center" FontSize="16" Foreground="WhiteSmoke"/>
+                                <ComboBox Width="300" 
+                                          ItemsSource="{Binding AvailableMpvVersions}" 
+                                          SelectedItem="{Binding SelectedMpvVersion}" 
+                                          FontSize="14">
+                                    <Interaction.Behaviors>
+                                        <behavors:ComboBoxPopupScaler/>
+                                    </Interaction.Behaviors>
+                                </ComboBox>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <!-- Install Selected Version Button -->
+                            <Button Content="Install"
+                                    Command="{Binding InstallMpvCommand}"
+                                    IsVisible="{Binding !IsMpvInstalled}"
+                                    IsEnabled="{Binding !MpvManager.IsBusy}"
+                                    Padding="15,8"/>
+
+                            <!-- Update/Re-Install Selected Version Button -->
+                            <Button Content="Force Reinstall Specific"
+                                    Command="{Binding InstallSpecificMpvVersionCommand}"
+                                    IsEnabled="{Binding !MpvManager.IsBusy}"
+                                    Padding="15,8"
+                                    Background="Gold"
+                                    Foreground="Black"/>
+
+                            <!-- Uninstall Button (Red) -->
+                            <Button Content="Uninstall libmpv"
+                                    Background="#F44336"
+                                    Foreground="White"
+                                    Command="{Binding UninstallMpvCommand}"
+                                    IsVisible="{Binding IsMpvInstalled}"
+                                    IsEnabled="{Binding !MpvManager.IsBusy}"
+                                    Padding="15,8"/>
+
+                            <!-- Refresh/Check Updates -->
+                            <Button Content="Refresh libmpv Info"
+                                    Command="{Binding RefreshMpvInfoCommand}"
+                                    IsEnabled="{Binding !MpvManager.IsBusy}"
+                                    Padding="15,8"/>
+                        </StackPanel>
+
+                        <!-- Activity Indicator if mpv manager is busy -->
+                        <ProgressBar IsIndeterminate="True"
+                                     IsVisible="{Binding MpvManager.IsBusy}"
+                                     Margin="0,30,0,0"
+                                     Height="2"
+                                     Width="400"
+                                     HorizontalAlignment="Left"
+                                     VerticalAlignment="Top"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

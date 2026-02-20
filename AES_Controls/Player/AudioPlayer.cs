@@ -26,6 +26,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     private readonly SynchronizationContext? _syncContext;
     private volatile bool _isLoadingMedia, _isSeeking;
     private volatile bool _isInternalChange; // Guard to prevent playlist skipping
+    private volatile bool _disposed; // Flag to skip native calls during shutdown
 
     /// <summary>
     /// Holds a reference to the current media item being processed or played.
@@ -35,6 +36,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
     private readonly FfMpegSpectrumAnalyzer? _spectrumAnalyzer;
     private readonly FFmpegManager? _ffmpegManager;
+    private readonly MpvLibraryManager? _mpvLibraryManager;
     private CancellationTokenSource? _waveformCts;
     private readonly TaskCompletionSource _initTcs = new();
     private double _volume = 70;
@@ -111,7 +113,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         set
         {
             field = value;
-            if (_initTcs.Task.IsCompleted)
+            if (_initTcs.Task.IsCompleted && !_disposed)
                 SetProperty("demuxer-max-bytes", $"{value}M");
         }
     } = 32;
@@ -121,11 +123,11 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// </summary>
     public double Volume
     {
-        get => _initTcs.Task.IsCompleted ? GetPropertyDouble("volume") : _volume;
+        get => (_initTcs.Task.IsCompleted && !_disposed) ? GetPropertyDouble("volume") : _volume;
         set
         {
             _volume = value;
-            if (_initTcs.Task.IsCompleted)
+            if (_initTcs.Task.IsCompleted && !_disposed)
             {
                 SetProperty("volume", value);
             }
@@ -168,7 +170,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         set
         {
             _repeatMode = value;
-            if (_initTcs.Task.IsCompleted)
+            if (_initTcs.Task.IsCompleted && !_disposed)
                 SetProperty("loop-file", value == RepeatMode.One ? "yes" : "no");
 
             OnPropertyChanged(nameof(RepeatMode));
@@ -262,15 +264,23 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// default mpv properties and event handlers.
     /// </summary>
     /// <param name="ffmpegManager">Manager to report activity status for external processes.</param>
-    public AudioPlayer(FFmpegManager? ffmpegManager = null)
+    /// <param name="mpvLibraryManager">Manager for libmpv installation signals.</param>
+    public AudioPlayer(FFmpegManager? ffmpegManager = null, MpvLibraryManager? mpvLibraryManager = null)
     {
         _syncContext = SynchronizationContext.Current;
         _ffmpegManager = ffmpegManager;
+        _mpvLibraryManager = mpvLibraryManager;
 
         if (_ffmpegManager != null)
         {
             _ffmpegManager.RequestFfmpegTermination += OnRequestFfmpegTermination;
             _ffmpegManager.InstallationCompleted += OnFfmpegInstallationCompleted;
+        }
+
+        if (_mpvLibraryManager != null)
+        {
+            _mpvLibraryManager.RequestMpvTermination += OnRequestMpvTermination;
+            _mpvLibraryManager.InstallationCompleted += OnMpvInstallationCompleted;
         }
 
         Waveform = [];
@@ -339,6 +349,21 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         _spectrumAnalyzer?.Stop();
         _waveformCts?.Cancel();
         try { _activeFfmpegProcess?.Kill(true); } catch { }
+    }
+
+    private void OnRequestMpvTermination()
+    {
+        Dispose();
+    }
+
+    private void OnMpvInstallationCompleted(object? sender, MpvLibraryManager.InstallationCompletedEventArgs e)
+    {
+        if (e.Success && _initTcs.Task.IsFaulted)
+        {
+            // libmpv was previously missing but now its here, try to re-init
+            // Note: This may not always work if the process has already cached the DllNotFound exception
+            _ = Task.Run(InitializeMpvAsync);
+        }
     }
 
     private void OnFfmpegInstallationCompleted(object? sender, FFmpegManager.InstallationCompletedEventArgs e)
@@ -410,6 +435,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// </summary>
     public void PrepareLoad()
     {
+        if (_disposed) return;
         _isInternalChange = true;
         IsLoadingMedia = true;
         InternalStop();
@@ -506,6 +532,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     public async Task PlayFile(MediaItem item, bool video = false)
     {
         await _initTcs.Task;
+        if (_disposed) return;
         if (string.IsNullOrEmpty(item.FileName))
         {
             IsLoadingMedia = false;
@@ -778,7 +805,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             OnPropertyChanged(nameof(IsPlaying));
             if (field)
             {
-                if (EnableSpectrum && !IsSeeking)
+                if (EnableSpectrum && !IsSeeking && !_disposed)
                 {
                     _spectrumAnalyzer?.SetStartPosition(Position);
                     _spectrumAnalyzer?.Start();
@@ -802,12 +829,12 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     {
         _isSeeking = true;
         _spectrumAnalyzer?.Stop();
-        SetProperty("time-pos", pos);
+        if (!_disposed) SetProperty("time-pos", pos);
         Position = pos; // Update immediately for UI feedback
-            
+
         Task.Run(async () => {
             await Task.Delay(250); // Increased delay for stability
-            _spectrumAnalyzer?.SetStartPosition(pos, IsPlaying);
+            if (!_disposed) _spectrumAnalyzer?.SetStartPosition(pos, IsPlaying);
             _isSeeking = false;
         });
     }
@@ -838,7 +865,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
     /// <summary>
     /// Resumes playback after an editing operation using the supplied state.
-    /// </summary>
+    /// /// </summary>
     /// <param name="path">The media path to reload.</param>
     /// <param name="position">Position to seek to after reload.</param>
     /// <param name="wasPlaying">Whether playback should resume.</param>
@@ -867,12 +894,12 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// <summary>
     /// Start playback.
     /// </summary>
-    public void Play() { SetProperty("pause", false); IsPlaying = true; }
+    public void Play() { if (!_disposed) SetProperty("pause", false); IsPlaying = true; }
 
     /// <summary>
     /// Pause playback.
     /// </summary>
-    public void Pause() { SetProperty("pause", true); IsPlaying = false; }
+    public void Pause() { if (!_disposed) SetProperty("pause", true); IsPlaying = false; }
 
     /// <summary>
     /// Stop playback and reset state.
@@ -893,7 +920,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
     private void InternalStop()
     {
-        ExecuteCommandAsync(["stop"]); 
+        if (!_disposed) ExecuteCommandAsync(["stop"]); 
         IsPlaying = false; 
         Duration = 0;
         Position = 0;
@@ -919,10 +946,19 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// </summary>
     public new void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+
         if (_ffmpegManager != null)
         {
             _ffmpegManager.RequestFfmpegTermination -= OnRequestFfmpegTermination;
             _ffmpegManager.InstallationCompleted -= OnFfmpegInstallationCompleted;
+        }
+
+        if (_mpvLibraryManager != null)
+        {
+            _mpvLibraryManager.RequestMpvTermination -= OnRequestMpvTermination;
+            _mpvLibraryManager.InstallationCompleted -= OnMpvInstallationCompleted;
         }
 
         try { MpvEvent -= OnMpvEvent; }
@@ -958,6 +994,16 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         }
         catch (Exception ex) { Log.Warn("Error while disposing ffmpeg process", ex); }
         _activeFfmpegProcess = null;
+
+        // Ensure the base libmpv handle is correctly disposed and freed from memory
+        try
+        {
+            base.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Error while disposing base MPVMediaPlayer", ex);
+        }
     }
 }
 

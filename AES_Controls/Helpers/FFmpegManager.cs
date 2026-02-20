@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using log4net;
 
 namespace AES_Controls.Helpers;
 
@@ -16,6 +17,7 @@ namespace AES_Controls.Helpers;
 [AutoRegister]
 public partial class FFmpegManager : ObservableObject
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(FFmpegManager));
     /// <summary>
     /// Event raised when FFmpeg processes should be terminated (e.g., before uninstallation).
     /// </summary>
@@ -37,10 +39,10 @@ public partial class FFmpegManager : ObservableObject
             foreach (var p in processes)
             {
                 try { p.Kill(true); }
-                catch { }
+                catch (Exception ex) { Log.Warn($"Failed to kill ffmpeg process {p.Id}", ex); }
             }
         }
-        catch { }
+        catch (Exception ex) { Log.Error("Failed to list ffmpeg processes for killing", ex); }
     }
 
     /// <summary>
@@ -203,7 +205,10 @@ public partial class FFmpegManager : ObservableObject
                             }
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("Failed to parse winget JSON output for FFmpeg update check", ex);
+                    }
                 }
 
                 // Fallback: text parsing
@@ -213,7 +218,7 @@ public partial class FFmpegManager : ObservableObject
                 if (output.Contains("No applicable upgrade", StringComparison.OrdinalIgnoreCase) || output.Contains("No applicable upgrades", StringComparison.OrdinalIgnoreCase))
                     return new CheckUpdateResult(false, null, output);
 
-                var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                var lines = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
                 foreach (var line in lines)
                 {
                     if (line.IndexOf("Gyan.FFmpeg", StringComparison.OrdinalIgnoreCase) >= 0 || line.IndexOf("ffmpeg", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -246,7 +251,10 @@ public partial class FFmpegManager : ObservableObject
                             }
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("Failed to parse brew info JSON output for FFmpeg update check", ex);
+                    }
                 }
 
                 var installedVersion = ExtractVersionFromText(installed ?? string.Empty);
@@ -283,7 +291,7 @@ public partial class FFmpegManager : ObservableObject
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"CheckForUpdateDetailsAsync error: {ex.Message}");
+            Log.Error("An error occurred during FFmpeg update check details retrieval", ex);
             return new CheckUpdateResult(false, null, ex.Message);
         }
     }
