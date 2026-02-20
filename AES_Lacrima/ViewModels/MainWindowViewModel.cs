@@ -2,12 +2,15 @@
 using AES_Core.Interfaces;
 using AES_Lacrima.Models;
 using AES_Lacrima.Services;
+using AES_Lacrima.ViewModels.Prompts;
+using AES_Controls.Helpers;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Text.Json.Nodes;
 
@@ -56,6 +59,37 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private SettingsViewModel? _settingsViewModel;
 
+        partial void OnSettingsViewModelChanged(SettingsViewModel? value)
+        {
+            if (value != null)
+            {
+                value.PropertyChanged += OnSettingsViewModelPropertyChanged;
+                SubscribeToMpvManager(value.MpvManager);
+            }
+        }
+
+        private void OnSettingsViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(SettingsViewModel.MpvManager))
+            {
+                SubscribeToMpvManager(SettingsViewModel?.MpvManager);
+            }
+        }
+
+        private void SubscribeToMpvManager(MpvLibraryManager? manager)
+        {
+            if (manager == null) return;
+
+            // Avoid duplicate subscriptions
+            manager.PropertyChanged -= OnMpvManagerPropertyChanged;
+            manager.PropertyChanged += OnMpvManagerPropertyChanged;
+
+            if (manager.IsPendingRestart)
+            {
+                ShowRestartPrompt();
+            }
+        }
+
         /// <summary>
         /// Provides access to the navigation service used for managing navigation within the application.
         /// </summary>
@@ -69,6 +103,11 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private AvaloniaList<double>? _spectrum;
 
+        /// <summary>
+        /// Gets or sets the prompt view model associated with the current context.
+        /// </summary>
+        [ObservableProperty]
+        private ViewModelBase? _promptView;
 
         /// <summary>
         /// Prepare the view-model for use. This implementation loads
@@ -79,6 +118,13 @@ namespace AES_Lacrima.ViewModels
         {
             //Load persisted settings
             LoadSettings();
+
+            // Hook up MpvManager if SettingsViewModel is already available
+            if (SettingsViewModel != null)
+            {
+                OnSettingsViewModelChanged(SettingsViewModel);
+            }
+
             //Initialize window buttons with their respective icons and tooltips
             WindowButtons =
             [
@@ -88,6 +134,32 @@ namespace AES_Lacrima.ViewModels
                 new MenuItem() { Command = MinimizeWindowCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "minimize.svg"), Tooltip = "Minimize Window"},
                 new MenuItem() { Command = CloseApplicationCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "close.svg"), Tooltip = "Close Application"}
             ];
+        }
+
+        /// <summary>
+        /// Handles changes to the MpvLibraryManager properties to detect pending restart triggers.
+        /// </summary>
+        private void OnMpvManagerPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(MpvLibraryManager.IsPendingRestart))
+            {
+                if (SettingsViewModel?.MpvManager != null && SettingsViewModel.MpvManager.IsPendingRestart)
+                {
+                    ShowRestartPrompt();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Displays the restart prompt in the application's overlay.
+        /// </summary>
+        private void ShowRestartPrompt()
+        {
+            if (PromptView is RestartPromptViewModel) return;
+
+            var prompt = new RestartPromptViewModel();
+            prompt.RequestClose += () => PromptView = null;
+            PromptView = prompt;
         }
 
         /// <summary>

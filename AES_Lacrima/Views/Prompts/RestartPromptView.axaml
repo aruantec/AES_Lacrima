@@ -1,0 +1,53 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AES_Lacrima.ViewModels.Prompts"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Class="AES_Lacrima.Views.Prompts.RestartPromptView"
+             x:DataType="vm:RestartPromptViewModel">
+    <Grid Background="#B3000000" Grid.ColumnDefinitions="30*,40*,30*">
+        
+        <Border Background="#1E1E1E"
+                BorderBrush="#3E3E42"
+                BorderThickness="1"
+                CornerRadius="8"
+                Grid.Column="1"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+            <Grid Name="Dialog" RowDefinitions="*,Auto">
+                <StackPanel Margin="30" Spacing="20">
+                    <TextBlock Text="Restart Required"
+                               FontSize="22"
+                               FontWeight="Bold"
+                               Foreground="White"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="{Binding Message}"
+                               FontSize="22"
+                               Foreground="#CCCCCC"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            Margin="20"
+                            Spacing="10">
+                    <Button Content="SKIP"
+                            Command="{Binding SkipCommand}"
+                            Background="Transparent"
+                            BorderBrush="#3E3E42"
+                            Width="100"
+                            HorizontalContentAlignment="Center"/>
+                    <Button Content="RESTART NOW"
+                            Command="{Binding RestartCommand}"
+                            Background="#007ACC"
+                            Foreground="White"
+                            FontWeight="Bold"
+                            Width="130"
+                            HorizontalContentAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

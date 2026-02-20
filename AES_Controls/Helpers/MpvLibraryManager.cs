@@ -163,6 +163,7 @@ public partial class MpvLibraryManager : ObservableObject
                 CopySystemLibrary(libName);
 
             Status = "libmpv installation successful.";
+            IsPendingRestart = true;
             InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(true, Status));
         }
         catch (Exception ex)
@@ -200,7 +201,11 @@ public partial class MpvLibraryManager : ObservableObject
                 string markerPath = fullPath + ".delete";
                 try 
                 { 
-                    if (!File.Exists(markerPath)) File.WriteAllText(markerPath, string.Empty); 
+                    if (!File.Exists(markerPath)) 
+                    {
+                        File.WriteAllText(markerPath, string.Empty); 
+                    }
+                    IsPendingRestart = true;
                 } catch (Exception ex) { Log.Error($"Failed to create uninstall marker {markerPath}", ex); }
             }
 
@@ -222,11 +227,13 @@ public partial class MpvLibraryManager : ObservableObject
                 }
                 
                 Status = "libmpv uninstalled.";
+                IsPendingRestart = true;
                 InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(true, Status));
                 return true;
             }
             
-            Status = "libmpv not found, nothing to uninstall.";
+            Status = "libmpv is marked for removal.";
+            IsPendingRestart = true;
             InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(true, Status));
             return true;
         }
@@ -535,12 +542,12 @@ public partial class MpvLibraryManager : ObservableObject
                             if (File.Exists(updatePath)) File.Delete(updatePath);
                             using (var fs = File.Create(updatePath))
                             {
-                                entry.WriteTo(fs);
-                            }
-                            _isPendingRestart = true;
-                            Status = "The update is staged as .update and will be applied on the next application restart.";
-                            return;
-                        }
+                                         entry.WriteTo(fs);
+                                    }
+                                    IsPendingRestart = true;
+                                    Status = "The update is staged as .update and will be applied on the next application restart.";
+                                    return;
+                                }
                         catch (Exception ex)
                         {
                             throw new IOException($"Could not prepare update: {ex.Message}. Please try restarting the app first.", ex);
@@ -573,6 +580,7 @@ public partial class MpvLibraryManager : ObservableObject
             Log.Error("Failed to create alternate macOS lib name", ex);
         }
 
+        IsPendingRestart = true;
         try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch (Exception ex) { Log.Warn($"Failed to delete temporary mpv archive: {ex.Message}"); }
     }
 
@@ -627,6 +635,7 @@ public partial class MpvLibraryManager : ObservableObject
                             Log.Warn($"Could not create libmpv.2.dylib copy: {ex.Message}");
                         }
                     }
+                    IsPendingRestart = true;
                     found = true;
                     break;
                 }
@@ -664,20 +673,13 @@ public partial class MpvLibraryManager : ObservableObject
                 // If it's Windows and it's locked, attempt to move it to a unique .delete file
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 {
-                    // 1. Create a zero-byte marker for the specific library name to skip auto-setup on restart
-                    string markerPath = path + ".delete";
-                    try 
-                    { 
-                        if (!File.Exists(markerPath)) File.WriteAllText(markerPath, string.Empty); 
-                    } catch (Exception ex) { Log.Warn($"Failed to create delete marker {markerPath}", ex); }
-
-                    // 2. Rename the locked file to a unique .delete name so the directory entry is freed.
+                    // Rename the locked file to a unique .delete name so the directory entry is freed.
                     // This allows a new file with the SAME name to be created in the same directory.
                     string uniqueDelPath = path + "." + Guid.NewGuid().ToString("N") + ".delete";
                     File.Move(path, uniqueDelPath);
                     Log.Info($"Renamed locked file {path} to {uniqueDelPath} for startup cleanup.");
 
-                    _isPendingRestart = true; 
+                    IsPendingRestart = true; 
                     return true; 
                 }
             }

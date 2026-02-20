@@ -60,16 +60,16 @@
         <!-- Scalable decorator and main content-->
         <controls:ScalableDecorator Scale="{Binding SettingsViewModel.ScaleFactor}">
             <Grid Grid.RowDefinitions="Auto,*" ColumnDefinitions="60*,40*">
-                <!--Top bar-->
+                <!-- Top bar -->
                 <common:MainTopBar Grid.Row="0" Grid.ColumnSpan="2"/>
-				<!--Main content-->
+				<!-- Main content -->
 				<nav:CachedContentPresenter Grid.Row="1"
                                             Grid.ColumnSpan="2"
 											TransitionsEnabled="True"
 											Duration="0:0:0.500"
 											Easing="SineEaseInOut"
 											CurrentViewModel="{Binding NavigationService.View}"/>
-				<!--Settings Overlay-->
+				<!-- Settings Overlay -->
 				<Border x:Name="SettingsOverlay"
 						Grid.Row="1"
                         Grid.Column="1"
@@ -82,7 +82,13 @@
 						<common:SettingsOverlay Margin="5,15,0,0"/>
 					</ScrollViewer>
 				</Border>
+                <!-- Prompt overlay -->
+                <ContentControl Content="{Binding PromptView}"
+                                Grid.Row="1"
+                                Grid.Column="0"
+                                Grid.ColumnSpan="2"/>
             </Grid>
+
         </controls:ScalableDecorator>
 
         <!--Particle control-->
