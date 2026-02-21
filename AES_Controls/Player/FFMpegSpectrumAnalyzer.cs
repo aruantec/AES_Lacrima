@@ -91,13 +91,17 @@ namespace AES_Controls.Players
 
             _cts?.Cancel();
             _cts?.Dispose();
-            _cts = new CancellationTokenSource();
+
+            var cts = new CancellationTokenSource();
+            _cts = cts;
+            var token = cts.Token;
+
             _ffmpegManager?.ReportActivity(true);
 
             _analysisTask = Task.Run(() => {
-                try { AnalyzeSpectrum(_cts.Token); }
+                try { AnalyzeSpectrum(token); }
                 finally { _ffmpegManager?.ReportActivity(false); }
-            }, _cts.Token);
+            }, token);
         }
 
         /// <summary>

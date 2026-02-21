@@ -608,7 +608,7 @@ namespace AES_Lacrima.ViewModels
         private void InitializeAudioPlayer()
         {
             // Dispose any existing instance to ensure native handles are released
-            _audioPlayer?.Dispose();
+            AudioPlayer?.Dispose();
 
             // Create a fresh instance manually
             // We resolve the managers from DI to pass them into the player

@@ -66,6 +66,26 @@
                         </Viewbox>
                     </MenuItem.Icon>
                 </MenuItem>
+
+                <!-- Show/Hide Player -->
+                <MenuItem Header="{Binding PlayerMenuText}" 
+                          CornerRadius="8" 
+                          Command="{Binding TogglePlayerVisibilityCommand}">
+                    <MenuItem.Icon>
+                        <Viewbox Width="32" Height="32" Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Circular progress ring -->
+                                <Ellipse Canvas.Left="15" Canvas.Top="15" Width="70" Height="70" 
+                                         Stroke="#CCFFFFFF" StrokeThickness="6" Fill="Transparent" />
+                                <!-- Progress arc (partial circle) -->
+                                <Path Data="M 50,15 A 35,35 0 0 1 85,50" 
+                                      Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round" Fill="Transparent" />
+                                <!-- Play triangle -->
+                                <Path Data="M 43,35 L 43,65 L 65,50 Z" Fill="#CCFFFFFF" />
+                            </Canvas>
+                        </Viewbox>
+                    </MenuItem.Icon>
+                </MenuItem>
             </ContextMenu>
         </Grid.ContextMenu>
 
@@ -85,7 +105,28 @@
                 <Interaction.Behaviors>
                     <behaviors:PreventFocusOnRightClickBehavior />
                 </Interaction.Behaviors>
-                <composition:ClockCompositionControl/>
+                <composition:ClockCompositionControl CircleBackgroundColor="Transparent"/>
+            </widgets:WidgetControl>
+
+            <!-- Player control -->
+            <widgets:WidgetControl x:Name="Player" 
+                                   Background="Transparent"
+                                   Left="{Binding PlayerLeft, Mode=TwoWay}"
+                                   Top="{Binding PlayerTop, Mode=TwoWay}"
+                                   Width="{Binding PlayerWidth, Mode=TwoWay}"
+                                   Height="{Binding PlayerHeight, Mode=TwoWay}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   MoveResizeEndedCommand="{Binding SaveWidgetSettingsCommand}"
+                                   IsVisible="{Binding ShowPlayer}">
+                <Interaction.Behaviors>
+                    <behaviors:PreventFocusOnRightClickBehavior />
+                </Interaction.Behaviors>
+                <composition:PlayerCompositionControl CircleBackgroundBitmap="{Binding MusicViewModel.SelectedMediaItem.CoverBitmap}"
+                                                      CircleBackgroundOpacity="0.6"
+                                                      Position="{Binding MusicViewModel.AudioPlayer.Position, Mode=TwoWay}"
+                                                      Duration="{Binding MusicViewModel.AudioPlayer.Duration}"
+                                                      SetPositionCommand="{Binding MusicViewModel.SetPositionCommand}"/>
             </widgets:WidgetControl>
 
             <!-- Player info -->

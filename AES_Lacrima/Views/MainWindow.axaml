@@ -59,7 +59,7 @@
             </Style>
         </Grid.Styles>
         <!-- Background -->
-        <Image asyncImageLoader:ImageLoader.Source="Assets/background.jpg" Stretch="UniformToFill"/>
+        <!--<Image asyncImageLoader:ImageLoader.Source="Assets/background.jpg" Stretch="UniformToFill"/>-->
         <!--Shadertoy-->
         <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
                                IsVisible="{Binding SettingsViewModel.ShowShaderToy}"

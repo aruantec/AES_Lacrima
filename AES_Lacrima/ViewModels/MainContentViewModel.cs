@@ -44,12 +44,31 @@ namespace AES_Lacrima.ViewModels
         private double _clockHeight = 250;
 
         [ObservableProperty]
+        private double _playerLeft = double.NaN;
+
+        [ObservableProperty]
+        private double _playerTop = double.NaN;
+
+        [ObservableProperty]
+        private double _playerWidth = 250;
+
+        [ObservableProperty]
+        private double _playerHeight = 300;
+
+        [ObservableProperty]
+        private bool _playerShowControls = false;
+
+        [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(ClockMenuText))]
-        private bool _showClock = true;
+        private bool _showClock = false;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(PlayerInfoMenuText))]
         private bool _showPlayerInfo = true;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(PlayerMenuText))]
+        private bool _showPlayer = false;
 
         /// <summary>
         /// Gets the menu text for the clock toggle based on current visibility.
@@ -60,6 +79,11 @@ namespace AES_Lacrima.ViewModels
         /// Gets the menu text for the player info toggle based on current visibility.
         /// </summary>
         public string PlayerInfoMenuText => ShowPlayerInfo ? "Hide Player Info" : "Show Player Info";
+
+        /// <summary>
+        /// Gets the menu text for the player toggle based on current visibility.
+        /// </summary>
+        public string PlayerMenuText => ShowPlayer ? "Hide Player" : "Show Player";
 
         /// <summary>
         /// Provides access to the navigation service used for managing
@@ -75,6 +99,19 @@ namespace AES_Lacrima.ViewModels
         [AutoResolve]
         [ObservableProperty]
         private SettingsViewModel? _settingsViewModel;
+
+        public MainContentViewModel()
+        {
+            PropertyChanged += OnPropertyChanged;
+        }
+
+        private void OnPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(PlayerShowControls))
+            {
+                SaveSettings();
+            }
+        }
 
         /// <summary>
         /// Command that navigates to the emulation view.
@@ -129,9 +166,16 @@ namespace AES_Lacrima.ViewModels
             ClockTop = ReadDoubleSetting(section, nameof(ClockTop), double.NaN);
             ClockWidth = ReadDoubleSetting(section, nameof(ClockWidth), 250);
             ClockHeight = ReadDoubleSetting(section, nameof(ClockHeight), 250);
+
+            PlayerLeft = ReadDoubleSetting(section, nameof(PlayerLeft), double.NaN);
+            PlayerTop = ReadDoubleSetting(section, nameof(PlayerTop), double.NaN);
+            PlayerWidth = ReadDoubleSetting(section, nameof(PlayerWidth), 250);
+            PlayerHeight = ReadDoubleSetting(section, nameof(PlayerHeight), 300);
+            PlayerShowControls = ReadBoolSetting(section, nameof(PlayerShowControls), false);
             
             ShowClock = ReadBoolSetting(section, nameof(ShowClock), true);
             ShowPlayerInfo = ReadBoolSetting(section, nameof(ShowPlayerInfo), true);
+            ShowPlayer = ReadBoolSetting(section, nameof(ShowPlayer), true);
         }
 
         protected override void OnSaveSettings(JsonObject section)
@@ -145,9 +189,16 @@ namespace AES_Lacrima.ViewModels
             WriteSetting(section, nameof(ClockTop), ClockTop);
             WriteSetting(section, nameof(ClockWidth), ClockWidth);
             WriteSetting(section, nameof(ClockHeight), ClockHeight);
+
+            WriteSetting(section, nameof(PlayerLeft), PlayerLeft);
+            WriteSetting(section, nameof(PlayerTop), PlayerTop);
+            WriteSetting(section, nameof(PlayerWidth), PlayerWidth);
+            WriteSetting(section, nameof(PlayerHeight), PlayerHeight);
+            WriteSetting(section, nameof(PlayerShowControls), PlayerShowControls);
             
             WriteSetting(section, nameof(ShowClock), ShowClock);
             WriteSetting(section, nameof(ShowPlayerInfo), ShowPlayerInfo);
+            WriteSetting(section, nameof(ShowPlayer), ShowPlayer);
         }
 
         [RelayCommand]
@@ -167,6 +218,13 @@ namespace AES_Lacrima.ViewModels
         private void TogglePlayerInfoVisibility()
         {
             ShowPlayerInfo = !ShowPlayerInfo;
+            SaveSettings();
+        }
+
+        [RelayCommand]
+        private void TogglePlayerVisibility()
+        {
+            ShowPlayer = !ShowPlayer;
             SaveSettings();
         }
     }

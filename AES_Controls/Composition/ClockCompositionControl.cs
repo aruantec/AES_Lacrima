@@ -2,6 +2,7 @@ using System.Numerics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
 using SkiaSharp;
@@ -62,6 +63,33 @@ public class ClockCompositionControl : Control
         set => SetValue(RingGapAngleProperty, value);
     }
 
+    public static readonly StyledProperty<IBrush?> CircleBackgroundColorProperty =
+        AvaloniaProperty.Register<ClockCompositionControl, IBrush?>(nameof(CircleBackgroundColor));
+
+    public IBrush? CircleBackgroundColor
+    {
+        get => GetValue(CircleBackgroundColorProperty);
+        set => SetValue(CircleBackgroundColorProperty, value);
+    }
+
+    public static readonly StyledProperty<Bitmap?> CircleBackgroundBitmapProperty =
+        AvaloniaProperty.Register<ClockCompositionControl, Bitmap?>(nameof(CircleBackgroundBitmap));
+
+    public Bitmap? CircleBackgroundBitmap
+    {
+        get => GetValue(CircleBackgroundBitmapProperty);
+        set => SetValue(CircleBackgroundBitmapProperty, value);
+    }
+
+    public static readonly StyledProperty<double> CircleBackgroundOpacityProperty =
+        AvaloniaProperty.Register<ClockCompositionControl, double>(nameof(CircleBackgroundOpacity), 1.0);
+
+    public double CircleBackgroundOpacity
+    {
+        get => GetValue(CircleBackgroundOpacityProperty);
+        set => SetValue(CircleBackgroundOpacityProperty, value);
+    }
+
     static ClockCompositionControl()
     {
         AffectsRender<ClockCompositionControl>(
@@ -69,7 +97,10 @@ public class ClockCompositionControl : Control
             RingColorProperty,
             TextColorProperty,
             RingThicknessProperty,
-            RingGapAngleProperty);
+            RingGapAngleProperty,
+            CircleBackgroundColorProperty,
+            CircleBackgroundBitmapProperty,
+            CircleBackgroundOpacityProperty);
     }
 
     public ClockCompositionControl()
@@ -104,7 +135,7 @@ public class ClockCompositionControl : Control
         base.OnDetachedFromVisualTree(e);
         _updateTimer?.Stop();
         _updateTimer = null;
-        _visual?.SendHandlerMessage(null);
+        _visual?.SendHandlerMessage(null!);
         _visual = null;
     }
 
@@ -129,6 +160,18 @@ public class ClockCompositionControl : Control
         else if (change.Property == RingGapAngleProperty && change.NewValue is double gapAngle)
         {
             _visual.SendHandlerMessage(new ClockRingGapAngleMessage((float)gapAngle));
+        }
+        else if (change.Property == CircleBackgroundColorProperty && change.NewValue is IBrush circleBrush)
+        {
+            _visual.SendHandlerMessage(new ClockCircleBackgroundColorMessage(GetSKColor(circleBrush)));
+        }
+        else if (change.Property == CircleBackgroundBitmapProperty && change.NewValue is Bitmap bitmap)
+        {
+            _visual.SendHandlerMessage(new ClockCircleBackgroundBitmapMessage(ConvertToSKBitmap(bitmap)));
+        }
+        else if (change.Property == CircleBackgroundOpacityProperty && change.NewValue is double opacity)
+        {
+            _visual.SendHandlerMessage(new ClockCircleBackgroundOpacityMessage((float)opacity));
         }
     }
 
@@ -156,6 +199,12 @@ public class ClockCompositionControl : Control
         _visual.SendHandlerMessage(new ClockTextColorMessage(GetSKColor(TextColor)));
         _visual.SendHandlerMessage(new ClockRingThicknessMessage((float)RingThickness));
         _visual.SendHandlerMessage(new ClockRingGapAngleMessage((float)RingGapAngle));
+        _visual.SendHandlerMessage(new ClockCircleBackgroundColorMessage(GetSKColor(CircleBackgroundColor)));
+        _visual.SendHandlerMessage(new ClockCircleBackgroundOpacityMessage((float)CircleBackgroundOpacity));
+        if (CircleBackgroundBitmap != null)
+        {
+            _visual.SendHandlerMessage(new ClockCircleBackgroundBitmapMessage(ConvertToSKBitmap(CircleBackgroundBitmap)));
+        }
         _visual.SendHandlerMessage(new ClockUpdateMessage(DateTime.Now));
     }
 
@@ -167,5 +216,22 @@ public class ClockCompositionControl : Control
             return new SKColor(c.R, c.G, c.B, c.A);
         }
         return SKColors.White;
+    }
+
+    private static SKBitmap? ConvertToSKBitmap(Bitmap? bitmap)
+    {
+        if (bitmap == null) return null;
+
+        try
+        {
+            using var memoryStream = new System.IO.MemoryStream();
+            bitmap.Save(memoryStream);
+            memoryStream.Seek(0, System.IO.SeekOrigin.Begin);
+            return SKBitmap.Decode(memoryStream);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
