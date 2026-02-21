@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using AES_Controls.Helpers;
 using AES_Controls.Player;
 using AES_Core.DI;
@@ -43,8 +44,8 @@ namespace AES_Lacrima
         {
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
-                // Ensure MPV is installed/updated and files are swapped correctly before DI loads anything
-                await MpvSetup.EnsureInstalled();
+                // Process pending mpv updates or uninstalls WITHOUT starting automatic setup/download
+                await MpvSetup.EnsureInstalled(autoInstall: false);
 
                 DisableAvaloniaDataAnnotationValidation();
                 //Initialize DI Locator
@@ -58,34 +59,44 @@ namespace AES_Lacrima
                 // Attach closing handler to perform cleanup/save on exit
                 desktop.MainWindow.Closing += MainWindow_Closing;
 
-                // Obtain a single shared FFmpeg manager to track status and installation
-                var ffmpegManager = DiLocator.ResolveViewModel<FFmpegManager>();
-                if (ffmpegManager != null)
-                {
-                    await ffmpegManager.EnsureFFmpegInstalledAsync();
-                }
+                // Configure FFmpeg, libmpv and yt-dlp checks. Skip auto-installation on startup.
+                await PerformInitialToolChecksAsync(desktop.MainWindow);
+            }
 
-                // Ensure yt-dlp is installed and available for the application
-                var ytDlpManager = DiLocator.ResolveViewModel<YtDlpManager>();
-                if (ytDlpManager != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                {
-                    await ytDlpManager.EnsureInstalledAsync();
-                }
+            base.OnFrameworkInitializationCompleted();
+        }
 
-                // use the FFmpeg locator to find the executable path and refresh settings info
-                if (DiLocator.ResolveViewModel<SettingsViewModel>() is { } settingsViewModel)
+        private static async Task PerformInitialToolChecksAsync(Window mainWindow)
+        {
+            // Give the main window a moment to finish launching and the view model to be fully ready
+            await Task.Delay(500);
+
+            if (mainWindow.DataContext is MainWindowViewModel mainViewModel)
+            {
+                var settingsViewModel = DiLocator.ResolveViewModel<SettingsViewModel>();
+                if (settingsViewModel != null)
                 {
+                    // Refresh current state for users to see accurate info in settings
                     if (FFmpegLocator.FindFFmpegPath() is { } ffmpegPath)
                     {
                         settingsViewModel.FfmpegPath = ffmpegPath;
                     }
+
+                    // Background checks for versions
                     _ = settingsViewModel.RefreshFFmpegInfo();
                     _ = settingsViewModel.RefreshMpvInfo();
                     _ = settingsViewModel.RefreshYtDlpInfo();
+
+                    // Perform missing tool check. mpv and ffmpeg are critical.
+                    bool ffmpegMissing = !FFmpegLocator.IsFFmpegAvailable();
+                    bool mpvMissing = !(settingsViewModel.MpvManager?.IsLibraryInstalled() ?? false);
+
+                    if (ffmpegMissing || mpvMissing)
+                    {
+                        mainViewModel.ShowSetupPrompt();
+                    }
                 }
             }
-
-            base.OnFrameworkInitializationCompleted();
         }
 
         private void DisableAvaloniaDataAnnotationValidation()
