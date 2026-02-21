@@ -7,6 +7,8 @@
              xmlns:spectrum="using:AES_Controls.Player.Spectrum"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              xmlns:widgets="using:AES_Controls.Widgets"
+             xmlns:composition="using:AES_Controls.Composition"
+             xmlns:behaviors="using:AES_Lacrima.Behaviors"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.MainContentView"
              x:DataType="vm:MainContentViewModel"
@@ -17,9 +19,76 @@
         <vm:MainContentViewModel/>
     </Design.DataContext>
 
-	<Grid Grid.RowDefinitions="*,Auto" ClipToBounds="False">
+	<Grid Grid.RowDefinitions="*,Auto" ClipToBounds="False" Background="Transparent">
+        <Grid.ContextMenu>
+            <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
+                <!-- Show/Hide Clock -->
+                <MenuItem Header="{Binding ClockMenuText}" 
+                          CornerRadius="8" 
+                          Command="{Binding ToggleClockVisibilityCommand}">
+                    <MenuItem.Icon>
+                        <Viewbox Width="32" Height="32" Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Clock circle -->
+                                <Ellipse Canvas.Left="10" Canvas.Top="10" Width="80" Height="80" 
+                                         Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" />
+                                <!-- Hour hand -->
+                                <Line StartPoint="50,50" EndPoint="50,30" 
+                                      Stroke="#CCFFFFFF" StrokeThickness="6" StrokeLineCap="Round" />
+                                <!-- Minute hand -->
+                                <Line StartPoint="50,50" EndPoint="65,50" 
+                                      Stroke="#CCFFFFFF" StrokeThickness="6" StrokeLineCap="Round" />
+                                <!-- Center dot -->
+                                <Ellipse Canvas.Left="45" Canvas.Top="45" Width="10" Height="10" Fill="#CCFFFFFF" />
+                            </Canvas>
+                        </Viewbox>
+                    </MenuItem.Icon>
+                </MenuItem>
+
+                <!-- Show/Hide Player Info -->
+                <MenuItem Header="{Binding PlayerInfoMenuText}" 
+                          CornerRadius="8" 
+                          Command="{Binding TogglePlayerInfoVisibilityCommand}">
+                    <MenuItem.Icon>
+                        <Viewbox Width="32" Height="32" Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Music note -->
+                                <Path Data="M 65,20 L 65,60 C 65,70 55,75 45,75 C 35,75 25,70 25,60 C 25,50 35,45 45,45 C 50,45 55,47 58,50 L 58,30 L 75,25 L 75,15 Z" 
+                                      Fill="#CCFFFFFF" />
+                                <!-- Information circle -->
+                                <Ellipse Canvas.Left="5" Canvas.Top="5" Width="35" Height="35" 
+                                         Stroke="#CCFFFFFF" StrokeThickness="5" Fill="Transparent" />
+                                <!-- i dot -->
+                                <Ellipse Canvas.Left="19" Canvas.Top="13" Width="7" Height="7" Fill="#CCFFFFFF" />
+                                <!-- i stem -->
+                                <Rectangle Canvas.Left="19.5" Canvas.Top="22" Width="6" Height="13" RadiusX="3" RadiusY="3" Fill="#CCFFFFFF" />
+                            </Canvas>
+                        </Viewbox>
+                    </MenuItem.Icon>
+                </MenuItem>
+            </ContextMenu>
+        </Grid.ContextMenu>
+
 		<!-- Widgets -->
 		<Panel Grid.RowSpan="2">
+            <!-- Clock -->
+            <widgets:WidgetControl x:Name="Clock" 
+                                   Background="Transparent"
+                                   Left="{Binding ClockLeft, Mode=TwoWay}"
+                                   Top="{Binding ClockTop, Mode=TwoWay}"
+                                   Width="{Binding ClockWidth, Mode=TwoWay}"
+                                   Height="{Binding ClockHeight, Mode=TwoWay}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   MoveResizeEndedCommand="{Binding SaveWidgetSettingsCommand}"
+                                   IsVisible="{Binding ShowClock}">
+                <Interaction.Behaviors>
+                    <behaviors:PreventFocusOnRightClickBehavior />
+                </Interaction.Behaviors>
+                <composition:ClockCompositionControl/>
+            </widgets:WidgetControl>
+
+            <!-- Player info -->
 			<widgets:WidgetControl x:Name="PlayerInfo" 
 								   Background="Transparent"
 								   Left="{Binding PlayerInfoLeft, Mode=TwoWay}"
@@ -28,7 +97,11 @@
 								   Height="{Binding PlayerInfoHeight, Mode=TwoWay}"
 								   HorizontalAlignment="Center"
 								   VerticalAlignment="Center"
-								   MoveResizeEndedCommand="{Binding SaveWidgetSettingsCommand}">
+								   MoveResizeEndedCommand="{Binding SaveWidgetSettingsCommand}"
+                                   IsVisible="{Binding ShowPlayerInfo}">
+                <Interaction.Behaviors>
+                    <behaviors:PreventFocusOnRightClickBehavior />
+                </Interaction.Behaviors>
 				<!--Title, artist and album-->
                     <StackPanel Margin="22,0,20,0" VerticalAlignment="Center" HorizontalAlignment="Center">
     

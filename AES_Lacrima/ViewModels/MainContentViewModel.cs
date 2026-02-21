@@ -31,6 +31,36 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private double _playerInfoHeight = double.NaN;
 
+        [ObservableProperty]
+        private double _clockLeft = double.NaN;
+
+        [ObservableProperty]
+        private double _clockTop = double.NaN;
+
+        [ObservableProperty]
+        private double _clockWidth = 250;
+
+        [ObservableProperty]
+        private double _clockHeight = 250;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ClockMenuText))]
+        private bool _showClock = true;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(PlayerInfoMenuText))]
+        private bool _showPlayerInfo = true;
+
+        /// <summary>
+        /// Gets the menu text for the clock toggle based on current visibility.
+        /// </summary>
+        public string ClockMenuText => ShowClock ? "Hide Clock" : "Show Clock";
+
+        /// <summary>
+        /// Gets the menu text for the player info toggle based on current visibility.
+        /// </summary>
+        public string PlayerInfoMenuText => ShowPlayerInfo ? "Hide Player Info" : "Show Player Info";
+
         /// <summary>
         /// Provides access to the navigation service used for managing
         /// navigation within the application. Resolved by the DI container.
@@ -94,6 +124,14 @@ namespace AES_Lacrima.ViewModels
             PlayerInfoTop = ReadDoubleSetting(section, nameof(PlayerInfoTop), double.NaN);
             PlayerInfoWidth = ReadDoubleSetting(section, nameof(PlayerInfoWidth), 300);
             PlayerInfoHeight = ReadDoubleSetting(section, nameof(PlayerInfoHeight), double.NaN);
+            
+            ClockLeft = ReadDoubleSetting(section, nameof(ClockLeft), double.NaN);
+            ClockTop = ReadDoubleSetting(section, nameof(ClockTop), double.NaN);
+            ClockWidth = ReadDoubleSetting(section, nameof(ClockWidth), 250);
+            ClockHeight = ReadDoubleSetting(section, nameof(ClockHeight), 250);
+            
+            ShowClock = ReadBoolSetting(section, nameof(ShowClock), true);
+            ShowPlayerInfo = ReadBoolSetting(section, nameof(ShowPlayerInfo), true);
         }
 
         protected override void OnSaveSettings(JsonObject section)
@@ -102,11 +140,33 @@ namespace AES_Lacrima.ViewModels
             WriteSetting(section, nameof(PlayerInfoTop), PlayerInfoTop);
             WriteSetting(section, nameof(PlayerInfoWidth), PlayerInfoWidth);
             WriteSetting(section, nameof(PlayerInfoHeight), PlayerInfoHeight);
+            
+            WriteSetting(section, nameof(ClockLeft), ClockLeft);
+            WriteSetting(section, nameof(ClockTop), ClockTop);
+            WriteSetting(section, nameof(ClockWidth), ClockWidth);
+            WriteSetting(section, nameof(ClockHeight), ClockHeight);
+            
+            WriteSetting(section, nameof(ShowClock), ShowClock);
+            WriteSetting(section, nameof(ShowPlayerInfo), ShowPlayerInfo);
         }
 
         [RelayCommand]
         private void SaveWidgetSettings()
         {
+            SaveSettings();
+        }
+
+        [RelayCommand]
+        private void ToggleClockVisibility()
+        {
+            ShowClock = !ShowClock;
+            SaveSettings();
+        }
+
+        [RelayCommand]
+        private void TogglePlayerInfoVisibility()
+        {
+            ShowPlayerInfo = !ShowPlayerInfo;
             SaveSettings();
         }
     }
