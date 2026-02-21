@@ -25,6 +25,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     private string? _loadedFile, _waveformLoadedFile;
     private readonly SynchronizationContext? _syncContext;
     private volatile bool _isLoadingMedia, _isSeeking;
+    private CancellationTokenSource? _seekRestartCts;
     private volatile bool _isInternalChange; // Guard to prevent playlist skipping
     private volatile bool _disposed; // Flag to skip native calls during shutdown
 
@@ -828,14 +829,30 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     public void SetPosition(double pos)
     {
         _isSeeking = true;
-        _spectrumAnalyzer?.Stop();
+        // Don't call Stop() here! Let the analyzer's loop handle fading out via the IsSeeking flag.
+
         if (!_disposed) SetProperty("time-pos", pos);
         Position = pos; // Update immediately for UI feedback
 
+        // Cancel previous restart attempt to debounce
+        _seekRestartCts?.Cancel();
+        _seekRestartCts?.Dispose();
+        _seekRestartCts = new CancellationTokenSource();
+        var token = _seekRestartCts.Token;
+
         Task.Run(async () => {
-            await Task.Delay(250); // Increased delay for stability
-            if (!_disposed) _spectrumAnalyzer?.SetStartPosition(pos, IsPlaying);
-            _isSeeking = false;
+            try 
+            {
+                await Task.Delay(400, token); // Debounce delay
+                if (token.IsCancellationRequested) return;
+
+                if (!_disposed) 
+                {
+                    _spectrumAnalyzer?.SetStartPosition(pos, IsPlaying);
+                }
+                _isSeeking = false;
+            }
+            catch (OperationCanceledException) { }
         });
     }
 

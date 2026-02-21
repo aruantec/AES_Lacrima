@@ -33,6 +33,21 @@ internal record ClockRingThicknessMessage(float Thickness);
 internal record ClockRingGapAngleMessage(float GapAngle);
 
 /// <summary>
+/// Message to update the circle background color.
+/// </summary>
+internal record ClockCircleBackgroundColorMessage(SKColor Color);
+
+/// <summary>
+/// Message to update the circle background bitmap.
+/// </summary>
+internal record ClockCircleBackgroundBitmapMessage(SKBitmap? Bitmap);
+
+/// <summary>
+/// Message to update the circle background opacity.
+/// </summary>
+internal record ClockCircleBackgroundOpacityMessage(float Opacity);
+
+/// <summary>
 /// Composition visual handler that renders a circular clock with time, date, and weekday.
 /// </summary>
 public class ClockCompositionVisualHandler : CompositionCustomVisualHandler
@@ -43,6 +58,9 @@ public class ClockCompositionVisualHandler : CompositionCustomVisualHandler
     private SKColor _textColor = SKColors.White;
     private float _ringThickness = 4f;
     private float _ringGapAngle = 60f; // Not used anymore - kept for compatibility
+    private SKColor _circleBackgroundColor = SKColors.Transparent;
+    private SKBitmap? _circleBackgroundBitmap;
+    private float _circleBackgroundOpacity = 1.0f;
 
     // Paints
     private SKPaint? _ringPaint = new()
@@ -79,6 +97,13 @@ public class ClockCompositionVisualHandler : CompositionCustomVisualHandler
         StrokeWidth = 2f,
         Style = SKPaintStyle.Stroke,
         StrokeCap = SKStrokeCap.Round
+    };
+
+    private SKPaint? _circleBackgroundPaint = new()
+    {
+        IsAntialias = true,
+        Style = SKPaintStyle.Fill,
+        Color = SKColors.Transparent
     };
 
     public override void OnMessage(object message)
@@ -118,6 +143,19 @@ public class ClockCompositionVisualHandler : CompositionCustomVisualHandler
                 _ringGapAngle = gapAngle.GapAngle;
                 Invalidate();
                 return;
+            case ClockCircleBackgroundColorMessage bgColor:
+                _circleBackgroundColor = bgColor.Color;
+                Invalidate();
+                return;
+            case ClockCircleBackgroundBitmapMessage bgBitmap:
+                _circleBackgroundBitmap?.Dispose();
+                _circleBackgroundBitmap = bgBitmap.Bitmap;
+                Invalidate();
+                return;
+            case ClockCircleBackgroundOpacityMessage opacity:
+                _circleBackgroundOpacity = opacity.Opacity;
+                Invalidate();
+                return;
         }
     }
 
@@ -146,6 +184,9 @@ public class ClockCompositionVisualHandler : CompositionCustomVisualHandler
 
         // Calculate ring radius
         var ringRadius = (size / 2f) - (_ringThickness / 2f) - 10f;
+
+        // Draw circle background (color or bitmap)
+        DrawCircleBackground(canvas, centerX, centerY, ringRadius);
 
         // Draw the circular ring with smooth second progression
         DrawRing(canvas, centerX, centerY, ringRadius, now);
@@ -200,6 +241,70 @@ public class ClockCompositionVisualHandler : CompositionCustomVisualHandler
         RegisterForNextAnimationFrameUpdate();
     }
 
+    private void DrawCircleBackground(SKCanvas canvas, float centerX, float centerY, float radius)
+    {
+        if (_circleBackgroundPaint == null) return;
+
+        // Save canvas state
+        canvas.Save();
+
+        // Create a circular clip path
+        using var clipPath = new SKPath();
+        clipPath.AddCircle(centerX, centerY, radius);
+        canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+
+        // Draw bitmap if available, otherwise draw color
+        if (_circleBackgroundBitmap != null)
+        {
+            // Calculate the destination rect (circle bounds)
+            var destRect = new SKRect(
+                centerX - radius,
+                centerY - radius,
+                centerX + radius,
+                centerY + radius);
+
+            // Calculate UniformToFill scaling
+            var destWidth = destRect.Width;
+            var destHeight = destRect.Height;
+            var srcWidth = _circleBackgroundBitmap.Width;
+            var srcHeight = _circleBackgroundBitmap.Height;
+
+            // Calculate scale factors for width and height
+            var scaleX = destWidth / srcWidth;
+            var scaleY = destHeight / srcHeight;
+
+            // Use the larger scale to ensure the image fills the entire area
+            var scale = Math.Max(scaleX, scaleY);
+
+            // Calculate the scaled dimensions
+            var scaledWidth = srcWidth * scale;
+            var scaledHeight = srcHeight * scale;
+
+            // Center the scaled image
+            var offsetX = centerX - (scaledWidth / 2f);
+            var offsetY = centerY - (scaledHeight / 2f);
+
+            // Create the source-aligned destination rect
+            var scaledRect = new SKRect(
+                offsetX,
+                offsetY,
+                offsetX + scaledWidth,
+                offsetY + scaledHeight);
+
+            _circleBackgroundPaint.Color = SKColors.White.WithAlpha((byte)(_circleBackgroundOpacity * 255));
+            canvas.DrawBitmap(_circleBackgroundBitmap, scaledRect, _circleBackgroundPaint);
+        }
+        else if (_circleBackgroundColor.Alpha > 0)
+        {
+            // Draw color with opacity
+            _circleBackgroundPaint.Color = _circleBackgroundColor.WithAlpha((byte)(_circleBackgroundOpacity * _circleBackgroundColor.Alpha));
+            canvas.DrawCircle(centerX, centerY, radius, _circleBackgroundPaint);
+        }
+
+        // Restore canvas state
+        canvas.Restore();
+    }
+
     private void DrawRing(SKCanvas canvas, float centerX, float centerY, float radius, DateTime currentTime)
     {
         if (_ringPaint == null) return;
@@ -236,5 +341,9 @@ public class ClockCompositionVisualHandler : CompositionCustomVisualHandler
         _datePaint = null;
         _separatorPaint?.Dispose();
         _separatorPaint = null;
+        _circleBackgroundPaint?.Dispose();
+        _circleBackgroundPaint = null;
+        _circleBackgroundBitmap?.Dispose();
+        _circleBackgroundBitmap = null;
     }
 }

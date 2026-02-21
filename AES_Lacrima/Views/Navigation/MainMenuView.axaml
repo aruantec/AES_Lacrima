@@ -65,7 +65,6 @@
         </Style>
     </UserControl.Styles>
     <Grid Height="160" VerticalAlignment="Bottom">
-        <!--<Border Background="Black" Opacity="0.8"/>-->
         <!--Content-->
         <StackPanel Spacing="-10">
 			<StackPanel HorizontalAlignment="Center"

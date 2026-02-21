@@ -510,6 +510,7 @@ public class WidgetControl : ContentControl
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
+        if (e.Handled) return;
         base.OnPointerPressed(e);
         if (!IsFocused) Focus();
 
