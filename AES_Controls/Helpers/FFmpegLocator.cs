@@ -8,6 +8,12 @@ namespace AES_Controls.Helpers
     public static class FFmpegLocator
     {
         /// <summary>
+        /// Checks whether FFmpeg is available on the current system.
+        /// </summary>
+        /// <returns>True if FFmpeg is found; otherwise, false.</returns>
+        public static bool IsFFmpegAvailable() => FindFFmpegPath() != null;
+
+        /// <summary>
         /// Finds the path to the FFmpeg executable.
         /// </summary>
         /// <returns>The path to the FFmpeg executable, or null if not found.</returns>

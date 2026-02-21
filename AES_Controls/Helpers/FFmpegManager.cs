@@ -101,16 +101,16 @@ public partial class FFmpegManager : ObservableObject
     /// found in PATH, this method will attempt to run a platform-specific
     /// installer and update <see cref="Status"/> and <see cref="IsBusy"/> accordingly.
     /// </summary>
-    /// <returns>A task that completes when the check/installation finishes.</returns>
-    public async Task EnsureFFmpegInstalledAsync()
+    /// <returns>True if FFmpeg is available; otherwise false.</returns>
+    public async Task<bool> EnsureFFmpegInstalledAsync()
     {
         if (IsFFmpegAvailable())
         {
             Status = "FFmpeg is already installed.";
-            return;
+            return true;
         }
 
-        await InstallAsync();
+        return await InstallAsync();
     }
 
     /// <summary>
@@ -121,7 +121,8 @@ public partial class FFmpegManager : ObservableObject
     /// <summary>
     /// Installs FFmpeg using the platform-specific installer and raises <see cref="InstallationCompleted"/>.
     /// </summary>
-    public async Task InstallAsync()
+    /// <returns>True if successful; otherwise false.</returns>
+    public async Task<bool> InstallAsync()
     {
         IsBusy = true;
         Status = "FFmpeg not found. Starting installation...";
@@ -132,6 +133,7 @@ public partial class FFmpegManager : ObservableObject
         IsBusy = false;
 
         InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(success, Status));
+        return success;
     }
 
     /// <summary>

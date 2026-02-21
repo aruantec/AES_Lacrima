@@ -153,12 +153,35 @@ namespace AES_Lacrima.ViewModels
         /// <summary>
         /// Displays the restart prompt in the application's overlay.
         /// </summary>
-        private void ShowRestartPrompt()
+        public void ShowRestartPrompt()
         {
             if (PromptView is RestartPromptViewModel) return;
 
             var prompt = new RestartPromptViewModel();
-            prompt.RequestClose += () => PromptView = null;
+            prompt.RequestClose += () => { if (PromptView == prompt) PromptView = null; };
+            PromptView = prompt;
+        }
+
+        /// <summary>
+        /// Displays the initial setup prompt for missing components.
+        /// </summary>
+        public void ShowSetupPrompt()
+        {
+            // Do not show the setup prompt if a restart is pending for libmpv, as that implies it's already "installed" or staged.
+            if (SettingsViewModel?.MpvManager != null && SettingsViewModel.MpvManager.IsPendingRestart)
+            {
+                ShowRestartPrompt();
+                return;
+            }
+
+            if (PromptView is ComponentSetupPromptViewModel || PromptView is RestartPromptViewModel) return;
+
+            var ffmpeg = DiLocator.ResolveViewModel<FFmpegManager>();
+            var mpv = DiLocator.ResolveViewModel<MpvLibraryManager>();
+            var ytdlp = DiLocator.ResolveViewModel<YtDlpManager>();
+
+            var prompt = new ComponentSetupPromptViewModel(ffmpeg, mpv, ytdlp, () => NavigationService?.NavigateToSettings(3));
+            prompt.RequestClose += () => { if (PromptView == prompt) PromptView = null; };
             PromptView = prompt;
         }
 

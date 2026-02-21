@@ -80,14 +80,14 @@ public partial class YtDlpManager : ObservableObject
     /// Ensures that yt-dlp is present in the application's directory.
     /// Downloads the latest release from GitHub if missing.
     /// </summary>
-    /// <returns>A task that represents the asynchronous installation operation.</returns>
-    public async Task EnsureInstalledAsync()
+    /// <returns>A task returning true if yt-dlp is locally available; otherwise false.</returns>
+    public async Task<bool> EnsureInstalledAsync()
     {
         string binName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp";
         if (File.Exists(Path.Combine(_destFolder, binName))) 
         {
             Status = "yt-dlp is already installed.";
-            return;
+            return true;
         }
 
         IsBusy = true;
@@ -100,12 +100,14 @@ public partial class YtDlpManager : ObservableObject
             await DownloadLatestAsync();
             Status = "yt-dlp installation successful.";
             InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(true, Status));
+            return true;
         }
         catch (Exception ex)
         {
             Status = $"yt-dlp installation failed: {ex.Message}";
             Log.Error(Status, ex);
             InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(false, Status));
+            return false;
         }
         finally
         {
@@ -203,24 +205,105 @@ public partial class YtDlpManager : ObservableObject
     /// </summary>
     public async Task<string?> GetLatestVersionAsync()
     {
+        LoadCache();
+
+        if (!string.IsNullOrEmpty(_cache?.LatestVersion) && (DateTime.Now - _cache.LastUpdated).TotalMinutes < 15)
+        {
+            return _cache.LatestVersion;
+        }
+
         try
         {
             Client.DefaultRequestHeaders.UserAgent.Clear();
-            Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; YtDlpDownloader)");
-            
-            var response = await Client.GetStringAsync($"https://api.github.com/repos/{Repo}/releases/latest");
-            using var doc = JsonDocument.Parse(response);
-            
+            Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; YtDlpDownloader; AES_Lacrima)");
+
+            string apiUrl = $"https://api.github.com/repos/{Repo}/releases/latest";
+            using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+            if (!string.IsNullOrEmpty(_cache?.ETag))
+            {
+                request.Headers.IfNoneMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue(_cache.ETag));
+            }
+
+            using var response = await Client.SendAsync(request);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NotModified)
+            {
+                if (_cache != null) _cache.LastUpdated = DateTime.Now;
+                return _cache?.LatestVersion;
+            }
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden && response.Headers.Contains("X-RateLimit-Remaining"))
+            {
+                Log.Warn("GitHub API rate limit exceeded while checking yt-dlp version.");
+                return _cache?.LatestVersion;
+            }
+
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+
             if (doc.RootElement.TryGetProperty("tag_name", out var tagProp))
             {
-                return tagProp.GetString();
+                var ver = tagProp.GetString();
+                if (_cache != null)
+                {
+                    _cache.LatestVersion = ver;
+                    _cache.ETag = response.Headers.ETag?.Tag;
+                    _cache.LatestReleaseJson = json;
+                    _cache.LastUpdated = DateTime.Now;
+                    SaveCache();
+                }
+                return ver;
             }
         }
         catch (Exception ex)
         {
             Log.Error("Failed to fetch latest yt-dlp version", ex);
         }
-        return null;
+
+        return _cache?.LatestVersion;
+    }
+
+    private static YtDlpCacheEntry? _cache;
+    private static readonly string _cachePath = Path.Combine(AppContext.BaseDirectory, "ytdlp_cache.json");
+
+    private sealed class YtDlpCacheEntry
+    {
+        public string? ETag { get; set; }
+        public string? LatestVersion { get; set; }
+        public string? LatestReleaseJson { get; set; }
+        public DateTime LastUpdated { get; set; }
+    }
+
+    private void SaveCache()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(_cache);
+            File.WriteAllText(_cachePath, json);
+        }
+        catch (Exception ex) { Log.Warn("Failed to save yt-dlp cache to disk", ex); }
+    }
+
+    private void LoadCache()
+    {
+        if (_cache != null) return;
+        if (!File.Exists(_cachePath))
+        {
+            _cache = new YtDlpCacheEntry();
+            return;
+        }
+
+        try
+        {
+            var json = File.ReadAllText(_cachePath);
+            _cache = JsonSerializer.Deserialize<YtDlpCacheEntry>(json) ?? new YtDlpCacheEntry();
+        }
+        catch (Exception ex) 
+        { 
+            Log.Warn("Failed to load yt-dlp cache from disk", ex); 
+            _cache = new YtDlpCacheEntry();
+        }
     }
 
     /// <summary>
@@ -258,11 +341,66 @@ public partial class YtDlpManager : ObservableObject
     /// </summary>
     private async Task DownloadLatestAsync()
     {
+        LoadCache();
+
         Client.DefaultRequestHeaders.UserAgent.Clear();
-        Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; YtDlpDownloader)");
-        
-        var response = await Client.GetStringAsync($"https://api.github.com/repos/{Repo}/releases/latest");
-        using var doc = JsonDocument.Parse(response);
+        Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; YtDlpDownloader; AES_Lacrima)");
+
+        string apiUrl = $"https://api.github.com/repos/{Repo}/releases/latest";
+        Log.Debug($"Fetching latest yt-dlp release info from {apiUrl}");
+
+        string? json = null;
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+            if (!string.IsNullOrEmpty(_cache?.ETag))
+            {
+                request.Headers.IfNoneMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue(_cache.ETag));
+            }
+
+            using var responseMessage = await Client.SendAsync(request);
+
+            if (responseMessage.StatusCode == System.Net.HttpStatusCode.NotModified)
+            {
+                Log.Info("yt-dlp latest release info not modified (304), using cache.");
+                json = _cache?.LatestReleaseJson;
+            }
+            else if (responseMessage.StatusCode == System.Net.HttpStatusCode.Forbidden && responseMessage.Headers.Contains("X-RateLimit-Remaining"))
+            {
+                Log.Warn("GitHub API rate limit exceeded during yt-dlp release fetch.");
+                json = _cache?.LatestReleaseJson;
+            }
+            else
+            {
+                responseMessage.EnsureSuccessStatusCode();
+                json = await responseMessage.Content.ReadAsStringAsync();
+
+                if (_cache != null)
+                {
+                    _cache.LatestReleaseJson = json;
+                    _cache.ETag = responseMessage.Headers.ETag?.Tag;
+                    _cache.LastUpdated = DateTime.Now;
+                    
+                    if (JsonDocument.Parse(json).RootElement.TryGetProperty("tag_name", out var tagProp))
+                        _cache.LatestVersion = tagProp.GetString();
+                        
+                    SaveCache();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Failed to fetch latest yt-dlp release info", ex);
+            json = _cache?.LatestReleaseJson;
+        }
+
+        if (string.IsNullOrEmpty(json))
+        {
+            throw new InvalidOperationException("Could not retrieve yt-dlp release information (API limit or connection error).");
+        }
+
+        using var doc = JsonDocument.Parse(json);
 
         string targetAsset = GetPlatformAssetName();
         JsonElement? found = null;

@@ -28,7 +28,7 @@
                 BorderThickness="0,0,0,0.5"
                 VerticalAlignment="Top"
                 Margin="-4,-15,2,0"/>
-        <TabControl Margin="15,0,0,0">
+        <TabControl Margin="15,0,0,0" SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
             <!-- UI Settings tab -->
             <TabItem Header="GUI" FontSize="30">
                 <ScrollViewer>

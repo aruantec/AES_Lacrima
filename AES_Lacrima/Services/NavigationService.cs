@@ -2,6 +2,9 @@
 using AES_Lacrima.ViewModels;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using AES_Controls.Helpers;
+using System;
+using System.Linq;
 
 namespace AES_Lacrima.Services
 {
@@ -38,6 +41,19 @@ namespace AES_Lacrima.Services
         private void ToggleSettingsOverlay()
         {
             ShowSettingsOverlay = !ShowSettingsOverlay;
+        }
+
+        /// <summary>
+        /// Shows the settings overlay and selects the specified tab.
+        /// </summary>
+        /// <param name="tabIndex">The index of the tab to select.</param>
+        public void NavigateToSettings(int tabIndex)
+        {
+            if (DiLocator.ResolveViewModel<SettingsViewModel>() is { } settings)
+            {
+                settings.SelectedTabIndex = tabIndex;
+                ShowSettingsOverlay = true;
+            }
         }
 
         /// <summary>
@@ -89,12 +105,44 @@ namespace AES_Lacrima.Services
         /// <typeparam name="T">The type of the view model to navigate to. Must inherit from ViewModelBase.</typeparam>
         public void NavigateTo<T>()
         {
+            // Block navigation to media-related view models if critical libraries are missing.
+            if (IsMediaViewModel(typeof(T)))
+            {
+                var mpvManager = DiLocator.ResolveViewModel<MpvLibraryManager>();
+                bool ffmpegAvailable = FFmpegLocator.IsFFmpegAvailable();
+                bool mpvAvailable = mpvManager?.IsLibraryInstalled() ?? false;
+                bool restartPending = mpvManager?.IsPendingRestart ?? false;
+
+                if (!ffmpegAvailable || (!mpvAvailable && !restartPending))
+                {
+                    DiLocator.ResolveViewModel<MainWindowViewModel>()?.ShowSetupPrompt();
+                    return;
+                }
+
+                if (restartPending)
+                {
+                    DiLocator.ResolveViewModel<MainWindowViewModel>()?.ShowRestartPrompt();
+                    return;
+                }
+            }
+
             //Set previous view
             _previousViewModel = View;
             //Set current view
             View = DiLocator.ResolveViewModel<T>() as ViewModelBase;
             //Set back naviation
             IsBackEnabled = View is not MainContentViewModel;
+        }
+
+        /// <summary>
+        /// Determines if the specified type represents a media-related view model (Music or Video).
+        /// </summary>
+        private static bool IsMediaViewModel(Type t)
+        {
+            return t == typeof(MusicViewModel) ||
+                   t == typeof(VideoViewModel) ||
+                   t.GetInterfaces().Any(i => i.Name.EndsWith("IMusicViewModel") || i.Name.EndsWith("IVideoViewModel")) ||
+                   t.Name.EndsWith("MusicViewModel") || t.Name.EndsWith("VideoViewModel");
         }
     }
 }

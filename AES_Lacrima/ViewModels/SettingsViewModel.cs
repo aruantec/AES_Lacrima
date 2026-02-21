@@ -6,6 +6,7 @@ using Avalonia.Collections;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using log4net;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -36,6 +37,8 @@ public record ShaderItem(string Path, string Name);
 [AutoRegister]
 public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(SettingsViewModel));
+
     private string _shaderToysDirectory = Path.Combine(AppContext.BaseDirectory, "Shaders", "shadertoys");
     private string _shadersDirectory = Path.Combine(AppContext.BaseDirectory, "Shaders", "glsl");
 
@@ -332,6 +335,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private bool _isYtDlpUpdateAvailable;
 
     /// <summary>
+    /// Gets or sets the index of the currently selected tab in the settings overlay.
+    /// </summary>
+    [ObservableProperty]
+    private int _selectedTabIndex;
+
+    /// <summary>
     /// Collection of available libmpv versions from GitHub (for Windows builds).
     /// </summary>
     [ObservableProperty]
@@ -535,6 +544,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         }
         catch (Exception ex)
         {
+            Log.Error("Failed to refresh yt-dlp info", ex);
             YtDlp.Status = $"yt-dlp check failed: {ex.Message}";
         }
     }

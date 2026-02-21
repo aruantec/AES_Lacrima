@@ -4,6 +4,7 @@ using SharpCompress.Archives;
 using SharpCompress.Archives.SevenZip;
 using System.Diagnostics;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -11,6 +12,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 using log4net;
 
 namespace AES_Controls.Helpers;
@@ -37,6 +39,51 @@ public partial class MpvLibraryManager : ObservableObject
     private const string Repo = "zhongfly/mpv-winbuild";
     private readonly string _destFolder = AppContext.BaseDirectory;
     private static readonly HttpClient Client = new();
+
+    private static MpvCacheEntry? _cache;
+    private static readonly string _cachePath = Path.Combine(AppContext.BaseDirectory, "mpv_cache.json");
+
+    private sealed class MpvCacheEntry
+    {
+        public string? ETag { get; set; }
+        public List<MpvReleaseInfo>? Versions { get; set; }
+        public DateTime LastUpdated { get; set; }
+
+        public string? LatestETag { get; set; }
+        public string? LatestReleaseJson { get; set; }
+        public DateTime LastLatestUpdated { get; set; }
+    }
+
+    private void SaveCache()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(_cache);
+            File.WriteAllText(_cachePath, json);
+        }
+        catch (Exception ex) { Log.Warn("Failed to save mpv cache to disk", ex); }
+    }
+
+    private void LoadCache()
+    {
+        if (_cache != null) return;
+        if (!File.Exists(_cachePath))
+        {
+            _cache = new MpvCacheEntry();
+            return;
+        }
+
+        try
+        {
+            var json = File.ReadAllText(_cachePath);
+            _cache = JsonSerializer.Deserialize<MpvCacheEntry>(json) ?? new MpvCacheEntry();
+        }
+        catch (Exception ex) 
+        { 
+            Log.Warn("Failed to load mpv cache from disk", ex); 
+            _cache = new MpvCacheEntry();
+        }
+    }
 
     /// <summary>
     /// Event raised when libmpv usage should be terminated (e.g., before uninstallation).
@@ -158,11 +205,18 @@ public partial class MpvLibraryManager : ObservableObject
         try
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
                 await DownloadWindowsLgplAsync(libName);
+            }
             else
-                CopySystemLibrary(libName);
+            {
+                if (!CopySystemLibrary(libName))
+                {
+                    throw new InvalidOperationException($"Could not locate {libName} on the system. Please ensure mpv is installed via your package manager.");
+                }
+            }
 
-            Status = "libmpv installation successful.";
+            Status = "libmpv installation successful. A restart is required.";
             IsPendingRestart = true;
             InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(true, Status));
         }
@@ -337,13 +391,46 @@ public partial class MpvLibraryManager : ObservableObject
     /// </summary>
     public async Task<List<MpvReleaseInfo>> GetAvailableVersionsAsync()
     {
+        LoadCache();
+
+        if (_cache?.Versions != null && (DateTime.Now - _cache.LastUpdated).TotalMinutes < 5)
+        {
+            return _cache.Versions;
+        }
+
         try
         {
             Client.DefaultRequestHeaders.UserAgent.Clear();
-            Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; MpvDownloader)");
+            Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; MpvDownloader; AES_Lacrima)");
 
-            var response = await Client.GetStringAsync($"https://api.github.com/repos/{Repo}/releases");
-            using var doc = JsonDocument.Parse(response);
+            string apiUrl = $"https://api.github.com/repos/{Repo}/releases";
+            Log.Debug($"Fetching mpv versions from {apiUrl}");
+            
+            using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+            if (!string.IsNullOrEmpty(_cache?.ETag))
+            {
+                request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(_cache.ETag));
+            }
+
+            using var response = await Client.SendAsync(request);
+            
+            if (response.StatusCode == System.Net.HttpStatusCode.NotModified)
+            {
+                Log.Info("Mpv versions not modified (304), using cache.");
+                if (_cache != null) _cache.LastUpdated = DateTime.Now;
+                return _cache?.Versions ?? new List<MpvReleaseInfo>();
+            }
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden && response.Headers.Contains("X-RateLimit-Remaining"))
+            {
+                Status = "GitHub API rate limit exceeded. Please wait a few minutes and try again.";
+                Log.Warn(Status);
+                return _cache?.Versions ?? new List<MpvReleaseInfo>();
+            }
+
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(content);
 
             var versions = new List<MpvReleaseInfo>();
             foreach (var release in doc.RootElement.EnumerateArray())
@@ -362,12 +449,23 @@ public partial class MpvLibraryManager : ObservableObject
                     versions.Add(new MpvReleaseInfo { Tag = tag, Title = name ?? tag });
                 }
             }
+            
+            if (_cache != null)
+            {
+                _cache.Versions = versions;
+                _cache.ETag = response.Headers.ETag?.Tag;
+                _cache.LastUpdated = DateTime.Now;
+                SaveCache();
+            }
+
+            Log.Info($"Successfully retrieved {versions.Count} versions for libmpv.");
             return versions;
         }
         catch (Exception ex)
         {
-            Log.Error($"Failed to fetch versions from GitHub", ex);
-            return new List<MpvReleaseInfo>();
+            Log.Error($"Failed to fetch versions from GitHub repo {Repo}", ex);
+            if (Status == "Idle") Status = "Failed to fetch available versions. Check your internet connection.";
+            return _cache?.Versions ?? new List<MpvReleaseInfo>();
         }
     }
 
@@ -393,34 +491,48 @@ public partial class MpvLibraryManager : ObservableObject
         try
         {
             Client.DefaultRequestHeaders.UserAgent.Clear();
-            Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; MpvDownloader)");
+            Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; MpvDownloader; AES_Lacrima)");
             
             var response = await Client.GetStringAsync($"https://api.github.com/repos/{Repo}/releases/tags/{tagName}");
             using var doc = JsonDocument.Parse(response);
             
             JsonElement? found = null;
-            foreach (var a in doc.RootElement.GetProperty("assets").EnumerateArray())
+            var assets = doc.RootElement.GetProperty("assets").EnumerateArray().ToList();
+            
+            // Re-use same robust strategy for assets as in DownloadWindowsLgplAsync
+            found = assets.FirstOrDefault(a => {
+                var name = a.GetProperty("name").GetString() ?? "";
+                return name.Contains("mpv-dev-lgpl-x86_64") && name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase);
+            });
+
+            if (found == null)
             {
-                if (a.TryGetProperty("name", out var nameProp))
-                {
-                    var name = nameProp.GetString();
-                    if (!string.IsNullOrEmpty(name) && name.Contains("mpv-dev-lgpl-x86_64") && name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase))
-                    {
-                        found = a;
-                        break;
-                    }
-                }
+                found = assets.FirstOrDefault(a => {
+                    var name = a.GetProperty("name").GetString() ?? "";
+                    return (name.Contains("mpv-dev-x86_64") || name.Contains("x86_64-v1") || name.Contains("x86_64-v3") || (name.Contains("mpv-") && name.Contains("x86_64"))) 
+                           && name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase)
+                           && !name.Contains("debug");
+                });
             }
 
             if (found == null || !found.Value.TryGetProperty("browser_download_url", out var urlProp))
             {
-                Status = $"No suitable build found for version {tagName}.";
+                Status = $"No suitable build (x86_64 .7z) found for version {tagName}.";
                 InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(false, Status));
                 return false;
             }
 
-            await DownloadWithProgressAsync(urlProp.GetString()!, GetPlatformLibName());
-            Status = $"Version {tagName} installed successfully.";
+            var url = urlProp.GetString();
+            if (string.IsNullOrEmpty(url))
+            {
+                Status = $"Download URL for version {tagName} is empty.";
+                InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(false, Status));
+                return false;
+            }
+
+            await DownloadWithProgressAsync(url, GetPlatformLibName());
+            Status = $"Version {tagName} installed successfully. Restart to apply.";
+            IsPendingRestart = true;
             InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(true, Status));
             return true;
         }
@@ -445,43 +557,103 @@ public partial class MpvLibraryManager : ObservableObject
     /// <param name="libName">The library filename to extract (for example "libmpv-2.dll").</param>
     private async Task DownloadWindowsLgplAsync(string libName)
     {
-        Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; MpvDownloader)");
-        var response = await Client.GetStringAsync($"https://api.github.com/repos/{Repo}/releases/latest");
-        using var doc = JsonDocument.Parse(response);
+        LoadCache();
 
-        JsonElement? found = null;
-        foreach (var a in doc.RootElement.GetProperty("assets").EnumerateArray())
+        Client.DefaultRequestHeaders.UserAgent.Clear();
+        Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; MpvDownloader; AES_Lacrima)");
+
+        string apiUrl = $"https://api.github.com/repos/{Repo}/releases/latest";
+        Log.Debug($"Fetching latest mpv release info from {apiUrl}");
+
+        string? json = null;
+
+        try
         {
-            if (a.TryGetProperty("name", out var nameProp))
+            using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+            if (!string.IsNullOrEmpty(_cache?.LatestETag))
             {
-                var name = nameProp.GetString();
-                if (!string.IsNullOrEmpty(name) && name.Contains("mpv-dev-lgpl-x86_64") && name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase))
+                request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(_cache.LatestETag));
+            }
+
+            using var response = await Client.SendAsync(request);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NotModified)
+            {
+                Log.Info("Mpv latest release info not modified (304), using cache.");
+                json = _cache?.LatestReleaseJson;
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.Forbidden && response.Headers.Contains("X-RateLimit-Remaining"))
+            {
+                Log.Warn("GitHub API rate limit exceeded during latest release fetch.");
+                json = _cache?.LatestReleaseJson;
+            }
+            else
+            {
+                response.EnsureSuccessStatusCode();
+                json = await response.Content.ReadAsStringAsync();
+
+                if (_cache != null)
                 {
-                    found = a;
-                    break;
+                    _cache.LatestReleaseJson = json;
+                    _cache.LatestETag = response.Headers.ETag?.Tag;
+                    _cache.LastLatestUpdated = DateTime.Now;
+                    SaveCache();
                 }
             }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Failed to fetch latest mpv release info", ex);
+            json = _cache?.LatestReleaseJson;
+        }
+
+        if (string.IsNullOrEmpty(json))
+        {
+            throw new InvalidOperationException("Could not retrieve libmpv release information (API limit or connection error).");
+        }
+
+        using var doc = JsonDocument.Parse(json);
+
+        JsonElement? found = null;
+        var assets = doc.RootElement.GetProperty("assets").EnumerateArray().ToList();
+
+        Log.Debug($"Found {assets.Count} assets in latest release. Searching for suitable build...");
+
+        // Strategy 1: Look for LGPL/Dev builds (shinchiro style)
+        found = assets.FirstOrDefault(a => {
+            var name = a.GetProperty("name").GetString() ?? "";
+            return name.Contains("mpv-dev-lgpl-x86_64") && name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase);
+        });
+
+        // Strategy 2: If no LGPL build, look for generic x86_64 dev builds or common release packages (zhongfly style)
+        if (found == null)
+        {
+            found = assets.FirstOrDefault(a => {
+                var name = a.GetProperty("name").GetString() ?? "";
+                return (name.Contains("mpv-dev-x86_64") || name.Contains("x86_64-v1") || name.Contains("x86_64-v3") || (name.Contains("mpv-") && name.Contains("x86_64"))) 
+                       && name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase)
+                       && !name.Contains("debug"); // avoid debug symbols
+            });
         }
 
         if (found == null)
         {
-            Log.Warn("No suitable LGPL mpv build in release assets.");
-            return;
+            throw new InvalidOperationException($"No suitable libmpv build (x86_64 .7z) was found in the latest release assets of {Repo}.");
         }
 
         if (!found.Value.TryGetProperty("browser_download_url", out var urlProp))
         {
-            Log.Warn("Release asset missing browser_download_url.");
-            return;
+            throw new InvalidOperationException("The selected release asset is missing a download URL.");
         }
 
         var url = urlProp.GetString();
         if (string.IsNullOrEmpty(url))
         {
-            Log.Warn("Download URL is empty.");
-            return;
+            throw new InvalidOperationException("The download URL for the selected asset is empty.");
         }
 
+        Status = $"Starting download of {found.Value.GetProperty("name").GetString()}...";
+        Log.Info(Status);
         await DownloadWithProgressAsync(url, libName);
     }
 
@@ -596,7 +768,7 @@ public partial class MpvLibraryManager : ObservableObject
     /// for the user on how to install mpv/mpv-dev.
     /// </summary>
     /// <param name="libName">The library filename to search for and copy.</param>
-    private void CopySystemLibrary(string libName)
+    private bool CopySystemLibrary(string libName)
     {
         // Common search paths where package managers install shared libraries
         string[] searchPaths = {
@@ -646,16 +818,7 @@ public partial class MpvLibraryManager : ObservableObject
             }
         }
 
-        if (!found)
-        {
-            // On Linux/macOS, we don't auto-download from GitHub usually 
-            // because of architecture complexity (ARM vs x64).
-            string installCmd = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
-                ? "brew install mpv"
-                : "sudo apt install libmpv-dev";
-
-            Log.Error($"CRITICAL: {libName} not found on system. Please run: {installCmd}");
-        }
+        return found;
     }
 
     private bool TryDeleteFile(string path)
@@ -714,10 +877,7 @@ public partial class MpvLibraryManager : ObservableObject
     private static string? ExtractVersionFromText(string input)
     {
         if (string.IsNullOrEmpty(input)) return null;
-        var m = Regex.Match(input, @"\d+:?\d+(?:[.\-_]\d+)+");
-        if (m.Success) return m.Value;
-
-        m = Regex.Match(input, @"\d+(?:\.\d+)+");
+        var m = Regex.Match(input, @"\d+(\.\d+)+(-\w+)?");
         return m.Success ? m.Value : null;
     }
 }

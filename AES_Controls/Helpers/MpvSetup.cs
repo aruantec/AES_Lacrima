@@ -18,8 +18,9 @@ public static class MpvSetup
     /// application's folder. If the library is missing this method will
     /// attempt to download or copy an appropriate binary for the current OS.
     /// </summary>
+    /// <param name="autoInstall">If true, attempts to install or update libmpv if missing or pending.</param>
     /// <returns>A task that completes when the check and any installation finish.</returns>
-    public static async Task EnsureInstalled()
+    public static async Task EnsureInstalled(bool autoInstall = true)
     {
         // Identify the library name for the current OS
         string libName = GetLibName();
@@ -127,7 +128,7 @@ public static class MpvSetup
             }
         }
 
-        if (skipAutoSetup) return;
+        if (skipAutoSetup || !autoInstall) return;
 
         // SETUP: Always attempt to initialize through manager to get status if needed
         try
