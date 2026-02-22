@@ -123,10 +123,17 @@
                     <behaviors:PreventFocusOnRightClickBehavior />
                 </Interaction.Behaviors>
                 <composition:PlayerCompositionControl CircleBackgroundBitmap="{Binding MusicViewModel.SelectedMediaItem.CoverBitmap}"
-                                                      CircleBackgroundOpacity="0.6"
+                                                      CircleBackgroundOpacity="0.9"
                                                       Position="{Binding MusicViewModel.AudioPlayer.Position, Mode=TwoWay}"
                                                       Duration="{Binding MusicViewModel.AudioPlayer.Duration}"
-                                                      SetPositionCommand="{Binding MusicViewModel.SetPositionCommand}"/>
+                                                      SetPositionCommand="{Binding MusicViewModel.SetPositionCommand}"
+                                                      ShowTime="False"
+                                                      ShowPlayPause="False"
+                                                      IsPlaying="{Binding MusicViewModel.AudioPlayer.IsPlaying}"
+                                                      TogglePlayCommand="{Binding MusicViewModel.TogglePlayCommand}"
+                                                      PlayPauseOpacity="0.8"
+                                                      Rotate="True"
+                                                      ShowDiscCenter="True"/>
             </widgets:WidgetControl>
 
             <!-- Player info -->

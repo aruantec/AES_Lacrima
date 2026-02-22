@@ -72,6 +72,69 @@ public class PlayerCompositionControl : UserControl
         set => SetValue(DurationProperty, value);
     }
 
+    public static readonly StyledProperty<bool> ShowTimeProperty =
+        AvaloniaProperty.Register<PlayerCompositionControl, bool>(nameof(ShowTime), true);
+
+    public bool ShowTime
+    {
+        get => GetValue(ShowTimeProperty);
+        set => SetValue(ShowTimeProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> ShowPlayPauseProperty =
+        AvaloniaProperty.Register<PlayerCompositionControl, bool>(nameof(ShowPlayPause), false);
+
+    public bool ShowPlayPause
+    {
+        get => GetValue(ShowPlayPauseProperty);
+        set => SetValue(ShowPlayPauseProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> IsPlayingProperty =
+        AvaloniaProperty.Register<PlayerCompositionControl, bool>(nameof(IsPlaying), false);
+
+    public bool IsPlaying
+    {
+        get => GetValue(IsPlayingProperty);
+        set => SetValue(IsPlayingProperty, value);
+    }
+
+    public static readonly StyledProperty<double> PlayPauseOpacityProperty =
+        AvaloniaProperty.Register<PlayerCompositionControl, double>(nameof(PlayPauseOpacity), 1.0);
+
+    public double PlayPauseOpacity
+    {
+        get => GetValue(PlayPauseOpacityProperty);
+        set => SetValue(PlayPauseOpacityProperty, value);
+    }
+
+    public static readonly StyledProperty<ICommand?> TogglePlayCommandProperty =
+        AvaloniaProperty.Register<PlayerCompositionControl, ICommand?>(nameof(TogglePlayCommand));
+
+    public ICommand? TogglePlayCommand
+    {
+        get => GetValue(TogglePlayCommandProperty);
+        set => SetValue(TogglePlayCommandProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> RotateProperty =
+        AvaloniaProperty.Register<PlayerCompositionControl, bool>(nameof(Rotate), false);
+
+    public bool Rotate
+    {
+        get => GetValue(RotateProperty);
+        set => SetValue(RotateProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> ShowDiscCenterProperty =
+        AvaloniaProperty.Register<PlayerCompositionControl, bool>(nameof(ShowDiscCenter), false);
+
+    public bool ShowDiscCenter
+    {
+        get => GetValue(ShowDiscCenterProperty);
+        set => SetValue(ShowDiscCenterProperty, value);
+    }
+
     static PlayerCompositionControl()
     {
         PositionProperty.Changed.AddClassHandler<PlayerCompositionControl>((control, args) =>
@@ -114,6 +177,36 @@ public class PlayerCompositionControl : UserControl
                 control._visual.SendHandlerMessage(new PlayerCircleBackgroundOpacityMessage((float)opacity));
             }
         });
+
+        ShowTimeProperty.Changed.AddClassHandler<PlayerCompositionControl>((control, args) =>
+        {
+            control._visual?.SendHandlerMessage(new PlayerShowTimeMessage((bool)(args.NewValue ?? true)));
+        });
+
+        ShowPlayPauseProperty.Changed.AddClassHandler<PlayerCompositionControl>((control, args) =>
+        {
+            control._visual?.SendHandlerMessage(new PlayerShowPlayPauseMessage((bool)(args.NewValue ?? false)));
+        });
+
+        IsPlayingProperty.Changed.AddClassHandler<PlayerCompositionControl>((control, args) =>
+        {
+            control._visual?.SendHandlerMessage(new PlayerIsPlayingMessage((bool)(args.NewValue ?? false)));
+        });
+
+        PlayPauseOpacityProperty.Changed.AddClassHandler<PlayerCompositionControl>((control, args) =>
+        {
+            control._visual?.SendHandlerMessage(new PlayerPlayPauseOpacityMessage((float)(double)(args.NewValue ?? 1.0)));
+        });
+
+        RotateProperty.Changed.AddClassHandler<PlayerCompositionControl>((control, args) =>
+        {
+            control._visual?.SendHandlerMessage(new PlayerRotateMessage((bool)(args.NewValue ?? false)));
+        });
+
+        ShowDiscCenterProperty.Changed.AddClassHandler<PlayerCompositionControl>((control, args) =>
+        {
+            control._visual?.SendHandlerMessage(new PlayerShowDiscCenterMessage((bool)(args.NewValue ?? false)));
+        });
     }
 
     public PlayerCompositionControl()
@@ -126,20 +219,47 @@ public class PlayerCompositionControl : UserControl
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         var localPos = e.GetPosition(this);
-        if (IsOnRing(localPos))
+        var isOnRing = IsOnRing(localPos);
+        var isOnCenter = IsOnCenter(localPos);
+
+        if (isOnRing || (ShowPlayPause && isOnCenter))
         {
             var properties = e.GetCurrentPoint(this).Properties;
             if (properties.IsLeftButtonPressed)
             {
                 Focus();
-                _isPressed = true;
-                e.Pointer.Capture(this);
-                CalculateAndSeek(localPos, false);
+
+                if (ShowPlayPause && isOnCenter && TogglePlayCommand != null)
+                {
+                    if (TogglePlayCommand.CanExecute(null))
+                        TogglePlayCommand.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+
+                if (isOnRing)
+                {
+                    _isPressed = true;
+                    e.Pointer.Capture(this);
+                    CalculateAndSeek(localPos, false);
+                }
+
                 e.Handled = true;
                 return;
             }
         }
         base.OnPointerPressed(e);
+    }
+
+    private bool IsOnCenter(Point pointerPos)
+    {
+        var center = new Point(Bounds.Width / 2, Bounds.Height / 2);
+        var delta = pointerPos - center;
+        var distance = Math.Sqrt(delta.X * delta.X + delta.Y * delta.Y);
+
+        var size = Math.Min(Bounds.Width, Bounds.Height);
+        var innerRadius = (size / 2.0) - 40.0; // Play/Pause area inside the ring
+        return distance < innerRadius;
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
@@ -251,6 +371,12 @@ public class PlayerCompositionControl : UserControl
             _visual.SendHandlerMessage(new PlayerCircleBackgroundBitmapMessage(ConvertToSKBitmap(CircleBackgroundBitmap)));
         }
         _visual.SendHandlerMessage(new PlayerProgressMessage(Position, Duration));
+        _visual.SendHandlerMessage(new PlayerShowTimeMessage(ShowTime));
+        _visual.SendHandlerMessage(new PlayerShowPlayPauseMessage(ShowPlayPause));
+        _visual.SendHandlerMessage(new PlayerIsPlayingMessage(IsPlaying));
+        _visual.SendHandlerMessage(new PlayerPlayPauseOpacityMessage((float)PlayPauseOpacity));
+        _visual.SendHandlerMessage(new PlayerRotateMessage(Rotate));
+        _visual.SendHandlerMessage(new PlayerShowDiscCenterMessage(ShowDiscCenter));
     }
 
     private SKColor GetSKColor(IBrush? brush)

@@ -8,25 +8,16 @@ using SkiaSharp;
 
 namespace AES_Controls.Composition;
 
-/// <summary>
-/// Message containing the progress information (position and duration).
-/// </summary>
 internal record PlayerProgressMessage(double Position, double Duration);
-
-/// <summary>
-/// Message to update the circle background color.
-/// </summary>
 internal record PlayerCircleBackgroundColorMessage(SKColor Color);
-
-/// <summary>
-/// Message to update the circle background bitmap.
-/// </summary>
 internal record PlayerCircleBackgroundBitmapMessage(SKBitmap? Bitmap);
-
-/// <summary>
-/// Message to update the circle background opacity.
-/// </summary>
 internal record PlayerCircleBackgroundOpacityMessage(float Opacity);
+internal record PlayerShowTimeMessage(bool Show);
+internal record PlayerShowPlayPauseMessage(bool Show);
+internal record PlayerIsPlayingMessage(bool IsPlaying);
+internal record PlayerPlayPauseOpacityMessage(float Opacity);
+internal record PlayerRotateMessage(bool Rotate);
+internal record PlayerShowDiscCenterMessage(bool Show);
 
 /// <summary>
 /// Composition visual handler that renders a circular player widget with progress ring and time display.
@@ -39,6 +30,14 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
     private SKColor _circleBackgroundColor = SKColors.Transparent;
     private SKBitmap? _circleBackgroundBitmap;
     private float _circleBackgroundOpacity = 1.0f;
+    private bool _showTime = true;
+    private bool _showPlayPause = false;
+    private bool _isPlaying = false;
+    private float _playPauseOpacity = 1.0f;
+    private bool _rotate = false;
+    private float _rotationAngle = 0f;
+    private long _lastRotationTicks = 0;
+    private bool _showDiscCenter = false;
 
     // Paints
     private SKPaint? _ringBackgroundPaint = new()
@@ -60,6 +59,28 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
     };
 
     private SKPaint? _thumbPaint = new()
+    {
+        IsAntialias = true,
+        Style = SKPaintStyle.Fill,
+        Color = SKColors.White
+    };
+
+    private SKPaint? _discHubPaint = new()
+    {
+        IsAntialias = true,
+        Style = SKPaintStyle.Fill,
+        Color = new SKColor(255, 255, 255, 30) // Subtle white tint for plastic hub
+    };
+
+    private SKPaint? _discHoleRimPaint = new()
+    {
+        IsAntialias = true,
+        Style = SKPaintStyle.Stroke,
+        StrokeWidth = 0.5f,
+        Color = new SKColor(0, 0, 0, 40) // Subtle rim for the hole
+    };
+
+    private SKPaint? _playPausePaint = new()
     {
         IsAntialias = true,
         Style = SKPaintStyle.Fill,
@@ -120,6 +141,31 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
                 _circleBackgroundOpacity = opacity.Opacity;
                 Invalidate();
                 return;
+            case PlayerShowTimeMessage showTime:
+                _showTime = showTime.Show;
+                Invalidate();
+                return;
+            case PlayerShowPlayPauseMessage showPP:
+                _showPlayPause = showPP.Show;
+                Invalidate();
+                return;
+            case PlayerIsPlayingMessage isPlaying:
+                _isPlaying = isPlaying.IsPlaying;
+                Invalidate();
+                return;
+            case PlayerPlayPauseOpacityMessage ppOpacity:
+                _playPauseOpacity = ppOpacity.Opacity;
+                Invalidate();
+                return;
+            case PlayerRotateMessage rotate:
+                _rotate = rotate.Rotate;
+                if (!_rotate) _lastRotationTicks = 0;
+                Invalidate();
+                return;
+            case PlayerShowDiscCenterMessage showDC:
+                _showDiscCenter = showDC.Show;
+                Invalidate();
+                return;
         }
     }
 
@@ -146,25 +192,86 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
         // Draw the progress ring - EXACTLY like clock's seconds ring
         DrawProgressRing(canvas, centerX, centerY, ringRadius);
 
-        // Draw position time - HIGHER UP
-        var positionText = FormatTime(_position);
-        var timeY = centerY - 20f;
-
-        if (_timePaint != null)
+        if (_showTime)
         {
-            _timePaint.TextSize = Math.Max(48f, size / 4.5f);
-            canvas.DrawText(positionText, centerX, timeY, _timePaint);
+            // Draw position time - HIGHER UP
+            var positionText = FormatTime(_position);
+            var timeY = centerY - 20f;
+
+            if (_timePaint != null)
+            {
+                _timePaint.TextSize = Math.Max(48f, size / 4.5f);
+                canvas.DrawText(positionText, centerX, timeY, _timePaint);
+            }
+
+            // Draw duration - MASSIVE MARGIN (80px gap from center area!)
+            var durationText = FormatTime(_duration);
+            var durationY = centerY + 100f; // Increased for more margin
+
+            if (_durationPaint != null)
+            {
+                _durationPaint.TextSize = Math.Max(28f, size / 9f); // Bigger duration
+                _durationPaint.Color = new SKColor(225, 225, 225);
+                canvas.DrawText(durationText, centerX, durationY, _durationPaint);
+            }
         }
 
-        // Draw duration - MASSIVE MARGIN (80px gap from center area!)
-        var durationText = FormatTime(_duration);
-        var durationY = centerY + 100f; // Increased for more margin
-
-        if (_durationPaint != null)
+        if (_showPlayPause)
         {
-            _durationPaint.TextSize = Math.Max(28f, size / 9f); // Bigger duration
-            _durationPaint.Color = new SKColor(225, 225, 225);
-            canvas.DrawText(durationText, centerX, durationY, _durationPaint);
+            DrawPlayPauseIcon(canvas, centerX, centerY, size / 4f);
+        }
+
+        if (_showDiscCenter)
+        {
+            DrawDiscCenter(canvas, centerX, centerY, ringRadius);
+        }
+
+        // Handle animation for rotation
+        if (_rotate && _isPlaying)
+        {
+            long currentTicks = DateTime.UtcNow.Ticks;
+            if (_lastRotationTicks != 0)
+            {
+                double deltaSeconds = (currentTicks - _lastRotationTicks) / (double)TimeSpan.TicksPerSecond;
+                // Rotate 30 degrees per second
+                _rotationAngle = (float)((_rotationAngle + deltaSeconds * 30.0) % 360.0);
+            }
+            _lastRotationTicks = currentTicks;
+            Invalidate(); // Request next frame
+        }
+        else
+        {
+            _lastRotationTicks = 0;
+        }
+    }
+
+    private void DrawPlayPauseIcon(SKCanvas canvas, float centerX, float centerY, float size)
+    {
+        if (_playPausePaint == null) return;
+        _playPausePaint.Color = SKColors.White.WithAlpha((byte)(_playPauseOpacity * 255));
+
+        if (_isPlaying)
+        {
+            // Draw Pause Icon (two vertical bars)
+            var barWidth = size / 4f;
+            var barHeight = size;
+            var gap = barWidth;
+
+            var leftBar = new SKRect(centerX - barWidth - gap / 2f, centerY - barHeight / 2f, centerX - gap / 2f, centerY + barHeight / 2f);
+            var rightBar = new SKRect(centerX + gap / 2f, centerY - barHeight / 2f, centerX + barWidth + gap / 2f, centerY + barHeight / 2f);
+
+            canvas.DrawRoundRect(leftBar, 4f, 4f, _playPausePaint);
+            canvas.DrawRoundRect(rightBar, 4f, 4f, _playPausePaint);
+        }
+        else
+        {
+            // Draw Play Icon (triangle)
+            using var path = new SKPath();
+            path.MoveTo(centerX - size / 2.5f, centerY - size / 2f);
+            path.LineTo(centerX - size / 2.5f, centerY + size / 2f);
+            path.LineTo(centerX + size / 2f, centerY);
+            path.Close();
+            canvas.DrawPath(path, _playPausePaint);
         }
     }
 
@@ -176,7 +283,27 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
 
         using var clipPath = new SKPath();
         clipPath.AddCircle(centerX, centerY, radius);
-        canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+
+        if (_showDiscCenter)
+        {
+            // Clip out the center hub area from the background
+            var hubRadius = radius * 0.35f;
+            clipPath.AddCircle(centerX, centerY, hubRadius, SKPathDirection.Clockwise);
+            canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+
+            using var hubClipPath = new SKPath();
+            hubClipPath.AddCircle(centerX, centerY, hubRadius);
+            canvas.ClipPath(hubClipPath, SKClipOperation.Difference, true);
+        }
+        else
+        {
+            canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+        }
+
+        if (_rotate && _rotationAngle != 0)
+        {
+            canvas.RotateDegrees(_rotationAngle, centerX, centerY);
+        }
 
         if (_circleBackgroundBitmap != null)
         {
@@ -217,6 +344,41 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
         }
 
         canvas.Restore();
+    }
+
+    private void DrawDiscCenter(SKCanvas canvas, float centerX, float centerY, float radius)
+    {
+        if (_discHubPaint == null || _discHoleRimPaint == null) return;
+
+        var hubRadius = radius * 0.35f;
+        var holeRadius = radius * 0.12f;
+
+        // Draw plastic hub area (slightly transparent overlay)
+        using var hubPath = new SKPath();
+        hubPath.AddCircle(centerX, centerY, hubRadius);
+        using var holePath = new SKPath();
+        holePath.AddCircle(centerX, centerY, holeRadius);
+
+        canvas.Save();
+        canvas.ClipPath(holePath, SKClipOperation.Difference, true);
+        canvas.DrawCircle(centerX, centerY, hubRadius, _discHubPaint);
+        canvas.Restore();
+
+        // Draw hub inner rim
+        canvas.DrawCircle(centerX, centerY, hubRadius, _discHoleRimPaint);
+
+        // Draw center hole plastic rim
+        canvas.DrawCircle(centerX, centerY, holeRadius, _discHoleRimPaint);
+
+        // Draw a subtle "shadow" or rim for the hub area to give it depth
+        using var hubDetailPaint = new SKPaint { 
+            IsAntialias = true, 
+            Style = SKPaintStyle.Stroke, 
+            StrokeWidth = 1f, 
+            Color = new SKColor(255, 255, 255, 80)
+        };
+        canvas.DrawCircle(centerX, centerY, hubRadius - 2, hubDetailPaint);
+        canvas.DrawCircle(centerX, centerY, holeRadius + 2, hubDetailPaint);
     }
 
     private void DrawProgressRing(SKCanvas canvas, float centerX, float centerY, float radius)
@@ -283,6 +445,12 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
         _ringPaint = null;
         _thumbPaint?.Dispose();
         _thumbPaint = null;
+        _discHubPaint?.Dispose();
+        _discHubPaint = null;
+        _discHoleRimPaint?.Dispose();
+        _discHoleRimPaint = null;
+        _playPausePaint?.Dispose();
+        _playPausePaint = null;
         _timePaint?.Dispose();
         _timePaint = null;
         _durationPaint?.Dispose();
