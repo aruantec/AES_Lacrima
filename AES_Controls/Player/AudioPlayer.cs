@@ -9,6 +9,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Collections.Concurrent;
 using log4net;
 
 namespace AES_Controls.Player;
@@ -40,7 +41,18 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     private readonly MpvLibraryManager? _mpvLibraryManager;
     private CancellationTokenSource? _waveformCts;
     private readonly TaskCompletionSource _initTcs = new();
+    // Dedicated MPV thread queue and worker to ensure all libmpv interop
+    // runs on a single thread that owns the mpv handle.
+    private readonly BlockingCollection<Action> _mpvQueue = new();
+    private Thread? _mpvThread;
+    private int _mpvThreadId;
     private double _volume = 70;
+    // Balance: -1 (full left) .. 0 (center) .. 1 (full right)
+    private double _balance = 0.0;
+    // Stored equalizer filters string (without balance/pan)
+    private string _eqAf = string.Empty;
+    // Preamp gain in dB applied via af=volume filter. Positive values allow >100% loudness.
+    private double _preampDb = 0.0;
 
     // Track the active ffmpeg process to prevent resource exhaustion on macOS
     private Process? _activeFfmpegProcess;
@@ -80,6 +92,39 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     private void OnPropertyChanged(string propertyName) =>
         _syncContext?.Post(_ => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName)), null);
 
+    // Helper to run actions on the MPV thread and wait for completion.
+    private T InvokeOnMpvThread<T>(Func<T> func)
+    {
+        // If we're already on the mpv thread, invoke directly
+        if (Thread.CurrentThread.ManagedThreadId == _mpvThreadId)
+            return func();
+
+        var tcs = new TaskCompletionSource<T>();
+        _mpvQueue.Add(() =>
+        {
+            try { tcs.SetResult(func()); }
+            catch (Exception ex) { tcs.SetException(ex); }
+        });
+        return tcs.Task.GetAwaiter().GetResult();
+    }
+
+    private void InvokeOnMpvThread(Action action)
+    {
+        if (Thread.CurrentThread.ManagedThreadId == _mpvThreadId)
+        {
+            action();
+            return;
+        }
+
+        var tcs = new TaskCompletionSource<bool>();
+        _mpvQueue.Add(() =>
+        {
+            try { action(); tcs.SetResult(true); }
+            catch (Exception ex) { tcs.SetException(ex); }
+        });
+        tcs.Task.GetAwaiter().GetResult();
+    }
+
     /// <summary>
     /// Per-sample waveform values used by the UI waveform control.
     /// </summary>
@@ -115,7 +160,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         {
             field = value;
             if (_initTcs.Task.IsCompleted && !_disposed)
-                SetProperty("demuxer-max-bytes", $"{value}M");
+                InvokeOnMpvThread(() => { SetProperty("demuxer-max-bytes", $"{value}M"); return true; });
         }
     } = 32;
 
@@ -124,15 +169,33 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// </summary>
     public double Volume
     {
-        get => (_initTcs.Task.IsCompleted && !_disposed) ? GetPropertyDouble("volume") : _volume;
+        get => (_initTcs.Task.IsCompleted && !_disposed) ? InvokeOnMpvThread(() => GetPropertyDouble("volume")) : _volume;
         set
         {
             _volume = value;
             if (_initTcs.Task.IsCompleted && !_disposed)
             {
-                SetProperty("volume", value);
+                InvokeOnMpvThread(() => { SetProperty("volume", value); return true; });
             }
             OnPropertyChanged(nameof(Volume));
+        }
+        }
+
+    /// <summary>
+    /// Preamp gain in decibels. Applied via the mpv/ffmpeg volume audio-filter (e.g. +6dB).
+    /// Use positive values to increase loudness beyond 100%.
+    /// </summary>
+    public double PreampDb
+    {
+        get => _preampDb;
+        set
+        {
+            // Clamp reasonable range to avoid extreme gain
+            if (value < -60.0) value = -60.0;
+            if (value > 20.0) value = 20.0;
+            _preampDb = value;
+            UpdateAf();
+            OnPropertyChanged(nameof(PreampDb));
         }
     }
 
@@ -172,7 +235,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         {
             _repeatMode = value;
             if (_initTcs.Task.IsCompleted && !_disposed)
-                SetProperty("loop-file", value == RepeatMode.One ? "yes" : "no");
+                InvokeOnMpvThread(() => { SetProperty("loop-file", value == RepeatMode.One ? "yes" : "no"); return true; });
 
             OnPropertyChanged(nameof(RepeatMode));
             OnPropertyChanged(nameof(Loop));
@@ -292,8 +355,51 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
         Playing += (s, e) => CheckAndStartFfmpegTasks();
 
-        // Offload heavy MPV initialization to avoid blocking the UI thread
-        _ = Task.Run(InitializeMpvAsync);
+        // Start a dedicated thread that will initialize and own the MPV handle
+        // and process all MPV-related actions to avoid native interop crashes.
+        _mpvThread = new Thread(() =>
+        {
+            try
+            {
+                _mpvThreadId = Thread.CurrentThread.ManagedThreadId;
+                // Initialize mpv on this dedicated thread
+                InitializeMpvAsync().GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("MPV thread initialization failed", ex);
+            }
+
+            // Process queued actions until CompleteAdding is called
+            try
+            {
+                foreach (var a in _mpvQueue.GetConsumingEnumerable())
+                {
+                    try { a(); } catch (Exception ex) { Log.Warn("MPV queued action failed", ex); }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("MPV queue processing terminated", ex);
+            }
+        }) { IsBackground = true, Name = "mpv-worker" };
+        _mpvThread.Start();
+    }
+
+    /// <summary>
+    /// Gets or sets the stereo balance (-1..1). Setting updates the mpv audio filter chain.
+    /// </summary>
+    public double Balance
+    {
+        get => _balance;
+        set
+        {
+            if (value < -1) value = -1;
+            if (value > 1) value = 1;
+            _balance = value;
+            UpdateAf();
+            OnPropertyChanged(nameof(Balance));
+        }
     }
 
     private async Task InitializeMpvAsync()
@@ -336,12 +442,93 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             // Mark initialization as complete ONLY after we've applied the final property sync.
             _initTcs.SetResult();
 
+            // Ensure any cached AF (equalizer + balance) is applied now that mpv is ready
+            UpdateAf();
+
             OnPropertyChanged(nameof(Volume));
         }
         catch (Exception ex)
         {
             Log.Error("Failed to initialize AudioPlayer asynchronously", ex);
             _initTcs.TrySetException(ex);
+        }
+
+    }
+
+    /// <summary>
+    /// Combines stored equalizer filters and the current balance/pan filter and
+    /// updates the mpv "af" property accordingly.
+    /// </summary>
+    private void UpdateAf()
+    {
+        try
+        {
+            if (!(_initTcs.Task.IsCompleted) || _disposed) return;
+
+            var parts = new List<string>();
+
+            // Preamp (dB) — apply first so equalizer works on amplified signal if desired
+            if (Math.Abs(_preampDb) > 0.00001)
+            {
+                var dbStr = _preampDb >= 0 ? $"+{_preampDb.ToString(CultureInfo.InvariantCulture)}dB" : $"{_preampDb.ToString(CultureInfo.InvariantCulture)}dB";
+                parts.Add($"volume={dbStr}");
+            }
+
+            if (!string.IsNullOrEmpty(_eqAf)) parts.Add(_eqAf);
+
+            // Compute simple linear channel gains from balance value (-1..1)
+            // left = 1 - max(0, b) ; right = 1 - max(0, -b)
+            double b = _balance;
+            double left = 1.0 - Math.Max(0.0, b);
+            double right = 1.0 - Math.Max(0.0, -b);
+
+            // Format using invariant culture
+            var leftStr = left.ToString(CultureInfo.InvariantCulture);
+            var rightStr = right.ToString(CultureInfo.InvariantCulture);
+
+            var pan = $"pan=stereo|c0={leftStr}*c0|c1={rightStr}*c1";
+            parts.Add(pan);
+
+            // For stability: only apply the equalizer portion via the af property.
+            // Historically SetProperty("af", <equalizer-filters>) worked. Adding
+            // complex pan/volume expressions to the same string appears to trigger
+            // native errors in some mpv builds (observed after adding balance/preamp).
+            var eqOnly = string.IsNullOrEmpty(_eqAf) ? string.Empty : _eqAf;
+
+            if (_initTcs.Task.IsCompleted && !_disposed)
+            {
+                try
+                {
+                    InvokeOnMpvThread(() => { SetProperty("af", eqOnly); return true; });
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Failed to set af equalizer portion on MPV thread", ex);
+                }
+            }
+
+            // Also apply preamp by adjusting the mpv 'volume' property multiplicatively
+            try
+            {
+                if (_initTcs.Task.IsCompleted && !_disposed)
+                {
+                    // Convert dB to linear gain
+                    var gain = Math.Pow(10.0, _preampDb / 20.0);
+                    var effective = _volume * gain; // _volume is 0..100
+                    // Clamp to a reasonable maximum to avoid insane values
+                    if (effective < 0) effective = 0;
+                    if (effective > 1000) effective = 1000;
+                    InvokeOnMpvThread(() => { SetProperty("volume", effective); return true; });
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Failed to apply preamp volume via SetProperty on MPV thread", ex);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("UpdateAf failed", ex);
         }
     }
 
@@ -566,7 +753,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         _waveformCts?.Cancel();
 
         _syncContext?.Post(_ => { Waveform.Clear(); Spectrum.Clear(); Position = 0; }, null);
-        await ExecuteCommandAsync(["loadfile", fileToPlay]);
+        InvokeOnMpvThread(() => { ExecuteCommandAsync(new[] { "loadfile", fileToPlay }).GetAwaiter().GetResult(); return true; });
         Play();
     }
 
@@ -754,8 +941,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         var filters = bands
             .Select(b => $"equalizer=f={b.NumericFrequency.ToString(CultureInfo.InvariantCulture)}:width_type=o:w=1:g={b.Gain.ToString(CultureInfo.InvariantCulture)}")
             .ToList();
-
-        SetProperty("af", filters.Any() ? string.Join(",", filters) : "");
+        // Store the equalizer portion and update the combined "af" chain which includes balance/pan
+        _eqAf = filters.Any() ? string.Join(",", filters) : string.Empty;
+        UpdateAf();
     }
 
     private CancellationTokenSource? _eqCts;
@@ -831,7 +1019,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         _isSeeking = true;
         // Don't call Stop() here! Let the analyzer's loop handle fading out via the IsSeeking flag.
 
-        if (!_disposed) SetProperty("time-pos", pos);
+        if (!_disposed) InvokeOnMpvThread(() => { SetProperty("time-pos", pos); return true; });
         Position = pos; // Update immediately for UI feedback
 
         // Cancel previous restart attempt to debounce
@@ -894,7 +1082,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         _loadedFile = path;
 
         // Reload the file
-        await ExecuteCommandAsync(["loadfile", path]);
+        InvokeOnMpvThread(() => { ExecuteCommandAsync(new[] { "loadfile", path }).GetAwaiter().GetResult(); return true; });
 
         // WAIT for MPV to initialize the file before seeking
         while (_isLoadingMedia)
@@ -911,12 +1099,12 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// <summary>
     /// Start playback.
     /// </summary>
-    public void Play() { if (!_disposed) SetProperty("pause", false); IsPlaying = true; }
+    public void Play() { if (!_disposed) InvokeOnMpvThread(() => { SetProperty("pause", false); return true; }); IsPlaying = true; }
 
     /// <summary>
     /// Pause playback.
     /// </summary>
-    public void Pause() { if (!_disposed) SetProperty("pause", true); IsPlaying = false; }
+    public void Pause() { if (!_disposed) InvokeOnMpvThread(() => { SetProperty("pause", true); return true; }); IsPlaying = false; }
 
     /// <summary>
     /// Stop playback and reset state.
@@ -937,7 +1125,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
     private void InternalStop()
     {
-        if (!_disposed) ExecuteCommandAsync(["stop"]); 
+        if (!_disposed) InvokeOnMpvThread(() => { ExecuteCommandAsync(new[] { "stop" }).GetAwaiter().GetResult(); return true; }); 
         IsPlaying = false; 
         Duration = 0;
         Position = 0;
@@ -1020,6 +1208,17 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         catch (Exception ex)
         {
             Log.Warn("Error while disposing base MPVMediaPlayer", ex);
+        }
+
+        try
+        {
+            // Stop the mpv worker thread
+            _mpvQueue.CompleteAdding();
+            try { _mpvThread?.Join(250); } catch { }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Error while shutting down mpv worker thread", ex);
         }
     }
 }

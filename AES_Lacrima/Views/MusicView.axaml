@@ -267,7 +267,7 @@
         </TextBox>
 
         <!-- Equalizer Overlay -->
-        <Grid Background="#E6000000"
+        <Grid Background="#0F0F0F"
               RowDefinitions="Auto,*"
               IsHitTestVisible="{Binding IsEqualizerVisible}"
               Opacity="{Binding IsEqualizerVisible, Converter={StaticResource BoolToOpacityConverter}}">
@@ -283,18 +283,71 @@
                    FontWeight="SemiBold"
                    Foreground="White"
                    Margin="100,20,0,10"/>
-            <composition:EqualizerCompositionControl Grid.Row="1"
-                                                     Bands="{Binding EqualizerService.Equalizer.Bands}"
-                                                     Background="Transparent"
-                                                     TextFontSize="22"
-                                                     Margin="50"
-                                                     IsFadedIn="{Binding IsEqualizerVisible}">
-                <composition:EqualizerCompositionControl.Transitions>
-                    <Transitions>
-                        <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseInOut" />
-                    </Transitions>
-                </composition:EqualizerCompositionControl.Transitions>
-            </composition:EqualizerCompositionControl>
+            <Grid ColumnDefinitions="Auto,*,Auto" Grid.Row="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <!-- Controls -->
+                <StackPanel Margin="100,100,0,0" Spacing="15" Grid.Column="0">
+                    <!-- Balance -->
+                    <player:RoundVolumeKnob Width="140"
+                                            Height="140"
+                                            Minimum="-1"
+                                            Maximum="1"
+                                            Value="{Binding AudioPlayer.Balance, Mode=TwoWay}"
+                                            KnobBrush="WhiteSmoke"
+                                            DotBrush="DimGray"
+                                            TickBrush="DimGray"
+                                            ActiveTickBrush="WhiteSmoke"
+                                            MinTextBrush="WhiteSmoke"
+                                            MaxTextBrush="WhiteSmoke"
+                                            KnobMargin="-3"
+                                            TickThickness="2"
+                                            MaxTextSize="12"
+                                            MinTextSize="12"/>
+                    <Label Content="Balance"
+                           FontSize="18"
+                           Foreground="White"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,40"/>
+                </StackPanel>
+
+                <!-- Equalizer control -->
+				<composition:EqualizerCompositionControl Grid.Column="1"
+                                                         Bands="{Binding EqualizerService.Equalizer.Bands}"
+                                                         Background="Transparent"
+                                                         TextFontSize="18"
+                                                         Margin="50"
+                                                         IsFadedIn="{Binding IsEqualizerVisible}">
+                    <composition:EqualizerCompositionControl.Transitions>
+                        <Transitions>
+                            <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseInOut" />
+                        </Transitions>
+                    </composition:EqualizerCompositionControl.Transitions>
+                </composition:EqualizerCompositionControl>
+
+                <StackPanel Margin="-20,100,100,0" Spacing="6" Grid.Column="2" HorizontalAlignment="Center">
+                    <!-- dB -->
+                    <player:RoundVolumeKnob Width="140"
+                                            Height="140"
+                                            Minimum="-12"
+                                            Maximum="12"
+                                            Value="{Binding AudioPlayer.PreampDb, Mode=TwoWay}"
+                                            KnobBrush="WhiteSmoke"
+                                            DotBrush="DimGray"
+                                            TickBrush="DimGray"
+                                            ActiveTickBrush="WhiteSmoke"
+                                            MinTextBrush="WhiteSmoke"
+                                            MaxTextBrush="WhiteSmoke"
+                                            KnobMargin="-3"
+                                            TickThickness="2"
+                                            MaxTextSize="12"
+                                            MinTextSize="12"/>
+                    <StackPanel HorizontalAlignment="Center" Orientation="Horizontal" Spacing="5" MinWidth="60">
+                        <TextBlock Text="dB" FontSize="18" Foreground="White" HorizontalAlignment="Center" TextAlignment="Center"/>
+                        <TextBlock FontSize="18" Foreground="#CCCCCC" HorizontalAlignment="Center" TextAlignment="Center"
+                                   Text="{Binding AudioPlayer.PreampDb, StringFormat='{}{0:+0;-0;0}'}" />
+                    </StackPanel>
+                </StackPanel>
+
+            </Grid>
         </Grid>
 
         <!-- MetadataOverlay -->
@@ -566,8 +619,8 @@
                 </Button>
 
                 <!-- Volume Knob -->
-                <player:RoundVolumeKnob Width="60"
-                                        Height="60"
+                <player:RoundVolumeKnob Width="75"
+                                        Height="75"
                                         Minimum="0"
                                         Maximum="100"
                                         Value="{Binding AudioPlayer.Volume, Mode=TwoWay}"
