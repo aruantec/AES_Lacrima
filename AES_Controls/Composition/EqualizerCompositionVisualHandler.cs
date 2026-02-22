@@ -93,6 +93,8 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
     private SKPaint? _textPaint = new() { IsAntialias = true, TextSize = 12f, Color = new SKColor(210, 210, 210, 220), TextAlign = SKTextAlign.Center };
     private SKPaint? _knobGlowPaint = new() { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 20f, Color = new SKColor(80, 170, 255, 90), StrokeCap = SKStrokeCap.Round };
     private SKPaint? _knobInnerGlowPaint = new() { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 10f, Color = new SKColor(120, 200, 255, 140), StrokeCap = SKStrokeCap.Round };
+    // Faint hint paint for the upper (inactive) track segment so users can see where to drag
+    private SKPaint? _faintTrackPaint = new() { IsAntialias = true, StrokeWidth = 0f, StrokeCap = SKStrokeCap.Round, Style = SKPaintStyle.Stroke, Color = new SKColor(90, 140, 200, 40) };
 
     public override void OnMessage(object message)
     {
@@ -165,6 +167,7 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
         var globalAlpha = (byte)Math.Clamp((int)(_globalOpacity * 255f), 0, 255);
         // Update paint alpha channels
         if (_trackPaint != null) _trackPaint.Color = new SKColor(_trackPaint.Color.Red, _trackPaint.Color.Green, _trackPaint.Color.Blue, globalAlpha);
+        if (_faintTrackPaint != null) _faintTrackPaint.Color = new SKColor(_faintTrackPaint.Color.Red, _faintTrackPaint.Color.Green, _faintTrackPaint.Color.Blue, (byte)Math.Clamp((int)(globalAlpha * 0.25f), 0, 255));
         if (_trackFillPaint != null) _trackFillPaint.Color = new SKColor(_trackFillPaint.Color.Red, _trackFillPaint.Color.Green, _trackFillPaint.Color.Blue, globalAlpha);
         if (_activePaint != null) _activePaint.Color = new SKColor(_activePaint.Color.Red, _activePaint.Color.Green, _activePaint.Color.Blue, globalAlpha);
         if (_knobPaint != null) _knobPaint.Color = new SKColor(_knobPaint.Color.Red, _knobPaint.Color.Green, _knobPaint.Color.Blue, globalAlpha);
@@ -262,11 +265,18 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
         for (int i = 0; i < count; i++)
         {
             var p = points[i];
-            // Track
-            canvas.DrawLine(p.X, trackTop, p.X, trackBottom, _trackPaint);
+            // Do not draw the full track from top to bottom to keep the upper area opaque.
+            // Only draw the active segment (below the knob) and the bottom cap so the
+            // visual appears solid above the knob.
+            // Faint upper hint: draw thin, low-alpha line from trackTop down to the knob
+            if (_faintTrackPaint != null)
+            {
+                try { canvas.DrawLine(p.X, trackTop, p.X, p.Y, _faintTrackPaint); } catch { }
+            }
+
             // Bottom cap
             if (_trackFillPaint != null) canvas.DrawCircle(p.X, trackBottom, (_trackPaint?.StrokeWidth ?? 6f) / 2f, _trackFillPaint);
-            // Active segment
+            // Active segment (below knob)
             canvas.DrawLine(p.X, trackBottom, p.X, p.Y, _activePaint);
             // Glow when active
             if (_isPointerDown && i == _activeBandIndex)
