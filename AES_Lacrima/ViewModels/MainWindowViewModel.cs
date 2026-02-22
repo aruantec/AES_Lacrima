@@ -29,7 +29,7 @@ namespace AES_Lacrima.ViewModels
     {
         private IClassicDesktopStyleApplicationLifetime? AppLifetime => Avalonia.Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
         private Dictionary<MenuItem, Action<Avalonia.Controls.WindowState>> _registeredMenuItems = [];
-
+        
         /// <summary>
         /// List of window buttons.
         /// </summary>

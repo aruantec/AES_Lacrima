@@ -1,4 +1,5 @@
-﻿using AES_Core.DI;
+﻿using System.ComponentModel;
+using AES_Core.DI;
 using AES_Lacrima.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -56,11 +57,11 @@ namespace AES_Lacrima.ViewModels
         private double _playerHeight = 300;
 
         [ObservableProperty]
-        private bool _playerShowControls = false;
+        private bool _playerShowControls;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(ClockMenuText))]
-        private bool _showClock = false;
+        private bool _showClock;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(PlayerInfoMenuText))]
@@ -68,7 +69,7 @@ namespace AES_Lacrima.ViewModels
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(PlayerMenuText))]
-        private bool _showPlayer = false;
+        private bool _showPlayer;
 
         /// <summary>
         /// Gets the menu text for the clock toggle based on current visibility.
@@ -105,7 +106,7 @@ namespace AES_Lacrima.ViewModels
             PropertyChanged += OnPropertyChanged;
         }
 
-        private void OnPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        private void OnPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(PlayerShowControls))
             {
@@ -152,6 +153,10 @@ namespace AES_Lacrima.ViewModels
         public override void Prepare()
         {
             base.Prepare();
+            //Set initial IsActive according to the settings
+            if (SettingsViewModel != null)
+                IsActive = SettingsViewModel.ShowShaderToy;
+            //Load settings
             LoadSettings();
         }
 
@@ -171,7 +176,7 @@ namespace AES_Lacrima.ViewModels
             PlayerTop = ReadDoubleSetting(section, nameof(PlayerTop), double.NaN);
             PlayerWidth = ReadDoubleSetting(section, nameof(PlayerWidth), 250);
             PlayerHeight = ReadDoubleSetting(section, nameof(PlayerHeight), 300);
-            PlayerShowControls = ReadBoolSetting(section, nameof(PlayerShowControls), false);
+            PlayerShowControls = ReadBoolSetting(section, nameof(PlayerShowControls));
             
             ShowClock = ReadBoolSetting(section, nameof(ShowClock), true);
             ShowPlayerInfo = ReadBoolSetting(section, nameof(ShowPlayerInfo), true);

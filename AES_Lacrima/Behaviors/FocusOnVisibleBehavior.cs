@@ -23,7 +23,7 @@ public class FocusOnVisibleBehavior : Behavior<Control>
 
     private void AssociatedObject_PropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
-        if (AssociatedObject != null && e.Property == Control.IsVisibleProperty && AssociatedObject.IsVisible)
+        if (AssociatedObject != null && e.Property == Visual.IsVisibleProperty && AssociatedObject.IsVisible)
         {
             FocusAndSelect();
         }

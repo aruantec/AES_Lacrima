@@ -30,11 +30,12 @@ public class GlShaderToyControl : OpenGlControlBase
     private bool _actuallyAllowedToRender;
 
     // Buffer for the OpenGL texture (512 bins)
-    private readonly float[] _gpuBuffer = new float[512]; 
+    private readonly float[] _gpuBuffer = new float[512];
+
     // Local snapshot to prevent locking the main Spectrum list for too long
-    private readonly double[] _snapshot = new double[512]; 
-    
-    private DispatcherTimer? _uiHeartbeat; 
+    private readonly double[] _snapshot = new double[512];
+
+    private DispatcherTimer? _uiHeartbeat;
 
     // Track subscriptions to dispose on deinit
     private readonly List<IDisposable> _propertySubscriptions = new();
@@ -44,8 +45,10 @@ public class GlShaderToyControl : OpenGlControlBase
     private const int GlLinkStatus = 0x8B82;
 
     #region Styled Properties
+
     public static readonly StyledProperty<bool> IsRenderingPausedProperty =
         AvaloniaProperty.Register<GlShaderToyControl, bool>(nameof(IsRenderingPaused));
+
     /// <summary>
     /// Gets or sets a value indicating whether rendering is paused for this control.
     /// When true the control will not request or perform frame rendering until resumed.
@@ -71,6 +74,7 @@ public class GlShaderToyControl : OpenGlControlBase
 
     public static readonly StyledProperty<object?> CoverProperty =
         AvaloniaProperty.Register<GlShaderToyControl, object?>(nameof(Cover));
+
     /// <summary>
     /// Gets or sets an optional cover object (color or brush) used as a base
     /// color for the shader's primary/secondary uniforms.
@@ -83,6 +87,7 @@ public class GlShaderToyControl : OpenGlControlBase
 
     public static readonly StyledProperty<double> FadeSpeedProperty =
         AvaloniaProperty.Register<GlShaderToyControl, double>(nameof(FadeSpeed), 0.008);
+
     /// <summary>
     /// Gets or sets the fade-in speed for the shader output. Larger values
     /// increase the fade alpha more quickly when a new shader is loaded.
@@ -95,6 +100,7 @@ public class GlShaderToyControl : OpenGlControlBase
 
     public static readonly StyledProperty<AvaloniaList<double>?> SpectrumProperty =
         AvaloniaProperty.Register<GlShaderToyControl, AvaloniaList<double>?>(nameof(Spectrum));
+
     /// <summary>
     /// Gets or sets the audio spectrum data used to populate the internal
     /// texture (512 bins) that can be sampled by the shader via iChannel0.
@@ -116,6 +122,7 @@ public class GlShaderToyControl : OpenGlControlBase
         get => GetValue(SpectrumGradientProperty);
         set => SetValue(SpectrumGradientProperty, value);
     }
+
     #endregion
 
     /// <summary>
@@ -125,29 +132,39 @@ public class GlShaderToyControl : OpenGlControlBase
     /// </summary>
     public GlShaderToyControl()
     {
-        _propertySubscriptions.Add(this.GetObservable(ShaderSourceProperty).Subscribe(new SimpleObserver<string>(value =>
-        {
-            _processedShaderCode = ProcessShaderSource(value);
-            _isDirty = true;
-            _fadeAlpha = 0f;
-        }))) ;
+        _propertySubscriptions.Add(this.GetObservable(ShaderSourceProperty).Subscribe(
+            new SimpleObserver<string>(value =>
+            {
+                _processedShaderCode = ProcessShaderSource(value);
+                _isDirty = true;
+                _fadeAlpha = 0f;
+            })));
 
-        _propertySubscriptions.Add(this.GetObservable(IsRenderingPausedProperty).Subscribe(new SimpleObserver<bool>(paused =>
-        {
-            if (paused) { _actuallyAllowedToRender = false; _fadeAlpha = 0f; }
-            else { _ = ResumeRenderingWithDelay(); }
-        })));
-        
+        _propertySubscriptions.Add(this.GetObservable(IsRenderingPausedProperty).Subscribe(
+            new SimpleObserver<bool>(paused =>
+            {
+                if (paused)
+                {
+                    _actuallyAllowedToRender = false;
+                    _fadeAlpha = 0f;
+                }
+                else
+                {
+                    _ = ResumeRenderingWithDelay();
+                }
+            })));
+
         // HEARTBEAT: This drives the animation at a steady pace without flooding 
         // the UI thread or blocking other controls.
         _uiHeartbeat = new DispatcherTimer(
-            TimeSpan.FromMilliseconds(16), 
-            DispatcherPriority.Render, 
-            (_, _) => { 
-                if (!IsRenderingPaused && _actuallyAllowedToRender && IsVisible) 
-                    RequestNextFrameRendering(); 
+            TimeSpan.FromMilliseconds(16),
+            DispatcherPriority.Render,
+            (_, _) =>
+            {
+                if (!IsRenderingPaused && _actuallyAllowedToRender && IsVisible)
+                    RequestNextFrameRendering();
             });
-        
+
         _uiHeartbeat.Start();
     }
 
@@ -165,7 +182,8 @@ public class GlShaderToyControl : OpenGlControlBase
     private async Task ResumeRenderingWithDelay()
     {
         await Task.Delay(100);
-        await Dispatcher.UIThread.InvokeAsync(() => {
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
             _actuallyAllowedToRender = true;
             _isDirty = true;
         }, DispatcherPriority.Background);
@@ -187,11 +205,16 @@ public class GlShaderToyControl : OpenGlControlBase
         if (File.Exists(candidate)) return File.ReadAllText(candidate);
         if (source.StartsWith("avares://"))
         {
-            try {
+            try
+            {
                 using var stream = AssetLoader.Open(new Uri(source));
                 using var reader = new StreamReader(stream);
                 return reader.ReadToEnd();
-            } catch { return string.Empty; }
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         return source;
@@ -212,8 +235,8 @@ public class GlShaderToyControl : OpenGlControlBase
 
         _audioTexture = gl.GenTexture();
         gl.BindTexture(0x0DE1, _audioTexture);
-        gl.TexParameteri(0x0DE1, 0x2801, 0x2601); 
-        gl.TexParameteri(0x0DE1, 0x2800, 0x2601); 
+        gl.TexParameteri(0x0DE1, 0x2801, 0x2601);
+        gl.TexParameteri(0x0DE1, 0x2800, 0x2601);
         gl.TexParameteri(0x0DE1, 0x2802, 0x812F);
         gl.TexParameteri(0x0DE1, 0x2803, 0x812F);
         gl.TexImage2D(0x0DE1, 0, 0x1903, 512, 1, 0, 0x1903, 0x1406, nint.Zero);
@@ -226,7 +249,12 @@ public class GlShaderToyControl : OpenGlControlBase
         try
         {
             if (Bounds.Width < 1 || Bounds.Height < 1) return;
-            if (_isDirty) { UpdateProgram(gl); _isDirty = false; }
+            if (_isDirty)
+            {
+                UpdateProgram(gl);
+                _isDirty = false;
+            }
+
             if (_program == 0) return;
 
             UpdateAudioTexture(gl);
@@ -243,7 +271,7 @@ public class GlShaderToyControl : OpenGlControlBase
 
             gl.UseProgram(_program);
 
-            SetUniforms(gl, (int)(Bounds.Width * scaling), (int)(Bounds.Height * scaling), scaling);
+            SetUniforms(gl, (int)(Bounds.Width * scaling), (int)(Bounds.Height * scaling));
 
             gl.ActiveTexture(0x84C0);
             gl.BindTexture(0x0DE1, _audioTexture);
@@ -255,7 +283,10 @@ public class GlShaderToyControl : OpenGlControlBase
             gl.EnableVertexAttribArray(0);
             gl.DrawArrays(0x0005, 0, 4);
         }
-        catch { _isInErrorState = true; }
+        catch
+        {
+            _isInErrorState = true;
+        }
     }
 
     private unsafe void UpdateAudioTexture(GlInterface gl)
@@ -286,7 +317,7 @@ public class GlShaderToyControl : OpenGlControlBase
             // Sample from the snapshot based on the stretch ratio
             int snapshotIdx = (int)(i * step);
             float target = (float)(_snapshot[snapshotIdx] / maxV);
-        
+
             // Smooth the transition
             _gpuBuffer[i] += (target - _gpuBuffer[i]) * 0.15f;
         }
@@ -305,11 +336,12 @@ public class GlShaderToyControl : OpenGlControlBase
         if (string.IsNullOrEmpty(_processedShaderCode)) return;
         string hash = GetStringHash(_processedShaderCode);
         string cacheFile = Path.Combine(CachePath, $"{hash}.bin");
-        
+
         if (File.Exists(cacheFile))
         {
             int loadedPrg = LoadProgramBinary(gl, cacheFile);
-            if (loadedPrg != 0) {
+            if (loadedPrg != 0)
+            {
                 if (_program != 0) gl.DeleteProgram(_program);
                 _program = loadedPrg;
                 return;
@@ -335,18 +367,25 @@ public class GlShaderToyControl : OpenGlControlBase
 
     private unsafe int LoadProgramBinary(GlInterface gl, string file)
     {
-        try {
+        try
+        {
             using var reader = new BinaryReader(File.Open(file, FileMode.Open));
             int format = reader.ReadInt32();
             byte[] data = reader.ReadBytes((int)(reader.BaseStream.Length - 4));
             int prg = gl.CreateProgram();
-            fixed (byte* pData = data) {
-                var func = (delegate* unmanaged[Stdcall]<int, int, void*, int, void>)gl.GetProcAddress("glProgramBinary");
+            fixed (byte* pData = data)
+            {
+                var func =
+                    (delegate* unmanaged[Stdcall]<int, int, void*, int, void>)gl.GetProcAddress("glProgramBinary");
                 if (func != null) func(prg, format, pData, data.Length);
             }
-            int success = 0; gl.GetProgramiv(prg, GlLinkStatus, &success);
+
+            int success = 0;
+            gl.GetProgramiv(prg, GlLinkStatus, &success);
             if (success != 0) return prg;
-            gl.DeleteProgram(prg); reader.Close(); File.Delete(file);
+            gl.DeleteProgram(prg);
+            reader.Close();
+            File.Delete(file);
         }
         catch
         {
@@ -358,17 +397,23 @@ public class GlShaderToyControl : OpenGlControlBase
 
     private unsafe void SaveProgramBinary(GlInterface gl, int prg, string file)
     {
-        int length = 0; gl.GetProgramiv(prg, GlProgramBinaryLength, &length);
+        int length = 0;
+        gl.GetProgramiv(prg, GlProgramBinaryLength, &length);
         if (length <= 0) return;
         byte[] buffer = new byte[length];
         int retLen = 0, format = 0;
-        fixed (byte* pBuf = buffer) {
-            var func = (delegate* unmanaged[Stdcall]<int, int, int*, int*, void*, void>)gl.GetProcAddress("glGetProgramBinary");
+        fixed (byte* pBuf = buffer)
+        {
+            var func =
+                (delegate* unmanaged[Stdcall]<int, int, int*, int*, void*, void>)gl.GetProcAddress(
+                    "glGetProgramBinary");
             if (func != null) func(prg, length, &retLen, &format, pBuf);
         }
+
         if (!Directory.Exists(CachePath)) Directory.CreateDirectory(CachePath);
         using var writer = new BinaryWriter(File.Open(file, FileMode.Create));
-        writer.Write(format); writer.Write(buffer);
+        writer.Write(format);
+        writer.Write(buffer);
     }
 
     private string GetStringHash(string text)
@@ -377,14 +422,24 @@ public class GlShaderToyControl : OpenGlControlBase
         return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(text))).Replace("-", string.Empty)[..16];
     }
 
-    private void SetUniforms(GlInterface gl, int width, int height, float scaling)
+    private void SetUniforms(GlInterface gl, int width, int height)
     {
         SetUniform3F(gl, _program, "iResolution", width, height, 1.0f);
         SetUniform1F(gl, _program, "iTime", (float)_st.Elapsed.TotalSeconds);
 
         float r = 0.5f, g = 0.2f, b = 0.8f;
-        if (Cover is Color col) { r = col.R / 255f; g = col.G / 255f; b = col.B / 255f; }
-        else if (Cover is ISolidColorBrush scb) { r = scb.Color.R / 255f; g = scb.Color.G / 255f; b = scb.Color.B / 255f; }
+        if (Cover is Color col)
+        {
+            r = col.R / 255f;
+            g = col.G / 255f;
+            b = col.B / 255f;
+        }
+        else if (Cover is ISolidColorBrush scb)
+        {
+            r = scb.Color.R / 255f;
+            g = scb.Color.G / 255f;
+            b = scb.Color.B / 255f;
+        }
 
         SetUniform3F(gl, _program, "u_primary", r, g, b);
         SetUniform3F(gl, _program, "u_secondary", 1.0f - r, 1.0f - g, 1.0f - b);
@@ -392,11 +447,16 @@ public class GlShaderToyControl : OpenGlControlBase
 
         var fallback = Color.FromRgb((byte)(r * 255f), (byte)(g * 255f), (byte)(b * 255f));
         var gradientColors = GetGradientColors(SpectrumGradient, fallback);
-        SetUniform3F(gl, _program, "u_grad0", gradientColors[0].R / 255f, gradientColors[0].G / 255f, gradientColors[0].B / 255f);
-        SetUniform3F(gl, _program, "u_grad1", gradientColors[1].R / 255f, gradientColors[1].G / 255f, gradientColors[1].B / 255f);
-        SetUniform3F(gl, _program, "u_grad2", gradientColors[2].R / 255f, gradientColors[2].G / 255f, gradientColors[2].B / 255f);
-        SetUniform3F(gl, _program, "u_grad3", gradientColors[3].R / 255f, gradientColors[3].G / 255f, gradientColors[3].B / 255f);
-        SetUniform3F(gl, _program, "u_grad4", gradientColors[4].R / 255f, gradientColors[4].G / 255f, gradientColors[4].B / 255f);
+        SetUniform3F(gl, _program, "u_grad0", gradientColors[0].R / 255f, gradientColors[0].G / 255f,
+            gradientColors[0].B / 255f);
+        SetUniform3F(gl, _program, "u_grad1", gradientColors[1].R / 255f, gradientColors[1].G / 255f,
+            gradientColors[1].B / 255f);
+        SetUniform3F(gl, _program, "u_grad2", gradientColors[2].R / 255f, gradientColors[2].G / 255f,
+            gradientColors[2].B / 255f);
+        SetUniform3F(gl, _program, "u_grad3", gradientColors[3].R / 255f, gradientColors[3].G / 255f,
+            gradientColors[3].B / 255f);
+        SetUniform3F(gl, _program, "u_grad4", gradientColors[4].R / 255f, gradientColors[4].G / 255f,
+            gradientColors[4].B / 255f);
     }
 
     private static Color[] GetGradientColors(LinearGradientBrush? brush, Color fallback)
@@ -449,35 +509,69 @@ public class GlShaderToyControl : OpenGlControlBase
     {
         int p = gl.CreateProgram(), vs = gl.CreateShader(0x8B31), fs = gl.CreateShader(0x8B30);
         if (!CompileShader(gl, vs, v) || !CompileShader(gl, fs, f)) return 0;
-        gl.AttachShader(p, vs); gl.AttachShader(p, fs); gl.LinkProgram(p);
-        gl.DeleteShader(vs); gl.DeleteShader(fs); return p;
+        gl.AttachShader(p, vs);
+        gl.AttachShader(p, fs);
+        gl.LinkProgram(p);
+        gl.DeleteShader(vs);
+        gl.DeleteShader(fs);
+        return p;
     }
 
     private unsafe bool CompileShader(GlInterface gl, int s, string src)
     {
-        var b = Encoding.UTF8.GetBytes(src); int len = b.Length;
-        fixed (byte* p = b) { sbyte* ps = (sbyte*)p; sbyte** pps = &ps; gl.ShaderSource(s, 1, (IntPtr)pps, (IntPtr)(&len)); }
+        var b = Encoding.UTF8.GetBytes(src);
+        int len = b.Length;
+        fixed (byte* p = b)
+        {
+            sbyte* ps = (sbyte*)p;
+            sbyte** pps = &ps;
+            gl.ShaderSource(s, 1, (IntPtr)pps, (IntPtr)(&len));
+        }
+
         gl.CompileShader(s);
-        int success = 0; gl.GetShaderiv(s, 0x8B81, &success);
+        int success = 0;
+        gl.GetShaderiv(s, 0x8B81, &success);
         return success != 0;
     }
 
     #region Uniform Helpers
+
     private unsafe void SetUniform1I(GlInterface gl, int prg, string name, int val)
     {
-        nint ptr = Marshal.StringToHGlobalAnsi(name); int loc = gl.GetUniformLocation(prg, ptr); Marshal.FreeHGlobal(ptr);
-        if (loc != -1) { var f = (delegate* unmanaged[Stdcall]<int, int, void>)gl.GetProcAddress("glUniform1i"); if (f != null) f(loc, val); }
+        nint ptr = Marshal.StringToHGlobalAnsi(name);
+        int loc = gl.GetUniformLocation(prg, ptr);
+        Marshal.FreeHGlobal(ptr);
+        if (loc != -1)
+        {
+            var f = (delegate* unmanaged[Stdcall]<int, int, void>)gl.GetProcAddress("glUniform1i");
+            if (f != null) f(loc, val);
+        }
     }
+
     private unsafe void SetUniform1F(GlInterface gl, int prg, string name, float val)
     {
-        nint ptr = Marshal.StringToHGlobalAnsi(name); int loc = gl.GetUniformLocation(prg, ptr); Marshal.FreeHGlobal(ptr);
-        if (loc != -1) { var f = (delegate* unmanaged[Stdcall]<int, float, void>)gl.GetProcAddress("glUniform1f"); if (f != null) f(loc, val); }
+        nint ptr = Marshal.StringToHGlobalAnsi(name);
+        int loc = gl.GetUniformLocation(prg, ptr);
+        Marshal.FreeHGlobal(ptr);
+        if (loc != -1)
+        {
+            var f = (delegate* unmanaged[Stdcall]<int, float, void>)gl.GetProcAddress("glUniform1f");
+            if (f != null) f(loc, val);
+        }
     }
+
     private unsafe void SetUniform3F(GlInterface gl, int prg, string name, float x, float y, float z)
     {
-        nint ptr = Marshal.StringToHGlobalAnsi(name); int loc = gl.GetUniformLocation(prg, ptr); Marshal.FreeHGlobal(ptr);
-        if (loc != -1) { var f = (delegate* unmanaged[Stdcall]<int, float, float, float, void>)gl.GetProcAddress("glUniform3f"); if (f != null) f(loc, x, y, z); }
+        nint ptr = Marshal.StringToHGlobalAnsi(name);
+        int loc = gl.GetUniformLocation(prg, ptr);
+        Marshal.FreeHGlobal(ptr);
+        if (loc != -1)
+        {
+            var f = (delegate* unmanaged[Stdcall]<int, float, float, float, void>)gl.GetProcAddress("glUniform3f");
+            if (f != null) f(loc, x, y, z);
+        }
     }
+
     #endregion
 
     protected override void OnOpenGlDeinit(GlInterface gl)
@@ -501,3 +595,4 @@ public class GlShaderToyControl : OpenGlControlBase
         _propertySubscriptions.Clear();
     }
 }
+

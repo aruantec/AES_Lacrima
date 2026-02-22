@@ -11,11 +11,13 @@ using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using log4net;
 
 namespace AES_Controls.GL;
 
 public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(GlRadialSpectrumControl));
     private const int GL_DYNAMIC_DRAW = 0x88E8;
     private const int GL_SRC_ALPHA = 0x0302;
     private const int GL_ONE_MINUS_SRC_ALPHA = 0x0303;
@@ -162,7 +164,7 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
             if (_spectrumCollectionRef != null && _spectrumCollectionHandler != null)
                 _spectrumCollectionRef.CollectionChanged -= _spectrumCollectionHandler;
         }
-        catch { }
+        catch (Exception ex) { Log.Warn("Error unsubscribing from spectrum collection", ex); }
         _spectrumCollectionRef = null;
         _spectrumCollectionHandler = null;
 
@@ -187,8 +189,9 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
             {
                 Dispatcher.UIThread.Post(_renderCallback, DispatcherPriority.Render);
             }
-            catch
+            catch (Exception ex)
             {
+                Log.Error("Error posting render callback", ex);
                 // If posting fails, clear the flag so future requests can retry
                 Interlocked.Exchange(ref _renderScheduled, 0);
             }
@@ -210,7 +213,7 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
             IntPtr pGetDisplay = gl.GetProcAddress("eglGetCurrentDisplay");
             if (pGetDisplay != IntPtr.Zero) _eglGetCurrentDisplay = Marshal.GetDelegateForFunctionPointer<eglGetCurrentDisplayDel>(pGetDisplay);
         }
-        catch { }
+        catch (Exception ex) { Log.Warn("Error getting OpenGL swap interval functions", ex); }
 
         string barVertexShader = $@"{shaderVersion}
             layout(location = 0) in vec2 a_pos; 
@@ -626,18 +629,16 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
             if (_barProgram != 0) gl.DeleteProgram(_barProgram);
             if (_coverProgram != 0) gl.DeleteProgram(_coverProgram);
             if (_vbo != 0) gl.DeleteBuffer(_vbo);
-            if (_texVbo != 0) gl.DeleteBuffer(_texVbo);
             if (_vao != 0) gl.DeleteVertexArray(_vao);
+            if (_texVbo != 0) gl.DeleteBuffer(_texVbo);
             if (_texture != 0) gl.DeleteTexture(_texture);
         }
-        catch { }
+        catch (Exception ex) { Log.Warn("Error during OpenGL deinitialization", ex); }
 
-        // dispose property subscriptions
-        try { foreach (var d in _propertySubscriptions) d.Dispose(); } catch { }
+        try { foreach (var d in _propertySubscriptions) d.Dispose(); } catch (Exception ex) { Log.Warn("Error disposing property subscriptions", ex); }
         _propertySubscriptions.Clear();
 
-        // unsubscribe collection handler
-        try { if (_spectrumCollectionRef != null && _spectrumCollectionHandler != null) _spectrumCollectionRef.CollectionChanged -= _spectrumCollectionHandler; } catch { }
+        try { if (_spectrumCollectionRef != null && _spectrumCollectionHandler != null) _spectrumCollectionRef.CollectionChanged -= _spectrumCollectionHandler; } catch (Exception ex) { Log.Warn("Error unsubscribing from spectrum collection during deinit", ex); }
         _spectrumCollectionRef = null; _spectrumCollectionHandler = null;
     }
     public void Dispose() { }

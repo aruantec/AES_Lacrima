@@ -31,14 +31,14 @@ public class CloseOnClickOutsideBehavior : Behavior<Window>
     /// <summary>
     /// Defines the <see cref="IsEnabled"/> property.
     /// </summary>
-    public static readonly StyledProperty<bool> IsEnabledProperty =
+    public new static readonly StyledProperty<bool> IsEnabledProperty =
         AvaloniaProperty.Register<CloseOnClickOutsideBehavior, bool>(nameof(IsEnabled), true);
 
     /// <summary>
     /// Gets or sets a value indicating whether the behavior is enabled.
     /// When bound to a visibility property, this determines when click-outside detection is active.
     /// </summary>
-    public bool IsEnabled
+    public new bool IsEnabled
     {
         get => GetValue(IsEnabledProperty);
         set => SetValue(IsEnabledProperty, value);
