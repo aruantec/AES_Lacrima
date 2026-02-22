@@ -81,7 +81,7 @@ namespace AES_Controls.Composition
         private float _fullCoverSizeFactor;
         private float _fullCoverSizeVelocity;
 
-        private readonly SKPaint _quadPaint = new() { IsAntialias = true, FilterQuality = SKFilterQuality.High };
+        private readonly SKPaint _quadPaint = new() { IsAntialias = true, FilterQuality = SKFilterQuality.Medium };
         // Projection / depth tuning to reduce perspective distortion on side items
         private readonly float _projectionDistance = 2500f; // larger => weaker perspective
         private readonly SKPaint _spinnerPaint = new() { IsAntialias = true, StrokeCap = SKStrokeCap.Round, StrokeWidth = 4, Style = SKPaintStyle.Stroke };
@@ -328,8 +328,8 @@ namespace AES_Controls.Composition
 
             if (_visibleRangeDirty)
             {
-                float itemUnit = Math.Max(0.1f, _itemSpacing * _itemScale);
-                _visibleRange = Math.Max(10, (_visualSize.X / 2f / itemUnit - _sideTranslation) / Math.Max(1f, _stackSpacing)) + 8;
+                // Items beyond absDiff 5 are invisible. We use a safe range of 7.
+                _visibleRange = 7.0f;
                 _visibleRangeDirty = false;
             }
             
@@ -406,6 +406,9 @@ namespace AES_Controls.Composition
                 else visualI = partedVisualI;
             }
             float diff = (float)(visualI - _currentIndex); float absDiff = Math.Abs(diff);
+            
+            // Skip processing for invisible items (opacity will be 0)
+            if (absDiff >= 5.0f && i != _draggingIndex) return;
 
             float transitionEase = (float)Math.Tanh(diff * 2.2f);
             float rotationY = -transitionEase * 0.95f;
@@ -446,7 +449,9 @@ namespace AES_Controls.Composition
             }
 
             var matrix = Matrix4x4.CreateTranslation(new Vector3(finalTranslationX, translationY, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(scale);
-            DrawQuad(canvas, itemW, itemH, matrix, img, (i == _draggingIndex ? 0 : absDiff), center);
+            
+            float baseOpacity = (float)(1.0 - (i == _draggingIndex ? 0 : absDiff) * 0.2) * _globalTransitionAlpha * _currentGlobalOpacity;
+            DrawQuad(canvas, itemW, itemH, matrix, img, baseOpacity, center);
 
             if (_coverFoundIndices.Contains(i))
             {
@@ -524,7 +529,7 @@ namespace AES_Controls.Composition
 
             if (_loadingIndices.Contains(i)) DrawSpinner(canvas, center, matrix);
             var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
-            DrawQuad(canvas, itemW, itemH, refMat, img, (i == _draggingIndex ? 0 : absDiff), center, true);
+            DrawQuad(canvas, itemW, itemH, refMat, img, baseOpacity * 0.08f, center);
         }
 
         private void DisposeShaderOnly(SKImage? img) { if (img != null && _shaderCache.Remove(img, out var shader)) shader.Dispose(); }
@@ -543,55 +548,54 @@ namespace AES_Controls.Composition
             } 
         }
 
-        private void DrawQuad(SKCanvas canvas, float w, float h, Matrix4x4 model, SKImage? image, float absDiff, Vector2 center, bool isRef = false)
+        private void DrawQuad(SKCanvas canvas, float w, float h, Matrix4x4 model, SKImage? image, float opacity, Vector2 center)
         {
-            float opacity = (float)(isRef ? 0.08 : 1.0) * (float)(1.0 - absDiff * 0.2) * _globalTransitionAlpha * _currentGlobalOpacity;
-            if (opacity < 0.01f) return;
+            if (opacity < 0.01f || image == null) return;
 
-            void Proj(int idx, float x, float y)
-            {
-                var vt = Vector3.Transform(new Vector3(x, y, 0), model);
-                float s = _projectionDistance / (_projectionDistance - vt.Z);
-                if (s < 0.5f) s = 0.5f;
-                else if (s > 1.6f) s = 1.6f;
-                _vBuffer[idx] = new SKPoint(center.X + vt.X * s, center.Y + vt.Y * s);
+            if (!_dimCache.TryGetValue(image, out var dims)) { 
+                try { dims = _dimCache[image] = (image.Width, image.Height); } catch { return; }
             }
+            if (dims.Width <= 0 || dims.Height <= 0) return;
 
-            if (image != null)
+            _quadPaint.Color = SKColors.White.WithAlpha((byte)(255 * opacity));
+            if (!_shaderCache.TryGetValue(image, out var shader)) { 
+                try { _shaderCache[image] = shader = image.ToShader(); } catch { return; }
+            }
+            if (shader == null) return;
+
+            _quadPaint.Shader = shader;
+            float sc = Math.Max(w / (float)dims.Width, h / (float)dims.Height);
+            float wR = w / sc; float hR = h / sc;
+            float xO = (dims.Width - wR) / 2f; float yO = (dims.Height - hR) / 2f;
+
+            // Perspective is subtle enough that 1-2 segments are sufficient
+            int horizontalSegments = (w < h * 1.5f) ? 1 : 2;
+
+            for (int s = 0; s < horizontalSegments; s++)
             {
-                if (!_dimCache.TryGetValue(image, out var dims)) { try { dims = _dimCache[image] = (image.Width, image.Height); } catch { image = null; } }
-                if (image != null && dims.Width > 0)
-                {
-                    _quadPaint.Color = SKColors.White.WithAlpha((byte)(255 * opacity));
-                    if (!_shaderCache.TryGetValue(image, out var shader)) { try { _shaderCache[image] = shader = image.ToShader(); } catch { image = null; } }
-                    if (image != null && shader != null)
-                    {
-                        _quadPaint.Shader = shader;
-                        float sc = Math.Max(w / dims.Width, h / dims.Height);
-                        float wR = w / sc; float hR = h / sc;
-                        float xO = (dims.Width - wR) / 2f; float yO = (dims.Height - hR) / 2f;
+                float x0 = -w / 2 + (w * s / horizontalSegments);
+                float x1 = -w / 2 + (w * (s + 1) / horizontalSegments);
+                float tX0 = xO + (wR * s / horizontalSegments);
+                float tX1 = xO + (wR * (s + 1) / horizontalSegments);
 
-                        int horizontalSegments = (w > h * 1.25f) ? 8 : (w > h ? 4 : 2);
-                        if (isRef) horizontalSegments = 1;
-
-                        for (int s = 0; s < horizontalSegments; s++)
-                        {
-                            float x0 = -w / 2 + (w * s / horizontalSegments);
-                            float x1 = -w / 2 + (w * (s + 1) / horizontalSegments);
-                            float tX0 = xO + (wR * s / horizontalSegments);
-                            float tX1 = xO + (wR * (s + 1) / horizontalSegments);
-
-                            Proj(0, x0, -h / 2); Proj(1, x1, -h / 2); Proj(2, x1, h / 2); Proj(3, x0, h / 2);
-                            _tBuffer[0] = new SKPoint(tX0, yO); _tBuffer[1] = new SKPoint(tX1, yO);
-                            _tBuffer[2] = new SKPoint(tX1, yO + hR); _tBuffer[3] = new SKPoint(tX0, yO + hR);
-
-                            canvas.DrawVertices(SKVertexMode.Triangles, _vBuffer, _tBuffer, null, QuadIndices, _quadPaint);
-                        }
-                        _quadPaint.Shader = null;
-                        return;
-                    }
+                // Inline and optimize matrix multiplication and projection
+                void Project(int idx, float px, float py) {
+                    float vx = px * model.M11 + py * model.M21 + model.M41;
+                    float vy = px * model.M12 + py * model.M22 + model.M42;
+                    float vz = px * model.M13 + py * model.M23 + model.M43;
+                    float sFactor = _projectionDistance / (_projectionDistance - vz);
+                    if (sFactor < 0.5f) sFactor = 0.5f; else if (sFactor > 1.6f) sFactor = 1.6f;
+                    _vBuffer[idx] = new SKPoint(center.X + vx * sFactor, center.Y + vy * sFactor);
                 }
+
+                Project(0, x0, -h / 2); Project(1, x1, -h / 2); Project(2, x1, h / 2); Project(3, x0, h / 2);
+
+                _tBuffer[0] = new SKPoint(tX0, yO); _tBuffer[1] = new SKPoint(tX1, yO);
+                _tBuffer[2] = new SKPoint(tX1, yO + hR); _tBuffer[3] = new SKPoint(tX0, yO + hR);
+
+                canvas.DrawVertices(SKVertexMode.TriangleFan, _vBuffer, _tBuffer, null, null, _quadPaint);
             }
+            _quadPaint.Shader = null;
         }
 
         private void DrawSpinner(SKCanvas canvas, Vector2 center, Matrix4x4 model)
@@ -603,3 +607,4 @@ namespace AES_Controls.Composition
         }
     }
 }
+

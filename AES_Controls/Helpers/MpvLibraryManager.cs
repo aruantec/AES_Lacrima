@@ -193,6 +193,24 @@ public partial class MpvLibraryManager : ObservableObject
 
         if (File.Exists(Path.Combine(_destFolder, libName)))
         {
+            // On macOS, even if the primary library is installed, ensure the alternate name is also present.
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && string.Equals(libName, "libmpv.dylib", StringComparison.OrdinalIgnoreCase))
+            {
+                var extracted = Path.Combine(_destFolder, "libmpv.dylib");
+                var alt = Path.Combine(_destFolder, "libmpv.2.dylib");
+                try
+                {
+                    if (!File.Exists(alt))
+                    {
+                        File.Copy(extracted, alt, true);
+                        Log.Debug($"Ensured macOS alternate lib name exists: {alt}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Failed to ensure alternate macOS lib name exists", ex);
+                }
+            }
             Status = "libmpv is already installed.";
             InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(true, Status));
             return;

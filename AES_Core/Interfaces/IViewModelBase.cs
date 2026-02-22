@@ -21,6 +21,13 @@ public interface IViewModelBase
     void OnShowViewModel();
 
     /// <summary>
+    /// Called after the view associated with this view-model has completed
+    /// its entrance transition and is fully visible. Use this hook to start
+    /// UI work that should only run when the view is fully shown.
+    /// </summary>
+    void OnViewFullyVisible();
+
+    /// <summary>
     /// Called before navigating away from this view-model. Use this hook
     /// to perform cleanup or to persist transient state before another
     /// view-model is shown.

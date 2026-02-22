@@ -10,11 +10,13 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using static Avalonia.OpenGL.GlConsts;
+using log4net;
 
 namespace AES_Controls.GL;
 
 public class GlWaveformSpectrumControl : OpenGlControlBase, IDisposable
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(GlWaveformSpectrumControl));
     private const int GL_DYNAMIC_DRAW = 0x88E8;
     private const int GL_TRIANGLE_STRIP = 5;
     private const int GL_SRC_ALPHA = 0x0302;
@@ -131,7 +133,7 @@ public class GlWaveformSpectrumControl : OpenGlControlBase, IDisposable
 
     private void OnSpectrumChanged(AvaloniaList<double>? col)
     {
-        try { if (_spectrumCollectionRef != null && _spectrumCollectionHandler != null) _spectrumCollectionRef.CollectionChanged -= _spectrumCollectionHandler; } catch { }
+        try { if (_spectrumCollectionRef != null && _spectrumCollectionHandler != null) _spectrumCollectionRef.CollectionChanged -= _spectrumCollectionHandler; } catch (Exception ex) { Log.Warn("Error unsubscribing from spectrum collection", ex); }
         _spectrumCollectionRef = null; _spectrumCollectionHandler = null;
         if (col is INotifyCollectionChanged notify)
         {
@@ -147,7 +149,7 @@ public class GlWaveformSpectrumControl : OpenGlControlBase, IDisposable
         if (Interlocked.CompareExchange(ref _renderRequested, 1, 0) == 0)
         {
             try { Dispatcher.UIThread.Post(_renderAction, DispatcherPriority.Render); }
-            catch { Interlocked.Exchange(ref _renderRequested, 0); }
+            catch (Exception ex) { Log.Error("Error posting render action", ex); Interlocked.Exchange(ref _renderRequested, 0); }
         }
     }
 
@@ -166,7 +168,7 @@ public class GlWaveformSpectrumControl : OpenGlControlBase, IDisposable
             IntPtr pGetDisplay = gl.GetProcAddress("eglGetCurrentDisplay");
             if (pGetDisplay != IntPtr.Zero) _eglGetCurrentDisplay = Marshal.GetDelegateForFunctionPointer<eglGetCurrentDisplayDel>(pGetDisplay);
         }
-        catch { }
+        catch (Exception ex) { Log.Warn("Error getting OpenGL swap interval functions", ex); }
 
         string vertexShaderSource = $@"{shaderVersion}
         layout(location = 0) in vec2 a_position; 

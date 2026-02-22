@@ -1,13 +1,26 @@
+// Improved, more stable hash function to prevent precision-based jitter on Mac Mini M4
+float hash(float n) {
+    return fract(sin(n) * 43758.5453123);
+}
 
-float hash(float n) { return fract(sin(n) * 43758.5453123); }
+float hash21(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
 
 float noise(vec2 p) {
     vec2 i = floor(p);
     vec2 f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    float n = i.x + i.y * 57.0;
-    return mix(mix(hash(n), hash(n + 1.0), f.x),
-               mix(hash(n + 57.0), hash(n + 58.0), f.x), f.y);
+    // Quintic interpolation
+    f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    
+    float a = hash21(i);
+    float b = hash21(i + vec2(1.0, 0.0));
+    float c = hash21(i + vec2(0.0, 1.0));
+    float d = hash21(i + vec2(1.0, 1.0));
+    
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
 float fbm(vec2 p) {
@@ -17,6 +30,13 @@ float fbm(vec2 p) {
     f += 0.1250 * noise(p); p = p * 2.01;
     f += 0.0625 * noise(p);
     return f / 0.9375;
+}
+
+float fbmLow(vec2 p) {
+    float f = 0.0;
+    f += 0.5000 * noise(p); p = p * 2.02;
+    f += 0.2500 * noise(p);
+    return f / 0.75;
 }
 
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
@@ -38,16 +58,18 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
 
     vec3 col = vec3(0.0);
 
-    for(int i = 0; i < 5; i++) {
+    // Optimized deep parallax loop (5 -> 3)
+    for(int i = 0; i < 3; i++) {
         float fI = float(i);
         float layerTime = iTime * 0.7 - fI * 0.03;
 
         // Deep parallax: X is scaled and offset differently
-        float pX = uv.x * 1.6 + (fI - 2.5) * 0.015 * sin(iTime * 0.2);
+        float pX = uv.x * 1.6 + (fI - 1.5) * 0.015 * sin(iTime * 0.2);
         float pUvScreenX = pX * (res.y / res.x) + 0.5;
 
         float yPath = 0.08 * sin(pX * 1.2 + layerTime * 0.4);
-        float jitter = (fbm(vec2(pX * 6.0 + layerTime, layerTime * 1.2)) * 2.0 - 1.0) * 0.05 * (1.0 + bass);
+        // Use fbmLow for background
+        float jitter = (fbmLow(vec2(pX * 6.0 + layerTime, layerTime * 1.2)) * 2.0 - 1.0) * 0.05 * (1.0 + bass);
 
         float currentY = yPath + jitter - 0.15; // Shifted slightly down 
         float dist = abs(uv.y - currentY);
@@ -59,16 +81,18 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
         col += bgCol * glow * (0.2 + vol * 0.5) * (1.0 - fI * 0.1);
     }
 
-    for(int i = 0; i < 7; i++) {
+    // Optimized intermediate parallax loop (7 -> 4)
+    for(int i = 0; i < 4; i++) {
         float fI = float(i);
         float layerTime = iTime * 0.85 - fI * 0.025;
 
         // Intermediate parallax
-        float pX = uv.x * 1.3 + (fI - 3.5) * 0.022 * sin(iTime * 0.28);
+        float pX = uv.x * 1.3 + (fI - 2.0) * 0.022 * sin(iTime * 0.28);
         float pUvScreenX = pX * (res.y / res.x) + 0.5;
 
         float yPath = 0.09 * sin(pX * 1.6 + layerTime * 0.45);
-        float jitter = (fbm(vec2(pX * 8.0 + layerTime, layerTime * 1.8)) * 2.0 - 1.0) * 0.06 * (1.0 + mid);
+        // Use fbmLow for midground
+        float jitter = (fbmLow(vec2(pX * 8.0 + layerTime, layerTime * 1.8)) * 2.0 - 1.0) * 0.06 * (1.0 + mid);
 
         float currentY = yPath + jitter - 0.075; 
         float dist = abs(uv.y - currentY);
@@ -80,36 +104,32 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
         col += midCol * glow * (0.3 + vol * 0.8) * (1.0 - fI * 0.12);
     }
 
-    // Render multiple layers of electrical arcs with time offsets to simulate motion blur/persistence
-    const int numLayers = 10;
+    // Optimized electrical arcs (10 -> 6 layers)
+    const int numLayers = 6;
     for(int i = 0; i < numLayers; i++) {
         float fI = float(i);
         // Delay each layer slightly in time to simulate persistence
-        float layerTime = iTime - fI * 0.02;
+        float layerTime = iTime - fI * 0.03;
 
         // Parallax shift: deeper layers have different horizontal offsets
-        float pX = uv.x + (fI - 5.0) * 0.03 * sin(iTime * 0.35);
+        float pX = uv.x + (fI - 3.0) * 0.03 * sin(iTime * 0.35);
         float pUvScreenX = pX * (res.y / res.x) + 0.5;
 
         // Base horizontal movement pulsing with bass
         float yPath = 0.1 * sin(pX * 2.0 + layerTime * 0.5) * (1.0 + bass * 1.2);
 
-        // Electric jitter (Noise based on x and time) - Increased frequency for jaggedness
-        float jitter = (fbm(vec2(pX * 4.0 + layerTime * 3.0, layerTime * 2.5)) * 2.0 - 1.0) * 0.08;
-        jitter += (fbm(vec2(pX * 12.0 - layerTime * 4.5, layerTime * 5.0)) * 2.0 - 1.0) * 0.03;
-        jitter += (fbm(vec2(pX * 25.0 + layerTime * 8.0, layerTime * 10.0)) * 2.0 - 1.0) * 0.01; 
+        // Further optimized jitter by using fbmLow (2 octaves) instead of fbm (4 octaves)
+        float jitter = (fbmLow(vec2(pX * 6.0 + layerTime * 3.0, layerTime * 2.5)) * 2.0 - 1.0) * 0.11;
 
         // Horizontal color transition (Blue to Green)
         float colorMix = smoothstep(0.1, 0.7, pUvScreenX + jitter * 0.1);
         float greenBoost = smoothstep(0.5, 1.0, colorMix);
 
-        // Make green arcs travel more horizontally ("crossing the line")
-        // Increase the wavelength and amplitude of the jitter specifically for the green section
-        float greenLongitudinalShift = (fbm(vec2(pX * 0.5 - layerTime * 0.7, layerTime * 1.5)) * 2.0 - 1.0) * 0.12 * greenBoost;
+        // Applied shifts smoothly using greenBoost multiplier directly to prevent jitter/discontinuities.
+        float greenLongitudinalShift = (fbmLow(vec2(pX * 0.5 - layerTime * 0.7, layerTime * 1.5)) * 2.0 - 1.0) * 0.12 * greenBoost;
         jitter += greenLongitudinalShift; 
-
-        // Amplify green side jaggedness with wider and wilder spikes
-        jitter += (fbm(vec2(pX * 2.5 + layerTime * 3.0, layerTime * 2.0)) * 2.0 - 1.0) * 0.08 * greenBoost;
+        // Simplify green jaggedness
+        jitter += (noise(vec2(pX * 12.0 - layerTime * 4.5, layerTime * 5.0)) * 2.0 - 1.0) * 0.08 * greenBoost;
         jitter *= (1.0 + 0.3 * greenBoost); 
 
         // Amplify movement by volume
@@ -123,11 +143,11 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
         vec3 greenBase = vec3(0.0, 1.0, 0.0);
         vec3 layerCol = mix(blueBase, greenBase, colorMix);
 
-        // Spark modulation: Breaks the line into "electric" segments
-        float spark = fbm(vec2(pX * 15.0 + layerTime * 5.0, currentY * 10.0));
+        // Use simpler noise for spark modulation - use yPath instead of currentY to avoid jitter feedback
+        float spark = noise(vec2(pX * 15.0 + layerTime * 5.0, yPath * 5.0));
         float sparkIntensity = 0.3 + 1.4 * spark;
 
-        // Electric Arc: Core + Inner Glow + Outer Glow (Sharpened)
+        // Electric Arc: Core + Inner Glow + Outer Glow
         float coreWidth = (0.005 + 0.004 * beat) * (1.0 - 0.4 * greenBoost);
         float core = smoothstep(coreWidth, 0.0, dist); 
         float innerGlow = exp(-dist * (60.0 + 30.0 * greenBoost - 15.0 * beat)) * (0.5 + 0.4 * beat); 
@@ -142,7 +162,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
 
     // Add secondary "ghost" arcs that flash with high frequencies
     if (treble > 0.6) {
-        float ghostJitter = (fbm(vec2(uv.x * 20.0, iTime * 10.0)) * 2.0 - 1.0) * 0.05;
+        float ghostJitter = (noise(vec2(uv.x * 20.0, iTime * 10.0)) * 2.0 - 1.0) * 0.05;
         float ghostDist = abs(uv.y - ghostJitter);
         col += vec3(0.5, 0.8, 1.0) * exp(-ghostDist * 80.0) * (treble - 0.6) * 1.2;
     }

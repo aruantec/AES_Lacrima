@@ -32,7 +32,6 @@ namespace AES_Lacrima.ViewModels
         public virtual void Prepare()
         {
             // Override if needed
-            IsActive = true;
         }
 
         /// <summary>
@@ -43,7 +42,16 @@ namespace AES_Lacrima.ViewModels
         public virtual void OnShowViewModel()
         {
             // Override if needed
-            IsActive = true;
+        }
+
+        /// <summary>
+        /// Called after the view associated with this view-model has completed
+        /// its entrance transition and is fully visible. Use this hook to start
+        /// UI work that should only run when the view is fully shown.
+        /// </summary>
+        public virtual void OnViewFullyVisible()
+        {
+            // Override if needed
         }
 
         /// <summary>
@@ -54,7 +62,6 @@ namespace AES_Lacrima.ViewModels
         public virtual void OnLeaveViewModel()
         {
             // Override if needed
-            IsActive = false;
         }
     }
 }

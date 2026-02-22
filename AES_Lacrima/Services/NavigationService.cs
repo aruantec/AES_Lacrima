@@ -5,6 +5,8 @@ using CommunityToolkit.Mvvm.Input;
 using AES_Controls.Helpers;
 using System;
 using System.Linq;
+using System.Windows.Input;
+using log4net;
 
 namespace AES_Lacrima.Services
 {
@@ -14,6 +16,8 @@ namespace AES_Lacrima.Services
     public partial class NavigationService : ViewModelBase, INavigationService
     {
         private ViewModelBase? _previousViewModel;
+
+        private static readonly ILog Log = LogManager.GetLogger(typeof(NavigationService));
 
         /// <summary>
         /// Backing field for the generated <c>View</c> property that holds
@@ -35,6 +39,37 @@ namespace AES_Lacrima.Services
         private bool _isBackEnabled;
 
         /// <summary>
+        /// Command raised by the presenter after a transition completes. The
+        /// parameter will be the new view-model instance.
+        /// </summary>
+        public ICommand? TransitionCompletedCommand { get; }
+
+        /// <summary>
+        /// Event invoked when a view has finished its entrance transition and
+        /// is fully visible.
+        /// </summary>
+        public event EventHandler<ViewModelBase?>? ViewFullyVisible;
+
+        public NavigationService()
+        {
+            TransitionCompletedCommand = new RelayCommand<object?>(OnTransitionCompleted);
+        }
+
+        private void OnTransitionCompleted(object? parameter)
+        {
+            // Return if the parameter is not a view model
+            if (parameter is not ViewModelBase vm) return;
+            // Invoke the event handler
+            vm.OnViewFullyVisible();
+            // Invoke the event handler for the current view model if available
+            ViewFullyVisible?.Invoke(this, vm);
+            // Set the previous view model to inactive
+            _previousViewModel?.IsActive = false;
+            // Set the current view model to active
+            vm.IsActive = true;
+        }
+
+        /// <summary>
         /// Toggles the visibility of the settings overlay on changed.
         /// </summary>
         [RelayCommand]
@@ -49,11 +84,10 @@ namespace AES_Lacrima.Services
         /// <param name="tabIndex">The index of the tab to select.</param>
         public void NavigateToSettings(int tabIndex)
         {
-            if (DiLocator.ResolveViewModel<SettingsViewModel>() is { } settings)
-            {
-                settings.SelectedTabIndex = tabIndex;
-                ShowSettingsOverlay = true;
-            }
+            if (DiLocator.ResolveViewModel<SettingsViewModel>() is not { } settings) return;
+            //Set selected tab
+            settings.SelectedTabIndex = tabIndex;
+            ShowSettingsOverlay = true;
         }
 
         /// <summary>
@@ -79,9 +113,14 @@ namespace AES_Lacrima.Services
 
                 musicViewModel.IsActive = false;
             }
+            // Set the main content view to active
+            if (_previousViewModel is MainContentViewModel mainContentViewModel)
+            {
+                mainContentViewModel.IsActive = true;
+            }
             //Set current view to previous view
             View = _previousViewModel;
-            //Set back naviation
+            //Set back navigation
             IsBackEnabled = View is not MainContentViewModel;
         }
 
@@ -92,7 +131,7 @@ namespace AES_Lacrima.Services
         {
             //Initial view values
             View = DiLocator.ResolveViewModel<MainContentViewModel>();
-            //Set back naviation
+            //Set back navigation
             _previousViewModel = View;
         }
 

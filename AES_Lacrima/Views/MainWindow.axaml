@@ -59,25 +59,30 @@
             </Style>
         </Grid.Styles>
         <!-- Background -->
-        <!--<Image asyncImageLoader:ImageLoader.Source="Assets/background.jpg" Stretch="UniformToFill"/>-->
+        <Image asyncImageLoader:ImageLoader.Source="Assets/background.jpg" Stretch="UniformToFill"/>
         <!--Shadertoy-->
         <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
                                IsVisible="{Binding SettingsViewModel.ShowShaderToy}"
                                Spectrum="{Binding Spectrum}"
-                               SpectrumGradient="{Binding SettingsViewModel.SpectrumGradient}"/>
+                               SpectrumGradient="{Binding SettingsViewModel.SpectrumGradient}">
+            <Interaction.Behaviors>
+                <behaviors:IsActiveBehavior IsActive="{Binding NavigationService.View.IsActive}"/>
+            </Interaction.Behaviors>
+        </gl:GlShaderToyControl>
         
         <!-- Scalable decorator and main content-->
         <controls:ScalableDecorator Scale="{Binding SettingsViewModel.ScaleFactor}">
-            <Grid Grid.RowDefinitions="Auto,*" ColumnDefinitions="60*,40*">
+            <Grid RowDefinitions="Auto,*" ColumnDefinitions="60*,40*">
                 <!-- Top bar -->
                 <common:MainTopBar Grid.Row="0" Grid.ColumnSpan="2"/>
 				<!-- Main content -->
 				<nav:CachedContentPresenter Grid.Row="1"
-                                            Grid.ColumnSpan="2"
-											TransitionsEnabled="True"
+                                            Grid.ColumnSpan="2" Grid.Column="0"
+                                            TransitionsEnabled="True"
 											Duration="0:0:0.500"
 											Easing="SineEaseInOut"
-											CurrentViewModel="{Binding NavigationService.View}"/>
+											CurrentViewModel="{Binding NavigationService.View}"
+                                            TransitionCompletedCommand="{Binding NavigationService.TransitionCompletedCommand}"/>
 				<!-- Settings Overlay -->
 				<Border x:Name="SettingsOverlay"
 						Grid.Row="1"
