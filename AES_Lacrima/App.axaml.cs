@@ -52,7 +52,7 @@ namespace AES_Lacrima
                     //builder.RegisterType<AudioPlayer>().As<AudioPlayer>().InstancePerDependency();
                 });
                 // Create the main window and set its DataContext to the resolved MainWindowViewModel
-                desktop.MainWindow = new MainWindow();
+                desktop.MainWindow = new MainWindow(); //<-- Comment this line to use a custom window design
 
                 //Custom design example
                 ////////////////////////////////////////////////
