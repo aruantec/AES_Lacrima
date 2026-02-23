@@ -1,0 +1,107 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AES_Lacrima.ViewModels"
+             xmlns:conv="using:AES_Lacrima.Converters"
+             xmlns:behaviors="using:AES_Lacrima.Behaviors"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Class="AES_Lacrima.Views.MinView"
+             x:DataType="vm:MinViewModel">
+    <UserControl.Resources>
+        <conv:BoolToStringConverter x:Key="BoolToString" />
+    </UserControl.Resources>
+
+    <Grid Background="#0F0F0F">
+        <!-- Content -->
+		<Grid ColumnDefinitions="60*,40*">
+
+            <!-- Cover & Controls -->
+            <Grid Grid.Row="0" RowDefinitions="*,Auto">
+                <!-- Cover -->
+                <StackPanel Grid.Row="0">
+					<Image Source="{Binding LoadedMediaItem.CoverBitmap}"
+                           Height="200"
+                           Width="200"
+                           Margin="5,15,5,15"
+                           VerticalAlignment="Top"/>
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="4" Margin="2,0,0,0">
+                        <TextBlock TextWrapping="Wrap" Text="{Binding LoadedMediaItem.Title, FallbackValue='No File Loaded'}" FontSize="12" FontWeight="Bold"/>
+                        <TextBlock TextWrapping="Wrap" Text="{Binding LoadedMediaItem.Artist, FallbackValue=''}" FontSize="10" Foreground="#ccc"/>
+                        <TextBlock TextWrapping="Wrap" Text="{Binding LoadedMediaItem.Album, FallbackValue=''}" FontSize="10" Foreground="#888"/>
+                    </StackPanel>
+                </StackPanel>
+                <!-- Controls -->
+                <Grid RowDefinitions="Auto,Auto,Auto" Grid.Row="1" Margin="5">
+                    <!-- Position/Duration -->
+                    <TextBlock FontSize="22" HorizontalAlignment="Center">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0} / {1}">
+                                <Binding Path="MusicViewModel.AudioPlayer.Position" Converter="{StaticResource TimeSpanConverter}" />
+                                <Binding Path="MusicViewModel.AudioPlayer.Duration" Converter="{StaticResource TimeSpanConverter}" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+                    <!-- Position slider -->
+                    <Slider Grid.Row="1"
+                            Minimum="0"
+                            Maximum="{Binding MusicViewModel.AudioPlayer.Duration}"
+                            Margin="5"
+                            x:Name="PositionSlider">
+                        <Interaction.Behaviors>
+                            <behaviors:SliderBehavior Command="{Binding SetPositionCommand}" BoundPosition="{Binding MusicViewModel.AudioPlayer.Position}" ExecuteDuringDrag="True" />
+                        </Interaction.Behaviors>
+                    </Slider>
+                    <!-- Media Controls -->
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10">
+                        <Button Content="■" Command="{Binding StopCommand}" FontSize="16"/>
+                        <Button Content="⏮" Command="{Binding PreviousCommand}" FontSize="16"/>
+                        <Button Content="{Binding MusicViewModel.AudioPlayer.IsPlaying, Converter={StaticResource BoolToString}, ConverterParameter='⏸,▷'}" Command="{Binding PlayPauseCommand}" FontSize="16"/>
+                        <Button Content="⏭" Command="{Binding NextCommand}" FontSize="16"/>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+            
+            <!-- Playlist -->
+			<Grid Grid.Column="1" RowDefinitions="*,Auto">
+				<ListBox Grid.Row="0" Background="#0F0F0F"
+                         ItemsSource="{Binding MediaItems}"
+                         SelectedItem="{Binding SelectedMediaItem}"
+                         SelectedItems="{Binding SelectedItems, Mode=TwoWay}"
+                         SelectionMode="Multiple"
+                         BorderBrush="DimGray"
+                         BorderThickness="0.5,0,0,0.5">
+
+                    <!-- Behaviors -->
+				    <Interaction.Behaviors>
+					    <ExecuteCommandOnDoubleTappedBehavior Command="{Binding PlaySelectedMediaItemCommand}"
+														      CommandParameter="{Binding SelectedMediaItem}"/>
+				    </Interaction.Behaviors>
+
+                    <!-- Playlist item template -->
+				    <ListBox.ItemTemplate>
+					    <DataTemplate>
+						    <Grid ColumnDefinitions="Auto,*" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                <Image Source="{Binding CoverBitmap}" Width="40" Height="40"/>
+							    <Grid Grid.Column="1" HorizontalAlignment="Left" RowDefinitions="Auto,Auto">
+									<Label Grid.Row="0" Content="{Binding Title}" Foreground="White" FontSize="16"/>
+                                    <Label Grid.Row="1" Content="{Binding Title}" Foreground="#99FFFFFF" FontSize="14"/>
+                                </Grid>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <!-- Playlist controls -->
+                <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="5" Spacing="5">
+					<Button Content="Add" Command="{Binding AddFilesCommand}"/>
+                    <Button Content="Remove" Command="{Binding DeleteSelectedItemsCommand}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1" HorizontalAlignment="Right" Margin="0,0,10,0">
+					<Slider Width="100" Minimum="0" Maximum="100" Value="{Binding MusicViewModel.AudioPlayer.Volume, Mode=TwoWay}"/>
+                    <Label Content="Volume" HorizontalAlignment="Center" FontSize="10" Margin="0,-15,0,0"/>
+                </StackPanel>
+            </Grid>
+
+        </Grid>
+    </Grid>
+</UserControl>

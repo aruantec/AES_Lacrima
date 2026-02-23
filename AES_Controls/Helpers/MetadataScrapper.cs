@@ -1,16 +1,11 @@
 using AES_Code.Models;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
-using Avalonia;
 using Avalonia.Collections;
-using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using log4net;
 using System.Collections.Concurrent;
-using System.IO;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using TagLib;

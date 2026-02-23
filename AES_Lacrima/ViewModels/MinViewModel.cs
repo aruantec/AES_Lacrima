@@ -1,0 +1,200 @@
+﻿using AES_Controls.Helpers;
+using AES_Controls.Player.Models;
+using AES_Core.DI;
+using Avalonia;
+using Avalonia.Collections;
+using Avalonia.Media.Imaging;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+
+namespace AES_Lacrima.ViewModels
+{
+    public interface IMinViewModel { }
+
+    [AutoRegister]
+    internal partial class MinViewModel : ViewModelBase, IMinViewModel
+    {
+        private string _agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+        private Bitmap _defaultCover = PlaceholderGenerator.GenerateMusicPlaceholder();
+
+        private readonly string[] _supportedTypes = ["*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4"];
+
+        // Override the settings file path to store playlist data separately. You can customize this path as needed.
+        protected override string SettingsFilePath => Path.Combine(AppContext.BaseDirectory, "Settings", "CustomPlaylist.json");
+
+        [ObservableProperty]
+        private AvaloniaList<MediaItem>? _mediaItems;
+
+        [ObservableProperty]
+        private MediaItem? _selectedMediaItem;
+
+        [ObservableProperty]
+        private MediaItem? _loadedMediaItem;
+
+        [ObservableProperty]
+        private AvaloniaList<MediaItem>? _selectedItems = [];
+
+        [AutoResolve]
+        [ObservableProperty]
+        private MusicViewModel? _musicViewModel;
+
+        public override void Prepare()
+        {
+            // Load saved playlist from settings first.
+            LoadSettings();
+
+            // If no saved items, fall back to the aggregated album list from MusicViewModel.
+            if (MediaItems == null || MediaItems.Count == 0)
+            {
+                MediaItems = [.. MusicViewModel?.AlbumList?.SelectMany(s => s.Children) ?? []];
+            }
+        }
+
+        [RelayCommand]
+        private void PlaySelectedMediaItem()
+        {
+            if (SelectedMediaItem != null)
+            {
+                MusicViewModel?.AudioPlayer?.PlayFile(SelectedMediaItem);
+                LoadedMediaItem = SelectedMediaItem;
+            }
+        }
+
+        [RelayCommand]
+        private void PlayPause()
+        {
+            if (MusicViewModel == null || MusicViewModel.AudioPlayer == null) return;
+
+            if (MusicViewModel.AudioPlayer.IsPlaying)
+                MusicViewModel.AudioPlayer.Pause();
+            else
+                MusicViewModel.AudioPlayer.Play();
+        }
+
+        [RelayCommand]
+        private void Next()
+        {
+            if (MediaItems == null || LoadedMediaItem == null || MusicViewModel?.AudioPlayer == null) return;
+
+            var index = MediaItems.IndexOf(LoadedMediaItem);
+            if (index < 0) return;
+
+            var nextIndex = index + 1;
+            if (nextIndex >= MediaItems.Count) return;
+
+            var next = MediaItems[nextIndex];
+            MusicViewModel?.AudioPlayer.PlayFile(next);
+            LoadedMediaItem = next;
+            SelectedMediaItem = next;
+        }
+
+        [RelayCommand]
+        private void Previous()
+        {
+            if (MediaItems == null || LoadedMediaItem == null || MusicViewModel?.AudioPlayer == null) return;
+
+            var index = MediaItems.IndexOf(LoadedMediaItem);
+            if (index <= 0) return;
+
+            var prevIndex = index - 1;
+            if (prevIndex < 0) return;
+
+            var prev = MediaItems[prevIndex];
+            MusicViewModel?.AudioPlayer.PlayFile(prev);
+            LoadedMediaItem = prev;
+            SelectedMediaItem = prev;
+        }
+
+        [RelayCommand]
+        private void Stop()
+        {
+            MusicViewModel?.AudioPlayer?.Stop();
+        }
+
+        [RelayCommand]
+        private void SetPosition(double position)
+        {
+            MusicViewModel?.AudioPlayer?.SetPosition(position);
+        }
+
+        [RelayCommand]
+        private void DeleteSelectedItems()
+        {
+            if (SelectedItems == null || MediaItems == null) return;
+
+            // Remove selected items safely
+            var itemsToRemove = SelectedItems.ToList();
+            foreach (var item in itemsToRemove)
+            {
+                MediaItems.Remove(item);
+            }
+            // Persist changes
+            SaveSettings();
+        }
+
+        [RelayCommand]
+        private async Task AddFilesAsync()
+        {
+            if (MediaItems == null) return;
+
+            var lifetime = Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+            var storageProvider = lifetime?.MainWindow?.StorageProvider;
+
+            if (storageProvider != null)
+            {
+                var files = await storageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+                {
+                    Title = "Add Audio Files",
+                    AllowMultiple = true,
+                    FileTypeFilter =
+                    [
+                        new Avalonia.Platform.Storage.FilePickerFileType("Audio Files")
+                        {
+                            Patterns = _supportedTypes
+                        }
+                    ]
+                });
+
+                if (files.Count > 0)
+                {
+                    foreach (var file in files)
+                    {
+                        var localPath = file.Path.LocalPath;
+                        var item = new MediaItem
+                        {
+                            FileName = localPath,
+                            Title = Path.GetFileName(localPath),
+                            CoverBitmap = _defaultCover
+                        };
+                        MediaItems.Add(item);
+                    }
+
+                    // Persist updated playlist
+                    try { SaveSettings(); } catch { }
+
+                    if (MediaItems.Count > 0 && MusicViewModel?.AudioPlayer != null)
+                        _ = new MetadataScrapper(MediaItems, MusicViewModel.AudioPlayer, _defaultCover, _agentInfo, 512);
+                }
+            }
+        }
+
+        protected override void OnSaveSettings(System.Text.Json.Nodes.JsonObject section)
+        {
+            // Persist the media items list
+            WriteCollectionSetting(section, "MediaItems", "MediaItem", MediaItems);
+        }
+
+        protected override void OnLoadSettings(System.Text.Json.Nodes.JsonObject section)
+        {
+            // Read persisted media items
+            MediaItems = ReadCollectionSetting<MediaItem>(section, "MediaItems", "MediaItem", []);
+            // If we have loaded items, we can start scrapping metadata.
+            if (MusicViewModel != null && MusicViewModel.AudioPlayer != null && MediaItems != null && MediaItems.Count > 0)
+                _ = new MetadataScrapper(MediaItems, MusicViewModel.AudioPlayer, _defaultCover, _agentInfo, 512);
+        }
+    }
+}
