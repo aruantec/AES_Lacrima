@@ -83,6 +83,10 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
     // Text margin (single value forwarded as Margin)
     private float _textMargin = 6f;
     private float _globalOpacity = 1f;
+    // Cached layout measurements to avoid expensive MeasureText calls on every render
+    private float _cachedMaxLabelWidth = 0f;
+    private float _cachedMaxFreqLabelWidth = 0f;
+    private SKPaint? _measurePaint = null;
 
     // Paints
     private SKPaint? _trackPaint = new() { IsAntialias = true, StrokeWidth = 6f, StrokeCap = SKStrokeCap.Round, Style = SKPaintStyle.Stroke, Color = new SKColor(90, 140, 200, 180) };
@@ -94,7 +98,7 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
     private SKPaint? _knobGlowPaint = new() { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 20f, Color = new SKColor(80, 170, 255, 90), StrokeCap = SKStrokeCap.Round };
     private SKPaint? _knobInnerGlowPaint = new() { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 10f, Color = new SKColor(120, 200, 255, 140), StrokeCap = SKStrokeCap.Round };
     // Faint hint paint for the upper (inactive) track segment so users can see where to drag
-    private SKPaint? _faintTrackPaint = new() { IsAntialias = true, StrokeWidth = 0f, StrokeCap = SKStrokeCap.Round, Style = SKPaintStyle.Stroke, Color = new SKColor(90, 140, 200, 40) };
+    private SKPaint? _faintTrackPaint = new() { IsAntialias = true, StrokeWidth = 2f, StrokeCap = SKStrokeCap.Round, Style = SKPaintStyle.Stroke, Color = new SKColor(90, 140, 200, 40) };
 
     public override void OnMessage(object message)
     {
@@ -109,6 +113,8 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
                 return;
             case EqualizerBandsMessage b:
                 _bands = b.Bands.ToList();
+                // Recompute frequency label width cache when bands change
+                UpdateFreqLabelCache();
                 Invalidate();
                 return;
             case EqualizerBackgroundMessage bg:
@@ -123,6 +129,10 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
                     _textMargin = ts.Margin;
                 }
 
+                // Recreate measure paint when text style changes
+                _measurePaint?.Dispose();
+                _measurePaint = new SKPaint() { IsAntialias = true, TextSize = _textPaint?.TextSize ?? ts.FontSize };
+                UpdateFreqLabelCache();
                 Invalidate();
                 return;
             case EqualizerActiveBandMessage ab:
@@ -138,6 +148,7 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
                 _labelMarginLeft = lm.Left;
                 _labelMarginTop = lm.Top;
                 _labelMarginBottom = lm.Bottom;
+                UpdateLeftLabelCache();
                 Invalidate();
                 return;
             case EqualizerLabelGapMessage lg:
@@ -148,6 +159,38 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
                 _globalOpacity = Math.Clamp(go.Opacity, 0f, 1f);
                 Invalidate();
                 return;
+        }
+    }
+
+    private void UpdateFreqLabelCache()
+    {
+        _cachedMaxFreqLabelWidth = 0f;
+        if (_measurePaint == null)
+        {
+            _measurePaint = new SKPaint() { IsAntialias = true, TextSize = _textPaint?.TextSize ?? 12f };
+        }
+
+        foreach (var b in _bands)
+        {
+            var f = b.Frequency ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(f)) continue;
+            var w = _measurePaint.MeasureText(f);
+            if (w > _cachedMaxFreqLabelWidth) _cachedMaxFreqLabelWidth = w;
+        }
+    }
+
+    private void UpdateLeftLabelCache()
+    {
+        _cachedMaxLabelWidth = 0f;
+        if (_measurePaint == null)
+        {
+            _measurePaint = new SKPaint() { IsAntialias = true, TextSize = _textPaint?.TextSize ?? 12f };
+        }
+        var leftLabels = new[] { "10dB", "0dB", "-10dB" };
+        foreach (var s in leftLabels)
+        {
+            var w = _measurePaint.MeasureText(s);
+            if (w > _cachedMaxLabelWidth) _cachedMaxLabelWidth = w;
         }
     }
 
@@ -187,16 +230,20 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
 
         // Measure left label block width (use left-aligned labels: 10dB, 0dB, -10dB)
         var leftLabels = new[] { "10dB", "0dB", "-10dB" };
-        float maxLabelWidth = 0f;
-        using var leftPaint = new SKPaint();
-        leftPaint.IsAntialias = true;
-        leftPaint.Color = _textPaint.Color;
-        leftPaint.TextSize = _textPaint.TextSize;
-        leftPaint.TextAlign = SKTextAlign.Right;
-        foreach (var s in leftLabels)
+        float maxLabelWidth = _cachedMaxLabelWidth;
+        // Ensure cache exists; fall back to measure paint if missing
+        if (maxLabelWidth <= 0f)
         {
-            var w = leftPaint.MeasureText(s);
-            if (w > maxLabelWidth) maxLabelWidth = w;
+            using var leftPaint = new SKPaint();
+            leftPaint.IsAntialias = true;
+            leftPaint.Color = _textPaint.Color;
+            leftPaint.TextSize = _textPaint.TextSize;
+            leftPaint.TextAlign = SKTextAlign.Right;
+            foreach (var s in leftLabels)
+            {
+                var w = leftPaint.MeasureText(s);
+                if (w > maxLabelWidth) maxLabelWidth = w;
+            }
         }
 
         // Left label block right edge X
@@ -213,13 +260,16 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
 
         int count = _bands.Count;
         // Measure maximum bottom frequency label width so we can reserve half of it on both sides
-        float maxFreqLabelWidth = 0f;
-        foreach (var b in _bands)
+        float maxFreqLabelWidth = _cachedMaxFreqLabelWidth;
+        if (maxFreqLabelWidth <= 0f)
         {
-            var f = b.Frequency ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(f)) continue;
-            var w = _textPaint.MeasureText(f);
-            if (w > maxFreqLabelWidth) maxFreqLabelWidth = w;
+            foreach (var b in _bands)
+            {
+                var f = b.Frequency ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(f)) continue;
+                var w = _textPaint.MeasureText(f);
+                if (w > maxFreqLabelWidth) maxFreqLabelWidth = w;
+            }
         }
         float maxFreqHalf = maxFreqLabelWidth * 0.5f;
         // Define slider area so first and last slider centers have room for half label width
@@ -329,6 +379,7 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
     {
         _bands.Clear();
         _trackPaint?.Dispose();
+        _measurePaint?.Dispose();
         _trackFillPaint?.Dispose();
         _activePaint?.Dispose();
         _knobPaint?.Dispose();
@@ -337,6 +388,7 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
         _knobGlowPaint?.Dispose();
         _knobInnerGlowPaint?.Dispose();
         _trackPaint = null;
+        _measurePaint = null;
         _trackFillPaint = null;
         _activePaint = null;
         _knobPaint = null;

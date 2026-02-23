@@ -1,21 +1,18 @@
-using System;
-using System.Linq;
-using System.Runtime.InteropServices;
-using System.Threading.Tasks;
 using AES_Controls.Helpers;
-using AES_Controls.Player;
 using AES_Core.DI;
 using AES_Core.Interfaces;
 using AES_Core.Services;
 using AES_Lacrima.ViewModels;
 using AES_Lacrima.Views;
-using Autofac;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Data.Core.Plugins;
 using Avalonia.Markup.Xaml;
 using log4net;
+using System;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace AES_Lacrima
 {
@@ -56,6 +53,17 @@ namespace AES_Lacrima
                 });
                 // Create the main window and set its DataContext to the resolved MainWindowViewModel
                 desktop.MainWindow = new MainWindow();
+
+                //Custom design example
+                ////////////////////////////////////////////////
+                /// Use a custom window to host the custom view
+                //desktop.MainWindow = new CustomWindow();  //<-- Uncomment this line to use a custom window design
+                /// Do not create a new view model instance here.
+                //desktop.MainWindow.Content = new MinViewModel();
+                /// Let the DI container manage it and resolve it.
+                //desktop.MainWindow.Content = DiLocator.ResolveViewModel<MinViewModel>(); //<-- Uncomment: This will ensure the view model is properly constructed with all dependencies injected.
+                ////////////////////////////////////////////////
+
                 // Attach closing handler to perform cleanup/save on exit
                 desktop.MainWindow.Closing += MainWindow_Closing;
 
