@@ -1,5 +1,4 @@
 ﻿using AES_Controls.Helpers;
-using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.Interfaces;
@@ -9,11 +8,13 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using log4net;
 using System;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using log4net;
 
 namespace AES_Lacrima.ViewModels
 {
@@ -23,7 +24,7 @@ namespace AES_Lacrima.ViewModels
     internal partial class MinViewModel : ViewModelBase, IMinViewModel
     {
         private static readonly ILog Log = LogManager.GetLogger(typeof(MinViewModel));
-        private IClassicDesktopStyleApplicationLifetime? AppLifetime => Avalonia.Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+        private IClassicDesktopStyleApplicationLifetime? AppLifetime => Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
 
         private string _agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
         private Bitmap _defaultCover = PlaceholderGenerator.GenerateMusicPlaceholder();
@@ -48,9 +49,118 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private bool _isMuted;
 
+        // Total duration (seconds) of all items in the current MediaItems list
+        [ObservableProperty]
+        private double _totalDuration;
+
         [AutoResolve]
         [ObservableProperty]
         private MusicViewModel? _musicViewModel;
+
+        // Keep track of the currently-subscribed collection so we can unsubscribe
+        private AvaloniaList<MediaItem>? _mediaItemsSubscribed;
+
+        // Subscribe to collection and item changes so TotalDuration stays up-to-date
+        partial void OnMediaItemsChanged(AvaloniaList<MediaItem>? value)
+        {
+            try
+            {
+                // Unsubscribe previous collection/items
+                UnsubscribeFromCollection(_mediaItemsSubscribed);
+
+                // Subscribe new
+                SubscribeToCollection(value);
+                _mediaItemsSubscribed = value;
+
+                // Update total duration immediately
+                UpdateTotalDuration();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("OnMediaItemsChanged: subscription handling failed", ex);
+            }
+        }
+
+        private void SubscribeToCollection(AvaloniaList<MediaItem>? list)
+        {
+            if (list == null) return;
+
+            if (list is INotifyCollectionChanged incc)
+                incc.CollectionChanged += MediaItems_CollectionChanged;
+
+            foreach (var item in list)
+            {
+                if (item is INotifyPropertyChanged inpc)
+                    inpc.PropertyChanged += MediaItem_PropertyChanged;
+            }
+        }
+
+        private void UnsubscribeFromCollection(AvaloniaList<MediaItem>? list)
+        {
+            if (list == null) return;
+
+            if (list is INotifyCollectionChanged incc)
+                incc.CollectionChanged -= MediaItems_CollectionChanged;
+
+            foreach (var item in list)
+            {
+                if (item is INotifyPropertyChanged inpc)
+                    inpc.PropertyChanged -= MediaItem_PropertyChanged;
+            }
+        }
+
+        private void MediaItems_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            try
+            {
+                // Attach/detach item property changed handlers as items are added/removed
+                if (e.NewItems != null)
+                {
+                    foreach (var ni in e.NewItems.Cast<MediaItem>())
+                    {
+                        if (ni is INotifyPropertyChanged inpc)
+                            inpc.PropertyChanged += MediaItem_PropertyChanged;
+                    }
+                }
+
+                if (e.OldItems != null)
+                {
+                    foreach (var oi in e.OldItems.Cast<MediaItem>())
+                    {
+                        if (oi is INotifyPropertyChanged inpc)
+                            inpc.PropertyChanged -= MediaItem_PropertyChanged;
+                    }
+                }
+
+                // Recalculate total duration after any collection change
+                UpdateTotalDuration();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("MediaItems_CollectionChanged failed", ex);
+            }
+        }
+
+        private void MediaItem_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(MediaItem.Duration))
+            {
+                UpdateTotalDuration();
+            }
+        }
+
+        private void UpdateTotalDuration()
+        {
+            try
+            {
+                TotalDuration = MediaItems?.Sum(m => m?.Duration ?? 0.0) ?? 0.0;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("UpdateTotalDuration failed", ex);
+                TotalDuration = 0.0;
+            }
+        }
 
         public override void Prepare()
         {
@@ -62,6 +172,9 @@ namespace AES_Lacrima.ViewModels
             {
                 MediaItems = [.. MusicViewModel?.AlbumList?.SelectMany(s => s.Children) ?? []];
             }
+
+            // Ensure total duration is calculated for the current list
+            UpdateTotalDuration();
 
             // Subscribe to AudioPlayer duration changes so we can persist the duration
             try
@@ -247,7 +360,7 @@ namespace AES_Lacrima.ViewModels
         {
             if (MediaItems == null) return;
 
-            var lifetime = Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+            var lifetime = Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
             var storageProvider = lifetime?.MainWindow?.StorageProvider;
 
             if (storageProvider != null)

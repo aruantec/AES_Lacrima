@@ -269,7 +269,9 @@
                 <Run Text=" - " />
                 <Run Text="{Binding MusicViewModel.AudioPlayer.Position, Converter={StaticResource TimeSpanConverter}, FallbackValue='00:00'}" />
                 <Run Text=" / " />
-                <Run Text="{Binding LoadedMediaItem.Duration, Converter={StaticResource TimeSpanConverter}, FallbackValue=''}" />
+                <Run Text="{Binding LoadedMediaItem.Duration, Converter={StaticResource TimeSpanConverter}, FallbackValue='00:00'}" />
+                <Run Text=" - " />
+                <Run Text="{Binding TotalDuration, Converter={StaticResource TimeSpanConverter}, FallbackValue=''}" />
             </TextBlock>
 
             <!-- Resize grip dots at bottom-right - triangular (pointing to bottom-right) -->
