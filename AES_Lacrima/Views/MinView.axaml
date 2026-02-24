@@ -223,7 +223,8 @@
                  SelectionMode="Multiple"
                  BorderBrush="DimGray"
                  BorderThickness="0.5,0,0,0.5"
-                 Padding="0">
+                 Padding="0"
+                 Grid.IsSharedSizeScope="True">
 
             <ListBox.Styles>
                 <Style Selector="ListBoxItem">
@@ -247,9 +248,17 @@
             <!-- Playlist item template -->
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <Grid Margin="0" ColumnDefinitions="*,Auto">
-                        <TextBlock Text="{Binding Title}" Foreground="White" FontSize="12" Margin="6,4" />
-                        <TextBlock Grid.Column="1" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}}" Foreground="White" FontSize="12" Margin="6,4" />
+                    <Grid Margin="0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <!-- small spacer column to separate title and duration -->
+                            <ColumnDefinition Width="8" />
+                            <!-- SharedSizeGroup ensures every item's second column measures to the widest value -->
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="DurationColumn" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" Text="{Binding Title}" Foreground="White" FontSize="12" Margin="6,4" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="2" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}}" Foreground="White" FontSize="12" Margin="6,4,10,4" HorizontalAlignment="Right" />
                     </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>
