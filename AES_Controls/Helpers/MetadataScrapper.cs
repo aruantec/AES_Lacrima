@@ -210,12 +210,16 @@ namespace AES_Controls.Helpers
                         }
                         var hasFrontCover = pictures != null && pictures.Any(p => p?.Type == PictureType.FrontCover);
                         var hasEmbedded = pictures != null && pictures.Length > 0;
-                        return new { t = t ?? "", a = a ?? "", al, tr, yr, ge, co, ly, pic, wall, hasFrontCover, hasEmbedded, Success = true };
+                        // Read duration from file properties (in seconds)
+                        double duration = 0.0;
+                        try { duration = file.Properties?.Duration.TotalSeconds ?? 0.0; } catch { }
+
+                        return new { t = t ?? "", a = a ?? "", al, tr, yr, ge, co, ly, pic, wall, hasFrontCover, hasEmbedded, Success = true, duration };
                     }
                     catch (Exception ex)
                     {
                         Log.Error($"Error extracting tags from {key}", ex);
-                        return new { t = Path.GetFileNameWithoutExtension(key), a = "", al = "", tr = 0u, yr = 0u, ge = "", co = "", ly = "", pic = (byte[]?)null, wall = (byte[]?)null, hasFrontCover = false, hasEmbedded = false, Success = false };
+                        return new { t = Path.GetFileNameWithoutExtension(key), a = "", al = "", tr = 0u, yr = 0u, ge = "", co = "", ly = "", pic = (byte[]?)null, wall = (byte[]?)null, hasFrontCover = false, hasEmbedded = false, Success = false, duration = 0.0 };
                     }
                 }, token);
 
@@ -237,6 +241,7 @@ namespace AES_Controls.Helpers
                     mi.Genre = tagResult.ge;
                     mi.Comment = tagResult.co;
                     mi.Lyrics = tagResult.ly;
+                    try { if (tagResult.duration > 0) mi.Duration = tagResult.duration; } catch { }
                 }, DispatcherPriority.Background);
 
                 // Small yield to UI thread

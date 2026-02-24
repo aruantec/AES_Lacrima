@@ -61,6 +61,11 @@ namespace AES_Lacrima
                 //desktop.MainWindow = new CustomWindow();  //<-- Uncomment this line to use a custom window design
                 /// Do not create a new view model instance here.
                 //desktop.MainWindow.Content = new MinViewModel();
+                /// Demo mode requires libmpv-2.dll as is not automatically installed by the app.
+                /// Minimalist remember? :)
+                /// Download the latest release from: https://github.com/zhongfly/mpv-winbuild
+                /// macOS:https://github.com/eko5624/mpv-mac
+                /// Or: https://github.com/mpv-player/mpv
                 ////////////////////////////////////////////////
 
                 // Attach closing handler to perform cleanup/save on exit

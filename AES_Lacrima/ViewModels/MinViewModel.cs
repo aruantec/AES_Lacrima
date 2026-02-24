@@ -13,6 +13,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using log4net;
 
 namespace AES_Lacrima.ViewModels
 {
@@ -21,6 +22,7 @@ namespace AES_Lacrima.ViewModels
     [AutoRegister]
     internal partial class MinViewModel : ViewModelBase, IMinViewModel
     {
+        private static readonly ILog Log = LogManager.GetLogger(typeof(MinViewModel));
         private IClassicDesktopStyleApplicationLifetime? AppLifetime => Avalonia.Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
 
         private string _agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
@@ -60,6 +62,68 @@ namespace AES_Lacrima.ViewModels
             {
                 MediaItems = [.. MusicViewModel?.AlbumList?.SelectMany(s => s.Children) ?? []];
             }
+
+            // Subscribe to AudioPlayer duration changes so we can persist the duration
+            try
+            {
+                if (MusicViewModel?.AudioPlayer != null)
+                {
+                    AttachAudioPlayerHandlers(MusicViewModel.AudioPlayer);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Prepare: failed to attach audio player handlers", ex);
+            }
+        }
+
+        partial void OnMusicViewModelChanged(MusicViewModel? value)
+        {
+            try
+            {
+                if (value?.AudioPlayer != null)
+                    AttachAudioPlayerHandlers(value.AudioPlayer);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("OnMusicViewModelChanged failed to attach audio handlers", ex);
+            }
+        }
+
+        private void AttachAudioPlayerHandlers(AES_Controls.Player.AudioPlayer? player)
+        {
+            if (player == null) return;
+            try
+            {
+                // Defensive: unsubscribe first to avoid duplicate subscriptions
+                player.EndReached -= OnAudioPlayerEndReached;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("AttachAudioPlayerHandlers: defensive unsubscribe failed", ex);
+            }
+
+            try
+            {
+                player.EndReached += OnAudioPlayerEndReached;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("AttachAudioPlayerHandlers: subscribe failed", ex);
+            }
+        }
+
+        private void OnAudioPlayerEndReached(object? sender, EventArgs e)
+        {
+            // Invoke Next on the UI thread to maintain same behavior as MusicViewModel
+            _ = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                try { Next(); }
+                catch (Exception ex)
+                {
+                    Log.Warn("OnAudioPlayerEndReached: Next() failed", ex);
+                }
+            });
         }
 
         /// <summary>
@@ -160,21 +224,8 @@ namespace AES_Lacrima.ViewModels
             MusicViewModel?.AudioPlayer?.SetPosition(position);
         }
 
-        partial void OnIsMutedChanged(bool value)
-        {
-            // When muted set volume to 0, otherwise set to 100
-            try
-            {
-                if (MusicViewModel?.AudioPlayer != null)
-                {
-                    MusicViewModel.AudioPlayer.Volume = value ? 0.0 : 100.0;
-                }
-            }
-            catch
-            {
-                // Swallow any exceptions to avoid UI crashes if player isn't ready
-            }
-        }
+        // NOTE: Volume handling is done in OnIsMutedChanging to ensure the change
+        // is applied before the UI updates. No need to duplicate here.
 
         [RelayCommand]
         private void DeleteSelectedItems()
@@ -229,7 +280,8 @@ namespace AES_Lacrima.ViewModels
                     }
 
                     // Persist updated playlist
-                    try { SaveSettings(); } catch { }
+                    try { SaveSettings(); }
+                    catch (Exception ex) { Log.Warn("AddFilesAsync: SaveSettings failed", ex); }
 
                     if (MediaItems.Count > 0 && MusicViewModel?.AudioPlayer != null)
                         _ = new MetadataScrapper(MediaItems, MusicViewModel.AudioPlayer, _defaultCover, _agentInfo, 512);
@@ -241,12 +293,27 @@ namespace AES_Lacrima.ViewModels
         {
             // Persist the media items list
             WriteCollectionSetting(section, "MediaItems", "MediaItem", MediaItems);
+            // Persist the last played file path so we can restore selection on next run
+            var last = LoadedMediaItem?.FileName ?? SelectedMediaItem?.FileName;
+            if (!string.IsNullOrEmpty(last))
+                WriteSetting(section, "LastPlayedFile", last);
         }
 
         protected override void OnLoadSettings(System.Text.Json.Nodes.JsonObject section)
         {
             // Read persisted media items
             MediaItems = ReadCollectionSetting<MediaItem>(section, "MediaItems", "MediaItem", []);
+            // Restore last played file selection if available
+            var last = ReadStringSetting(section, "LastPlayedFile", null);
+            if (!string.IsNullOrEmpty(last) && MediaItems != null)
+            {
+                var found = MediaItems.FirstOrDefault(m => string.Equals(m.FileName, last, StringComparison.OrdinalIgnoreCase));
+                if (found != null)
+                {
+                    SelectedMediaItem = found;
+                    LoadedMediaItem = found;
+                }
+            }
             // If we have loaded items, we can start scrapping metadata.
             if (MusicViewModel != null && MusicViewModel.AudioPlayer != null && MediaItems != null && MediaItems.Count > 0)
                 _ = new MetadataScrapper(MediaItems, MusicViewModel.AudioPlayer, _defaultCover, _agentInfo, 512);

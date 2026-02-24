@@ -247,8 +247,9 @@
             <!-- Playlist item template -->
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <Grid Margin="0">
+                    <Grid Margin="0" ColumnDefinitions="*,Auto">
                         <TextBlock Text="{Binding Title}" Foreground="White" FontSize="12" Margin="6,4" />
+                        <TextBlock Grid.Column="1" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}}" Foreground="White" FontSize="12" Margin="6,4" />
                     </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>
@@ -266,7 +267,9 @@
                 <Run Text=" of " />
                 <Run Text="{Binding MediaItems.Count, FallbackValue=0}" />
                 <Run Text=" - " />
-                <Run Text="{Binding MusicViewModel.AudioPlayer.Duration, Converter={StaticResource TimeSpanConverter}}" />
+                <Run Text="{Binding MusicViewModel.AudioPlayer.Position, Converter={StaticResource TimeSpanConverter}, FallbackValue='00:00'}" />
+                <Run Text=" / " />
+                <Run Text="{Binding LoadedMediaItem.Duration, Converter={StaticResource TimeSpanConverter}, FallbackValue=''}" />
             </TextBlock>
 
             <!-- Resize grip dots at bottom-right - triangular (pointing to bottom-right) -->

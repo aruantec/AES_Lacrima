@@ -60,6 +60,14 @@ public partial class MediaItem : ObservableObject, IDisposable
     /// </summary>
     public uint Year { get => _year; set => SetProperty(ref _year, value); }
 
+    private double _duration;
+    [JsonPropertyName("Duration")]
+    /// <summary>
+    /// Duration of the media item in seconds. Persisted so the UI can show
+    /// cached duration when the item is loaded again.
+    /// </summary>
+    public double Duration { get => _duration; set => SetProperty(ref _duration, value); }
+
     private string? _lyrics;
     [JsonPropertyName("Lyrics")]
     /// <summary>
