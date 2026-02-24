@@ -52,6 +52,7 @@ namespace AES_Lacrima
                     //builder.RegisterType<AudioPlayer>().As<AudioPlayer>().InstancePerDependency();
                 });
                 // Create the main window and set its DataContext to the resolved MainWindowViewModel
+                
                 desktop.MainWindow = new MainWindow(); //<-- Comment this line to use a custom window design
 
                 //Custom design example
@@ -60,8 +61,6 @@ namespace AES_Lacrima
                 //desktop.MainWindow = new CustomWindow();  //<-- Uncomment this line to use a custom window design
                 /// Do not create a new view model instance here.
                 //desktop.MainWindow.Content = new MinViewModel();
-                /// Let the DI container manage it and resolve it.
-                //desktop.MainWindow.Content = DiLocator.ResolveViewModel<MinViewModel>(); //<-- Uncomment: This will ensure the view model is properly constructed with all dependencies injected.
                 ////////////////////////////////////////////////
 
                 // Attach closing handler to perform cleanup/save on exit

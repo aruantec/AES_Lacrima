@@ -1,8 +1,11 @@
 ﻿using AES_Controls.Helpers;
+using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
+using AES_Core.Interfaces;
 using Avalonia;
 using Avalonia.Collections;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -18,6 +21,8 @@ namespace AES_Lacrima.ViewModels
     [AutoRegister]
     internal partial class MinViewModel : ViewModelBase, IMinViewModel
     {
+        private IClassicDesktopStyleApplicationLifetime? AppLifetime => Avalonia.Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+
         private string _agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
         private Bitmap _defaultCover = PlaceholderGenerator.GenerateMusicPlaceholder();
 
@@ -38,6 +43,9 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private AvaloniaList<MediaItem>? _selectedItems = [];
 
+        [ObservableProperty]
+        private bool _isMuted;
+
         [AutoResolve]
         [ObservableProperty]
         private MusicViewModel? _musicViewModel;
@@ -52,6 +60,37 @@ namespace AES_Lacrima.ViewModels
             {
                 MediaItems = [.. MusicViewModel?.AlbumList?.SelectMany(s => s.Children) ?? []];
             }
+        }
+
+        /// <summary>
+        /// Handles changes to the muted state of the audio player by updating the volume accordingly.
+        /// </summary>
+        partial void OnIsMutedChanging(bool value)
+        {
+            MusicViewModel?.AudioPlayer?.Volume = value ? 0.0 : 100.0;
+        }
+
+        /// <summary>
+        /// Minimizes the application.
+        /// </summary>
+        [RelayCommand]
+        private void MinimizeWindow()
+        {
+            AppLifetime?.MainWindow?.WindowState = Avalonia.Controls.WindowState.Minimized;
+        }
+
+        /// <summary>
+        /// Closes the application and performs necessary cleanup operations before shutdown.
+        /// </summary>
+        [RelayCommand]
+        private void CloseApplication()
+        {
+            if (AppLifetime == null || DiLocator.ResolveViewModel<ISettingsService>() is not { } settingsService)
+                return;
+            //Save settings
+            SaveSettings();
+            //Shutdown application
+            AppLifetime.Shutdown();
         }
 
         [RelayCommand]
@@ -119,6 +158,22 @@ namespace AES_Lacrima.ViewModels
         private void SetPosition(double position)
         {
             MusicViewModel?.AudioPlayer?.SetPosition(position);
+        }
+
+        partial void OnIsMutedChanged(bool value)
+        {
+            // When muted set volume to 0, otherwise set to 100
+            try
+            {
+                if (MusicViewModel?.AudioPlayer != null)
+                {
+                    MusicViewModel.AudioPlayer.Volume = value ? 0.0 : 100.0;
+                }
+            }
+            catch
+            {
+                // Swallow any exceptions to avoid UI crashes if player isn't ready
+            }
         }
 
         [RelayCommand]

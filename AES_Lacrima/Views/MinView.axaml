@@ -10,98 +10,279 @@
              x:DataType="vm:MinViewModel">
     <UserControl.Resources>
         <conv:BoolToStringConverter x:Key="BoolToString" />
+        <conv:TimeSpanConverter x:Key="TimeSpanConverter" />
+        <conv:InvertBoolConverter x:Key="InvertBool" />
     </UserControl.Resources>
 
-    <Grid Background="#0F0F0F">
-        <!-- Content -->
-		<Grid ColumnDefinitions="60*,40*">
-
-            <!-- Cover & Controls -->
-            <Grid Grid.Row="0" RowDefinitions="*,Auto">
-                <!-- Cover -->
-                <StackPanel Grid.Row="0">
-					<Image Source="{Binding LoadedMediaItem.CoverBitmap}"
-                           Height="200"
-                           Width="200"
-                           Margin="5,15,5,15"
-                           VerticalAlignment="Top"/>
-                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="4" Margin="2,0,0,0">
-                        <TextBlock TextWrapping="Wrap" Text="{Binding LoadedMediaItem.Title, FallbackValue='No File Loaded'}" FontSize="12" FontWeight="Bold"/>
-                        <TextBlock TextWrapping="Wrap" Text="{Binding LoadedMediaItem.Artist, FallbackValue=''}" FontSize="10" Foreground="#ccc"/>
-                        <TextBlock TextWrapping="Wrap" Text="{Binding LoadedMediaItem.Album, FallbackValue=''}" FontSize="10" Foreground="#888"/>
-                    </StackPanel>
-                </StackPanel>
-                <!-- Controls -->
-                <Grid RowDefinitions="Auto,Auto,Auto" Grid.Row="1" Margin="5">
-                    <!-- Position/Duration -->
-                    <TextBlock FontSize="22" HorizontalAlignment="Center">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0} / {1}">
-                                <Binding Path="MusicViewModel.AudioPlayer.Position" Converter="{StaticResource TimeSpanConverter}" />
-                                <Binding Path="MusicViewModel.AudioPlayer.Duration" Converter="{StaticResource TimeSpanConverter}" />
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
-                    <!-- Position slider -->
-                    <Slider Grid.Row="1"
-                            Minimum="0"
-                            Maximum="{Binding MusicViewModel.AudioPlayer.Duration}"
-                            Margin="5"
-                            x:Name="PositionSlider">
-                        <Interaction.Behaviors>
-                            <behaviors:SliderBehavior Command="{Binding SetPositionCommand}" BoundPosition="{Binding MusicViewModel.AudioPlayer.Position}" ExecuteDuringDrag="True" />
-                        </Interaction.Behaviors>
-                    </Slider>
-                    <!-- Media Controls -->
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10">
-                        <Button Content="■" Command="{Binding StopCommand}" FontSize="16"/>
-                        <Button Content="⏮" Command="{Binding PreviousCommand}" FontSize="16"/>
-                        <Button Content="{Binding MusicViewModel.AudioPlayer.IsPlaying, Converter={StaticResource BoolToString}, ConverterParameter='⏸,▷'}" Command="{Binding PlayPauseCommand}" FontSize="16"/>
-                        <Button Content="⏭" Command="{Binding NextCommand}" FontSize="16"/>
-                    </StackPanel>
-                </Grid>
-            </Grid>
-            
-            <!-- Playlist -->
-			<Grid Grid.Column="1" RowDefinitions="*,Auto">
-				<ListBox Grid.Row="0" Background="#0F0F0F"
-                         ItemsSource="{Binding MediaItems}"
-                         SelectedItem="{Binding SelectedMediaItem}"
-                         SelectedItems="{Binding SelectedItems, Mode=TwoWay}"
-                         SelectionMode="Multiple"
-                         BorderBrush="DimGray"
-                         BorderThickness="0.5,0,0,0.5">
-
-                    <!-- Behaviors -->
-				    <Interaction.Behaviors>
-					    <ExecuteCommandOnDoubleTappedBehavior Command="{Binding PlaySelectedMediaItemCommand}"
-														      CommandParameter="{Binding SelectedMediaItem}"/>
-				    </Interaction.Behaviors>
-
-                    <!-- Playlist item template -->
-				    <ListBox.ItemTemplate>
-					    <DataTemplate>
-						    <Grid ColumnDefinitions="Auto,*" VerticalAlignment="Center" HorizontalAlignment="Left">
-                                <Image Source="{Binding CoverBitmap}" Width="40" Height="40"/>
-							    <Grid Grid.Column="1" HorizontalAlignment="Left" RowDefinitions="Auto,Auto">
-									<Label Grid.Row="0" Content="{Binding Title}" Foreground="White" FontSize="16"/>
-                                    <Label Grid.Row="1" Content="{Binding Title}" Foreground="#99FFFFFF" FontSize="14"/>
-                                </Grid>
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-                <!-- Playlist controls -->
-                <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="5" Spacing="5">
-					<Button Content="Add" Command="{Binding AddFilesCommand}"/>
-                    <Button Content="Remove" Command="{Binding DeleteSelectedItemsCommand}"/>
-                </StackPanel>
-                <StackPanel Grid.Row="1" HorizontalAlignment="Right" Margin="0,0,10,0">
-					<Slider Width="100" Minimum="0" Maximum="100" Value="{Binding MusicViewModel.AudioPlayer.Volume, Mode=TwoWay}"/>
-                    <Label Content="Volume" HorizontalAlignment="Center" FontSize="10" Margin="0,-15,0,0"/>
+    <Grid Background="#0F0F0F" RowDefinitions="Auto,*,Auto">
+        <!-- Thumbnail & Controls -->
+        <Grid Grid.Row="0" ColumnDefinitions="45*,65*" Height="100">
+			<Grid Grid.Column="0" ColumnDefinitions="Auto,10,*">
+                <Border BorderBrush="DimGray" BorderThickness="0.5" Margin="10">
+					<Image Source="{Binding LoadedMediaItem.CoverBitmap}" Height="80" Width="80"/>
+                </Border>
+                <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="5">
+					<TextBlock Text="{Binding MusicViewModel.AudioPlayer.IsPlaying, Converter={StaticResource BoolToStringConverter}, ConverterParameter='PLAYING, PAUSED'}"
+                               FontSize="16"
+                               Foreground="White"/>
+                    <TextBlock Text="{Binding LoadedMediaItem.Title, FallbackValue='No File Loaded'}"
+                               FontSize="12"
+                               Foreground="LightGray"/>
                 </StackPanel>
             </Grid>
+            <StackPanel Grid.Column="1">
+                <StackPanel Margin="0,5,0,0" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Center">
+					
+                    <!-- Add button (uses same add icon as MusicView context menu) -->
+                    <Button Width="35"
+                            VerticalAlignment="Center"
+                            Cursor="Hand"
+                            ToolTip.Tip="Add Files"
+                            Command="{Binding AddFilesCommand}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="Transparent" BorderThickness="0">
+                                    <ContentPresenter Content="{TemplateBinding Content}"
+                                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <Viewbox Width="20" Height="20" Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Rounded frame -->
+                                <Rectangle Canvas.Left="2" Canvas.Top="2" Width="96" Height="96" RadiusX="22" RadiusY="22" Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" />
+                                <!-- Central plus sign -->
+                                <Rectangle Canvas.Left="46" Canvas.Top="32" Width="8" Height="36" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+                                <Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
 
+                    <!-- Stop button -->
+                    <Button Width="35"
+                            VerticalAlignment="Center"
+                            Cursor="Hand"
+                            ToolTip.Tip="Stop"
+                            Command="{Binding StopCommand}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="Transparent" BorderThickness="0">
+                                    <ContentPresenter Content="{TemplateBinding Content}"
+                                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <Viewbox Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Stop square -->
+                                <Rectangle Canvas.Left="30" Canvas.Top="30" Width="40" Height="40" Fill="White" RadiusX="4" RadiusY="4" />
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
+
+                    <!-- Previous button -->
+                    <Button Height="25"
+                            Width="25"
+                            VerticalAlignment="Center"
+                            Cursor="Hand"
+                            ToolTip.Tip="Previous"
+                            Command="{Binding PreviousCommand}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="Transparent" BorderThickness="0">
+                                    <ContentPresenter Content="{TemplateBinding Content}"
+                                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <Viewbox Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Vertical bar -->
+                                <Rectangle Canvas.Left="10" Canvas.Top="15" Width="12" Height="70" RadiusX="6" RadiusY="6" Fill="White" />
+                                <!-- Left pointing triangle -->
+                                <Path Data="M 85,15 L 35,50 L 85,85 Z" Fill="White" />
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
+
+                    <!-- Play button -->
+                    <Button Width="60"
+                            VerticalAlignment="Center"
+                            Cursor="Hand"
+                            ToolTip.Tip="{Binding MusicViewModel.AudioPlayer.IsPlaying, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Pause, Play'}"
+                            Command="{Binding PlayPauseCommand}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="Transparent" BorderThickness="0">
+                                    <ContentPresenter Content="{TemplateBinding Content}"
+                                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <Viewbox Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Outer circle -->
+                                <Ellipse Canvas.Left="4" Canvas.Top="4" Width="92" Height="92" Stroke="White" StrokeThickness="7" />
+                                <!-- Pause icon (two bars) -->
+                                <Rectangle Canvas.Left="35" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding MusicViewModel.AudioPlayer.IsPlaying}" />
+                                <Rectangle Canvas.Left="55" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding MusicViewModel.AudioPlayer.IsPlaying}" />
+                                <!-- Play icon (triangle) -->
+                                <Path Data="M 38,30 L 72,50 L 38,70 Z" Fill="White" IsVisible="{Binding !MusicViewModel.AudioPlayer.IsPlaying}" />
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
+
+                    <!-- Next -->
+                    <Button Height="25"
+                            Width="25"
+                            VerticalAlignment="Center"
+                            Cursor="Hand"
+                            ToolTip.Tip="Next"
+                            Command="{Binding NextCommand}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="Transparent" BorderThickness="0">
+                                    <ContentPresenter Content="{TemplateBinding Content}"
+                                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <Viewbox Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Right pointing triangle -->
+                                <Path Data="M 15,15 L 65,50 L 15,85 Z" Fill="White" />
+                                <!-- Vertical bar -->
+                                <Rectangle Canvas.Left="78" Canvas.Top="15" Width="12" Height="70" RadiusX="6" RadiusY="6" Fill="White" />
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
+
+                    <!-- Volume (toggle visual only) -->
+                    <ToggleButton Height="30"
+                                  Width="30"
+                                  VerticalAlignment="Center"
+                                  Cursor="Hand"
+                                  ToolTip.Tip="Mute"
+                                  IsChecked="{Binding IsMuted, Mode=TwoWay}">
+                        <ToggleButton.Template>
+                            <ControlTemplate TargetType="ToggleButton">
+                                <Border Background="Transparent" BorderThickness="0">
+                                    <ContentPresenter Content="{TemplateBinding Content}"
+                                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                </Border>
+                            </ControlTemplate>
+                        </ToggleButton.Template>
+                        <Viewbox Stretch="Uniform">
+                            <Canvas Width="120" Height="100">
+                                <!-- Speaker box -->
+                                <Rectangle Canvas.Left="10" Canvas.Top="34" Width="22" Height="32" RadiusX="4" RadiusY="4" Fill="White" />
+                                <!-- Speaker cone -->
+                                <Path Data="M32,34 L52,18 L52,82 L32,66 Z" Fill="White" />
+
+                                <!-- Sound waves (visible when not muted) -->
+                                <Path Data="M 64,36 A 14,14 0 0 1 64,64" Stroke="White" StrokeThickness="6" StrokeLineCap="Round"
+                                      IsVisible="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}, Converter={StaticResource InvertBool}}" />
+                                <Path Data="M 76,26 A 28,28 0 0 1 76,74" Stroke="White" StrokeThickness="6" StrokeLineCap="Round"
+                                      IsVisible="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}, Converter={StaticResource InvertBool}}" />
+                                <Path Data="M 88,16 A 42,42 0 0 1 88,84" Stroke="White" StrokeThickness="6" StrokeLineCap="Round"
+                                      IsVisible="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}, Converter={StaticResource InvertBool}}" />
+
+                                <!-- Muted State (X) -->
+                                <Path Data="M 72,38 L 92,58 M 92,38 L 72,58" Stroke="White" StrokeThickness="8" StrokeLineCap="Round"
+                                      IsVisible="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}}" />
+                            </Canvas>
+                        </Viewbox>
+                    </ToggleButton>
+
+                </StackPanel>
+
+                <Slider Margin="5,-10,5,0" Minimum="0" Maximum="{Binding MusicViewModel.AudioPlayer.Duration}">
+					<Interaction.Behaviors>
+                        <behaviors:SliderBehavior Command="{Binding SetPositionCommand}" BoundPosition="{Binding MusicViewModel.AudioPlayer.Position}" ExecuteDuringDrag="True" />
+                    </Interaction.Behaviors>
+                </Slider>
+            </StackPanel>
+        </Grid>
+        <!-- Playlist -->
+        <ListBox Grid.Row="1" Background="#0F0F0F"
+                 ItemsSource="{Binding MediaItems}"
+                 SelectedItem="{Binding SelectedMediaItem}"
+                 SelectedItems="{Binding SelectedItems, Mode=TwoWay}"
+                 SelectionMode="Multiple"
+                 BorderBrush="DimGray"
+                 BorderThickness="0.5,0,0,0.5"
+                 Padding="0">
+
+            <ListBox.Styles>
+                <Style Selector="ListBoxItem">
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="Margin" Value="0" />
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    <Setter Property="VerticalContentAlignment" Value="Center" />
+                </Style>
+            </ListBox.Styles>
+
+            <!-- Behaviors -->
+		    <Interaction.Behaviors>
+			    <ExecuteCommandOnDoubleTappedBehavior Command="{Binding PlaySelectedMediaItemCommand}"
+												      CommandParameter="{Binding SelectedMediaItem}"/>
+
+                <ExecuteCommandOnKeyUpBehavior Key="Delete"
+                                               Command="{Binding DeleteSelectedItemsCommand}"
+                                               CommandParameter="{Binding SelectedItems}"/>
+		    </Interaction.Behaviors>
+
+            <!-- Playlist item template -->
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <Grid Margin="0">
+                        <TextBlock Text="{Binding Title}" Foreground="White" FontSize="12" Margin="6,4" />
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- Footer -->
+        <Grid Grid.Row="2" Height="28">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#BDBDBD" FontSize="12">
+                <Run Text="{Binding SelectedItems.Count, FallbackValue=0}" />
+                <Run Text=" of " />
+                <Run Text="{Binding MediaItems.Count, FallbackValue=0}" />
+                <Run Text=" - " />
+                <Run Text="{Binding MusicViewModel.AudioPlayer.Duration, Converter={StaticResource TimeSpanConverter}}" />
+            </TextBlock>
+
+            <!-- Resize grip dots at bottom-right - triangular (pointing to bottom-right) -->
+            <Canvas Grid.Column="1" HorizontalAlignment="Right" Margin="0,0,0,7" VerticalAlignment="Bottom" Width="24" Height="18" IsHitTestVisible="False">
+                <!-- Top row (single dot, near right) -->
+                <Ellipse Width="3" Height="3" Fill="#BDBDBD" Canvas.Left="16" Canvas.Top="3" />
+
+                <!-- Middle row (two dots) -->
+                <Ellipse Width="3" Height="3" Fill="#BDBDBD" Canvas.Left="11" Canvas.Top="9" />
+                <Ellipse Width="3" Height="3" Fill="#BDBDBD" Canvas.Left="16" Canvas.Top="9" />
+
+                <!-- Bottom row (three dots) -->
+                <Ellipse Width="3" Height="3" Fill="#BDBDBD" Canvas.Left="6" Canvas.Top="15" />
+                <Ellipse Width="3" Height="3" Fill="#BDBDBD" Canvas.Left="11" Canvas.Top="15" />
+                <Ellipse Width="3" Height="3" Fill="#BDBDBD" Canvas.Left="16" Canvas.Top="15" />
+            </Canvas>
         </Grid>
     </Grid>
 </UserControl>
