@@ -258,7 +258,7 @@
             </StackPanel>
         </Grid>
         <!-- Cover -->
-        <Image Grid.Row="1" Source="{Binding LoadedMediaItem.CoverBitmap}" Stretch="UniformToFill" Opacity="0.1"/>
+        <Image Grid.Row="1" Source="{Binding LoadedMediaItem.CoverBitmap}" Stretch="UniformToFill" Opacity="0.1" IsVisible="{Binding !IsCoverPlaceholder}"/>
         <!-- Playlist -->
         <ListBox Grid.Row="1" Background="Transparent"
                  ItemsSource="{Binding MediaItems}"
