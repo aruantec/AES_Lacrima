@@ -5,6 +5,7 @@ using AES_Core.Interfaces;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -18,8 +19,22 @@ using System.Threading.Tasks;
 
 namespace AES_Lacrima.ViewModels
 {
+    /// <summary>
+    /// Marker interface for the minimized player view model.
+    /// Implementations provide the data/context required by the minimized view UI.
+    /// </summary>
     public interface IMinViewModel { }
 
+    /// <summary>
+    /// View model for the minimized player view.
+    /// Provides playlist management, playback control commands and visual brushes
+    /// used by the minimized UI (for example <see cref="ControlsBrush"/> and
+    /// <see cref="LoadedBrush"/>).
+    /// </summary>
+    /// <remarks>
+    /// This class is registered automatically for dependency injection via the
+    /// <see cref="AutoRegisterAttribute"/> applied to the class.
+    /// </remarks>
     [AutoRegister]
     internal partial class MinViewModel : ViewModelBase, IMinViewModel
     {
@@ -48,6 +63,25 @@ namespace AES_Lacrima.ViewModels
 
         [ObservableProperty]
         private bool _isMuted;
+
+        [ObservableProperty]
+        private bool _showPlaylist = true;
+
+        [ObservableProperty]
+        private double _windowWidth = 550;
+
+        [ObservableProperty]
+        private double _windowHeight = 486;
+
+        // Brush used for list selection/highlight.
+        [ObservableProperty]
+        private IBrush? _selectionBrush = new SolidColorBrush(Color.Parse("#005CFE"));
+
+        [ObservableProperty]
+        private IBrush? _loadedBrush;
+
+        [ObservableProperty]
+        private IBrush? _controlsBrush = new SolidColorBrush(Color.Parse("#0F0F0F"));
 
         // Total duration (seconds) of all items in the current MediaItems list
         [ObservableProperty]
@@ -79,6 +113,25 @@ namespace AES_Lacrima.ViewModels
             {
                 Log.Warn("OnMediaItemsChanged: subscription handling failed", ex);
             }
+        }
+
+        partial void OnLoadedMediaItemChanged(MediaItem? value)
+        {
+            UpdateLoadedBrush(value);
+        }
+
+        private void UpdateLoadedBrush(MediaItem? item)
+        {
+            LoadedBrush = null;
+            // If the loaded media item has a cover bitmap, extract the dominant color and create a brush from it.
+            if (item?.CoverBitmap != null)
+                LoadedBrush = new SolidColorBrush(BitmapColorHelper.GetDominantColor(item.CoverBitmap));
+            
+            // If we have a loaded brush, use it for controls; otherwise fall back to white.
+            if (LoadedBrush != null)
+                ControlsBrush = LoadedBrush;
+            else 
+                ControlsBrush = new SolidColorBrush(Color.Parse("#0F0F0F"));
         }
 
         private void SubscribeToCollection(AvaloniaList<MediaItem>? list)
@@ -277,6 +330,8 @@ namespace AES_Lacrima.ViewModels
             {
                 MusicViewModel?.AudioPlayer?.PlayFile(SelectedMediaItem);
                 LoadedMediaItem = SelectedMediaItem;
+                // Update the loaded brush to match the newly loaded media item
+                UpdateLoadedBrush(SelectedMediaItem);
             }
         }
 
@@ -287,6 +342,15 @@ namespace AES_Lacrima.ViewModels
 
             if (MusicViewModel.AudioPlayer.IsPlaying)
                 MusicViewModel.AudioPlayer.Pause();
+            // If we have a loaded media item, resume playing it.
+            else if (MusicViewModel.AudioPlayer.CurrentMediaItem == null && MediaItems != null && MediaItems.Count > 0)
+            {
+                // If we don't have a currently loaded media item, start playing the selected one.
+                if (SelectedMediaItem == null && MediaItems.FirstOrDefault() is MediaItem firstItem)
+                    SelectedMediaItem = firstItem;
+                // If we have a selected media item, play it; otherwise do nothing.
+                PlaySelectedMediaItem();
+            }
             else
                 MusicViewModel.AudioPlayer.Play();
         }
@@ -337,9 +401,6 @@ namespace AES_Lacrima.ViewModels
             MusicViewModel?.AudioPlayer?.SetPosition(position);
         }
 
-        // NOTE: Volume handling is done in OnIsMutedChanging to ensure the change
-        // is applied before the UI updates. No need to duplicate here.
-
         [RelayCommand]
         private void DeleteSelectedItems()
         {
@@ -353,6 +414,12 @@ namespace AES_Lacrima.ViewModels
             }
             // Persist changes
             SaveSettings();
+        }
+
+        [RelayCommand]
+        private void AddFolders()
+        {
+            // Logic not implemented per user request
         }
 
         [RelayCommand]
@@ -406,6 +473,9 @@ namespace AES_Lacrima.ViewModels
         {
             // Persist the media items list
             WriteCollectionSetting(section, "MediaItems", "MediaItem", MediaItems);
+            // Persist window size for restoration on next run
+            WriteSetting(section, "WindowWidth", WindowWidth);
+            WriteSetting(section, "WindowHeight", WindowHeight);
             // Persist the last played file path so we can restore selection on next run
             var last = LoadedMediaItem?.FileName ?? SelectedMediaItem?.FileName;
             if (!string.IsNullOrEmpty(last))
@@ -416,6 +486,9 @@ namespace AES_Lacrima.ViewModels
         {
             // Read persisted media items
             MediaItems = ReadCollectionSetting<MediaItem>(section, "MediaItems", "MediaItem", []);
+            // Read persisted window size or use defaults
+            WindowHeight = ReadDoubleSetting(section, "WindowHeight", 486);
+            WindowWidth = ReadDoubleSetting(section, "WindowWidth", 550);
             // Restore last played file selection if available
             var last = ReadStringSetting(section, "LastPlayedFile", null);
             if (!string.IsNullOrEmpty(last) && MediaItems != null)

@@ -12,8 +12,8 @@
         WindowStartupLocation="CenterOwner"
         ExtendClientAreaChromeHints="NoChrome"
         ExtendClientAreaToDecorationsHint="True"
-        Height="486"
-        Width="550"
+        Height="{Binding WindowHeight, Mode=TwoWay}"
+        Width="{Binding WindowWidth, Mode=TwoWay}"
         Background="#0F0F0F">
     <!--Behaviors-->
     <Interaction.Behaviors>
@@ -28,11 +28,20 @@
         <locators:TypeResolverExtension Type="vm:MinViewModel"/>
     </Window.DataContext>
 
-    <!-- Content -->
-    <Grid RowDefinitions="Auto,*" x:DataType="vm:MinViewModel">
+	<!-- Content -->
+	<Grid RowDefinitions="Auto,*" x:DataType="vm:MinViewModel">
+		<Border Grid.RowSpan="2" Height="180" VerticalAlignment="Top" IsHitTestVisible="False">
+			<Border.Background>
+				<LinearGradientBrush StartPoint="0%,10%" EndPoint="30%,50%">
+					<GradientStop Color="{Binding ControlsBrush.(SolidColorBrush).Color}" Offset="0" />
+					<GradientStop Color="#0F0F0F" Offset="1" />
+				</LinearGradientBrush>
+			</Border.Background>
+		</Border>
+
 		<!-- Top bar -->
-        <Grid Grid.Row="0">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="8,6,8,6" Spacing="6">
+		<Grid Grid.Row="0">
+			<StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="8,6,8,6" Spacing="6">
                 <!-- Minimize -->
                 <Button Command="{Binding MinimizeWindowCommand}" Background="Transparent" BorderBrush="Transparent" Width="28" Height="20" Padding="2">
                     <Path Stroke="#DDD" StrokeThickness="2" StrokeLineCap="Round" HorizontalAlignment="Center" VerticalAlignment="Center" Data="M3,10 L15,10" />

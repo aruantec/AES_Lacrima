@@ -9,6 +9,7 @@ namespace AES_Lacrima.Converters
     /// </summary>
     /// <remarks>
     /// This converter returns 1.0 when the input boolean is <c>true</c>, and 0.0 when <c>false</c>.
+    /// It also supports an optional parameter "trueVal,falseVal" (e.g., "1.0,0.4") to define custom values.
     /// When converting back it treats any double > 0.5 as <c>true</c>.
     /// </remarks>
     public class BoolToOpacityConverter : IValueConverter
@@ -29,9 +30,23 @@ namespace AES_Lacrima.Converters
         /// <returns>Returns <c>1.0</c> when <paramref name="value"/> is <c>true</c>; otherwise <c>0.0</c>.</returns>
         public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         {
-            if (value is bool b && b)
-                return 1.0;
-            return 0.0;
+            bool b = value is bool vb && vb;
+
+            if (parameter is string param && !string.IsNullOrEmpty(param))
+            {
+                var parts = param.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length > 0 && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double trueVal))
+                {
+                    double falseVal = 0.0;
+                    if (parts.Length > 1 && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double fv))
+                    {
+                        falseVal = fv;
+                    }
+                    return b ? trueVal : falseVal;
+                }
+            }
+
+            return b ? 1.0 : 0.0;
         }
 
         /// <summary>

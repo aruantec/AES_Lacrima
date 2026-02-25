@@ -7,38 +7,49 @@
              xmlns:behaviors="using:AES_Lacrima.Behaviors"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.MinView"
-             x:DataType="vm:MinViewModel">
+             x:DataType="vm:MinViewModel"
+             x:Name="MinViewRoot">
     <UserControl.Resources>
         <conv:BoolToStringConverter x:Key="BoolToString" />
         <conv:TimeSpanConverter x:Key="TimeSpanConverter" />
         <conv:InvertBoolConverter x:Key="InvertBool" />
+        <conv:ObjectEqualsConverter x:Key="ObjectEqualsConverter" />
     </UserControl.Resources>
 
-    <Grid Background="#0F0F0F" RowDefinitions="Auto,*,Auto">
+    <Grid Background="Transparent" RowDefinitions="Auto,*,Auto">
         <!-- Thumbnail & Controls -->
         <Grid Grid.Row="0" ColumnDefinitions="45*,65*" Height="100">
 			<Grid Grid.Column="0" ColumnDefinitions="Auto,10,*">
-                <Border BorderBrush="DimGray" BorderThickness="0.5" Margin="10">
-					<Image Source="{Binding LoadedMediaItem.CoverBitmap}" Height="80" Width="80"/>
+                <Border BorderBrush="DimGray" Background="{Binding ControlsBrush}" BorderThickness="1" Margin="10">
+					<Image Source="{Binding LoadedMediaItem.CoverBitmap}" Height="80" Width="80" Margin="2"/>
                 </Border>
-                <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="5">
+				<StackPanel Grid.Column="2" VerticalAlignment="Top" Spacing="5" Margin="0,10,0,0">
 					<TextBlock Text="{Binding MusicViewModel.AudioPlayer.IsPlaying, Converter={StaticResource BoolToStringConverter}, ConverterParameter='PLAYING, PAUSED'}"
-                               FontSize="16"
-                               Foreground="White"/>
-                    <TextBlock Text="{Binding LoadedMediaItem.Title, FallbackValue='No File Loaded'}"
-                               FontSize="12"
-                               Foreground="LightGray"/>
-                </StackPanel>
+							   FontSize="16"
+							   Foreground="White"/>
+					<TextBlock Text="{Binding LoadedMediaItem.Title, FallbackValue='No File Loaded'}"
+							   FontSize="12"
+							   Foreground="LightGray"
+							   TextWrapping="Wrap"
+							   MaxLines="2"
+							   TextTrimming="CharacterEllipsis"/>
+				</StackPanel>
             </Grid>
             <StackPanel Grid.Column="1">
-                <StackPanel Margin="0,5,0,0" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Center">
-					
+                <StackPanel Margin="0,5,0,0" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+
                     <!-- Add button (uses same add icon as MusicView context menu) -->
-                    <Button Width="35"
+                    <Button Width="26"
+                            Height="26"
                             VerticalAlignment="Center"
                             Cursor="Hand"
-                            ToolTip.Tip="Add Files"
-                            Command="{Binding AddFilesCommand}">
+                            ToolTip.Tip="Add Items">
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                <MenuItem Header="Add Files" Command="{Binding AddFilesCommand}" />
+                                <MenuItem Header="Add Folder" Command="{Binding AddFoldersCommand}" />
+                            </MenuFlyout>
+                        </Button.Flyout>
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="Transparent" BorderThickness="0">
@@ -49,19 +60,20 @@
                                 </Border>
                             </ControlTemplate>
                         </Button.Template>
-                        <Viewbox Width="20" Height="20" Stretch="Uniform">
+                        <Viewbox Stretch="Uniform">
                             <Canvas Width="100" Height="100">
                                 <!-- Rounded frame -->
-                                <Rectangle Canvas.Left="2" Canvas.Top="2" Width="96" Height="96" RadiusX="22" RadiusY="22" Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" />
+                                <Rectangle Canvas.Left="10" Canvas.Top="10" Width="80" Height="80" RadiusX="22" RadiusY="22" Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" />
                                 <!-- Central plus sign -->
-                                <Rectangle Canvas.Left="46" Canvas.Top="32" Width="8" Height="36" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
-                                <Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+                                <Rectangle Canvas.Left="46" Canvas.Top="34" Width="8" Height="32" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+                                <Rectangle Canvas.Left="34" Canvas.Top="46" Width="32" Height="8" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
                             </Canvas>
                         </Viewbox>
                     </Button>
 
                     <!-- Stop button -->
-                    <Button Width="35"
+                    <Button Width="26"
+                            Height="26"
                             VerticalAlignment="Center"
                             Cursor="Hand"
                             ToolTip.Tip="Stop"
@@ -79,14 +91,14 @@
                         <Viewbox Stretch="Uniform">
                             <Canvas Width="100" Height="100">
                                 <!-- Stop square -->
-                                <Rectangle Canvas.Left="30" Canvas.Top="30" Width="40" Height="40" Fill="White" RadiusX="4" RadiusY="4" />
+                                <Rectangle Canvas.Left="25" Canvas.Top="25" Width="50" Height="50" Fill="White" RadiusX="4" RadiusY="4" />
                             </Canvas>
                         </Viewbox>
                     </Button>
 
                     <!-- Previous button -->
-                    <Button Height="25"
-                            Width="25"
+                    <Button Height="26"
+                            Width="26"
                             VerticalAlignment="Center"
                             Cursor="Hand"
                             ToolTip.Tip="Previous"
@@ -112,7 +124,8 @@
                     </Button>
 
                     <!-- Play button -->
-                    <Button Width="60"
+                    <Button Width="48"
+                            Height="48"
                             VerticalAlignment="Center"
                             Cursor="Hand"
                             ToolTip.Tip="{Binding MusicViewModel.AudioPlayer.IsPlaying, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Pause, Play'}"
@@ -141,8 +154,8 @@
                     </Button>
 
                     <!-- Next -->
-                    <Button Height="25"
-                            Width="25"
+                    <Button Height="26"
+                            Width="26"
                             VerticalAlignment="Center"
                             Cursor="Hand"
                             ToolTip.Tip="Next"
@@ -168,8 +181,8 @@
                     </Button>
 
                     <!-- Volume (toggle visual only) -->
-                    <ToggleButton Height="30"
-                                  Width="30"
+                    <ToggleButton Height="26"
+                                  Width="26"
                                   VerticalAlignment="Center"
                                   Cursor="Hand"
                                   ToolTip.Tip="Mute"
@@ -206,6 +219,35 @@
                         </Viewbox>
                     </ToggleButton>
 
+                    <!-- Playlist toggle -->
+                    <ToggleButton Height="26"
+                                  Width="26"
+                                  VerticalAlignment="Center"
+                                  Cursor="Hand"
+                                  ToolTip.Tip="Playlist"
+                                  IsChecked="{Binding ShowPlaylist, Mode=TwoWay}">
+                        <ToggleButton.Template>
+                            <ControlTemplate TargetType="ToggleButton">
+                                <Border Background="Transparent" BorderThickness="0">
+                                    <ContentPresenter Content="{TemplateBinding Content}"
+                                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                </Border>
+                            </ControlTemplate>
+                        </ToggleButton.Template>
+                        <Viewbox Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <Rectangle Canvas.Left="6" Canvas.Top="22" Width="24" Height="24" RadiusX="2" RadiusY="2" Fill="{Binding ShowPlaylist, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
+                                <Rectangle Canvas.Left="38" Canvas.Top="22" Width="24" Height="24" RadiusX="2" RadiusY="2" Fill="{Binding ShowPlaylist, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
+                                <Rectangle Canvas.Left="70" Canvas.Top="22" Width="24" Height="24" RadiusX="2" RadiusY="2" Fill="{Binding ShowPlaylist, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
+                                <Rectangle Canvas.Left="6" Canvas.Top="54" Width="24" Height="24" RadiusX="2" RadiusY="2" Fill="{Binding ShowPlaylist, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
+                                <Rectangle Canvas.Left="38" Canvas.Top="54" Width="24" Height="24" RadiusX="2" RadiusY="2" Fill="{Binding ShowPlaylist, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
+                                <Rectangle Canvas.Left="70" Canvas.Top="54" Width="24" Height="24" RadiusX="2" RadiusY="2" Fill="{Binding ShowPlaylist, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
+                            </Canvas>
+                        </Viewbox>
+                    </ToggleButton>
+
                 </StackPanel>
 
                 <Slider Margin="5,-10,5,0" Minimum="0" Maximum="{Binding MusicViewModel.AudioPlayer.Duration}">
@@ -215,8 +257,10 @@
                 </Slider>
             </StackPanel>
         </Grid>
+        <!-- Cover -->
+        <Image Grid.Row="1" Source="{Binding LoadedMediaItem.CoverBitmap}" Stretch="UniformToFill" Opacity="0.1"/>
         <!-- Playlist -->
-        <ListBox Grid.Row="1" Background="#0F0F0F"
+        <ListBox Grid.Row="1" Background="Transparent"
                  ItemsSource="{Binding MediaItems}"
                  SelectedItem="{Binding SelectedMediaItem}"
                  SelectedItems="{Binding SelectedItems, Mode=TwoWay}"
@@ -224,6 +268,8 @@
                  BorderBrush="DimGray"
                  BorderThickness="0.5,0,0,0.5"
                  Padding="0"
+                 Opacity="{Binding ShowPlaylist, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='1.0,0.3'}"
+                 IsHitTestVisible="{Binding ShowPlaylist}"
                  Grid.IsSharedSizeScope="True">
 
             <ListBox.Styles>
@@ -232,6 +278,32 @@
                     <Setter Property="Margin" Value="0" />
                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                     <Setter Property="VerticalContentAlignment" Value="Center" />
+                    <Setter Property="Template">
+                        <ControlTemplate TargetType="ListBoxItem">
+                            <!-- Base selection/background layer -->
+                            <Grid Background="Transparent">
+                                <Border x:Name="SelectionBackground"
+                                        Background="{Binding ((vm:MinViewModel)DataContext).SelectionBrush, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                        Padding="{TemplateBinding Padding}"
+                                        IsHitTestVisible="{TemplateBinding IsHitTestVisible}"
+                                        IsVisible="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"/>
+                                <Border Background="{Binding ((vm:MinViewModel)DataContext).LoadedBrush, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                        Padding="{TemplateBinding Padding}"
+                                        IsHitTestVisible="False">
+                                    <Border.IsVisible>
+                                        <MultiBinding Converter="{StaticResource ObjectEqualsConverter}">
+                                            <Binding Path="." />
+                                            <Binding Path="((vm:MinViewModel)DataContext).LoadedMediaItem" RelativeSource="{RelativeSource AncestorType=ListBox}" />
+                                        </MultiBinding>
+                                    </Border.IsVisible>
+                                </Border>
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter>
                 </Style>
             </ListBox.Styles>
 
@@ -248,7 +320,7 @@
             <!-- Playlist item template -->
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <Grid Margin="0">
+                    <Grid Margin="0" Background="Transparent" Opacity="0.7">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <!-- small spacer column to separate title and duration -->
@@ -257,7 +329,7 @@
                             <ColumnDefinition Width="Auto" SharedSizeGroup="DurationColumn" />
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock Grid.Column="0" Text="{Binding Title}" Foreground="White" FontSize="12" Margin="6,4" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Background="Transparent" Grid.Column="0" Text="{Binding Title}" Foreground="White" FontSize="12" Margin="6,4" TextTrimming="CharacterEllipsis" />
                         <TextBlock Grid.Column="2" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}}" Foreground="White" FontSize="12" Margin="6,4,10,4" HorizontalAlignment="Right" />
                     </Grid>
                 </DataTemplate>
