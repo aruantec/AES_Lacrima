@@ -1125,10 +1125,10 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
     private void InternalStop()
     {
-        if (!_disposed) InvokeOnMpvThread(() => { ExecuteCommandAsync(new[] { "stop" }).GetAwaiter().GetResult(); return true; }); 
-        IsPlaying = false; 
-        Duration = 0;
+        if (!_disposed) InvokeOnMpvThread(() => { ExecuteCommandAsync(["stop"]).GetAwaiter().GetResult(); return true; }); 
+        IsPlaying = false;
         Position = 0;
+        ClearMedia();
         Stopped?.Invoke(this, EventArgs.Empty); 
     }
 
