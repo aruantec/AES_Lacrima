@@ -81,7 +81,10 @@ namespace AES_Lacrima.ViewModels
         private IBrush? _loadedBrush;
 
         [ObservableProperty]
-        private IBrush? _controlsBrush = new SolidColorBrush(Color.Parse("#0F0F0F"));
+        private IBrush? _controlsBrush;
+
+        [ObservableProperty]
+        private bool _isCoverPlaceholder = true;
 
         // Total duration (seconds) of all items in the current MediaItems list
         [ObservableProperty]
@@ -123,15 +126,20 @@ namespace AES_Lacrima.ViewModels
         private void UpdateLoadedBrush(MediaItem? item)
         {
             LoadedBrush = null;
-            // If the loaded media item has a cover bitmap, extract the dominant color and create a brush from it.
-            if (item?.CoverBitmap != null)
+            IsCoverPlaceholder = true;
+
+            // If the loaded media item has a cover bitmap and it's not the default placeholder, extract the dominant color and create a brush from it.
+            if (item?.CoverBitmap != null && item.CoverBitmap != _defaultCover)
+            {
                 LoadedBrush = new SolidColorBrush(BitmapColorHelper.GetDominantColor(item.CoverBitmap));
-            
-            // If we have a loaded brush, use it for controls; otherwise fall back to white.
+                IsCoverPlaceholder = false;
+            }
+
+            // If we have a loaded brush, use it for controls; otherwise set to null.
             if (LoadedBrush != null)
                 ControlsBrush = LoadedBrush;
             else 
-                ControlsBrush = new SolidColorBrush(Color.Parse("#0F0F0F"));
+                ControlsBrush = null;
         }
 
         private void SubscribeToCollection(AvaloniaList<MediaItem>? list)
