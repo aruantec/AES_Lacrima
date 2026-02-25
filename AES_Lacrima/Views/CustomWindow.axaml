@@ -41,6 +41,11 @@
 
 		<!-- Top bar -->
 		<Grid Grid.Row="0">
+            <!-- Title -->
+            <Label HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Content="AES LACRIMA MINI"
+                   Margin="5"/>
 			<StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="8,6,8,6" Spacing="6">
                 <!-- Minimize -->
                 <Button Command="{Binding MinimizeWindowCommand}" Background="Transparent" BorderBrush="Transparent" Width="28" Height="20" Padding="2">
