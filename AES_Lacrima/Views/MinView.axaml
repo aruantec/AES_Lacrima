@@ -5,6 +5,7 @@
              xmlns:vm="using:AES_Lacrima.ViewModels"
              xmlns:conv="using:AES_Lacrima.Converters"
              xmlns:behaviors="using:AES_Lacrima.Behaviors"
+             xmlns:controlsbehaviors="using:AES_Controls.Behaviors"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.MinView"
              x:DataType="vm:MinViewModel"
@@ -356,6 +357,8 @@
                 <ExecuteCommandOnKeyUpBehavior Key="Delete"
                                                Command="{Binding DeleteSelectedItemsCommand}"
                                                CommandParameter="{Binding SelectedItems}"/>
+
+                <controlsbehaviors:ListboxItemDragBehavior/>
 		    </Interaction.Behaviors>
 
             <!-- Playlist item template -->

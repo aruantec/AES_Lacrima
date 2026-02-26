@@ -887,7 +887,7 @@ namespace AES_Controls.Behaviors
                             // For k in start-1 down to adjustedTarget: move element at k to k+count
                             for (int k = start - 1; k >= adjustedTarget; k--)
                             {
-                                try { moveMethod.Invoke(list, new object[] { k, k + count }); } catch (Exception ex) { Log.Error("Error during upward block move", ex); }
+                                try { moveMethod.Invoke(list, [k, k + count]); } catch (Exception ex) { Log.Error("Error during upward block move", ex); }
                             }
                         }
                     }
@@ -906,6 +906,8 @@ namespace AES_Controls.Behaviors
                     }
                     catch (Exception ex) { Log.Error("Error restoring selection after block move", ex); }
 
+                    // Ensure transforms are cleared after the collection update/layout stabilizes
+                    Dispatcher.UIThread.Post(() => StopAllAnimationsAndResetTransforms(), DispatcherPriority.Background);
                     return;
                 }
 
@@ -937,6 +939,8 @@ namespace AES_Controls.Behaviors
                 }
                 catch (Exception ex) { Log.Error("Error restoring selection after fallback move", ex); }
 
+                // Ensure transforms are cleared after the collection update/layout stabilizes
+                Dispatcher.UIThread.Post(() => StopAllAnimationsAndResetTransforms(), DispatcherPriority.Background);
                 return;
             }
 
@@ -968,6 +972,8 @@ namespace AES_Controls.Behaviors
                     }
                 }
                 catch (Exception ex) { Log.Error("Error restoring selection after items move", ex); }
+                // Ensure transforms are cleared after the collection update/layout stabilizes
+                Dispatcher.UIThread.Post(() => StopAllAnimationsAndResetTransforms(), DispatcherPriority.Background);
             }
         }
 
