@@ -2,6 +2,7 @@
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.Interfaces;
+using AES_Lacrima.Helpers;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
