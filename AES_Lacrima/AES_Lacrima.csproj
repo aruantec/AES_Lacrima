@@ -94,6 +94,9 @@
     <None Update="Assets\Main\settingsgear.svg">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="Shaders\Shadertoys\CircularSpectrumVisualizer.frag">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="Shaders\Shadertoys\GreenWarpSpectrum.frag">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
