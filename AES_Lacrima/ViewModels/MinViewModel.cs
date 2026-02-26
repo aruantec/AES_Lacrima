@@ -472,9 +472,52 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
-        private void AddFolders()
+        private async Task AddFolders()
         {
-            // Logic not implemented per user request
+            var lifetime = Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+            var storageProvider = lifetime?.MainWindow?.StorageProvider;
+
+            if (storageProvider != null)
+            {
+                var folders = await storageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
+                {
+                    Title = "Select folder",
+                    AllowMultiple = false
+                });
+
+                if (folders.Count > 0)
+                {
+                    var path = folders[0].Path.LocalPath;
+                    if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+                    {
+                        // Enumerate supported media files in the chosen folder
+                        var mediaItems = _supportedTypes
+                            .SelectMany(pattern => Directory.EnumerateFiles(path, pattern))
+                            .Where(file => {
+                                var name = Path.GetFileName(file);
+                                return !(string.IsNullOrEmpty(name) || name.StartsWith("._") || name.StartsWith("."));
+                            })
+                            .Select(file => new MediaItem
+                            {
+                                FileName = file,
+                                Title = Path.GetFileName(file),
+                                CoverBitmap = _defaultCover
+                            }).ToList();
+
+                        // Replace entire MediaItems collection with files from the folder
+                        MediaItems = new AvaloniaList<MediaItem>(mediaItems);
+
+                        // Persist updated playlist
+                        try { SaveSettings(); } catch (Exception ex) { Log.Warn("AddFolders: SaveSettings failed", ex); }
+
+                        // Kick off metadata scraping for the newly added items
+                        if (MediaItems != null && MediaItems.Count > 0 && MusicViewModel?.AudioPlayer != null)
+                        {
+                            _ = new MetadataScrapper(MediaItems, MusicViewModel.AudioPlayer, _defaultCover, _agentInfo, 512);
+                        }
+                    }
+                }
+            }
         }
 
         [RelayCommand]
