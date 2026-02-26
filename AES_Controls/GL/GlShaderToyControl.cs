@@ -41,6 +41,7 @@ public class GlShaderToyControl : OpenGlControlBase
     private readonly List<IDisposable> _propertySubscriptions = new();
 
     private static string CachePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Cache", "ShaderCache");
+    private static string LogPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
     private const int GlProgramBinaryLength = 0x8741;
     private const int GlLinkStatus = 0x8B82;
 
@@ -192,32 +193,74 @@ public class GlShaderToyControl : OpenGlControlBase
     private string ProcessShaderSource(string source)
     {
         if (string.IsNullOrWhiteSpace(source)) return string.Empty;
-        // If an absolute path was provided, load it directly
-        if (Path.IsPathRooted(source) && File.Exists(source)) return File.ReadAllText(source);
 
-        // If a relative path was provided, attempt to resolve it relative to the
-        // application's base directory (where the exe is located) and the current
-        // working directory before falling back to treating the value as raw shader
-        // source code.
-        var candidate = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, source);
-        if (File.Exists(candidate)) return File.ReadAllText(candidate);
-        candidate = Path.Combine(Directory.GetCurrentDirectory(), source);
-        if (File.Exists(candidate)) return File.ReadAllText(candidate);
-        if (source.StartsWith("avares://"))
+        // If the source is a path/avares URI, load its contents first
+        string content = source;
+        if (Path.IsPathRooted(source) && File.Exists(source))
+            content = File.ReadAllText(source);
+        else
         {
-            try
+            var candidate = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, source);
+            if (File.Exists(candidate)) content = File.ReadAllText(candidate);
+            else
             {
-                using var stream = AssetLoader.Open(new Uri(source));
-                using var reader = new StreamReader(stream);
-                return reader.ReadToEnd();
-            }
-            catch
-            {
-                return string.Empty;
+                candidate = Path.Combine(Directory.GetCurrentDirectory(), source);
+                if (File.Exists(candidate)) content = File.ReadAllText(candidate);
+                else if (source.StartsWith("avares://"))
+                {
+                    try
+                    {
+                        using var stream = AssetLoader.Open(new Uri(source));
+                        using var reader = new StreamReader(stream);
+                        content = reader.ReadToEnd();
+                    }
+                    catch
+                    {
+                        return string.Empty;
+                    }
+                }
             }
         }
 
-        return source;
+        // Sanitize shader snippet so it can be injected into the host wrapper.
+        // Remove duplicate or conflicting declarations that the wrapper already
+        // provides: #version, precision qualifiers, common uniform declarations
+        // and any `main()` implementation. Keep functions like `mainImage`.
+        var lines = content.Replace("\r\n", "\n").Split('\n');
+        var keep = new List<string>();
+        var forbiddenUniformNames = new[] { "iResolution", "iTime", "iMouse", "u_fade", "iChannel0", "u_primary", "u_secondary", "u_grad0", "u_grad1", "u_grad2", "u_grad3", "u_grad4" };
+
+        foreach (var raw in lines)
+        {
+            var line = raw.Trim();
+            if (string.IsNullOrEmpty(line)) { keep.Add(raw); continue; }
+
+            // Skip version/precision/out/main declarations and comments-only lines
+            if (line.StartsWith("#version") || line.StartsWith("precision") || line.StartsWith("out ") )
+                continue;
+
+            // Skip any 'void main' definitions - host provides main that calls mainImage
+            if (line.StartsWith("void main(" ) || line.StartsWith("void main ("))
+            {
+                // drop until matching closing brace - simplest approach: stop adding further lines
+                break;
+            }
+
+            // Remove uniforms that would conflict with wrapper
+            if (line.StartsWith("uniform "))
+            {
+                bool conflict = false;
+                foreach (var name in forbiddenUniformNames)
+                {
+                    if (line.Contains(name)) { conflict = true; break; }
+                }
+                if (conflict) continue;
+            }
+
+            keep.Add(raw);
+        }
+
+        return string.Join("\n", keep);
     }
 
     /// <summary>
@@ -360,9 +403,37 @@ public class GlShaderToyControl : OpenGlControlBase
             {_processedShaderCode}
             void main() {{ vec4 c; mainImage(c, gl_FragCoord.xy); outFragColor = c; }}";
 
+        // Persist the final shader sources for debugging (useful when a
+        // shader compiles on some drivers but not others).
+        try
+        {
+            if (!Directory.Exists(LogPath)) Directory.CreateDirectory(LogPath);
+            File.WriteAllText(Path.Combine(LogPath, hash + ".vs.glsl"), vs);
+            File.WriteAllText(Path.Combine(LogPath, hash + ".fs.glsl"), fs);
+        }
+        catch
+        {
+            // ignore IO failures
+        }
+
         if (_program != 0) gl.DeleteProgram(_program);
         _program = CreateProgram(gl, vs, fs);
-        if (_program != 0) SaveProgramBinary(gl, _program, cacheFile);
+
+        // If creation failed, mark error state and leave useful artifacts
+        if (_program == 0)
+        {
+            _isInErrorState = true;
+            try
+            {
+                if (!Directory.Exists(LogPath)) Directory.CreateDirectory(LogPath);
+                File.WriteAllText(Path.Combine(LogPath, hash + ".failed.txt"), "Program creation failed for shader.\n" + fs);
+            }
+            catch { }
+        }
+        else
+        {
+            SaveProgramBinary(gl, _program, cacheFile);
+        }
     }
 
     private unsafe int LoadProgramBinary(GlInterface gl, string file)
