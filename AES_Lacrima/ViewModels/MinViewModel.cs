@@ -50,6 +50,9 @@ namespace AES_Lacrima.ViewModels
         protected override string SettingsFilePath => Path.Combine(AppContext.BaseDirectory, "Settings", "CustomPlaylist.json");
 
         [ObservableProperty]
+        private bool _settingsVisible;
+
+        [ObservableProperty]
         private AvaloniaList<MediaItem>? _mediaItems;
 
         [ObservableProperty]
@@ -93,6 +96,10 @@ namespace AES_Lacrima.ViewModels
         [AutoResolve]
         [ObservableProperty]
         private MusicViewModel? _musicViewModel;
+
+        [AutoResolve]
+        [ObservableProperty]
+        private SettingsViewModel? _settingsViewModel;
 
         // Keep track of the currently-subscribed collection so we can unsubscribe
         private AvaloniaList<MediaItem>? _mediaItemsSubscribed;
@@ -319,6 +326,12 @@ namespace AES_Lacrima.ViewModels
         partial void OnIsMutedChanging(bool value)
         {
             MusicViewModel?.AudioPlayer?.Volume = value ? 0.0 : 100.0;
+        }
+
+        [RelayCommand]
+        private void ToggleSettings()
+        {
+            SettingsVisible = !SettingsVisible;
         }
 
         /// <summary>

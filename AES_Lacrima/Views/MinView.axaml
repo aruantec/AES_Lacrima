@@ -233,7 +233,8 @@
                             Height="26"
                             VerticalAlignment="Center"
                             Cursor="Hand"
-                            ToolTip.Tip="Add Items">
+                            ToolTip.Tip="Add Items"
+                            Margin="15,0,0,0">
                         <Button.Flyout>
                             <MenuFlyout Placement="BottomEdgeAlignedLeft">
                                 <MenuItem Header="Add Files" Command="{Binding AddFilesCommand}" />

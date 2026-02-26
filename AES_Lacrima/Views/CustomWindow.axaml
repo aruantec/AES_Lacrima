@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:behaviors="using:AES_Lacrima.Behaviors"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -47,6 +47,29 @@
                    Content="AES LACRIMA MINI"
                    Margin="5"/>
 			<StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="8,6,8,6" Spacing="6">
+                <!-- Settings button (opens settings overlay) -->
+                <Button Height="22"
+                        Width="22"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        ToolTip.Tip="Settings"
+                        Margin="10,0,0,0"
+                        Command="{Binding ToggleSettingsCommand}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                    ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                    HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                    VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <TextBlock Text="⚙" Foreground="White" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Viewbox>
+                </Button>
+                
                 <!-- Minimize -->
                 <Button Command="{Binding MinimizeWindowCommand}" Background="Transparent" BorderBrush="Transparent" Width="28" Height="20" Padding="2">
                     <Path Stroke="#DDD" StrokeThickness="2" StrokeLineCap="Round" HorizontalAlignment="Center" VerticalAlignment="Center" Data="M3,10 L15,10" />
@@ -60,5 +83,157 @@
         </Grid>
         <!-- View -->
         <ContentControl Grid.Row="1" Content="{Binding}"/>
+
+        <Border Grid.Row="1" IsVisible="{Binding SettingsVisible}" Background="#F2000000">
+            <ScrollViewer DataContext="{Binding SettingsViewModel}" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                
+
+                <StackPanel Margin="10,12,8,8" Spacing="8" HorizontalAlignment="Left" VerticalAlignment="Top">
+
+                    <TextBlock Text="External tools" VerticalAlignment="Center" FontSize="20" Foreground="WhiteSmoke" Margin="0,0,0,6"/>
+                    <Separator />
+
+                    <StackPanel Spacing="4" Margin="0,0,0,12">
+                        <TextBlock Text="FFmpeg Status" FontSize="16" Foreground="WhiteSmoke"/>
+                        <TextBlock Text="{Binding FfmpegManager.Status}" FontSize="14" Foreground="DarkGray"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="20" Margin="0,0,0,18">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="CURRENT VERSION" FontSize="12" Foreground="DarkGray" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding FfmpegVersion, FallbackValue='Not Found'}" FontSize="14" Foreground="WhiteSmoke"/>
+                        </StackPanel>
+                        <StackPanel Spacing="4" IsVisible="{Binding IsFfmpegUpdateAvailable}">
+                            <TextBlock Text="UPDATE AVAILABLE" FontSize="12" Foreground="Gold" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding FfmpegUpdateVersion}" FontSize="14" Foreground="Gold"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Install FFmpeg"
+                                Command="{Binding InstallFFmpegCommand}"
+                                IsVisible="{Binding !IsFfmpegInstalled}"
+                                IsEnabled="{Binding !FfmpegManager.IsBusy}" />
+
+                        <Button Content="Update"
+                                Command="{Binding UpdateFFmpegCommand}"
+                                IsVisible="{Binding IsFfmpegUpdateAvailable}"
+                                IsEnabled="{Binding !FfmpegManager.IsBusy}"
+                                Background="Gold"
+                                Foreground="Black"/>
+
+                        <Button Content="Uninstall"
+                                Background="#F44336"
+                                Foreground="White"
+                                Command="{Binding UninstallFFmpegCommand}"
+                                IsVisible="{Binding IsFfmpegInstalled}"
+                                IsEnabled="{Binding !FfmpegManager.IsBusy}"/>
+
+                        <Button Content="Check for Updates"
+                                Command="{Binding RefreshFFmpegInfoCommand}"
+                                IsEnabled="{Binding !FfmpegManager.IsBusy}"/>
+                    </StackPanel>
+
+                    <ProgressBar IsIndeterminate="True"
+                                 IsVisible="{Binding FfmpegManager.IsBusy}"
+                                 Margin="0,14,0,0" />
+
+                    <TextBlock Text="libmpv Status" FontSize="16" Foreground="WhiteSmoke" Margin="0,18,0,6"/>
+                    <Separator />
+
+                    <StackPanel Spacing="8" Margin="0,0,0,12">
+                        <TextBlock Text="{Binding MpvManager.Status}" FontSize="14" Foreground="DarkGray"/>
+
+                        <StackPanel Orientation="Horizontal" Spacing="20" Margin="0,0,0,6" IsVisible="{Binding IsMpvInstalled}">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="CURRENT VERSION" FontSize="12" Foreground="DarkGray" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding MpvVersion, FallbackValue='Not Found'}" FontSize="14" Foreground="WhiteSmoke"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <TextBlock Text="Available Versions (Win builds)" VerticalAlignment="Center" FontSize="14" Foreground="WhiteSmoke"/>
+                            <ComboBox ItemsSource="{Binding AvailableMpvVersions}" 
+                                      SelectedItem="{Binding SelectedMpvVersion}" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Install"
+                                Command="{Binding InstallMpvCommand}"
+                                IsVisible="{Binding !IsMpvInstalled}"
+                                IsEnabled="{Binding !MpvManager.IsBusy}" />
+
+                        <Button Content="Force Reinstall Specific"
+                                Command="{Binding InstallSpecificMpvVersionCommand}"
+                                IsEnabled="{Binding !MpvManager.IsBusy}"
+                                Background="Gold"
+                                Foreground="Black"/>
+
+                        <Button Content="Uninstall libmpv"
+                                Background="#F44336"
+                                Foreground="White"
+                                Command="{Binding UninstallMpvCommand}"
+                                IsVisible="{Binding IsMpvInstalled}"
+                                IsEnabled="{Binding !MpvManager.IsBusy}"/>
+
+                        <Button Content="Refresh libmpv Info"
+                                Command="{Binding RefreshMpvInfoCommand}"
+                                IsEnabled="{Binding !MpvManager.IsBusy}"/>
+                    </StackPanel>
+
+                    <ProgressBar IsIndeterminate="True"
+                                 IsVisible="{Binding MpvManager.IsBusy}"
+                                 Margin="0,14,0,0" />
+
+                    <TextBlock Text="yt-dlp Status" FontSize="16" Foreground="WhiteSmoke" Margin="0,18,0,6"/>
+                    <Separator />
+
+                    <StackPanel Spacing="8" Margin="0,0,0,12">
+                        <TextBlock Text="{Binding YtDlp.Status}" FontSize="14" Foreground="DarkGray"/>
+
+                        <StackPanel Orientation="Horizontal" Spacing="20" Margin="0,0,0,6">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="CURRENT VERSION" FontSize="12" Foreground="DarkGray" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding YtDlpVersion, FallbackValue='Not Found'}" FontSize="14" Foreground="WhiteSmoke"/>
+                            </StackPanel>
+                            <StackPanel Spacing="4" IsVisible="{Binding IsYtDlpUpdateAvailable}">
+                                <TextBlock Text="UPDATE AVAILABLE" FontSize="12" Foreground="Gold" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding YtDlpUpdateVersion}" FontSize="14" Foreground="Gold"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Install yt-dlp"
+                                Command="{Binding InstallYtDlpCommand}"
+                                IsVisible="{Binding !IsYtDlpInstalled}"
+                                IsEnabled="{Binding !YtDlp.IsBusy}"/>
+
+                        <Button Content="Update"
+                                Command="{Binding UpdateYtDlpCommand}"
+                                IsVisible="{Binding IsYtDlpUpdateAvailable}"
+                                IsEnabled="{Binding !YtDlp.IsBusy}"
+                                Background="Gold"
+                                Foreground="Black"/>
+
+                        <Button Content="Uninstall"
+                                Background="#F44336"
+                                Foreground="White"
+                                Command="{Binding UninstallYtDlpCommand}"
+                                IsVisible="{Binding IsYtDlpInstalled}"
+                                IsEnabled="{Binding !YtDlp.IsBusy}"/>
+
+                        <Button Content="Check for Updates"
+                                Command="{Binding RefreshYtDlpInfoCommand}"
+                                IsEnabled="{Binding !YtDlp.IsBusy}"/>
+                    </StackPanel>
+
+                    <ProgressBar IsIndeterminate="True"
+                                 IsVisible="{Binding YtDlp.IsBusy}"
+                                 Margin="0,14,0,0" />
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
     </Grid>
 </Window>
