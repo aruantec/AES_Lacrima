@@ -11,6 +11,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using log4net;
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.IO;
@@ -500,9 +501,26 @@ namespace AES_Lacrima.ViewModels
 
                 if (files.Count > 0)
                 {
+                    // Build a quick lookup of already-added file paths (case-insensitive)
+                    var existing = new HashSet<string>(MediaItems.Select(m => (m?.FileName ?? string.Empty).Trim()), StringComparer.OrdinalIgnoreCase);
+                    // Also guard against duplicate selection from the picker
+                    var seenInPicker = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var file in files)
                     {
                         var localPath = file.Path.LocalPath;
+                        if (string.IsNullOrWhiteSpace(localPath)) continue;
+                        localPath = localPath.Trim();
+
+                        // Skip if already present in playlist
+                        if (existing.Contains(localPath))
+                            continue;
+
+                        // Skip duplicates selected in the same picker operation
+                        if (seenInPicker.Contains(localPath))
+                            continue;
+
+                        seenInPicker.Add(localPath);
+
                         var item = new MediaItem
                         {
                             FileName = localPath,
