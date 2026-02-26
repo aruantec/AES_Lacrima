@@ -30,9 +30,11 @@
 
 	<!-- Content -->
 	<Grid RowDefinitions="Auto,*" x:DataType="vm:MinViewModel">
-		<Border Grid.RowSpan="2" Height="180" VerticalAlignment="Top" IsHitTestVisible="False">
+
+        <!-- Gradient -->
+		<Border Grid.RowSpan="2" Height="180" VerticalAlignment="Top" IsHitTestVisible="False" Opacity="0.8">
 			<Border.Background>
-				<LinearGradientBrush StartPoint="0%,10%" EndPoint="30%,50%">
+				<LinearGradientBrush StartPoint="0%,10%" EndPoint="40%,50%">
 					<GradientStop Color="{Binding ControlsBrush.(SolidColorBrush).Color}" Offset="0" />
 					<GradientStop Color="#0F0F0F" Offset="1" />
 				</LinearGradientBrush>

@@ -2,7 +2,6 @@
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.Interfaces;
-using AES_Lacrima.Helpers;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -504,8 +503,15 @@ namespace AES_Lacrima.ViewModels
                                 CoverBitmap = _defaultCover
                             }).ToList();
 
+                        // If the currently loaded media item is not in the new list, we can just replace the collection.
+                        if (MediaItems != null && LoadedMediaItem != null && MediaItems.Contains(LoadedMediaItem))
+                        {
+                            MusicViewModel?.AudioPlayer?.Stop();
+                            LoadedMediaItem = null;
+                        }
+
                         // Replace entire MediaItems collection with files from the folder
-                        MediaItems = new AvaloniaList<MediaItem>(mediaItems);
+                        MediaItems = [.. mediaItems];
 
                         // Persist updated playlist
                         try { SaveSettings(); } catch (Exception ex) { Log.Warn("AddFolders: SaveSettings failed", ex); }
