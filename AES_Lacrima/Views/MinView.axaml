@@ -38,18 +38,13 @@
             <StackPanel Grid.Column="1">
                 <StackPanel Margin="0,5,0,0" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
 
-                    <!-- Add button (uses same add icon as MusicView context menu) -->
-                    <Button Width="26"
-                            Height="26"
+                    <!-- Repeat button -->
+                    <Button Height="25"
+                            Width="25"
                             VerticalAlignment="Center"
                             Cursor="Hand"
-                            ToolTip.Tip="Add Items">
-                        <Button.Flyout>
-                            <MenuFlyout Placement="BottomEdgeAlignedLeft">
-                                <MenuItem Header="Add Files" Command="{Binding AddFilesCommand}" />
-                                <MenuItem Header="Add Folder" Command="{Binding AddFoldersCommand}" />
-                            </MenuFlyout>
-                        </Button.Flyout>
+                            Command="{Binding MusicViewModel.ToggleRepeatCommand}"
+                            ToolTip.Tip="{Binding MusicViewModel.NextRepeatToolTip}">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="Transparent" BorderThickness="0">
@@ -61,12 +56,25 @@
                             </ControlTemplate>
                         </Button.Template>
                         <Viewbox Stretch="Uniform">
-                            <Canvas Width="100" Height="100">
-                                <!-- Rounded frame -->
-                                <Rectangle Canvas.Left="10" Canvas.Top="10" Width="80" Height="80" RadiusX="22" RadiusY="22" Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" />
-                                <!-- Central plus sign -->
-                                <Rectangle Canvas.Left="46" Canvas.Top="34" Width="8" Height="32" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
-                                <Rectangle Canvas.Left="34" Canvas.Top="46" Width="32" Height="8" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+                            <Canvas Width="120" Height="120" ClipToBounds="False">
+                                <!-- Top handle -->
+                                <Path Data="M 15,65 V 45 C 15,30 15,30 30,30 H 105 M 105,30 L 88,14 M 105,30 L 88,46"
+                                      Stroke="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                      StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
+                                <!-- Bottom handle -->
+                                <Path Data="M 105,55 V 75 C 105,90 105,90 90,90 H 15 M 15,90 L 32,74 M 15,90 L 32,106"
+                                      Stroke="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                      StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
+
+                                <!-- indicator for Repeat One state -->
+                                <TextBlock Text="1"
+                                           Foreground="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                           FontSize="32"
+                                           FontWeight="Heavy"
+                                           Width="120"
+                                           TextAlignment="Center"
+                                           Canvas.Top="42"
+                                           IsVisible="{Binding MusicViewModel.AudioPlayer.IsRepeatOne}"/>
                             </Canvas>
                         </Viewbox>
                     </Button>
@@ -219,6 +227,39 @@
                         </Viewbox>
                     </ToggleButton>
 
+                    <!-- Add button (uses same add icon as MusicView context menu) -->
+                    <Button Width="26"
+                            Height="26"
+                            VerticalAlignment="Center"
+                            Cursor="Hand"
+                            ToolTip.Tip="Add Items">
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                <MenuItem Header="Add Files" Command="{Binding AddFilesCommand}" />
+                                <MenuItem Header="Add Folder" Command="{Binding AddFoldersCommand}" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="Transparent" BorderThickness="0">
+                                    <ContentPresenter Content="{TemplateBinding Content}"
+                                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <Viewbox Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Rounded frame -->
+                                <Rectangle Canvas.Left="10" Canvas.Top="10" Width="80" Height="80" RadiusX="22" RadiusY="22" Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" />
+                                <!-- Central plus sign -->
+                                <Rectangle Canvas.Left="46" Canvas.Top="34" Width="8" Height="32" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+                                <Rectangle Canvas.Left="34" Canvas.Top="46" Width="32" Height="8" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
+                    
                     <!-- Playlist toggle -->
                     <ToggleButton Height="26"
                                   Width="26"

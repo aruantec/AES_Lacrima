@@ -292,7 +292,20 @@ namespace AES_Lacrima.ViewModels
             // Invoke Next on the UI thread to maintain same behavior as MusicViewModel
             _ = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                try { Next(); }
+                try 
+                {
+                    if (MusicViewModel?.AudioPlayer?.RepeatMode == RepeatMode.All
+                        && MediaItems != null && MediaItems.Count > 0
+                        && LoadedMediaItem != null
+                        && MediaItems.IndexOf(LoadedMediaItem) == MediaItems.Count -1
+                        && MediaItems.FirstOrDefault() is MediaItem firstItem)
+                    {
+                        SelectedMediaItem = firstItem;
+                        PlaySelectedMediaItem();
+                    }
+                    else
+                        Next();
+                }
                 catch (Exception ex)
                 {
                     Log.Warn("OnAudioPlayerEndReached: Next() failed", ex);
