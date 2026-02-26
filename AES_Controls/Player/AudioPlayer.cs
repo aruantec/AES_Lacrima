@@ -214,13 +214,22 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
     /// <summary>
     /// Total duration of the currently loaded media in seconds.
+    /// When no media is loaded and the player is not playing, return 1s
+    /// instead of 0 to avoid zero-length edge cases in UI components.
     /// </summary>
+    private double _duration;
     public double Duration
     {
-        get;
+        get
+        {
+            // If no file is loaded and player is idle, expose a 1s default instead of 0.
+            if ((_duration == 0.0 || double.IsNaN(_duration)) && !_disposed && !IsPlaying && _currentMediaItem == null)
+                return 1.0;
+            return _duration;
+        }
         set
         {
-            field = value;
+            _duration = value;
             OnPropertyChanged(nameof(Duration));
         }
     }

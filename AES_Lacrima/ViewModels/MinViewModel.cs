@@ -128,6 +128,12 @@ namespace AES_Lacrima.ViewModels
         partial void OnLoadedMediaItemChanged(MediaItem? value)
         {
             UpdateLoadedBrush(value);
+            OnPropertyChanged(nameof(DisplayDuration));
+        }
+
+        partial void OnSelectedMediaItemChanged(MediaItem? value)
+        {
+            OnPropertyChanged(nameof(DisplayDuration));
         }
 
         private void UpdateLoadedBrush(MediaItem? item)
@@ -214,8 +220,16 @@ namespace AES_Lacrima.ViewModels
             if (e.PropertyName == nameof(MediaItem.Duration))
             {
                 UpdateTotalDuration();
+                // Ensure UI bound to the effective/visible duration updates when an item's duration changes
+                OnPropertyChanged(nameof(DisplayDuration));
             }
         }
+
+        /// <summary>
+        /// Duration to display in the minimized view. Falls back from LoadedMediaItem to SelectedMediaItem
+        /// and finally to 0.0 when neither is available.
+        /// </summary>
+        public double DisplayDuration => LoadedMediaItem?.Duration ?? SelectedMediaItem?.Duration ?? 0.0;
 
         private void UpdateTotalDuration()
         {
@@ -444,6 +458,11 @@ namespace AES_Lacrima.ViewModels
             var itemsToRemove = SelectedItems.ToList();
             foreach (var item in itemsToRemove)
             {
+                if (item == LoadedMediaItem)
+                {
+                    MusicViewModel?.AudioPlayer?.Stop();
+                    LoadedMediaItem = null;
+                }
                 MediaItems.Remove(item);
             }
             // Persist changes
@@ -532,6 +551,10 @@ namespace AES_Lacrima.ViewModels
                 {
                     SelectedMediaItem = found;
                     LoadedMediaItem = found;
+                    //// Load the media item
+                    //PlaySelectedMediaItem();
+                    //// Pause immediately to restore selection without starting playback
+                    //MusicViewModel?.AudioPlayer?.Pause();
                 }
             }
             // If we have loaded items, we can start scrapping metadata.
