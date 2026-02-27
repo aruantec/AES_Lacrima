@@ -29,7 +29,7 @@ namespace AES_Lacrima.ViewModels
     /// within the application's music view.
     /// </summary>
     [AutoRegister]
-    internal partial class MusicViewModel : ViewModelBase, IMusicViewModel
+    public partial class MusicViewModel : ViewModelBase, IMusicViewModel
     {
         #region Private fields
         // Private fields

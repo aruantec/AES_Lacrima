@@ -112,6 +112,15 @@ public class EqualizerCompositionControl : Control
         set => SetValue(RenderMarginProperty, value);
     }
 
+    public static readonly StyledProperty<IBrush?> TintBrushProperty =
+        AvaloniaProperty.Register<EqualizerCompositionControl, IBrush?>(nameof(TintBrush));
+
+    public IBrush? TintBrush
+    {
+        get => GetValue(TintBrushProperty);
+        set => SetValue(TintBrushProperty, value);
+    }
+
     public EqualizerCompositionControl()
     {
         ClipToBounds = true;
@@ -154,6 +163,7 @@ public class EqualizerCompositionControl : Control
         UpdateHandlerSize();
         UpdateBackground();
         UpdateBands();
+        UpdateTint();
         // Start with fade according to property
         Opacity = IsFadedIn ? 1.0 : 0.0;
     }
@@ -204,6 +214,10 @@ public class EqualizerCompositionControl : Control
         else if (change.Property == BackgroundProperty)
         {
             UpdateBackground();
+        }
+        else if (change.Property == TintBrushProperty)
+        {
+            UpdateTint();
         }
         else if (change.Property == TextFontSizeProperty || change.Property == TextForegroundProperty)
         {
@@ -276,6 +290,13 @@ public class EqualizerCompositionControl : Control
         _visual.SendHandlerMessage(new EqualizerLabelMarginMessage((float)lm.Left, (float)lm.Top, (float)lm.Bottom));
         // Send explicit LabelGap as an additive gap value from the left LTR corner into the content area
         _visual.SendHandlerMessage(new EqualizerLabelGapMessage((float)LabelGap));
+    }
+
+    private void UpdateTint()
+    {
+        if (_visual == null) return;
+        var c = GetSkColor(TintBrush);
+        _visual.SendHandlerMessage(new EqualizerTintMessage(c));
     }
 
     private void UpdateBands()
