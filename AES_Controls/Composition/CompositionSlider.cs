@@ -5,6 +5,7 @@ using Avalonia.Media;
 using Avalonia.Rendering.Composition;
 using SkiaSharp;
 using System.Numerics;
+using SkiaSharp;
 using System.Windows.Input;
 
 namespace AES_Controls.Composition
@@ -16,6 +17,32 @@ namespace AES_Controls.Composition
             ClipToBounds = false;
             Background = Brushes.Transparent;
             Focusable = true;
+        }
+
+        private SKColor ConvertBrushToSkColor(IBrush? brush)
+        {
+            try
+            {
+                if (brush is SolidColorBrush scb)
+                {
+                    var c = scb.Color;
+                    return new SKColor(c.R, c.G, c.B, c.A);
+                }
+                // Some brush implementations (immutable variants) may not be SolidColorBrush
+                // but still expose a Color property. Try to read it via reflection as a fallback.
+                if (brush != null)
+                {
+                    var t = brush.GetType();
+                    var prop = t.GetProperty("Color");
+                    if (prop != null && prop.PropertyType == typeof(Avalonia.Media.Color))
+                    {
+                        var val = (Avalonia.Media.Color)prop.GetValue(brush)!;
+                        return new SKColor(val.R, val.G, val.B, val.A);
+                    }
+                }
+            }
+            catch { }
+            return SKColors.Transparent;
         }
 
         
@@ -34,6 +61,10 @@ namespace AES_Controls.Composition
 
         public static readonly StyledProperty<double> SliderTrackHeightProperty =
             AvaloniaProperty.Register<CompositionSlider, double>(nameof(SliderTrackHeight), 4.0);
+
+        // Brush used to color the played portion of the track (0..Value). Default is transparent.
+        public static readonly StyledProperty<IBrush?> PlayedAreaBrushProperty =
+            AvaloniaProperty.Register<CompositionSlider, IBrush?>(nameof(PlayedAreaBrush), Brushes.Transparent);
 
         public static readonly StyledProperty<ICommand?> SetValueCommandProperty =
             AvaloniaProperty.Register<CompositionSlider, ICommand?>(nameof(SetValueCommand));
@@ -88,6 +119,12 @@ namespace AES_Controls.Composition
             set => SetValue(SetValueCommandProperty, value);
         }
 
+        public IBrush? PlayedAreaBrush
+        {
+            get => GetValue(PlayedAreaBrushProperty);
+            set => SetValue(PlayedAreaBrushProperty, value);
+        }
+
         public bool ExecuteDuringDrag
         {
             get => GetValue(ExecuteDuringDragProperty);
@@ -130,6 +167,9 @@ namespace AES_Controls.Composition
                 // Forward configuration
                 _visual.SendHandlerMessage(new SliderVerticalOffsetMessage(SliderVerticalOffset));
                 _visual.SendHandlerMessage(new SliderTrackHeightMessage(SliderTrackHeight));
+                // send played area brush color to visual
+                var skColor = ConvertBrushToSkColor(PlayedAreaBrush);
+                _visual.SendHandlerMessage(new PlayedAreaBrushMessage(skColor));
                 // send normalized value (0..1) as an instant position so the thumb
                 // doesn't animate from 0 to current value when the control is attached
                 // (for example when a flyout opens).
@@ -158,6 +198,7 @@ namespace AES_Controls.Composition
         {
             base.OnPropertyChanged(change);
             if (_visual == null) return;
+
             if (change.Property == ValueProperty)
             {
                 // While the user is actively dragging, ignore external updates.
@@ -174,6 +215,11 @@ namespace AES_Controls.Composition
             else if (change.Property == SliderTrackHeightProperty)
             {
                 _visual.SendHandlerMessage(new SliderTrackHeightMessage(change.GetNewValue<double>()));
+            }
+            else if (change.Property == PlayedAreaBrushProperty)
+            {
+                var skColor = ConvertBrushToSkColor(change.GetNewValue<IBrush?>());
+                _visual.SendHandlerMessage(new PlayedAreaBrushMessage(skColor));
             }
         }
 
