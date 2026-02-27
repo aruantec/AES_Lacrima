@@ -21,8 +21,8 @@
         <!-- Thumbnail & Controls -->
         <Grid Grid.Row="0" ColumnDefinitions="45*,65*" Height="100">
 			<Grid Grid.Column="0" ColumnDefinitions="Auto,10,*">
-                <Border BorderBrush="DimGray" Background="{Binding ControlsBrush}" BorderThickness="1" Margin="10">
-					<Image Source="{Binding LoadedMediaItem.CoverBitmap}" Height="80" Width="80"/>
+                <Border BorderBrush="DimGray" Background="{Binding ControlsBrush}" BorderThickness="1" Margin="10" Height="80" Width="80" ClipToBounds="True">
+					<Image Source="{Binding LoadedMediaItem.CoverBitmap}"/>
                 </Border>
 				<StackPanel Grid.Column="2" VerticalAlignment="Top" Spacing="5" Margin="0,10,0,0">
 					<TextBlock Text="{Binding MusicViewModel.AudioPlayer.IsPlaying, Converter={StaticResource BoolToStringConverter}, ConverterParameter='PLAYING, PAUSED'}"
