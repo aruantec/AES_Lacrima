@@ -289,10 +289,12 @@ namespace AES_Lacrima.ViewModels
         private void AttachAudioPlayerHandlers(AES_Controls.Player.AudioPlayer? player)
         {
             if (player == null) return;
+
             try
             {
                 // Defensive: unsubscribe first to avoid duplicate subscriptions
                 player.EndReached -= OnAudioPlayerEndReached;
+                player.PropertyChanged -= Player_PropertyChanged;
             }
             catch (Exception ex)
             {
@@ -302,10 +304,26 @@ namespace AES_Lacrima.ViewModels
             try
             {
                 player.EndReached += OnAudioPlayerEndReached;
+                player.PropertyChanged += Player_PropertyChanged;
             }
             catch (Exception ex)
             {
                 Log.Warn("AttachAudioPlayerHandlers: subscribe failed", ex);
+            }
+        }
+
+        private void Player_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(AES_Controls.Player.AudioPlayer.Volume))
+            {
+                // Read the volume off the UI thread to avoid blocking the UI thread.
+                // The AudioPlayer.Volume getter may synchronously marshal to the dedicated
+                // MPV thread which can cause deadlocks if invoked from the UI thread.
+                _ = Task.Run(() =>
+                {
+                    // Post update back to UI thread
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => IsMuted = MusicViewModel?.AudioPlayer?.Volume == 0);
+                });
             }
         }
 
@@ -333,14 +351,6 @@ namespace AES_Lacrima.ViewModels
                     Log.Warn("OnAudioPlayerEndReached: Next() failed", ex);
                 }
             });
-        }
-
-        /// <summary>
-        /// Handles changes to the muted state of the audio player by updating the volume accordingly.
-        /// </summary>
-        partial void OnIsMutedChanging(bool value)
-        {
-            MusicViewModel?.AudioPlayer?.Volume = value ? 0.0 : 100.0;
         }
 
         [RelayCommand]

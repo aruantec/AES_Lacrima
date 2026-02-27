@@ -14,7 +14,6 @@
     <UserControl.Resources>
         <conv:BoolToStringConverter x:Key="BoolToString" />
         <conv:TimeSpanConverter x:Key="TimeSpanConverter" />
-        <conv:InvertBoolConverter x:Key="InvertBool" />
         <conv:ObjectEqualsConverter x:Key="ObjectEqualsConverter" />
     </UserControl.Resources>
 
@@ -191,14 +190,28 @@
                     </Button>
 
                     <!-- Volume (toggle visual only) -->
-                    <ToggleButton Height="26"
+                    <Button Height="26"
                                   Width="26"
                                   VerticalAlignment="Center"
                                   Cursor="Hand"
-                                  ToolTip.Tip="Mute"
-                                  IsChecked="{Binding IsMuted, Mode=TwoWay}">
-                        <ToggleButton.Template>
-                            <ControlTemplate TargetType="ToggleButton">
+                                  ToolTip.Tip="Mute">
+                        <Button.Flyout>
+                          <Flyout>
+                            <StackPanel>
+                                <Label Foreground="White" FontSize="12" HorizontalAlignment="Center"
+                                       Content="{Binding MusicViewModel.AudioPlayer.Volume, StringFormat='Volume: {0:0}%', FallbackValue='Volume: 0%'}" />
+								<composition:CompositionSlider Height="20"
+                                                               Width="100"
+                                                               SliderTrackHeight="10"
+                                                               ExecuteDuringDrag="True"
+                                                               Maximum="100"
+                                                               Minimum="0"
+                                                               Value="{Binding MusicViewModel.AudioPlayer.Volume, Mode=TwoWay}"/>
+                            </StackPanel>
+                          </Flyout>
+                        </Button.Flyout>
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
                                 <Border Background="Transparent" BorderThickness="0">
                                     <ContentPresenter Content="{TemplateBinding Content}"
                                                       ContentTemplate="{TemplateBinding ContentTemplate}"
@@ -206,7 +219,7 @@
                                                       VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
                                 </Border>
                             </ControlTemplate>
-                        </ToggleButton.Template>
+                        </Button.Template>
                         <Viewbox Stretch="Uniform">
                             <Canvas Width="120" Height="100">
                                 <!-- Speaker box -->
@@ -216,18 +229,18 @@
 
                                 <!-- Sound waves (visible when not muted) -->
                                 <Path Data="M 64,36 A 14,14 0 0 1 64,64" Stroke="White" StrokeThickness="6" StrokeLineCap="Round"
-                                      IsVisible="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}, Converter={StaticResource InvertBool}}" />
+                                      IsVisible="{Binding !IsMuted}" />
                                 <Path Data="M 76,26 A 28,28 0 0 1 76,74" Stroke="White" StrokeThickness="6" StrokeLineCap="Round"
-                                      IsVisible="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}, Converter={StaticResource InvertBool}}" />
+                                      IsVisible="{Binding !IsMuted}" />
                                 <Path Data="M 88,16 A 42,42 0 0 1 88,84" Stroke="White" StrokeThickness="6" StrokeLineCap="Round"
-                                      IsVisible="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}, Converter={StaticResource InvertBool}}" />
+                                      IsVisible="{Binding !IsMuted}" />
 
                                 <!-- Muted State (X) -->
                                 <Path Data="M 72,38 L 92,58 M 92,38 L 72,58" Stroke="White" StrokeThickness="8" StrokeLineCap="Round"
-                                      IsVisible="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}}" />
+                                      IsVisible="{Binding IsMuted}" />
                             </Canvas>
                         </Viewbox>
-                    </ToggleButton>
+                    </Button>
 
                     <!-- Add button (uses same add icon as MusicView context menu) -->
                     <Button Width="26"
