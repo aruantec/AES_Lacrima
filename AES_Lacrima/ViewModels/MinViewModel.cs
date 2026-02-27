@@ -648,6 +648,7 @@ namespace AES_Lacrima.ViewModels
             // Persist window size for restoration on next run
             WriteSetting(section, "WindowWidth", WindowWidth);
             WriteSetting(section, "WindowHeight", WindowHeight);
+            WriteSetting(section, "RepeatMode", (int)(MusicViewModel?.AudioPlayer?.RepeatMode ?? RepeatMode.Off));
             // Persist the last played file path so we can restore selection on next run
             var last = LoadedMediaItem?.FileName ?? SelectedMediaItem?.FileName;
             if (!string.IsNullOrEmpty(last))
@@ -663,6 +664,18 @@ namespace AES_Lacrima.ViewModels
             // Read persisted window size or use defaults
             WindowHeight = ReadDoubleSetting(section, "WindowHeight", 486);
             WindowWidth = ReadDoubleSetting(section, "WindowWidth", 550);
+            // Read persisted repeat mode or default to Off.
+            switch (ReadIntSetting(section, "RepeatMode", 0))
+            {       case 0:
+                    MusicViewModel?.AudioPlayer?.RepeatMode = RepeatMode.Off;
+                    break;
+                case 1:
+                    MusicViewModel?.AudioPlayer?.RepeatMode = RepeatMode.One;
+                    break;
+                case 2:
+                    MusicViewModel?.AudioPlayer?.RepeatMode = RepeatMode.All;
+                    break;
+            }
             // Restore last played file selection if available
             var last = ReadStringSetting(section, "LastPlayedFile", null);
             if (!string.IsNullOrEmpty(last) && MediaItems != null)

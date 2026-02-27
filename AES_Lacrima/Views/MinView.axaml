@@ -34,6 +34,12 @@
 							   TextWrapping="Wrap"
 							   MaxLines="2"
 							   TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding LoadedMediaItem.Album, FallbackValue=''}"
+                               FontSize="10"
+                               Foreground="#99FFFFFF"
+                               TextWrapping="Wrap"
+							   MaxLines="1"
+                               TextTrimming="CharacterEllipsis"/>
 				</StackPanel>
             </Grid>
             <StackPanel Grid.Column="1">
@@ -68,15 +74,18 @@
                                           Stroke="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
                                           StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
 
-                                    <!-- indicator for Repeat One state -->
+                                <!-- indicator for Repeat One state -->
+                                <Grid Width="{Binding Width, RelativeSource={RelativeSource AncestorType=Canvas}}"
+                                      Height="{Binding Height, RelativeSource={RelativeSource AncestorType=Canvas}}"
+                                      Canvas.Left="0" Canvas.Top="0" IsHitTestVisible="False">
                                     <TextBlock Text="1"
                                                Foreground="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
                                                FontSize="32"
                                                FontWeight="Heavy"
-                                               Width="120"
-                                               TextAlignment="Center"
-                                               Canvas.Top="42"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
                                                IsVisible="{Binding MusicViewModel.AudioPlayer.IsRepeatOne}"/>
+                                </Grid>
                                 </Canvas>
                             </Viewbox>
                         </Button>
