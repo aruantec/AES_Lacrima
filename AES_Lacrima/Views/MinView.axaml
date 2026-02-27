@@ -393,8 +393,8 @@
                 <DataTemplate>
                     <Grid Margin="0" Background="Transparent" Opacity="0.7">
                         <Grid.ColumnDefinitions>
-                            <!-- Index column -->
-                            <ColumnDefinition Width="Auto" />
+                            <!-- Index column: use a SharedSizeGroup so all items reserve the same width -->
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="IndexColumn" />
                             <!-- Title column -->
                             <ColumnDefinition Width="*" />
                             <!-- small spacer column to separate title and duration -->
@@ -404,7 +404,7 @@
                         </Grid.ColumnDefinitions>
 
                         <!-- Row index (1-based) - bind directly to MediaItem.Index so updates notify correctly -->
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="White" FontSize="12" Margin="4,0"
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="White" FontSize="12" Margin="6,0,6,0"
                                    Text="{Binding Index, StringFormat='{}{0}.', FallbackValue=''}" />
 
                         <TextBlock Background="Transparent" Grid.Column="1" Text="{Binding Title}" Foreground="White" FontSize="12" Margin="6,4" TextTrimming="CharacterEllipsis" />
