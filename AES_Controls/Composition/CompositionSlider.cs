@@ -130,8 +130,10 @@ namespace AES_Controls.Composition
                 // Forward configuration
                 _visual.SendHandlerMessage(new SliderVerticalOffsetMessage(SliderVerticalOffset));
                 _visual.SendHandlerMessage(new SliderTrackHeightMessage(SliderTrackHeight));
-                // send normalized value (0..1)
-                _visual.SendHandlerMessage(NormalizeValue(Value));
+                // send normalized value (0..1) as an instant position so the thumb
+                // doesn't animate from 0 to current value when the control is attached
+                // (for example when a flyout opens).
+                _visual.SendHandlerMessage(new InstantSliderPositionMessage(NormalizeValue(Value)));
             }
         }
 
