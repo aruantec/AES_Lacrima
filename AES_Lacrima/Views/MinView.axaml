@@ -317,7 +317,18 @@
             </StackPanel>
         </Grid>
         <!-- Cover -->
-        <Image Grid.Row="1" Source="{Binding LoadedMediaItem.CoverBitmap}" Stretch="UniformToFill" Opacity="0.1" IsVisible="{Binding !IsCoverPlaceholder}"/>
+        <Border Opacity="0.4" Grid.Row="1" >
+			<Image Source="{Binding LoadedMediaItem.CoverBitmap}" 
+                   Stretch="UniformToFill" 
+                   IsVisible="{Binding !IsCoverPlaceholder}">
+                <Image.OpacityMask>
+                    <LinearGradientBrush StartPoint="50%,80%" EndPoint="50%,1%">
+                        <GradientStop Offset="0" Color="#FF000000" />  
+                        <GradientStop Offset="1" Color="Transparent" /> 
+                    </LinearGradientBrush>
+                </Image.OpacityMask>
+            </Image>
+        </Border>
         <!-- Playlist -->
         <ListBox Grid.Row="1" Background="Transparent"
                  ItemsSource="{Binding MediaItems}"
