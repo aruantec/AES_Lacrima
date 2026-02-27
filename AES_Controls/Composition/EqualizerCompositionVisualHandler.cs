@@ -54,6 +54,10 @@ internal record EqualizerLabelGapMessage(float Gap);
 /// Message that applies a global opacity multiplier (0..1) to the visual.
 /// </summary>
 internal record EqualizerGlobalOpacityMessage(float Opacity);
+/// <summary>
+/// Message that sets the tint color used for tracks, knobs and fills.
+/// </summary>
+internal record EqualizerTintMessage(SKColor Color);
 
 /// <summary>
 /// Composition visual handler responsible for drawing the equalizer UI using
@@ -89,6 +93,9 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
     private SKPaint? _measurePaint = null;
 
     // Paints
+    // Tint color used as the base for paints (default to previous blue-ish value)
+    private SKColor _tintColor = new SKColor(90, 140, 200, 255);
+
     private SKPaint? _trackPaint = new() { IsAntialias = true, StrokeWidth = 6f, StrokeCap = SKStrokeCap.Round, Style = SKPaintStyle.Stroke, Color = new SKColor(90, 140, 200, 180) };
     private SKPaint? _trackFillPaint = new() { IsAntialias = true, Style = SKPaintStyle.Fill, Color = new SKColor(90, 140, 200, 90) };
     private SKPaint? _activePaint = new() { IsAntialias = true, StrokeWidth = 4f, StrokeCap = SKStrokeCap.Round, Style = SKPaintStyle.Stroke, Color = new SKColor(100, 180, 255, 220) };
@@ -144,6 +151,11 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
                 _renderMargin = rm.Margin;
                 Invalidate();
                 return;
+            case EqualizerTintMessage tt:
+                _tintColor = tt.Color;
+                UpdatePaintColorsFromTint();
+                Invalidate();
+                return;
             case EqualizerLabelMarginMessage lm:
                 _labelMarginLeft = lm.Left;
                 _labelMarginTop = lm.Top;
@@ -160,6 +172,20 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
                 Invalidate();
                 return;
         }
+    }
+
+    private void UpdatePaintColorsFromTint()
+    {
+        // Set paint colors derived from the tint color with different alpha levels
+        if (_trackPaint != null) _trackPaint.Color = new SKColor(_tintColor.Red, _tintColor.Green, _tintColor.Blue, 180);
+        if (_trackFillPaint != null) _trackFillPaint.Color = new SKColor(_tintColor.Red, _tintColor.Green, _tintColor.Blue, 90);
+        if (_activePaint != null) _activePaint.Color = new SKColor(_tintColor.Red, _tintColor.Green, _tintColor.Blue, 220);
+        if (_knobPaint != null) _knobPaint.Color = new SKColor(_tintColor.Red, _tintColor.Green, _tintColor.Blue, 255);
+        if (_fillPaint != null) _fillPaint.Color = new SKColor(_tintColor.Red, _tintColor.Green, _tintColor.Blue, 80);
+        if (_knobGlowPaint != null) _knobGlowPaint.Color = new SKColor(_tintColor.Red, _tintColor.Green, _tintColor.Blue, 90);
+        if (_knobInnerGlowPaint != null) _knobInnerGlowPaint.Color = new SKColor(_tintColor.Red, _tintColor.Green, _tintColor.Blue, 140);
+        if (_faintTrackPaint != null) _faintTrackPaint.Color = new SKColor(_tintColor.Red, _tintColor.Green, _tintColor.Blue, 40);
+        // Text paint remains as-is (light gray) unless desired to tint
     }
 
     private void UpdateFreqLabelCache()

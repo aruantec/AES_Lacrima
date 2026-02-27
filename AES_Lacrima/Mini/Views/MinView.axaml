@@ -1,14 +1,15 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:local="using:AES_Lacrima.Mini.Views"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             xmlns:vm="using:AES_Lacrima.ViewModels"
+             xmlns:vm="using:AES_Lacrima.Mini.ViewModels"
              xmlns:conv="using:AES_Lacrima.Converters"
              xmlns:behaviors="using:AES_Lacrima.Behaviors"
              xmlns:composition="using:AES_Controls.Composition"
              xmlns:controlsbehaviors="using:AES_Controls.Behaviors"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
-             x:Class="AES_Lacrima.Views.MinView"
+             x:Class="AES_Lacrima.Mini.Views.MinView"
              x:DataType="vm:MinViewModel"
              x:Name="MinViewRoot">
     <UserControl.Resources>
@@ -17,7 +18,7 @@
         <conv:ObjectEqualsConverter x:Key="ObjectEqualsConverter" />
     </UserControl.Resources>
 
-    <Grid Background="Transparent" RowDefinitions="Auto,*,Auto">
+    <Grid Background="Transparent" RowDefinitions="Auto,Auto,*,Auto">
         <!-- Thumbnail & Controls -->
         <Grid Grid.Row="0" ColumnDefinitions="45*,65*" Height="100">
 			<Grid Grid.Column="0" ColumnDefinitions="Auto,10,*">
@@ -315,6 +316,34 @@
                             </Viewbox>
                         </ToggleButton>
 
+                        <!-- Equalizer toggle -->
+                        <ToggleButton Height="26"
+                                      Width="26"
+                                      VerticalAlignment="Center"
+                                      Cursor="Hand"
+                                      ToolTip.Tip="Equalizer"
+                                      IsChecked="{Binding ExtensionAreaOpen, Mode=TwoWay}">
+                            <ToggleButton.Template>
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <Border Background="Transparent" BorderThickness="0">
+                                        <ContentPresenter Content="{TemplateBinding Content}"
+                                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                            <Viewbox Stretch="Uniform">
+                                <Canvas Width="140" Height="120">
+                                    <Rectangle Canvas.Left="16" Canvas.Top="36" Width="14" Height="68" RadiusX="7" RadiusY="7" Fill="White" />
+                                    <Rectangle Canvas.Left="40" Canvas.Top="4"  Width="14" Height="100" RadiusX="7" RadiusY="7" Fill="White" />
+                                    <Rectangle Canvas.Left="64" Canvas.Top="24" Width="14" Height="80" RadiusX="7" RadiusY="7" Fill="White" />
+                                    <Rectangle Canvas.Left="88" Canvas.Top="0"  Width="14" Height="104" RadiusX="7" RadiusY="7" Fill="White" />
+                                    <Rectangle Canvas.Left="112" Canvas.Top="36" Width="14" Height="68" RadiusX="7" RadiusY="7" Fill="White" />
+                                </Canvas>
+                            </Viewbox>
+                        </ToggleButton>
+
                     </StackPanel>
                     
                     <!-- Player slider -->
@@ -330,8 +359,32 @@
                 </StackPanel>
             </StackPanel>
         </Grid>
+        
+        <!-- Equalizer -->
+        <Grid Grid.Row="1">
+            <!-- Behaviors -->
+			<Interaction.Behaviors>
+				<behaviors:MaxHeightToggleBehavior IsOpen="{Binding !ExtensionAreaOpen}"/>
+			</Interaction.Behaviors>
+            <Grid.Transitions>
+				<Transitions>
+					<DoubleTransition Property="MaxHeight" Duration="0:0:0.62" Easing="CubicEaseOut"/>
+					<DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+				</Transitions>
+			</Grid.Transitions>
+            <!-- Templates -->
+            <Grid.Resources>
+				<DataTemplate x:Key="MiniEqualizerViewModel" DataType="vm:MiniEqualizerViewModel">
+                    <local:MiniEqualizerView/>
+                </DataTemplate>
+            </Grid.Resources>
+            <!-- Content -->
+            <ContentControl Content="{Binding ExtensionView}"
+                            ContentTemplate="{StaticResource MiniEqualizerViewModel}"/>
+        </Grid>
+        
         <!-- Cover -->
-        <Border Opacity="0.4" Grid.Row="1" >
+        <Border Opacity="0.4" Grid.Row="2" >
 			<Image Source="{Binding LoadedMediaItem.CoverBitmap}" 
                    Stretch="UniformToFill" 
                    IsVisible="{Binding !IsCoverPlaceholder}">
@@ -344,7 +397,7 @@
             </Image>
         </Border>
         <!-- Playlist -->
-        <ListBox Grid.Row="1" Background="Transparent"
+        <ListBox Grid.Row="2" Background="Transparent"
                  ItemsSource="{Binding MediaItems}"
                  SelectedItem="{Binding SelectedMediaItem}"
                  SelectedItems="{Binding SelectedItems, Mode=TwoWay}"
@@ -440,11 +493,36 @@
         </ListBox>
 
         <!-- Footer -->
-        <Grid Grid.Row="2" Height="28">
+        <Grid Grid.Row="3" Height="28">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
+
+            <!-- Eject button on the left (no command implemented) -->
+            <Button Grid.Column="0"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center" 
+                    Width="24" 
+                    Height="24" 
+                    Cursor="Hand" 
+                    ToolTip.Tip="Eject"
+                    Margin="5,0,0,0"
+                    Command="{Binding EjectCommand}">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="Transparent" BorderThickness="0">
+                            <ContentPresenter Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Button.Template>
+                <Viewbox Stretch="Uniform">
+                    <TextBlock Text="⏏️" FontSize="14" Foreground="#BDBDBD" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                </Viewbox>
+            </Button>
 
             <TextBlock Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#BDBDBD" FontSize="12">
                 <Run Text="{Binding SelectedItems.Count, FallbackValue=0}" />

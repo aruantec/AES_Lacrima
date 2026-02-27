@@ -28,7 +28,7 @@ namespace AES_Lacrima.Services
     public interface IMetadataService;
 
     [AutoRegister]
-    internal partial class MetadataService : ViewModelBase, IMetadataService
+    public partial class MetadataService : ViewModelBase, IMetadataService
     {
         private static readonly ILog SLog = LogManager.GetLogger(typeof(MetadataService));
 

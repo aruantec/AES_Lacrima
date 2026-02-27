@@ -2,6 +2,7 @@
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.Interfaces;
+using AES_Lacrima.ViewModels;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -18,7 +19,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace AES_Lacrima.ViewModels
+namespace AES_Lacrima.Mini.ViewModels
 {
     /// <summary>
     /// Marker interface for the minimized player view model.
@@ -37,7 +38,7 @@ namespace AES_Lacrima.ViewModels
     /// <see cref="AutoRegisterAttribute"/> applied to the class.
     /// </remarks>
     [AutoRegister]
-    internal partial class MinViewModel : ViewModelBase, IMinViewModel
+    public partial class MinViewModel : ViewModelBase, IMinViewModel
     {
         private static readonly ILog Log = LogManager.GetLogger(typeof(MinViewModel));
         private IClassicDesktopStyleApplicationLifetime? AppLifetime => Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
@@ -49,6 +50,12 @@ namespace AES_Lacrima.ViewModels
 
         // Override the settings file path to store playlist data separately. You can customize this path as needed.
         protected override string SettingsFilePath => Path.Combine(AppContext.BaseDirectory, "Settings", "CustomPlaylist.json");
+
+        [ObservableProperty]
+        private bool _extensionAreaOpen;
+
+        [ObservableProperty]
+        private ObservableObject? _extensionView;
 
         [ObservableProperty]
         private bool _settingsVisible;
@@ -247,6 +254,7 @@ namespace AES_Lacrima.ViewModels
 
         public override void Prepare()
         {
+            ExtensionView = DiLocator.ResolveViewModel<MiniEqualizerViewModel>();
             // Load saved playlist from settings first.
             LoadSettings();
 
@@ -353,6 +361,23 @@ namespace AES_Lacrima.ViewModels
                     Log.Warn("OnAudioPlayerEndReached: Next() failed", ex);
                 }
             });
+        }
+
+        [RelayCommand]
+        private async Task EjectAsync()
+        {
+            if (MediaItems == null) return;
+            // If we have items in the current playlist, treat eject as "clear playlist".
+            if (MediaItems.Count > 0)
+            {
+                MusicViewModel?.AudioPlayer?.Stop();
+                SelectedMediaItem = null;
+                LoadedMediaItem = null;
+                MediaItems.Clear();
+            }
+            // If we don't have any items, treat eject as "add folders".
+            else
+                await AddFolders();
         }
 
         [RelayCommand]

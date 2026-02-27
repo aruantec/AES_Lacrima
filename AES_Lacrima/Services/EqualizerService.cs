@@ -6,14 +6,17 @@ using AES_Lacrima.ViewModels;
 using Avalonia.Collections;
 using CommunityToolkit.Mvvm.ComponentModel;
 using System.Text.Json.Nodes;
+using System;
+using log4net;
 
 namespace AES_Lacrima.Services
 {
     public interface IEqualizerService;
 
     [AutoRegister]
-    internal partial class EqualizerService : ViewModelBase, IEqualizerService
+    public partial class EqualizerService : ViewModelBase, IEqualizerService
     {
+        private static readonly ILog Log = LogManager.GetLogger(typeof(EqualizerService));
         [ObservableProperty]
         private Equalizer? _equalizer;
 
@@ -41,6 +44,17 @@ namespace AES_Lacrima.Services
 
             // Ensure callbacks are wired for existing bands
             Equalizer.InitializeBands();
+            // Apply currently-loaded band gains to the player so settings take effect immediately
+            try
+            {
+                if (Equalizer.Bands != null && Equalizer.Bands.Count > 0)
+                    player.SetEqualizerBandsThrottled(Equalizer.Bands);
+            }
+            catch (Exception ex)
+            {
+                // Log and continue silently; applying bands is best-effort
+                Log?.Warn("EqualizerService.Initialize: failed to apply bands to player", ex);
+            }
         }
 
         /// <summary>
@@ -65,6 +79,16 @@ namespace AES_Lacrima.Services
 
             // Ensure callbacks are wired for existing bands
             Equalizer.InitializeBands();
+            // Apply currently-loaded band gains to the player so settings take effect immediately
+            try
+            {
+                if (Equalizer.Bands != null && Equalizer.Bands.Count > 0)
+                    player.SetEqualizerBandsThrottled(Equalizer.Bands);
+            }
+            catch (Exception ex)
+            {
+                Log?.Warn("EqualizerService.InitializeAsync: failed to apply bands to player", ex);
+            }
         }
 
         protected override void OnLoadSettings(JsonObject section)
