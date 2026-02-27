@@ -30,6 +30,7 @@ namespace AES_Controls.Composition
         private SKShader? _thumbShader;
         private float _lastSliderW, _lastThumbX;
         private bool _isPressed;
+    private SKColor _playedColor = SKColors.Transparent;
 
         private readonly SKColor _trackTop = SKColor.Parse("#3A3A3A");
         private readonly SKColor _trackBottom = SKColor.Parse("#151515");
@@ -66,6 +67,11 @@ namespace AES_Controls.Composition
             else if (message is SliderPressedMessage sp)
             {
                 _isPressed = sp.IsPressed;
+                Invalidate();
+            }
+            else if (message is PlayedAreaBrushMessage pab)
+            {
+                _playedColor = pab.Color;
                 Invalidate();
             }
         }
@@ -148,32 +154,12 @@ namespace AES_Controls.Composition
                 _trackShader = SKShader.CreateLinearGradient(new SKPoint(trackRect.Left, trackRect.Top), new SKPoint(trackRect.Left, trackRect.Bottom), new[] { c1, c2 }, null, SKShaderTileMode.Clamp);
             }
 
-            // Draw track base with shader
-            _paint.Style = SKPaintStyle.Fill; _paint.Shader = _trackShader; _paint.Color = SKColors.White; canvas.DrawRoundRect(trackRect, trackH / 2f, trackH / 2f, _paint); _paint.Shader = null;
-            // subtle top highlight
-            _paint.Style = SKPaintStyle.Fill; _paint.Color = SKColors.White.WithAlpha(0x1E); // ~12%
-            var topHighlight = new SKRect(trackRect.Left + 1, trackRect.Top + 1, trackRect.Right - 1, trackRect.Top + trackH * 0.36f);
-            canvas.DrawRoundRect(topHighlight, trackH * 0.36f, trackH * 0.36f, _paint);
-            // subtle bottom overlay to deepen track center
-            _paint.Color = SKColors.Black.WithAlpha(0x12); // ~7%
-            var bottomOverlay = new SKRect(trackRect.Left + 1, trackRect.Bottom - trackH * 0.32f, trackRect.Right - 1, trackRect.Bottom - 1);
-            canvas.DrawRoundRect(bottomOverlay, trackH * 0.32f, trackH * 0.32f, _paint);
-            // Outer rim: light then dark for definition
-            _paint.Style = SKPaintStyle.Stroke;
-            _paint.StrokeWidth = Math.Max(1f, trackH * 0.08f);
-            _paint.Color = SKColors.White.WithAlpha(0x20);
-            canvas.DrawRoundRect(trackRect, trackH / 2f, trackH / 2f, _paint);
-            _paint.StrokeWidth = Math.Max(1f, trackH * 0.045f);
-            _paint.Color = SKColors.Black.WithAlpha(0x66);
-            canvas.DrawRoundRect(trackRect, trackH / 2f, trackH / 2f, _paint);
-
-            // Thumb
+            // Prepare thumb geometry early so the played area can be drawn behind the thumb.
             float thumbH = Math.Max(8f, sliderH * 0.6f);
             float thumbW = Math.Max(12f, thumbH * 2.0f * 1.3f);
             float pct = (float)Math.Clamp(_currentIndex, 0.0, 1.0);
             float thumbX = bounds.Left + (thumbW / 2f) + pct * (bounds.Width - thumbW);
             SKRect thumbRect = new SKRect(thumbX - thumbW / 2f, trackY - thumbH / 2f, thumbX + thumbW / 2f, trackY + thumbH / 2f);
-            if (Math.Abs(thumbX - _lastThumbX) > 0.1f || _thumbShader == null) { _thumbShader?.Dispose(); _thumbShader = SKShader.CreateLinearGradient(new SKPoint(thumbRect.Left, thumbRect.Top), new SKPoint(thumbRect.Left, thumbRect.Bottom), new[] { _thumbTop, _thumbBottom }, null, SKShaderTileMode.Clamp); _lastThumbX = thumbX; }
 
             // Subtle shadow under thumb
             _paint.Style = SKPaintStyle.Fill; _paint.Color = SKColors.Black.WithAlpha(30); var shadow = thumbRect; shadow.Offset(0, thumbH * 0.06f); canvas.DrawRoundRect(shadow, thumbH * 0.5f, thumbH * 0.5f, _paint);
@@ -189,6 +175,40 @@ namespace AES_Controls.Composition
                 canvas.DrawRoundRect(glow, 10, 10, _paint);
                 _paint.MaskFilter = null;
             }
+
+            // Draw track base with shader
+            _paint.Style = SKPaintStyle.Fill; _paint.Shader = _trackShader; _paint.Color = SKColors.White; canvas.DrawRoundRect(trackRect, trackH / 2f, trackH / 2f, _paint); _paint.Shader = null;
+            // subtle top highlight
+            _paint.Style = SKPaintStyle.Fill; _paint.Color = SKColors.White.WithAlpha(0x1E); // ~12%
+            var topHighlight = new SKRect(trackRect.Left + 1, trackRect.Top + 1, trackRect.Right - 1, trackRect.Top + trackH * 0.36f);
+            canvas.DrawRoundRect(topHighlight, trackH * 0.36f, trackH * 0.36f, _paint);
+            // subtle bottom overlay to deepen track center
+            _paint.Color = SKColors.Black.WithAlpha(0x12); // ~7%
+            var bottomOverlay = new SKRect(trackRect.Left + 1, trackRect.Bottom - trackH * 0.32f, trackRect.Right - 1, trackRect.Bottom - 1);
+            canvas.DrawRoundRect(bottomOverlay, trackH * 0.32f, trackH * 0.32f, _paint);
+
+            // Played area: draw from left edge of track up to current thumb center using provided color (behind thumb)
+            if (_playedColor.Alpha != 0)
+            {
+                float playedRight = thumbX; // center of thumb
+                var playedRect = new SKRect(trackRect.Left, trackRect.Top, Math.Min(playedRight, trackRect.Right), trackRect.Bottom);
+                if (playedRect.Width > 1f)
+                {
+                    _paint.Style = SKPaintStyle.Fill;
+                    _paint.Shader = null;
+                    _paint.Color = _playedColor;
+                    canvas.DrawRoundRect(playedRect, trackH / 2f, trackH / 2f, _paint);
+                }
+            }
+
+            // Outer rim: light then dark for definition
+            _paint.Style = SKPaintStyle.Stroke;
+            _paint.StrokeWidth = Math.Max(1f, trackH * 0.08f);
+            _paint.Color = SKColors.White.WithAlpha(0x20);
+            canvas.DrawRoundRect(trackRect, trackH / 2f, trackH / 2f, _paint);
+            _paint.StrokeWidth = Math.Max(1f, trackH * 0.045f);
+            _paint.Color = SKColors.Black.WithAlpha(0x66);
+            canvas.DrawRoundRect(trackRect, trackH / 2f, trackH / 2f, _paint);
 
             // Thumb fill (solid white)
             _paint.Style = SKPaintStyle.Fill;

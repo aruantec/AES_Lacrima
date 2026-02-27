@@ -306,6 +306,7 @@
                     </ToggleButton>
 
                 </StackPanel>
+                <!-- Player slider -->
                 <composition:CompositionSlider Height="23"
                                                Minimum="0"
                                                Maximum="{Binding MusicViewModel.AudioPlayer.Duration, FallbackValue=1}"
@@ -313,7 +314,8 @@
                                                SetValueCommand="{Binding SetPositionCommand}"
                                                ExecuteDuringDrag="True"
                                                SliderTrackHeight="13"
-                                               Margin="35,10,15,0"/>
+                                               PlayedAreaBrush="{Binding ControlsBrush, TargetNullValue=#005CFE}"
+                                               Margin="50,10,15,0"/>
             </StackPanel>
         </Grid>
         <!-- Cover -->
