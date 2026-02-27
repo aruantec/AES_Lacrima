@@ -564,6 +564,9 @@ namespace AES_Lacrima.ViewModels
                         // Persist updated playlist
                         try { SaveSettings(); } catch (Exception ex) { Log.Warn("AddFolders: SaveSettings failed", ex); }
 
+                        // Ensure runtime indices are initialized for the fallback playlist
+                        UpdateItemIndices();
+
                         // Kick off metadata scraping for the newly added items
                         if (MediaItems != null && MediaItems.Count > 0 && MusicViewModel?.AudioPlayer != null)
                         {
