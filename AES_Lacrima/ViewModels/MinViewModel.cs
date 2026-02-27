@@ -254,6 +254,8 @@ namespace AES_Lacrima.ViewModels
             if (MediaItems == null || MediaItems.Count == 0)
             {
                 MediaItems = [.. MusicViewModel?.AlbumList?.SelectMany(s => s.Children) ?? []];
+                // Ensure runtime indices are initialized for the fallback playlist
+                UpdateItemIndices();
             }
 
             // Ensure total duration is calculated for the current list
@@ -351,6 +353,42 @@ namespace AES_Lacrima.ViewModels
                     Log.Warn("OnAudioPlayerEndReached: Next() failed", ex);
                 }
             });
+        }
+
+        [RelayCommand]
+        private void Drop()
+        {
+            try
+            {
+                // Ensure item indices reflect the current order after a drop.
+                UpdateItemIndices();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Drop: UpdateItemIndices failed", ex);
+            }
+        }
+
+        /// <summary>
+        /// Update the runtime-only Index property on each MediaItem to match
+        /// the current ordering in the MediaItems collection.
+        /// </summary>
+        private void UpdateItemIndices()
+        {
+            try
+            {
+                if (MediaItems == null) return;
+                for (int i = 0; i < MediaItems.Count; i++)
+                {
+                    var item = MediaItems[i];
+                    if (item != null)
+                        item.Index = i + 1; // 1-based for display
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("UpdateItemIndices failed", ex);
+            }
         }
 
         [RelayCommand]
@@ -617,6 +655,8 @@ namespace AES_Lacrima.ViewModels
         {
             // Read persisted media items
             MediaItems = ReadCollectionSetting<MediaItem>(section, "MediaItems", "MediaItem", []);
+            // Ensure runtime indices are initialized after loading persisted collection
+            UpdateItemIndices();
             // Read persisted window size or use defaults
             WindowHeight = ReadDoubleSetting(section, "WindowHeight", 486);
             WindowWidth = ReadDoubleSetting(section, "WindowWidth", 550);

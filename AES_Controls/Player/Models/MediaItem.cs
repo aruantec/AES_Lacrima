@@ -1,4 +1,3 @@
-using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -155,6 +154,16 @@ public partial class MediaItem : ObservableObject, IDisposable
     {
         get => _coverBitmap;
         set => SetProperty(ref _coverBitmap, value);
+    }
+
+    private int _index;
+
+    [XmlIgnore]
+    [JsonIgnore]
+    public int Index
+    {
+        get => _index;
+        set => SetProperty(ref _index, value);
     }
 
     [XmlIgnore]

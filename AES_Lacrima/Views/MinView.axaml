@@ -385,7 +385,7 @@
                                                Command="{Binding DeleteSelectedItemsCommand}"
                                                CommandParameter="{Binding SelectedItems}"/>
 
-                <controlsbehaviors:ListboxItemDragBehavior/>
+                <controlsbehaviors:ListboxItemDragBehavior DropCommand="{Binding DropCommand}"/>
 		    </Interaction.Behaviors>
 
             <!-- Playlist item template -->
@@ -393,6 +393,9 @@
                 <DataTemplate>
                     <Grid Margin="0" Background="Transparent" Opacity="0.7">
                         <Grid.ColumnDefinitions>
+                            <!-- Index column -->
+                            <ColumnDefinition Width="Auto" />
+                            <!-- Title column -->
                             <ColumnDefinition Width="*" />
                             <!-- small spacer column to separate title and duration -->
                             <ColumnDefinition Width="8" />
@@ -400,8 +403,12 @@
                             <ColumnDefinition Width="Auto" SharedSizeGroup="DurationColumn" />
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock Background="Transparent" Grid.Column="0" Text="{Binding Title}" Foreground="White" FontSize="12" Margin="6,4" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Grid.Column="2" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}}" Foreground="White" FontSize="12" Margin="6,4,10,4" HorizontalAlignment="Right" />
+                        <!-- Row index (1-based) - bind directly to MediaItem.Index so updates notify correctly -->
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="White" FontSize="12" Margin="4,0"
+                                   Text="{Binding Index, StringFormat='{}{0}.', FallbackValue=''}" />
+
+                        <TextBlock Background="Transparent" Grid.Column="1" Text="{Binding Title}" Foreground="White" FontSize="12" Margin="6,4" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="3" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}}" Foreground="White" FontSize="12" Margin="6,4,10,4" HorizontalAlignment="Right" />
                     </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>
