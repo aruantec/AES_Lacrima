@@ -742,8 +742,6 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             ? video ? item.OnlineUrls.Value.Item1 : item.OnlineUrls.Value.Item2 
             : item.FileName; 
 
-        //Set the current media item
-        _currentMediaItem = item;
         // Prepare for loading the new file
         _isInternalChange = true;
         IsLoadingMedia = true;
@@ -753,6 +751,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
         // Ensure analyzer is fully stopped and path is updated before loading new file
         InternalStop();
+
+        //Set the current media item
+        _currentMediaItem = item;
 
         if (EnableSpectrum)
         {
