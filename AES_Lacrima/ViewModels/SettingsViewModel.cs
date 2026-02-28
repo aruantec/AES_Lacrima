@@ -190,6 +190,43 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private LinearGradientBrush? _spectrumGradient;
 
+    // ReplayGain / loudness normalization settings
+    /// <summary>
+    /// Master toggle for applying replay gain / loudness normalization at playback.
+    /// </summary>
+    [ObservableProperty]
+    private bool _replayGainEnabled = false;
+
+    /// <summary>
+    /// When true, analyze files on-the-fly to compute target gain for tracks without tags.
+    /// </summary>
+    [ObservableProperty]
+    private bool _replayGainAnalyzeOnTheFly = true;
+
+    /// <summary>
+    /// When true, use ReplayGain metadata tags (if present) as a source for gain.
+    /// </summary>
+    [ObservableProperty]
+    private bool _replayGainUseTags = true;
+
+    /// <summary>
+    /// Preamp (in dB) applied when using analyzed gain values.
+    /// </summary>
+    [ObservableProperty]
+    private double _replayGainPreampDb = 0.0;
+
+    /// <summary>
+    /// Preamp (in dB) applied when using tag-specified gain values.
+    /// </summary>
+    [ObservableProperty]
+    private double _replayGainTagsPreampDb = 0.0;
+
+    /// <summary>
+    /// Source selection for tag-based gain: 0 = Track, 1 = Album.
+    /// </summary>
+    [ObservableProperty]
+    private int _replayGainTagSource = 1; // default to Album
+
     // Preset palette for gradient comboboxes
     private readonly AvaloniaList<Color> _presetSpectrumColors =
     [
@@ -615,14 +652,41 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     {
         if (string.IsNullOrEmpty(e.PropertyName)) return;
         
-        if (e.PropertyName == nameof(SpectrumColor0)) _presetSpectrumColors[0] = SpectrumColor0;
-        else if (e.PropertyName == nameof(SpectrumColor1)) _presetSpectrumColors[1] = SpectrumColor1;
-        else if (e.PropertyName == nameof(SpectrumColor2)) _presetSpectrumColors[2] = SpectrumColor2;
-        else if (e.PropertyName == nameof(SpectrumColor3)) _presetSpectrumColors[3] = SpectrumColor3;
-        else if (e.PropertyName == nameof(SpectrumColor4)) _presetSpectrumColors[4] = SpectrumColor4;
-        else return;
+        // If one of the spectrum color properties changed, update the gradient
+        var updatedColor = false;
+        if (e.PropertyName == nameof(SpectrumColor0)) { _presetSpectrumColors[0] = SpectrumColor0; updatedColor = true; }
+        if (e.PropertyName == nameof(SpectrumColor1)) { _presetSpectrumColors[1] = SpectrumColor1; updatedColor = true; }
+        if (e.PropertyName == nameof(SpectrumColor2)) { _presetSpectrumColors[2] = SpectrumColor2; updatedColor = true; }
+        if (e.PropertyName == nameof(SpectrumColor3)) { _presetSpectrumColors[3] = SpectrumColor3; updatedColor = true; }
+        if (e.PropertyName == nameof(SpectrumColor4)) { _presetSpectrumColors[4] = SpectrumColor4; updatedColor = true; }
 
-        UpdateSpectrumGradient();
+        if (updatedColor)
+        {
+            UpdateSpectrumGradient();
+        }
+
+        // Persist changes for replaygain-related settings and notify player to re-evaluate
+        if (e.PropertyName != null && e.PropertyName.StartsWith("ReplayGain", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                // Try to find the MusicViewModel and ask its audio player to re-run analysis
+                var mv = DiLocator.ResolveViewModel<MusicViewModel>();
+                if (mv != null && mv.AudioPlayer != null)
+                {
+                    // Fire-and-forget the recompute to avoid blocking the UI
+                    _ = Task.Run(async () =>
+                    {
+                        try { await mv.AudioPlayer.RecomputeReplayGainForCurrentAsync().ConfigureAwait(false); }
+                        catch (Exception ex) { Log.Warn("Failed to recompute replaygain on AudioPlayer", ex); }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("OnSettingsPropertyChanged: failed to persist/apply replaygain settings", ex);
+            }
+        }
     }
 
     /// <summary>
@@ -719,6 +783,14 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         CarouselSideTranslation = ReadDoubleSetting(section, nameof(CarouselSideTranslation), CarouselSideTranslation);
         CarouselStackSpacing = ReadDoubleSetting(section, nameof(CarouselStackSpacing), CarouselStackSpacing);
         CarouselUseFullCoverSize = ReadBoolSetting(section, nameof(CarouselUseFullCoverSize), CarouselUseFullCoverSize);
+
+        // ReplayGain settings
+        ReplayGainEnabled = ReadBoolSetting(section, nameof(ReplayGainEnabled), ReplayGainEnabled);
+        ReplayGainAnalyzeOnTheFly = ReadBoolSetting(section, nameof(ReplayGainAnalyzeOnTheFly), ReplayGainAnalyzeOnTheFly);
+        ReplayGainUseTags = ReadBoolSetting(section, nameof(ReplayGainUseTags), ReplayGainUseTags);
+        ReplayGainPreampDb = ReadDoubleSetting(section, nameof(ReplayGainPreampDb), ReplayGainPreampDb);
+        ReplayGainTagsPreampDb = ReadDoubleSetting(section, nameof(ReplayGainTagsPreampDb), ReplayGainTagsPreampDb);
+        ReplayGainTagSource = ReadIntSetting(section, nameof(ReplayGainTagSource), ReplayGainTagSource);
     }
 
     /// <summary>
@@ -758,6 +830,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(CarouselSideTranslation), CarouselSideTranslation);
         WriteSetting(section, nameof(CarouselStackSpacing), CarouselStackSpacing);
         WriteSetting(section, nameof(CarouselUseFullCoverSize), CarouselUseFullCoverSize);
+        // ReplayGain settings
+        WriteSetting(section, nameof(ReplayGainEnabled), ReplayGainEnabled);
+        WriteSetting(section, nameof(ReplayGainAnalyzeOnTheFly), ReplayGainAnalyzeOnTheFly);
+        WriteSetting(section, nameof(ReplayGainUseTags), ReplayGainUseTags);
+        WriteSetting(section, nameof(ReplayGainPreampDb), ReplayGainPreampDb);
+        WriteSetting(section, nameof(ReplayGainTagsPreampDb), ReplayGainTagsPreampDb);
+        WriteSetting(section, nameof(ReplayGainTagSource), ReplayGainTagSource);
     }
 
     /// <summary>
