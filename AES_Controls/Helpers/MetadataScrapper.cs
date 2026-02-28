@@ -613,14 +613,35 @@ namespace AES_Controls.Helpers
                         data = await SharedHttpClient.GetByteArrayAsync(thumbUrl).ConfigureAwait(false);
                         if (IsWithinEmbeddedImageCap(data))
                         {
-                            // UI Update for cover
+                            // Decode image off the UI thread to avoid blocking animations or UI responsiveness.
+                            Bitmap? decoded = null;
+                            try
+                            {
+                                decoded = await Task.Run(() => {
+                                    using var ms = new MemoryStream(data);
+                                    return _maxThumbnailWidth.HasValue
+                                        ? Bitmap.DecodeToWidth(ms, _maxThumbnailWidth.Value)
+                                        : new Bitmap(ms);
+                                });
+
+                                if (decoded != null && !string.IsNullOrEmpty(mi.FileName))
+                                    AddToCoverCache(mi.FileName, decoded);
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Warn($"Failed to decode online thumbnail for {mi.FileName}", ex);
+                                try { decoded?.Dispose(); } catch { }
+                                decoded = null;
+                            }
+
+                            // Assign decoded bitmap on UI thread
                             await Dispatcher.UIThread.InvokeAsync(() => {
-                                using var ms = new MemoryStream(data);
-                                mi.CoverBitmap = _maxThumbnailWidth.HasValue
-                                    ? Bitmap.DecodeToWidth(ms, _maxThumbnailWidth.Value)
-                                    : new Bitmap(ms);
-                                mi.CoverFound = !string.IsNullOrEmpty(mi.FileName) && File.Exists(mi.FileName);
-                                mi.SaveCoverBitmapAction = item => TrySaveEmbeddedCover(item, data);
+                                if (decoded != null)
+                                {
+                                    mi.CoverBitmap = decoded;
+                                    mi.CoverFound = !string.IsNullOrEmpty(mi.FileName) && File.Exists(mi.FileName);
+                                    mi.SaveCoverBitmapAction = item => TrySaveEmbeddedCover(item, data);
+                                }
                             });
                         }
                         else

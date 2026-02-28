@@ -111,6 +111,7 @@ namespace AES_Lacrima.Mini.ViewModels
 
         // Keep track of the currently-subscribed collection so we can unsubscribe
         private AvaloniaList<MediaItem>? _mediaItemsSubscribed;
+        private static readonly Random _random = new();
 
         // Subscribe to collection and item changes so TotalDuration stays up-to-date
         partial void OnMediaItemsChanged(AvaloniaList<MediaItem>? value)
@@ -130,6 +131,17 @@ namespace AES_Lacrima.Mini.ViewModels
             catch (Exception ex)
             {
                 Log.Warn("OnMediaItemsChanged: subscription handling failed", ex);
+            }
+        }
+
+        public bool ShuffleMode
+        {
+            get => MusicViewModel?.AudioPlayer?.RepeatMode == RepeatMode.Shuffle;
+            set
+            {
+                if (MusicViewModel?.AudioPlayer == null) return;
+                MusicViewModel.AudioPlayer.RepeatMode = value ? RepeatMode.Shuffle : RepeatMode.Off;
+                OnPropertyChanged(nameof(ShuffleMode));
             }
         }
 
@@ -254,7 +266,10 @@ namespace AES_Lacrima.Mini.ViewModels
 
         public override void Prepare()
         {
+            // Initialize the extension view model for the extension area of the UI.
             ExtensionView = DiLocator.ResolveViewModel<MiniEqualizerViewModel>();
+            // Disable waveform visualization in the mini player to optimize performance and reduce visual clutter.
+            MusicViewModel?.AudioPlayer?.EnableWaveform = false;
             // Load saved playlist from settings first.
             LoadSettings();
 
@@ -334,6 +349,11 @@ namespace AES_Lacrima.Mini.ViewModels
                     // Post update back to UI thread
                     Avalonia.Threading.Dispatcher.UIThread.Post(() => IsMuted = MusicViewModel?.AudioPlayer?.Volume == 0);
                 });
+            }
+            else if (e.PropertyName == nameof(AES_Controls.Player.AudioPlayer.RepeatMode))
+            {
+                // Reflect shuffle/repeat mode in the mini view bindings
+                OnPropertyChanged(nameof(ShuffleMode));
             }
         }
 
@@ -480,18 +500,45 @@ namespace AES_Lacrima.Mini.ViewModels
         [RelayCommand]
         private void Next()
         {
-            if (MediaItems == null || LoadedMediaItem == null || MusicViewModel?.AudioPlayer == null) return;
+            if (MediaItems == null || MediaItems.Count == 0 || LoadedMediaItem == null || MusicViewModel?.AudioPlayer == null) return;
 
             var index = MediaItems.IndexOf(LoadedMediaItem);
             if (index < 0) return;
 
-            var nextIndex = index + 1;
-            if (nextIndex >= MediaItems.Count) return;
+            // If shuffle mode is active, pick a random next track
+            if (MusicViewModel.AudioPlayer.RepeatMode == RepeatMode.Shuffle)
+            {
+                int nextIndex = index;
+                if (MediaItems.Count == 1)
+                {
+                    nextIndex = 0;
+                }
+                else
+                {
+                    int attempts = 0;
+                    while (nextIndex == index && attempts < 8)
+                    {
+                        nextIndex = _random.Next(0, MediaItems.Count);
+                        attempts++;
+                    }
+                    if (nextIndex == index)
+                        nextIndex = (index + 1) % MediaItems.Count;
+                }
 
-            var next = MediaItems[nextIndex];
-            MusicViewModel?.AudioPlayer.PlayFile(next);
-            LoadedMediaItem = next;
-            SelectedMediaItem = next;
+                var next = MediaItems[nextIndex];
+                MusicViewModel?.AudioPlayer.PlayFile(next);
+                LoadedMediaItem = next;
+                SelectedMediaItem = next;
+                return;
+            }
+
+            var nextIndexSequential = index + 1;
+            if (nextIndexSequential >= MediaItems.Count) return;
+
+            var nextSequential = MediaItems[nextIndexSequential];
+            MusicViewModel?.AudioPlayer.PlayFile(nextSequential);
+            LoadedMediaItem = nextSequential;
+            SelectedMediaItem = nextSequential;
         }
 
         [RelayCommand]
@@ -699,6 +746,9 @@ namespace AES_Lacrima.Mini.ViewModels
                     break;
                 case 2:
                     MusicViewModel?.AudioPlayer?.RepeatMode = RepeatMode.All;
+                    break;
+                case 3:
+                    MusicViewModel?.AudioPlayer?.RepeatMode = RepeatMode.Shuffle;
                     break;
             }
             // Restore last played file selection if available

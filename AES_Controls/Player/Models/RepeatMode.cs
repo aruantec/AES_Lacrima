@@ -4,5 +4,6 @@ public enum RepeatMode
 {
     Off,
     One,
-    All
+    All,
+    Shuffle
 }

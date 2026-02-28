@@ -20,7 +20,7 @@
 
     <Grid Background="Transparent" RowDefinitions="Auto,Auto,*,Auto">
         <!-- Thumbnail & Controls -->
-        <Grid Grid.Row="0" ColumnDefinitions="45*,65*" Height="100">
+        <Grid Grid.Row="0" ColumnDefinitions="50*,53*" Height="100">
 			<Grid Grid.Column="0" ColumnDefinitions="Auto,10,*">
                 <Border BorderBrush="DimGray" Background="{Binding ControlsBrush}" BorderThickness="1" Margin="10" Height="80" Width="80" ClipToBounds="True">
 					<Image Source="{Binding LoadedMediaItem.CoverBitmap}"/>
@@ -52,7 +52,8 @@
             <StackPanel Grid.Column="1">
                 <StackPanel HorizontalAlignment="Stretch" VerticalAlignment="Center" Spacing="5" Margin="15,0,15,0">
 					<Grid ColumnDefinitions="*,Auto">
-						<StackPanel Margin="0,5,0,0" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                        <StackPanel Margin="0,5,0,0" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left" VerticalAlignment="Center">
+                            
                             <!-- Repeat button -->
                             <Button Height="25"
                                     Width="25"
@@ -71,29 +72,51 @@
                                     </ControlTemplate>
                                 </Button.Template>
                                 <Viewbox Stretch="Uniform">
-                                    <Canvas Width="120" Height="120" ClipToBounds="False">
-                                        <!-- Top handle -->
-                                        <Path Data="M 15,65 V 45 C 15,30 15,30 30,30 H 105 M 105,30 L 88,14 M 105,30 L 88,46"
-                                              Stroke="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
-                                              StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
-                                        <!-- Bottom handle -->
-                                        <Path Data="M 105,55 V 75 C 105,90 105,90 90,90 H 15 M 15,90 L 32,74 M 15,90 L 32,106"
-                                              Stroke="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
-                                              StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
+                                    <Grid>
+                                        <!-- Default repeat icon (visible when not in Shuffle mode) -->
+                                        <Canvas Width="120" Height="120" ClipToBounds="False" IsVisible="{Binding !ShuffleMode}">
+                                            <!-- Top handle -->
+                                            <Path Data="M 15,65 V 45 C 15,30 15,30 30,30 H 105 M 105,30 L 88,14 M 105,30 L 88,46"
+                                                  Stroke="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                                  StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
+                                            <!-- Bottom handle -->
+                                            <Path Data="M 105,55 V 75 C 105,90 105,90 90,90 H 15 M 15,90 L 32,74 M 15,90 L 32,106"
+                                                  Stroke="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                                  StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
 
-                                    <!-- indicator for Repeat One state -->
-                                    <Grid Width="{Binding Width, RelativeSource={RelativeSource AncestorType=Canvas}}"
-                                          Height="{Binding Height, RelativeSource={RelativeSource AncestorType=Canvas}}"
-                                          Canvas.Left="0" Canvas.Top="0" IsHitTestVisible="False">
-                                        <TextBlock Text="1"
-                                                   Foreground="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
-                                                   FontSize="32"
-                                                   FontWeight="Heavy"
-                                                   HorizontalAlignment="Center"
-                                                   VerticalAlignment="Center"
-                                                   IsVisible="{Binding MusicViewModel.AudioPlayer.IsRepeatOne}"/>
+                                        <!-- indicator for Repeat One state -->
+                                        <Grid Width="{Binding Width, RelativeSource={RelativeSource AncestorType=Canvas}}"
+                                              Height="{Binding Height, RelativeSource={RelativeSource AncestorType=Canvas}}"
+                                              Canvas.Left="0" Canvas.Top="0" IsHitTestVisible="False">
+                                            <TextBlock Text="1"
+                                                       Foreground="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                                       FontSize="32"
+                                                       FontWeight="Heavy"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"
+                                                       IsVisible="{Binding MusicViewModel.AudioPlayer.IsRepeatOne}"/>
+                                        </Grid>
+                                        </Canvas>
+
+                                        <!-- When Shuffle mode is active, show the shuffle icon on the repeat button -->
+                                        <Canvas Width="140" Height="120" IsVisible="{Binding ShuffleMode}">
+                                            <Path Data="M 10,25 L 35,25 C 70,25 70,95 105,95 L 115,95"
+                                                  Stroke="White"
+                                                  StrokeThickness="14"
+                                                  StrokeLineCap="Round"
+                                                  Fill="Transparent" />
+
+                                            <Path Data="M 10,95 L 35,95 C 70,95 70,25 105,25 L 115,25"
+                                                  Stroke="White"
+                                                  StrokeThickness="14"
+                                                  StrokeLineCap="Round"
+                                                  Fill="Transparent" />
+
+                                            <Path Data="M 100,5 L 135,25 L 100,45 Z" Fill="White" />
+
+                                            <Path Data="M 100,75 L 135,95 L 100,115 Z" Fill="White" />
+                                        </Canvas>
                                     </Grid>
-                                    </Canvas>
                                 </Viewbox>
                             </Button>
 
@@ -261,14 +284,14 @@
                             </Button>
                         </StackPanel>
 
-                        <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,5,0">
-							<!-- Equalizer toggle -->
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,5,0">
+                            <!-- Equalizer toggle -->
                             <ToggleButton Height="26"
-                                            Width="26"
-                                            VerticalAlignment="Center"
-                                            Cursor="Hand"
-                                            ToolTip.Tip="Equalizer"
-                                            IsChecked="{Binding ExtensionAreaOpen, Mode=TwoWay}">
+                                          Width="26"
+                                          VerticalAlignment="Center"
+                                          Cursor="Hand"
+                                          ToolTip.Tip="Spectrum"
+                                          IsChecked="{Binding ExtensionAreaOpen, Mode=TwoWay}">
                                 <ToggleButton.Template>
                                     <ControlTemplate TargetType="ToggleButton">
                                         <Border Background="Transparent" BorderThickness="0">
@@ -289,6 +312,41 @@
                                     </Canvas>
                                 </Viewbox>
                             </ToggleButton>
+
+                            <!-- New visual-only controls button (three vertical sliders with knobs) -->
+                            <ToggleButton Height="26"
+                                          Width="26"
+                                          VerticalAlignment="Center"
+                                          Cursor="Hand"
+                                          ToolTip.Tip="Equalizer"
+                                          Margin="6,0,0,0"
+                                          IsChecked="{Binding ExtensionAreaOpen, Mode=TwoWay}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="Transparent" BorderThickness="0">
+                                            <ContentPresenter Content="{TemplateBinding Content}"
+                                                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                                <Viewbox Stretch="Uniform">
+                                    <Canvas Width="140" Height="120">
+                                        <!-- Left slider -->
+                                        <Rectangle Canvas.Left="18" Canvas.Top="10" Width="12" Height="100" RadiusX="6" RadiusY="6" Fill="White" />
+                                        <Ellipse   Canvas.Left="6"  Canvas.Top="34" Width="36" Height="36" Fill="White" />
+
+                                        <!-- Center slider -->
+                                        <Rectangle Canvas.Left="56" Canvas.Top="6"  Width="12" Height="110" RadiusX="6" RadiusY="6" Fill="White" />
+                                        <Ellipse   Canvas.Left="44" Canvas.Top="58" Width="36" Height="36" Fill="White" />
+
+                                        <!-- Right slider -->
+                                        <Rectangle Canvas.Left="96" Canvas.Top="10" Width="12" Height="100" RadiusX="6" RadiusY="6" Fill="White" />
+                                        <Ellipse   Canvas.Left="84" Canvas.Top="34" Width="36" Height="36" Fill="White" />
+                                    </Canvas>
+                                </Viewbox>
+                            </ToggleButton>
                         </StackPanel>
                     </Grid>
                     
@@ -301,7 +359,7 @@
                                                    ExecuteDuringDrag="True"
                                                    SliderTrackHeight="13"
                                                    PlayedAreaBrush="{Binding ControlsBrush, TargetNullValue=#007DF9}"
-                                                   Margin="-5,0,-5,0"/>
+                                                   Margin="-10,0,-5,0"/>
                 </StackPanel>
             </StackPanel>
         </Grid>

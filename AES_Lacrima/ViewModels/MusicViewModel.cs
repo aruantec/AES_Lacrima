@@ -102,6 +102,19 @@ namespace AES_Lacrima.ViewModels
 
         [ObservableProperty]
         private AudioPlayer? _audioPlayer;
+        private AudioPlayer? _subscribedAudioPlayer;
+
+        public bool ShuffleMode
+        {
+            get => AudioPlayer?.RepeatMode == RepeatMode.Shuffle;
+            set
+            {
+                if (AudioPlayer == null) return;
+                AudioPlayer.RepeatMode = value ? RepeatMode.Shuffle : RepeatMode.Off;
+                OnPropertyChanged(nameof(ShuffleMode));
+                OnPropertyChanged(nameof(NextRepeatToolTip));
+            }
+        }
         #endregion
 
         #region Public properties
@@ -119,9 +132,34 @@ namespace AES_Lacrima.ViewModels
                 {
                     RepeatMode.Off => "Repeat One",
                     RepeatMode.One => "Repeat All",
-                    RepeatMode.All => "Turn Repeat Off",
+                    RepeatMode.All => "Shuffle",
+                    RepeatMode.Shuffle => "Turn Repeat Off",
                     _ => "Repeat",
                 };
+            }
+        }
+
+        partial void OnAudioPlayerChanged(AudioPlayer? value)
+        {
+            // Unsubscribe previous
+            if (_subscribedAudioPlayer != null)
+                _subscribedAudioPlayer.PropertyChanged -= AudioPlayer_PropertyChanged;
+
+            _subscribedAudioPlayer = value;
+
+            if (_subscribedAudioPlayer != null)
+                _subscribedAudioPlayer.PropertyChanged += AudioPlayer_PropertyChanged;
+
+            OnPropertyChanged(nameof(ShuffleMode));
+            OnPropertyChanged(nameof(NextRepeatToolTip));
+        }
+
+        private void AudioPlayer_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(AudioPlayer.RepeatMode))
+            {
+                OnPropertyChanged(nameof(ShuffleMode));
+                OnPropertyChanged(nameof(NextRepeatToolTip));
             }
         }
 
@@ -462,6 +500,8 @@ namespace AES_Lacrima.ViewModels
             {
                 RepeatMode.Off => RepeatMode.One,
                 RepeatMode.One => RepeatMode.All,
+                RepeatMode.All => RepeatMode.Shuffle,
+                RepeatMode.Shuffle => RepeatMode.Off,
                 _ => RepeatMode.Off
             };
         }
@@ -788,11 +828,7 @@ namespace AES_Lacrima.ViewModels
                 OnPropertyChanged(nameof(IsTagIconDimmed));
         }
 
-        private void AudioPlayer_PropertyChanged(object? sender, PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(AudioPlayer.RepeatMode) || e.PropertyName == nameof(AudioPlayer.Loop) || e.PropertyName == nameof(AudioPlayer.IsRepeatOne))
-                OnPropertyChanged(nameof(NextRepeatToolTip));
-        }
+        
 
         private void StartMetadataScrappersForLoadedFolders()
         {
