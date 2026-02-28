@@ -1,11 +1,10 @@
-using System;
-using System.Diagnostics;
-using System.Numerics;
+using Avalonia.Media;
 using Avalonia.Rendering.Composition;
 using Avalonia.Skia;
-using SkiaSharp;
-using Avalonia.Media;
 using log4net;
+using SkiaSharp;
+using System.Diagnostics;
+using System.Numerics;
 
 namespace AES_Controls.Composition
 {
@@ -31,6 +30,7 @@ namespace AES_Controls.Composition
         private float _lastSliderW, _lastThumbX;
         private bool _isPressed;
     private SKColor _playedColor = SKColors.Transparent;
+    private bool _smallThumb = false;
 
         private readonly SKColor _trackTop = SKColor.Parse("#3A3A3A");
         private readonly SKColor _trackBottom = SKColor.Parse("#151515");
@@ -67,6 +67,11 @@ namespace AES_Controls.Composition
             else if (message is SliderPressedMessage sp)
             {
                 _isPressed = sp.IsPressed;
+                Invalidate();
+            }
+            else if (message is SliderSmallThumbMessage ssm)
+            {
+                _smallThumb = ssm.IsSmall;
                 Invalidate();
             }
             else if (message is PlayedAreaBrushMessage pab)
@@ -163,6 +168,7 @@ namespace AES_Controls.Composition
             // Prepare thumb geometry early so the played area can be drawn behind the thumb.
             float thumbH = Math.Max(8f, sliderH * 0.6f);
             float thumbW = Math.Max(12f, thumbH * 2.0f * 1.3f);
+            if (_smallThumb) thumbW *= 0.5f;
             float pct = (float)Math.Clamp(_currentIndex, 0.0, 1.0);
             float thumbX = bounds.Left + (thumbW / 2f) + pct * (bounds.Width - thumbW);
             SKRect thumbRect = new SKRect(thumbX - thumbW / 2f, trackY - thumbH / 2f, thumbX + thumbW / 2f, trackY + thumbH / 2f);

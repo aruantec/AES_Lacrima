@@ -12,5 +12,9 @@ namespace AES_Lacrima.Mini.ViewModels
         [AutoResolve]
         [ObservableProperty]
         private MusicViewModel? _musicViewModel;
+
+        [AutoResolve]
+        [ObservableProperty]
+        private MinViewModel? _minViewModel;
     }
 }

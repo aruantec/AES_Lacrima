@@ -5,7 +5,6 @@ using Avalonia.Media;
 using Avalonia.Rendering.Composition;
 using SkiaSharp;
 using System.Numerics;
-using SkiaSharp;
 using System.Windows.Input;
 
 namespace AES_Controls.Composition
@@ -61,6 +60,10 @@ namespace AES_Controls.Composition
 
         public static readonly StyledProperty<double> SliderTrackHeightProperty =
             AvaloniaProperty.Register<CompositionSlider, double>(nameof(SliderTrackHeight), 4.0);
+
+        // When true, the visual should render a smaller thumb (half the standard width)
+        public static readonly StyledProperty<bool> SmallThumbProperty =
+            AvaloniaProperty.Register<CompositionSlider, bool>(nameof(SmallThumb), false);
 
         // Brush used to color the played portion of the track (0..Value). Default is transparent.
         public static readonly StyledProperty<IBrush?> PlayedAreaBrushProperty =
@@ -125,6 +128,12 @@ namespace AES_Controls.Composition
             set => SetValue(PlayedAreaBrushProperty, value);
         }
 
+        public bool SmallThumb
+        {
+            get => GetValue(SmallThumbProperty);
+            set => SetValue(SmallThumbProperty, value);
+        }
+
         public bool ExecuteDuringDrag
         {
             get => GetValue(ExecuteDuringDragProperty);
@@ -167,6 +176,7 @@ namespace AES_Controls.Composition
                 // Forward configuration
                 _visual.SendHandlerMessage(new SliderVerticalOffsetMessage(SliderVerticalOffset));
                 _visual.SendHandlerMessage(new SliderTrackHeightMessage(SliderTrackHeight));
+                _visual.SendHandlerMessage(new SliderSmallThumbMessage(SmallThumb));
                 // send played area brush color to visual
                 var skColor = ConvertBrushToSkColor(PlayedAreaBrush);
                 _visual.SendHandlerMessage(new PlayedAreaBrushMessage(skColor));
@@ -216,6 +226,10 @@ namespace AES_Controls.Composition
             {
                 _visual.SendHandlerMessage(new SliderTrackHeightMessage(change.GetNewValue<double>()));
             }
+            else if (change.Property == SmallThumbProperty)
+            {
+                _visual.SendHandlerMessage(new SliderSmallThumbMessage(change.GetNewValue<bool>()));
+            }
             else if (change.Property == PlayedAreaBrushProperty)
             {
                 var skColor = ConvertBrushToSkColor(change.GetNewValue<IBrush?>());
@@ -234,7 +248,8 @@ namespace AES_Controls.Composition
                 // compute thumb size to match visual handler proportions
                 var sliderH = bounds.Height;
                 var thumbH = Math.Max(6.0, sliderH * 0.6);
-                var thumbW = Math.Max(12.0, thumbH * 2.0);
+                var thumbW = Math.Max(12.0, thumbH * 2.0 * 1.3);
+                if (SmallThumb) thumbW *= 0.5;
                 var inflated = new Rect(bounds.Left - thumbW, bounds.Top - thumbH, bounds.Width + thumbW * 2, bounds.Height + thumbH * 2);
                 if (inflated.Contains(pos))
                 {
@@ -324,6 +339,7 @@ namespace AES_Controls.Composition
             double thumbH = Math.Max(6.0, sliderH * 0.6);
             // match visual handler: make thumb ~30% wider
             double thumbW = Math.Max(12.0, thumbH * 2.0 * 1.3);
+            if (SmallThumb) thumbW *= 0.5;
             double clickableWidth = Math.Max(1.0, bounds.Width - thumbW);
             double pct = Math.Clamp((x - bounds.Left - thumbW / 2.0) / clickableWidth, 0.0, 1.0);
             // Map pct to Value range

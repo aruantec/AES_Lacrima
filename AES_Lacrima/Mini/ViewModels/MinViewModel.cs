@@ -46,6 +46,7 @@ namespace AES_Lacrima.Mini.ViewModels
         private Bitmap _defaultCover = PlaceholderGenerator.GenerateMusicPlaceholder();
         private AvaloniaList<MediaItem>? _mediaItemsSubscribed;
         private bool _isSwitchingExtension;
+        private BitmapColorHelper _colorHelper = new();
 
         #endregion
 
@@ -101,6 +102,9 @@ namespace AES_Lacrima.Mini.ViewModels
 
         [ObservableProperty]
         private IBrush? _controlsBrush;
+
+        [ObservableProperty]
+        private IBrush? _colorGradientBrush;
 
         [ObservableProperty]
         private bool _isCoverPlaceholder = true;
@@ -478,6 +482,7 @@ namespace AES_Lacrima.Mini.ViewModels
                 IsCoverPlaceholder = false;
             }
             ControlsBrush = LoadedBrush;
+            ColorGradientBrush = _colorHelper.GetColorGradient(item?.CoverBitmap! != _defaultCover ? item?.CoverBitmap! : null!);
         }
 
         private void SubscribeToCollection(AvaloniaList<MediaItem>? list)
