@@ -285,13 +285,13 @@
                         </StackPanel>
 
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,5,0">
-                            <!-- Equalizer toggle -->
+                            <!-- Visualizer toggle -->
                             <ToggleButton Height="26"
                                           Width="26"
                                           VerticalAlignment="Center"
                                           Cursor="Hand"
-                                          ToolTip.Tip="Spectrum"
-                                          IsChecked="{Binding ExtensionAreaOpen, Mode=TwoWay}">
+                                          ToolTip.Tip="Visualizer"
+                                          Command="{Binding ToggleVisualizerCommand}">
                                 <ToggleButton.Template>
                                     <ControlTemplate TargetType="ToggleButton">
                                         <Border Background="Transparent" BorderThickness="0">
@@ -320,7 +320,7 @@
                                           Cursor="Hand"
                                           ToolTip.Tip="Equalizer"
                                           Margin="6,0,0,0"
-                                          IsChecked="{Binding ExtensionAreaOpen, Mode=TwoWay}">
+                                          Command="{Binding ToggleEqualizerCommand}">
                                 <ToggleButton.Template>
                                     <ControlTemplate TargetType="ToggleButton">
                                         <Border Background="Transparent" BorderThickness="0">
@@ -399,6 +399,7 @@
                 </Image.OpacityMask>
             </Image>
         </Border>
+        
         <!-- Playlist -->
         <ListBox Grid.Row="2" Background="Transparent"
                  ItemsSource="{Binding MediaItems}"

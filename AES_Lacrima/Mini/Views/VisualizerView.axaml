@@ -1,0 +1,22 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:spectrum="using:AES_Controls.Player.Spectrum"
+             xmlns:vm="using:AES_Lacrima.Mini.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Class="AES_Lacrima.Mini.Views.VisualizerView"
+             x:DataType="vm:VisualizerViewModel"
+             Height="80">
+    <Grid>
+		<!-- Spectrum -->
+        <spectrum:GlSpectrumControl Spectrum="{Binding MusicViewModel.AudioPlayer.Spectrum}"
+                                    VerticalAlignment="Bottom"
+                                    Height="80"
+                                    BlockHeight="5"
+                                    UseDeltaTime="True"
+                                    IsHitTestVisible="False"
+                                    BarSpacing="10"
+                                    BarWidth="15"/>
+    </Grid>
+</UserControl>

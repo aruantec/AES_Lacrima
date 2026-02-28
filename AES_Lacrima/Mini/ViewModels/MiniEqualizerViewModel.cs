@@ -1,5 +1,4 @@
-﻿using AES_Controls.Player;
-using AES_Core.DI;
+﻿using AES_Core.DI;
 using AES_Lacrima.Services;
 using AES_Lacrima.ViewModels;
 using CommunityToolkit.Mvvm.ComponentModel;
