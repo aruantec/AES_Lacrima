@@ -96,20 +96,26 @@ namespace AES_Controls.Composition
             _velocity += (dist * stiffness - _velocity * damping) * dt;
             _currentIndex += _velocity * dt;
 
-            if (Math.Abs(dist) < 0.0005 && Math.Abs(_velocity) < 0.005)
+            // Tighten the snap threshold and ensure we always invalidate if anything changed or velocity is present
+            if (Math.Abs(dist) < 0.0001 && Math.Abs(_velocity) < 0.001)
             {
                 _currentIndex = _targetIndex;
                 _velocity = 0;
             }
 
-            if (Math.Abs(dist) > 0.0001 || Math.Abs(_velocity) > 0.0001)
+            // Always invalidate if we are still far enough or if we have velocity. 
+            // Crucially, if we are NOT at target, we should stay in the loop.
+            if (Math.Abs(_targetIndex - _currentIndex) > 1e-8 || Math.Abs(_velocity) > 1e-8)
             {
                 RegisterForNextAnimationFrameUpdate();
                 Invalidate();
             }
             else
             {
+                _currentIndex = _targetIndex;
+                _velocity = 0;
                 _lastTicks = 0;
+                Invalidate(); // Ensure final position is drawn
             }
         }
 

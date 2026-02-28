@@ -224,7 +224,7 @@ public class GlWaveformSpectrumControl : OpenGlControlBase, IDisposable
         _vao = gl.GenVertexArray(); 
         _vertexBuffer = gl.GenBuffer();
 
-        _uiHeartbeat = new DispatcherTimer(TimeSpan.FromMilliseconds(4), DispatcherPriority.Render, (_, _) =>
+        _uiHeartbeat = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, (_, _) =>
         {
             if (IsVisible) RequestNextFrameRendering();
         });
