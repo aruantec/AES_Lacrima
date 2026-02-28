@@ -572,6 +572,8 @@ namespace AES_Lacrima.Mini.ViewModels
             WriteSetting(section, "WindowWidth", WindowWidth);
             WriteSetting(section, "WindowHeight", WindowHeight);
             WriteSetting(section, "RepeatMode", (int)(MusicViewModel?.AudioPlayer?.RepeatMode ?? RepeatMode.Off));
+            // Persist visualizer toggle so the mini player restores it on next run
+            WriteSetting(section, "IsVisualizerActive", IsVisualizerActive);
             var last = LoadedMediaItem?.FileName ?? SelectedMediaItem?.FileName;
             if (!string.IsNullOrEmpty(last)) WriteSetting(section, "LastPlayedFile", last);
         }
@@ -594,6 +596,17 @@ namespace AES_Lacrima.Mini.ViewModels
             {
                 var found = MediaItems.FirstOrDefault(m => string.Equals(m.FileName, last, StringComparison.OrdinalIgnoreCase));
                 if (found != null) { SelectedMediaItem = found; LoadedMediaItem = found; }
+            }
+            // Restore visualizer state if previously active
+            var visActive = ReadBoolSetting(section, "IsVisualizerActive", false);
+            if (visActive)
+            {
+                var desiredVm = DiLocator.ResolveViewModel<VisualizerViewModel>();
+                if (desiredVm != null)
+                {
+                    ExtensionView = desiredVm;
+                    ExtensionAreaOpen = true;
+                }
             }
             if (MusicViewModel != null && MusicViewModel.AudioPlayer != null && MediaItems != null && MediaItems.Count > 0)
                 _ = new MetadataScrapper(MediaItems, MusicViewModel.AudioPlayer, _defaultCover, _agentInfo, 512);
