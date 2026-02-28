@@ -130,48 +130,71 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         }
     }
 
+    private record ReplayGainOptions(bool Enabled, bool UseTags, bool Analyze, double PreampAnalyze, double PreampTags, int TagSource);
+
     /// <summary>
     /// Compute replaygain for the provided file path and apply the adjustment
-    /// (in dB) so it's included in the combined preamp. Reads persisted settings
-    /// from the Settings.json file to decide behavior (avoids cross-assembly coupling).
+    /// (in dB) so it's included in the combined preamp. If <paramref name="options"/>
+    /// is null the method will read persisted settings from Settings.json; otherwise
+    /// it will use provided options (avoids file locks and allows direct in-memory updates).
     /// Attempts tag-based gain first, then optional ffmpeg volumedetect analysis.
     /// </summary>
-    private async Task ApplyReplayGainForFileAsync(string path, MediaItem? item)
+    private async Task ApplyReplayGainForFileAsync(string path, MediaItem? item, ReplayGainOptions? options = null)
     {
         try
         {
             _replayGainAdjustmentDb = 0.0;
 
-            // Read persisted settings from Settings/Settings.json if available
-            var settingsPath = Path.Combine(AppContext.BaseDirectory, "Settings", "Settings.json");
-            bool enabled = false;
-            bool useTags = true;
-            bool analyze = true;
-            double preampAnalyze = 0.0;
-            double preampTags = 0.0;
-            int tagSource = 1; // 0=Track,1=Album
+            // Decide which settings to use: provided options or persisted file
+            bool enabled;
+            bool useTags;
+            bool analyze;
+            double preampAnalyze;
+            double preampTags;
+            int tagSource;
 
-            try
+            if (options != null)
             {
-                if (File.Exists(settingsPath))
+                enabled = options.Enabled;
+                useTags = options.UseTags;
+                analyze = options.Analyze;
+                preampAnalyze = options.PreampAnalyze;
+                preampTags = options.PreampTags;
+                tagSource = options.TagSource;
+            }
+            else
+            {
+                // Read persisted settings from Settings/Settings.json if available
+                var settingsPath = Path.Combine(AppContext.BaseDirectory, "Settings", "Settings.json");
+                enabled = false;
+                useTags = true;
+                analyze = true;
+                preampAnalyze = 0.0;
+                preampTags = 0.0;
+                tagSource = 1; // 0=Track,1=Album
+
+                try
                 {
-                    var txt = await File.ReadAllTextAsync(settingsPath).ConfigureAwait(false);
-                    using var doc = System.Text.Json.JsonDocument.Parse(txt);
-                    if (doc.RootElement.TryGetProperty("ViewModels", out var vms) && vms.ValueKind == System.Text.Json.JsonValueKind.Object)
+                    if (File.Exists(settingsPath))
                     {
-                        if (vms.TryGetProperty("SettingsViewModel", out var s) && s.ValueKind == System.Text.Json.JsonValueKind.Object)
+                        var txt = await File.ReadAllTextAsync(settingsPath).ConfigureAwait(false);
+                        using var doc = System.Text.Json.JsonDocument.Parse(txt);
+                        if (doc.RootElement.TryGetProperty("ViewModels", out var vms) && vms.ValueKind == System.Text.Json.JsonValueKind.Object)
                         {
-                            if (s.TryGetProperty("ReplayGainEnabled", out var e) && e.ValueKind == System.Text.Json.JsonValueKind.True) enabled = true;
-                            if (s.TryGetProperty("ReplayGainUseTags", out var ut) && ut.ValueKind == System.Text.Json.JsonValueKind.False) useTags = false;
-                            if (s.TryGetProperty("ReplayGainAnalyzeOnTheFly", out var an) && an.ValueKind == System.Text.Json.JsonValueKind.False) analyze = false;
-                            if (s.TryGetProperty("ReplayGainPreampDb", out var pap) && pap.ValueKind == System.Text.Json.JsonValueKind.Number) preampAnalyze = pap.GetDouble();
-                            if (s.TryGetProperty("ReplayGainTagsPreampDb", out var ptp) && ptp.ValueKind == System.Text.Json.JsonValueKind.Number) preampTags = ptp.GetDouble();
-                            if (s.TryGetProperty("ReplayGainTagSource", out var tsrc) && tsrc.ValueKind == System.Text.Json.JsonValueKind.Number) tagSource = tsrc.GetInt32();
+                            if (vms.TryGetProperty("SettingsViewModel", out var s) && s.ValueKind == System.Text.Json.JsonValueKind.Object)
+                            {
+                                if (s.TryGetProperty("ReplayGainEnabled", out var e) && e.ValueKind == System.Text.Json.JsonValueKind.True) enabled = true;
+                                if (s.TryGetProperty("ReplayGainUseTags", out var ut) && ut.ValueKind == System.Text.Json.JsonValueKind.False) useTags = false;
+                                if (s.TryGetProperty("ReplayGainAnalyzeOnTheFly", out var an) && an.ValueKind == System.Text.Json.JsonValueKind.False) analyze = false;
+                                if (s.TryGetProperty("ReplayGainPreampDb", out var pap) && pap.ValueKind == System.Text.Json.JsonValueKind.Number) preampAnalyze = pap.GetDouble();
+                                if (s.TryGetProperty("ReplayGainTagsPreampDb", out var ptp) && ptp.ValueKind == System.Text.Json.JsonValueKind.Number) preampTags = ptp.GetDouble();
+                                if (s.TryGetProperty("ReplayGainTagSource", out var tsrc) && tsrc.ValueKind == System.Text.Json.JsonValueKind.Number) tagSource = tsrc.GetInt32();
+                            }
                         }
                     }
                 }
+                catch (Exception ex) { Log.Debug("Failed to read settings.json for replaygain", ex); }
             }
-            catch (Exception ex) { Log.Debug("Failed to read settings.json for replaygain", ex); }
 
             if (!enabled) { UpdateAf(); return; }
 

@@ -54,74 +54,100 @@ namespace AES_Lacrima.Settings
         /// </summary>
         public void SaveSettings()
         {
-            FileLock.Wait();
-            try
+            // Try to acquire the file lock immediately. If it is not available
+            // we schedule the save to run on a background thread so the UI is
+            // not blocked waiting for the lock (avoids deadlocks at startup).
+            if (!FileLock.Wait(0))
             {
-                // Ensure the directory for the settings file exists. Use full path to handle
-                // relative or unusual SettingsFilePath values and fall back to AppContext.BaseDirectory.
-                try
+                Task.Run(() =>
                 {
-                    var fullPath = Path.GetFullPath(SettingsFilePath);
-                    var dir = Path.GetDirectoryName(fullPath);
-                    if (string.IsNullOrEmpty(dir)) dir = AppContext.BaseDirectory;
-                    Directory.CreateDirectory(dir);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Failed to create settings directory for '{SettingsFilePath}': {ex.Message}");
-                    try { Directory.CreateDirectory(AppContext.BaseDirectory); } catch { /* ignore */ }
-                }
-
-                JsonObject root;
-                if (File.Exists(SettingsFilePath))
-                {
+                    FileLock.Wait();
                     try
                     {
-                        var content = File.ReadAllText(SettingsFilePath);
-                        root = JsonSerializer.Deserialize<JsonNode>(content, SharedSerializerOptions)?.AsObject() ?? new JsonObject();
+                        DoSaveSettings();
                     }
-                    catch { root = new JsonObject(); }
-                }
-                else
-                {
-                    root = new JsonObject();
-                }
+                    finally
+                    {
+                        FileLock.Release();
+                    }
+                });
+                return;
+            }
 
-                if (!root.ContainsKey(ViewModelsSectionName))
-                {
-                    root[ViewModelsSectionName] = new JsonObject();
-                }
-
-                var vmsElement = root[ViewModelsSectionName]!.AsObject();
-                string typeName = GetType().Name;
-
-                // Create the section in-memory ONLY.
-                var section = new JsonObject();
-
-                // Let the ViewModel try to populate it.
-                OnSaveSettings(section);
-
-                // Remove any existing entry for this ViewModel first.
-                vmsElement.Remove(typeName);
-
-                // Only add to the tree if there is actually data inside.
-                if (section.Count > 0)
-                {
-                    vmsElement.Add(typeName, section);
-                }
-
-                //Remove the ViewModels wrapper if it's empty
-                if (vmsElement.Count == 0)
-                {
-                    root.Remove(ViewModelsSectionName);
-                }
-
-                File.WriteAllText(SettingsFilePath, root.ToJsonString(SharedSerializerOptions));
+            try
+            {
+                DoSaveSettings();
             }
             finally
             {
                 FileLock.Release();
             }
+        }
+
+        // The actual save logic extracted so it can be invoked both synchronously
+        // when the lock is available and asynchronously when deferred.
+        private void DoSaveSettings()
+        {
+            // Ensure the directory for the settings file exists. Use full path to handle
+            // relative or unusual SettingsFilePath values and fall back to AppContext.BaseDirectory.
+            try
+            {
+                var fullPath = Path.GetFullPath(SettingsFilePath);
+                var dir = Path.GetDirectoryName(fullPath);
+                if (string.IsNullOrEmpty(dir)) dir = AppContext.BaseDirectory;
+                Directory.CreateDirectory(dir);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to create settings directory for '{SettingsFilePath}': {ex.Message}");
+                try { Directory.CreateDirectory(AppContext.BaseDirectory); } catch { /* ignore */ }
+            }
+
+            JsonObject root;
+            if (File.Exists(SettingsFilePath))
+            {
+                try
+                {
+                    var content = File.ReadAllText(SettingsFilePath);
+                    root = JsonSerializer.Deserialize<JsonNode>(content, SharedSerializerOptions)?.AsObject() ?? new JsonObject();
+                }
+                catch { root = new JsonObject(); }
+            }
+            else
+            {
+                root = new JsonObject();
+            }
+
+            if (!root.ContainsKey(ViewModelsSectionName))
+            {
+                root[ViewModelsSectionName] = new JsonObject();
+            }
+
+            var vmsElement = root[ViewModelsSectionName]!.AsObject();
+            string typeName = GetType().Name;
+
+            // Create the section in-memory ONLY.
+            var section = new JsonObject();
+
+            // Let the ViewModel try to populate it.
+            OnSaveSettings(section);
+
+            // Remove any existing entry for this ViewModel first.
+            vmsElement.Remove(typeName);
+
+            // Only add to the tree if there is actually data inside.
+            if (section.Count > 0)
+            {
+                vmsElement.Add(typeName, section);
+            }
+
+            //Remove the ViewModels wrapper if it's empty
+            if (vmsElement.Count == 0)
+            {
+                root.Remove(ViewModelsSectionName);
+            }
+
+            File.WriteAllText(SettingsFilePath, root.ToJsonString(SharedSerializerOptions));
         }
 
         /// <summary>

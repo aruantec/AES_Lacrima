@@ -670,6 +670,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             try
             {
+                // Save the settings so the audio player (which currently reads persisted settings)
+                // will see the updated values when it recomputes.
+                SaveSettings();
+
                 // Try to find the MusicViewModel and ask its audio player to re-run analysis
                 var mv = DiLocator.ResolveViewModel<MusicViewModel>();
                 if (mv != null && mv.AudioPlayer != null)
@@ -721,6 +725,15 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ShaderToys = [.. GetLocalShaders(_shaderToysDirectory, "*.frag")];
         // Load settings
         LoadSettings();
+
+        // Ensure property-changed handler is subscribed so changes to settings
+        // (eg. ReplayGain sliders) are handled immediately.
+        try
+        {
+            PropertyChanged -= OnSettingsPropertyChanged;
+            PropertyChanged += OnSettingsPropertyChanged;
+        }
+        catch { }
 
         // Refresh status info for all external tools
         _ = RefreshFFmpegInfo();
