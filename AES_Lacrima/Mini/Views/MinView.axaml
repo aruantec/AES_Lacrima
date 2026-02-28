@@ -304,11 +304,11 @@
                                 </ToggleButton.Template>
                                 <Viewbox Stretch="Uniform">
                                     <Canvas Width="140" Height="120">
-                                        <Rectangle Canvas.Left="16" Canvas.Top="36" Width="14" Height="68" RadiusX="7" RadiusY="7" Fill="White" />
-                                        <Rectangle Canvas.Left="40" Canvas.Top="4"  Width="14" Height="100" RadiusX="7" RadiusY="7" Fill="White" />
-                                        <Rectangle Canvas.Left="64" Canvas.Top="24" Width="14" Height="80" RadiusX="7" RadiusY="7" Fill="White" />
-                                        <Rectangle Canvas.Left="88" Canvas.Top="0"  Width="14" Height="104" RadiusX="7" RadiusY="7" Fill="White" />
-                                        <Rectangle Canvas.Left="112" Canvas.Top="36" Width="14" Height="68" RadiusX="7" RadiusY="7" Fill="White" />
+                                        <Rectangle Canvas.Left="16" Canvas.Top="36" Width="14" Height="68" RadiusX="7" RadiusY="7" Fill="{Binding IsVisualizerActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
+                                        <Rectangle Canvas.Left="40" Canvas.Top="4"  Width="14" Height="100" RadiusX="7" RadiusY="7" Fill="{Binding IsVisualizerActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
+                                        <Rectangle Canvas.Left="64" Canvas.Top="24" Width="14" Height="80" RadiusX="7" RadiusY="7" Fill="{Binding IsVisualizerActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
+                                        <Rectangle Canvas.Left="88" Canvas.Top="0"  Width="14" Height="104" RadiusX="7" RadiusY="7" Fill="{Binding IsVisualizerActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
+                                        <Rectangle Canvas.Left="112" Canvas.Top="36" Width="14" Height="68" RadiusX="7" RadiusY="7" Fill="{Binding IsVisualizerActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
                                     </Canvas>
                                 </Viewbox>
                             </ToggleButton>
@@ -334,16 +334,16 @@
                                 <Viewbox Stretch="Uniform">
                                     <Canvas Width="140" Height="120">
                                         <!-- Left slider -->
-                                        <Rectangle Canvas.Left="18" Canvas.Top="10" Width="12" Height="100" RadiusX="6" RadiusY="6" Fill="White" />
-                                        <Ellipse   Canvas.Left="6"  Canvas.Top="34" Width="36" Height="36" Fill="White" />
+                                        <Rectangle Canvas.Left="18" Canvas.Top="10" Width="12" Height="100" RadiusX="6" RadiusY="6" Fill="{Binding IsEqualizerActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
+                                        <Ellipse   Canvas.Left="6"  Canvas.Top="34" Width="36" Height="36" Fill="{Binding IsEqualizerActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
 
                                         <!-- Center slider -->
-                                        <Rectangle Canvas.Left="56" Canvas.Top="6"  Width="12" Height="110" RadiusX="6" RadiusY="6" Fill="White" />
-                                        <Ellipse   Canvas.Left="44" Canvas.Top="58" Width="36" Height="36" Fill="White" />
+                                        <Rectangle Canvas.Left="56" Canvas.Top="6"  Width="12" Height="110" RadiusX="6" RadiusY="6" Fill="{Binding IsEqualizerActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
+                                        <Ellipse   Canvas.Left="44" Canvas.Top="58" Width="36" Height="36" Fill="{Binding IsEqualizerActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
 
                                         <!-- Right slider -->
-                                        <Rectangle Canvas.Left="96" Canvas.Top="10" Width="12" Height="100" RadiusX="6" RadiusY="6" Fill="White" />
-                                        <Ellipse   Canvas.Left="84" Canvas.Top="34" Width="36" Height="36" Fill="White" />
+                                        <Rectangle Canvas.Left="96" Canvas.Top="10" Width="12" Height="100" RadiusX="6" RadiusY="6" Fill="{Binding IsEqualizerActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
+                                        <Ellipse   Canvas.Left="84" Canvas.Top="34" Width="36" Height="36" Fill="{Binding IsEqualizerActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
                                     </Canvas>
                                 </Viewbox>
                             </ToggleButton>
