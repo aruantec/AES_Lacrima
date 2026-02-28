@@ -359,8 +359,7 @@
                                                    ExecuteDuringDrag="True"
                                                    SliderTrackHeight="13"
                                                    PlayedAreaBrush="{Binding ControlsBrush, TargetNullValue=#007DF9}"
-                                                   Margin="-10,0,-5,0"
-                                                   VerticalAlignment="Bottom"/>
+                                                   Margin="-10,0,-5,0"/>
                 </StackPanel>
             </StackPanel>
         </Grid>
