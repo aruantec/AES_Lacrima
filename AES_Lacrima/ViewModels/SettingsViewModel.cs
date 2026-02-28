@@ -670,18 +670,34 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             try
             {
-                // Save the settings so the audio player (which currently reads persisted settings)
-                // will see the updated values when it recomputes.
-                SaveSettings();
-
-                // Try to find the MusicViewModel and ask its audio player to re-run analysis
+                // Use current in-memory settings and ask the player's audio engine to recompute
                 var mv = DiLocator.ResolveViewModel<MusicViewModel>();
                 if (mv != null && mv.AudioPlayer != null)
                 {
+                    var enabled = ReplayGainEnabled;
+                    var useTags = ReplayGainUseTags;
+                    var analyze = ReplayGainAnalyzeOnTheFly;
+                    var preampAnalyze = ReplayGainPreampDb;
+                    var preampTags = ReplayGainTagsPreampDb;
+                    var tagSource = ReplayGainTagSource;
+
+                    // Immediately set the player's user preamp to reflect the slider so the
+                    // user perceives an instant volume change. Choose the tags preamp when
+                    // tags are used, otherwise use the analysis preamp value.
+                    try
+                    {
+                        var currentPreamp = useTags ? preampTags : preampAnalyze;
+                        mv.AudioPlayer.PreampDb = currentPreamp;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("Failed to apply PreampDb to AudioPlayer", ex);
+                    }
+
                     // Fire-and-forget the recompute to avoid blocking the UI
                     _ = Task.Run(async () =>
                     {
-                        try { await mv.AudioPlayer.RecomputeReplayGainForCurrentAsync().ConfigureAwait(false); }
+                        try { await mv.AudioPlayer.RecomputeReplayGainForCurrentAsync(enabled, useTags, analyze, preampAnalyze, preampTags, tagSource).ConfigureAwait(false); }
                         catch (Exception ex) { Log.Warn("Failed to recompute replaygain on AudioPlayer", ex); }
                     });
                 }
