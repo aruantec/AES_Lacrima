@@ -116,8 +116,14 @@ namespace AES_Lacrima.Mini.ViewModels
         [ObservableProperty]
         private SettingsViewModel? _settingsViewModel;
 
+        [ObservableProperty]
+        private bool _isVisualizerActive;
+
+        [ObservableProperty]
+        private bool _isEqualizerActive;
+
         // supported types
-        private readonly string[] _supportedTypes = new[] { "*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4" };
+        private readonly string[] _supportedTypes = ["*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4"];
 
         #endregion
 
@@ -443,7 +449,16 @@ namespace AES_Lacrima.Mini.ViewModels
 
         partial void OnExtensionAreaOpenChanged(bool value)
         {
-            // No-op: switching handled by commands to ensure smooth animated transitions.
+            // Update active flags when extension area visibility changes
+            IsVisualizerActive = value && ExtensionView is VisualizerViewModel;
+            IsEqualizerActive = value && ExtensionView is MiniEqualizerViewModel;
+        }
+
+        partial void OnExtensionViewChanged(ObservableObject? value)
+        {
+            // Keep active flags in sync when the view model changes
+            IsVisualizerActive = ExtensionAreaOpen && value is VisualizerViewModel;
+            IsEqualizerActive = ExtensionAreaOpen && value is MiniEqualizerViewModel;
         }
 
         #endregion
