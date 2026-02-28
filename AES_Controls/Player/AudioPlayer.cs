@@ -130,6 +130,27 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         }
     }
 
+    /// <summary>
+    /// Recompute replaygain for the current file using explicit options supplied
+    /// from the caller (avoids reading the settings file).
+    /// </summary>
+    public Task RecomputeReplayGainForCurrentAsync(bool enabled, bool useTags, bool analyze, double preampAnalyze, double preampTags, int tagSource)
+    {
+        try
+        {
+            var path = _loadedFile;
+            var item = _currentMediaItem;
+            if (string.IsNullOrEmpty(path)) return Task.CompletedTask;
+            var opts = new ReplayGainOptions(enabled, useTags, analyze, preampAnalyze, preampTags, tagSource);
+            return ApplyReplayGainForFileAsync(path, item, opts);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("RecomputeReplayGainForCurrentAsync(options) failed", ex);
+            return Task.CompletedTask;
+        }
+    }
+
     private record ReplayGainOptions(bool Enabled, bool UseTags, bool Analyze, double PreampAnalyze, double PreampTags, int TagSource);
 
     /// <summary>
@@ -242,7 +263,14 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
             if (tagGainDb.HasValue)
             {
-                _replayGainAdjustmentDb = tagGainDb.Value + preampTags;
+                var rawAdj = tagGainDb.Value + preampTags;
+                // Clamp per-file adjustment to a safe range to avoid excessive positive boost
+                const double MaxReplayGainDb = 8.0;
+                const double MinReplayGainDb = -18.0;
+                if (rawAdj > MaxReplayGainDb) rawAdj = MaxReplayGainDb;
+                if (rawAdj < MinReplayGainDb) rawAdj = MinReplayGainDb;
+                _replayGainAdjustmentDb = rawAdj;
+                Log.Info($"ReplayGain: tag={tagGainDb.Value:0.##} dB, tagsPreamp={preampTags:0.##} dB, appliedAdjustment={_replayGainAdjustmentDb:0.##} dB");
                 UpdateAf();
                 return;
             }
@@ -266,7 +294,13 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                         if (m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var mean))
                         {
                             var gainNeeded = -mean + preampAnalyze;
+                            // Clamp analysis-derived adjustment to avoid extreme boosts
+                            const double MaxAnalyzedDb = 8.0;
+                            const double MinAnalyzedDb = -18.0;
+                            if (gainNeeded > MaxAnalyzedDb) gainNeeded = MaxAnalyzedDb;
+                            if (gainNeeded < MinAnalyzedDb) gainNeeded = MinAnalyzedDb;
                             _replayGainAdjustmentDb = gainNeeded;
+                            Log.Info($"ReplayGain: analyzed mean={mean:0.##} dB, preampAnalyze={preampAnalyze:0.##} dB, appliedAdjustment={_replayGainAdjustmentDb:0.##} dB");
                             UpdateAf();
                             return;
                         }
@@ -661,6 +695,11 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             // Preamp (dB) — apply first so equalizer works on amplified signal if desired
             // Combine user preamp with per-file replaygain adjustment
             var totalPreampDb = _preampDb + _replayGainAdjustmentDb;
+            // Clamp total preamp to avoid insane boosts causing clipping. Allow moderate positive boost.
+            const double MaxTotalPreampDb = 12.0;
+            const double MinTotalPreampDb = -24.0;
+            if (totalPreampDb > MaxTotalPreampDb) totalPreampDb = MaxTotalPreampDb;
+            if (totalPreampDb < MinTotalPreampDb) totalPreampDb = MinTotalPreampDb;
             if (Math.Abs(totalPreampDb) > 0.00001)
             {
                 var dbStr = totalPreampDb >= 0 ? $"+{totalPreampDb.ToString(CultureInfo.InvariantCulture)}dB" : $"{totalPreampDb.ToString(CultureInfo.InvariantCulture)}dB";
@@ -708,9 +747,16 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                     // Convert combined preamp (+replaygain) dB to linear gain
                     var gain = Math.Pow(10.0, ( _preampDb + _replayGainAdjustmentDb) / 20.0);
                     var effective = _volume * gain; // _volume is 0..100
-                    // Clamp to a reasonable maximum to avoid insane values
+                    // Clamp to a reasonable maximum to avoid insane values and clipping.
+                    // Keep a safety cap to reduce cracking when users accidentally set large preamp values.
+                    // Keep effective volume at or below 100% to avoid driving the output into clipping
+                    const double MaxEffectiveVolume = 100.0; // percent
                     if (effective < 0) effective = 0;
-                    if (effective > 1000) effective = 1000;
+                    if (effective > MaxEffectiveVolume)
+                    {
+                        Log.Warn($"Effective volume {effective:0.##}% exceeded max {MaxEffectiveVolume}%. Clamping to avoid clipping.");
+                        effective = MaxEffectiveVolume;
+                    }
                     InvokeOnMpvThread(() => { SetProperty("volume", effective); return true; });
                 }
             }
