@@ -53,6 +53,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     private string _eqAf = string.Empty;
     // Preamp gain in dB applied via af=volume filter. Positive values allow >100% loudness.
     private double _preampDb = 0.0;
+    // ReplayGain adjustment (dB) computed per-file from tags or analysis. This is additive to _preampDb
+    private double _replayGainAdjustmentDb = 0.0;
 
     // Track the active ffmpeg process to prevent resource exhaustion on macOS
     private Process? _activeFfmpegProcess;
@@ -106,6 +108,163 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             catch (Exception ex) { tcs.SetException(ex); }
         });
         return tcs.Task.GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Public wrapper to request recomputation of replaygain for the currently loaded file.
+    /// Safe to call from other threads.
+    /// </summary>
+    public Task RecomputeReplayGainForCurrentAsync()
+    {
+        try
+        {
+            var path = _loadedFile;
+            var item = _currentMediaItem;
+            if (string.IsNullOrEmpty(path)) return Task.CompletedTask;
+            return ApplyReplayGainForFileAsync(path, item);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("RecomputeReplayGainForCurrentAsync failed", ex);
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Compute replaygain for the provided file path and apply the adjustment
+    /// (in dB) so it's included in the combined preamp. Reads persisted settings
+    /// from the Settings.json file to decide behavior (avoids cross-assembly coupling).
+    /// Attempts tag-based gain first, then optional ffmpeg volumedetect analysis.
+    /// </summary>
+    private async Task ApplyReplayGainForFileAsync(string path, MediaItem? item)
+    {
+        try
+        {
+            _replayGainAdjustmentDb = 0.0;
+
+            // Read persisted settings from Settings/Settings.json if available
+            var settingsPath = Path.Combine(AppContext.BaseDirectory, "Settings", "Settings.json");
+            bool enabled = false;
+            bool useTags = true;
+            bool analyze = true;
+            double preampAnalyze = 0.0;
+            double preampTags = 0.0;
+            int tagSource = 1; // 0=Track,1=Album
+
+            try
+            {
+                if (File.Exists(settingsPath))
+                {
+                    var txt = await File.ReadAllTextAsync(settingsPath).ConfigureAwait(false);
+                    using var doc = System.Text.Json.JsonDocument.Parse(txt);
+                    if (doc.RootElement.TryGetProperty("ViewModels", out var vms) && vms.ValueKind == System.Text.Json.JsonValueKind.Object)
+                    {
+                        if (vms.TryGetProperty("SettingsViewModel", out var s) && s.ValueKind == System.Text.Json.JsonValueKind.Object)
+                        {
+                            if (s.TryGetProperty("ReplayGainEnabled", out var e) && e.ValueKind == System.Text.Json.JsonValueKind.True) enabled = true;
+                            if (s.TryGetProperty("ReplayGainUseTags", out var ut) && ut.ValueKind == System.Text.Json.JsonValueKind.False) useTags = false;
+                            if (s.TryGetProperty("ReplayGainAnalyzeOnTheFly", out var an) && an.ValueKind == System.Text.Json.JsonValueKind.False) analyze = false;
+                            if (s.TryGetProperty("ReplayGainPreampDb", out var pap) && pap.ValueKind == System.Text.Json.JsonValueKind.Number) preampAnalyze = pap.GetDouble();
+                            if (s.TryGetProperty("ReplayGainTagsPreampDb", out var ptp) && ptp.ValueKind == System.Text.Json.JsonValueKind.Number) preampTags = ptp.GetDouble();
+                            if (s.TryGetProperty("ReplayGainTagSource", out var tsrc) && tsrc.ValueKind == System.Text.Json.JsonValueKind.Number) tagSource = tsrc.GetInt32();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { Log.Debug("Failed to read settings.json for replaygain", ex); }
+
+            if (!enabled) { UpdateAf(); return; }
+
+            double? tagGainDb = null;
+
+            if (useTags)
+            {
+                try
+                {
+                    using var f = TagLib.File.Create(path);
+                    var xiph = f.GetTag(TagLib.TagTypes.Xiph, false) as TagLib.Ogg.XiphComment;
+                    if (xiph != null)
+                    {
+                        if (xiph.GetField("replaygain_track_gain") is string[] arr && arr.Length > 0)
+                            if (double.TryParse(StripDb(arr[0]), NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) tagGainDb = v;
+
+                        if (tagGainDb == null && tagSource == 1)
+                        {
+                            if (xiph.GetField("replaygain_album_gain") is string[] aa && aa.Length > 0)
+                                if (double.TryParse(StripDb(aa[0]), NumberStyles.Float, CultureInfo.InvariantCulture, out var av)) tagGainDb = av;
+                        }
+                    }
+
+                    if (tagGainDb == null)
+                    {
+                        var id3 = f.GetTag(TagLib.TagTypes.Id3v2, false) as TagLib.Id3v2.Tag;
+                        if (id3 != null)
+                        {
+                            try
+                            {
+                                var frm = TagLib.Id3v2.UserTextInformationFrame.Get(id3, "REPLAYGAIN_TRACK_GAIN", false);
+                                if (frm != null && frm.Text?.Length > 0 && double.TryParse(StripDb(frm.Text[0]), NumberStyles.Float, CultureInfo.InvariantCulture, out var v2)) tagGainDb = v2;
+                                if (tagGainDb == null && tagSource == 1)
+                                {
+                                    var albFrm = TagLib.Id3v2.UserTextInformationFrame.Get(id3, "REPLAYGAIN_ALBUM_GAIN", false);
+                                    if (albFrm != null && albFrm.Text?.Length > 0 && double.TryParse(StripDb(albFrm.Text[0]), NumberStyles.Float, CultureInfo.InvariantCulture, out var v3)) tagGainDb = v3;
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                catch (Exception ex) { Log.Debug("Error reading tags for replaygain", ex); }
+            }
+
+            if (tagGainDb.HasValue)
+            {
+                _replayGainAdjustmentDb = tagGainDb.Value + preampTags;
+                UpdateAf();
+                return;
+            }
+
+            // No tags found; optionally analyze on-the-fly using ffmpeg volumedetect
+            if (analyze && _ffmpegManager != null)
+            {
+                try
+                {
+                    if (Uri.TryCreate(path, UriKind.Absolute, out var uri) && !uri.IsFile) { /* skip remote */ UpdateAf(); return; }
+                    var ffmpeg = FFmpegLocator.FindFFmpegPath();
+                    if (string.IsNullOrEmpty(ffmpeg)) { UpdateAf(); return; }
+                    var args = $"-hide_banner -nostats -i \"{path}\" -af volumedetect -f null -";
+                    var psi = new ProcessStartInfo(ffmpeg, args) { RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+                    using var proc = Process.Start(psi);
+                    if (proc != null)
+                    {
+                        var stderr = await proc.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                        proc.WaitForExit(3000);
+                        var m = System.Text.RegularExpressions.Regex.Match(stderr, @"mean_volume:\s*(-?[0-9]+\.?[0-9]*)\s*dB", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var mean))
+                        {
+                            var gainNeeded = -mean + preampAnalyze;
+                            _replayGainAdjustmentDb = gainNeeded;
+                            UpdateAf();
+                            return;
+                        }
+                    }
+                }
+                catch (Exception ex) { Log.Debug("Error running ffmpeg volumedetect for replaygain", ex); }
+            }
+
+            _replayGainAdjustmentDb = 0.0;
+            UpdateAf();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("ApplyReplayGainForFileAsync failed", ex);
+        }
+    }
+
+    private static string StripDb(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return s;
+        return s.Replace("dB", "", StringComparison.OrdinalIgnoreCase).Trim();
     }
 
     private void InvokeOnMpvThread(Action action)
@@ -477,9 +636,11 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             var parts = new List<string>();
 
             // Preamp (dB) — apply first so equalizer works on amplified signal if desired
-            if (Math.Abs(_preampDb) > 0.00001)
+            // Combine user preamp with per-file replaygain adjustment
+            var totalPreampDb = _preampDb + _replayGainAdjustmentDb;
+            if (Math.Abs(totalPreampDb) > 0.00001)
             {
-                var dbStr = _preampDb >= 0 ? $"+{_preampDb.ToString(CultureInfo.InvariantCulture)}dB" : $"{_preampDb.ToString(CultureInfo.InvariantCulture)}dB";
+                var dbStr = totalPreampDb >= 0 ? $"+{totalPreampDb.ToString(CultureInfo.InvariantCulture)}dB" : $"{totalPreampDb.ToString(CultureInfo.InvariantCulture)}dB";
                 parts.Add($"volume={dbStr}");
             }
 
@@ -521,8 +682,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             {
                 if (_initTcs.Task.IsCompleted && !_disposed)
                 {
-                    // Convert dB to linear gain
-                    var gain = Math.Pow(10.0, _preampDb / 20.0);
+                    // Convert combined preamp (+replaygain) dB to linear gain
+                    var gain = Math.Pow(10.0, ( _preampDb + _replayGainAdjustmentDb) / 20.0);
                     var effective = _volume * gain; // _volume is 0..100
                     // Clamp to a reasonable maximum to avoid insane values
                     if (effective < 0) effective = 0;
@@ -747,6 +908,15 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         IsLoadingMedia = true;
         OnPropertyChanged(nameof(IsLoadingMedia));
         _loadedFile = fileToPlay;
+        // Compute and apply replaygain/preamp adjustments before starting playback
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ApplyReplayGainForFileAsync(fileToPlay, item).ConfigureAwait(false);
+            }
+            catch (Exception ex) { Log.Warn("ApplyReplayGainForFile failed", ex); }
+        });
         _waveformLoadedFile = null;
 
         // Ensure analyzer is fully stopped and path is updated before loading new file
