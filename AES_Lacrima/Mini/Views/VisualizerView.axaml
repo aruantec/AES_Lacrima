@@ -16,7 +16,7 @@
                                     BlockHeight="5"
                                     UseDeltaTime="True"
                                     IsHitTestVisible="False"
-                                    BarSpacing="10"
-                                    BarWidth="15"/>
+                                    BarWidth="7"
+                                    BarSpacing="3"/>
     </Grid>
 </UserControl>

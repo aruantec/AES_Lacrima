@@ -85,7 +85,7 @@ namespace AES_Lacrima.Mini.ViewModels
         private bool _isMuted;
 
         [ObservableProperty]
-        private bool _showPlaylist = true;
+        private bool _showPlaylist = false;
 
         [ObservableProperty]
         private double _windowWidth = 550;

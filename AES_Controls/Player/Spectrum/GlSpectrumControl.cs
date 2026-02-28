@@ -309,9 +309,13 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
         _lastTicks = currentTicks;
 
         var scaling = VisualRoot?.RenderScaling ?? 1.0;
-        float actualWidth = (float)(Bounds.Width * scaling);
-        float actualHeight = (float)(Bounds.Height * scaling);
-        int targetCount = Math.Max(1, (int)(actualWidth / (BarWidth + BarSpacing)));
+        // Use logical (device-independent) width when calculating how many bars fit so
+        // the visual density remains constant across DPI scaling. Convert height to
+        // physical pixels for GL viewport and some vertical calculations.
+        float logicalWidth = (float)Bounds.Width;
+        float physicalWidth = logicalWidth * (float)scaling;
+        float physicalHeight = (float)(Bounds.Height * scaling);
+        int targetCount = Math.Max(1, (int)(logicalWidth / (BarWidth + BarSpacing)));
 
         UpdatePhysics(targetCount, delta);
 
@@ -319,16 +323,20 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
         var glBlendFunc = (delegate* unmanaged[Stdcall]<int, int, void>)gl.GetProcAddress("glBlendFunc");
         if (glBlendFunc != null) glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        gl.Viewport(0, 0, (int)actualWidth, (int)actualHeight);
+        gl.Viewport(0, 0, (int)physicalWidth, (int)physicalHeight);
         gl.ClearColor(0, 0, 0, 0);
         gl.Clear(GL_COLOR_BUFFER_BIT);
         gl.UseProgram(_program);
 
         UpdateGradientUniforms(gl);
         SetUniform1F(gl, "u_blockHeight", (float)(BlockHeight * scaling));
-        SetUniform1F(gl, "u_totalHeight", actualHeight);
+        SetUniform1F(gl, "u_totalHeight", physicalHeight);
 
-        PrepareVertices(actualWidth, actualHeight, targetCount);
+        // Pass logical width and physical height to PrepareVertices. The vertex
+        // generator expects the width parameter to be in logical (device-independent)
+        // units for correct normalized X coordinates, while height should be physical
+        // pixels for pixel-based offsets (peak indicator size).
+        PrepareVertices(logicalWidth, physicalHeight, targetCount);
 
         gl.BindVertexArray(_vao);
         gl.BindBuffer(GL_ARRAY_BUFFER, _vertexBuffer);

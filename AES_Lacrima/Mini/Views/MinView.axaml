@@ -410,8 +410,6 @@
                  BorderBrush="DimGray"
                  BorderThickness="0.5,0,0,0.5"
                  Padding="5"
-                 Opacity="{Binding ShowPlaylist, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='1.0,0.3'}"
-                 IsHitTestVisible="{Binding ShowPlaylist}"
                  Grid.IsSharedSizeScope="True">
 
             <!-- Right-click context menu: same actions as the Add button -->
