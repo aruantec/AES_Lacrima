@@ -109,6 +109,132 @@ public class BitmapColorHelper
         return (primary, secondary);
     }
 
+    /// <summary>
+    /// Extract up to five visually distinct colors from the provided bitmap and
+    /// return them as a horizontal linear gradient brush. Attempts to pick
+    /// different hues when possible; falls back to a default palette when no
+    /// usable pixels are found.
+    /// </summary>
+    public unsafe LinearGradientBrush GetColorGradient(Bitmap bitmap)
+    {
+        // Default palette (matches existing default gradient in other controls)
+        var defaultColors = new[] {
+            Color.Parse("#00CCFF"), Color.Parse("#3333FF"), Color.Parse("#CC00CC"), Color.Parse("#FF004D"), Color.Parse("#FFB300")
+        };
+
+        if (bitmap == null)
+        {
+            var stopsFallback = new GradientStops();
+            for (int i = 0; i < defaultColors.Length; i++)
+            {
+                double offset = defaultColors.Length == 1 ? 0.0 : i / (double)(defaultColors.Length - 1);
+                stopsFallback.Add(new GradientStop(defaultColors[i], offset));
+            }
+            return new LinearGradientBrush
+            {
+                GradientStops = stopsFallback,
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative)
+            };
+        }
+
+        var size = new PixelSize(48, 48);
+        using var small = new RenderTargetBitmap(size);
+        using (var ctx = small.CreateDrawingContext())
+        {
+            ctx.DrawImage(bitmap, new Rect(0, 0, bitmap.Size.Width, bitmap.Size.Height), new Rect(0, 0, size.Width, size.Height));
+        }
+
+        var pixels = new byte[size.Width * size.Height * 4];
+        fixed (byte* p = pixels)
+        {
+            small.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), (IntPtr)p, pixels.Length, size.Width * 4);
+        }
+
+        var colorCounts = new Dictionary<uint, int>();
+        for (var i = 0; i < pixels.Length; i += 4)
+        {
+            byte b = pixels[i], g = pixels[i + 1], r = pixels[i + 2], a = pixels[i + 3];
+            if (a < 128) continue;
+            if (r < 20 && g < 20 && b < 20) continue; // skip near-black
+
+            uint binR = (uint)(r / 16) * 16;
+            uint binG = (uint)(g / 16) * 16;
+            uint binB = (uint)(b / 16) * 16;
+            uint key = (binR << 16) | (binG << 8) | binB;
+            if (colorCounts.ContainsKey(key)) colorCounts[key]++; else colorCounts[key] = 1;
+        }
+
+        var topColors = colorCounts
+            .Select(kv => {
+                var c = Color.FromUInt32(0xFF000000 | kv.Key);
+                int max = Math.Max(c.R, Math.Max(c.G, c.B));
+                int min = Math.Min(c.R, Math.Min(c.G, c.B));
+                float chroma = (max - min) / 255f;
+                return new { Color = c, Score = kv.Value * (chroma * chroma) };
+            })
+            .OrderByDescending(x => x.Score)
+            .ToList();
+
+        List<Color> picks = new();
+        if (topColors.Count == 0)
+        {
+            picks.AddRange(defaultColors);
+        }
+        else
+        {
+            // pick most frequent/vivid as first
+            picks.Add(OverdriveColor(topColors[0].Color));
+            float primaryHue = GetHue(picks[0]);
+
+            // try to pick distinct hues for the remaining slots
+            foreach (var item in topColors.Skip(1))
+            {
+                if (picks.Count >= 5) break;
+                var cand = OverdriveColor(item.Color);
+                float h = GetHue(cand);
+                float diff = Math.Abs(h - primaryHue);
+                if (diff > 3.0f) diff = 6.0f - diff;
+                if (diff > 0.6f && !picks.Any(pc => Math.Abs(GetHue(pc) - h) < 0.35f))
+                {
+                    picks.Add(cand);
+                }
+            }
+
+            // If we still don't have enough, relax criteria and add next best
+            if (picks.Count < 5)
+            {
+                foreach (var item in topColors.Skip(1))
+                {
+                    if (picks.Count >= 5) break;
+                    var cand = OverdriveColor(item.Color);
+                    if (!picks.Contains(cand)) picks.Add(cand);
+                }
+            }
+
+            // Fill remaining slots with variations of primary if needed
+            while (picks.Count < 5)
+            {
+                picks.Add(picks.Count > 0 ? picks[0] : defaultColors[picks.Count]);
+            }
+        }
+
+        // Create gradient stops evenly spaced
+        var stops = new GradientStops();
+        for (int i = 0; i < Math.Min(5, picks.Count); i++)
+        {
+            double offset = (picks.Count == 1) ? 0.0 : i / (double)(picks.Count - 1);
+            stops.Add(new GradientStop(picks[i], offset));
+        }
+
+        return new LinearGradientBrush
+        {
+            GradientStops = stops,
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative)
+        };
+    }
+
     // Replaces NormalizeBrightness to give that HDR "Pop"
     private Color OverdriveColor(Color c)
     {

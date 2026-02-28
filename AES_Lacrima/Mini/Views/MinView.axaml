@@ -247,6 +247,7 @@
                                                                        ExecuteDuringDrag="True"
                                                                        Maximum="100"
                                                                        Minimum="0"
+                                                                       SmallThumb="True"
                                                                        Value="{Binding MusicViewModel.AudioPlayer.Volume, Mode=TwoWay}"/>
                                     </StackPanel>
                                   </Flyout>

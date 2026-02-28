@@ -17,6 +17,7 @@
                                     UseDeltaTime="True"
                                     IsHitTestVisible="False"
                                     BarWidth="7"
-                                    BarSpacing="3"/>
+                                    BarSpacing="3"
+                                    BarGradient="{Binding MinViewModel.ColorGradientBrush}"/>
     </Grid>
 </UserControl>
