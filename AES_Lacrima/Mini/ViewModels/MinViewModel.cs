@@ -73,6 +73,19 @@ namespace AES_Lacrima.Mini.ViewModels
         [ObservableProperty]
         private AvaloniaList<MediaItem>? _mediaItems;
 
+        // text entered into the footer search bar; drives filtering of the playlist
+        [ObservableProperty]
+        private string _searchText = string.Empty;
+
+        partial void OnSearchTextChanged(string value)
+        {
+            UpdateFilteredItems();
+        }
+
+        // filtered view of MediaItems based on SearchText; bound to the ListBox
+        [ObservableProperty]
+        private AvaloniaList<MediaItem>? _filteredMediaItems;
+
         [ObservableProperty]
         private MediaItem? _selectedMediaItem;
 
@@ -242,6 +255,9 @@ namespace AES_Lacrima.Mini.ViewModels
 
         [RelayCommand]
         private void ToggleSettings() => SettingsVisible = !SettingsVisible;
+
+        [RelayCommand]
+        private void ClearSearch() => SearchText = string.Empty;
 
         [RelayCommand]
         private void MinimizeWindow() => AppLifetime?.MainWindow?.WindowState = Avalonia.Controls.WindowState.Minimized;
@@ -427,6 +443,7 @@ namespace AES_Lacrima.Mini.ViewModels
                 SubscribeToCollection(value);
                 _mediaItemsSubscribed = value;
                 UpdateTotalDuration();
+                UpdateFilteredItems(); // refresh filtered list when the underlying collection changes
             }
             catch (Exception ex)
             {
@@ -449,6 +466,27 @@ namespace AES_Lacrima.Mini.ViewModels
         {
             try { if (value?.AudioPlayer != null) AttachAudioPlayerHandlers(value.AudioPlayer); }
             catch (Exception ex) { Log.Warn("OnMusicViewModelChanged failed to attach audio handlers", ex); }
+        }
+
+        // Called whenever SearchText or MediaItems change to rebuild the filtered collection
+        private void UpdateFilteredItems()
+        {
+            if (MediaItems == null)
+            {
+                FilteredMediaItems = null;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(SearchText))
+            {
+                // copy to avoid binding to original list which may be modified concurrently
+                FilteredMediaItems = new AvaloniaList<MediaItem>(MediaItems);
+            }
+            else
+            {
+                var lower = SearchText.Trim().ToLowerInvariant();
+                FilteredMediaItems = new AvaloniaList<MediaItem>(MediaItems.Where(mi => !string.IsNullOrEmpty(mi.Title) && mi.Title.ToLowerInvariant().Contains(lower)));
+            }
         }
 
         partial void OnExtensionAreaOpenChanged(bool value)
@@ -506,6 +544,7 @@ namespace AES_Lacrima.Mini.ViewModels
                 if (e.NewItems != null) foreach (var ni in e.NewItems.Cast<MediaItem>()) if (ni is INotifyPropertyChanged inpc) inpc.PropertyChanged += MediaItem_PropertyChanged;
                 if (e.OldItems != null) foreach (var oi in e.OldItems.Cast<MediaItem>()) if (oi is INotifyPropertyChanged inpc) inpc.PropertyChanged -= MediaItem_PropertyChanged;
                 UpdateTotalDuration();
+                UpdateFilteredItems();
             }
             catch (Exception ex) { Log.Warn("MediaItems_CollectionChanged failed", ex); }
         }

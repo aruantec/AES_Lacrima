@@ -36,7 +36,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// <remarks>This field is null if no media item is currently selected or active.</remarks>
     private MediaItem? _currentMediaItem;
 
-    private readonly FfMpegSpectrumAnalyzer? _spectrumAnalyzer;
+    private readonly FfMpegSpectrumAnalyzer _spectrumAnalyzer;
     private readonly FFmpegManager? _ffmpegManager;
     private readonly MpvLibraryManager? _mpvLibraryManager;
     private CancellationTokenSource? _waveformCts;
@@ -893,10 +893,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         // Start spectrum if playing and enabled
         if (IsPlaying && EnableSpectrum && !IsSeeking)
         {
-            _spectrumAnalyzer?.SetStartPosition(Position);
-            _spectrumAnalyzer?.Start();
+            _spectrumAnalyzer.SetStartPosition(Position);
+            _spectrumAnalyzer.Start();
         }
-
         // Start waveform if missing or not for the current file
         if (EnableWaveform && (_waveformLoadedFile != _loadedFile))
         {
@@ -1085,8 +1084,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
         if (EnableSpectrum)
         {
-            _spectrumAnalyzer?.SetPath(fileToPlay);
-            _spectrumAnalyzer?.Start();
+            _spectrumAnalyzer.SetPath(fileToPlay);
+            _spectrumAnalyzer.Start();
         }
         _waveformCts?.Cancel();
 
@@ -1343,8 +1342,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             {
                 if (EnableSpectrum && !IsSeeking && !_disposed)
                 {
-                    _spectrumAnalyzer?.SetStartPosition(Position);
-                    _spectrumAnalyzer?.Start();
+                    _spectrumAnalyzer.SetStartPosition(Position);
+                    _spectrumAnalyzer.Start();
                 }
                 Playing?.Invoke(this, EventArgs.Empty);
             }
@@ -1383,7 +1382,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
                 if (!_disposed) 
                 {
-                    _spectrumAnalyzer?.SetStartPosition(pos, IsPlaying);
+                    _spectrumAnalyzer.SetStartPosition(pos, IsPlaying);
                 }
                 _isSeeking = false;
             }
@@ -1517,9 +1516,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
         try { MpvEvent -= OnMpvEvent; }
         catch (Exception ex) { Log.Warn("Failed to remove mpv event handler", ex); }
-        try { _spectrumAnalyzer?.Stop(); }
+        try { _spectrumAnalyzer.Stop(); }
         catch (Exception ex) { Log.Warn("Failed to stop spectrum analyzer", ex); }
-        try { _spectrumAnalyzer?.SetPath(""); }
+        try { _spectrumAnalyzer.SetPath(""); }
         catch (Exception ex) { Log.Warn("Failed to clear spectrum analyzer path", ex); }
 
         try { _waveformCts?.Cancel(); }

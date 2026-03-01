@@ -36,8 +36,9 @@ namespace AES_Controls.Players
         /// <param name="ffmpegManager">Manager to report activity status.</param>
         public FfMpegSpectrumAnalyzer(AvaloniaList<double> spectrum, AudioPlayer player, FFmpegManager? ffmpegManager = null)
         {
-            _spectrum = spectrum;
-            _player = player;
+            // Validate required inputs; audio player must be provided or operations will fail later.
+            _spectrum = spectrum ?? throw new ArgumentNullException(nameof(spectrum));
+            _player = player ?? throw new ArgumentNullException(nameof(player));
             _ffmpegManager = ffmpegManager;
             _processedSeconds = 0.0;
         }
@@ -80,6 +81,14 @@ namespace AES_Controls.Players
         /// </summary>
         public void Start()
         {
+            // defensive: player reference should always be non-null thanks to constructor validation,
+            // but in the wild we've seen NullReferenceExceptions raised here so guard against it.
+            if (_player == null)
+            {
+                Debug.WriteLine("[SpectrumAnalyzer] Start called with null player reference");
+                return;
+            }
+
             if (!_player.EnableSpectrum || string.IsNullOrEmpty(_path)) return;
 
             if (_analysisTask != null && (_analysisTask.IsCompleted || _analysisTask.IsFaulted || _analysisTask.IsCanceled))

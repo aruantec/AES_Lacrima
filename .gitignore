@@ -14,3 +14,4 @@
 /.vscode/tasks.json
 *.user
 *.user
+.vscode/settings.json
