@@ -157,6 +157,9 @@ namespace AES_Lacrima.Behaviors
             _textWidth = newTextWidth;
             _containerWidth = newContainerWidth;
 
+            bool textOverflows = _textWidth > _containerWidth;
+            const double paddingFactor = 0.4; // fraction of textblock width to offset by
+
             // restart scroll if the actual text string changed
             if (_lastText != AssociatedObject.Text)
             {
@@ -165,16 +168,35 @@ namespace AES_Lacrima.Behaviors
                 {
                     StopAnimation();
                 }
-                // move the block to the right edge for a fresh start
-                _offset = _containerWidth;
-                if (AssociatedObject?.RenderTransform is TranslateTransform tt) tt.X = _offset;
-                _pauseEnd = DateTime.MinValue;
+
+                if (textOverflows)
+                {
+                    // start just off the right edge, with extra padding equal to
+                    // paddingFactor of the TextBlock’s current width so the text
+                    // never peeks in prematurely.
+                    double actualWidth = AssociatedObject.Bounds.Width;
+                    _offset = _containerWidth + (actualWidth > 0 ? actualWidth * paddingFactor : 0);
+                    if (AssociatedObject?.RenderTransform is TranslateTransform tt) tt.X = _offset;
+                    _pauseEnd = DateTime.MinValue;
+                }
+                else
+                {
+                    // no scrolling required – make sure we’re sitting at 0 and
+                    // clear any manual sizing that might have been applied.
+                    _offset = 0;
+                    if (AssociatedObject?.RenderTransform is TranslateTransform tt) tt.X = 0;
+                    if (_usingManualWidth && AssociatedObject != null)
+                    {
+                        AssociatedObject.Width = double.NaN;
+                        _usingManualWidth = false;
+                    }
+                }
             }
 
             if (_containerWidth <= 0)
                 return;
 
-            if (_textWidth > _containerWidth)
+            if (textOverflows)
             {
                 if (_timer == null)
                     StartAnimation();
@@ -193,8 +215,12 @@ namespace AES_Lacrima.Behaviors
 
             // capture the current container width before we start adjusting the
             // control’s own size; this value is kept constant for the duration
-            // of the scroll.
+            // of the scroll.  fallback to the element bounds if we failed to
+            // acquire a positive width so that we always start outside the
+            // visible area.
             _containerWidth = GetClippingWidth();
+            if (_containerWidth <= 0 && AssociatedObject != null)
+                _containerWidth = AssociatedObject.Bounds.Width; // best effort
 
             // widen the TextBlock so that its measured width equals the text
             // width.  The parent is responsible for clipping, so expanding our
@@ -240,17 +266,30 @@ namespace AES_Lacrima.Behaviors
             if (_pauseEnd > DateTime.Now)
                 return;
 
-            const double speed = 60; // pixels per second
+            // reduce speed for a more leisurely scroll
+            const double speed = 40; // pixels per second
             double delta = speed * 0.016; // ~16ms interval
             _offset -= delta;
 
             if (_offset <= -_textWidth)
             {
-                _offset = _containerWidth;
-                _pauseEnd = DateTime.Now.AddSeconds(2);
+                // the container may have resized while we paused; recompute
+                _containerWidth = GetClippingWidth();
+                if (_containerWidth <= 0 && AssociatedObject != null)
+                {
+                    // if width still isn't valid fall back to last known good
+                    _containerWidth = Math.Max(_containerWidth, _containerWidth);
+                }
+
+                // apply the same paddingFactor used on initial start
+                double actualWidth = AssociatedObject?.Bounds.Width ?? 0;
+                const double paddingFactor = 0.4;
+                const double wrapPauseSeconds = 0.3; // shorter pause for quicker return
+                _offset = _containerWidth + (actualWidth > 0 ? actualWidth * paddingFactor : 0);
+                _pauseEnd = DateTime.Now.AddSeconds(wrapPauseSeconds);
             }
 
-            if (AssociatedObject.RenderTransform is TranslateTransform tt)
+            if (AssociatedObject?.RenderTransform is TranslateTransform tt)
                 tt.X = _offset;
         }
     }
