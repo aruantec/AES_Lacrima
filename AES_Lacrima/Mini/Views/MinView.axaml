@@ -25,16 +25,17 @@
                 <Border BorderBrush="DimGray" Background="{Binding ControlsBrush}" BorderThickness="1" Margin="10,0,10,10" Height="80" Width="80" ClipToBounds="True">
 					<Image Source="{Binding LoadedMediaItem.CoverBitmap}"/>
                 </Border>
-				<StackPanel Grid.Column="2" VerticalAlignment="Top" Spacing="5" Margin="0,10,0,0">
+				<StackPanel Grid.Column="2" VerticalAlignment="Top" Spacing="5" Margin="0,10,0,0" ClipToBounds="True">
 					<TextBlock Text="{Binding MusicViewModel.AudioPlayer.IsPlaying, Converter={StaticResource BoolToStringConverter}, ConverterParameter='PLAYING, PAUSED'}"
 							   FontSize="16"
 							   Foreground="White"/>
 					<TextBlock Text="{Binding LoadedMediaItem.Title, FallbackValue='No File Loaded'}"
 							   FontSize="12"
-							   Foreground="LightGray"
-							   TextWrapping="Wrap"
-							   MaxLines="1"
-							   TextTrimming="CharacterEllipsis"/>
+					   Foreground="LightGray">
+						<Interaction.Behaviors>
+							<behaviors:MarqueeBehavior />
+						</Interaction.Behaviors>
+					</TextBlock>
                     <TextBlock Text="{Binding LoadedMediaItem.Album, FallbackValue=''}"
                                FontSize="10"
                                Foreground="#99FFFFFF"
