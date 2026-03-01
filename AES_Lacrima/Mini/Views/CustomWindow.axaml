@@ -32,7 +32,7 @@
 		<Border Grid.RowSpan="2" Height="180" VerticalAlignment="Top" IsHitTestVisible="False" Opacity="0.6">
 			<Border.Background>
 				<LinearGradientBrush StartPoint="50%,10%" EndPoint="50%,50%">
-					<GradientStop Color="{Binding ControlsBrush.(SolidColorBrush).Color}" Offset="0" />
+					<GradientStop Color="{Binding ControlsBrush, Converter={StaticResource BrushToColorConverter}}" Offset="0" />
 					<GradientStop Color="#0F0F0F" Offset="1" />
 				</LinearGradientBrush>
 			</Border.Background>
@@ -86,7 +86,7 @@
         </Grid>
         <!-- View -->
         <ContentControl Grid.Row="1" Content="{Binding}"/>
-
+        
         <Border Grid.Row="1" IsVisible="{Binding SettingsVisible}" Background="#F2000000">
             <local:MiniSettings DataContext="{Binding SettingsViewModel}"/>
         </Border>
