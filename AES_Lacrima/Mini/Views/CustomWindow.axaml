@@ -50,29 +50,6 @@
                    Content="AES LACRIMA MINI"
                    Margin="5"/>
 			<StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="8,6,8,6" Spacing="6">
-                <!-- Settings button (opens settings overlay) -->
-                <Button Height="22"
-                        Width="22"
-                        VerticalAlignment="Center"
-                        Cursor="Hand"
-                        ToolTip.Tip="Settings"
-                        Margin="10,0,0,0"
-                        Command="{Binding ToggleSettingsCommand}">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="Transparent" BorderThickness="0">
-                                <ContentPresenter Content="{TemplateBinding Content}"
-                                                    ContentTemplate="{TemplateBinding ContentTemplate}"
-                                                    HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                                    VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                    <Viewbox Stretch="Uniform">
-                        <TextBlock Text="⚙" Foreground="White" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Viewbox>
-                </Button>
-                
                 <!-- Minimize -->
                 <Button Command="{Binding MinimizeWindowCommand}" Background="Transparent" BorderBrush="Transparent" Width="28" Height="20" Padding="2">
                     <Path Stroke="#DDD" StrokeThickness="2" StrokeLineCap="Round" HorizontalAlignment="Center" VerticalAlignment="Center" Data="M3,10 L15,10" />
@@ -86,7 +63,8 @@
         </Grid>
         <!-- View -->
         <ContentControl Grid.Row="1" Content="{Binding}"/>
-        <Border Grid.Row="1" IsVisible="{Binding SettingsVisible}" Background="#F2000000">
+        <!-- Settings Overlay -->
+        <Border Grid.Row="1" IsVisible="{Binding SettingsVisible}" Background="#F2000000" Margin="0,0,0,28">
             <local:MiniSettings DataContext="{Binding SettingsViewModel}"/>
         </Border>
     </Grid>

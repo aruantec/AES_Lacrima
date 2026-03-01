@@ -25,7 +25,7 @@
                 <Border BorderBrush="DimGray" Background="{Binding ControlsBrush}" BorderThickness="1" Margin="10,0,10,10" Height="80" Width="80" ClipToBounds="True">
 					<Image Source="{Binding LoadedMediaItem.CoverBitmap}"/>
                 </Border>
-				<StackPanel Grid.Column="2" VerticalAlignment="Top" Spacing="5" Margin="0,10,0,0" ClipToBounds="True">
+				<StackPanel Grid.Column="2" VerticalAlignment="Top" Spacing="5" Margin="0,10,5,0" ClipToBounds="True">
 					<TextBlock Text="{Binding MusicViewModel.AudioPlayer.IsPlaying, Converter={StaticResource BoolToStringConverter}, ConverterParameter='PLAYING, PAUSED'}"
 							   FontSize="16"
 							   Foreground="White"/>
@@ -404,7 +404,7 @@
         
         <!-- Playlist -->
         <ListBox Grid.Row="2" Background="Transparent"
-                 ItemsSource="{Binding MediaItems}"
+                 ItemsSource="{Binding FilteredMediaItems}"
                  SelectedItem="{Binding SelectedMediaItem}"
                  SelectedItems="{Binding SelectedItems, Mode=TwoWay}"
                  SelectionMode="Multiple"
@@ -498,10 +498,14 @@
 
         <!-- Footer -->
         <Grid Grid.Row="3" Height="28">
+            <!-- three columns: left controls, search+settings area, resize grip -->
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" BorderBrush="DimGray" BorderThickness="0,0.6,0,0" Margin="1,0,1,0" Grid.ColumnSpan="3"/>
 
             <StackPanel Grid.Column="0" Margin="5,0,0,0" Spacing="5" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left">
 
@@ -590,16 +594,134 @@
                 </Button>
             </StackPanel>
 
+            <!-- search + settings panel -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="4" Margin="0,0,4,0" Panel.ZIndex="1">
+                <!-- Search box -->
+                <TextBox Watermark="Search"
+                         Text="{Binding SearchText, Mode=TwoWay}"
+                         Classes="AlbumSearch"
+                         Height="18"
+                         MaxHeight="18"
+                         FontSize="10"
+                         Cursor="Hand"
+                         MaxWidth="200">
+                    <TextBox.Styles>
+                        <Style Selector="TextBox.AlbumSearch">
+                            <Setter Property="Width" Value="35"/>
+                            <Setter Property="Height" Value="18"/>
+                            <Setter Property="MinWidth" Value="35"/>
+                            <Setter Property="MinHeight" Value="18"/>
+                            <Setter Property="FontSize" Value="10"/>
+                            <Setter Property="Transitions">
+                                <Transitions>
+                                    <DoubleTransition Property="Width" Duration="0:0:0.35" Easing="CubicEaseOut"/>
+                                    <ThicknessTransition Property="Padding" Duration="0:0:0.35" Easing="CubicEaseOut"/>
+                                    <BrushTransition Property="Background" Duration="0:0:0.35"/>
+                                    <BrushTransition Property="BorderBrush" Duration="0:0:0.35"/>
+                                </Transitions>
+                            </Setter>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderBrush" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="1"/>
+                            <Setter Property="CornerRadius" Value="10"/>
+                            <Setter Property="Padding" Value="0,0,5,0"/>
+                            <Setter Property="VerticalContentAlignment" Value="Center"/>
+                            <Setter Property="Foreground" Value="Transparent"/>
+                        </Style>
+                        <Style Selector="TextBox.AlbumSearch:pointerover, TextBox.AlbumSearch:focus">
+                            <!-- expand to reasonable size (~40% of typical footer) -->
+                            <Setter Property="Width" Value="150"/>
+                            <Setter Property="Background" Value="#AA000000"/>
+                            <Setter Property="BorderBrush" Value="#44FFFFFF"/>
+                            <Setter Property="Padding" Value="6,0,3,0"/>
+                            <Setter Property="Foreground" Value="White"/>
+                        </Style>
+                        <Style Selector="TextBox.AlbumSearch /template/ TextBlock#PART_Watermark">
+                            <Setter Property="Opacity" Value="0"/>
+                            <Setter Property="Transitions">
+                                <Transitions>
+                                    <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+                                </Transitions>
+                            </Setter>
+                        </Style>
+                        <Style Selector="TextBox.AlbumSearch:pointerover /template/ TextBlock#PART_Watermark, TextBox.AlbumSearch:focus /template/ TextBlock#PART_Watermark">
+                            <Setter Property="Opacity" Value="0.5"/>
+                        </Style>
+                        <Style Selector="TextBox.AlbumSearch /template/ Border#PART_BorderElement">
+                            <Setter Property="CornerRadius" Value="10"/>
+                            <Setter Property="Transitions">
+                                <Transitions>
+                                    <BrushTransition Property="Background" Duration="0:0:0.35"/>
+                                    <BrushTransition Property="BorderBrush" Duration="0:0:0.35"/>
+                                </Transitions>
+                            </Setter>
+                        </Style>
+                    </TextBox.Styles>
+                    <TextBox.InnerLeftContent>
+                        <Path Data="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
+                              Fill="#CCFFFFFF"
+                              Stretch="Uniform"
+                              Width="12"
+                              Height="12"
+                              Margin="6,0,4,0"
+                              VerticalAlignment="Center"
+                              IsHitTestVisible="False"/>
+                    </TextBox.InnerLeftContent>
+                    <TextBox.InnerRightContent>
+                        <Button Command="{Binding ClearSearchCommand}"
+                                IsVisible="{Binding SearchText, Converter={StaticResource StringNotEmptyToBoolConverter}}"
+                                Background="Transparent"
+                                Margin="0,0,4,0"
+                                Width="18"
+                                Cursor="Hand">
+                            <Button.Template>
+                                <ControlTemplate>
+                                    <Path Data="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+                                          Fill="#AAFFFFFF"
+                                          Stretch="Uniform"
+                                          Width="8"
+                                          Height="8"/>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </TextBox.InnerRightContent>
+                </TextBox>
+
+                <!-- Settings icon -->
+                <Button Height="30"
+                        Width="30"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        ToolTip.Tip="Settings"
+                        Command="{Binding ToggleSettingsCommand}"
+                        Margin="4,0,0,0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <TextBlock Text="⚙" Foreground="#BDBDBD" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,2"/>
+                    </Viewbox>
+                </Button>
+            </StackPanel>
+
+            <!-- count/total info stays centered across first two columns -->
             <TextBlock Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#BDBDBD" FontSize="12">
                 <Run Text="{Binding LoadedMediaItem.Index, FallbackValue=0}" />
                 <Run Text=" of " />
-                <Run Text="{Binding MediaItems.Count, FallbackValue=0}" />
+                <Run Text="{Binding FilteredMediaItems.Count, FallbackValue=0}" />
                 <Run Text=" - " />
                 <Run Text="{Binding TotalDuration, Converter={StaticResource TimeSpanConverter}, FallbackValue=''}" />
             </TextBlock>
 
             <!-- Resize grip dots at bottom-right - triangular (pointing to bottom-right) -->
-            <Canvas Grid.Column="1" HorizontalAlignment="Right" Margin="0,0,0,7" VerticalAlignment="Bottom" Width="24" Height="18" IsHitTestVisible="False">
+            <Canvas Grid.Column="2" HorizontalAlignment="Right" Margin="0,0,0,7" VerticalAlignment="Bottom" Width="24" Height="18" IsHitTestVisible="False">
                 <!-- Top row (single dot, near right) -->
                 <Ellipse Width="3" Height="3" Fill="#BDBDBD" Canvas.Left="16" Canvas.Top="3" />
 
