@@ -489,8 +489,8 @@
                         <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="White" FontSize="12" Margin="6,0,6,0"
                                    Text="{Binding Index, StringFormat='{}{0}.', FallbackValue=''}" />
 
-                        <TextBlock Background="Transparent" Grid.Column="1" Text="{Binding Title}" Foreground="White" FontSize="12" Margin="6,4" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Grid.Column="3" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}}" Foreground="White" FontSize="12" Margin="6,4,10,4" HorizontalAlignment="Right" />
+                        <TextBlock Background="Transparent" Grid.Column="1" Text="{Binding Title}" Foreground="White" FontSize="12" Margin="6,4" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="3" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}}" Foreground="White" FontSize="12" Margin="6,4,10,4" HorizontalAlignment="Left" VerticalAlignment="Center" />
                     </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>
