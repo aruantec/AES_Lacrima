@@ -26,6 +26,22 @@ public interface IMediaInterface
     /// Volume level from 0.0 (mute) to 100.0 (maximum)
     /// </summary>
     double Volume { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether volume changes are applied smoothly.
+    /// </summary>
+    bool SmoothVolumeChange { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether logarithmic volume control is used.
+    /// </summary>
+    bool LogarithmicVolumeControl { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether loudness compensation is applied to volume control.
+    /// </summary>
+    bool LoudnessCompensatedVolume { get; set; }
+
     /// <summary>
     /// Position in seconds
     /// </summary>

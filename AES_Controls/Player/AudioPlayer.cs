@@ -53,8 +53,25 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     private string _eqAf = string.Empty;
     // Preamp gain in dB applied via af=volume filter. Positive values allow >100% loudness.
     private double _preampDb = 0.0;
-    // ReplayGain adjustment (dB) computed per-file from tags or analysis. This is additive to _preampDb
+    /// <summary>
+    /// Master toggle for applying replay gain / loudness normalization at playback.
+    /// </summary>
     private double _replayGainAdjustmentDb = 0.0;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether volume changes are applied smoothly.
+    /// </summary>
+    public bool SmoothVolumeChange { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether logarithmic volume control is used.
+    /// </summary>
+    public bool LogarithmicVolumeControl { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether loudness compensation is applied to volume control.
+    /// </summary>
+    public bool LoudnessCompensatedVolume { get; set; } = true;
 
     // Cache ReplayGain settings in-memory to ensure consistency across track changes
     private ReplayGainOptions? _lastOptions;
@@ -748,7 +765,26 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
                     // Convert dB to linear gain: multiplier = 10^(dB/20)
                     var gain = Math.Pow(10.0, totalPreampDb / 20.0);
-                    var effective = _volume * gain; // _volume is the user-requested 0..100% volume level
+
+                    // Transformation of user-requested 0..100% volume level
+                    var inputVolume = _volume;
+
+                    // Logarithmic mapping: quadratically maps linear input to perceived linear output.
+                    // This creates a more natural-feeling volume curve for human hearing.
+                    if (LogarithmicVolumeControl)
+                    {
+                        inputVolume = Math.Pow(inputVolume / 100.0, 2) * 100.0;
+                    }
+
+                    // Loudness compensation: simple psychoacoustic mapping for low volumes.
+                    // ISO 226-2003 inspired boost to help normalize perceived intensity at lower ranges.
+                    if (LoudnessCompensatedVolume)
+                    {
+                        // Using a 1.5-power mapping for loudness compensation approximation
+                        inputVolume = Math.Pow(inputVolume / 100.0, 1.0 / 1.5) * 100.0;
+                    }
+
+                    var effective = inputVolume * gain; 
 
                     // Apply effective volume to mpv. We set volume-max to 200 during init to allow this boost.
                     const double MaxEffectiveVolume = 200.0;

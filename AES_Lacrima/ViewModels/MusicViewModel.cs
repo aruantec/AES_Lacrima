@@ -148,7 +148,17 @@ namespace AES_Lacrima.ViewModels
             _subscribedAudioPlayer = value;
 
             if (_subscribedAudioPlayer != null)
+            {
                 _subscribedAudioPlayer.PropertyChanged += AudioPlayer_PropertyChanged;
+
+                // Sync initial volume settings from persistsed config
+                if (SettingsViewModel != null)
+                {
+                    _subscribedAudioPlayer.SmoothVolumeChange = SettingsViewModel.SmoothVolumeChange;
+                    _subscribedAudioPlayer.LogarithmicVolumeControl = SettingsViewModel.LogarithmicVolumeControl;
+                    _subscribedAudioPlayer.LoudnessCompensatedVolume = SettingsViewModel.LoudnessCompensatedVolume;
+                }
+            }
 
             OnPropertyChanged(nameof(ShuffleMode));
             OnPropertyChanged(nameof(NextRepeatToolTip));

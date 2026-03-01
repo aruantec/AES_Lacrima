@@ -198,6 +198,24 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private bool _replayGainEnabled = false;
 
     /// <summary>
+    /// Gets or sets a value indicating whether volume changes are applied smoothly.
+    /// </summary>
+    [ObservableProperty]
+    private bool _smoothVolumeChange = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether logarithmic volume control is used.
+    /// </summary>
+    [ObservableProperty]
+    private bool _logarithmicVolumeControl = false;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether loudness compensation is applied to volume control.
+    /// </summary>
+    [ObservableProperty]
+    private bool _loudnessCompensatedVolume = true;
+
+    /// <summary>
     /// When true, analyze files on-the-fly to compute target gain for tracks without tags.
     /// </summary>
     [ObservableProperty]
@@ -694,6 +712,29 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 Log.Warn("OnSettingsPropertyChanged: failed to persist/apply replaygain settings", ex);
             }
         }
+
+        // Apply new volume logic settings immediately
+        if (e.PropertyName == nameof(SmoothVolumeChange) || 
+            e.PropertyName == nameof(LogarithmicVolumeControl) || 
+            e.PropertyName == nameof(LoudnessCompensatedVolume))
+        {
+            try
+            {
+                var mv = DiLocator.ResolveViewModel<MusicViewModel>();
+                if (mv != null && mv.AudioPlayer != null)
+                {
+                    mv.AudioPlayer.SmoothVolumeChange = SmoothVolumeChange;
+                    mv.AudioPlayer.LogarithmicVolumeControl = LogarithmicVolumeControl;
+                    mv.AudioPlayer.LoudnessCompensatedVolume = LoudnessCompensatedVolume;
+                    // Force a re-application of the current volume to trigger the new curve/math
+                    mv.AudioPlayer.Volume = mv.AudioPlayer.Volume;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("OnSettingsPropertyChanged: failed to push volume settings to player", ex);
+            }
+        }
     }
 
     /// <summary>
@@ -802,6 +843,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         // ReplayGain settings
         ReplayGainEnabled = ReadBoolSetting(section, nameof(ReplayGainEnabled), ReplayGainEnabled);
+        SmoothVolumeChange = ReadBoolSetting(section, nameof(SmoothVolumeChange), SmoothVolumeChange);
+        LogarithmicVolumeControl = ReadBoolSetting(section, nameof(LogarithmicVolumeControl), LogarithmicVolumeControl);
+        LoudnessCompensatedVolume = ReadBoolSetting(section, nameof(LoudnessCompensatedVolume), LoudnessCompensatedVolume);
         ReplayGainAnalyzeOnTheFly = ReadBoolSetting(section, nameof(ReplayGainAnalyzeOnTheFly), ReplayGainAnalyzeOnTheFly);
         ReplayGainUseTags = ReadBoolSetting(section, nameof(ReplayGainUseTags), ReplayGainUseTags);
         ReplayGainPreampDb = ReadDoubleSetting(section, nameof(ReplayGainPreampDb), ReplayGainPreampDb);
@@ -848,6 +892,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(CarouselUseFullCoverSize), CarouselUseFullCoverSize);
         // ReplayGain settings
         WriteSetting(section, nameof(ReplayGainEnabled), ReplayGainEnabled);
+        WriteSetting(section, nameof(SmoothVolumeChange), SmoothVolumeChange);
+        WriteSetting(section, nameof(LogarithmicVolumeControl), LogarithmicVolumeControl);
+        WriteSetting(section, nameof(LoudnessCompensatedVolume), LoudnessCompensatedVolume);
         WriteSetting(section, nameof(ReplayGainAnalyzeOnTheFly), ReplayGainAnalyzeOnTheFly);
         WriteSetting(section, nameof(ReplayGainUseTags), ReplayGainUseTags);
         WriteSetting(section, nameof(ReplayGainPreampDb), ReplayGainPreampDb);

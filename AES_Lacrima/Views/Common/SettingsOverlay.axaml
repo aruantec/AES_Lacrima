@@ -141,6 +141,19 @@
                         <!-- ReplayGain / Normalisation -->
                         <TextBlock Margin="0,18,0,8" Text="ReplayGain / Normalization" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
                         <StackPanel Orientation="Vertical" Margin="0,0,0,10">
+                            <!-- Volume processing options -->
+                            <StackPanel Orientation="Horizontal" Spacing="25" Margin="0,4,0,12">
+                                <CheckBox IsChecked="{Binding SmoothVolumeChange, Mode=TwoWay}">
+                                    <TextBlock Text="Smooth volume changing" Foreground="WhiteSmoke" VerticalAlignment="Center"/>
+                                </CheckBox>
+                                <CheckBox IsChecked="{Binding LogarithmicVolumeControl, Mode=TwoWay}">
+                                    <TextBlock Text="Logarithmic volume control" Foreground="WhiteSmoke" VerticalAlignment="Center"/>
+                                </CheckBox>
+                                <CheckBox IsChecked="{Binding LoudnessCompensatedVolume, Mode=TwoWay}">
+                                    <TextBlock Text="Loudness compensated volume control" Foreground="WhiteSmoke" VerticalAlignment="Center"/>
+                                </CheckBox>
+                            </StackPanel>
+
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
                                 <TextBlock Text="Enable ReplayGain" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="16"/>
                                 <ToggleSwitch IsChecked="{Binding ReplayGainEnabled, Mode=TwoWay}"/>

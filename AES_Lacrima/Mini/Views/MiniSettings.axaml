@@ -13,6 +13,19 @@
 			    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="10,12,8,8" Spacing="8" HorizontalAlignment="Left" VerticalAlignment="Top">
                         <StackPanel Orientation="Vertical" Margin="0,6,0,0" Spacing="6">
+                            <!-- Volume processing options -->
+                            <StackPanel Orientation="Vertical" Spacing="4" Margin="0,0,0,10">
+                                <CheckBox IsChecked="{Binding SmoothVolumeChange, Mode=TwoWay}" VerticalAlignment="Center">
+                                    <TextBlock Text="Smooth volume changing" Foreground="WhiteSmoke" VerticalAlignment="Center"/>
+                                </CheckBox>
+                                <CheckBox IsChecked="{Binding LogarithmicVolumeControl, Mode=TwoWay}" VerticalAlignment="Center">
+                                    <TextBlock Text="Logarithmic volume control" Foreground="WhiteSmoke" VerticalAlignment="Center"/>
+                                </CheckBox>
+                                <CheckBox IsChecked="{Binding LoudnessCompensatedVolume, Mode=TwoWay}" VerticalAlignment="Center">
+                                    <TextBlock Text="Loudness compensated volume control" Foreground="WhiteSmoke" VerticalAlignment="Center"/>
+                                </CheckBox>
+                            </StackPanel>
+
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
                                 <TextBlock Text="Enable ReplayGain" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="16"/>
                                 <ToggleSwitch IsChecked="{Binding ReplayGainEnabled, Mode=TwoWay}"/>
