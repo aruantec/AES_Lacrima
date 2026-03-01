@@ -688,8 +688,8 @@
                 </TextBox>
 
                 <!-- Settings icon -->
-                <Button Height="30"
-                        Width="30"
+                <Button Height="26"
+                        Width="26"
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         ToolTip.Tip="Settings"

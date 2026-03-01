@@ -564,6 +564,9 @@ namespace AES_Controls.Helpers
                             if (!string.IsNullOrWhiteSpace(meta.Lyrics))
                                 mi.Lyrics = meta.Lyrics;
 
+                            mi.ReplayGainTrackGain = meta.ReplayGainTrackGain;
+                            mi.ReplayGainAlbumGain = meta.ReplayGainAlbumGain;
+
                             //Load cover from metadata
                             var cover = meta.Images?.FirstOrDefault(x => x.Kind != TagImageKind.Wallpaper);
                             if (cover != null)
@@ -685,6 +688,8 @@ namespace AES_Controls.Helpers
                     Genre = mi.Genre ?? "",
                     Comment = mi.Comment ?? "",
                     Lyrics = mi.Lyrics ?? "",
+                    ReplayGainTrackGain = mi.ReplayGainTrackGain,
+                    ReplayGainAlbumGain = mi.ReplayGainAlbumGain,
                     Images = []
                 };
 

@@ -63,8 +63,13 @@ namespace AES_Lacrima.Behaviors
             {
                 try
                 {
-                    var h = AssociatedObject.Bounds.Height;
-                    _savedHeight = h > 0 ? h : DefaultHeight;
+                    // Prioritize existing MaxHeight from XAML if it's a valid finite non-zero number.
+                    // Otherwise fallback to measured height or DefaultHeight.
+                    var h = AssociatedObject.MaxHeight;
+                    if (!double.IsNaN(h) && !double.IsInfinity(h) && h > 0)
+                        _savedHeight = h;
+                    else
+                        _savedHeight = AssociatedObject.Bounds.Height > 0 ? AssociatedObject.Bounds.Height : DefaultHeight;
                 }
                 catch { _savedHeight = DefaultHeight; }
 

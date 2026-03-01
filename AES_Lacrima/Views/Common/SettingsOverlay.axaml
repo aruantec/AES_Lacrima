@@ -142,7 +142,7 @@
                         <TextBlock Margin="0,18,0,8" Text="ReplayGain / Normalization" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
                         <StackPanel Orientation="Vertical" Margin="0,0,0,10">
                             <!-- Volume processing options -->
-                            <StackPanel Orientation="Horizontal" Spacing="25" Margin="0,4,0,12">
+                            <StackPanel Orientation="Vertical" Spacing="6" Margin="0,4,0,12">
                                 <CheckBox IsChecked="{Binding SmoothVolumeChange, Mode=TwoWay}">
                                     <TextBlock Text="Smooth volume changing" Foreground="WhiteSmoke" VerticalAlignment="Center"/>
                                 </CheckBox>

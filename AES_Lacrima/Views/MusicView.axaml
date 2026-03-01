@@ -668,14 +668,14 @@
         </Grid>
 
 		<!-- Menu-->
-		<navigation:MusicListView Grid.Row="3">
+		<navigation:MusicListView Grid.Row="3" Opacity="{Binding !IsAlbumlistOpen, Converter={StaticResource BoolToOpacityConverter}}">
 			<Interaction.Behaviors>
 				<behaviors:MaxHeightToggleBehavior IsOpen="{Binding IsAlbumlistOpen}" />
 			</Interaction.Behaviors>
 			<navigation:MusicListView.Transitions>
 				<Transitions>
-					<DoubleTransition Property="MaxHeight" Duration="0:0:0.62" Easing="CubicEaseOut"/>
-					<DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+					<DoubleTransition Property="MaxHeight" Duration="0:0:0.55" Easing="CubicEaseInOut"/>
+					<DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseInOut"/>
 				</Transitions>
 			</navigation:MusicListView.Transitions>
 		</navigation:MusicListView>

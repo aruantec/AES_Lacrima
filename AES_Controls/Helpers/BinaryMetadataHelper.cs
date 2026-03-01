@@ -27,6 +27,10 @@ public class CustomMetadata
     public string Genre { get; set; } = "";
     /// <summary>Gets or sets a general comment or description.</summary>
     public string Comment { get; set; } = "";
+    /// <summary>Gets or sets the ReplayGain track gain in dB.</summary>
+    public double ReplayGainTrackGain { get; set; }
+    /// <summary>Gets or sets the ReplayGain album gain in dB.</summary>
+    public double ReplayGainAlbumGain { get; set; }
     /// <summary>Gets or sets the list of associated images.</summary>
     public List<ImageData> Images { get; set; } = [];
     /// <summary>Gets or sets the list of associated video data.</summary>

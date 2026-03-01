@@ -688,6 +688,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             try
             {
+                // Ensure settings are persisted to disk immediately to stay in sync
+                SaveSettings();
+
                 // Use current in-memory settings and ask the player's audio engine to recompute
                 var mv = DiLocator.ResolveViewModel<MusicViewModel>();
                 if (mv != null && mv.AudioPlayer != null)
@@ -720,6 +723,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             try
             {
+                // Persist immediately
+                SaveSettings();
+
                 var mv = DiLocator.ResolveViewModel<MusicViewModel>();
                 if (mv != null && mv.AudioPlayer != null)
                 {

@@ -157,6 +157,15 @@ namespace AES_Lacrima.ViewModels
                     _subscribedAudioPlayer.SmoothVolumeChange = SettingsViewModel.SmoothVolumeChange;
                     _subscribedAudioPlayer.LogarithmicVolumeControl = SettingsViewModel.LogarithmicVolumeControl;
                     _subscribedAudioPlayer.LoudnessCompensatedVolume = SettingsViewModel.LoudnessCompensatedVolume;
+
+                    // Sync initial ReplayGain options directly to player's memory cache
+                    _ = _subscribedAudioPlayer.RecomputeReplayGainForCurrentAsync(
+                        SettingsViewModel.ReplayGainEnabled,
+                        SettingsViewModel.ReplayGainUseTags,
+                        SettingsViewModel.ReplayGainAnalyzeOnTheFly,
+                        SettingsViewModel.ReplayGainPreampDb,
+                        SettingsViewModel.ReplayGainTagsPreampDb,
+                        SettingsViewModel.ReplayGainTagSource);
                 }
 
                 // Initialize taskbar progress

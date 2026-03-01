@@ -44,6 +44,8 @@ namespace AES_Lacrima.Services
         [ObservableProperty] private string? _genres;
         [ObservableProperty] private string? _comment;
         [ObservableProperty] private string? _lyrics;
+        [ObservableProperty] private double _replayGainTrackGain;
+        [ObservableProperty] private double _replayGainAlbumGain;
         [ObservableProperty] private TagImageKind _selectedImageKind;
 
         [ObservableProperty]
@@ -97,6 +99,8 @@ namespace AES_Lacrima.Services
                         Lyrics = metadata.Lyrics;
                         Genres = metadata.Genre;
                         Comment = metadata.Comment;
+                        ReplayGainTrackGain = metadata.ReplayGainTrackGain;
+                        ReplayGainAlbumGain = metadata.ReplayGainAlbumGain;
                         IsOnlineMedia = true;
 
                         // Clear images and dispose
@@ -206,6 +210,8 @@ namespace AES_Lacrima.Services
                             Lyrics = Lyrics!,
                             Genre = Genres!,
                             Comment = Comment!,
+                            ReplayGainTrackGain = ReplayGainTrackGain,
+                            ReplayGainAlbumGain = ReplayGainAlbumGain,
                             Images = [.. Images.Select(img => new ImageData
                             {
                                 Data = img.Data,
@@ -352,6 +358,8 @@ namespace AES_Lacrima.Services
             _currentSelectedMedia!.Lyrics = Lyrics;
             _currentSelectedMedia!.Genre = Genres;
             _currentSelectedMedia!.Comment = Comment;
+            _currentSelectedMedia!.ReplayGainTrackGain = ReplayGainTrackGain;
+            _currentSelectedMedia!.ReplayGainAlbumGain = ReplayGainAlbumGain;
         }
 
         [RelayCommand]

@@ -110,6 +110,24 @@ public partial class MediaItem : ObservableObject, IDisposable
         set => SetProperty(ref _comment, value);
     }
 
+    private double _replayGainTrackGain;
+
+    [JsonPropertyName("ReplayGainTrackGain")]
+    public double ReplayGainTrackGain
+    {
+        get => _replayGainTrackGain;
+        set => SetProperty(ref _replayGainTrackGain, value);
+    }
+
+    private double _replayGainAlbumGain;
+
+    [JsonPropertyName("ReplayGainAlbumGain")]
+    public double ReplayGainAlbumGain
+    {
+        get => _replayGainAlbumGain;
+        set => SetProperty(ref _replayGainAlbumGain, value);
+    }
+
     private string? _localCoverPath;
 
     [JsonPropertyName("LocalCoverPath")]
