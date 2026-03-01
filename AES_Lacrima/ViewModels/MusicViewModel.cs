@@ -158,6 +158,17 @@ namespace AES_Lacrima.ViewModels
                     _subscribedAudioPlayer.LogarithmicVolumeControl = SettingsViewModel.LogarithmicVolumeControl;
                     _subscribedAudioPlayer.LoudnessCompensatedVolume = SettingsViewModel.LoudnessCompensatedVolume;
                 }
+
+                // Initialize taskbar progress
+                if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+                {
+                    if (_subscribedAudioPlayer.IsPlaying)
+                        TaskbarProgressHelper.SetProgressState(TaskbarProgressBarState.Normal);
+                    else if (_subscribedAudioPlayer.Position > 0)
+                        TaskbarProgressHelper.SetProgressState(TaskbarProgressBarState.Paused);
+
+                    TaskbarProgressHelper.SetProgressValue(_subscribedAudioPlayer.Position, _subscribedAudioPlayer.Duration);
+                }
             }
 
             OnPropertyChanged(nameof(ShuffleMode));
@@ -170,6 +181,31 @@ namespace AES_Lacrima.ViewModels
             {
                 OnPropertyChanged(nameof(ShuffleMode));
                 OnPropertyChanged(nameof(NextRepeatToolTip));
+            }
+
+            // Sync taskbar progress indicator on Windows
+            if (AudioPlayer != null && System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+            {
+                if (e.PropertyName == nameof(AudioPlayer.Position) || e.PropertyName == nameof(AudioPlayer.Duration))
+                {
+                    TaskbarProgressHelper.SetProgressValue(AudioPlayer.Position, AudioPlayer.Duration);
+                }
+                else if (e.PropertyName == nameof(AudioPlayer.IsPlaying))
+                {
+                    if (AudioPlayer.IsPlaying)
+                        TaskbarProgressHelper.SetProgressState(TaskbarProgressBarState.Normal);
+                    else if (AudioPlayer.Position > 0 && AudioPlayer.Position < AudioPlayer.Duration - 1.5)
+                        TaskbarProgressHelper.SetProgressState(TaskbarProgressBarState.Paused);
+                    else
+                        TaskbarProgressHelper.SetProgressState(TaskbarProgressBarState.NoProgress);
+                }
+                else if (e.PropertyName == nameof(AudioPlayer.IsBuffering))
+                {
+                    if (AudioPlayer.IsBuffering)
+                        TaskbarProgressHelper.SetProgressState(TaskbarProgressBarState.Indeterminate);
+                    else
+                        TaskbarProgressHelper.SetProgressState(AudioPlayer.IsPlaying ? TaskbarProgressBarState.Normal : TaskbarProgressBarState.Paused);
+                }
             }
         }
 
