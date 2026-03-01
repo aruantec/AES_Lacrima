@@ -56,6 +56,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     // ReplayGain adjustment (dB) computed per-file from tags or analysis. This is additive to _preampDb
     private double _replayGainAdjustmentDb = 0.0;
 
+    // Cache ReplayGain settings in-memory to ensure consistency across track changes
+    private ReplayGainOptions? _lastOptions;
+
     // Track the active ffmpeg process to prevent resource exhaustion on macOS
     private Process? _activeFfmpegProcess;
 
@@ -156,8 +159,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// <summary>
     /// Compute replaygain for the provided file path and apply the adjustment
     /// (in dB) so it's included in the combined preamp. If <paramref name="options"/>
-    /// is null the method will read persisted settings from Settings.json; otherwise
-    /// it will use provided options (avoids file locks and allows direct in-memory updates).
+    /// is null the method will use the last known options or try to read from Settings.json.
     /// Attempts tag-based gain first, then optional ffmpeg volumedetect analysis.
     /// </summary>
     private async Task ApplyReplayGainForFileAsync(string path, MediaItem? item, ReplayGainOptions? options = null)
@@ -166,33 +168,21 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         {
             _replayGainAdjustmentDb = 0.0;
 
-            // Decide which settings to use: provided options or persisted file
-            bool enabled;
-            bool useTags;
-            bool analyze;
-            double preampAnalyze;
-            double preampTags;
-            int tagSource;
-
+            // Prioritize provided options, then cached options, then disk reading
             if (options != null)
             {
-                enabled = options.Enabled;
-                useTags = options.UseTags;
-                analyze = options.Analyze;
-                preampAnalyze = options.PreampAnalyze;
-                preampTags = options.PreampTags;
-                tagSource = options.TagSource;
+                _lastOptions = options;
             }
-            else
+            else if (_lastOptions == null)
             {
-                // Read persisted settings from Settings/Settings.json if available
+                // Try reading from disk for the first time
                 var settingsPath = Path.Combine(AppContext.BaseDirectory, "Settings", "Settings.json");
-                enabled = false;
-                useTags = true;
-                analyze = true;
-                preampAnalyze = 0.0;
-                preampTags = 0.0;
-                tagSource = 1; // 0=Track,1=Album
+                bool enabled = false;
+                bool useTags = true;
+                bool analyze = true;
+                double preampAnalyze = 0.0;
+                double preampTags = 0.0;
+                int tagSource = 1;
 
                 try
                 {
@@ -215,13 +205,28 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                     }
                 }
                 catch (Exception ex) { Log.Debug("Failed to read settings.json for replaygain", ex); }
+
+                _lastOptions = new ReplayGainOptions(enabled, useTags, analyze, preampAnalyze, preampTags, tagSource);
             }
 
-            if (!enabled) { UpdateAf(); return; }
+            // Destructuring cached options for actual processing
+            bool enabledFinal = _lastOptions.Enabled;
+            bool useTagsFinal = _lastOptions.UseTags;
+            bool analyzeFinal = _lastOptions.Analyze;
+            double preampAnalyzeFinal = _lastOptions.PreampAnalyze;
+            double preampTagsFinal = _lastOptions.PreampTags;
+            int tagSourceFinal = _lastOptions.TagSource;
+
+            if (!enabledFinal)
+            {
+                _replayGainAdjustmentDb = 0.0;
+                UpdateAf();
+                return;
+            }
 
             double? tagGainDb = null;
 
-            if (useTags)
+            if (useTagsFinal)
             {
                 try
                 {
@@ -229,13 +234,17 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                     var xiph = f.GetTag(TagLib.TagTypes.Xiph, false) as TagLib.Ogg.XiphComment;
                     if (xiph != null)
                     {
-                        if (xiph.GetField("replaygain_track_gain") is string[] arr && arr.Length > 0)
-                            if (double.TryParse(StripDb(arr[0]), NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) tagGainDb = v;
-
-                        if (tagGainDb == null && tagSource == 1)
+                        // Prioritize Album gain if selected in settings
+                        if (tagSourceFinal == 1) // Album
                         {
-                            if (xiph.GetField("replaygain_album_gain") is string[] aa && aa.Length > 0)
+                            if (xiph.GetField("REPLAYGAIN_ALBUM_GAIN") is string[] aa && aa.Length > 0)
                                 if (double.TryParse(StripDb(aa[0]), NumberStyles.Float, CultureInfo.InvariantCulture, out var av)) tagGainDb = av;
+                        }
+
+                        if (tagGainDb == null) // Fallback to Track gain
+                        {
+                            if (xiph.GetField("REPLAYGAIN_TRACK_GAIN") is string[] arr && arr.Length > 0)
+                                if (double.TryParse(StripDb(arr[0]), NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) tagGainDb = v;
                         }
                     }
 
@@ -244,17 +253,17 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                         var id3 = f.GetTag(TagLib.TagTypes.Id3v2, false) as TagLib.Id3v2.Tag;
                         if (id3 != null)
                         {
-                            try
+                            if (tagSourceFinal == 1) // Album
+                            {
+                                var albFrm = TagLib.Id3v2.UserTextInformationFrame.Get(id3, "REPLAYGAIN_ALBUM_GAIN", false);
+                                if (albFrm != null && albFrm.Text?.Length > 0 && double.TryParse(StripDb(albFrm.Text[0]), NumberStyles.Float, CultureInfo.InvariantCulture, out var v3)) tagGainDb = v3;
+                            }
+
+                            if (tagGainDb == null) // Fallback to Track gain
                             {
                                 var frm = TagLib.Id3v2.UserTextInformationFrame.Get(id3, "REPLAYGAIN_TRACK_GAIN", false);
                                 if (frm != null && frm.Text?.Length > 0 && double.TryParse(StripDb(frm.Text[0]), NumberStyles.Float, CultureInfo.InvariantCulture, out var v2)) tagGainDb = v2;
-                                if (tagGainDb == null && tagSource == 1)
-                                {
-                                    var albFrm = TagLib.Id3v2.UserTextInformationFrame.Get(id3, "REPLAYGAIN_ALBUM_GAIN", false);
-                                    if (albFrm != null && albFrm.Text?.Length > 0 && double.TryParse(StripDb(albFrm.Text[0]), NumberStyles.Float, CultureInfo.InvariantCulture, out var v3)) tagGainDb = v3;
-                                }
                             }
-                            catch { }
                         }
                     }
                 }
@@ -263,27 +272,29 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
             if (tagGainDb.HasValue)
             {
-                var rawAdj = tagGainDb.Value + preampTags;
+                var rawAdj = tagGainDb.Value + preampTagsFinal;
                 // Clamp per-file adjustment to a safe range to avoid excessive positive boost
                 const double MaxReplayGainDb = 8.0;
                 const double MinReplayGainDb = -18.0;
                 if (rawAdj > MaxReplayGainDb) rawAdj = MaxReplayGainDb;
                 if (rawAdj < MinReplayGainDb) rawAdj = MinReplayGainDb;
                 _replayGainAdjustmentDb = rawAdj;
-                Log.Info($"ReplayGain: tag={tagGainDb.Value:0.##} dB, tagsPreamp={preampTags:0.##} dB, appliedAdjustment={_replayGainAdjustmentDb:0.##} dB");
+                Log.Info($"ReplayGain: tag={tagGainDb.Value:0.##} dB, preamp={preampTagsFinal:0.##} dB, adjustment={_replayGainAdjustmentDb:0.##} dB");
                 UpdateAf();
                 return;
             }
 
             // No tags found; optionally analyze on-the-fly using ffmpeg volumedetect
-            if (analyze && _ffmpegManager != null)
+            if (analyzeFinal && _ffmpegManager != null)
             {
                 try
                 {
                     if (Uri.TryCreate(path, UriKind.Absolute, out var uri) && !uri.IsFile) { /* skip remote */ UpdateAf(); return; }
                     var ffmpeg = FFmpegLocator.FindFFmpegPath();
                     if (string.IsNullOrEmpty(ffmpeg)) { UpdateAf(); return; }
-                    var args = $"-hide_banner -nostats -i \"{path}\" -af volumedetect -f null -";
+
+                    // PERFORMANCE: Analyze first 60s for estimate
+                    var args = $"-hide_banner -nostats -i \"{path}\" -t 60 -af volumedetect -f null -";
                     var psi = new ProcessStartInfo(ffmpeg, args) { RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
                     using var proc = Process.Start(psi);
                     if (proc != null)
@@ -293,14 +304,16 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                         var m = System.Text.RegularExpressions.Regex.Match(stderr, @"mean_volume:\s*(-?[0-9]+\.?[0-9]*)\s*dB", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                         if (m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var mean))
                         {
-                            var gainNeeded = -mean + preampAnalyze;
-                            // Clamp analysis-derived adjustment to avoid extreme boosts
+                            // Target -18 dBFS reference
+                            const double ReferenceLevel = -18.0;
+                            var gainNeeded = ReferenceLevel - mean + preampAnalyzeFinal;
+
                             const double MaxAnalyzedDb = 8.0;
                             const double MinAnalyzedDb = -18.0;
                             if (gainNeeded > MaxAnalyzedDb) gainNeeded = MaxAnalyzedDb;
                             if (gainNeeded < MinAnalyzedDb) gainNeeded = MinAnalyzedDb;
                             _replayGainAdjustmentDb = gainNeeded;
-                            Log.Info($"ReplayGain: analyzed mean={mean:0.##} dB, preampAnalyze={preampAnalyze:0.##} dB, appliedAdjustment={_replayGainAdjustmentDb:0.##} dB");
+                            Log.Info($"ReplayGain: analyzed={mean:0.##} dB, target={ReferenceLevel} dB, adjustment={_replayGainAdjustmentDb:0.##} dB");
                             UpdateAf();
                             return;
                         }
@@ -385,17 +398,15 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// </summary>
     public double Volume
     {
-        get => (_initTcs.Task.IsCompleted && !_disposed) ? InvokeOnMpvThread(() => GetPropertyDouble("volume")) : _volume;
+        get => _volume;
         set
         {
+            if (Math.Abs(_volume - value) < 0.001) return;
             _volume = value;
-            if (_initTcs.Task.IsCompleted && !_disposed)
-            {
-                InvokeOnMpvThread(() => { SetProperty("volume", value); return true; });
-            }
+            UpdateAf();
             OnPropertyChanged(nameof(Volume));
         }
-        }
+    }
 
     /// <summary>
     /// Preamp gain in decibels. Applied via the mpv/ffmpeg volume audio-filter (e.g. +6dB).
@@ -656,9 +667,11 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
             SetProperty("keep-open", "always");
             SetProperty("cache", "yes");
+            SetProperty("replaygain", "no"); // Disable internal mpv replaygain as we apply it manually
             SetProperty("demuxer-max-bytes", $"{CacheSize}M");
             SetProperty("demuxer-readahead-secs", "10");
             SetProperty("volume", _volume);
+            SetProperty("volume-max", 200);
             SetProperty("loop-file", RepeatMode == RepeatMode.One ? "yes" : "no");
             SetProperty("demuxer-max-bytes", $"{CacheSize}M");
 
@@ -681,8 +694,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     }
 
     /// <summary>
-    /// Combines stored equalizer filters and the current balance/pan filter and
-    /// updates the mpv "af" property accordingly.
+    /// Updates the mpv "af" property with the equalizer chain. 
+    /// Preamp, ReplayGain and Balance are applied via native properties for better stability.
     /// </summary>
     private void UpdateAf()
     {
@@ -690,41 +703,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         {
             if (!(_initTcs.Task.IsCompleted) || _disposed) return;
 
-            var parts = new List<string>();
-
-            // Preamp (dB) — apply first so equalizer works on amplified signal if desired
-            // Combine user preamp with per-file replaygain adjustment
-            var totalPreampDb = _preampDb + _replayGainAdjustmentDb;
-            // Clamp total preamp to avoid insane boosts causing clipping. Allow moderate positive boost.
-            const double MaxTotalPreampDb = 12.0;
-            const double MinTotalPreampDb = -24.0;
-            if (totalPreampDb > MaxTotalPreampDb) totalPreampDb = MaxTotalPreampDb;
-            if (totalPreampDb < MinTotalPreampDb) totalPreampDb = MinTotalPreampDb;
-            if (Math.Abs(totalPreampDb) > 0.00001)
-            {
-                var dbStr = totalPreampDb >= 0 ? $"+{totalPreampDb.ToString(CultureInfo.InvariantCulture)}dB" : $"{totalPreampDb.ToString(CultureInfo.InvariantCulture)}dB";
-                parts.Add($"volume={dbStr}");
-            }
-
-            if (!string.IsNullOrEmpty(_eqAf)) parts.Add(_eqAf);
-
-            // Compute simple linear channel gains from balance value (-1..1)
-            // left = 1 - max(0, b) ; right = 1 - max(0, -b)
-            double b = _balance;
-            double left = 1.0 - Math.Max(0.0, b);
-            double right = 1.0 - Math.Max(0.0, -b);
-
-            // Format using invariant culture
-            var leftStr = left.ToString(CultureInfo.InvariantCulture);
-            var rightStr = right.ToString(CultureInfo.InvariantCulture);
-
-            var pan = $"pan=stereo|c0={leftStr}*c0|c1={rightStr}*c1";
-            parts.Add(pan);
-
-            // For stability: only apply the equalizer portion via the af property.
-            // Historically SetProperty("af", <equalizer-filters>) worked. Adding
-            // complex pan/volume expressions to the same string appears to trigger
-            // native errors in some mpv builds (observed after adding balance/preamp).
+            // 1. Equalizer is applied via the 'af' property. We keep this minimal for stability.
+            // Complex audio-filter strings (like pan or volume) can cause native crashes in some mpv builds.
             var eqOnly = string.IsNullOrEmpty(_eqAf) ? string.Empty : _eqAf;
 
             if (_initTcs.Task.IsCompleted && !_disposed)
@@ -735,34 +715,56 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                 }
                 catch (Exception ex)
                 {
-                    Log.Warn("Failed to set af equalizer portion on MPV thread", ex);
+                    Log.Warn("Failed to set AF equalizer on MPV thread", ex);
                 }
             }
 
-            // Also apply preamp by adjusting the mpv 'volume' property multiplicatively
+            // 2. Stereo balance is applied using mpv's native 'balance' property.
             try
             {
                 if (_initTcs.Task.IsCompleted && !_disposed)
                 {
-                    // Convert combined preamp (+replaygain) dB to linear gain
-                    var gain = Math.Pow(10.0, ( _preampDb + _replayGainAdjustmentDb) / 20.0);
-                    var effective = _volume * gain; // _volume is 0..100
-                    // Clamp to a reasonable maximum to avoid insane values and clipping.
-                    // Keep a safety cap to reduce cracking when users accidentally set large preamp values.
-                    // Keep effective volume at or below 100% to avoid driving the output into clipping
-                    const double MaxEffectiveVolume = 100.0; // percent
+                    InvokeOnMpvThread(() => { SetProperty("balance", _balance); return true; });
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Failed to set balance property on MPV thread", ex);
+            }
+
+            // 3. Preamp and ReplayGain are applied by adjusting the mpv 'volume' property multiplicatively.
+            try
+            {
+                if (_initTcs.Task.IsCompleted && !_disposed)
+                {
+                    // Combine global user preamp with per-file ReplayGain adjustment
+                    var totalPreampDb = _preampDb + _replayGainAdjustmentDb;
+
+                    // Clamp total preamp to avoid extreme boost causing digital clipping.
+                    const double MaxTotalPreampDb = 15.0; 
+                    const double MinTotalPreampDb = -40.0;
+                    if (totalPreampDb > MaxTotalPreampDb) totalPreampDb = MaxTotalPreampDb;
+                    if (totalPreampDb < MinTotalPreampDb) totalPreampDb = MinTotalPreampDb;
+
+                    // Convert dB to linear gain: multiplier = 10^(dB/20)
+                    var gain = Math.Pow(10.0, totalPreampDb / 20.0);
+                    var effective = _volume * gain; // _volume is the user-requested 0..100% volume level
+
+                    // Apply effective volume to mpv. We set volume-max to 200 during init to allow this boost.
+                    const double MaxEffectiveVolume = 200.0;
                     if (effective < 0) effective = 0;
                     if (effective > MaxEffectiveVolume)
                     {
-                        Log.Warn($"Effective volume {effective:0.##}% exceeded max {MaxEffectiveVolume}%. Clamping to avoid clipping.");
+                        Log.Warn($"Effective volume {effective:0.##}% exceeded max {MaxEffectiveVolume}%. Clamping.");
                         effective = MaxEffectiveVolume;
                     }
+
                     InvokeOnMpvThread(() => { SetProperty("volume", effective); return true; });
                 }
             }
             catch (Exception ex)
             {
-                Log.Warn("Failed to apply preamp volume via SetProperty on MPV thread", ex);
+                Log.Warn("Failed to apply volume/preamp on MPV thread", ex);
             }
         }
         catch (Exception ex)
@@ -977,6 +979,10 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         IsLoadingMedia = true;
         OnPropertyChanged(nameof(IsLoadingMedia));
         _loadedFile = fileToPlay;
+
+        // Reset per-file gain synchronously to ensure the initial UpdateAf call doesn't use stale metadata
+        _replayGainAdjustmentDb = 0.0;
+
         // Compute and apply replaygain/preamp adjustments before starting playback
         _ = Task.Run(async () =>
         {
@@ -1003,6 +1009,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
         _syncContext?.Post(_ => { Waveform.Clear(); Spectrum.Clear(); Position = 0; }, null);
         InvokeOnMpvThread(() => { ExecuteCommandAsync(new[] { "loadfile", fileToPlay }).GetAwaiter().GetResult(); return true; });
+        // Re-apply audio filters/volume after load in case mpv reset properties during load
+        try { UpdateAf(); } catch (Exception ex) { Log.Warn("Failed to reapply AF after loadfile", ex); }
         Play();
     }
 
@@ -1187,10 +1195,12 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// <param name="bands">Collection of band models describing frequency/gain.</param>
     public void SetEqualizerBands(AvaloniaList<BandModel> bands)
     {
+        // PERFORMANCE: Only add bands that have a non-neutral gain value to simplify the AF chain.
         var filters = bands
+            .Where(b => Math.Abs(b.Gain) > 0.01)
             .Select(b => $"equalizer=f={b.NumericFrequency.ToString(CultureInfo.InvariantCulture)}:width_type=o:w=1:g={b.Gain.ToString(CultureInfo.InvariantCulture)}")
             .ToList();
-        // Store the equalizer portion and update the combined "af" chain which includes balance/pan
+        // Store the equalizer portion and update the combined AF state
         _eqAf = filters.Any() ? string.Join(",", filters) : string.Empty;
         UpdateAf();
     }

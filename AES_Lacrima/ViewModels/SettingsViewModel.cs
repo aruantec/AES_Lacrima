@@ -681,19 +681,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                     var preampTags = ReplayGainTagsPreampDb;
                     var tagSource = ReplayGainTagSource;
 
-                    // Immediately set the player's user preamp to reflect the slider so the
-                    // user perceives an instant volume change. Choose the tags preamp when
-                    // tags are used, otherwise use the analysis preamp value.
-                    try
-                    {
-                        var currentPreamp = useTags ? preampTags : preampAnalyze;
-                        mv.AudioPlayer.PreampDb = currentPreamp;
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Warn("Failed to apply PreampDb to AudioPlayer", ex);
-                    }
-
                     // Fire-and-forget the recompute to avoid blocking the UI
                     _ = Task.Run(async () =>
                     {
