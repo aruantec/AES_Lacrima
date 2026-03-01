@@ -13,7 +13,7 @@ namespace AES_Lacrima.Converters
             {
                 return solidColorBrush.Color;
             }
-            return Colors.Transparent; // Or a default color
+            return Avalonia.Media.Colors.Transparent; // Or a default color
         }
 
         public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -26,5 +26,3 @@ namespace AES_Lacrima.Converters
         }
     }
 }
-
-

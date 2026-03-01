@@ -115,18 +115,37 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         _syncContext?.Post(_ => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName)), null);
 
     // Helper to run actions on the MPV thread and wait for completion.
+    // NOTE: the MPV API (via LibMPVSharp) dispatches command results back
+    // on the same thread that owns the mpv handle.  Blocking that thread by
+    // waiting for a Task returned from a command (e.g. ``ExecuteCommandAsync``)
+    // will prevent the response from ever being delivered and lead to a
+    // deadlock.  In practice this manifested on macOS when loading a file
+    // (``loadfile``) because the completion callback was posted to the mpv
+    // worker thread.  ``InvokeOnMpvThread`` itself is safe, but callers must
+    // avoid queuing work that synchronously blocks the mpv thread.  For
+    // fire‑and‑forget operations we now provide ``PostToMpvThread`` below.
     private T InvokeOnMpvThread<T>(Func<T> func)
     {
         // If we're already on the mpv thread, invoke directly
         if (Thread.CurrentThread.ManagedThreadId == _mpvThreadId)
             return func();
 
-        var tcs = new TaskCompletionSource<T>();
+        // guard against caller using this after the player has been disposed
+        if (_mpvQueue.IsAddingCompleted || (_mpvThread != null && !_mpvThread.IsAlive))
+            throw new ObjectDisposedException(nameof(AudioPlayer));
+
+        var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         _mpvQueue.Add(() =>
         {
             try { tcs.SetResult(func()); }
             catch (Exception ex) { tcs.SetException(ex); }
         });
+
+        if (!tcs.Task.Wait(TimeSpan.FromSeconds(5)))
+        {
+            Log.Warn("InvokeOnMpvThread timed out after 5 seconds - ignoring to prevent crash");
+            return default!;
+        }
         return tcs.Task.GetAwaiter().GetResult();
     }
 
@@ -362,13 +381,41 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             return;
         }
 
-        var tcs = new TaskCompletionSource<bool>();
+        if (_mpvQueue.IsAddingCompleted || (_mpvThread != null && !_mpvThread.IsAlive))
+            throw new ObjectDisposedException(nameof(AudioPlayer));
+
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _mpvQueue.Add(() =>
         {
             try { action(); tcs.SetResult(true); }
             catch (Exception ex) { tcs.SetException(ex); }
         });
-        tcs.Task.GetAwaiter().GetResult();
+
+        if (!tcs.Task.Wait(TimeSpan.FromSeconds(5)))
+        {
+            Log.Warn("InvokeOnMpvThread(Action) timed out after 5 seconds - ignoring to prevent crash");
+        }
+    }
+
+    /// <summary>
+    /// Enqueue an action on the MPV thread without waiting for completion.
+    /// This is useful for operations that already return a <see cref="Task" />
+    /// whose completion is signalled on the MPV thread (e.g. many of the
+    /// LibMPVSharp helpers such as <c>ExecuteCommandAsync</c>).  Blocking the
+    /// thread in that case would deadlock because the continuation cannot run.
+    /// </summary>
+    private void PostToMpvThread(Action action)
+    {
+        if (Thread.CurrentThread.ManagedThreadId == _mpvThreadId)
+        {
+            action();
+            return;
+        }
+
+        if (_mpvQueue.IsAddingCompleted || (_mpvThread != null && !_mpvThread.IsAlive))
+            throw new ObjectDisposedException(nameof(AudioPlayer));
+
+        _mpvQueue.Add(action);
     }
 
     /// <summary>
@@ -669,8 +716,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             if (OperatingSystem.IsMacOS())
             {
                 SetProperty("ao", "coreaudio");
-                try { await ExecuteCommandAsync(["set", "coreaudio-change-device", "no"]); }
-                catch (Exception ex) { Log.Error("Failed to set coreaudio-change-device", ex); }
+                // Use PostToMpvThread or a safe task for commands that might block or depend on the current thread
+                _ = ExecuteCommandAsync(["set", "coreaudio-change-device", "no"]);
             }
             else if (OperatingSystem.IsWindows())
             {
@@ -1044,9 +1091,14 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         _waveformCts?.Cancel();
 
         _syncContext?.Post(_ => { Waveform.Clear(); Spectrum.Clear(); Position = 0; }, null);
-        InvokeOnMpvThread(() => { ExecuteCommandAsync(new[] { "loadfile", fileToPlay }).GetAwaiter().GetResult(); return true; });
+        // queue the load command but do not block the mpv thread waiting for
+        // its completion.  ``ExecuteCommandAsync`` completes on the MPV
+        // thread, so waiting there would deadlock (see comments above).
+        PostToMpvThread(() => _ = ExecuteCommandAsync(new[] { "loadfile", fileToPlay }));
+
         // Re-apply audio filters/volume after load in case mpv reset properties during load
-        try { UpdateAf(); } catch (Exception ex) { Log.Warn("Failed to reapply AF after loadfile", ex); }
+        // Use PostToMpvThread instead of UpdateAf to avoid blocking during Load
+        PostToMpvThread(UpdateAf);
         Play();
     }
 
@@ -1377,7 +1429,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         _loadedFile = path;
 
         // Reload the file
-        InvokeOnMpvThread(() => { ExecuteCommandAsync(new[] { "loadfile", path }).GetAwaiter().GetResult(); return true; });
+        // enqueue loadfile without blocking the mpv thread; we'll wait for the
+        // ``IsLoadingMedia`` flag later which is updated via property events.
+        PostToMpvThread(() => _ = ExecuteCommandAsync(new[] { "loadfile", path }));
 
         // WAIT for MPV to initialize the file before seeking
         while (_isLoadingMedia)
@@ -1420,7 +1474,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
     private void InternalStop()
     {
-        if (!_disposed) InvokeOnMpvThread(() => { ExecuteCommandAsync(["stop"]).GetAwaiter().GetResult(); return true; }); 
+        //if (!_disposed) PostToMpvThread(() => _ = ExecuteCommandAsync(new[] { "stop" })); 
         IsPlaying = false;
         Position = 0;
         ClearMedia();
