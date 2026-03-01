@@ -781,7 +781,7 @@ namespace AES_Lacrima.ViewModels
             var mpvManager = DiLocator.ResolveViewModel<MpvLibraryManager>();
 
             AudioPlayer = new AudioPlayer(ffmpegManager, mpvManager);
-
+            AudioPlayer.AutoSkipTrailingSilence = true;
             // Re-subscribe to events
             AudioPlayer.PropertyChanged += AudioPlayer_PropertyChanged;
             AudioPlayer.EndReached += async (_, _) => await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(PlayNext);

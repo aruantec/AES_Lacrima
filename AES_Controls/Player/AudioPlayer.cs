@@ -58,6 +58,10 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// </summary>
     private double _replayGainAdjustmentDb = 0.0;
 
+    // trailing silence computed from waveform (seconds)
+    private double _trailingSilenceSeconds;
+    private bool _silenceAdvanceFired;
+
     /// <summary>
     /// Gets or sets a value indicating whether volume changes are applied smoothly.
     /// </summary>
@@ -434,6 +438,32 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     public bool EnableWaveform { get; set; } = true;
 
     /// <summary>
+    /// When true the player will automatically fire <see cref="EndReached" />
+    /// slightly early if the trailing portion of the audio contains a block
+    /// of silence.  Set this to false to disable the behaviour.
+    /// </summary>
+    private bool _autoSkipTrailingSilence = false;
+    public bool AutoSkipTrailingSilence
+    {
+        get => _autoSkipTrailingSilence;
+        set
+        {
+            if (_autoSkipTrailingSilence == value) return;
+            _autoSkipTrailingSilence = value;
+            if (value)
+            {
+                TimeChanged -= OnTimeChangedForSilence;
+                TimeChanged += OnTimeChangedForSilence;
+            }
+            else
+            {
+                TimeChanged -= OnTimeChangedForSilence;
+            }
+            OnPropertyChanged(nameof(AutoSkipTrailingSilence));
+        }
+    }
+
+    /// <summary>
     /// When true the spectrum analyzer is enabled.
     /// </summary>
     public bool EnableSpectrum { get; set; } = true;
@@ -522,6 +552,11 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         {
             _duration = value;
             OnPropertyChanged(nameof(Duration));
+            // duration is now available; waveform generation may have been deferred
+            if (EnableWaveform && (_waveformLoadedFile != _loadedFile))
+            {
+                CheckAndStartFfmpegTasks();
+            }
         }
     }
 
@@ -868,6 +903,20 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         Dispose();
     }
 
+    private async void OnTimeChangedForSilence(object? sender, long ms)
+    {
+        if (_silenceAdvanceFired || _trailingSilenceSeconds <= 0) return;
+        // fire early when we enter the silent region
+        if (Position >= (Duration - _trailingSilenceSeconds))
+        {
+            _silenceAdvanceFired = true;
+            // wait a short grace period before signalling so playlist logic
+            // isn’t raced by immediate transition.
+            await Task.Delay(500);
+            EndReached?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     private void OnMpvInstallationCompleted(object? sender, MpvLibraryManager.InstallationCompletedEventArgs e)
     {
         if (e.Success && _initTcs.Task.IsFaulted)
@@ -896,8 +945,11 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             _spectrumAnalyzer.SetStartPosition(Position);
             _spectrumAnalyzer.Start();
         }
-        // Start waveform if missing or not for the current file
-        if (EnableWaveform && (_waveformLoadedFile != _loadedFile))
+        // Start waveform if missing or not for the current file *and* we know the duration.
+        // Attempting to generate before duration is available often produces garbage
+        // data, so simply defer until Duration > 0.  The Duration setter below will
+        // call this method again when the property is updated.
+        if (EnableWaveform && (_waveformLoadedFile != _loadedFile) && Duration > 0)
         {
             try { _waveformCts?.Cancel(); }
             catch (Exception ex) { Log.Warn("Failed to cancel waveform CTS", ex); }
@@ -1065,6 +1117,15 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         // Reset per-file gain synchronously to ensure the initial UpdateAf call doesn't use stale metadata
         _replayGainAdjustmentDb = 0.0;
 
+        // reset silence detection state; will be recalculated after waveform finishes
+        _trailingSilenceSeconds = 0;
+        _silenceAdvanceFired = false;
+        if (AutoSkipTrailingSilence)
+        {
+            TimeChanged -= OnTimeChangedForSilence;
+            TimeChanged += OnTimeChangedForSilence;
+        }
+
         // Compute and apply replaygain/preamp adjustments before starting playback
         _ = Task.Run(async () =>
         {
@@ -1105,7 +1166,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     private async Task GenerateWaveformAsync(string path, CancellationToken token, int buckets = 4000)
     {
         if (!EnableWaveform || string.IsNullOrEmpty(path) || buckets <= 0) return;
-        _waveformLoadedFile = path;
+        // do not mark the file as "loaded" until we successfully generate the data;
+        // earlier code placed this at the start which prevented retries when the
+        // operation was cancelled or failed midway.
 
         _ffmpegManager?.ReportActivity(true);
         try
@@ -1254,7 +1317,20 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                 }
 
                 if (globalMax <= 0f) globalMax = 1f;
-                
+
+            // compute trailing silence length using raw waveform data before normalization
+            if (AutoSkipTrailingSilence && buckets > 0 && Duration > 0)
+            {
+                const float rawSilenceFrac = 0.05f; // 5% of peak considered silence
+                float rawThresh = globalMax * rawSilenceFrac;
+                int idxRaw = buckets - 1;
+                while (idxRaw >= 0 && waveformData[idxRaw] <= rawThresh)
+                    idxRaw--;
+                int silentBucketsRaw = buckets - 1 - idxRaw;
+                _trailingSilenceSeconds = (silentBucketsRaw / (double)buckets) * Duration;
+                if (_trailingSilenceSeconds < 1.0) _trailingSilenceSeconds = 0;
+            }
+
             // Final normalization for consistency
             _syncContext?.Post(_ => {
                 const float verticalGain = 1.1f;
@@ -1267,6 +1343,10 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                     Waveform[i] = Math.Min(1f, v);
                 }
             }, null);
+
+
+            // mark success so future calls know waveform was generated
+            _waveformLoadedFile = path;
         }
         catch (Exception ex) { Log.Error($"Error generating waveform for {path}", ex); }
         finally

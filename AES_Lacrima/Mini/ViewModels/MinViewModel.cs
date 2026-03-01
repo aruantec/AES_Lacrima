@@ -425,7 +425,8 @@ namespace AES_Lacrima.Mini.ViewModels
         public override void Prepare()
         {
             ExtensionView = DiLocator.ResolveViewModel<MiniEqualizerViewModel>();
-            MusicViewModel?.AudioPlayer?.EnableWaveform = false;
+            MusicViewModel?.AudioPlayer?.EnableWaveform = true;
+            MusicViewModel?.AudioPlayer?.AutoSkipTrailingSilence = true;
             LoadSettings();
             if (MediaItems == null || MediaItems.Count == 0)
             {
