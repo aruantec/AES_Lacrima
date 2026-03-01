@@ -8,11 +8,13 @@ using Avalonia.Collections;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Avalonia.Media;
 using System;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 
@@ -34,6 +36,13 @@ namespace AES_Lacrima.ViewModels
         #region Private fields
         // Private fields
         private readonly string[] _supportedTypes = new[] { "*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4" };
+
+        private TaskbarButton[]? _taskbarButtons;
+        private IntPtr _playIcon;
+        private IntPtr _pauseIcon;
+
+        [ObservableProperty]
+        private Action<TaskbarButtonId>? _taskbarAction;
 
         [ObservableProperty]
         private bool _isEqualizerVisible;
@@ -184,7 +193,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(NextRepeatToolTip));
         }
 
-        private void AudioPlayer_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        private void AudioPlayer_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(AudioPlayer.RepeatMode))
             {
@@ -193,14 +202,21 @@ namespace AES_Lacrima.ViewModels
             }
 
             // Sync taskbar progress indicator on Windows
-            if (AudioPlayer != null && System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+            if (AudioPlayer != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
+                if (_taskbarButtons == null)
+                {
+                    InitializeTaskbarButtons();
+                }
+
                 if (e.PropertyName == nameof(AudioPlayer.Position) || e.PropertyName == nameof(AudioPlayer.Duration))
                 {
                     TaskbarProgressHelper.SetProgressValue(AudioPlayer.Position, AudioPlayer.Duration);
                 }
                 else if (e.PropertyName == nameof(AudioPlayer.IsPlaying))
                 {
+                    UpdateTaskbarButtons();
+
                     if (AudioPlayer.IsPlaying)
                         TaskbarProgressHelper.SetProgressState(TaskbarProgressBarState.Normal);
                     else if (AudioPlayer.Position > 0 && AudioPlayer.Position < AudioPlayer.Duration - 1.5)
@@ -216,6 +232,60 @@ namespace AES_Lacrima.ViewModels
                         TaskbarProgressHelper.SetProgressState(AudioPlayer.IsPlaying ? TaskbarProgressBarState.Normal : TaskbarProgressBarState.Paused);
                 }
             }
+        }
+
+        private void InitializeTaskbarButtons()
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+
+            // Character codes for Segoe MDL2 Assets
+            const string prevChar = "\xE892";
+            const string playChar = "\xE768";
+            const string pauseChar = "\xE769";
+            const string nextChar = "\xE893";
+
+            _playIcon = TaskbarProgressHelper.CreateHIconFromCharacter(playChar, Colors.White);
+            _pauseIcon = TaskbarProgressHelper.CreateHIconFromCharacter(pauseChar, Colors.White);
+
+            _taskbarButtons =
+            [
+                new TaskbarButton { Id = TaskbarButtonId.Previous, HIcon = TaskbarProgressHelper.CreateHIconFromCharacter(prevChar, Colors.White), Tooltip = "Previous", Flags = THUMBBUTTONFLAGS.Enabled },
+                new TaskbarButton { Id = TaskbarButtonId.PlayPause, HIcon = _playIcon, Tooltip = "Play", Flags = THUMBBUTTONFLAGS.Enabled },
+                new TaskbarButton { Id = TaskbarButtonId.Next, HIcon = TaskbarProgressHelper.CreateHIconFromCharacter(nextChar, Colors.White), Tooltip = "Next", Flags = THUMBBUTTONFLAGS.Enabled }
+            ];
+
+            TaskbarProgressHelper.SetThumbnailButtons(_taskbarButtons);
+
+            // Hook window messages for taskbar button clicks
+            if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop && desktop.MainWindow != null)
+            {
+                TaskbarProgressHelper.HookWindow(desktop.MainWindow, (id) =>
+                {
+                    // Taskbar handler is handled outside
+                    if (TaskbarAction != null)
+                    {
+                        TaskbarAction.Invoke(id);
+                        return;
+                    }
+                    switch (id)
+                    {
+                        case TaskbarButtonId.Previous: PlayPreviousCommand.Execute(null); break;
+                        case TaskbarButtonId.PlayPause: TogglePlayCommand.Execute(null); break;
+                        case TaskbarButtonId.Next: PlayNextCommand.Execute(null); break;
+                    }
+                });
+            }
+        }
+
+        private void UpdateTaskbarButtons()
+        {
+            if (_taskbarButtons == null || AudioPlayer == null) return;
+
+            // Update Play/Pause button icon and tooltip based on state
+            _taskbarButtons[1].HIcon = AudioPlayer.IsPlaying ? _pauseIcon : _playIcon;
+            _taskbarButtons[1].Tooltip = AudioPlayer.IsPlaying ? "Pause" : "Play";
+
+            TaskbarProgressHelper.UpdateThumbnailButtons(_taskbarButtons);
         }
 
         public bool IsTagIconDimmed => HighlightedItem == null || MetadataService?.IsMetadataLoaded == true;

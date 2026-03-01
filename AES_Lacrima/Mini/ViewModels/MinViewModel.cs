@@ -1,4 +1,5 @@
 using AES_Controls.Helpers;
+using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.Interfaces;
@@ -257,7 +258,11 @@ namespace AES_Lacrima.Mini.ViewModels
         private void ToggleSettings() => SettingsVisible = !SettingsVisible;
 
         [RelayCommand]
-        private void ClearSearch() => SearchText = string.Empty;
+        private void ClearSearch()
+        {
+            SearchText = string.Empty;
+            UpdateFilteredItems();
+        }
 
         [RelayCommand]
         private void MinimizeWindow() => AppLifetime?.MainWindow?.WindowState = Avalonia.Controls.WindowState.Minimized;
@@ -431,7 +436,6 @@ namespace AES_Lacrima.Mini.ViewModels
             try { if (MusicViewModel?.AudioPlayer != null) AttachAudioPlayerHandlers(MusicViewModel.AudioPlayer); }
             catch (Exception ex) { Log.Warn("Prepare: failed to attach audio player handlers", ex); }
         }
-
         #endregion
 
         #region Partial methods
@@ -560,22 +564,32 @@ namespace AES_Lacrima.Mini.ViewModels
             catch (Exception ex) { Log.Warn("UpdateTotalDuration failed", ex); TotalDuration = 0.0; }
         }
 
-        private void AttachAudioPlayerHandlers(AES_Controls.Player.AudioPlayer? player)
+        private void AttachAudioPlayerHandlers(AudioPlayer? player)
         {
             if (player == null) return;
             try { player.EndReached -= OnAudioPlayerEndReached; player.PropertyChanged -= Player_PropertyChanged; }
             catch (Exception ex) { Log.Warn("AttachAudioPlayerHandlers: defensive unsubscribe failed", ex); }
             try { player.EndReached += OnAudioPlayerEndReached; player.PropertyChanged += Player_PropertyChanged; }
             catch (Exception ex) { Log.Warn("AttachAudioPlayerHandlers: subscribe failed", ex); }
+
+            MusicViewModel?.TaskbarAction = (TaskbarButtonId id) =>
+            {
+                switch(id)
+                {
+                    case TaskbarButtonId.Previous: PreviousCommand.Execute(null); break;
+                    case TaskbarButtonId.PlayPause: PlayPauseCommand.Execute(null); break;
+                    case TaskbarButtonId.Next: NextCommand.Execute(null); break;
+                }
+            };
         }
 
         private void Player_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(AES_Controls.Player.AudioPlayer.Volume))
+            if (e.PropertyName == nameof(AudioPlayer.Volume))
             {
                 _ = Task.Run(() => Avalonia.Threading.Dispatcher.UIThread.Post(() => IsMuted = MusicViewModel?.AudioPlayer?.Volume == 0));
             }
-            else if (e.PropertyName == nameof(AES_Controls.Player.AudioPlayer.RepeatMode))
+            else if (e.PropertyName == nameof(AudioPlayer.RepeatMode))
             {
                 OnPropertyChanged(nameof(ShuffleMode));
             }
