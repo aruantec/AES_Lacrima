@@ -12,3 +12,4 @@
 /AES_Lacrima/Properties/PublishProfiles/FolderProfile.pubxml.user
 /.vscode/launch.json
 /.vscode/tasks.json
+*.user

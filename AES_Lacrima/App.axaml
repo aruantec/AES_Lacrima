@@ -27,6 +27,7 @@
             <GradientStop Color="#00FFFF" Offset="0.8"/>
             <GradientStop Color="#0066FF" Offset="1.0"/>
         </LinearGradientBrush>
+        <converters:BrushToColorConverter x:Key="BrushToColorConverter"/>
     </Application.Resources>
   
     <Application.Styles>

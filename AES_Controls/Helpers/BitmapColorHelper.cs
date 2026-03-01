@@ -61,38 +61,81 @@ public class BitmapColorHelper
             small.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), (IntPtr)p, pixels.Length, size.Width * 4);
         }
 
-        // Key Change: Use a Dictionary to count occurrences of similar colors
-        var colorCounts = new Dictionary<uint, int>();
+        // track counts and raw sums so we can compute an unbiased representative color
+        var colorCounts = new Dictionary<uint, (int Count, uint SumR, uint SumG, uint SumB)>();
+        bool sawAnyOpaque = false;
+        bool sawAnyNonBlack = false;
 
         for (var i = 0; i < pixels.Length; i += 4)
         {
             byte b = pixels[i], g = pixels[i + 1], r = pixels[i + 2], a = pixels[i + 3];
 
-            if (a < 128 || (r < 20 && g < 20 && b < 20)) continue;
+            if (a >= 128) sawAnyOpaque = true;
+            if (!(r < 20 && g < 20 && b < 20)) sawAnyNonBlack = true;
 
-            // "Posterize" the color to group similar shades together (bins of 16)
+            if (a < 32) continue;
+            if (r < 20 && g < 20 && b < 20) continue;
+
             uint binR = (uint)(r / 16) * 16;
             uint binG = (uint)(g / 16) * 16;
             uint binB = (uint)(b / 16) * 16;
             uint colorKey = (binR << 16) | (binG << 8) | binB;
 
-            if (colorCounts.ContainsKey(colorKey)) colorCounts[colorKey]++;
-            else colorCounts[colorKey] = 1;
+            if (colorCounts.TryGetValue(colorKey, out var entry))
+            {
+                entry.Count++;
+                entry.SumR += r;
+                entry.SumG += g;
+                entry.SumB += b;
+                colorCounts[colorKey] = entry;
+            }
+            else
+            {
+                colorCounts[colorKey] = (1, r, g, b);
+            }
+        }
+
+        if (colorCounts.Count == 0)
+        {
+            // second pass with minimal filtering
+            for (var i = 0; i < pixels.Length; i += 4)
+            {
+                byte b = pixels[i], g = pixels[i + 1], r = pixels[i + 2], a = pixels[i + 3];
+                if (a <= 16) continue;
+                uint key = ((uint)r << 16) | ((uint)g << 8) | b;
+                if (colorCounts.TryGetValue(key, out var entry))
+                {
+                    entry.Count++;
+                    entry.SumR += r;
+                    entry.SumG += g;
+                    entry.SumB += b;
+                    colorCounts[key] = entry;
+                }
+                else
+                {
+                    colorCounts[key] = (1, r, g, b);
+                }
+            }
         }
 
         // Sort by frequency, but multiply by chroma to ensure we don't pick grays
         var topColors = colorCounts
             .Select(kv => {
-                var c = Color.FromUInt32(0xFF000000 | kv.Key);
+                var entry = kv.Value;
+                byte avgR = (byte)(entry.SumR / entry.Count);
+                byte avgG = (byte)(entry.SumG / entry.Count);
+                byte avgB = (byte)(entry.SumB / entry.Count);
+                var c = Color.FromRgb(avgR, avgG, avgB);
                 int max = Math.Max(c.R, Math.Max(c.G, c.B));
                 int min = Math.Min(c.R, Math.Min(c.G, c.B));
                 float chroma = (max - min) / 255f;
-                return new { Color = c, Score = kv.Value * (chroma * chroma) }; // Heavy bias toward vivid colors
+                return new { Color = c, Score = entry.Count * (chroma * chroma) }; // Heavy bias toward vivid colors
             })
             .OrderByDescending(x => x.Score)
             .ToList();
 
-        if (topColors.Count == 0) return (Color.Parse("#FF004D"), Color.Parse("#00CCFF"));
+        if (topColors.Count == 0 || (!sawAnyOpaque && !sawAnyNonBlack))
+            return (Color.Parse("#FF004D"), Color.Parse("#00CCFF"));
 
         Color primary = OverdriveColor(topColors[0].Color);
 
@@ -151,33 +194,85 @@ public class BitmapColorHelper
             small.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), (IntPtr)p, pixels.Length, size.Width * 4);
         }
 
-        var colorCounts = new Dictionary<uint, int>();
+        // store count plus sums so we can recover a more accurate representative color later
+        var colorCounts = new Dictionary<uint, (int Count, uint SumR, uint SumG, uint SumB)>();
+        bool sawAnyOpaque = false;
+        bool sawAnyNonBlack = false;
+
         for (var i = 0; i < pixels.Length; i += 4)
         {
             byte b = pixels[i], g = pixels[i + 1], r = pixels[i + 2], a = pixels[i + 3];
-            if (a < 128) continue;
-            if (r < 20 && g < 20 && b < 20) continue; // skip near-black
+
+            if (a >= 128) sawAnyOpaque = true;
+            if (!(r < 20 && g < 20 && b < 20)) sawAnyNonBlack = true;
+
+            // initial filtering: ignore almost-transparent pixels and true black
+            if (a < 32) continue;
+            if (r < 20 && g < 20 && b < 20) continue;
 
             uint binR = (uint)(r / 16) * 16;
             uint binG = (uint)(g / 16) * 16;
             uint binB = (uint)(b / 16) * 16;
             uint key = (binR << 16) | (binG << 8) | binB;
-            if (colorCounts.ContainsKey(key)) colorCounts[key]++; else colorCounts[key] = 1;
+
+            if (colorCounts.TryGetValue(key, out var entry))
+            {
+                entry.Count++;
+                entry.SumR += r;
+                entry.SumG += g;
+                entry.SumB += b;
+                colorCounts[key] = entry;
+            }
+            else
+            {
+                colorCounts[key] = (1, r, g, b);
+            }
+        }
+
+        // if we ended up with nothing useful, relax the filtering and count every non‑transparent pixel
+        if (colorCounts.Count == 0)
+        {
+            for (var i = 0; i < pixels.Length; i += 4)
+            {
+                byte b = pixels[i], g = pixels[i + 1], r = pixels[i + 2], a = pixels[i + 3];
+                if (a <= 16) continue;
+                uint key = ((uint)r << 16) | ((uint)g << 8) | b;
+                if (colorCounts.TryGetValue(key, out var entry))
+                {
+                    entry.Count++;
+                    entry.SumR += r;
+                    entry.SumG += g;
+                    entry.SumB += b;
+                    colorCounts[key] = entry;
+                }
+                else
+                {
+                    colorCounts[key] = (1, r, g, b);
+                }
+            }
         }
 
         var topColors = colorCounts
             .Select(kv => {
-                var c = Color.FromUInt32(0xFF000000 | kv.Key);
+                // recover an average color from the original samples in this bin
+                var entry = kv.Value;
+                byte avgR = (byte)(entry.SumR / entry.Count);
+                byte avgG = (byte)(entry.SumG / entry.Count);
+                byte avgB = (byte)(entry.SumB / entry.Count);
+                var c = Color.FromRgb(avgR, avgG, avgB);
                 int max = Math.Max(c.R, Math.Max(c.G, c.B));
                 int min = Math.Min(c.R, Math.Min(c.G, c.B));
                 float chroma = (max - min) / 255f;
-                return new { Color = c, Score = kv.Value * (chroma * chroma) };
+                return new { Color = c, Score = entry.Count * (chroma * chroma) };
             })
             .OrderByDescending(x => x.Score)
             .ToList();
 
         List<Color> picks = new();
-        if (topColors.Count == 0)
+        
+        // If no opaque or non‑black pixels were seen, it's probably a fully-transparent or all-black
+        // image; fall back immediately so that defaultColors are used instead of garbage.
+        if (topColors.Count == 0 || (!sawAnyOpaque && !sawAnyNonBlack))
         {
             picks.AddRange(defaultColors);
         }
@@ -243,7 +338,9 @@ public class BitmapColorHelper
         if (max <= 0) return c;
 
         // Push the saturation and ensure it's not dim
+        // Avoid blowing the channel all the way to 1.0; a little boost is enough
         float factor = 1.0f / max;
+        if (factor > 1.2f) factor = 1.2f; // cap saturation increase at 20%
         return Color.FromUInt32(0xFF000000 |
             (uint)Math.Clamp(r * factor * 255, 0, 255) << 16 |
             (uint)Math.Clamp(g * factor * 255, 0, 255) << 8 |
