@@ -24,6 +24,12 @@ namespace AES_Lacrima
     /// </summary>
     public class App : Application
     {
+        // when true the main window is being replaced as part of a mode switch.
+        // the closing handler should avoid disposing the DI locator during this
+        // transition because the application is still running and services are
+        // needed by the newly‑created window.
+        public static bool IsSwitchingMode { get; set; }
+
         private static readonly ILog Logger = LogManager.GetLogger(typeof(App));
         public override void Initialize()
         {
@@ -140,14 +146,23 @@ namespace AES_Lacrima
             }
             finally
             {
-                // Dispose DI scope to release resources
-                try
+                // Dispose DI scope to release resources.  When a mode switch is
+                // underway we do **not** tear down the DI container because a new
+                // window will be created immediately after the old one closes.
+                if (!IsSwitchingMode)
                 {
-                    DiLocator.Dispose();
+                    try
+                    {
+                        DiLocator.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error("Error disposing DI locator during shutdown", ex);
+                    }
                 }
-                catch (Exception ex)
+                else
                 {
-                    Logger.Error("Error disposing DI locator during shutdown", ex);
+                    Logger.Info("Skipping DI disposal due to mode switch");
                 }
             }
         }

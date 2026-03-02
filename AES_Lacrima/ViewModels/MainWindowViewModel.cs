@@ -2,6 +2,7 @@
 using AES_Core.Interfaces;
 using AES_Lacrima.Models;
 using AES_Lacrima.Services;
+using AES_Core.Services;
 using AES_Lacrima.ViewModels.Prompts;
 using AES_Controls.Helpers;
 using Avalonia.Collections;
@@ -134,6 +135,7 @@ namespace AES_Lacrima.ViewModels
                 new MenuItem() { Command = MinimizeWindowCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "minimize.svg"), Tooltip = "Minimize Window"},
                 new MenuItem() { Command = CloseApplicationCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "close.svg"), Tooltip = "Close Application"}
             ];
+
         }
 
         /// <summary>
@@ -252,6 +254,55 @@ namespace AES_Lacrima.ViewModels
                 });
             }
             SetWindowState(Avalonia.Controls.WindowState.FullScreen);
+        }
+
+        /// <summary>
+        /// Switches the application into the mini/CustomWindow mode and persists the
+        /// selected mode to settings.
+        /// </summary>
+        [RelayCommand]
+        private void SwitchMode()
+        {
+            if (AppLifetime == null)
+                return;
+
+            // indicate to the app that a mode transition is in progress so
+            // the closing handler won't dispose the DI container.
+            AES_Lacrima.App.IsSwitchingMode = true;
+
+            // save any transient main‑window state before we blow it away.
+            if (AppLifetime.MainWindow?.DataContext is IViewModelBase vm)
+            {
+                try { vm.SaveSettings(); } catch { }
+            }
+            DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
+
+            // update persistent setting
+            if (SettingsViewModel != null)
+            {
+                SettingsViewModel.AppMode = 1;
+                SettingsViewModel.SaveSettings();
+            }
+
+            // construct new window and make it the lifetime's main window
+            var newWindow = new AES_Lacrima.Mini.Views.CustomWindow();
+            newWindow.Closing += (s, e) =>
+            {
+                // Save everything and clean up DI if the app is really shutting down.
+                DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
+                if (!AES_Lacrima.App.IsSwitchingMode)
+                {
+                    try { DiLocator.Dispose(); } catch { }
+                }
+            };
+
+            var oldWindow = AppLifetime.MainWindow;
+            AppLifetime.MainWindow = newWindow;
+            newWindow.Show();
+
+            // close old window *after* we've shown the new one, then clear flag
+            oldWindow?.Close();
+            AES_Lacrima.App.IsSwitchingMode = false;
         }
 
         /// <summary>

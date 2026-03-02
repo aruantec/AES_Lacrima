@@ -4,6 +4,7 @@ using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.Interfaces;
 using AES_Lacrima.ViewModels;
+using AES_Core.Services;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -162,6 +163,47 @@ namespace AES_Lacrima.Mini.ViewModels
         #endregion
 
         #region Commands
+        /// <summary>
+        /// Switches back to the full AES main window and remembers the preference.
+        /// </summary>
+        [RelayCommand]
+        private void SwitchMode()
+        {
+            if (AppLifetime == null)
+                return;
+
+            AES_Lacrima.App.IsSwitchingMode = true;
+
+            if (AppLifetime.MainWindow?.DataContext is IViewModelBase vm)
+            {
+                try { vm.SaveSettings(); } catch { }
+            }
+            DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
+
+            if (SettingsViewModel != null)
+            {
+                SettingsViewModel.AppMode = 0;
+                SettingsViewModel.SaveSettings();
+            }
+
+            var newWindow = new AES_Lacrima.Views.MainWindow();
+            newWindow.Closing += (s, e) =>
+            {
+                DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
+                if (!AES_Lacrima.App.IsSwitchingMode)
+                {
+                    try { DiLocator.Dispose(); } catch { }
+                }
+            };
+
+            var oldWindow = AppLifetime.MainWindow;
+            AppLifetime.MainWindow = newWindow;
+            newWindow.Show();
+            oldWindow?.Close();
+
+            AES_Lacrima.App.IsSwitchingMode = false;
+        }
+
         [RelayCommand]
         private async Task ToggleEqualizer()
         {

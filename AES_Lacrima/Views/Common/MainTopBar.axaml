@@ -71,39 +71,49 @@
                        Margin="-50,0,0,0"/>
             </Grid>
             <!--Window buttons-->
-            <ItemsControl Height="50"
-                            ItemsSource="{Binding WindowButtons}"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Right"
-                            Margin="-5,0,5,0">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Button Cursor="Hand"
-                                Height="30"
-                                Width="35"
-                                Margin="10"
-                                Command="{Binding Command}"
-                                CommandParameter="{Binding}"
-                                ToolTip.Placement="Pointer">
-                            <ToolTip.Tip>
-                                <StackPanel>
-                                    <TextBlock FontSize="16" Text="{Binding Tooltip}"/>
-                                </StackPanel>
-                            </ToolTip.Tip>
-                            <Button.Template>
-                                <ControlTemplate>
-                                    <Svg Path="{Binding Cover}"/>
-                                </ControlTemplate>
-                            </Button.Template>
-                        </Button>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal" Spacing="5"/>
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-            </ItemsControl>
+            <StackPanel VerticalAlignment="Center"
+                        HorizontalAlignment="Right"
+                        Margin="-5,0,5,0"
+                        Orientation="Horizontal"
+                        Spacing="20">
+
+                <!-- switch mode button (refresh icon) -->
+                <Button Background="Transparent" BorderBrush="Transparent" Width="42" Height="42" Padding="2" Command="{Binding SwitchModeCommand}" ToolTip.Tip="Switch to Mini Mode">
+                    <Path Fill="#DDD" Data="M12,4V1L8,5l4,4V6c3.31,0,6,2.69,6,6c0,1.01-0.25,1.97-0.7,2.8l1.46,1.46C19.54,15.03,20,13.57,20,12C20,7.58,16.42,4,12,4z M12,18c-3.31,0-6-2.69-6-6c0-1.01,0.25-1.97,0.7-2.8L5.24,7.74C4.46,8.97,4,10.43,4,12c0,4.42,3.58,8,8,8v3l4-4l-4-4V18z"
+                          Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Button>
+
+                <ItemsControl Height="50"
+                              ItemsSource="{Binding WindowButtons}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Cursor="Hand"
+                                    Height="30"
+                                    Width="35"
+                                    Margin="10"
+                                    Command="{Binding Command}"
+                                    CommandParameter="{Binding}"
+                                    ToolTip.Placement="Pointer">
+                                <ToolTip.Tip>
+                                    <StackPanel>
+                                        <TextBlock FontSize="16" Text="{Binding Tooltip}"/>
+                                    </StackPanel>
+                                </ToolTip.Tip>
+                                <Button.Template>
+                                    <ControlTemplate>
+                                        <Svg Path="{Binding Cover}"/>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="5"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+            </StackPanel>
         </Grid>
     </Border>
 </UserControl>
