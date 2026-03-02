@@ -16,6 +16,8 @@
         <conv:BoolToStringConverter x:Key="BoolToString" />
         <conv:TimeSpanConverter x:Key="TimeSpanConverter" />
         <conv:ObjectEqualsConverter x:Key="ObjectEqualsConverter" />
+        <!-- hides toggles when overall width is below threshold -->
+        <conv:WidthToBoolConverter x:Key="WidthToBool" />
     </UserControl.Resources>
 
     <Grid Background="Transparent" RowDefinitions="Auto,Auto,*,Auto">
@@ -286,7 +288,8 @@
                             </Button>
                         </StackPanel>
 
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,5,0">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,5,0"
+                                    IsVisible="{Binding Bounds.Width, ElementName=MinViewRoot, Converter={StaticResource WidthToBool}, ConverterParameter=500}">
                             <!-- Visualizer toggle -->
                             <ToggleButton Height="26"
                                           Width="26"
@@ -315,7 +318,7 @@
                                 </Viewbox>
                             </ToggleButton>
 
-                            <!-- New visual-only controls button (three vertical sliders with knobs) -->
+                            <!-- Equalizer toggle -->
                             <ToggleButton Height="26"
                                           Width="26"
                                           VerticalAlignment="Center"
