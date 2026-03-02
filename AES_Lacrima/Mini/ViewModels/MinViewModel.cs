@@ -289,16 +289,36 @@ namespace AES_Lacrima.Mini.ViewModels
         private void PlayPause()
         {
             if (MusicViewModel == null || MusicViewModel.AudioPlayer == null) return;
-            if (MusicViewModel.AudioPlayer.IsPlaying)
-                MusicViewModel.AudioPlayer.Pause();
-            else if (MusicViewModel.AudioPlayer.CurrentMediaItem == null && MediaItems != null && MediaItems.Count > 0)
+
+            var player = MusicViewModel.AudioPlayer;
+
+            if (player.IsPlaying)
             {
+                player.Pause();
+                return;
+            }
+
+            // not playing now ------------------------------------------------
+            if (player.CurrentMediaItem == null)
+            {
+                // no media loaded at all
+                if (MediaItems == null || MediaItems.Count == 0)
+                {
+                    // ensure state reset and do nothing else
+                    player.Stop();
+                    return;
+                }
+
+                // we have a playlist but nothing loaded; pick selected or first
                 if (SelectedMediaItem == null && MediaItems.FirstOrDefault() is MediaItem firstItem)
                     SelectedMediaItem = firstItem;
                 PlaySelectedMediaItem();
             }
             else
-                MusicViewModel.AudioPlayer.Play();
+            {
+                // media already loaded, just play it
+                player.Play();
+            }
         }
 
         [RelayCommand]

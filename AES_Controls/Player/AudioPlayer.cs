@@ -893,9 +893,27 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
     private void OnRequestFfmpegTermination()
     {
+        // A global request has been made to kill any running FFmpeg instances.
+        // The spectrum analyzer uses its own helper process, so shut it down as
+        // well; otherwise the UI will continue displaying stale data.
         _spectrumAnalyzer?.Stop();
         _waveformCts?.Cancel();
         try { _activeFfmpegProcess?.Kill(true); } catch { }
+
+        // The analyzer was deliberately stopped above, but playback may still be
+        // ongoing.  If we have a valid media item loaded and the player is
+        // playing, restart analysis once the termination request has settled.
+        // A small delay helps avoid racing with whatever component triggered the
+        // shutdown (for example the FFmpeg uninstall flow) and gives the process
+        // killing a moment to complete.
+        if (IsPlaying && EnableSpectrum && !_disposed)
+        {
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(500).ConfigureAwait(false);
+                _syncContext?.Post(_ => CheckAndStartFfmpegTasks(), null);
+            });
+        }
     }
 
     private void OnRequestMpvTermination()
@@ -1543,6 +1561,11 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         {
             PostToMpvThread(() => _ = ExecuteCommandAsync(new[] { "stop" }));
         }
+
+        // make sure the spectrum analyzer is halted when playback is stopped so
+        // it can later be restarted cleanly.
+        _spectrumAnalyzer?.Stop();
+
         InternalStop();
         Duration = 0;
         IsLoadingMedia = false;
