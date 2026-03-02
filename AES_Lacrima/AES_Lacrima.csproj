@@ -55,6 +55,7 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Svg.Controls.Skia.Avalonia" Version="11.3.9.2" />
     <PackageReference Include="log4net" Version="3.2.0" />
+    <PackageReference Include="HotAvalonia" Version="3.*" PrivateAssets="All" Publish="True" />
   </ItemGroup>
 
   <ItemGroup>

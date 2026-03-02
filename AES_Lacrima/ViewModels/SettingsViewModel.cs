@@ -57,6 +57,14 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private string? _ffmpegPath;
 
     /// <summary>
+    /// Determines which application window type to create on startup.
+    /// 0 AES Mode, 1 Mini Mode.
+    /// This value is persisted in settings and defaults to 0.
+    /// </summary>
+    [ObservableProperty]
+    private int _appMode = 0;
+
+    /// <summary>
     /// Backing field for the <c>ScaleFactor</c> observable property.
     /// Controls UI scaling applied by the <c>ScalableDecorator</c>.
     /// </summary>
@@ -824,6 +832,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ShowSpectrum = ReadBoolSetting(section, nameof(ShowSpectrum), ShowSpectrum);
         ShowMusicSpectrum = ReadBoolSetting(section, nameof(ShowMusicSpectrum), ShowMusicSpectrum);
 
+        // application mode (window type)
+        AppMode = ReadIntSetting(section, nameof(AppMode), AppMode);
+
         // Individual spectrum colors (persisted as strings)
         if (ReadStringSetting(section, nameof(SpectrumColor0)) is { } c0) SpectrumColor0 = Color.Parse(c0);
         if (ReadStringSetting(section, nameof(SpectrumColor1)) is { } c1) SpectrumColor1 = Color.Parse(c1);
@@ -886,6 +897,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(SpectrumColor2), SpectrumColor2.ToString());
         WriteSetting(section, nameof(SpectrumColor3), SpectrumColor3.ToString());
         WriteSetting(section, nameof(SpectrumColor4), SpectrumColor4.ToString());
+
+        // Persist application mode (window type)
+        WriteSetting(section, nameof(AppMode), AppMode);
 
         // Persist Carousel settings
         WriteSetting(section, nameof(CarouselSpacing), CarouselSpacing);

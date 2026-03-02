@@ -52,22 +52,18 @@ namespace AES_Lacrima
                     //Register audio player for fresh instances
                     //builder.RegisterType<AudioPlayer>().As<AudioPlayer>().InstancePerDependency();
                 });
-                // Create the main window and set its DataContext to the resolved MainWindowViewModel
-                
-                desktop.MainWindow = new MainWindow(); //<-- Comment this line to use a custom window design
+                // Create the main window.  The user can choose between the stock
+                // AES or a Mini design via the settings.  
+                // We need to resolve and prepare the SettingsViewModel here so the persisted
+                // value is available before we construct the window.
+                var settingsVm = DiLocator.ResolveViewModel<SettingsViewModel>();
+                if (settingsVm != null)
+                    settingsVm.Prepare();
 
-                //Custom design example
-                ////////////////////////////////////////////////
-                /// Use a custom window to host the custom view
-                //desktop.MainWindow = new CustomWindow();  //<-- Uncomment this line to use a custom window design
-                /// Do not create a new view model instance here.
-                //desktop.MainWindow.Content = new MinViewModel();
-                /// Demo mode requires libmpv-2.dll as is not automatically installed by the app.
-                /// Minimalist remember? :)
-                /// Download the latest release from: https://github.com/zhongfly/mpv-winbuild
-                /// macOS:https://github.com/eko5624/mpv-mac
-                /// Or: https://github.com/mpv-player/mpv
-                ////////////////////////////////////////////////
+                if (settingsVm != null && settingsVm.AppMode == 1)
+                    desktop.MainWindow = new CustomWindow();
+                else
+                    desktop.MainWindow = new MainWindow();
 
                 // Attach closing handler to perform cleanup/save on exit
                 desktop.MainWindow.Closing += MainWindow_Closing;
