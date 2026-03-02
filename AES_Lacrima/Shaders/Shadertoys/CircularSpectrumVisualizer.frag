@@ -7,6 +7,9 @@ uniform vec3      iResolution;
 uniform float     iTime;
 uniform sampler2D iChannel0; // audio texture (use Shadertoy audio channel)
 
+// simple pseudo-random noise based on coords
+float rand(vec2 co){return fract(sin(dot(co.xy,vec2(12.9898,78.233))) * 43758.5453);}
+
 // Convert HSV to RGB
 vec3 hsv2rgb(vec3 c){
     vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
@@ -58,6 +61,12 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
         return;
     }
 
+    // add swirling distortion to UV
+    float swirlAmt = 0.3 + 0.7 * sampleSpectrum(0.2);
+    float theta = swirlAmt * sin(iTime * 0.5 + length(uv) * 3.0);
+    float cs = cos(theta), sn = sin(theta);
+    uv = mat2(cs,-sn,sn,cs) * uv;
+    
     // polar coords
     float r = length(uv);
     float a = atan(uv.y, uv.x);
@@ -75,12 +84,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
     // central pulse influenced by bass
     float pulse = smoothstep(0.0, 0.35, 0.5 + 0.5 * sin(time*2.0)) * bass;
 
-    // rings: a repeating circular pattern modulated by audio
-    float ringFreq = 40.0 + 60.0 * spectrum; // rings density
-    float ring = sin(r * ringFreq - time * 6.0 + spectrum * 20.0);
-    // make crisp rings
-    float ringMask = smoothstep(0.4, 0.0, abs(fract(r * ringFreq * 0.5) - 0.5));
-    ringMask *= smoothstep(0.55, 0.0, r); // fade out far area
+    // waves: create several concentric ripples that react to music
+    float waveFreq = 20.0 + 40.0 * highs;
+    float wave = sin(r * waveFreq - time * 8.0);
+    float waveMask = smoothstep(0.3, 0.0, abs(fract(r * waveFreq * 0.25) - 0.5));
+    waveMask *= (0.6 + 0.4 * bass); // bass emphasises waves
 
     // radial streaks — sum along radial direction to emulate motion blur
     float streak = 0.0;
@@ -100,24 +108,32 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
     float spokes = cos(a * (8.0 + 8.0 * highs) + time * 4.0) * 0.5 + 0.5;
     spokes = pow(spokes, 2.0);
 
-    // combine layers (reduced max intensity for less brightness)
-    float intensity = clamp(ringMask * (0.5 + ring * 0.35) + streak * 0.6 + pulse * 0.9 + spokes * 0.2, 0.0, 2.0);
+    // electric arcs: sharp radial spikes that dance with bass
+    float arc = pow(max(0.0, sin(r * 120.0 - time * 25.0 + rand(vec2(a, time)) * 6.0)), 24.0);
+    arc *= smoothstep(0.9,0.0,r); // fade toward edge
+    arc *= bass * 2.5; // amplify by bass
 
-    // color base - warm copper/orange (slightly reduced value)
-    vec3 baseColor = hsv2rgb(vec3(0.08 + spectrum*0.05, 0.9, 0.85));
+    // combine layers (reduced max intensity for less brightness)
+    float intensity = clamp(waveMask * (0.6 + wave * 0.4) + streak * 0.6 + pulse * 0.9 + spokes * 0.2 + arc, 0.0, 2.5);
+
+    // color base - cycle hue with time and spectrum
+    float hue = mod(0.08 + spectrum*0.05 + iTime*0.02 + rand(uv)*0.03, 1.0);
+    float sat = 0.7 + 0.3 * highs;
+    float val = 0.75 + 0.25 * bass;
+    vec3 baseColor = hsv2rgb(vec3(hue, sat, val));
 
     // radial vignette and falloff so center is bright
     float vignette = smoothstep(0.9, 0.2, r);
 
     vec3 col = baseColor * (intensity * vignette);
 
-    // add subtle rim glow and center highlight
-    col += baseColor * pow(max(0.0, 1.0 - r*2.0), 6.0) * (0.4 + bass*1.2);
+    // add enhanced rim glow and center highlight
+    col += baseColor * pow(max(0.0, 1.0 - r*2.0), 6.0) * (0.5 + bass*1.5);
 
     // Cheap 3-tap blur approximation: sample two nearby offsets and average.
     // Offsets are small and perpendicular to angle to create radial streak softness.
-    vec2 ofs1 = vec2(cos(a + 1.5708), sin(a + 1.5708)) * 0.006;
-    vec2 ofs2 = vec2(cos(a - 1.5708), sin(a - 1.5708)) * 0.006;
+    vec2 ofs1 = vec2(cos(a + 1.5708), sin(a + 1.5708)) * 0.008;
+    vec2 ofs2 = vec2(cos(a - 1.5708), sin(a - 1.5708)) * 0.008;
 
     // Sample neighbors using a helper that accepts required locals as params.
     vec3 n1 = sampleNeighbor(uv + ofs1, time, pulse, bass, highs);

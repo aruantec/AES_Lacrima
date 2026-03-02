@@ -1537,10 +1537,15 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// <summary>
     /// Stop playback and reset state.
     /// </summary>
-    public void Stop() 
-    { 
+    public void Stop()
+    {
+        if (!_disposed)
+        {
+            PostToMpvThread(() => _ = ExecuteCommandAsync(new[] { "stop" }));
+        }
         InternalStop();
-        IsLoadingMedia = false; 
+        Duration = 0;
+        IsLoadingMedia = false;
     }
 
     /// <summary>
@@ -1553,11 +1558,10 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
     private void InternalStop()
     {
-        //if (!_disposed) PostToMpvThread(() => _ = ExecuteCommandAsync(new[] { "stop" })); 
         IsPlaying = false;
         Position = 0;
         ClearMedia();
-        Stopped?.Invoke(this, EventArgs.Empty); 
+        Stopped?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
