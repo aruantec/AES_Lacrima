@@ -27,22 +27,22 @@
                 </Border>
 				<StackPanel Grid.Column="2" VerticalAlignment="Top" Spacing="5" Margin="0,10,5,0" ClipToBounds="True">
 					<TextBlock Text="{Binding MusicViewModel.AudioPlayer.IsPlaying, Converter={StaticResource BoolToStringConverter}, ConverterParameter='PLAYING, PAUSED'}"
-							   FontSize="16"
-							   Foreground="White"/>
-					<TextBlock Text="{Binding LoadedMediaItem.Title, FallbackValue='No File Loaded'}"
 							   FontSize="12"
+							   Foreground="#b8b8b8"/>
+					<TextBlock Text="{Binding LoadedMediaItem.Title, FallbackValue='No File Loaded'}"
+							   FontSize="14"
 					   Foreground="LightGray">
 						<Interaction.Behaviors>
 							<behaviors:MarqueeBehavior />
 						</Interaction.Behaviors>
 					</TextBlock>
                     <TextBlock Text="{Binding LoadedMediaItem.Album, FallbackValue=''}"
-                               FontSize="10"
+                               FontSize="12"
                                Foreground="#99FFFFFF"
                                TextWrapping="Wrap"
 							   MaxLines="1"
                                TextTrimming="CharacterEllipsis"/>
-                    <TextBlock FontSize="13"
+                    <TextBlock FontSize="14"
                                Foreground="White">
                         <Run Text="{Binding MusicViewModel.AudioPlayer.Position, Converter={StaticResource TimeSpanConverter}, FallbackValue='00:00'}" />
                         <Run Text=" / " />

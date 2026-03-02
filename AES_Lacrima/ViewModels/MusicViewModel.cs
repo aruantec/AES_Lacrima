@@ -607,13 +607,23 @@ namespace AES_Lacrima.ViewModels
             }
             else
             {
-                if (AudioPlayer.Duration <= 0 && SelectedMediaItem != null)
+                // nothing loaded? just make sure player is stopped and bail out.
+                if (SelectedMediaItem == null)
+                {
+                    AudioPlayer.Stop();
+                    return;
+                }
+
+                // If we have an item but no duration yet (i.e. never played), load it.
+                if (AudioPlayer.Duration <= 0)
                 {
                     if (PlaybackQueue.Count == 0) PlaybackQueue = CoverItems;
                     await PlayMediaItemAsync(SelectedMediaItem);
                 }
                 else
+                {
                     AudioPlayer.Play();
+                }
             }
         }
 
