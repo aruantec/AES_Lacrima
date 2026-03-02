@@ -931,7 +931,14 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             // wait a short grace period before signalling so playlist logic
             // isn’t raced by immediate transition.
             await Task.Delay(500);
-            EndReached?.Invoke(this, EventArgs.Empty);
+            // If we're in "repeat one" mode we should not notify listeners;
+            // mpv will loop the file itself so external playlist logic must
+            // not advance.  Other repeat modes (off/all/shuffle) still
+            // require the event to drive Next/stop behaviour.
+            if (RepeatMode != RepeatMode.One)
+            {
+                EndReached?.Invoke(this, EventArgs.Empty);
+            }
         }
     }
 
@@ -940,7 +947,6 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         if (e.Success && _initTcs.Task.IsFaulted)
         {
             // libmpv was previously missing but now its here, try to re-init
-            // Note: This may not always work if the process has already cached the DllNotFound exception
             _ = Task.Run(InitializeMpvAsync);
         }
     }
