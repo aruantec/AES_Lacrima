@@ -47,6 +47,9 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private bool _isEqualizerVisible;
 
+        // last window handle we added thumbnail buttons to; used to re‑initialize after a mode switch
+        private IntPtr _taskbarHwnd = IntPtr.Zero;
+
         [ObservableProperty]
         private bool _isAlbumlistOpen;
 
@@ -193,6 +196,15 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(NextRepeatToolTip));
         }
 
+        private IntPtr GetCurrentWindowHandle()
+        {
+            if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop && desktop.MainWindow != null)
+            {
+                return desktop.MainWindow.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+            }
+            return IntPtr.Zero;
+        }
+
         private void AudioPlayer_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(AudioPlayer.RepeatMode))
@@ -204,7 +216,8 @@ namespace AES_Lacrima.ViewModels
             // Sync taskbar progress indicator on Windows
             if (AudioPlayer != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                if (_taskbarButtons == null)
+                var hwnd = GetCurrentWindowHandle();
+                if (_taskbarButtons == null || _taskbarHwnd != hwnd)
                 {
                     InitializeTaskbarButtons();
                 }
@@ -234,34 +247,45 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private void InitializeTaskbarButtons()
+        public void InitializeTaskbarButtons()
         {
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
 
-            // Character codes for Segoe MDL2 Assets
-            const string prevChar = "\xE892";
-            const string playChar = "\xE768";
-            const string pauseChar = "\xE769";
-            const string nextChar = "\xE893";
+            if (Application.Current?.ApplicationLifetime is not Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop || desktop.MainWindow == null)
+                return;
 
-            _playIcon = TaskbarProgressHelper.CreateHIconFromCharacter(playChar, Colors.White);
-            _pauseIcon = TaskbarProgressHelper.CreateHIconFromCharacter(pauseChar, Colors.White);
+            var hwnd = desktop.MainWindow.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+            if (hwnd == IntPtr.Zero)
+                return;
 
-            _taskbarButtons =
-            [
-                new TaskbarButton { Id = TaskbarButtonId.Previous, HIcon = TaskbarProgressHelper.CreateHIconFromCharacter(prevChar, Colors.White), Tooltip = "Previous", Flags = THUMBBUTTONFLAGS.Enabled },
-                new TaskbarButton { Id = TaskbarButtonId.PlayPause, HIcon = _playIcon, Tooltip = "Play", Flags = THUMBBUTTONFLAGS.Enabled },
-                new TaskbarButton { Id = TaskbarButtonId.Next, HIcon = TaskbarProgressHelper.CreateHIconFromCharacter(nextChar, Colors.White), Tooltip = "Next", Flags = THUMBBUTTONFLAGS.Enabled }
-            ];
-
-            TaskbarProgressHelper.SetThumbnailButtons(_taskbarButtons);
-
-            // Hook window messages for taskbar button clicks
-            if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop && desktop.MainWindow != null)
+            // create buttons only once, but always re‑apply them if the window handle has changed
+            if (_taskbarButtons == null)
             {
+                // Character codes for Segoe MDL2 Assets
+                const string prevChar = "\xE892";
+                const string playChar = "\xE768";
+                const string pauseChar = "\xE769";
+                const string nextChar = "\xE893";
+
+                _playIcon = TaskbarProgressHelper.CreateHIconFromCharacter(playChar, Colors.White);
+                _pauseIcon = TaskbarProgressHelper.CreateHIconFromCharacter(pauseChar, Colors.White);
+
+                _taskbarButtons =
+                [
+                    new TaskbarButton { Id = TaskbarButtonId.Previous, HIcon = TaskbarProgressHelper.CreateHIconFromCharacter(prevChar, Colors.White), Tooltip = "Previous", Flags = THUMBBUTTONFLAGS.Enabled },
+                    new TaskbarButton { Id = TaskbarButtonId.PlayPause, HIcon = _playIcon, Tooltip = "Play", Flags = THUMBBUTTONFLAGS.Enabled },
+                    new TaskbarButton { Id = TaskbarButtonId.Next, HIcon = TaskbarProgressHelper.CreateHIconFromCharacter(nextChar, Colors.White), Tooltip = "Next", Flags = THUMBBUTTONFLAGS.Enabled }
+                ];
+            }
+
+            // if the handle changed (e.g. mode switch) or buttons were never applied, add/rehook
+            if (_taskbarHwnd != hwnd)
+            {
+                _taskbarHwnd = hwnd;
+                TaskbarProgressHelper.SetThumbnailButtons(_taskbarButtons);
+
                 TaskbarProgressHelper.HookWindow(desktop.MainWindow, (id) =>
                 {
-                    // Taskbar handler is handled outside
                     if (TaskbarAction != null)
                     {
                         TaskbarAction.Invoke(id);

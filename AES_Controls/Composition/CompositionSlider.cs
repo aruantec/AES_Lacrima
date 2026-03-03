@@ -77,8 +77,6 @@ namespace AES_Controls.Composition
 
         private CompositionCustomVisual? _visual;
         private bool _isSliderPressed;
-        // Guard to distinguish programmatic updates from user dragging updates
-        private bool _isUpdatingFromSlider;
         // Suppress external updates until this time (UTC) to avoid jump-back after a seek
         private DateTime _suppressExternalUpdatesUntil = DateTime.MinValue;
         // Track whether we already executed the seek on press to avoid double-executing on release
@@ -348,17 +346,8 @@ namespace AES_Controls.Composition
             double newVal = min + pct * Math.Max(0, max - min);
             // Send instant update to visual so thumb moves immediately without smoothing
             _visual?.SendHandlerMessage(new InstantSliderPositionMessage(pct));
-            // Assign Value (will notify visual). Mark as originating from slider so
-            // OnPropertyChanged can distinguish external updates during drag.
-            _isUpdatingFromSlider = true;
-            try
-            {
-                Value = newVal;
-            }
-            finally
-            {
-                _isUpdatingFromSlider = false;
-            }
+            // Assign Value (will notify visual).
+            Value = newVal;
         }
 
         private double NormalizeValue(double val)

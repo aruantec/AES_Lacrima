@@ -22,12 +22,12 @@ namespace AES_Controls.Composition
         private long _lastTicks = 0;
 
         private float _sliderTrackHeight = 4.0f;
-        private float _sliderVerticalOffset = 0f; // not used for this handler; slider fills bounds
+        // vertical offset is unused because slider always fills bounds
 
         private readonly SKPaint _paint = new() { IsAntialias = true };
         private SKShader? _trackShader;
         private SKShader? _thumbShader;
-        private float _lastSliderW, _lastThumbX;
+        private float _lastSliderW;
         private bool _isPressed;
     private SKColor _playedColor = SKColors.Transparent;
     private bool _smallThumb = false;
