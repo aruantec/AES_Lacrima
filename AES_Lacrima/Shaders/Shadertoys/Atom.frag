@@ -42,6 +42,25 @@ float fbmLow(vec2 p) {
     return f / 0.75;
 }
 
+//--- ElectricGalaxy-specific noise / fbm (slightly different style) ----
+float eg_noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float n = i.x + i.y * 57.0;
+    return mix(mix(hash(n), hash(n + 1.0), f.x),
+               mix(hash(n + 57.0), hash(n + 58.0), f.x), f.y);
+}
+
+float eg_fbm(vec2 p) {
+    float f = 0.0;
+    f += 0.5000 * eg_noise(p); p = p * 2.02;
+    f += 0.2500 * eg_noise(p); p = p * 2.03;
+    f += 0.1250 * eg_noise(p); p = p * 2.01;
+    f += 0.0625 * eg_noise(p);
+    return f / 0.9375;
+}
+
 void mainImage(out vec4 fragColor, in vec2 fragCoord)
 {
     vec2 res = iResolution.xy;
@@ -90,6 +109,41 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         lightingCol += (pow(bassL,0.7) * 0.08) * themeColor / d2;
         // dim a bit to keep atom in front
         lightingCol *= 0.5;
+    }
+
+    // --- Electric Galaxy background layer --------------------------
+    vec3 galaxyCol = vec3(0.0);
+    {
+        float gDepth = 0.9; // slightly closer than lighting
+        vec2 guv = uv * gDepth;
+        float a = atan(guv.y, guv.x);
+        float d = length(guv);
+        float normAngle = pow(abs(cos(a + 0.78539)), 0.7);
+        float rawHeight = texture(iChannel0, vec2(normAngle, 0.5)).r;
+        float barHeight = pow(rawHeight, 0.8) * (0.6 + 0.4 * normAngle);
+        float bassG = bass;
+
+        for(int i = 0; i < 3; i++) {
+            float it = float(i);
+            float tt = t * (1.0 + it * 0.2);
+            float noiseVal = eg_fbm(vec2(a * 3.0 + it, tt));
+            float radius = 0.2 + 0.3 * barHeight + 0.1 * noiseVal;
+            float arcDist = abs(d - radius);
+            float intensity = 0.002 / (arcDist + 0.005);
+            intensity *= smoothstep(0.4, 0.0, arcDist);
+            float flicker = step(0.5, eg_noise(vec2(tt * 10.0, it)));
+            galaxyCol += themeColor * intensity * (0.5 + 0.5 * flicker) * (barHeight + 0.5);
+        }
+
+        float spikes = eg_fbm(vec2(a * 10.0, t * 5.0));
+        float spikeIntensity = smoothstep(0.7 - barHeight * 0.3, 1.0, spikes);
+        galaxyCol += themeColor * spikeIntensity * (0.2 / (d + 0.1)) * (barHeight + 0.2);
+        galaxyCol += themeColor * (0.02 / (d + 0.01)) * (bassG + 0.2);
+        float sparks = hash(dot(guv, vec2(12.9898, 78.233)) + t);
+        if (sparks > 0.99 && d < 0.5 * barHeight + 0.2) {
+            galaxyCol += vec3(1.0) * bassG;
+        }
+        galaxyCol *= 0.5; // dim
     }
 
     vec3 colE = vec3(0.0); // start with black
@@ -188,7 +242,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     colE = min(colE, vec3(1.4));
     colE = mix(colE, colE + u_primary.rgb * 0.08 * ease(bass * 0.8 + mid * 0.3), 0.20);
 
-    vec3 finalCol = lightingCol + colE;
+    vec3 finalCol = lightingCol + galaxyCol + colE;
     // overall dimming to prevent excessive brightness
     finalCol *= 0.8;
     fragColor = vec4(finalCol * u_fade, 1.0);
