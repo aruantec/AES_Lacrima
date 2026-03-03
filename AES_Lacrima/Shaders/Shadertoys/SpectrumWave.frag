@@ -1,14 +1,14 @@
-uniform vec3 u_grad0;
-uniform vec3 u_grad1;
-uniform vec3 u_grad2;
-uniform vec3 u_grad3;
-uniform vec3 u_grad4;
+// simple HSV-to-RGB helper used for rainbow gradient
+vec3 hsv2rgb(vec3 c){
+    vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
 
+// simple fallback rainbow gradient that doesn't rely on host-provided uniforms
 vec3 sampleGradient(float t) {
-    if (t < 0.25) return mix(u_grad0, u_grad1, t / 0.25);
-    if (t < 0.5) return mix(u_grad1, u_grad2, (t - 0.25) / 0.25);
-    if (t < 0.75) return mix(u_grad2, u_grad3, (t - 0.5) / 0.25);
-    return mix(u_grad3, u_grad4, (t - 0.75) / 0.25);
+    // use full hue cycle
+    return hsv2rgb(vec3(fract(t), 1.0, 1.0));
 }
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
@@ -24,40 +24,39 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float spectrum = texture(iChannel0, vec2(uv.x, 0.5)).r;
     float bass = texture(iChannel0, vec2(0.05, 0.5)).r;
     
-    // 3. Rainbow Mapping
+    // 3. Rainbow Mapping (simple, because gradient uniforms unavailable)
     vec3 rainbow = sampleGradient(uv.x);
     
-    // 4. Dense Bar Logic
-    float barWidth = 0.006; 
-    float barSpacing = 0.009;
-    float barIndex = floor(uv.x / barSpacing);
-    float gridX = mod(uv.x, barSpacing);
-    
+    // 4. Symmetrical pulsing bars with waveform centre
+    float barWidth = 0.002;   // even thinner
+    float barSpacing = 0.008;  // fill width with more bars
+    // determine distance from center (0.5) and mirror
+    float x = uv.x - 0.5;
+    float mx = abs(x);
+    float barIndex = floor(mx / barSpacing);
+    float gridX = mod(mx, barSpacing);
+
     float barFreq = texture(iChannel0, vec2(barIndex * barSpacing, 0.5)).r;
-    float barHeight = barFreq * 0.75;
-    
+    float barHeight = barFreq * 0.8;
+
     float barMask = step(gridX, barWidth);
     float barDist = abs(p.y);
-    float barCore = smoothstep(barHeight, barHeight - 0.003, barDist) * barMask;
-    float capSize = 0.003;
-    float bouncePhase = fract(iTime * 0.4 + barIndex * 0.37);
-    float bounceCurve = 1.0 - (2.0 * bouncePhase - 1.0) * (2.0 * bouncePhase - 1.0);
-    float bounceHeight = (0.02 + 0.05 * barHeight) * bounceCurve;
-    float capCenter = barHeight + bounceHeight;
-    float cap = smoothstep(capSize, 0.0, abs(barDist - capCenter)) * barMask;
-    float capBlock = step(capCenter - capSize, barDist) * step(barDist, capCenter + capSize) * barMask;
-    
-    // Safety added to the denominator (+ 0.01) to prevent infinite values/freeze
-    float barGlow = exp(-8.0 * (barDist / (barHeight + 0.01))) * barMask;
+    // fade to transparent near top and bottom of each bar
+    float fadeRange = max(0.05, barHeight * 0.25);
+    float edgeFade = smoothstep(barHeight, barHeight - fadeRange, barDist);
+    float barCore = edgeFade * barMask;
+    float barGlow = exp(-10.0 * (barDist / (barHeight + 0.01))) * barMask;
 
-    // 5. Composition (removed DNA waves)
-    float contribution = barCore + barGlow * 0.6 + cap * 0.6 + capBlock * 0.8;
+
+    // combine
+    float contribution = barCore + barGlow * 0.5;
     if (contribution <= 0.005)
     {
         discard;
     }
-    vec3 col = rainbow * (barCore + barGlow * 0.6 + cap * 0.5 + capBlock * 0.9);
+    vec3 col = rainbow * (barCore + barGlow * 0.5);
     float mask = smoothstep(0.001, 0.01, contribution);
+
     // Apply global fade and output (transparent where nothing is drawn)
     fragColor = vec4(col * u_fade, mask * u_fade);
 }
