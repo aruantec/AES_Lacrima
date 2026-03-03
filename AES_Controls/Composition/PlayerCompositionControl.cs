@@ -140,14 +140,12 @@ public class PlayerCompositionControl : UserControl
         PositionProperty.Changed.AddClassHandler<PlayerCompositionControl>((control, args) =>
         {
             var newValue = (double)(args.NewValue ?? 0.0);
-            Debug.WriteLine($"Position changed to: {newValue}");
             control._visual?.SendHandlerMessage(new PlayerProgressMessage(newValue, control.Duration));
         });
 
         DurationProperty.Changed.AddClassHandler<PlayerCompositionControl>((control, args) =>
         {
             var newValue = (double)(args.NewValue ?? 0.0);
-            Debug.WriteLine($"Duration changed to: {newValue}");
             control._visual?.SendHandlerMessage(new PlayerProgressMessage(control.Position, newValue));
         });
 

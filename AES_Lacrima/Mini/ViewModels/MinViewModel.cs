@@ -199,6 +199,11 @@ namespace AES_Lacrima.Mini.ViewModels
             var oldWindow = AppLifetime.MainWindow;
             AppLifetime.MainWindow = newWindow;
             newWindow.Show();
+
+            // refresh taskbar buttons now that the main window has changed
+            var musicVm = DiLocator.ResolveViewModel<MusicViewModel>();
+            musicVm?.InitializeTaskbarButtons();
+
             oldWindow?.Close();
 
             AES_Lacrima.App.IsSwitchingMode = false;

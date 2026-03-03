@@ -436,7 +436,32 @@ public static class TaskbarProgressHelper
     private const int GWL_WNDPROC = -4;
     private const int WM_COMMAND = 0x0111;
 
+    // handle that we previously hooked; used to restore original proc when window changes
+    private static IntPtr _hookedHwnd = IntPtr.Zero;
+    private static Action<TaskbarButtonId>? _hookCallback;
+
     private delegate IntPtr WndProcHandler(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    /// <summary>
+    /// Unhooks any previously hooked window and restores its original window procedure.
+    /// </summary>
+    private static void ResetHook()
+    {
+        if (_hookedHwnd != IntPtr.Zero && _prevWndProc != IntPtr.Zero)
+        {
+            try
+            {
+                SetWindowLongPtr(_hookedHwnd, GWL_WNDPROC, _prevWndProc);
+            }
+            catch { }
+            finally
+            {
+                _hookedHwnd = IntPtr.Zero;
+                _prevWndProc = IntPtr.Zero;
+                _hookCallback = null;
+            }
+        }
+    }
 
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr")]
     private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
@@ -461,7 +486,20 @@ public static class TaskbarProgressHelper
         if (!_isSupported) return;
 
         var hwnd = window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
-        if (hwnd == IntPtr.Zero || _prevWndProc != IntPtr.Zero) return;
+        if (hwnd == IntPtr.Zero) return;
+
+        // if already hooked to the same window just update the callback
+        if (_hookedHwnd == hwnd)
+        {
+            _hookCallback = onButtonClick;
+            return;
+        }
+
+        // unhook previous window (if any)
+        ResetHook();
+
+        _hookCallback = onButtonClick;
+        _hookedHwnd = hwnd;
 
         WndProcHandler wndProc = (hWnd, msg, wParam, lParam) =>
         {
@@ -473,7 +511,7 @@ public static class TaskbarProgressHelper
                 // THBN_CLICKED = 0x1800
                 if ((notifyCode == 0x1800 || notifyCode == 0) && Enum.IsDefined(typeof(TaskbarButtonId), id))
                 {
-                    Avalonia.Threading.Dispatcher.UIThread.Post(() => onButtonClick((TaskbarButtonId)id));
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => _hookCallback?.Invoke((TaskbarButtonId)id));
                 }
             }
             return CallWindowProc(_prevWndProc, hWnd, msg, wParam, lParam);

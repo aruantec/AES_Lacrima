@@ -268,7 +268,7 @@ namespace AES_Lacrima.ViewModels
 
             // indicate to the app that a mode transition is in progress so
             // the closing handler won't dispose the DI container.
-            AES_Lacrima.App.IsSwitchingMode = true;
+            App.IsSwitchingMode = true;
 
             // save any transient main‑window state before we blow it away.
             if (AppLifetime.MainWindow?.DataContext is IViewModelBase vm)
@@ -285,12 +285,12 @@ namespace AES_Lacrima.ViewModels
             }
 
             // construct new window and make it the lifetime's main window
-            var newWindow = new AES_Lacrima.Mini.Views.CustomWindow();
+            var newWindow = new Mini.Views.CustomWindow();
             newWindow.Closing += (s, e) =>
             {
                 // Save everything and clean up DI if the app is really shutting down.
                 DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
-                if (!AES_Lacrima.App.IsSwitchingMode)
+                if (!App.IsSwitchingMode)
                 {
                     try { DiLocator.Dispose(); } catch { }
                 }
@@ -300,9 +300,14 @@ namespace AES_Lacrima.ViewModels
             AppLifetime.MainWindow = newWindow;
             newWindow.Show();
 
+            // refresh the taskbar buttons for the music view-model so that thumbnail
+            // buttons are re‑added to the new window handle.
+            var musicVm = DiLocator.ResolveViewModel<MusicViewModel>();
+            musicVm?.InitializeTaskbarButtons();
+
             // close old window *after* we've shown the new one, then clear flag
             oldWindow?.Close();
-            AES_Lacrima.App.IsSwitchingMode = false;
+            App.IsSwitchingMode = false;
         }
 
         /// <summary>
