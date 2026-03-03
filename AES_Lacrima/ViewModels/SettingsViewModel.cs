@@ -674,10 +674,17 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// Handles property change notifications to synchronize individual color properties
     /// with the internal collection and refresh the visual gradient.
     /// </summary>
+    // flag used to suppress event handling during initial settings load
+    private bool _isLoadingSettings;
+
     private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (string.IsNullOrEmpty(e.PropertyName)) return;
-        
+
+        // skip during the initial LoadSettings/Prepare sequence; avoids re‑entrancy
+        if (_isLoadingSettings)
+            return;
+
         // If one of the spectrum color properties changed, update the gradient
         var updatedColor = false;
         if (e.PropertyName == nameof(SpectrumColor0)) { _presetSpectrumColors[0] = SpectrumColor0; updatedColor = true; }
@@ -699,24 +706,34 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 // Ensure settings are persisted to disk immediately to stay in sync
                 SaveSettings();
 
-                // Use current in-memory settings and ask the player's audio engine to recompute
-                var mv = DiLocator.ResolveViewModel<MusicViewModel>();
-                if (mv != null && mv.AudioPlayer != null)
+                // Defer resolving the music view model until after the current call stack completes.
+                _ = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    var enabled = ReplayGainEnabled;
-                    var useTags = ReplayGainUseTags;
-                    var analyze = ReplayGainAnalyzeOnTheFly;
-                    var preampAnalyze = ReplayGainPreampDb;
-                    var preampTags = ReplayGainTagsPreampDb;
-                    var tagSource = ReplayGainTagSource;
-
-                    // Fire-and-forget the recompute to avoid blocking the UI
-                    _ = Task.Run(async () =>
+                    try
                     {
-                        try { await mv.AudioPlayer.RecomputeReplayGainForCurrentAsync(enabled, useTags, analyze, preampAnalyze, preampTags, tagSource).ConfigureAwait(false); }
-                        catch (Exception ex) { Log.Warn("Failed to recompute replaygain on AudioPlayer", ex); }
-                    });
-                }
+                        var mv = DiLocator.ResolveViewModel<MusicViewModel>();
+                        if (mv != null && mv.AudioPlayer != null)
+                        {
+                            var enabled = ReplayGainEnabled;
+                            var useTags = ReplayGainUseTags;
+                            var analyze = ReplayGainAnalyzeOnTheFly;
+                            var preampAnalyze = ReplayGainPreampDb;
+                            var preampTags = ReplayGainTagsPreampDb;
+                            var tagSource = ReplayGainTagSource;
+
+                            // Fire-and-forget the recompute to avoid blocking the UI
+                            _ = Task.Run(async () =>
+                            {
+                                try { await mv.AudioPlayer.RecomputeReplayGainForCurrentAsync(enabled, useTags, analyze, preampAnalyze, preampTags, tagSource).ConfigureAwait(false); }
+                                catch (Exception ex) { Log.Warn("Failed to recompute replaygain on AudioPlayer", ex); }
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("OnSettingsPropertyChanged (deferred): failed to resolve music view model", ex);
+                    }
+                });
             }
             catch (Exception ex)
             {
@@ -781,11 +798,21 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     {
         // Load shader items from the local "shaders" directory
         ShaderToys = [.. GetLocalShaders(_shaderToysDirectory, "*.frag")];
-        // Load settings
+
+        // Disable our property‑changed handler while we populate values from disk.
+        // the constructor already wired the handler for gradient updates but we don't
+        // want to react to the initial load (avoids container deadlocks and needless
+        // recompute work).
+        PropertyChanged -= OnSettingsPropertyChanged;
+        _isLoadingSettings = true;
+
+        // Load settings (this will set many observable properties)
         LoadSettings();
 
-        // Ensure property-changed handler is subscribed so changes to settings
-        // (eg. ReplayGain sliders) are handled immediately.
+        // finished loading
+        _isLoadingSettings = false;
+
+        // Re‑subscribe the handler so further user changes are observed
         try
         {
             PropertyChanged -= OnSettingsPropertyChanged;
