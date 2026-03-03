@@ -137,6 +137,9 @@
     <None Update="Shaders\Shadertoys\ElectricBlur.frag">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="Shaders\Shadertoys\LiveOrb.frag">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>
