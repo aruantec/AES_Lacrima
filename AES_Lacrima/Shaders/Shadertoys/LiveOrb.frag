@@ -39,8 +39,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     float mid  = texture(iChannel0, vec2(0.18,  0.25)).r;
     float treb = texture(iChannel0, vec2(0.78,  0.25)).r;
 
-    // smooth beat envelope — avoids spiky jumps
-    float beat = ease(bass * 0.8 + mid * 0.3);
+    // smooth beat envelope — weighted but not overwhelming
+    float beat = ease(bass * 1.0 + mid * 0.35);
 
     // ---- scene --------------------------------------------------------
     float mainR = 0.78;                          // main sphere radius
@@ -50,13 +50,17 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     // vivid neon blue for resting spheres
     vec3 neonBase = vec3(0.12, 0.45, 1.0);
 
-    // rotation: steady base + smooth music-driven drift (never jumps)
-    float energy = (bass + mid + treb) / 3.0;
-    float eSmooth = smoothstep(0.02, 0.30, energy);
-    // layered slow sines give an organic "speeding up" feel without discontinuity
-    float drift = eSmooth * (0.35 * sin(t * 0.18) + 0.18 * sin(t * 0.31) + 0.10 * sin(t * 0.47));
-    float rY = t * 0.10 + drift;
-    float rX = 0.28 + 0.04 * sin(t * 0.12);
+    // rotation: constant Y spin is the primary driver, but the orb also slowly
+    // tumbles on X and Z with incommensurate periods so it never loops predictably.
+    // All values are pure time integrals (t * k or integrated sines) — no audio coupling
+    // in the angle, so there are zero sudden jumps.
+    float rY = t * 0.26;                                        // steady Y spin
+    float rX = 0.18 * sin(t * 0.09)                            // slow forward/back tilt
+             + 0.09 * sin(t * 0.17 + 1.1)                     // secondary wobble
+             + 0.04 * sin(t * 0.31 + 2.5);                    // fine texture
+    float rZ = 0.14 * sin(t * 0.07 + 0.8)                     // slow roll
+             + 0.06 * sin(t * 0.19 + 1.9)                     // secondary roll
+             + 0.03 * sin(t * 0.41 + 0.4);                    // fine texture
 
     // ---- per-pixel output ---------------------------------------------
     vec3  col   = vec3(0.0);
@@ -80,27 +84,28 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         float fU   = fract(fi * 0.618 + 0.07);
         float freq = texture(iChannel0, vec2(fU, 0.25)).r;
 
-        // very smooth per-ball oscillation — slow sine, unique phase
-        float ph     = hash(fi) * TAU;
-        float wave   = 0.5 + 0.5 * sin(t * 0.6 + ph);   // slow oscillation
-        float wSmooth = ease(wave);                        // cubic ease
+        // slow per-ball oscillation — organic breathing feel, unique phase per ball
+        float ph      = hash(fi) * TAU;
+        float wave    = 0.5 + 0.5 * sin(t * 1.1 + ph);   // gentle, slow oscillation
+        float wSmooth = ease(wave);                        // cubic ease for buttery motion
 
-        // softer power curve — preserves more of the signal
-        float freqS = pow(freq, 1.2);
-        // low gate so most orbs with any energy can jump
-        float gate  = smoothstep(0.05, 0.20, freqS);
+        // moderate power curve — realistic falloff
+        float freqS = pow(freq, 1.0);
+        // wider gate — only genuinely active bands trigger movement
+        float gate  = smoothstep(0.08, 0.28, freqS);
 
-        // displacement — direct music coupling, higher range
-        float disp = gate * (freqS * 0.32 + beat * 0.18) * wSmooth;
+        // gentle displacement — orbs breathe with music, not thrash
+        float disp = gate * (freqS * 0.28 + beat * 0.16) * wSmooth;
 
         // how much this ball is "active" (0 = resting, 1 = fully jumped)
-        float activity = clamp(disp * 3.5, 0.0, 1.0);
+        float activity = clamp(disp * 3.8, 0.0, 1.0);
 
         vec3 pos = sn * (mainR + disp);
 
         // rotate whole formation
         pos.xz = rot2(pos.xz, rY);
         pos.yz = rot2(pos.yz, rX);
+        pos.xy = rot2(pos.xy, rZ);
 
         // perspective projection
         float ez  = pos.z + camD;
