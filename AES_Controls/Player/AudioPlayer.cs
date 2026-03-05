@@ -1481,22 +1481,39 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         Task.Run(async () => {
             try 
             {
-                await Task.Delay(400, token); // Debounce delay
-                if (token.IsCancellationRequested) return;
+                    // shorter debounce helps spectrum restart sooner on fast seeks
+                    await Task.Delay(200, token);
+                    if (token.IsCancellationRequested) return;
 
-                if (!_disposed) 
-                {
-                    _spectrumAnalyzer.SetStartPosition(pos, IsPlaying);
+                    if (!_disposed)
+                    {
+                        // update the analyzer start position and force a restart if it
+                        // is currently running.  this handles the common case where the
+                        // analyzer is active while the user seeks; without restarting the
+                        // internal ffmpeg process it will continue decoding from the old
+                        // offset and the spectrum will remain stuck until something else
+                        // (eg. pause/play) restarts it.
+                        _spectrumAnalyzer.SetStartPosition(pos, true);
+                    }
+
+                    // clear the seeking flag before attempting to start the analyzer so
+                    // subsequent events (e.g. Playing) are not suppressed.
+                    _isSeeking = false;
+
+                    // make sure the analyzer is running now that we've left the seek
+                    // state.  CheckAndStartFfmpegTasks handles the usual enable/playing
+                    // logic (and also restarts waveform if required).
+                    CheckAndStartFfmpegTasks();
                 }
-                _isSeeking = false;
-            }
-            catch (OperationCanceledException) { }
-        });
-    }
+                catch (OperationCanceledException) { }
+            });
+        }
 
     /// <summary>
-    /// Suspends playback and returns the current position and playing state
-    /// so the caller can perform edits and later restore playback.
+    /// Temporarily stops playback so the caller can perform editing operations.
+    /// Returns the current position and playing state so the operation can be
+    /// resumed later.  The spectrum analyzer and waveform generator are halted
+    /// and any running FFmpeg helper processes are killed to avoid resource leaks.
     /// </summary>
     public async Task<(double Position, bool WasPlaying)> SuspendForEditingAsync()
     {

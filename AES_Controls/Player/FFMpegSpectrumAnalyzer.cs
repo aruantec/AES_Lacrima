@@ -63,7 +63,9 @@ namespace AES_Controls.Players
         /// FFmpeg analysis process. Optionally restarts the analysis if it is running.
         /// </summary>
         /// <param name="seconds">Start position in seconds.</param>
-        /// <param name="restartIfRunning">If true, stop and start the analyzer when running.</param>
+        /// <param name="restartIfRunning">If true, stop and start the analyzer when running.
+        /// (legacy; callers now generally rely on <see cref="AudioPlayer.CheckAndStartFfmpegTasks"/>
+        /// or manually invoke <see cref="Start"/> after clearing seek state.)</param>
         public void SetStartPosition(double seconds, bool restartIfRunning = false)
         {
             _processedSeconds = Math.Max(0.0, seconds);
