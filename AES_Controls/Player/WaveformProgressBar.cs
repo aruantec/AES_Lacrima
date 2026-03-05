@@ -7,7 +7,6 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using System.Globalization;
 using System.Windows.Input;
-using Avalonia.Visuals;
 using Avalonia.Interactivity;
 
 namespace AES_Controls.Player
