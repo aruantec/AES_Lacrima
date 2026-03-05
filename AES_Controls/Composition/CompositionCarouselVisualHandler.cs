@@ -81,7 +81,7 @@ namespace AES_Controls.Composition
         private float _fullCoverSizeFactor;
         private float _fullCoverSizeVelocity;
 
-        private readonly SKPaint _quadPaint = new() { IsAntialias = true, FilterQuality = SKFilterQuality.Medium };
+        private readonly SKPaint _quadPaint = new() { IsAntialias = true, FilterQuality = SKFilterQuality.High };
         // Projection / depth tuning to reduce perspective distortion on side items
         private readonly float _projectionDistance = 2500f; // larger => weaker perspective
         private readonly SKPaint _spinnerPaint = new() { IsAntialias = true, StrokeCap = SKStrokeCap.Round, StrokeWidth = 4, Style = SKPaintStyle.Stroke };
@@ -95,9 +95,8 @@ namespace AES_Controls.Composition
         private readonly SKMaskFilter _sliderBlurFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 2);
         private readonly Dictionary<SKImage, (int Width, int Height)> _dimCache = new();
         
-        private readonly SKPoint[] _vBuffer = new SKPoint[4];
-        private readonly SKPoint[] _tBuffer = new SKPoint[4];
-        private static readonly ushort[] QuadIndices = { 0, 1, 2, 0, 2, 3 };
+        private SKPoint[] _meshVBuffer = Array.Empty<SKPoint>();
+        private SKPoint[] _meshTBuffer = Array.Empty<SKPoint>();
         
 
         private SKShader? _trackShader;
@@ -324,7 +323,8 @@ namespace AES_Controls.Composition
 
             if (_backgroundColor.Alpha > 0) canvas.Clear(_backgroundColor);
             var center = new Vector2(_visualSize.X / 2.0f, (_visualSize.Y / 2.0f) + _verticalOffset);
-            float baseW = _itemWidth * _itemScale; float baseH = _itemHeight * _itemScale;
+            float baseW = _itemWidth * _itemScale;
+            float baseH = _itemHeight * _itemScale;
 
             if (_visibleRangeDirty)
             {
@@ -380,14 +380,13 @@ namespace AES_Controls.Composition
             SKImage? img = (i >= 0 && i < _images.Count) ? _images[i] : null;
             float itemW = baseWidth;
             float itemH = baseHeight;
-
             if (img != null && !_loadingIndices.Contains(i) && _fullCoverSizeFactor > 0.001f)
             {
                 if (!_dimCache.TryGetValue(img, out var dims)) { try { dims = _dimCache[img] = (img.Width, img.Height); } catch { dims = (0, 0); } }
                 if (dims.Width > 0 && dims.Height > 0)
                 {
                     float aspect = (float)dims.Width / dims.Height;
-                    // Respect dimensions: adjust width based on aspect ratio, keeping height constant
+                    // Off => regular cover dimensions (fill-crop), On => full cover aspect.
                     float targetW = baseHeight * aspect;
                     itemW = baseWidth + (targetW - baseWidth) * _fullCoverSizeFactor;
                 }
@@ -421,7 +420,11 @@ namespace AES_Controls.Composition
             float scale = Math.Max(0.1f, (1.0f + centerPop) - (absDiff * 0.06f));
 
             float curWidthRatio = itemW / (baseWidth > 0 ? baseWidth : 1.0f);
-            float finalTranslationX = translationX * curWidthRatio;
+            float wideExcess = Math.Max(0f, curWidthRatio - 1f);
+            float translationWidthComp = 1f + wideExcess * 0.35f;
+            float rotationWidthComp = 1f / (1f + wideExcess * 1.20f);
+            rotationY *= rotationWidthComp;
+            float finalTranslationX = translationX * translationWidthComp;
 
             if (i == _draggingIndex)
             {
@@ -451,7 +454,7 @@ namespace AES_Controls.Composition
             var matrix = Matrix4x4.CreateTranslation(new Vector3(finalTranslationX, translationY, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(scale);
             
             float baseOpacity = (float)(1.0 - (i == _draggingIndex ? 0 : absDiff) * 0.2) * _globalTransitionAlpha * _currentGlobalOpacity;
-            DrawQuad(canvas, itemW, itemH, matrix, img, baseOpacity, center);
+            DrawQuad(canvas, itemW, itemH, matrix, img, baseOpacity, center, Math.Abs(rotationY));
 
             if (_coverFoundIndices.Contains(i))
             {
@@ -529,7 +532,7 @@ namespace AES_Controls.Composition
 
             if (_loadingIndices.Contains(i)) DrawSpinner(canvas, center, matrix);
             var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
-            DrawQuad(canvas, itemW, itemH, refMat, img, baseOpacity * 0.08f, center);
+            DrawQuad(canvas, itemW, itemH, refMat, img, baseOpacity * 0.08f, center, Math.Abs(rotationY));
         }
 
         private void DisposeShaderOnly(SKImage? img) { if (img != null && _shaderCache.Remove(img, out var shader)) shader.Dispose(); }
@@ -548,7 +551,7 @@ namespace AES_Controls.Composition
             } 
         }
 
-        private void DrawQuad(SKCanvas canvas, float w, float h, Matrix4x4 model, SKImage? image, float opacity, Vector2 center)
+        private void DrawQuad(SKCanvas canvas, float w, float h, Matrix4x4 model, SKImage? image, float opacity, Vector2 center, float rotationYAbs)
         {
             if (opacity < 0.01f || image == null) return;
 
@@ -568,33 +571,50 @@ namespace AES_Controls.Composition
             float wR = w / sc; float hR = h / sc;
             float xO = (dims.Width - wR) / 2f; float yO = (dims.Height - hR) / 2f;
 
-            // Perspective is subtle enough that 1-2 segments are sufficient
-            int horizontalSegments = (w < h * 1.5f) ? 1 : 2;
+            // Subdivide the quad and render as one shared-vertex strip to reduce affine texture warp on side cards.
+            float aspect = w / Math.Max(1f, h);
+            int horizontalSegments = 1 + (int)Math.Ceiling(Math.Max(0f, aspect - 1.0f) * 2.2f + rotationYAbs * 5.0f);
+            if (horizontalSegments < 1) horizontalSegments = 1;
+            if (horizontalSegments > 10) horizontalSegments = 10;
 
-            for (int s = 0; s < horizontalSegments; s++)
+            int vertCount = 2 * (horizontalSegments + 1);
+            if (_meshVBuffer.Length != vertCount) _meshVBuffer = new SKPoint[vertCount];
+            if (_meshTBuffer.Length != vertCount) _meshTBuffer = new SKPoint[vertCount];
+
+            for (int s = 0; s <= horizontalSegments; s++)
             {
-                float x0 = -w / 2 + (w * s / horizontalSegments);
-                float x1 = -w / 2 + (w * (s + 1) / horizontalSegments);
-                float tX0 = xO + (wR * s / horizontalSegments);
-                float tX1 = xO + (wR * (s + 1) / horizontalSegments);
+                float u = s / (float)horizontalSegments;
+                float x = -w / 2 + w * u;
+                float tX = xO + wR * u;
 
-                // Inline and optimize matrix multiplication and projection
-                void Project(int idx, float px, float py) {
-                    float vx = px * model.M11 + py * model.M21 + model.M41;
-                    float vy = px * model.M12 + py * model.M22 + model.M42;
-                    float vz = px * model.M13 + py * model.M23 + model.M43;
-                    float sFactor = _projectionDistance / (_projectionDistance - vz);
-                    if (sFactor < 0.5f) sFactor = 0.5f; else if (sFactor > 1.6f) sFactor = 1.6f;
-                    _vBuffer[idx] = new SKPoint(center.X + vx * sFactor, center.Y + vy * sFactor);
+                // top vertex
+                {
+                    float vx = x * model.M11 + (-h / 2) * model.M21 + model.M41;
+                    float vy = x * model.M12 + (-h / 2) * model.M22 + model.M42;
+                    float vz = x * model.M13 + (-h / 2) * model.M23 + model.M43;
+                    float denom = _projectionDistance - vz;
+                    if (Math.Abs(denom) < 1e-3f) denom = denom < 0 ? -1e-3f : 1e-3f;
+                    float sFactor = _projectionDistance / denom;
+                    int idx = s * 2;
+                    _meshVBuffer[idx] = new SKPoint(center.X + vx * sFactor, center.Y + vy * sFactor);
+                    _meshTBuffer[idx] = new SKPoint(tX, yO);
                 }
 
-                Project(0, x0, -h / 2); Project(1, x1, -h / 2); Project(2, x1, h / 2); Project(3, x0, h / 2);
-
-                _tBuffer[0] = new SKPoint(tX0, yO); _tBuffer[1] = new SKPoint(tX1, yO);
-                _tBuffer[2] = new SKPoint(tX1, yO + hR); _tBuffer[3] = new SKPoint(tX0, yO + hR);
-
-                canvas.DrawVertices(SKVertexMode.TriangleFan, _vBuffer, _tBuffer, null, null, _quadPaint);
+                // bottom vertex
+                {
+                    float vx = x * model.M11 + (h / 2) * model.M21 + model.M41;
+                    float vy = x * model.M12 + (h / 2) * model.M22 + model.M42;
+                    float vz = x * model.M13 + (h / 2) * model.M23 + model.M43;
+                    float denom = _projectionDistance - vz;
+                    if (Math.Abs(denom) < 1e-3f) denom = denom < 0 ? -1e-3f : 1e-3f;
+                    float sFactor = _projectionDistance / denom;
+                    int idx = s * 2 + 1;
+                    _meshVBuffer[idx] = new SKPoint(center.X + vx * sFactor, center.Y + vy * sFactor);
+                    _meshTBuffer[idx] = new SKPoint(tX, yO + hR);
+                }
             }
+
+            canvas.DrawVertices(SKVertexMode.TriangleStrip, _meshVBuffer, _meshTBuffer, null, null, _quadPaint);
             _quadPaint.Shader = null;
         }
 

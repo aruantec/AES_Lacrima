@@ -40,9 +40,12 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     // smooth beat envelope — weighted but not overwhelming
     float beat = ease(bass * 1.0 + mid * 0.35);
     float sparkle = ease(treb * 1.2);
+    float pulse = ease(0.75 * beat + 0.25 * bass);
 
     // ---- scene --------------------------------------------------------
-    float mainR = 0.78;                          // main sphere radius
+    // Internal-pressure feel: the whole orb gently inflates with the beat.
+    float orbInflate = 0.010 + 0.050 * pulse + 0.012 * sin(t * 0.80 + pulse * 1.7);
+    float mainR = 0.78 + orbInflate;            // main sphere radius
     float camD  = 2.85;                          // camera distance
     vec3  light = normalize(vec3(-0.5, 0.55, 0.85));
 
@@ -107,10 +110,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         float gate  = smoothstep(0.06, 0.24, freqS);
 
         // gentle displacement — orbs breathe with music, not thrash
-        float disp = gate * (freqS * 0.24 + beat * 0.12) * motion;
+        float disp = gate * (freqS * 0.22 + beat * 0.07) * motion;
 
         // how much this ball is "active" (0 = resting, 1 = fully jumped)
         float activity = clamp(disp * 4.0 + sparkle * gate * 0.03, 0.0, 1.0);
+        float jumpHeight = clamp(disp * 6.5, 0.0, 1.0); // normalized actual jump amount
 
         vec3 pos = sn * (mainR + disp);
 
@@ -134,7 +138,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 
         // child-sphere screen radius (grows gently with displacement)
         float bR = 0.068 + hash01(fi + 3.0) * 0.010;
-        float sr = bR * scl * (1.0 + disp * 0.6);
+        float sr = bR * scl * (1.0 + disp * 0.6 + orbInflate * 0.9);
         vec2  dv  = uv - prj;
         float pd2 = dot(dv, dv);
         vec3  ballNeon = vec3(0.0);
@@ -143,14 +147,15 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         // neon glow halo around jumping spheres (rendered before depth test)
         if (activity > 0.05)
         {
-            float glowR  = sr * (2.0 + activity * 1.5);
+            float glowR  = sr * (2.0 + activity * 1.5 + jumpHeight * 0.9);
             float glowR2 = glowR * glowR;
             if (pd2 < glowR2 * 16.0) {
                 ballNeon = neonColor(fi);
                 neonReady = true;
                 float pd = sqrt(pd2);
-                float glow = exp2(-5.48 * pd / glowR) * activity;
-                col += ballNeon * glow * 0.18;
+                float jumpGlow = activity * (0.45 + 1.25 * jumpHeight);
+                float glow = exp2(-5.48 * pd / glowR) * jumpGlow;
+                col += ballNeon * glow * 0.30;
             }
         }
 
@@ -179,19 +184,28 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         float rim  = pow(1.0 - lz, 2.6);
         float ao   = 0.35 + 0.65 * lz;
 
-        // vivid neon blue base palette
+        // blue-dominant base palette + subtle green accent
         vec3 cBase = vec3(0.04, 0.12, 0.30);
         vec3 cRim  = vec3(0.10, 0.40, 0.90);
         vec3 cSpec = vec3(0.15, 0.50, 1.00);
+        vec3 cAccentE = vec3(0.10, 0.95, 0.35); // green
+
+        // Sparse green accent mask so only a subset of spheres get a tint.
+        float greenPick = hash01(fi * 3.17 + 9.2);
+        float greenMask = smoothstep(0.84, 0.98, greenPick);
+        float greenDrift = 0.70 + 0.30 * (0.5 + 0.5 * sin(t * 0.33 + fi * 0.11));
+        vec3 accentCol = cAccentE * greenMask * greenDrift;
 
         // bright neon-lit spheres even at rest
         vec3 bc = cBase * (0.50 + diff * 0.70) * ao;
-        bc += neonBase * rim * 0.50;
-        bc += cRim * rim * 0.25;
-        bc += cSpec * spec * 1.00;
+        bc += cRim * rim * 0.45;
+        bc += cSpec * spec * 1.10;
 
-        // neon emissive glow at rest — keeps spheres visibly blue
-        bc += neonBase * 0.09;
+        float accentAmt = (0.05 + 0.07 * beat) * (0.25 + 0.75 * rim);
+        bc += accentCol * accentAmt;
+
+        // rest emissive bias keeps accents alive even off-beat
+        bc += accentCol * 0.025 + neonBase * 0.025;
 
         // edge contour — individual sphere outlines
         float edge = smoothstep(0.84, 1.0, lrd);
@@ -202,13 +216,14 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         if (!neonReady) {
             ballNeon = neonColor(fi);
         }
-        vec3 neonRim  = ballNeon * rim * activity * 1.8;
-        vec3 neonCore = ballNeon * diff * activity * 0.35;
-        vec3 neonSpec = ballNeon * spec * activity * 0.9;
+        float jumpInt = activity * (0.40 + 1.40 * jumpHeight);
+        vec3 neonRim  = ballNeon * rim * jumpInt * 2.2;
+        vec3 neonCore = ballNeon * diff * jumpInt * 0.50;
+        vec3 neonSpec = ballNeon * spec * jumpInt * 1.30;
         bc += neonRim + neonCore + neonSpec;
 
         // Strong emissive bloom in the ball's neon color
-        float emissive = activity * activity * 0.25;
+        float emissive = activity * activity * (0.20 + 0.80 * jumpHeight);
         bc += ballNeon * emissive;
 
         float alpha = smoothstep(1.0, 0.93, lrd);

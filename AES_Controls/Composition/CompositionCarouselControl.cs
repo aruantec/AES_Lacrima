@@ -455,8 +455,7 @@ namespace AES_Controls.Composition
                 if (UseFullCoverSize && i >= 0 && i < _images.Count && _images[i] is SKImage img)
                 {
                     float aspect = (float)img.Width / img.Height;
-                    if (aspect > 1.1f || aspect < 0.9f)
-                        w = h * aspect;
+                    if (aspect > 0.01f) w = h * aspect;
                 }
 
                 float diff = (float)(i - currentIndex);
@@ -472,12 +471,16 @@ namespace AES_Controls.Composition
                 float translationXBeforeRatio = (transitionEase * sideTrans + stackFactor) * spacing * scaleVal;
 
                 float widthRatio = w / (itemWidth > 0 ? itemWidth : 1f);
+                float wideExcess = Math.Max(0f, widthRatio - 1f);
+                float translationWidthComp = 1f + wideExcess * 0.35f;
+                float rotationWidthComp = 1f / (1f + wideExcess * 0.85f);
+                rotationY *= rotationWidthComp;
                 float translationZ = (float)(-Math.Pow(absDiff, 0.8f) * 220f * spacing * scaleVal);
 
                 float centerPop = 0.18f * (float)Math.Exp(-absDiff * absDiff * 6.0f);
                 float itemPerspectiveScale = Math.Max(0.1f, (1.0f + centerPop) - (absDiff * 0.06f));
 
-                var matrix = Matrix4x4.CreateTranslation(new Vector3(translationXBeforeRatio * widthRatio, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
+                var matrix = Matrix4x4.CreateTranslation(new Vector3(translationXBeforeRatio * translationWidthComp, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
 
                 Vector2 TransformProj(Vector3 v) { var vt = Vector3.Transform(v, matrix); float s = 1000f / (1000f - vt.Z); return new Vector2(center.X + vt.X * s, center.Y + vt.Y * s); }
 
@@ -1493,6 +1496,10 @@ namespace AES_Controls.Composition
             float scaleVal = (float)ItemScale;
             float itemWidth = (float)ItemWidth * scaleVal;
             float itemHeight = (float)ItemHeight * scaleVal;
+            // Match renderer: fixed square cover frame for geometry/hit testing.
+            float coverSide = MathF.Min(itemWidth, itemHeight);
+            itemWidth = coverSide;
+            itemHeight = coverSide;
             var center = new Vector2(size.X / 2, (float)(size.Y / 2 + VerticalOffset));
             float spacing = (float)ItemSpacing;
             int centerIdx = (int)Math.Round(currentIndex);
@@ -1519,7 +1526,7 @@ namespace AES_Controls.Composition
             if (UseFullCoverSize && i >= 0 && i < _images.Count && _images[i] is SKImage img)
             {
                 float aspect = (float)img.Width / img.Height;
-                w = h * aspect;
+                if (aspect > 0.01f) w = h * aspect;
             }
 
             // Use cached polygon if available
@@ -1540,13 +1547,17 @@ namespace AES_Controls.Composition
             float stackFactor = Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f) * stackSpace;
             float translationXBeforeRatio = (transitionEase * sideTrans + stackFactor) * spacing * scale;
             float widthRatio = w / ((float)ItemWidth * scale);
+            float wideExcess = Math.Max(0f, widthRatio - 1f);
+            float translationWidthComp = 1f + wideExcess * 0.35f;
+            float rotationWidthComp = 1f / (1f + wideExcess * 0.85f);
+            rotationY *= rotationWidthComp;
 
             float translationZ = (float)(-Math.Pow(absDiff, 0.8f) * 220f * spacing * scale);
 
             float centerPop = 0.18f * (float)Math.Exp(-absDiff * absDiff * 6.0f);
             float itemPerspectiveScale = Math.Max(0.1f, (1.0f + centerPop) - (absDiff * 0.06f));
 
-            var matrix = Matrix4x4.CreateTranslation(new Vector3(translationXBeforeRatio * widthRatio, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
+            var matrix = Matrix4x4.CreateTranslation(new Vector3(translationXBeforeRatio * translationWidthComp, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
 
             Vector2 Proj(Vector3 v) { var vt = Vector3.Transform(v, matrix); float s = 1000f / (1000f - vt.Z); return new Vector2(center.X + vt.X * s, center.Y + vt.Y * s); }
             var p1 = Proj(new Vector3(-w/2, -h/2, 0)); var p2 = Proj(new Vector3(w/2, -h/2, 0)); var p3 = Proj(new Vector3(w/2, h/2, 0)); var p4 = Proj(new Vector3(-w/2, h/2, 0));
@@ -1560,11 +1571,10 @@ namespace AES_Controls.Composition
             float spacing = (float)ItemSpacing;
             float w = (float)ItemWidth * scaleVal;
             float h = (float)ItemHeight * scaleVal;
-
-            if (i >= 0 && i < _images.Count && _images[i] is SKImage img)
+            if (UseFullCoverSize && i >= 0 && i < _images.Count && _images[i] is SKImage img)
             {
                 float aspect = (float)img.Width / img.Height;
-                if (aspect > 1.1f || aspect < 0.9f) w = h * aspect;
+                if (aspect > 0.01f) w = h * aspect;
             }
 
             float currentIndex = (float)_uiCurrentIndex;
@@ -1581,11 +1591,15 @@ namespace AES_Controls.Composition
             float stackFactor = Math.Sign(diff) * (float)Math.Pow(Math.Max(0, absDiff - 0.45f), 1.1f) * stackSpace;
             float translationXBeforeRatio = (transitionEase * sideTrans + stackFactor) * spacing * scaleVal;
             float widthRatio = w / ((float)ItemWidth * scaleVal);
+            float wideExcess = Math.Max(0f, widthRatio - 1f);
+            float translationWidthComp = 1f + wideExcess * 0.35f;
+            float rotationWidthComp = 1f / (1f + wideExcess * 0.85f);
+            rotationY *= rotationWidthComp;
             float translationZ = (float)(-Math.Pow(absDiff, 0.8f) * 220f * spacing * scaleVal);
             float centerPop = 0.18f * (float)Math.Exp(-absDiff * absDiff * 6.0f);
             float itemPerspectiveScale = Math.Max(0.1f, (1.0f + centerPop) - (absDiff * 0.06f));
 
-            var matrix = Matrix4x4.CreateTranslation(new Vector3(translationXBeforeRatio * widthRatio, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
+            var matrix = Matrix4x4.CreateTranslation(new Vector3(translationXBeforeRatio * translationWidthComp, 0, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(itemPerspectiveScale);
 
             float btnW = w * 0.4f;
             float btnH = h * 0.15f;
