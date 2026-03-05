@@ -7,6 +7,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using System.Globalization;
 using System.Windows.Input;
+using Avalonia.Visuals;
+using Avalonia.Interactivity;
 
 namespace AES_Controls.Player
 {
@@ -144,6 +146,7 @@ namespace AES_Controls.Player
         #endregion
 
         private double _lastValue;
+        private double _dragValue; // current value during an active drag
         private Point? _lastMousePosition;
         private double _loadingAngle;
 
@@ -155,6 +158,45 @@ namespace AES_Controls.Player
         private readonly List<IDisposable> _propertySubscriptions = [];
         private System.Collections.Specialized.NotifyCollectionChangedEventHandler? _waveformCollectionHandler;
         private System.Collections.Specialized.INotifyCollectionChanged? _waveformCollectionRef;
+
+        // global event subscription to catch clicks near the indicator when outside bounds
+        private bool _hooksSetup;
+        private void SetupGlobalHitTest()
+        {
+            if (_hooksSetup) return;
+            _hooksSetup = true;
+            var ie = this.VisualRoot as InputElement;
+            if (ie != null)
+            {
+                ie.AddHandler(InputElement.PointerPressedEvent, GlobalPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+            }
+        }
+
+        private void TeardownGlobalHitTest()
+        {
+            var ie = this.VisualRoot as InputElement;
+            if (ie != null)
+            {
+                ie.RemoveHandler(InputElement.PointerPressedEvent, GlobalPointerPressed);
+            }
+            _hooksSetup = false;
+        }
+
+        private void GlobalPointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            // if the event already targeted this control, skip
+            if (e.Source == this) return;
+            var pt = e.GetPosition(this);
+            double buffer = TriangleHeight + TriangleOffset + 5;
+            if (pt.X >= -buffer && pt.X <= Bounds.Width + buffer && pt.Y >= -buffer && pt.Y <= Bounds.Height + buffer)
+            {
+                // treat as if pressed on our control
+                OnPointerPressed(this, e);
+
+                // mark handled so other elements don't steal it
+                e.Handled = true;
+            }
+        }
 
         public WaveformProgressBar()
         {
@@ -207,6 +249,8 @@ namespace AES_Controls.Player
 
             _loadingTimer.Start();
             _updateTimer.Start();
+
+            SetupGlobalHitTest();
         }
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -220,6 +264,8 @@ namespace AES_Controls.Player
             PointerReleased -= OnPointerReleased;
             PointerEntered -= OnPointerEntered;
             PointerExited -= OnPointerExited;
+
+            TeardownGlobalHitTest();
 
             // Explicit disposal of memory-heavy resources
             _unplayedCache?.Dispose();
@@ -270,7 +316,10 @@ namespace AES_Controls.Player
         #region Pointer Handling
         private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
         {
+            // begin drag and store the starting value so that
+            // external changes won't fight the pointer position
             IsDragging = true;
+            _dragValue = Value;
             e.Pointer.Capture(this);
             UpdateValueFromPointer(e);
         }
@@ -288,12 +337,15 @@ namespace AES_Controls.Player
         {
             if (IsDragging)
             {
-                // Update value one last time to ensure we are at the release point
+                // Update drag value and then commit it to the real Value
                 UpdateValueFromPointer(e);
-                
+
+                Value = _dragValue;
+                _lastValue = _dragValue;
+
                 // Execute command BEFORE clearing IsDragging to maintain seek-gate in player
-                DragCompletedCommand?.Execute(Value);
-                
+                DragCompletedCommand?.Execute(_dragValue);
+
                 IsDragging = false;
                 e.Pointer.Capture(null);
             }
@@ -307,8 +359,20 @@ namespace AES_Controls.Player
             var point = e.GetPosition(this);
             double width = Bounds.Width - WaveformMargin.Left - WaveformMargin.Right;
             double ratio = Math.Clamp((point.X - WaveformMargin.Left) / Math.Max(1.0, width), 0, 1);
-            Value = Minimum + ratio * (Maximum - Minimum);
-            _lastValue = Value;
+            double newVal = Minimum + ratio * (Maximum - Minimum);
+
+            if (IsDragging)
+            {
+                // keep the drag value separate to avoid jumpy external updates
+                _dragValue = newVal;
+                _lastValue = _dragValue;
+            }
+            else
+            {
+                Value = newVal;
+                _lastValue = Value;
+            }
+
             UpdatePlayedCache();
             InvalidateVisual();
         }
@@ -531,7 +595,8 @@ namespace AES_Controls.Player
 
                 if (_playedCache != null)
                 {
-                    double progress = (Value - Minimum) / Math.Max(1.0, (Maximum - Minimum));
+                    double progressVal = IsDragging ? _dragValue : Value;
+                    double progress = (progressVal - Minimum) / Math.Max(1.0, (Maximum - Minimum));
                     double clipX = WaveformMargin.Left + progress * (width - WaveformMargin.Left - WaveformMargin.Right);
 
                     using (context.PushClip(new Rect(0, 0, clipX, height)))
@@ -542,7 +607,8 @@ namespace AES_Controls.Player
             }
 
             // Indicator Line
-            double progressRatio = (Value - Minimum) / Math.Max(1.0, (Maximum - Minimum));
+            double progressVal2 = IsDragging ? _dragValue : Value;
+            double progressRatio = (progressVal2 - Minimum) / Math.Max(1.0, (Maximum - Minimum));
             double indicatorX = Math.Round(WaveformMargin.Left + progressRatio * (width - WaveformMargin.Left - WaveformMargin.Right));
             context.FillRectangle(IndicatorColor ?? Brushes.White, new Rect(indicatorX - 1, 0, 2, height));
 
@@ -595,6 +661,7 @@ namespace AES_Controls.Player
         private void DrawLoadingIndicator(DrawingContext context, double width, double height)
         {
             double size = LoadingIndicatorSize;
+
             IBrush brush = LoadingIndicatorColor ?? Brushes.White;
             Color color = brush is SolidColorBrush scb ? scb.Color : Colors.White;
 
@@ -612,5 +679,6 @@ namespace AES_Controls.Player
                 context.DrawLine(new Pen(new SolidColorBrush(color) { Opacity = (i + 1) / (double)segments }, 3), p1, p2);
             }
         }
+
     }
 }

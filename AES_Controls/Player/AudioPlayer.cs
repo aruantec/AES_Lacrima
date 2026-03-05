@@ -545,7 +545,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         {
             // If no file is loaded and player is idle, expose a 1s default instead of 0.
             if ((_duration == 0.0 || double.IsNaN(_duration)) && !_disposed && !IsPlaying && _currentMediaItem == null)
-                return 1.0;
+                return 0.0;
             return _duration;
         }
         set
