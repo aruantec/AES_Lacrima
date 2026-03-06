@@ -20,6 +20,7 @@
         Width="{Binding WindowWidth, Mode=TwoWay}"
         Height="{Binding WindowHeight, Mode=TwoWay}"
         WindowStartupLocation="CenterOwner"
+        SystemDecorations="None"
         ExtendClientAreaChromeHints="NoChrome"
         ExtendClientAreaToDecorationsHint="True">
 
@@ -38,6 +39,7 @@
     </Window.Resources>
 
     <Interaction.Behaviors>
+        <behaviors:WindowResizeBehavior ResizeBorderThickness="8"/>
         <behaviors:CloseOnClickOutsideBehavior 
             TargetControl="{Binding #SettingsOverlay}"
             IsEnabled="{Binding NavigationService.ShowSettingsOverlay}"

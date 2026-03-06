@@ -11,6 +11,7 @@
         x:DataType="vm:MinViewModel"
         Title="Minimalist Mode"
         WindowStartupLocation="CenterOwner"
+        SystemDecorations="None"
         ExtendClientAreaChromeHints="NoChrome"
         ExtendClientAreaToDecorationsHint="True"
         Height="{Binding WindowHeight, Mode=TwoWay}"
@@ -24,6 +25,9 @@
     <Window.DataContext>
         <locators:TypeResolverExtension Type="vm:MinViewModel"/>
     </Window.DataContext>
+    <Interaction.Behaviors>
+        <behaviors:WindowResizeBehavior ResizeBorderThickness="8"/>
+    </Interaction.Behaviors>
 
 	<!-- Content -->
 	<Grid RowDefinitions="Auto,*" x:DataType="vm:MinViewModel">
@@ -39,7 +43,7 @@
 		</Border>
 
 		<!-- Top bar -->
-		<Grid Grid.Row="0">
+		<Grid Grid.Row="0" Background="Transparent">
             <!--Behaviors-->
             <Interaction.Behaviors>
                 <behaviors:WindowDragBehavior/>
