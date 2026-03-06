@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:viewmodels="using:AES_Lacrima.ViewModels"
+             xmlns:behavors="using:AES_Controls.Behaviors"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Mini.Views.MiniSettings"
              x:DataType="viewmodels:SettingsViewModel">
@@ -28,6 +29,14 @@
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
                                 <TextBlock Text="Enable ReplayGain" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="16"/>
                                 <ToggleSwitch IsChecked="{Binding ReplayGainEnabled, Mode=TwoWay}"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,0,4" Spacing="10">
+                                <TextBlock Text="Silence advance delay (ms):" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="14"/>
+                                <TextBox Width="80" Text="{Binding SilenceAdvanceDelayMs, Mode=TwoWay}">
+                                    <Interaction.Behaviors>
+                                        <behavors:DigitOnlyBehavior/>
+                                    </Interaction.Behaviors>
+                                </TextBox>
                             </StackPanel>
 
                             <StackPanel Orientation="Vertical" Margin="0,4,0,0" Spacing="4">

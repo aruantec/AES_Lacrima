@@ -138,6 +138,16 @@
                             <ColorPicker Width="80" Height="40" Margin="0,0,10,10" Color="{Binding SpectrumColor4, Mode=TwoWay}"/>
                         </WrapPanel>
                         
+                        <!-- Trailing silence advance delay -->
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,8,0,8" Spacing="10">
+                            <TextBlock Text="Silence advance delay (ms):" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="16"/>
+                            <TextBox Width="80" Text="{Binding SilenceAdvanceDelayMs, Mode=TwoWay}">
+                                     <Interaction.Behaviors>
+                                         <behavors:DigitOnlyBehavior/>
+                                     </Interaction.Behaviors>
+                                </TextBox>
+                        </StackPanel>
+                        
                         <!-- ReplayGain / Normalisation -->
                         <TextBlock Margin="0,18,0,8" Text="ReplayGain / Normalization" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
                         <StackPanel Orientation="Vertical" Margin="0,0,0,10">

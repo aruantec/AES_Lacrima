@@ -453,9 +453,12 @@ namespace AES_Controls.Behaviors
                     {
                         if (selection.IsSelected(i))
                         {
-                            _draggedIndices.Add(i);
+                            // Keep indices/containers strictly in sync.
                             if (AssociatedObject.ContainerFromIndex(i) is { } container)
+                            {
+                                _draggedIndices.Add(i);
                                 _draggedContainers.Add(container);
+                            }
                         }
                     }
                 }
@@ -467,6 +470,19 @@ namespace AES_Controls.Behaviors
                         _draggedContainers.Add(listBoxItem);
                     }
                 }
+
+                // Safety: if virtualization or selection state caused mismatch, keep only synchronized pairs.
+                if (_draggedIndices.Count != _draggedContainers.Count)
+                {
+                    int n = Math.Min(_draggedIndices.Count, _draggedContainers.Count);
+                    var syncedIndices = _draggedIndices.Take(n).ToList();
+                    var syncedContainers = _draggedContainers.Take(n).ToList();
+                    _draggedIndices.Clear();
+                    _draggedIndices.AddRange(syncedIndices);
+                    _draggedContainers.Clear();
+                    _draggedContainers.AddRange(syncedContainers);
+                }
+                if (_draggedContainers.Count == 0) return;
 
                 _lastValidSlotIndex = _currentDraggedIndex; 
                 
@@ -485,6 +501,21 @@ namespace AES_Controls.Behaviors
                 }
 
                 EstimateMissingDimensions();
+
+                // Keep dragged group ordered left->right in virtual space for stable horizontal stacking.
+                var paired = _draggedIndices
+                    .Select((idx, k) => new { Index = idx, Container = _draggedContainers[k] })
+                    .OrderBy(p =>
+                    {
+                        if (p.Index >= 0 && p.Index < _itemDimensions.Count)
+                            return _itemDimensions[p.Index].VirtualPosition.X;
+                        return double.MaxValue;
+                    })
+                    .ToList();
+                _draggedIndices.Clear();
+                _draggedIndices.AddRange(paired.Select(p => p.Index));
+                _draggedContainers.Clear();
+                _draggedContainers.AddRange(paired.Select(p => p.Container));
 
                 // Capture initial virtual positions
                 _dragStartMouseVirtual = e.GetPosition(_itemsPanel);
@@ -505,19 +536,11 @@ namespace AES_Controls.Behaviors
 
                 // Calculate glued positions relative to _currentDragged
                 int primaryIndexInSelection = _draggedContainers.IndexOf(_currentDragged);
-                var orientation = Orientation.Vertical;
-                if (_itemsPanel is StackPanel sp) orientation = sp.Orientation;
-                else if (_itemsPanel is VirtualizingStackPanel vsp) orientation = vsp.Orientation;
-                else if (_itemsPanel is WrapPanel wp) orientation = wp.Orientation;
-
-                // Estimate gap from existing items
+                // Estimate horizontal gap from existing items
                 double listGap = 0;
                 if (_itemDimensions.Count > 1 && !_itemDimensions[0].IsEstimated && !_itemDimensions[1].IsEstimated)
                 {
-                    if (orientation == Orientation.Horizontal)
-                        listGap = Math.Max(0, _itemDimensions[1].VirtualPosition.X - (_itemDimensions[0].VirtualPosition.X + _itemDimensions[0].Bounds.Width));
-                    else
-                        listGap = Math.Max(0, _itemDimensions[1].VirtualPosition.Y - (_itemDimensions[0].VirtualPosition.Y + _itemDimensions[0].Bounds.Height));
+                    listGap = Math.Max(0, _itemDimensions[1].VirtualPosition.X - (_itemDimensions[0].VirtualPosition.X + _itemDimensions[0].Bounds.Width));
                 }
 
                 _targetOffsetsRelPrimary = new List<Vector>(new Vector[_draggedContainers.Count]);
@@ -527,19 +550,13 @@ namespace AES_Controls.Behaviors
                 for (int i = primaryIndexInSelection - 1; i >= 0; i--)
                 {
                     var curr = _draggedContainers[i];
-                    if (orientation == Orientation.Horizontal)
-                        _targetOffsetsRelPrimary[i] = _targetOffsetsRelPrimary[i + 1] + new Vector(-(curr.Bounds.Width + listGap), 0);
-                    else
-                        _targetOffsetsRelPrimary[i] = _targetOffsetsRelPrimary[i + 1] + new Vector(0, -(curr.Bounds.Height + listGap));
+                    _targetOffsetsRelPrimary[i] = _targetOffsetsRelPrimary[i + 1] + new Vector(-(curr.Bounds.Width + listGap), 0);
                 }
                 // Glue items after
                 for (int i = primaryIndexInSelection + 1; i < _draggedContainers.Count; i++)
                 {
                     var prev = _draggedContainers[i - 1];
-                    if (orientation == Orientation.Horizontal)
-                        _targetOffsetsRelPrimary[i] = _targetOffsetsRelPrimary[i - 1] + new Vector(prev.Bounds.Width + listGap, 0);
-                    else
-                        _targetOffsetsRelPrimary[i] = _targetOffsetsRelPrimary[i - 1] + new Vector(0, prev.Bounds.Height + listGap);
+                    _targetOffsetsRelPrimary[i] = _targetOffsetsRelPrimary[i - 1] + new Vector(prev.Bounds.Width + listGap, 0);
                 }
 
                 if (_currentDraggedIndex >= 0 && _currentDraggedIndex < _itemDimensions.Count)
@@ -724,7 +741,7 @@ namespace AES_Controls.Behaviors
                         finally { StopAllAnimationsAndResetTransforms(); }
                     } : null;
 
-                    AnimateTranslate(container, finalDx, finalDy, SwapAnimationDurationMs, onDone);
+                    AnimateTranslate(container, finalDx, finalDy, SwapAnimationDurationMs, onDone, allowDragged: true);
                 }
             }
             else
@@ -752,8 +769,12 @@ namespace AES_Controls.Behaviors
         /// <summary>
         /// Animates a control to a target relative position.
         /// </summary>
-        private void AnimateTranslate(Control control, double toX, double toY, int durationMs, Action? completed = null)
+        private void AnimateTranslate(Control control, double toX, double toY, int durationMs, Action? completed = null, bool allowDragged = false)
         {
+            // During drag, dragged containers are controlled exclusively by UpdateDragTransform.
+            if (!allowDragged && _isDragging && _draggedContainers.Contains(control))
+                return;
+
             if (control.RenderTransform is not TranslateTransform t)
             {
                 t = new TranslateTransform(0, 0);
@@ -806,6 +827,7 @@ namespace AES_Controls.Behaviors
             int itemsCount = AssociatedObject.Items.Count;
             
             var draggedSet = new HashSet<int>(_draggedIndices);
+            var draggedControls = new HashSet<Control>(_draggedContainers);
             int primaryPosInDragged = _draggedIndices.IndexOf(_currentDraggedIndex);
             int draggedCount = _draggedIndices.Count;
 
@@ -814,6 +836,7 @@ namespace AES_Controls.Behaviors
                 if (draggedSet.Contains(i)) continue;
                 var container = AssociatedObject.ContainerFromIndex(i);
                 if (container == null) continue;
+                if (draggedControls.Contains(container)) continue;
 
                 Point targetOffset = default;
 
@@ -826,9 +849,32 @@ namespace AES_Controls.Behaviors
 
                 if (iNew >= 0 && iNew < _itemDimensions.Count && iNew != i)
                 {
+                    // Refresh live dimensions when available to avoid stale virtual estimates.
+                    if (i >= 0 && i < _itemDimensions.Count && _itemDimensions[i].IsEstimated)
+                    {
+                        var c = AssociatedObject.ContainerFromIndex(i);
+                        if (c is { } cc && cc.Bounds.Width > 0.001 && _itemsPanel != null)
+                            _itemDimensions[i].Update(cc, _itemsPanel, i);
+                    }
+                    if (iNew >= 0 && iNew < _itemDimensions.Count && _itemDimensions[iNew].IsEstimated)
+                    {
+                        var cNew = AssociatedObject.ContainerFromIndex(iNew);
+                        if (cNew is { } ccNew && ccNew.Bounds.Width > 0.001 && _itemsPanel != null)
+                            _itemDimensions[iNew].Update(ccNew, _itemsPanel, iNew);
+                    }
+
                     var destPos = _itemDimensions[iNew].VirtualPosition;
                     var myOrig = _itemDimensions[i].VirtualPosition;
-                    targetOffset = destPos - myOrig;
+                    var raw = destPos - myOrig;
+
+                    // Guard against occasional bad estimated jumps that can fling containers.
+                    double axisSpan = Math.Max(container.Bounds.Width, container.Bounds.Height);
+                    if (axisSpan < 1.0) axisSpan = 300.0;
+                    double maxOffset = axisSpan * 6.0;
+                    targetOffset = new Point(
+                        Math.Clamp(raw.X, -maxOffset, maxOffset),
+                        Math.Clamp(raw.Y, -maxOffset, maxOffset)
+                    );
                 }
 
                 AnimateTranslate(container, targetOffset.X, targetOffset.Y, SwapAnimationDurationMs);
@@ -1141,7 +1187,56 @@ namespace AES_Controls.Behaviors
         {
             if (_currentDragged == null || _scrollViewer == null || AssociatedObject == null || _itemsPanel == null) return;
 
-            // Determine item position relative to viewport considering scroll and transform
+            // Multi-drag edge case: keep the whole dragged block visible near the edge,
+            // but only reinforce the current scroll direction to avoid layout jitter.
+            if (_draggedContainers.Count > 1)
+            {
+                double svWidthM = _scrollViewer.Viewport.Width > 0 ? _scrollViewer.Viewport.Width : _scrollViewer.Bounds.Width;
+                double svHeightM = _scrollViewer.Viewport.Height > 0 ? _scrollViewer.Viewport.Height : _scrollViewer.Bounds.Height;
+
+                bool hasAny = false;
+                double minX = double.PositiveInfinity, minY = double.PositiveInfinity;
+                double maxX = double.NegativeInfinity, maxY = double.NegativeInfinity;
+                foreach (var dragged in _draggedContainers)
+                {
+                    if (dragged == null || !dragged.IsVisible) continue;
+                    var p = dragged.TranslatePoint(new Point(0, 0), _scrollViewer);
+                    if (!p.HasValue) continue;
+                    hasAny = true;
+                    double x1 = p.Value.X;
+                    double y1 = p.Value.Y;
+                    double x2 = x1 + dragged.Bounds.Width;
+                    double y2 = y1 + dragged.Bounds.Height;
+                    if (x1 < minX) minX = x1;
+                    if (y1 < minY) minY = y1;
+                    if (x2 > maxX) maxX = x2;
+                    if (y2 > maxY) maxY = y2;
+                }
+
+                if (hasAny)
+                {
+                    const double margin = 20.0;
+                    double groupBoostX = 0, groupBoostY = 0;
+                    double dirX = Math.Sign(_targetAutoScrollSpeed.X);
+                    double dirY = Math.Sign(_targetAutoScrollSpeed.Y);
+
+                    if (dirX > 0 && maxX > svWidthM + margin) groupBoostX = MaxAutoScrollSpeed * 0.30;
+                    else if (dirX < 0 && minX < -margin) groupBoostX = -MaxAutoScrollSpeed * 0.30;
+
+                    if (dirY > 0 && maxY > svHeightM + margin) groupBoostY = MaxAutoScrollSpeed * 0.30;
+                    else if (dirY < 0 && minY < -margin) groupBoostY = -MaxAutoScrollSpeed * 0.30;
+
+                    var totalTargetM = _targetAutoScrollSpeed + new Vector(groupBoostX, groupBoostY);
+                    double maxMM = MaxAutoScrollSpeed * MaxAutoScrollSpeedMultiplier;
+                    _targetAutoScrollSpeed = new Vector(
+                        Math.Clamp(totalTargetM.X, -maxMM, maxMM),
+                        Math.Clamp(totalTargetM.Y, -maxMM, maxMM)
+                    );
+                    return;
+                }
+            }
+
+            // Determine primary dragged item position relative to viewport.
             var draggedInSv = _currentDragged.TranslatePoint(new Point(0, 0), _scrollViewer);
             if (!draggedInSv.HasValue) return;
 
@@ -1152,8 +1247,6 @@ namespace AES_Controls.Behaviors
             double height = _currentDragged.Bounds.Height;
 
             double boostX = 0, boostY = 0;
-            // Adaptive boost: only if significantly out of bounds of the actual viewport.
-            // Reduced intensity to prevent "scrolling fight".
             if (draggedInSv.Value.X < -20) boostX = -MaxAutoScrollSpeed * 0.5;
             else if (draggedInSv.Value.X + width > svWidth + 20) boostX = MaxAutoScrollSpeed * 0.5;
 
@@ -1265,6 +1358,7 @@ namespace AES_Controls.Behaviors
                     }
                 }
 
+                if (dim.IsEstimated) continue;
                 if (dim.Bounds.Width <= 0.001) continue;
 
                 double dx = dragVirtual.X - dim.VirtualCenter.X;

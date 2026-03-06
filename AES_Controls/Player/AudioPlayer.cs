@@ -464,6 +464,13 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     }
 
     /// <summary>
+    /// Delay in milliseconds to wait after entering the trailing‑silence region
+    /// before signalling <see cref="EndReached" />.  This value is typically
+    /// controlled via the settings UI and defaults to 500ms.
+    /// </summary>
+    public int SilenceAdvanceDelayMs { get; set; } = 500;
+
+    /// <summary>
     /// When true the spectrum analyzer is enabled.
     /// </summary>
     public bool EnableSpectrum { get; set; } = true;
@@ -929,8 +936,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         {
             _silenceAdvanceFired = true;
             // wait a short grace period before signalling so playlist logic
-            // isn’t raced by immediate transition.
-            await Task.Delay(500);
+            // isn’t raced by immediate transition.  duration is user-configurable.
+            await Task.Delay(SilenceAdvanceDelayMs);
             // If we're in "repeat one" mode we should not notify listeners;
             // mpv will loop the file itself so external playlist logic must
             // not advance.  Other repeat modes (off/all/shuffle) still

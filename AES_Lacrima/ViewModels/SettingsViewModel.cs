@@ -224,6 +224,14 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private bool _loudnessCompensatedVolume = true;
 
     /// <summary>
+    /// Delay in milliseconds waited after entering trailing silence before the player
+    /// automatically fires the end‑of‑track event.  This value is configurable by the
+    /// user via the audio settings tab.
+    /// </summary>
+    [ObservableProperty]
+    private int _silenceAdvanceDelayMs = 500;
+
+    /// <summary>
     /// When true, analyze files on-the-fly to compute target gain for tracks without tags.
     /// </summary>
     [ObservableProperty]
@@ -766,6 +774,24 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 Log.Warn("OnSettingsPropertyChanged: failed to push volume settings to player", ex);
             }
         }
+
+        // Push silence delay change to audio player
+        if (e.PropertyName == nameof(SilenceAdvanceDelayMs))
+        {
+            try
+            {
+                SaveSettings();
+                var mv = DiLocator.ResolveViewModel<MusicViewModel>();
+                if (mv != null && mv.AudioPlayer != null)
+                {
+                    mv.AudioPlayer.SilenceAdvanceDelayMs = SilenceAdvanceDelayMs;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("OnSettingsPropertyChanged: failed to push silence delay to player", ex);
+            }
+        }
     }
 
     /// <summary>
@@ -896,6 +922,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ReplayGainPreampDb = ReadDoubleSetting(section, nameof(ReplayGainPreampDb), ReplayGainPreampDb);
         ReplayGainTagsPreampDb = ReadDoubleSetting(section, nameof(ReplayGainTagsPreampDb), ReplayGainTagsPreampDb);
         ReplayGainTagSource = ReadIntSetting(section, nameof(ReplayGainTagSource), ReplayGainTagSource);
+        SilenceAdvanceDelayMs = ReadIntSetting(section, nameof(SilenceAdvanceDelayMs), SilenceAdvanceDelayMs);
     }
 
     /// <summary>
@@ -948,6 +975,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ReplayGainPreampDb), ReplayGainPreampDb);
         WriteSetting(section, nameof(ReplayGainTagsPreampDb), ReplayGainTagsPreampDb);
         WriteSetting(section, nameof(ReplayGainTagSource), ReplayGainTagSource);
+        WriteSetting(section, nameof(SilenceAdvanceDelayMs), SilenceAdvanceDelayMs);
     }
 
     /// <summary>
