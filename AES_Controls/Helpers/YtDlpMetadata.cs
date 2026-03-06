@@ -100,11 +100,11 @@ public static class YtDlpMetadata
 {
     public static async Task<MediaInfo> GetMetaDataAsync(string videoUrl, CancellationToken cancellationToken = default)
     {
-        // Choose the platform-appropriate executable name and try to locate it in PATH.
+        // Prefer app-local yt-dlp managed by YtDlpManager, then fallback to PATH.
         string preferred = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp";
         string fallback = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp" : "yt-dlp.exe";
 
-        string? exePath = FindExecutable(preferred, fallback);
+        string? exePath = FindLocalExecutable(preferred, fallback) ?? FindExecutable(preferred, fallback);
         if (exePath == null)
             exePath = preferred; // let process rely on PATH and let it fail with a clear message
 
@@ -261,6 +261,19 @@ public static class YtDlpMetadata
             }
             catch { /* ignore bad PATH entries */ }
         }
+        return null;
+    }
+
+    private static string? FindLocalExecutable(params string[] names)
+    {
+        var baseDir = AppContext.BaseDirectory;
+        foreach (var name in names)
+        {
+            var candidate = Path.Combine(baseDir, name);
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
         return null;
     }
 }

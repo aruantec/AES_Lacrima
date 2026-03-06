@@ -2,14 +2,8 @@ using AES_Core.DI;
 using CommunityToolkit.Mvvm.ComponentModel;
 using SharpCompress.Archives;
 using System.Diagnostics;
-using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System;
-using System.Threading.Tasks;
 using log4net;
 
 namespace AES_Controls.Helpers;
@@ -84,10 +78,17 @@ public partial class YtDlpManager : ObservableObject
     public async Task<bool> EnsureInstalledAsync()
     {
         string binName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp";
-        if (File.Exists(Path.Combine(_destFolder, binName))) 
+        string fullPath = Path.Combine(_destFolder, binName);
+        if (File.Exists(fullPath))
         {
-            Status = "yt-dlp is already installed.";
-            return true;
+            if (await IsExecutableValidAsync(fullPath))
+            {
+                Status = "yt-dlp is already installed.";
+                return true;
+            }
+
+            Status = "Existing yt-dlp binary is invalid for this platform. Reinstalling...";
+            try { File.Delete(fullPath); } catch (Exception ex) { Log.Warn("Failed to remove invalid yt-dlp binary before reinstall.", ex); }
         }
 
         IsBusy = true;
@@ -114,6 +115,32 @@ public partial class YtDlpManager : ObservableObject
             IsBusy = false;
             IsDownloading = false;
             DownloadProgress = 100;
+        }
+    }
+
+    private static async Task<bool> IsExecutableValidAsync(string fullPath)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = fullPath,
+                Arguments = "--version",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(startInfo);
+            if (process == null) return false;
+
+            await process.WaitForExitAsync();
+            return process.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -402,12 +429,14 @@ public partial class YtDlpManager : ObservableObject
 
         using var doc = JsonDocument.Parse(json);
 
-        string targetAsset = GetPlatformAssetName();
+        string[] targetAssets = GetPlatformAssetNames();
         JsonElement? found = null;
 
         foreach (var a in doc.RootElement.GetProperty("assets").EnumerateArray())
         {
-            if (a.GetProperty("name").GetString()?.Equals(targetAsset, StringComparison.OrdinalIgnoreCase) == true)
+            var name = a.GetProperty("name").GetString();
+            if (name == null) continue;
+            if (targetAssets.Any(t => name.Equals(t, StringComparison.OrdinalIgnoreCase)))
             {
                 found = a;
                 break;
@@ -416,14 +445,15 @@ public partial class YtDlpManager : ObservableObject
 
         if (found == null)
         {
-            Debug.WriteLine($"No suitable yt-dlp build found for {targetAsset}.");
-            return;
+            throw new InvalidOperationException(
+                $"No suitable yt-dlp build found for this platform. Tried: {string.Join(", ", targetAssets)}");
         }
 
+        var selectedAssetName = found.Value.GetProperty("name").GetString() ?? targetAssets[0];
         var url = found.Value.GetProperty("browser_download_url").GetString();
         if (string.IsNullOrEmpty(url)) return;
 
-        await DownloadWithProgressAsync(url, targetAsset);
+        await DownloadWithProgressAsync(url, selectedAssetName);
     }
 
     /// <summary>
@@ -472,7 +502,8 @@ public partial class YtDlpManager : ObservableObject
         else
         {
             // For single-file binary downloads (Linux/macOS)
-            string destPath = Path.Combine(_destFolder, assetName.Contains("macos") ? "yt-dlp" : assetName);
+            string finalName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp";
+            string destPath = Path.Combine(_destFolder, finalName);
             
             if (File.Exists(destPath)) File.Delete(destPath);
             File.Move(tempFile, destPath);
@@ -482,7 +513,13 @@ public partial class YtDlpManager : ObservableObject
                 // Set executable permissions on Unix-like systems
                 try
                 {
-                    Process.Start(new ProcessStartInfo("chmod", $"+x \"{destPath}\"") { CreateNoWindow = true })?.WaitForExit();
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "chmod",
+                        Arguments = $"+x \"{destPath}\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    })?.WaitForExit();
                 }
                 catch
                 {
@@ -498,10 +535,23 @@ public partial class YtDlpManager : ObservableObject
         }
     }
 
-    private string GetPlatformAssetName()
+    private string[] GetPlatformAssetNames()
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return "yt-dlp_win.zip";
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return "yt-dlp_macos";
-        return "yt-dlp"; // Standard Linux binary
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return ["yt-dlp_win.zip", "yt-dlp.exe"];
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            return ["yt-dlp_macos", "yt-dlp"];
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            if (RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+                return ["yt-dlp_linux_aarch64", "yt-dlp_linux", "yt-dlp"];
+            if (RuntimeInformation.ProcessArchitecture == Architecture.Arm)
+                return ["yt-dlp_linux_armv7l", "yt-dlp_linux", "yt-dlp"];
+            return ["yt-dlp_linux", "yt-dlp"];
+        }
+
+        return ["yt-dlp"];
     }
 }

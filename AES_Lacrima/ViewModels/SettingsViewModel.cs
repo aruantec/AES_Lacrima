@@ -39,7 +39,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(SettingsViewModel));
 
-    private string _shaderToysDirectory = Path.Combine(AppContext.BaseDirectory, "Shaders", "shadertoys");
+    private string _shaderToysDirectory = Path.Combine(AppContext.BaseDirectory, "Shaders", "Shadertoys");
     private string _shadersDirectory = Path.Combine(AppContext.BaseDirectory, "Shaders", "glsl");
 
     /// <summary>
@@ -796,7 +796,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
     public override void Prepare()
     {
-        // Load shader items from the local "shaders" directory
+        // Load shader items from the local shaders directory (Linux-safe path resolution).
+        _shaderToysDirectory = ResolveShaderToysDirectory();
         ShaderToys = [.. GetLocalShaders(_shaderToysDirectory, "*.frag")];
 
         // Disable our property‑changed handler while we populate values from disk.
@@ -959,8 +960,38 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// directory does not exist or no files match the pattern.</returns>
     private List<ShaderItem> GetLocalShaders(string directory, string pattern)
     {
-        if (!Directory.Exists(directory)) return [];
+        if (Directory.Exists(directory))
+        {
+            return [.. Directory.EnumerateFiles(directory, pattern)
+                .Select(file => new ShaderItem(file, Path.GetFileNameWithoutExtension(file)))];
+        }
 
-        return [.. Directory.EnumerateFiles(directory, pattern).Select(file => new ShaderItem(file, Path.GetFileNameWithoutExtension(file)))];
+        // Fallback: scan any fragment shader under /Shaders recursively.
+        var shadersRoot = Path.Combine(AppContext.BaseDirectory, "Shaders");
+        if (!Directory.Exists(shadersRoot)) return [];
+
+        return [.. Directory.EnumerateFiles(shadersRoot, pattern, SearchOption.AllDirectories)
+            .Select(file => new ShaderItem(file, Path.GetFileNameWithoutExtension(file)))
+            .OrderBy(s => s.Name)];
+    }
+
+    private static string ResolveShaderToysDirectory()
+    {
+        var shadersRoot = Path.Combine(AppContext.BaseDirectory, "Shaders");
+        var candidates = new[]
+        {
+            Path.Combine(shadersRoot, "Shadertoys"),
+            Path.Combine(shadersRoot, "Shadertoy"),
+            Path.Combine(shadersRoot, "shadertoys"),
+            Path.Combine(shadersRoot, "shadertoy")
+        };
+
+        foreach (var path in candidates)
+        {
+            if (Directory.Exists(path))
+                return path;
+        }
+
+        return candidates[0];
     }
 }

@@ -39,6 +39,7 @@ public partial class MpvLibraryManager : ObservableObject
     private const string Repo = "zhongfly/mpv-winbuild";
     private readonly string _destFolder = AppContext.BaseDirectory;
     private static readonly HttpClient Client = new();
+    private int _lastInstallerExitCode;
 
     private static MpvCacheEntry? _cache;
     private static readonly string _cachePath = Path.Combine(AppContext.BaseDirectory, "mpv_cache.json");
@@ -230,7 +231,21 @@ public partial class MpvLibraryManager : ObservableObject
             {
                 if (!CopySystemLibrary(libName))
                 {
-                    throw new InvalidOperationException($"Could not locate {libName} on the system. Please ensure mpv is installed via your package manager.");
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                    {
+                        Status = "libmpv not found. Trying to install mpv via package manager...";
+                        var packageInstallOk = await InstallLinuxMpvPackageAsync();
+                        if (!packageInstallOk || !CopySystemLibrary(libName))
+                        {
+                            throw new InvalidOperationException(
+                                $"Could not install or locate {libName}. Install mpv/libmpv manually, then retry.");
+                        }
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException(
+                            $"Could not locate {libName} on the system. Please ensure mpv is installed via your package manager.");
+                    }
                 }
             }
 
@@ -798,20 +813,40 @@ public partial class MpvLibraryManager : ObservableObject
         "/Applications/IINA.app/Contents/Frameworks" // macOS (Fallback if IINA is installed)
     };
 
-        bool found = false;
-
         foreach (var path in searchPaths)
         {
-            string fullPath = Path.Combine(path, libName);
-            if (File.Exists(fullPath))
+            if (!Directory.Exists(path))
+                continue;
+
+            var candidates = new List<string>();
+            var exactPath = Path.Combine(path, libName);
+            if (File.Exists(exactPath))
+                candidates.Add(exactPath);
+
+            // Linux often ships only versioned sonames (for example libmpv.so.2).
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && libName == "libmpv.so")
+            {
+                try
+                {
+                    candidates.AddRange(
+                        Directory.EnumerateFiles(path, "libmpv.so*")
+                            .OrderBy(p => p.Contains(".so.") ? 0 : 1));
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Could not enumerate libmpv candidates under {path}", ex);
+                }
+            }
+
+            foreach (var sourcePath in candidates.Distinct(StringComparer.Ordinal))
             {
                 try
                 {
                     string destination = Path.Combine(_destFolder, libName);
                     // 'true' allows overwriting if an old version exists
-                    File.Copy(fullPath, destination, true);
+                    File.Copy(sourcePath, destination, true);
 
-                    Log.Info($"Successfully localized {libName} from {path}");
+                    Log.Info($"Successfully localized {libName} from {sourcePath}");
                     // On macOS ensure alternate SONAME filename is also present
                     if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && string.Equals(libName, "libmpv.dylib", StringComparison.OrdinalIgnoreCase))
                     {
@@ -826,17 +861,116 @@ public partial class MpvLibraryManager : ObservableObject
                         }
                     }
                     IsPendingRestart = true;
-                    found = true;
-                    break;
+                    return true;
                 }
                 catch (Exception ex)
                 {
-                    Log.Error($"Found library at {path} but could not copy", ex);
+                    Log.Error($"Found library candidate {sourcePath} but could not copy", ex);
                 }
             }
         }
 
-        return found;
+        return false;
+    }
+
+    private async Task<bool> InstallLinuxMpvPackageAsync()
+    {
+        // Try common distro package managers in priority order.
+        var attempts = new (string Command, string Arguments, string Label)[]
+        {
+            ("pkexec", "apt-get install -y mpv libmpv2", "apt/pkexec"),
+            ("sudo", "apt-get install -y mpv libmpv2", "apt/sudo"),
+            ("pkexec", "dnf install -y mpv mpv-libs", "dnf/pkexec"),
+            ("sudo", "dnf install -y mpv mpv-libs", "dnf/sudo"),
+            ("pkexec", "pacman -S --noconfirm mpv", "pacman/pkexec"),
+            ("sudo", "pacman -S --noconfirm mpv", "pacman/sudo"),
+            ("pkexec", "zypper --non-interactive install mpv", "zypper/pkexec"),
+            ("sudo", "zypper --non-interactive install mpv", "zypper/sudo"),
+            ("pkexec", "apk add mpv", "apk/pkexec"),
+            ("sudo", "apk add mpv", "apk/sudo")
+        };
+
+        foreach (var (command, arguments, label) in attempts)
+        {
+            if (!CommandExists(command))
+                continue;
+
+            // Skip command families whose package manager isn't available.
+            if (arguments.StartsWith("apt-get", StringComparison.Ordinal) && !CommandExists("apt-get")) continue;
+            if (arguments.StartsWith("dnf", StringComparison.Ordinal) && !CommandExists("dnf")) continue;
+            if (arguments.StartsWith("pacman", StringComparison.Ordinal) && !CommandExists("pacman")) continue;
+            if (arguments.StartsWith("zypper", StringComparison.Ordinal) && !CommandExists("zypper")) continue;
+            if (arguments.StartsWith("apk", StringComparison.Ordinal) && !CommandExists("apk")) continue;
+
+            Status = $"Installing mpv via {label}...";
+            Log.Info($"Trying Linux mpv installation command: {command} {arguments}");
+
+            if (await ExecuteCommandAsync(command, arguments))
+            {
+                Status = "mpv installation command completed successfully.";
+                return true;
+            }
+        }
+
+        Status = $"Could not run a Linux mpv installation command successfully (last exit code: {_lastInstallerExitCode}).";
+        return false;
+    }
+
+    private async Task<bool> ExecuteCommandAsync(string fileName, string args)
+    {
+        var tcs = new TaskCompletionSource<bool>();
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = fileName,
+            Arguments = args,
+            UseShellExecute = true,
+            CreateNoWindow = false
+        };
+
+        try
+        {
+            var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+            process.Exited += (_, _) =>
+            {
+                _lastInstallerExitCode = process.ExitCode;
+                tcs.TrySetResult(process.ExitCode == 0);
+                process.Dispose();
+            };
+
+            process.Start();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Failed to start command: {fileName} {args}", ex);
+            tcs.TrySetResult(false);
+        }
+
+        return await tcs.Task;
+    }
+
+    private static bool CommandExists(string command)
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "which",
+                Arguments = command,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            });
+
+            if (process == null) return false;
+            process.WaitForExit(1000);
+            return process.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private bool TryDeleteFile(string path)
