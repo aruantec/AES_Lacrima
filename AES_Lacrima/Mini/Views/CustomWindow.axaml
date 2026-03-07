@@ -9,6 +9,7 @@
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="AES_Lacrima.Mini.Views.CustomWindow"
         x:DataType="vm:MinViewModel"
+        Icon="/Assets/AES.ico"
         Title="Minimalist Mode"
         WindowStartupLocation="CenterOwner"
         SystemDecorations="None"

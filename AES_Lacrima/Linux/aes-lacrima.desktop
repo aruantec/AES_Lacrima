@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=AES Lacrima
+Comment=AES Lacrima media player
+Exec=__EXEC__
+Icon=aes-lacrima
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupNotify=true
+StartupWMClass=AES_Lacrima

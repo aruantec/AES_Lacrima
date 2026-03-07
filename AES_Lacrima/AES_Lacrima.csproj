@@ -8,6 +8,7 @@
     <ApplicationIcon>Assets\AES.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyTitle>AES - Lacrima</AssemblyTitle>
+    <AutoInstallLinuxDesktopEntry>true</AutoInstallLinuxDesktopEntry>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
@@ -66,6 +67,9 @@
 
   <ItemGroup>
     <None Update="Assets\AES.ico">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\AES.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="Assets\back.svg">
@@ -143,6 +147,12 @@
     <None Update="Shaders\Shadertoys\Atom.frag">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="Linux\aes-lacrima.desktop">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Linux\install-desktop-entry.sh">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>
@@ -154,4 +164,14 @@
       <DependentUpon>MusicListView.axaml</DependentUpon>
     </Compile>
   </ItemGroup>
+
+  <Target Name="InstallLinuxDesktopEntryOnPublish"
+          AfterTargets="Publish"
+          Condition="'$(AutoInstallLinuxDesktopEntry)' == 'true'
+                     and '$(RuntimeIdentifier)' == 'linux-x64'
+                     and Exists('$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh')">
+    <Message Importance="high"
+             Text="Installing Linux desktop entry for publish output at '$(PublishDir)'" />
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh&quot; &quot;$(PublishDir)&quot;" />
+  </Target>
 </Project>
