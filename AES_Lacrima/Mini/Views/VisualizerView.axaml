@@ -1,16 +1,25 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:behaviors="clr-namespace:AES_Lacrima.Behaviors"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:gl="using:AES_Controls.GL"
              xmlns:spectrum="using:AES_Controls.Player.Spectrum"
              xmlns:vm="using:AES_Lacrima.Mini.ViewModels"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Mini.Views.VisualizerView"
              x:DataType="vm:VisualizerViewModel"
              Height="90">
-    <Grid>
+    <Grid Background="Transparent">
+        <Interaction.Behaviors>
+            <behaviors:OpenShaderToyContextMenuBehavior/>
+        </Interaction.Behaviors>
+        <Grid.ContextMenu>
+            <ContextMenu MaxHeight="400"/>
+        </Grid.ContextMenu>
 		<!-- Spectrum -->
         <spectrum:GlSpectrumControl Spectrum="{Binding MusicViewModel.AudioPlayer.Spectrum}"
+                                    IsVisible="{Binding !IsShaderToySelected}"
                                     VerticalAlignment="Bottom"
                                     Height="90"
                                     BlockHeight="5"
@@ -19,5 +28,9 @@
                                     BarWidth="7"
                                     BarSpacing="3"
                                     BarGradient="{Binding MinViewModel.ColorGradientBrush}"/>
+        <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
+                               IsVisible="{Binding IsShaderToySelected}"
+                               Spectrum="{Binding MusicViewModel.AudioPlayer.Spectrum}"
+                               SpectrumGradient="{Binding MinViewModel.ColorGradientBrush}"/>
     </Grid>
 </UserControl>
