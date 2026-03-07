@@ -1045,6 +1045,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             var endData = mpvEvent.ReadData<MpvEventEndFile>();
             if (endData.error < 0)
             {
+                Log.Warn($"MPV end-file error for '{_loadedFile}': {endData.error}");
                 IsLoadingMedia = false;
                 _isInternalChange = false;
             }
@@ -1144,6 +1145,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         IsLoadingMedia = true;
         OnPropertyChanged(nameof(IsLoadingMedia));
         _loadedFile = fileToPlay;
+        var mpvLoadTarget = ToMpvLoadTarget(fileToPlay);
 
         // Reset per-file gain synchronously to ensure the initial UpdateAf call doesn't use stale metadata
         _replayGainAdjustmentDb = 0.0;
@@ -1182,10 +1184,15 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         _waveformCts?.Cancel();
 
         _syncContext?.Post(_ => { Waveform.Clear(); Spectrum.Clear(); Position = 0; }, null);
+        PostToMpvThread(() =>
+        {
+            SetProperty("vid", video ? "auto" : "no");
+            SetProperty("audio-display", video ? "auto" : "no");
+        });
         // queue the load command but do not block the mpv thread waiting for
         // its completion.  ``ExecuteCommandAsync`` completes on the MPV
         // thread, so waiting there would deadlock (see comments above).
-        PostToMpvThread(() => _ = ExecuteCommandAsync(new[] { "loadfile", fileToPlay }));
+        PostToMpvThread(() => _ = ExecuteCommandAsync(new[] { "loadfile", mpvLoadTarget }));
 
         // Re-apply audio filters/volume after load in case mpv reset properties during load
         // Use PostToMpvThread instead of UpdateAf to avoid blocking during Load
@@ -1558,7 +1565,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         // Reload the file
         // enqueue loadfile without blocking the mpv thread; we'll wait for the
         // ``IsLoadingMedia`` flag later which is updated via property events.
-        PostToMpvThread(() => _ = ExecuteCommandAsync(new[] { "loadfile", path }));
+        PostToMpvThread(() => _ = ExecuteCommandAsync(new[] { "loadfile", ToMpvLoadTarget(path) }));
 
         // WAIT for MPV to initialize the file before seeking
         while (_isLoadingMedia)
@@ -1706,5 +1713,28 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             Log.Warn("Error while shutting down mpv worker thread", ex);
         }
     }
-}
 
+    private static string ToMpvLoadTarget(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return path;
+
+        // Use a file URI for local files so non-ASCII characters are encoded
+        // and can be passed to mpv consistently across platforms.
+        if (Path.IsPathRooted(path))
+        {
+            try { return new Uri(path).AbsoluteUri; }
+            catch { return path; }
+        }
+
+        if (Uri.TryCreate(path, UriKind.Absolute, out var uri))
+        {
+            if (uri.IsFile)
+            {
+                try { return uri.AbsoluteUri; }
+                catch { return path; }
+            }
+        }
+
+        return path;
+    }
+}
