@@ -990,8 +990,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     {
         if (Directory.Exists(directory))
         {
+            // Sort the results by display name to ensure deterministic alphabetical order
             return [.. Directory.EnumerateFiles(directory, pattern)
-                .Select(file => new ShaderItem(file, Path.GetFileNameWithoutExtension(file)))];
+                .Select(file => new ShaderItem(file, Path.GetFileNameWithoutExtension(file)))
+                .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)];
         }
 
         // Fallback: scan any fragment shader under /Shaders recursively.
@@ -1000,7 +1002,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         return [.. Directory.EnumerateFiles(shadersRoot, pattern, SearchOption.AllDirectories)
             .Select(file => new ShaderItem(file, Path.GetFileNameWithoutExtension(file)))
-            .OrderBy(s => s.Name)];
+            .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)];
     }
 
     private static string ResolveShaderToysDirectory()
