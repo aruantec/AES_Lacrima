@@ -163,6 +163,36 @@ namespace AES_Lacrima.Mini.ViewModels
         #endregion
 
         #region Commands
+        [RelayCommand]
+        private void Drop(object? param)
+        {
+            // ListboxItemDragBehavior has already mutated the UI-bound FilteredMediaItems collection directly.
+            // If the user isn't searching, we map this new visible order back into the master MediaItems and update Indices.
+            if (string.IsNullOrWhiteSpace(SearchText) && FilteredMediaItems != null && MediaItems != null)
+            {
+                try
+                {
+                    UnsubscribeFromCollection(MediaItems);
+                    for (int i = 0; i < FilteredMediaItems.Count; i++)
+                    {
+                        var movedItem = FilteredMediaItems[i];
+                        int currentIndex = MediaItems.IndexOf(movedItem);
+                        if (currentIndex >= 0 && currentIndex != i)
+                        {
+                            MediaItems.Move(currentIndex, i);
+                        }
+                    }
+                }
+                finally
+                {
+                    SubscribeToCollection(MediaItems);
+                }
+
+                UpdateItemIndices();
+                UpdateTotalDuration();
+            }
+        }
+
         /// <summary>
         /// Switches back to the full AES main window and remembers the preference.
         /// </summary>
@@ -286,19 +316,6 @@ namespace AES_Lacrima.Mini.ViewModels
             }
             else
                 await AddFolders();
-        }
-
-        [RelayCommand]
-        private void Drop()
-        {
-            try
-            {
-                UpdateItemIndices();
-            }
-            catch (Exception ex)
-            {
-                Log.Warn("Drop: UpdateItemIndices failed", ex);
-            }
         }
 
         [RelayCommand]
