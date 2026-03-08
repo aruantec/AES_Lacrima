@@ -11,6 +11,16 @@
     <Design.DataContext>
         <vm:MainWindowViewModel/>
     </Design.DataContext>
+
+    <UserControl.Styles>
+        <Style Selector="Button.settingsToggle Path.settingsIcon">
+            <Setter Property="Opacity" Value="0.5" />
+        </Style>
+        <Style Selector="Button.settingsToggle.active Path.settingsIcon">
+            <Setter Property="Opacity" Value="1.0" />
+        </Style>
+    </UserControl.Styles>
+
     <!-- Content-->
     <Border Height="70"
             VerticalAlignment="Top"
@@ -83,36 +93,97 @@
                           Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Button>
 
-                <ItemsControl Height="50"
-                              ItemsSource="{Binding WindowButtons}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Button Cursor="Hand"
-                                    Height="30"
-                                    Width="35"
-                                    Margin="10"
-                                    Command="{Binding Command}"
-                                    CommandParameter="{Binding}"
-                                    ToolTip.Placement="Pointer">
-                                <ToolTip.Tip>
-                                    <StackPanel>
-                                        <TextBlock FontSize="16" Text="{Binding Tooltip}"/>
-                                    </StackPanel>
-                                </ToolTip.Tip>
-                                <Button.Template>
-                                    <ControlTemplate>
-                                        <Svg Path="{Binding Cover}"/>
-                                    </ControlTemplate>
-                                </Button.Template>
-                            </Button>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" Spacing="5"/>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                </ItemsControl>
+                <StackPanel Orientation="Horizontal" Spacing="5" Height="50">
+                    
+                    <!-- Settings -->
+                    <Button Cursor="Hand" Height="30" Width="35" Margin="10" 
+                            Command="{Binding NavigationService.ToggleSettingsOverlayCommand}"
+                            Classes="settingsToggle"
+                            Classes.active="{Binding NavigationService.ShowSettingsOverlay}"
+                            ToolTip.Tip="Settings">
+                        <Button.Template>
+                            <ControlTemplate>
+                                <Grid Background="Transparent">
+                                    <Path Classes="settingsIcon" Fill="White" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Width="28" Height="28" Data="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.98C19.47,12.66 19.5,12.34 19.5,12C19.5,11.66 19.47,11.34 19.43,11.02L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.65 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.65 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11.02C4.53,11.34 4.5,11.66 4.5,12C4.5,12.34 4.53,12.66 4.57,12.98L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.98Z" />
+                                </Grid>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    
+                    <!-- Fullscreen -->
+                    <Button Cursor="Hand" Height="30" Width="35" Margin="10" 
+                            Command="{Binding FullScreenCommand}">
+                        <ToolTip.Tip>
+                            <TextBlock Text="{Binding FullScreenTooltip}" />
+                        </ToolTip.Tip>
+                        <Button.Template>
+                            <ControlTemplate>
+                                <Grid Background="Transparent">
+                                    <Path Stroke="White" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Width="24" Height="24"
+                                          IsVisible="{Binding !IsFullScreen}"
+                                          Data="M2 9V6.5C2 4.01 4.01 2 6.5 2H9 M15 2H17.5C19.99 2 22 4.01 22 6.5V9 M22 16V17.5C22 19.99 19.99 22 17.5 22H16 M9 22H6.5C4.01 22 2 19.99 2 17.5V15" />
+                                    <!-- Fullscreen Exit -->
+                                    <Viewbox Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Width="24" Height="24" IsVisible="{Binding IsFullScreen}">
+                                        <Canvas Width="481.781" Height="481.781">
+                                            <Path Fill="White" Data="M351.596,433.266H23.318V48.515h328.277c6.438,0,11.658-5.221,11.658-11.66c0-6.438-5.223-11.658-11.658-11.658H11.66 C5.221,25.197,0,30.418,0,36.855v408.069c0,6.438,5.221,11.66,11.66,11.66h339.936c6.438,0,11.658-5.223,11.658-11.66 S358.033,433.266,351.596,433.266z" />
+                                            <Path Fill="White" Data="M478.365,225.474l-71.891-71.902c-4.555-4.555-11.932-4.555-16.486,0c-4.555,4.549-4.555,11.932,0,16.486l51.988,52 h-217.87c-6.438,0-11.658,5.221-11.658,11.658c0,6.439,5.221,11.66,11.658,11.66h217.87l-51.988,51.986 c-4.555,4.555-4.555,11.934,0,16.487c2.277,2.275,5.26,3.414,8.244,3.414c2.982,0,5.965-1.139,8.242-3.414l71.891-71.891 C482.92,237.406,482.92,230.027,478.365,225.474z" />
+                                        </Canvas>
+                                    </Viewbox>
+                                </Grid>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    
+                    <!-- Maximize -->
+                    <Button Cursor="Hand" Height="30" Width="35" Margin="10" 
+                            Command="{Binding MaximizeCommand}">
+                        <ToolTip.Tip>
+                            <TextBlock Text="{Binding MaximizeTooltip}" />
+                        </ToolTip.Tip>
+                        <Button.Template>
+                            <ControlTemplate>
+                                <Grid Background="Transparent">
+                                    <Path Stroke="White" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Width="22" Height="22"
+                                          IsVisible="{Binding !IsMaximized}"
+                                          Data="M21 9V3H15 M3 15V21H9 M21 3L13.5 10.5 M10.5 13.5L3 21" />
+                                    <!-- Maximized Exit -->
+                                    <Path Stroke="White" StrokeThickness="2" StrokeLineCap="Round" StrokeJoin="Round" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Width="22" Height="22"
+                                          IsVisible="{Binding IsMaximized}"
+                                          Data="M4 14H10M10 14V20M10 14L3 21M20 10H14M14 10V4M14 10L21 3" />
+                                </Grid>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    
+                    <!-- Minimize -->
+                    <Button Cursor="Hand" Height="30" Width="35" Margin="10" 
+                            Command="{Binding MinimizeWindowCommand}"
+                            ToolTip.Tip="Minimize Window">
+                        <Button.Template>
+                            <ControlTemplate>
+                                <Grid Background="Transparent">
+                                    <Path Fill="White" Stretch="Fill" VerticalAlignment="Bottom" HorizontalAlignment="Center" Width="17" Height="2.5" Margin="0,0,0,10"
+                                          Data="M0,0 h10 v1 h-10 z" />
+                                </Grid>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    
+                    <!-- Close -->
+                    <Button Cursor="Hand" Height="30" Width="35" Margin="10" 
+                            Command="{Binding CloseApplicationCommand}"
+                            ToolTip.Tip="Close Application">
+                        <Button.Template>
+                            <ControlTemplate>
+                                <Grid Background="Transparent">
+                                    <Path Fill="White" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Width="19" Height="19"
+                                          Data="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" />
+                                </Grid>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
+                </StackPanel>
             </StackPanel>
         </Grid>
     </Border>

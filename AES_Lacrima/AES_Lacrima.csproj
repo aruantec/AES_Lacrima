@@ -29,17 +29,7 @@
 	<AvaloniaResource Include="Assets\**" />
   </ItemGroup>
 
-  <ItemGroup>
-    <AvaloniaResource Remove="Assets\back.svg" />
-    <AvaloniaResource Remove="Assets\background.jpg" />
-    <AvaloniaResource Remove="Assets\Main\close.svg" />
-    <AvaloniaResource Remove="Assets\Main\fullscreen.svg" />
-    <AvaloniaResource Remove="Assets\Main\fullscreenexit.svg" />
-    <AvaloniaResource Remove="Assets\Main\maximize.svg" />
-    <AvaloniaResource Remove="Assets\Main\maximizedexit.svg" />
-    <AvaloniaResource Remove="Assets\Main\minimize.svg" />
-    <AvaloniaResource Remove="Assets\Main\settingsgear.svg" />
-  </ItemGroup>
+
 
   <ItemGroup>
     <PackageReference Include="AsyncImageLoader.Avalonia" Version="3.6.0" />
@@ -68,37 +58,25 @@
   <ItemGroup>
     <None Update="Assets\AES.ico">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
     </None>
     <None Update="Assets\AES.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
     </None>
-    <None Update="Assets\back.svg">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
+
     <None Update="Assets\background.jpg">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Assets\Main\close.svg">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Assets\Main\maximizedexit.svg">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Assets\Main\fullscreen.svg">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Assets\Main\fullscreenexit.svg">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Assets\Main\maximize.svg">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Assets\Main\minimize.svg">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Assets\Main\settingsgear.svg">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
+
+
+
+
+
+
+
     <None Update="Shaders\Shadertoys\CircularSpectrumVisualizer.frag">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
@@ -173,5 +151,15 @@
     <Message Importance="high"
              Text="Installing Linux desktop entry for publish output at '$(PublishDir)'" />
     <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh&quot; &quot;$(PublishDir)&quot;" />
+  </Target>
+
+  <!-- macOS packaging target: creates a .app bundle using the publish directory -->
+  <Target Name="CreateMacAppBundleOnPublish"
+          AfterTargets="Publish"
+          Condition="('$(RuntimeIdentifier)' == 'osx-x64' or '$(RuntimeIdentifier)' == 'osx-arm64')
+                     and Exists('$(MSBuildProjectDirectory)/Mac/publish-macos.sh')">
+    <Message Importance="high"
+             Text="Creating macOS application bundle for publish output at '$(PublishDir)'" />
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Mac/publish-macos.sh&quot; &quot;$(PublishDir)&quot;" />
   </Target>
 </Project>

@@ -29,13 +29,17 @@ namespace AES_Lacrima.ViewModels
     public partial class MainWindowViewModel : ViewModelBase, IMainWindowViewModel
     {
         private IClassicDesktopStyleApplicationLifetime? AppLifetime => Avalonia.Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
-        private Dictionary<MenuItem, Action<Avalonia.Controls.WindowState>> _registeredMenuItems = [];
         
-        /// <summary>
-        /// List of window buttons.
-        /// </summary>
         [ObservableProperty]
-        private AvaloniaList<MenuItem>? _windowButtons;
+        [NotifyPropertyChangedFor(nameof(MaximizeTooltip))]
+        private bool _isMaximized;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(FullScreenTooltip))]
+        private bool _isFullScreen;
+
+        public string MaximizeTooltip => IsMaximized ? "Normal Window" : "Maximize Window";
+        public string FullScreenTooltip => IsFullScreen ? "Exit Fullscreen" : "Go Fullscreen";
 
         /// <summary>
         /// Backing field for the generated <c>WindowWidth</c> property.
@@ -125,17 +129,6 @@ namespace AES_Lacrima.ViewModels
             {
                 SubscribeToMpvManager(SettingsViewModel.MpvManager);
             }
-
-            //Initialize window buttons with their respective icons and tooltips
-            WindowButtons =
-            [
-                new MenuItem() { Command = NavigationService?.ToggleSettingsOverlayCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "settingsgear.svg"), Tooltip = "Settings"},
-                new MenuItem() { Command = FullScreenCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "fullscreen.svg"), Tooltip = "Go Fullscreen"},
-                new MenuItem() { Command = MaximizeCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "maximize.svg"), Tooltip = "Maximize Window"},
-                new MenuItem() { Command = MinimizeWindowCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "minimize.svg"), Tooltip = "Minimize Window"},
-                new MenuItem() { Command = CloseApplicationCommand, Cover = Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "close.svg"), Tooltip = "Close Application"}
-            ];
-
         }
 
         /// <summary>
@@ -215,44 +208,21 @@ namespace AES_Lacrima.ViewModels
         }
 
         /// <summary>
-        /// Maximizes the window and updates the associated menu item's icon and tooltip to reflect the maximized state.
+        /// Maximizes the window.
         /// </summary>
         [RelayCommand]
-        private void Maximize(object item)
+        private void Maximize()
         {
-            //Set icon according to the state
-            if (item is MenuItem menuItem && !_registeredMenuItems.ContainsKey(menuItem))
-            {
-                _registeredMenuItems.Add(menuItem, (state) =>
-                {
-                    menuItem.Cover = state == Avalonia.Controls.WindowState.Maximized 
-                        ? Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "maximizedexit.svg") 
-                        : Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "maximize.svg");
-                    menuItem.Tooltip = state == Avalonia.Controls.WindowState.Maximized ? "Normal Window" : "Maximize Window";
-                });
-            }
             //Change state
             SetWindowState(Avalonia.Controls.WindowState.Maximized);
         }
 
         /// <summary>
-        /// Switches the application window to full-screen mode and updates the associated menu item's icon and tooltip
-        /// to reflect the new state.
+        /// Switches the application window to full-screen mode.
         /// </summary>
         [RelayCommand]
-        private void FullScreen(object item)
+        private void FullScreen()
         {
-            //Set icon according to the state
-            if (item is MenuItem menuItem && !_registeredMenuItems.ContainsKey(menuItem))
-            {
-                _registeredMenuItems.Add(menuItem, (state) =>
-                {
-                    menuItem.Cover = state == Avalonia.Controls.WindowState.FullScreen 
-                        ? Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "fullscreenexit.svg") 
-                        : Path.Combine(AppContext.BaseDirectory, "Assets", "Main", "fullscreen.svg");
-                    menuItem.Tooltip = state == Avalonia.Controls.WindowState.FullScreen ? "Exit Fullscreen" : "Go Fullscreen";
-                });
-            }
             SetWindowState(Avalonia.Controls.WindowState.FullScreen);
         }
 
@@ -346,9 +316,8 @@ namespace AES_Lacrima.ViewModels
             {
                 //Set the window state
                 mainWindow.WindowState = mainWindow.WindowState == state ? Avalonia.Controls.WindowState.Normal : state;
-                //Invoke registered menu items actions
-                foreach (var menuItem in _registeredMenuItems)
-                    menuItem.Value.Invoke(mainWindow.WindowState);
+                IsMaximized = mainWindow.WindowState == Avalonia.Controls.WindowState.Maximized;
+                IsFullScreen = mainWindow.WindowState == Avalonia.Controls.WindowState.FullScreen;
             }
         }
     }
