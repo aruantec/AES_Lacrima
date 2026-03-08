@@ -100,13 +100,11 @@ public static class YtDlpMetadata
 {
     public static async Task<MediaInfo> GetMetaDataAsync(string videoUrl, CancellationToken cancellationToken = default)
     {
-        // Prefer app-local yt-dlp managed by YtDlpManager, then fallback to PATH.
+        // Prefer system PATH yt-dlp first (e.g. fast Homebrew binary), then fallback to PyInstaller app-local yt-dlp.
         string preferred = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp";
         string fallback = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp" : "yt-dlp.exe";
-
-        string? exePath = FindLocalExecutable(preferred, fallback) ?? FindExecutable(preferred, fallback);
-        if (exePath == null)
-            exePath = preferred; // let process rely on PATH and let it fail with a clear message
+        
+        string? exePath = FindExecutable(preferred, fallback) ?? FindLocalExecutable(preferred, fallback);
 
         var psi = new ProcessStartInfo
         {
