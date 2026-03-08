@@ -15,6 +15,9 @@ namespace AES_Lacrima
         [STAThread]
         public static void Main(string[] args)
         {
+            // Set working directory to the app base directory so it doesn't crash on macOS when launched via double-click where Working Directory is '/'
+            Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
+
             // Ensure the Logs directory exists and configure a rolling file appender so
             // that logs are written to Logs/log.txt
             Directory.CreateDirectory("Logs");
