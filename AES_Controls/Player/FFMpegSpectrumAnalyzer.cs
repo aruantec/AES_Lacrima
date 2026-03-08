@@ -189,7 +189,7 @@ namespace AES_Controls.Players
 
                     if (localProcess == null)
                     {
-                        try { Task.Delay(1000, token).Wait(token); } catch { break; }
+                        if (token.WaitHandle.WaitOne(1000)) break;
                         continue;
                     }
                     _ffmpegProcess = localProcess;
@@ -205,13 +205,13 @@ namespace AES_Controls.Players
                             {
                                 _player.UpdateSpectrumThrottled(_currentValues);
                             }
-                            try { Task.Delay(30, token).Wait(token); } catch { break; }
+                            if (token.WaitHandle.WaitOne(30)) break;
                             continue;
                         }
 
                         if (_player.IsBuffering)
                         {
-                            try { Task.Delay(50, token).Wait(token); } catch { break; }
+                            if (token.WaitHandle.WaitOne(50)) break;
                             continue;
                         }
 
@@ -220,7 +220,7 @@ namespace AES_Controls.Players
 
                         // Reset logic: if we are far off (e.g. after long pause or seek that didn't stop analyzer)
                         // restart FFmpeg to catch up immediately.
-                        if (Math.Abs(drift) > 1.5)
+                        if (drift > 2.0 || drift < -5.0)
                         {
                             _processedSeconds = currentPos;
                             try { localProcess.Kill(true); } catch { }
@@ -229,7 +229,7 @@ namespace AES_Controls.Players
 
                         if (drift > 0.1)
                         {
-                            try { Task.Delay(10, token).Wait(token); } catch (OperationCanceledException) { break; }
+                            if (token.WaitHandle.WaitOne(10)) break;
                             continue;
                         }
 
@@ -276,10 +276,11 @@ namespace AES_Controls.Players
                     }
                 }
                 catch (OperationCanceledException) { break; }
+                catch (AggregateException) { break; }
                 catch (Exception ex) when (!token.IsCancellationRequested)
                 {
                     Debug.WriteLine($"[SpectrumAnalyzer] Error: {ex.Message}");
-                    try { Task.Delay(1000, token).Wait(token); } catch (OperationCanceledException) { break; }
+                    if (token.WaitHandle.WaitOne(1000)) break;
                 }
                 finally
                 {
@@ -288,7 +289,7 @@ namespace AES_Controls.Players
                     if (ReferenceEquals(_ffmpegProcess, localProcess)) _ffmpegProcess = null;
                     
                     if (!token.IsCancellationRequested)
-                        try { Task.Delay(200, token).Wait(token); } catch { }
+                        token.WaitHandle.WaitOne(200);
                 }
             }
         }
