@@ -544,11 +544,19 @@ namespace AES_Controls.Behaviors
 
                 // Calculate glued positions relative to _currentDragged
                 int primaryIndexInSelection = _draggedContainers.IndexOf(_currentDragged);
-                // Estimate horizontal gap from existing items
+                var orientation = Orientation.Vertical;
+                if (_itemsPanel is StackPanel sp) orientation = sp.Orientation;
+                else if (_itemsPanel is VirtualizingStackPanel vsp) orientation = vsp.Orientation;
+                else if (_itemsPanel is WrapPanel wp) orientation = wp.Orientation;
+
+                // Estimate gap from existing items
                 double listGap = 0;
                 if (_itemDimensions.Count > 1 && !_itemDimensions[0].IsEstimated && !_itemDimensions[1].IsEstimated)
                 {
-                    listGap = Math.Max(0, _itemDimensions[1].VirtualPosition.X - (_itemDimensions[0].VirtualPosition.X + _itemDimensions[0].Bounds.Width));
+                    if (orientation == Orientation.Horizontal)
+                        listGap = Math.Max(0, _itemDimensions[1].VirtualPosition.X - (_itemDimensions[0].VirtualPosition.X + _itemDimensions[0].Bounds.Width));
+                    else
+                        listGap = Math.Max(0, _itemDimensions[1].VirtualPosition.Y - (_itemDimensions[0].VirtualPosition.Y + _itemDimensions[0].Bounds.Height));
                 }
 
                 _targetOffsetsRelPrimary = new List<Vector>(new Vector[_draggedContainers.Count]);
@@ -558,13 +566,19 @@ namespace AES_Controls.Behaviors
                 for (int i = primaryIndexInSelection - 1; i >= 0; i--)
                 {
                     var curr = _draggedContainers[i];
-                    _targetOffsetsRelPrimary[i] = _targetOffsetsRelPrimary[i + 1] + new Vector(-(curr.Bounds.Width + listGap), 0);
+                    if (orientation == Orientation.Horizontal)
+                        _targetOffsetsRelPrimary[i] = _targetOffsetsRelPrimary[i + 1] + new Vector(-(curr.Bounds.Width + listGap), 0);
+                    else
+                        _targetOffsetsRelPrimary[i] = _targetOffsetsRelPrimary[i + 1] + new Vector(0, -(curr.Bounds.Height + listGap));
                 }
                 // Glue items after
                 for (int i = primaryIndexInSelection + 1; i < _draggedContainers.Count; i++)
                 {
                     var prev = _draggedContainers[i - 1];
-                    _targetOffsetsRelPrimary[i] = _targetOffsetsRelPrimary[i - 1] + new Vector(prev.Bounds.Width + listGap, 0);
+                    if (orientation == Orientation.Horizontal)
+                        _targetOffsetsRelPrimary[i] = _targetOffsetsRelPrimary[i - 1] + new Vector(prev.Bounds.Width + listGap, 0);
+                    else
+                        _targetOffsetsRelPrimary[i] = _targetOffsetsRelPrimary[i - 1] + new Vector(0, prev.Bounds.Height + listGap);
                 }
 
                 if (_currentDraggedIndex >= 0 && _currentDraggedIndex < _itemDimensions.Count)

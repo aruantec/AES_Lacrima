@@ -1193,7 +1193,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         // queue the load command but do not block the mpv thread waiting for
         // its completion.  ``ExecuteCommandAsync`` completes on the MPV
         // thread, so waiting there would deadlock (see comments above).
-        PostToMpvThread(() => _ = ExecuteCommandAsync(new[] { "loadfile", mpvLoadTarget }));
+        PostToMpvThread(async () => { try { await ExecuteCommandAsync(new[] { "loadfile", mpvLoadTarget }); } catch(Exception ex) { Console.WriteLine($"[AudioPlayer Error]: {ex}"); Debug.WriteLine($"[AudioPlayer Error]: {ex}"); Log.Error("loadfile error", ex); _syncContext?.Post(_ => IsLoadingMedia = false, null); } });
 
         // Re-apply audio filters/volume after load in case mpv reset properties during load
         // Use PostToMpvThread instead of UpdateAf to avoid blocking during Load
