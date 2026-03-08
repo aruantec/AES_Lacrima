@@ -776,6 +776,15 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             SetProperty("replaygain", "no"); // Disable internal mpv replaygain as we apply it manually
             SetProperty("demuxer-max-bytes", $"{CacheSize}M");
             SetProperty("demuxer-readahead-secs", "10");
+            
+            // Explicitly point MPV to the bundled yt-dlp to fix macOS sandbox path issues
+            var ytdlBin = OperatingSystem.IsWindows() ? "yt-dlp.exe" : "yt-dlp";
+            var ytdlPath = System.IO.Path.Combine(AppContext.BaseDirectory, ytdlBin);
+            if (System.IO.File.Exists(ytdlPath))
+            {
+                SetProperty("script-opts", $"ytdl_hook-ytdl_path={ytdlPath}");
+            }
+
             SetProperty("volume", _volume);
             SetProperty("volume-max", 200);
             SetProperty("loop-file", RepeatMode == RepeatMode.One ? "yes" : "no");
@@ -1388,6 +1397,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             // mark success so future calls know waveform was generated
             _waveformLoadedFile = path;
         }
+        catch (OperationCanceledException) { /* Ignored on cancel */ }
         catch (Exception ex) { Log.Error($"Error generating waveform for {path}", ex); }
         finally
         {

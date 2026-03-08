@@ -424,7 +424,12 @@ public partial class YtDlpManager : ObservableObject
 
         if (string.IsNullOrEmpty(json))
         {
-            throw new InvalidOperationException("Could not retrieve yt-dlp release information (API limit or connection error).");
+            Log.Warn("GitHub API rate limit exceeded and no cache available. Falling back to default download URL.");
+            string[] fallbackAssets = GetPlatformAssetNames();
+            string fallbackAssetName = fallbackAssets[0];
+            string fallbackUrl = $"https://github.com/yt-dlp/yt-dlp/releases/latest/download/{fallbackAssetName}";
+            await DownloadWithProgressAsync(fallbackUrl, fallbackAssetName);
+            return;
         }
 
         using var doc = JsonDocument.Parse(json);

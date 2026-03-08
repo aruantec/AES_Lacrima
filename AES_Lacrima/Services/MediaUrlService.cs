@@ -29,6 +29,9 @@ namespace AES_Lacrima.Services
         public async Task OpenMediaItemAsync(AudioPlayer audioPlayer, MediaItem item)
         {
             if (item.FileName == null) return;
+            // Notify the UI instantly that media loading has started
+            audioPlayer.IsLoadingMedia = true;
+
             // Load online urls
             item.OnlineUrls = await HandleStreamFile(item.FileName).ConfigureAwait(false);
             // Play audio
@@ -68,7 +71,7 @@ namespace AES_Lacrima.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Fetch failed after retries: {ex.Message}");
+                log4net.LogManager.GetLogger(typeof(MediaUrlService)).Error($"Fetch failed after retries: {ex.Message}", ex);
             }
             return (string.Empty, string.Empty);
         }

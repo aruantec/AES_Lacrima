@@ -18,6 +18,27 @@ namespace AES_Lacrima
             // Set working directory to the app base directory so it doesn't crash on macOS when launched via double-click where Working Directory is '/'
             Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
 
+            // Add the base directory to the PATH so that MPV can find the bundled yt-dlp binary
+            var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+            var pathSeparator = Path.PathSeparator;
+            
+            // On macOS launched via Finder, standard Homebrew and Unix paths are missing. We must inject them so tools like 'brew' function properly.
+            if (OperatingSystem.IsMacOS())
+            {
+                var defaultMacPaths = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+                foreach (var p in defaultMacPaths.Split(':'))
+                {
+                    if (!currentPath.Contains(p)) currentPath += $"{pathSeparator}{p}";
+                }
+            }
+
+            if (!currentPath.Contains(AppDomain.CurrentDomain.BaseDirectory))
+            {
+                // Appending BaseDirectory to the END so native fast Homebrew binaries take precedence over slow bundled PyInstaller binaries
+                currentPath = $"{currentPath}{pathSeparator}{AppDomain.CurrentDomain.BaseDirectory}";
+            }
+            Environment.SetEnvironmentVariable("PATH", currentPath);
+
             // Ensure the Logs directory exists and configure a rolling file appender so
             // that logs are written to Logs/log.txt
             Directory.CreateDirectory("Logs");
