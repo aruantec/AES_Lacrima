@@ -18,6 +18,15 @@ namespace AES_Lacrima.Behaviors
     /// </summary>
     public class MarqueeBehavior : Behavior<TextBlock>
     {
+        public static readonly StyledProperty<bool> IsActiveProperty =
+            AvaloniaProperty.Register<MarqueeBehavior, bool>(nameof(IsActive), true);
+
+        public bool IsActive
+        {
+            get => GetValue(IsActiveProperty);
+            set => SetValue(IsActiveProperty, value);
+        }
+
         private DispatcherTimer? _timer;
         private double _offset;
         private double _textWidth;
@@ -105,10 +114,33 @@ namespace AES_Lacrima.Behaviors
             return AssociatedObject.Bounds.Width;
         }
 
+        protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+        {
+            base.OnPropertyChanged(change);
+            if (change.Property == IsActiveProperty)
+            {
+                if (!IsActive)
+                {
+                    StopAnimation();
+                }
+                else
+                {
+                    _textWidth = -1; // force re-evaluation of bounds to restart
+                    UpdateMetrics();
+                }
+            }
+        }
+
         private void UpdateMetrics()
         {
             if (AssociatedObject == null)
                 return;
+                
+            if (!IsActive)
+            {
+                StopAnimation();
+                return;
+            }
 
             // measure text without wrapping so we know its true width
             var measureBlock = new TextBlock
