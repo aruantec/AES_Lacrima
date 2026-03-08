@@ -100,11 +100,7 @@ public static class YtDlpMetadata
 {
     public static async Task<MediaInfo> GetMetaDataAsync(string videoUrl, CancellationToken cancellationToken = default)
     {
-        // Prefer system PATH yt-dlp first (e.g. fast Homebrew binary), then fallback to PyInstaller app-local yt-dlp.
-        string preferred = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp";
-        string fallback = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp" : "yt-dlp.exe";
-        
-        string? exePath = FindExecutable(preferred, fallback) ?? FindLocalExecutable(preferred, fallback);
+        string? exePath = await ResolveYtDlpPathAsync();
 
         var psi = new ProcessStartInfo
         {
@@ -264,14 +260,104 @@ public static class YtDlpMetadata
 
     private static string? FindLocalExecutable(params string[] names)
     {
-        var baseDir = AppContext.BaseDirectory;
-        foreach (var name in names)
+        var dirs = new List<string> { AppContext.BaseDirectory };
+        
+        var processPathDir = Path.GetDirectoryName(Environment.ProcessPath);
+        if (!string.IsNullOrEmpty(processPathDir) && !dirs.Contains(processPathDir))
         {
-            var candidate = Path.Combine(baseDir, name);
-            if (File.Exists(candidate))
-                return candidate;
+            dirs.Add(processPathDir);
+        }
+
+        foreach (var dir in dirs)
+        {
+            foreach (var name in names)
+            {
+                var candidate = Path.Combine(dir, name);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
         }
 
         return null;
+    }
+
+    private static string? _resolvedYtDlpPath = null;
+    private static bool _ytDlpResolved = false;
+
+    private static async Task<string?> ResolveYtDlpPathAsync()
+    {
+        if (_ytDlpResolved) return _resolvedYtDlpPath;
+
+        string preferred = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp";
+        string fallback = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp" : "yt-dlp.exe";
+
+        string? systemPath = FindExecutable(preferred, fallback);
+        string? localPath = FindLocalExecutable(preferred, fallback);
+
+        if (systemPath != null && localPath != null)
+        {
+            string? sysVersion = await GetVersionAsync(systemPath);
+            string? locVersion = await GetVersionAsync(localPath);
+
+            if (sysVersion != null && locVersion != null && string.Compare(sysVersion, locVersion) < 0)
+            {
+                // Local is newer, try updating system. If it fails, fallback to local
+                bool updated = await TryUpdateYtDlpAsync(systemPath);
+                _resolvedYtDlpPath = updated ? systemPath : localPath;
+            }
+            else
+            {
+                _resolvedYtDlpPath = systemPath;
+            }
+        }
+        else
+        {
+            _resolvedYtDlpPath = systemPath ?? localPath;
+        }
+
+        _ytDlpResolved = true;
+        return _resolvedYtDlpPath;
+    }
+
+    private static async Task<string?> GetVersionAsync(string path)
+    {
+        try 
+        {
+            var psi = new ProcessStartInfo 
+            { 
+                FileName = path, 
+                Arguments = "--version", 
+                RedirectStandardOutput = true, 
+                UseShellExecute = false, 
+                CreateNoWindow = true 
+            };
+            using var process = Process.Start(psi);
+            if (process == null) return null;
+            var output = (await process.StandardOutput.ReadToEndAsync()).Trim();
+            await process.WaitForExitAsync();
+            return process.ExitCode == 0 ? output : null;
+        } 
+        catch { return null; }
+    }
+
+    private static async Task<bool> TryUpdateYtDlpAsync(string path)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo 
+            { 
+                FileName = path, 
+                Arguments = "-U", 
+                RedirectStandardOutput = true, 
+                RedirectStandardError = true, 
+                UseShellExecute = false, 
+                CreateNoWindow = true 
+            };
+            using var process = Process.Start(psi);
+            if (process == null) return false;
+            await process.WaitForExitAsync();
+            return process.ExitCode == 0;
+        }
+        catch { return false; }
     }
 }

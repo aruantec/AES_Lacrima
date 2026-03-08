@@ -495,7 +495,19 @@
                         <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="White" FontSize="12" Margin="6,0,6,0"
                                    Text="{Binding Index, StringFormat='{}{0}.', FallbackValue=''}" />
 
-                        <TextBlock Background="Transparent" Grid.Column="1" Text="{Binding Title}" Foreground="White" FontSize="12" Margin="6,4" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <Border Grid.Column="1" Margin="6,4" Background="Transparent" ClipToBounds="True">
+                            <TextBlock Foreground="White" FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                                <TextBlock.Text>
+                                    <MultiBinding StringFormat="{}{0} - {1}">
+                                        <Binding Path="Title" />
+                                        <Binding Path="Album" TargetNullValue="" FallbackValue="" />
+                                    </MultiBinding>
+                                </TextBlock.Text>
+                                <Interaction.Behaviors>
+                                    <behaviors:MarqueeBehavior IsActive="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" />
+                                </Interaction.Behaviors>
+                            </TextBlock>
+                        </Border>
                         <TextBlock Grid.Column="3" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}}" Foreground="White" FontSize="12" Margin="6,4,10,4" HorizontalAlignment="Left" VerticalAlignment="Center" />
                     </Grid>
                 </DataTemplate>

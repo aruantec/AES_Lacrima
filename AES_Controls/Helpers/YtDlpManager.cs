@@ -33,12 +33,13 @@ public partial class YtDlpManager : ObservableObject
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(YtDlpManager));
     private const string Repo = "yt-dlp/yt-dlp";
-    private readonly string _destFolder = AppContext.BaseDirectory;
-    private static readonly HttpClient Client = new();
+        
+        private readonly string _destFolder = string.IsNullOrEmpty(Environment.ProcessPath) 
+            ? AppContext.BaseDirectory 
+            : (Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory);
 
-    /// <summary>
-    /// Raised when an installation/upgrade/uninstall operation completes.
-    /// </summary>
+        private static readonly HttpClient Client = new();
+
     public event EventHandler<InstallationCompletedEventArgs>? InstallationCompleted;
 
     /// <summary>

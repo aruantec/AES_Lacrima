@@ -498,6 +498,8 @@ namespace AES_Lacrima.Mini.ViewModels
                 var item = new MediaItem { FileName = localPath, Title = Path.GetFileName(localPath), CoverBitmap = _defaultCover };
                 MediaItems.Add(item);
             }
+            // Update indices for the entire list since we don't know where the new items were inserted (user can pick from any folder and the file picker doesn't return in a guaranteed order)
+            UpdateItemIndices();
             try { SaveSettings(); } catch (Exception ex) { Log.Warn("AddFilesAsync: SaveSettings failed", ex); }
             if (MediaItems.Count > 0 && MusicViewModel?.AudioPlayer != null)
                 _ = new MetadataScrapper(MediaItems, MusicViewModel.AudioPlayer, _defaultCover, _agentInfo, 512);
