@@ -688,10 +688,16 @@ namespace AES_Controls.Behaviors
             var capturedIndices = _draggedIndices.ToList();
             var capturedToIndex = _lastValidSlotIndex;
             
+            // Clamp block to valid indices
+            int primaryRank = capturedIndices.IndexOf(_currentDraggedIndex);
+            int blockToIndex = Math.Max(0, capturedToIndex - primaryRank);
+            blockToIndex = Math.Clamp(blockToIndex, 0, Math.Max(0, _itemDimensions.Count - capturedIndices.Count));
+            int validPrimarySlot = blockToIndex + primaryRank;
+            
             // Calculate visual target based on virtual position difference
             Point capturedLastValidSlotVirtual;
-            if (capturedToIndex >= 0 && capturedToIndex < _itemDimensions.Count)
-                capturedLastValidSlotVirtual = _itemDimensions[capturedToIndex].VirtualPosition;
+            if (validPrimarySlot >= 0 && validPrimarySlot < _itemDimensions.Count)
+                capturedLastValidSlotVirtual = _itemDimensions[validPrimarySlot].VirtualPosition;
             else
                 capturedLastValidSlotVirtual = _dragStartItemVirtual;
 
@@ -705,10 +711,6 @@ namespace AES_Controls.Behaviors
 
             if (_hasDragged && capturedToIndex >= 0 && capturedIndices.Count > 0)
             {
-                // Calculate the start of the block based on the primary item's rank in selection
-                int primaryRank = capturedIndices.IndexOf(_currentDraggedIndex);
-                int blockToIndex = Math.Max(0, capturedToIndex - primaryRank);
-
                 var capturedContainers = _draggedContainers.ToList();
                 var capturedTargetOffsets = _targetOffsetsRelPrimary.ToList();
 
@@ -844,6 +846,7 @@ namespace AES_Controls.Behaviors
                 int movedBefore = _draggedIndices.Count(idx => idx < i);
                 int rankAmongNonDragged = i - movedBefore;
                 int targetStart = targetIndex - primaryPosInDragged;
+                targetStart = Math.Clamp(targetStart, 0, Math.Max(0, itemsCount - draggedCount));
 
                 int iNew = (rankAmongNonDragged < targetStart) ? rankAmongNonDragged : rankAmongNonDragged + draggedCount;
 
@@ -1370,8 +1373,11 @@ namespace AES_Controls.Behaviors
                 
                 bool isPastCenter = Math.Abs(dx) < coreWidth && Math.Abs(dy) < coreHeight;
                 
-                // Only consider swap if we are either inside the "core" or clearly the closest neighbor
-                if (isPastCenter || (distSq < minDistanceSq && distSq < (Math.Pow(dim.Bounds.Width * 0.5, 2) + SwapHysteresisPx * SwapHysteresisPx)))
+                // Allow generous distance snapping (especially to catch fast drags beyond the edges)
+                double maxDistAllowedSq = Math.Pow(Math.Max(dim.Bounds.Width, dim.Bounds.Height) * 2.5, 2);
+                
+                // Only consider swap if we are either inside the "core" or clearly the closest neighbor within a generous bound
+                if (isPastCenter || (distSq < minDistanceSq && distSq < maxDistAllowedSq))
                 {
                     minDistanceSq = distSq;
                     bestTargetIndex = i;

@@ -123,6 +123,18 @@
 					<Style Selector="ListBoxItem:selected /template/ ContentPresenter Border#SelectionOverlay">
 						<Setter Property="Opacity" Value="0"/>
 					</Style>
+					<Style Selector="Border.SelectionHighlight">
+						<Setter Property="Opacity" Value="0"/>
+					</Style>
+					<Style Selector="ListBoxItem:selected Border.SelectionHighlight">
+						<Setter Property="Opacity" Value="1"/>
+					</Style>
+					<Style Selector="ListBoxItem:pointerover Border.SelectionHighlight">
+						<Setter Property="Opacity" Value="0.6"/>
+					</Style>
+					<Style Selector="ListBoxItem:selected:pointerover Border.SelectionHighlight">
+						<Setter Property="Opacity" Value="1"/>
+					</Style>
 					<Style Selector="ListBox /template/ ScrollContentPresenter">
 						<Setter Property="ClipToBounds" Value="False"/>
 					</Style>
@@ -189,6 +201,19 @@
 											</Interaction.Behaviors>
 										</TextBox>
 									</Panel>
+								</Border>
+								<!-- Selection Overlay -->
+								<Border Classes="SelectionHighlight" 
+										Background="#440078D7" 
+										BorderBrush="#880078D7"
+										BorderThickness="2"
+										IsHitTestVisible="False" 
+										CornerRadius="12">
+									<Border.Transitions>
+										<Transitions>
+											<DoubleTransition Property="Opacity" Duration="0:0:0.15" Easing="CubicEaseOut"/>
+										</Transitions>
+									</Border.Transitions>
 								</Border>
 							</Grid>
 						</Border>
