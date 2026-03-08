@@ -64,8 +64,19 @@ namespace AES_Lacrima.Behaviors
 
         protected override void OnAttached()
         {
+            base.OnAttached();
+
             if (AssociatedObject is not { } window)
                 return;
+
+            if (OperatingSystem.IsMacOS())
+            {
+                // On macOS, SystemDecorations.None disables native resizing, and manual BeginResizeDrag
+                // is not supported for borderless windows. Using SystemDecorations.Full with ExtendedClientArea
+                // provides natively resizable borderless windows.
+                window.SystemDecorations = SystemDecorations.Full;
+                return;
+            }
 
             window.AddHandler(InputElement.PointerMovedEvent, OnPointerMoved, RoutingStrategies.Tunnel);
             window.AddHandler(InputElement.PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel);
@@ -73,7 +84,7 @@ namespace AES_Lacrima.Behaviors
 
         protected override void OnDetaching()
         {
-            if (AssociatedObject is { } window)
+            if (AssociatedObject is { } window && !OperatingSystem.IsMacOS())
             {
                 window.RemoveHandler(InputElement.PointerMovedEvent, OnPointerMoved);
                 window.RemoveHandler(InputElement.PointerPressedEvent, OnPointerPressed);

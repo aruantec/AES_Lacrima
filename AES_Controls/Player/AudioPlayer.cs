@@ -1186,6 +1186,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         _syncContext?.Post(_ => { Waveform.Clear(); Spectrum.Clear(); Position = 0; }, null);
         PostToMpvThread(() =>
         {
+            SetProperty("vo", video ? "auto" : "null");
             SetProperty("vid", video ? "auto" : "no");
             SetProperty("audio-display", video ? "auto" : "no");
         });
@@ -1261,6 +1262,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             var proc = Process.Start(new ProcessStartInfo(ffmpegPath!, args)
             {
                 RedirectStandardOutput = true,
+                RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             });

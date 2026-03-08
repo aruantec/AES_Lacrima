@@ -138,12 +138,7 @@ namespace AES_Controls.Players
                 var proc = _ffmpegProcess;
                 if (proc != null)
                 {
-                    if (!proc.HasExited)
-                    {
-                        try { proc.Kill(true); } catch { }
-                        try { proc.WaitForExit(100); } catch { }
-                    }
-                    try { proc.Dispose(); } catch { }
+                    try { proc.Kill(true); } catch { }
                 }
             }
             catch { }
@@ -182,7 +177,7 @@ namespace AES_Controls.Players
                     localProcess = Process.Start(new ProcessStartInfo(ffmpegPath!, args)
                     {
                         RedirectStandardOutput = true,
-                        RedirectStandardError = false, 
+                        RedirectStandardError = true,
                         UseShellExecute = false,
                         CreateNoWindow = true
                     });
@@ -196,7 +191,7 @@ namespace AES_Controls.Players
 
                     using var stream = localProcess.StandardOutput.BaseStream;
 
-                    while (!token.IsCancellationRequested && !localProcess.HasExited)
+                    while (!token.IsCancellationRequested)
                     {
                         // Check player states that should pause spectrum analysis
                         if (!_player.IsPlaying || _player.IsSeeking)
