@@ -69,6 +69,8 @@ namespace AES_Controls.Composition
         private int _dropTargetIndex = -1;
         private double _smoothDropTargetIndex = -1;
         private Vector2 _dragPosition;
+        private Vector2 _smoothDragPosition;
+        private Vector2 _smoothDragVelocity;
         private bool _isDropping;
         private float _dropAlpha = 1.0f;
         private float _globalTransitionAlpha = 1.0f;
@@ -177,12 +179,18 @@ namespace AES_Controls.Composition
                 else
                 {
                     _draggingIndex = ds.IsDragging ? ds.Index : -1;
+                    if (!ds.IsDragging) { _smoothDragPosition = Vector2.Zero; _smoothDragVelocity = Vector2.Zero; } 
+
                     _isDropping = false;
                     _smoothDropTargetIndex = -1;
                 }
                 Invalidate(); 
             }
-            else if (message is DragPositionMessage dp) { _dragPosition = dp.Position; Invalidate(); }
+            else if (message is DragPositionMessage dp) {
+                if (_smoothDragPosition.X == 0 && _smoothDragPosition.Y == 0) _smoothDragPosition = dp.Position;
+                _dragPosition = dp.Position;
+                Invalidate();
+            }
             else if (message is DropTargetMessage dtm) { _dropTargetIndex = dtm.Index; Invalidate(); }
             else if (message is SpacingMessage spacing) { _itemSpacing = (float)spacing.Value; _visibleRangeDirty = true; Invalidate(); }
             else if (message is ScaleMessage sm) { _itemScale = (float)sm.Value; _visibleRangeDirty = true; Invalidate(); }
@@ -250,12 +258,19 @@ namespace AES_Controls.Composition
 
             if (_draggingIndex != -1)
             {
+                double dragStiffness = 600.0;
+                double dragDamping = 2.0 * Math.Sqrt(dragStiffness) * 1.05;
+                _smoothDragVelocity.X += (float)((_dragPosition.X - _smoothDragPosition.X) * dragStiffness - _smoothDragVelocity.X * dragDamping) * (float)dt;
+                _smoothDragVelocity.Y += (float)((_dragPosition.Y - _smoothDragPosition.Y) * dragStiffness - _smoothDragVelocity.Y * dragDamping) * (float)dt;
+                _smoothDragPosition.X += _smoothDragVelocity.X * (float)dt;
+                _smoothDragPosition.Y += _smoothDragVelocity.Y * (float)dt;
+
                 if (_smoothDropTargetIndex == -1) _smoothDropTargetIndex = _dropTargetIndex;
                 else
                 {
                     // use an exponential smoothing (time-constant) so reaction feels natural and framerate-independent
                     // larger tau => slower, smoother movement when items shift to make room for dragged item
-                    double tau = 0.25; // seconds — increase to make movement even slower
+                    double tau = 0.45; // much smoother, relaxed movement to comfortably see them slide apart
                     double alpha = 1.0 - Math.Exp(-dt / Math.Max(1e-6, tau));
                     _smoothDropTargetIndex += (_dropTargetIndex - _smoothDropTargetIndex) * alpha;
                 }
@@ -397,9 +412,8 @@ namespace AES_Controls.Composition
             {
                 float rank = (i < _draggingIndex) ? i : (float)(i - 1);
                 float slotDiff = rank - (float)_smoothDropTargetIndex;
-                float shiftStrength = 1.0f / (1.0f + (float)Math.Exp(-(slotDiff + 0.5f) * 8.0f));
-                float parting = (float)Math.Exp(-(slotDiff + 0.5f) * (slotDiff + 0.5f) * 2.0f);
-                float partedVisualI = rank + shiftStrength + (slotDiff < -0.5f ? -0.25f : 0.25f) * parting;
+                float shiftStrength = 0.5f + 0.5f * (float)Math.Tanh((slotDiff + 0.5f) * 8.0f);
+                float partedVisualI = rank + shiftStrength;
 
                 if (_isDropping) visualI = partedVisualI + (i - partedVisualI) * (float)(1.0 - Math.Pow(1.0 - _dropAlpha, 3));
                 else visualI = partedVisualI;
@@ -432,8 +446,8 @@ namespace AES_Controls.Composition
                 {
                     float eased = (float)(1.0 - Math.Pow(1.0 - _dropAlpha, 3));
                     float zS = (1000f - itemW) / 1000f;
-                    float dX = (_dragPosition.X - center.X) * zS;
-                    float dY = (_dragPosition.Y - center.Y) * zS;
+                    float dX = (_smoothDragPosition.X - center.X) * zS;
+                    float dY = (_smoothDragPosition.Y - center.Y) * zS;
                     finalTranslationX = dX + (finalTranslationX - dX) * eased;
                     translationY = dY + (translationY - dY) * eased;
                     translationZ = itemW + (translationZ - itemW) * eased;
@@ -444,8 +458,8 @@ namespace AES_Controls.Composition
                 {
                     translationZ = itemW;
                     float zS = (1000f - translationZ) / 1000f;
-                    finalTranslationX = (_dragPosition.X - center.X) * zS;
-                    translationY = (_dragPosition.Y - center.Y) * zS;
+                    finalTranslationX = (_smoothDragPosition.X - center.X) * zS;
+                    translationY = (_smoothDragPosition.Y - center.Y) * zS;
                     scale = 0.82f;
                     rotationY = 0;
                 }

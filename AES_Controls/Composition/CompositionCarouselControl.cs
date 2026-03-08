@@ -1243,7 +1243,7 @@ namespace AES_Controls.Composition
             
             if (Math.Abs(delta) > 0.01)
             {
-                _autoScrollVelocity = delta * 0.5;
+                _autoScrollVelocity = delta * 0.08;
                 SelectedIndex = Math.Clamp(SelectedIndex + _autoScrollVelocity, 0, Math.Max(0, _images.Count - 1));
             }
         }
