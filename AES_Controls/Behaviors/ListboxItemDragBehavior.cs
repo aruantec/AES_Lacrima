@@ -4,6 +4,8 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Avalonia.Xaml.Interactivity;
@@ -162,6 +164,12 @@ namespace AES_Controls.Behaviors
         private readonly List<Vector> _gluedOffsets = new();
         private List<Vector> _targetOffsetsRelPrimary = new(); 
         private readonly List<ItemDimension> _itemDimensions = new();
+        
+        // Proxy images for virtualized containers
+        private Canvas? _dragAdornerCanvas;
+        private readonly Dictionary<int, Image> _adornerProxies = new();
+        private readonly Dictionary<int, TranslateTransform> _adornerTransforms = new();
+
         private ScrollViewer? _scrollViewer;
         private Panel? _itemsPanel;
         private DispatcherTimer? _autoScrollTimer;
@@ -613,10 +621,13 @@ namespace AES_Controls.Behaviors
             // Check if displacement exceeds threshold to start dragging
             if (!_hasDragged)
             {
-                var dx = _dragTransform.X;
-                var dy = _dragTransform.Y;
-                if (Math.Abs(dx) > DragStartThreshold || Math.Abs(dy) > DragStartThreshold)
+                var dx2 = _dragTransform.X;
+                var dy2 = _dragTransform.Y;
+                if (Math.Abs(dx2) > DragStartThreshold || Math.Abs(dy2) > DragStartThreshold)
+                {
                     _hasDragged = true;
+                    CreateAdornerProxies();
+                }
             }
 
             UpdateAutoScrollSpeed(screenPos);
@@ -669,10 +680,142 @@ namespace AES_Controls.Behaviors
             double dx = currentMouseVirtual.Value.X - _dragStartMouseVirtual.X;
             double dy = currentMouseVirtual.Value.Y - _dragStartMouseVirtual.Y;
 
+            if (_scrollViewer != null)
+            {
+                double minDx = double.MinValue;
+                double maxDx = double.MaxValue;
+                double minDy = double.MinValue;
+                double maxDy = double.MaxValue;
+
+                double extentW = Math.Max(0, _scrollViewer.Extent.Width);
+                double extentH = Math.Max(0, _scrollViewer.Extent.Height);
+
+                for (int i = 0; i < _draggedContainers.Count; i++)
+                {
+                    var container = _draggedContainers[i];
+                    int globalIndex = _draggedIndices[i];
+                    if (globalIndex < 0 || globalIndex >= _itemDimensions.Count) continue;
+
+                    // Stop clamping if the container is recycled
+                    if (AssociatedObject?.ContainerFromIndex(globalIndex) != container) continue;
+
+                    var origP = _itemDimensions[globalIndex].VirtualPosition;
+
+                    double allowedMinDx = -origP.X - _gluedOffsets[i].X;
+                    double allowedMaxDx = Math.Max(0, extentW - container.Bounds.Width) - origP.X - _gluedOffsets[i].X;
+                    double allowedMinDy = -origP.Y - _gluedOffsets[i].Y;
+                    double allowedMaxDy = Math.Max(0, extentH - container.Bounds.Height) - origP.Y - _gluedOffsets[i].Y;
+
+                    if (allowedMinDx > minDx) minDx = allowedMinDx;
+                    if (allowedMaxDx < maxDx) maxDx = allowedMaxDx;
+                    if (allowedMinDy > minDy) minDy = allowedMinDy;
+                    if (allowedMaxDy < maxDy) maxDy = allowedMaxDy;
+                }
+
+                if (maxDx < minDx) maxDx = minDx;
+                if (maxDy < minDy) maxDy = minDy;
+
+                dx = Math.Clamp(dx, minDx, maxDx);
+                dy = Math.Clamp(dy, minDy, maxDy);
+            }
+
             for (int i = 0; i < _draggedTransforms.Count; i++)
             {
-                _draggedTransforms[i].X = dx + _gluedOffsets[i].X;
-                _draggedTransforms[i].Y = dy + _gluedOffsets[i].Y;
+                var container = _draggedContainers[i];
+                int globalIndex = _draggedIndices[i];
+                double targetDx = dx + _gluedOffsets[i].X;
+                double targetDy = dy + _gluedOffsets[i].Y;
+
+                var realCurrentContainer = AssociatedObject?.ContainerFromIndex(globalIndex);
+                if (realCurrentContainer != container)
+                {
+                    if (container.RenderTransform == _draggedTransforms[i])
+                        container.RenderTransform = null;
+                }
+                else
+                {
+                    _draggedTransforms[i].X = targetDx;
+                    _draggedTransforms[i].Y = targetDy;
+                }
+
+                if (_adornerTransforms.TryGetValue(i, out var proxyTt))
+                {
+                    proxyTt.X = targetDx;
+                    proxyTt.Y = targetDy;
+                }
+            }
+
+            if (_itemsPanel != null && AssociatedObject != null && _hasDragged)
+            {
+                foreach (var child in _itemsPanel.Children)
+                {
+                    if (child is Control c)
+                    {
+                        int index = AssociatedObject.IndexFromContainer(c);
+                        if (_draggedIndices.Contains(index))
+                        {
+                            c.Opacity = 0;
+                        }
+                        else
+                        {
+                            c.Opacity = 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void CreateAdornerProxies()
+        {
+            if (_itemsPanel == null || AssociatedObject == null) return;
+            var adornerLayer = AdornerLayer.GetAdornerLayer(_itemsPanel);
+            if (adornerLayer == null) return;
+
+            _dragAdornerCanvas = new Canvas { IsHitTestVisible = false };
+            adornerLayer.Children.Add(_dragAdornerCanvas);
+            AdornerLayer.SetAdornedElement(_dragAdornerCanvas, _itemsPanel);
+
+            _adornerProxies.Clear();
+            _adornerTransforms.Clear();
+
+            for (int i = 0; i < _draggedContainers.Count; i++)
+            {
+                var container = _draggedContainers[i];
+                try
+                {
+                    // Temporarily remove transform so RenderTargetBitmap captures it accurately without offsets
+                    var oldTransform = container.RenderTransform;
+                    container.RenderTransform = null;
+
+                    var rtb = new RenderTargetBitmap(new PixelSize((int)Math.Max(1, container.Bounds.Width), (int)Math.Max(1, container.Bounds.Height)), new Vector(96, 96));
+                    rtb.Render(container);
+
+                    container.RenderTransform = oldTransform;
+
+                    var img = new Image
+                    {
+                        Source = rtb,
+                        Width = container.Bounds.Width,
+                        Height = container.Bounds.Height,
+                        Opacity = 1 
+                    };
+
+                    var tt = new TranslateTransform(0, 0);
+                    img.RenderTransform = tt;
+                    _adornerTransforms[i] = tt;
+
+                    Canvas.SetLeft(img, _itemDimensions[_draggedIndices[i]].VirtualPosition.X);
+                    Canvas.SetTop(img, _itemDimensions[_draggedIndices[i]].VirtualPosition.Y);
+
+                    _dragAdornerCanvas.Children.Add(img);
+                    _adornerProxies[i] = img;
+
+                    container.Opacity = 0; // Hide the real container completely!
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Could not create dragging proxy image", ex);
+                }
             }
         }
 
@@ -793,6 +936,11 @@ namespace AES_Controls.Behaviors
                 anim.Timer.Stop();
                 _activeAnimations.Remove(control);
             }
+            else if (Math.Abs(t.X - toX) < 0.1 && Math.Abs(t.Y - toY) < 0.1)
+            {
+                completed?.Invoke();
+                return;
+            }
 
             double fromX = t.X;
             double fromY = t.Y;
@@ -838,7 +986,18 @@ namespace AES_Controls.Behaviors
                 if (draggedSet.Contains(i)) continue;
                 var container = AssociatedObject.ContainerFromIndex(i);
                 if (container == null) continue;
-                if (draggedControls.Contains(container)) continue;
+                if (draggedControls.Contains(container))
+                {
+                    bool isStillDragged = false;
+                    for (int j = 0; j < _draggedIndices.Count; j++)
+                    {
+                        if (AssociatedObject.ContainerFromIndex(_draggedIndices[j]) == container)
+                        {
+                            isStillDragged = true; break;
+                        }
+                    }
+                    if (isStillDragged) continue;
+                }
 
                 Point targetOffset = default;
 
@@ -852,20 +1011,6 @@ namespace AES_Controls.Behaviors
 
                 if (iNew >= 0 && iNew < _itemDimensions.Count && iNew != i)
                 {
-                    // Refresh live dimensions when available to avoid stale virtual estimates.
-                    if (i >= 0 && i < _itemDimensions.Count && _itemDimensions[i].IsEstimated)
-                    {
-                        var c = AssociatedObject.ContainerFromIndex(i);
-                        if (c is { } cc && cc.Bounds.Width > 0.001 && _itemsPanel != null)
-                            _itemDimensions[i].Update(cc, _itemsPanel, i);
-                    }
-                    if (iNew >= 0 && iNew < _itemDimensions.Count && _itemDimensions[iNew].IsEstimated)
-                    {
-                        var cNew = AssociatedObject.ContainerFromIndex(iNew);
-                        if (cNew is { } ccNew && ccNew.Bounds.Width > 0.001 && _itemsPanel != null)
-                            _itemDimensions[iNew].Update(ccNew, _itemsPanel, iNew);
-                    }
-
                     var destPos = _itemDimensions[iNew].VirtualPosition;
                     var myOrig = _itemDimensions[i].VirtualPosition;
                     var raw = destPos - myOrig;
@@ -1034,6 +1179,15 @@ namespace AES_Controls.Behaviors
             }
             _activeAnimations.Clear();
 
+            // Clear Adorner proxies
+            if (_dragAdornerCanvas != null && _dragAdornerCanvas.Parent is AdornerLayer al)
+            {
+                try { al.Children.Remove(_dragAdornerCanvas); } catch { }
+            }
+            _dragAdornerCanvas = null;
+            _adornerProxies.Clear();
+            _adornerTransforms.Clear();
+
             if (AssociatedObject == null) return;
 
             int itemsCount = AssociatedObject.Items.Count;
@@ -1044,6 +1198,7 @@ namespace AES_Controls.Behaviors
                 {
                     control.RenderTransform = new TranslateTransform(0, 0);
                     control.ZIndex = 0;
+                    control.Opacity = 1;
                 }
             }
         }
@@ -1340,60 +1495,44 @@ namespace AES_Controls.Behaviors
             int itemsCount = AssociatedObject.Items.Count;
             if (_itemDimensions.Count != itemsCount) return;
 
-            // Current virtual center of the dragged item
+            var root = AssociatedObject.GetVisualRoot() as Visual;
+            if (root == null || _lastPointerScreenPos == null) return;
+            var currentMouseVirtual = root.TranslatePoint(_lastPointerScreenPos.Value, _itemsPanel);
+            if (!currentMouseVirtual.HasValue) return;
+
+            double unclampedDx = currentMouseVirtual.Value.X - _dragStartMouseVirtual.X;
+            double unclampedDy = currentMouseVirtual.Value.Y - _dragStartMouseVirtual.Y;
+
+            // Current virtual center of the dragged item based on UNCLAMPED mouse
             var dragVirtual = new Point(
-                _dragStartItemVirtual.X + _dragTransform.X + (_currentDragged.Bounds.Width * 0.5),
-                _dragStartItemVirtual.Y + _dragTransform.Y + (_currentDragged.Bounds.Height * 0.5)
+                _dragStartItemVirtual.X + unclampedDx + (_currentDragged.Bounds.Width * 0.5),
+                _dragStartItemVirtual.Y + unclampedDy + (_currentDragged.Bounds.Height * 0.5)
             );
 
-            int bestTargetIndex = _currentDraggedIndex;
+            int bestTargetIndex = _lastValidSlotIndex;
             double minDistanceSq = double.MaxValue;
 
             for (int i = 0; i < itemsCount; i++)
             {
                 var dim = _itemDimensions[i];
-                if (dim.IsEstimated)
-                {
-                    var c = AssociatedObject.ContainerFromIndex(i);
-                    if (c is { } control && control.Bounds.Width > 0.001)
-                    {
-                        dim.Update(control, _itemsPanel, i);
-                    }
-                }
 
-                if (dim.IsEstimated) continue;
                 if (dim.Bounds.Width <= 0.001) continue;
 
                 double dx = dragVirtual.X - dim.VirtualCenter.X;
                 double dy = dragVirtual.Y - dim.VirtualCenter.Y;
                 double distSq = dx * dx + dy * dy;
 
-                double coreWidth = dim.Bounds.Width * 0.42; 
-                double coreHeight = dim.Bounds.Height * 0.42;
-                
-                bool isPastCenter = Math.Abs(dx) < coreWidth && Math.Abs(dy) < coreHeight;
-                
-                // Allow generous distance snapping (especially to catch fast drags beyond the edges)
-                double maxDistAllowedSq = Math.Pow(Math.Max(dim.Bounds.Width, dim.Bounds.Height) * 2.5, 2);
-                
-                // Only consider swap if we are either inside the "core" or clearly the closest neighbor within a generous bound
-                if (isPastCenter || (distSq < minDistanceSq && distSq < maxDistAllowedSq))
+                if (distSq < minDistanceSq)
                 {
                     minDistanceSq = distSq;
                     bestTargetIndex = i;
                 }
             }
 
-            if (bestTargetIndex != _lastValidSlotIndex)
+            if (bestTargetIndex != -1)
             {
-                var now = DateTime.UtcNow;
-                if ((now - _lastSwapTime).TotalMilliseconds >= SwapCooldownMs)
-                {
-                    _lastSwapTime = now;
-                    _lastValidSlotIndex = bestTargetIndex;
-
-                    ShiftItemsForSwap(bestTargetIndex);
-                }
+                _lastValidSlotIndex = bestTargetIndex;
+                ShiftItemsForSwap(bestTargetIndex);
             }
         }
 
