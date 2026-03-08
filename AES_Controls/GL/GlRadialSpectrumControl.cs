@@ -634,12 +634,6 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
             if (_texture != 0) gl.DeleteTexture(_texture);
         }
         catch (Exception ex) { Log.Warn("Error during OpenGL deinitialization", ex); }
-
-        try { foreach (var d in _propertySubscriptions) d.Dispose(); } catch (Exception ex) { Log.Warn("Error disposing property subscriptions", ex); }
-        _propertySubscriptions.Clear();
-
-        try { if (_spectrumCollectionRef != null && _spectrumCollectionHandler != null) _spectrumCollectionRef.CollectionChanged -= _spectrumCollectionHandler; } catch (Exception ex) { Log.Warn("Error unsubscribing from spectrum collection during deinit", ex); }
-        _spectrumCollectionRef = null; _spectrumCollectionHandler = null;
     }
     public void Dispose() { }
 }

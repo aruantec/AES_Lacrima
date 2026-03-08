@@ -276,12 +276,9 @@ namespace AES_Controls.Player
             try { _loadingTimer.Tick -= LoadingTimer_Tick; } catch { }
             try { _updateTimer.Tick -= UpdateTimer_Tick; } catch { }
 
-            try
-            {
-                foreach (var d in _propertySubscriptions) d.Dispose();
-            }
-            catch { }
-            _propertySubscriptions.Clear();
+            // Explanation: we DO NOT clear _propertySubscriptions in OnDetachedFromVisualTree
+            // because this control could be re-attached later (e.g. navigation caching),
+            // and the property subscriptions were initialized in the constructor.
         }
 
         private void InvalidateCachesAndRedraw()

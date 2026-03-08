@@ -439,12 +439,6 @@ public class GlWaveformSpectrumControl : OpenGlControlBase, IDisposable
             if (_vao != 0) gl.DeleteVertexArray(_vao);
         }
         catch { }
-
-        try { foreach (var d in _propertySubscriptions) d.Dispose(); } catch { }
-        _propertySubscriptions.Clear();
-
-        try { if (_spectrumCollectionRef != null && _spectrumCollectionHandler != null) _spectrumCollectionRef.CollectionChanged -= _spectrumCollectionHandler; } catch { }
-        _spectrumCollectionRef = null; _spectrumCollectionHandler = null;
     }
 
     public void Dispose() { }

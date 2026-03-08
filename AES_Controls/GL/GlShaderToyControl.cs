@@ -653,17 +653,6 @@ public class GlShaderToyControl : OpenGlControlBase
         if (_vbo != 0) gl.DeleteBuffer(_vbo);
         if (_vao != 0) gl.DeleteVertexArray(_vao);
 
-        // Dispose property subscriptions to release captured closures
-        try
-        {
-            foreach (var d in _propertySubscriptions) d.Dispose();
-        }
-        catch
-        {
-            // ignored
-        }
-
-        _propertySubscriptions.Clear();
     }
 }
 
