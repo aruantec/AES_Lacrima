@@ -67,7 +67,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     // Precompute rotation trig once per pixel, not once per sphere.
     float cY = cos(rY), sY = sin(rY);
     float cX = cos(rX), sX = sin(rX);
-    float cZ = cos(rZ), sZ = sin(rZ);
+    mat3 r_y = mat3(cos(rY), 0.0, sin(rY), 0.0, 1.0, 0.0, -sin(rY), 0.0, cos(rY));
+    mat3 r_x = mat3(1.0, 0.0, 0.0, 0.0, cos(rX), -sin(rX), 0.0, sin(rX), cos(rX));
+    mat3 r_z = mat3(cos(rZ), -sin(rZ), 0.0, sin(rZ), cos(rZ), 0.0, 0.0, 0.0, 1.0);
+    mat3 rot = r_x * r_y; rot = r_z * rot;
+
 
     // ---- per-pixel output ---------------------------------------------
     vec3  col   = vec3(0.0);
@@ -94,6 +98,15 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         sTh = prevC * sPhi + sTh * cPhi;
 
         // per-ball audio lookup (scattered across spectrum)
+        vec3 dir = rot * sn;
+        vec3 base_pos = dir * mainR;
+        float base_ez = base_pos.z + camD;
+        float base_scl = 1.55 / base_ez;
+        vec2 base_prj = base_pos.xy * base_scl;
+        vec2 dv_base = uv - base_prj;
+        float max_rc = 0.55 * base_scl;
+        if (dot(dv_base, dv_base) > max_rc * max_rc) continue;
+
         float fU   = fract(fi * 0.618 + 0.07);
         float freq = texture(iChannel0, vec2(fU, 0.25)).r;
 
@@ -119,17 +132,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         vec3 pos = sn * (mainR + disp);
 
         // rotate whole formation using precomputed trig
-        float px = pos.x * cY - pos.z * sY;
-        float pz = pos.x * sY + pos.z * cY;
-        pos.x = px; pos.z = pz;
+        pos = dir * (mainR + disp);
 
-        float py = pos.y * cX - pos.z * sX;
-        pz = pos.y * sX + pos.z * cX;
-        pos.y = py; pos.z = pz;
-
-        px = pos.x * cZ - pos.y * sZ;
-        py = pos.x * sZ + pos.y * cZ;
-        pos.x = px; pos.y = py;
 
         // perspective projection
         float ez  = pos.z + camD;
