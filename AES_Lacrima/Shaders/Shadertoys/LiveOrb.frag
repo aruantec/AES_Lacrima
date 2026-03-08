@@ -37,14 +37,14 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     float mid  = texture(iChannel0, vec2(0.18,  0.25)).r;
     float treb = texture(iChannel0, vec2(0.78,  0.25)).r;
 
-    // smooth beat envelope — weighted but not overwhelming
-    float beat = ease(bass * 1.0 + mid * 0.35);
-    float sparkle = ease(treb * 1.2);
-    float pulse = ease(0.75 * beat + 0.25 * bass);
+    // smooth beat envelope — more reactive mix
+    float beat = ease(bass * 1.5 + mid * 0.6);
+    float sparkle = ease(treb * 1.8);
+    float pulse = ease(0.75 * beat + 0.5 * bass);
 
     // ---- scene --------------------------------------------------------
-    // Internal-pressure feel: the whole orb gently inflates with the beat.
-    float orbInflate = 0.010 + 0.050 * pulse + 0.012 * sin(t * 0.80 + pulse * 1.7);
+    // Internal-pressure feel: the whole orb inflates actively with the beat.
+    float orbInflate = 0.010 + 0.120 * pulse + 0.025 * sin(t * 0.80 + pulse * 1.7);
     float mainR = 0.78 + orbInflate;            // main sphere radius
     float camD  = 2.85;                          // camera distance
     vec3  light = normalize(vec3(-0.5, 0.55, 0.85));
@@ -119,15 +119,15 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 
         // moderate power curve — realistic falloff
         float freqS = freq * freq * (3.0 - 2.0 * freq);
-        // wider gate — only genuinely active bands trigger movement
-        float gate  = smoothstep(0.06, 0.24, freqS);
+        // wider gate — softer sounds trigger movement
+        float gate  = smoothstep(0.02, 0.15, freqS);
 
-        // gentle displacement — orbs breathe with music, not thrash
-        float disp = gate * (freqS * 0.22 + beat * 0.07) * motion;
+        // highly reactive displacement
+        float disp = gate * (freqS * 0.65 + beat * 0.25) * motion;
 
         // how much this ball is "active" (0 = resting, 1 = fully jumped)
-        float activity = clamp(disp * 4.0 + sparkle * gate * 0.03, 0.0, 1.0);
-        float jumpHeight = clamp(disp * 6.5, 0.0, 1.0); // normalized actual jump amount
+        float activity = clamp(disp * 3.5 + sparkle * gate * 0.05, 0.0, 1.0);
+        float jumpHeight = clamp(disp * 4.5, 0.0, 1.0); // normalized actual jump amount
 
         vec3 pos = sn * (mainR + disp);
 

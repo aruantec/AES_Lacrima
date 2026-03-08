@@ -160,14 +160,11 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
     private readonly Stopwatch _st = Stopwatch.StartNew();
     private double _lastTicks;
 
-    private readonly List<IDisposable> _propertySubscriptions = new();
     private INotifyCollectionChanged? _spectrumCollectionRef;
     private NotifyCollectionChangedEventHandler? _spectrumCollectionHandler;
 
     public GlSpectrumControl()
     {
-        _propertySubscriptions.Add(this.GetObservable(SpectrumProperty).Subscribe(new SimpleObserver<AvaloniaList<double>?>(OnSpectrumChanged)));
-
         // Prepare a cached Action to avoid allocating a new closure for each post
         _cachedRenderAction = () =>
         {
@@ -179,6 +176,10 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
+        if (change.Property == SpectrumProperty)
+        {
+            OnSpectrumChanged(change.GetNewValue<AvaloniaList<double>?>());
+        }
         // If the control just became visible, start the render loop again
         if (change.Property == IsVisibleProperty && change.GetNewValue<bool>())
         {
@@ -559,10 +560,8 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
         try { if (_vertexBuffer != 0) gl.DeleteBuffer(_vertexBuffer); } catch { }
         try { if (_vao != 0) gl.DeleteVertexArray(_vao); } catch { }
 
-        try { foreach (var d in _propertySubscriptions) d.Dispose(); } catch { }
-        _propertySubscriptions.Clear();
-        try { if (_spectrumCollectionRef != null && _spectrumCollectionHandler != null) _spectrumCollectionRef.CollectionChanged -= _spectrumCollectionHandler; } catch { }
-        _spectrumCollectionRef = null; _spectrumCollectionHandler = null;
+        // Do not clear the property bindings or collection handlers here.
+        // GlSpectrumControl may be reattached to the visual tree later and OpenGlInit called again.
     }
 
     public void Dispose() { }
