@@ -176,6 +176,12 @@ public class CachedContentPresenter : Control
                 // Call lifecycle hooks: old -> leave, new -> show
                 try { (oldViewModel as IViewModelBase)?.OnLeaveViewModel(); } catch { }
                 try { (newViewModel as IViewModelBase)?.OnShowViewModel(); } catch { }
+
+                // Ensure only the active view is visible just in case
+                foreach (var child in _hostPanel.Children)
+                {
+                    if (child != newViewHost) child.IsVisible = false;
+                }
             }
         }
         else
@@ -212,7 +218,16 @@ public class CachedContentPresenter : Control
         to.IsVisible = true;
 
         // Wait one frame for layout to recognize visibility and prepare the view
-        await Task.Delay(16, token);
+        try
+        {
+            await Task.Delay(16, token);
+        }
+        catch (TaskCanceledException)
+        {
+            from.IsVisible = false;
+            from.Transitions = null;
+            throw;
+        }
 
         // Setup transitions
         var transition = new Transitions { new DoubleTransition { Property = OpacityProperty, Duration = duration, Easing = Easing } };
@@ -224,9 +239,17 @@ public class CachedContentPresenter : Control
         from.Opacity = 0;
         to.Opacity = 1.0;
 
-        await Task.Delay(duration, token);
-
-        if (token.IsCancellationRequested) return;
+        try
+        {
+            await Task.Delay(duration, token);
+        }
+        catch (TaskCanceledException)
+        {
+            from.IsVisible = false;
+            from.Transitions = null;
+            to.Transitions = null;
+            throw;
+        }
 
         from.IsVisible = false;
         from.Transitions = null;

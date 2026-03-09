@@ -216,7 +216,16 @@ public class PlayerCompositionControl : UserControl
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
+        if (!IsEffectivelyVisible) return;
+
         var localPos = e.GetPosition(this);
+
+        // Strict boundary check: If it's completely outside our bounds, ignore it
+        if (localPos.X < 0 || localPos.Y < 0 || localPos.X > Bounds.Width || localPos.Y > Bounds.Height)
+        {
+            return;
+        }
+
         var isOnRing = IsOnRing(localPos);
         var isOnCenter = IsOnCenter(localPos);
 
@@ -262,7 +271,7 @@ public class PlayerCompositionControl : UserControl
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
-        if (_isPressed)
+        if (_isPressed && IsEffectivelyVisible)
         {
             CalculateAndSeek(e.GetPosition(this), true);
             e.Handled = true;
@@ -276,10 +285,19 @@ public class PlayerCompositionControl : UserControl
         {
             _isPressed = false;
             e.Pointer.Capture(null);
-            CalculateAndSeek(e.GetPosition(this), false); // Final update
+            if (IsEffectivelyVisible)
+            {
+                CalculateAndSeek(e.GetPosition(this), false); // Final update
+            }
             e.Handled = true;
         }
         base.OnPointerReleased(e);
+    }
+
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        _isPressed = false;
+        base.OnPointerCaptureLost(e);
     }
 
     private bool IsOnRing(Point pointerPos)

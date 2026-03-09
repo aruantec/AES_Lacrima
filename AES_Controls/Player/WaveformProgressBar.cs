@@ -183,6 +183,7 @@ namespace AES_Controls.Player
 
         private void GlobalPointerPressed(object? sender, PointerPressedEventArgs e)
         {
+            if (!IsEffectivelyVisible) return;
             // if the event already targeted this control, skip
             if (e.Source == this) return;
             var pt = e.GetPosition(this);

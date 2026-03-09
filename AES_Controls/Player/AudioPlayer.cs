@@ -77,6 +77,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// </summary>
     public bool LoudnessCompensatedVolume { get; set; } = true;
 
+    private volatile bool _ignoreTimePos;
+
     // Cache ReplayGain settings in-memory to ensure consistency across track changes
     private ReplayGainOptions? _lastOptions;
 
@@ -1091,7 +1093,18 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             {
                 if (prop.format == MpvFormat.MPV_FORMAT_DOUBLE)
                 {
-                    Position = prop.ReadDoubleValue();
+                    double newPos = prop.ReadDoubleValue();
+
+                    // SKIP GUARD: When loading a new file, mpv may still fire late time-pos 
+                    // events from the OLD file before the loadfile command completes.
+                    // We ignore these to prevent the Position from jumping back and forth,
+                    // which causes massive drift/restarts in the background spectrum analyzer.
+                    if (_ignoreTimePos)
+                    {
+                        return;
+                    }
+
+                    Position = newPos;
 
                     // Once we have progress on the NEW file, it's safe to listen to EOF again
                     if (_isInternalChange && Position > 0.1)
@@ -1150,6 +1163,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             : item.FileName; 
 
         // Prepare for loading the new file
+        _ignoreTimePos = true;
         _isInternalChange = true;
         IsLoadingMedia = true;
         OnPropertyChanged(nameof(IsLoadingMedia));
@@ -1185,11 +1199,6 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         //Set the current media item
         _currentMediaItem = item;
 
-        if (EnableSpectrum)
-        {
-            _spectrumAnalyzer.SetPath(fileToPlay);
-            _spectrumAnalyzer.Start();
-        }
         _waveformCts?.Cancel();
 
         _syncContext?.Post(_ => { Waveform.Clear(); Spectrum.Clear(); Position = 0; }, null);
@@ -1202,7 +1211,28 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         // queue the load command but do not block the mpv thread waiting for
         // its completion.  ``ExecuteCommandAsync`` completes on the MPV
         // thread, so waiting there would deadlock (see comments above).
-        PostToMpvThread(async () => { try { await ExecuteCommandAsync(new[] { "loadfile", mpvLoadTarget }); } catch(Exception ex) { Console.WriteLine($"[AudioPlayer Error]: {ex}"); Debug.WriteLine($"[AudioPlayer Error]: {ex}"); Log.Error("loadfile error", ex); _syncContext?.Post(_ => IsLoadingMedia = false, null); } });
+        PostToMpvThread(async () => { 
+            try 
+            { 
+                await ExecuteCommandAsync(new[] { "loadfile", mpvLoadTarget }); 
+                // Now load is fully initiated, old track stops playing.
+                _ignoreTimePos = false; // Safe to accept time-pos events again
+
+                if (EnableSpectrum)
+                {
+                    _spectrumAnalyzer.SetPath(fileToPlay);
+                    _spectrumAnalyzer.Start();
+                }
+            } 
+            catch(Exception ex) 
+            { 
+                Console.WriteLine($"[AudioPlayer Error]: {ex}"); 
+                Debug.WriteLine($"[AudioPlayer Error]: {ex}"); 
+                Log.Error("loadfile error", ex); 
+                _ignoreTimePos = false;
+                _syncContext?.Post(_ => IsLoadingMedia = false, null); 
+            } 
+        });
 
         // Re-apply audio filters/volume after load in case mpv reset properties during load
         // Use PostToMpvThread instead of UpdateAf to avoid blocking during Load
