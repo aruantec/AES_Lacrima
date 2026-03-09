@@ -5,6 +5,7 @@ using MathNet.Numerics.IntegralTransforms;
 using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
+using log4net;
 
 namespace AES_Controls.Players
 {
@@ -16,6 +17,8 @@ namespace AES_Controls.Players
     /// </summary>
     public class FfMpegSpectrumAnalyzer
     {
+        private static readonly ILog Log = LogManager.GetLogger(typeof(FfMpegSpectrumAnalyzer));
+
         private readonly AvaloniaList<double> _spectrum;
         private readonly AudioPlayer _player;
         private readonly FFmpegManager? _ffmpegManager;
@@ -126,7 +129,10 @@ namespace AES_Controls.Players
                 _cts?.Cancel();
                 _cts?.Dispose();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log.Debug("Error cancelling spectrum analyzer CTS", ex);
+            }
             _cts = null;
 
             // Clear visual data
@@ -138,10 +144,13 @@ namespace AES_Controls.Players
                 var proc = _ffmpegProcess;
                 if (proc != null)
                 {
-                    try { proc.Kill(true); } catch { }
+                    try { proc.Kill(true); } catch (Exception ex) { Log.Debug("Error killing ffmpeg process", ex); }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log.Debug("Error accessing ffmpeg process during Stop", ex);
+            }
             finally { _ffmpegProcess = null; }
 
             _analysisTask = null;
@@ -171,6 +180,8 @@ namespace AES_Controls.Players
 
                     var ffmpegPath = FFmpegLocator.FindFFmpegPath();
 
+                    if (token.IsCancellationRequested) break;
+
                     // Optimized FFmpeg arguments for low latency and fast probing
                     var args = $"{networkFlags}-nostats -hide_banner -loglevel error -fflags +nobuffer -probesize 32768 -analyzeduration 100000 {ssArg}-i \"{_path}\" -vn -sn -dn -ac 1 -ar {sampleRate} -f f32le -";
 
@@ -184,10 +195,24 @@ namespace AES_Controls.Players
 
                     if (localProcess == null)
                     {
-                        if (token.WaitHandle.WaitOne(1000)) break;
+                        if (token.CanBeCanceled && token.WaitHandle.WaitOne(1000)) break;
                         continue;
                     }
                     _ffmpegProcess = localProcess;
+
+                    // Drain StandardError to prevent pipe deadlock
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            using var sr = localProcess.StandardError;
+                            while (await sr.ReadLineAsync().ConfigureAwait(false) != null) { }
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Debug("Error draining StandardError", ex);
+                        }
+                    }, token);
 
                     using var stream = localProcess.StandardOutput.BaseStream;
 
@@ -200,13 +225,13 @@ namespace AES_Controls.Players
                             {
                                 _player.UpdateSpectrumThrottled(_currentValues);
                             }
-                            if (token.WaitHandle.WaitOne(30)) break;
+                            if (token.CanBeCanceled && token.WaitHandle.WaitOne(30)) break;
                             continue;
                         }
 
                         if (_player.IsBuffering)
                         {
-                            if (token.WaitHandle.WaitOne(50)) break;
+                            if (token.CanBeCanceled && token.WaitHandle.WaitOne(50)) break;
                             continue;
                         }
 
@@ -218,13 +243,13 @@ namespace AES_Controls.Players
                         if (drift > 2.0 || drift < -5.0)
                         {
                             _processedSeconds = currentPos;
-                            try { localProcess.Kill(true); } catch { }
+                            try { localProcess.Kill(true); } catch (Exception ex) { Log.Debug("Error killing ffmpeg process during drift reset", ex); }
                             break; 
                         }
 
                         if (drift > 0.1)
                         {
-                            if (token.WaitHandle.WaitOne(10)) break;
+                            if (token.CanBeCanceled && token.WaitHandle.WaitOne(10)) break;
                             continue;
                         }
 
@@ -235,7 +260,11 @@ namespace AES_Controls.Players
                                 int n = stream.Read(byteBuffer.AsSpan(0, byteBuffer.Length));
                                 if (n <= 0) break;
                             }
-                            catch { break; }
+                            catch (Exception ex)
+                            {
+                                Log.Debug("Error skipping audio samples during catch-up", ex);
+                                break;
+                            }
                             _processedSeconds += (double)fftLength / sampleRate;
                             continue;
                         }
@@ -245,7 +274,11 @@ namespace AES_Controls.Players
                         {
                             int n = 0;
                             try { n = stream.Read(byteBuffer.AsSpan(bytesReadTotal, byteBuffer.Length - bytesReadTotal)); }
-                            catch (IOException) { break; }
+                            catch (IOException ex) 
+                            { 
+                                Log.Debug("IO error reading from ffmpeg stream", ex);
+                                break; 
+                            }
                             if (n <= 0) break;
                             bytesReadTotal += n;
                         }
@@ -274,16 +307,16 @@ namespace AES_Controls.Players
                 catch (AggregateException) { break; }
                 catch (Exception ex) when (!token.IsCancellationRequested)
                 {
-                    Debug.WriteLine($"[SpectrumAnalyzer] Error: {ex.Message}");
-                    if (token.WaitHandle.WaitOne(1000)) break;
+                    Log.Error($"[SpectrumAnalyzer] Loop error: {ex.Message}", ex);
+                    if (token.CanBeCanceled && token.WaitHandle.WaitOne(1000)) break;
                 }
                 finally
                 {
-                    try { localProcess?.Kill(true); } catch { }
-                    try { localProcess?.Dispose(); } catch { }
+                    try { localProcess?.Kill(true); } catch (Exception ex) { Log.Debug("Cleanup: Error killing ffmpeg process", ex); }
+                    try { localProcess?.Dispose(); } catch (Exception ex) { Log.Debug("Cleanup: Error disposing ffmpeg process", ex); }
                     if (ReferenceEquals(_ffmpegProcess, localProcess)) _ffmpegProcess = null;
                     
-                    if (!token.IsCancellationRequested)
+                    if (token.CanBeCanceled && !token.IsCancellationRequested)
                         token.WaitHandle.WaitOne(200);
                 }
             }
