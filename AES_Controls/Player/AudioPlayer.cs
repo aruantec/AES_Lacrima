@@ -1292,8 +1292,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
             var timeLimitArg = isRemote ? $"-t {maxSecondsToAnalyze.ToString(CultureInfo.InvariantCulture)}" : string.Empty;
                 
-            // FIXED: Using a more reasonable probesize. 32 was too low for many files.
-            var args = $"-probesize 32768 -analyzeduration 100000 -i \"{path}\" {timeLimitArg} -vn -sn -dn -ac 1 -ar {internalSampleRate} -f s16le -";
+            // FIXED: Using a more robust probesize and hide_banner/loglevel to prevent pipe deadlock
+            var args = $"-hide_banner -loglevel error -probesize 1000000 -analyzeduration 1500000 -i \"{path}\" {timeLimitArg} -vn -sn -dn -ac 1 -ar {internalSampleRate} -f s16le -";
 
             // Get FFmpeg path
             var ffmpegPath = FFmpegLocator.FindFFmpegPath();
@@ -1308,6 +1308,17 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
             if (proc == null) return;
             _activeFfmpegProcess = proc;
+
+            // DRAIN StandardError in a separate task to prevent FFmpeg from blocking due to a full pipe buffer
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var sr = proc.StandardError;
+                    while (await sr.ReadLineAsync().ConfigureAwait(false) != null) { /* discard ffmpeg logs */ }
+                }
+                catch { /* process exited */ }
+            }, token);
 
             try { proc.PriorityClass = ProcessPriorityClass.BelowNormal; }
             catch (Exception ex) { Log.Debug("Failed to set ffmpeg process priority", ex); }
@@ -1395,7 +1406,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                     }, null);
                 }
 
-                if (globalMax <= 0f) globalMax = 1f;
+            if (globalMax <= 0f) globalMax = 1f;
 
             // compute trailing silence length using raw waveform data before normalization
             if (AutoSkipTrailingSilence && buckets > 0 && Duration > 0)
@@ -1403,7 +1414,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                 const float rawSilenceFrac = 0.05f; // 5% of peak considered silence
                 float rawThresh = globalMax * rawSilenceFrac;
                 int idxRaw = buckets - 1;
-                while (idxRaw >= 0 && waveformData[idxRaw] <= rawThresh)
+                while (idxRaw >= 0 && waveformData.Length > idxRaw && waveformData[idxRaw] <= rawThresh)
                     idxRaw--;
                 int silentBucketsRaw = buckets - 1 - idxRaw;
                 _trailingSilenceSeconds = (silentBucketsRaw / (double)buckets) * Duration;
@@ -1414,6 +1425,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             _syncContext?.Post(_ => {
                 const float verticalGain = 1.1f;
                 const float minVisible = 0.01f;
+
+                if (globalMax <= 0f) globalMax = 1f;
 
                 for (int i = 0; i < Waveform.Count; i++)
                 {
@@ -1431,6 +1444,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         catch (Exception ex) { Log.Error($"Error generating waveform for {path}", ex); }
         finally
         {
+            _activeFfmpegProcess = null;
             IsLoadingWaveform = false;
             _ffmpegManager?.ReportActivity(false);
         }
