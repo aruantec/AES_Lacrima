@@ -86,6 +86,26 @@
                         </Viewbox>
                     </MenuItem.Icon>
                 </MenuItem>
+
+                <!-- Set Background -->
+                <MenuItem Header="Set Background" 
+                          CornerRadius="8" 
+                          Command="{Binding SettingsViewModel.SelectBackgroundImageCommand}">
+                    <MenuItem.Icon>
+                        <Viewbox Width="32" Height="32" Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Picture Frame -->
+                                <Rectangle Canvas.Left="15" Canvas.Top="20" Width="70" Height="60" 
+                                           Stroke="#CCFFFFFF" StrokeThickness="6" Fill="Transparent" RadiusX="4" RadiusY="4" />
+                                <!-- Mountain/Image content -->
+                                <Path Data="M 20,70 L 40,40 L 55,60 L 70,35 L 80,70 Z" 
+                                      Fill="#CCFFFFFF" />
+                                <!-- Sun/Circle -->
+                                <Ellipse Canvas.Left="60" Canvas.Top="30" Width="12" Height="12" Fill="#CCFFFFFF" />
+                            </Canvas>
+                        </Viewbox>
+                    </MenuItem.Icon>
+                </MenuItem>
             </ContextMenu>
         </Grid.ContextMenu>
 
