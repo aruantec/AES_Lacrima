@@ -77,8 +77,9 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec3  col   = vec3(0.0);
     float bestZ = 1e5;                            // z-buffer (smaller = closer)
 
-    // ==== 220 child spheres on a fibonacci sphere ======================
-    const int N = 220;
+    // ==== 140 child spheres on a fibonacci sphere ======================
+    // Optimized for performance while maintaining the "Big Orb" density.
+    const int N = 140;
     float invN = 1.0 / float(N);
     float cPhi = cos(PHI);
     float sPhi = sin(PHI);
@@ -88,10 +89,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     for (int i = 0; i < N; i++)
     {
         float fi = float(i);
-        // fibonacci sphere point
+        // Correct fibonacci sphere point calculation for density
         float yy   = 1.0 - (2.0 * fi + 1.0) * invN;
         float latR = sqrt(1.0 - yy * yy);
         vec3  sn   = vec3(latR * cTh, yy, latR * sTh);
+        
         // fibonacci-angle recurrence: avoids per-iteration sin/cos(theta)
         float prevC = cTh;
         cTh = prevC * cPhi - sTh * sPhi;
@@ -104,7 +106,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         float base_scl = 1.55 / base_ez;
         vec2 base_prj = base_pos.xy * base_scl;
         vec2 dv_base = uv - base_prj;
-        float max_rc = 0.55 * base_scl;
+        
+        // Sphere screen radius approximation for early out (approx 0.1 * scl)
+        // Increased multiplier to 4.5 to allow jumping spheres to render correctly
+        float bR_approx = 0.12; 
+        float max_rc = bR_approx * base_scl * 4.5; 
         if (dot(dv_base, dv_base) > max_rc * max_rc) continue;
 
         float fU   = fract(fi * 0.618 + 0.07);
@@ -141,7 +147,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         vec2  prj = pos.xy * scl;
 
         // child-sphere screen radius (grows gently with displacement)
-        float bR = 0.068 + hash01(fi + 3.0) * 0.010;
+        float bR = 0.088 + hash01(fi + 3.0) * 0.012;
         float sr = bR * scl * (1.0 + disp * 0.6 + orbInflate * 0.9);
         vec2  dv  = uv - prj;
         float pd2 = dot(dv, dv);
@@ -153,13 +159,14 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         {
             float glowR  = sr * (2.0 + activity * 1.5 + jumpHeight * 0.9);
             float glowR2 = glowR * glowR;
-            if (pd2 < glowR2 * 16.0) {
+            // Early exit for distant glow pixels
+            if (pd2 < glowR2 * 10.0) {
                 ballNeon = neonColor(fi);
                 neonReady = true;
                 float pd = sqrt(pd2);
-                float jumpGlow = activity * (0.45 + 1.25 * jumpHeight);
-                float glow = exp2(-5.48 * pd / glowR) * jumpGlow;
-                col += ballNeon * glow * 0.30;
+                float jumpGlow = activity * (0.45 + 1.15 * jumpHeight);
+                float glow = exp2(-4.85 * pd / glowR) * jumpGlow;
+                col += ballNeon * glow * 0.28;
             }
         }
 
@@ -188,16 +195,17 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         float rim  = pow(1.0 - lz, 2.6);
         float ao   = 0.35 + 0.65 * lz;
 
-        // blue-dominant base palette + subtle green accent
-        vec3 cBase = vec3(0.04, 0.12, 0.30);
+        // dark gray/almost black base palette + subtle green accent
+        vec3 cBase = vec3(0.012, 0.012, 0.015);
         vec3 cRim  = vec3(0.10, 0.40, 0.90);
         vec3 cSpec = vec3(0.15, 0.50, 1.00);
-        vec3 cAccentE = vec3(0.10, 0.95, 0.35); // green
-
+        
         // Sparse green accent mask so only a subset of spheres get a tint.
         float greenPick = hash01(fi * 3.17 + 9.2);
-        float greenMask = smoothstep(0.84, 0.98, greenPick);
-        float greenDrift = 0.70 + 0.30 * (0.5 + 0.5 * sin(t * 0.33 + fi * 0.11));
+        float greenMask = smoothstep(0.85, 0.99, greenPick);
+        float greenDrift = 1.0; // static 1.0 for performance if needed, or simple sin
+        if (greenMask > 0.0) greenDrift = 0.70 + 0.30 * (0.5 + 0.5 * sin(t * 0.33 + fi * 0.11));
+        vec3 cAccentE = vec3(0.10, 0.95, 0.35); // green
         vec3 accentCol = cAccentE * greenMask * greenDrift;
 
         // bright neon-lit spheres even at rest
