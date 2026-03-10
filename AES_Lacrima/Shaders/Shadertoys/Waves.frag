@@ -1,8 +1,9 @@
 ﻿vec3 getDynamicColor(vec3 base, float t) {
-    // Generate random seed from u_primary properties
-    float seed = fract(sin(dot(base.rgb, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+    // Generate random seed from u_primary properties and offset by arbitrary large prime
+    float seed = fract(sin(dot(base.rgb + 1.234, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
     
     // 20-second rotation (0.05 speed) with randomized start phase
+    // Added t to the seed generation or just use t directly for variety
     float theta = (t * 0.05) + (seed * 6.2831); 
     
     vec3 axis = vec3(0.57735);
@@ -29,9 +30,10 @@ vec3 computeSilk(vec2 uv, float time, float freq, float amp, float height, vec3 
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = fragCoord.xy / iResolution.xy;
-    // static base color (no time animation)
-    vec3 dynamicHue = getDynamicColor(u_primary, 0.0);
-    float breathing = 0.42; 
+    // Every 10 seconds, generate a new seed for random color variation
+    float steppedTime = floor(iTime / 10.0);
+    vec3 dynamicHue = getDynamicColor(u_primary, steppedTime);
+    float breathing = 0.42;
     vec3 masterColor = dynamicHue * breathing;
 
     vec2 glowCenter = vec2(0.5, 0.45);

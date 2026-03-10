@@ -1,19 +1,21 @@
-﻿using AES_Controls.Helpers;
-using AES_Controls.Player.Models;
-using AES_Core.DI;
-using Avalonia;
-using Avalonia.Collections;
-using Avalonia.Media;
-using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
-using log4net;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using AES_Controls.Helpers;
+using AES_Controls.Player.Models;
+using AES_Core.DI;
+using Avalonia;
+using Avalonia.Collections;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
+using Avalonia.Platform.Storage;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using log4net;
 
 namespace AES_Lacrima.ViewModels;
 
@@ -412,6 +414,19 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private int _selectedTabIndex;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the background image is displayed.
+    /// When true, ShowShaderToy is set to false.
+    /// </summary>
+    [ObservableProperty]
+    private bool _showBackground;
+
+    /// <summary>
+    /// Gets or sets the path to the current background image.
+    /// </summary>
+    [ObservableProperty]
+    private string _backgroundImagePath = "Assets/background.jpg";
+
+    /// <summary>
     /// Collection of available libmpv versions from GitHub (for Windows builds).
     /// </summary>
     [ObservableProperty]
@@ -792,6 +807,37 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 Log.Warn("OnSettingsPropertyChanged: failed to push silence delay to player", ex);
             }
         }
+
+        if (e.PropertyName == nameof(ShowShaderToy) && ShowShaderToy)
+        {
+            ShowBackground = false;
+        }
+
+        if (e.PropertyName == nameof(ShowBackground) && ShowBackground)
+        {
+            ShowShaderToy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task SelectBackgroundImage()
+    {
+        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop &&
+            desktop.MainWindow?.StorageProvider is { } storage)
+        {
+            var result = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Select Background Image",
+                AllowMultiple = false,
+                FileTypeFilter = new[] { FilePickerFileTypes.ImageAll }
+            });
+
+            if (result.Count > 0)
+            {
+                BackgroundImagePath = result[0].Path.LocalPath;
+                SaveSettings();
+            }
+        }
     }
 
     /// <summary>
@@ -877,7 +923,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     {
         ScaleFactor = ReadDoubleSetting(section, nameof(ScaleFactor), 1.0);
         ParticleCount = ReadDoubleSetting(section, nameof(ParticleCount), 10);
-        ShowShaderToy = ReadBoolSetting(section, nameof(ShowShaderToy));
+        ShowShaderToy = ReadBoolSetting(section, nameof(ShowShaderToy), true);
+        ShowBackground = ReadBoolSetting(section, nameof(ShowBackground));
+        BackgroundImagePath = ReadStringSetting(section, nameof(BackgroundImagePath), "Assets/background.jpg")!;
         ShowParticles = ReadBoolSetting(section, nameof(ShowParticles));
         // Spectrum settings
         SpectrumHeight = ReadDoubleSetting(section, nameof(SpectrumHeight), SpectrumHeight);
@@ -896,12 +944,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (ReadStringSetting(section, nameof(SpectrumColor3)) is { } c3) SpectrumColor3 = Color.Parse(c3);
         if (ReadStringSetting(section, nameof(SpectrumColor4)) is { } c4) SpectrumColor4 = Color.Parse(c4);
         WaveformPlayedColor = Color.Parse(ReadStringSetting(section, nameof(WaveformPlayedColor), "RoyalBlue")!);
-        // Set the selected shadertoy if it exists
-        if (ReadStringSetting(section, nameof(SelectedShadertoy)) is { } selectedshadertoy)
-        {
-            SelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == selectedshadertoy);
-        }
         
+        // Set the selected shadertoy if it exists, otherwise default to "Waves"
+        string? selectedshadertoy = ReadStringSetting(section, nameof(SelectedShadertoy));
+        SelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == (selectedshadertoy ?? "Waves")) 
+                            ?? ShaderToys?.FirstOrDefault();
+
         // Carousel settings
         CarouselSpacing = ReadDoubleSetting(section, nameof(CarouselSpacing), CarouselSpacing);
         CarouselScale = ReadDoubleSetting(section, nameof(CarouselScale), CarouselScale);
@@ -936,6 +984,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ScaleFactor), ScaleFactor);
         WriteSetting(section, nameof(ParticleCount), ParticleCount);
         WriteSetting(section, nameof(ShowShaderToy), ShowShaderToy);
+        WriteSetting(section, nameof(ShowBackground), ShowBackground);
+        WriteSetting(section, nameof(BackgroundImagePath), BackgroundImagePath);
         WriteSetting(section, nameof(ShowParticles), ShowParticles);
         WriteSetting(section, nameof(WaveformPlayedColor), WaveformPlayedColor.ToString());
         WriteSetting(section, nameof(SelectedShadertoy), SelectedShadertoy?.Name ?? string.Empty);

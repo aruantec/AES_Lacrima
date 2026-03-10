@@ -1,8 +1,9 @@
-﻿<UserControl xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:behavors="using:AES_Controls.Behaviors"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:composition="using:AES_Controls.Composition"
+             xmlns:asyncImageLoader="clr-namespace:AsyncImageLoader;assembly=AsyncImageLoader.Avalonia"
              xmlns:locators="using:AES_Lacrima.Helpers"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AES_Lacrima.ViewModels"
@@ -11,12 +12,10 @@
              x:DataType="vm:SettingsViewModel"
              ClipToBounds="False">
 
-    <!-- Sets the DataContext -->
     <UserControl.DataContext>
         <locators:TypeResolverExtension Type="vm:SettingsViewModel"/>
     </UserControl.DataContext>
 
-    <!-- Sets the DataContext for the previewer -->
     <Design.DataContext>
         <vm:SettingsViewModel/>
     </Design.DataContext>
@@ -29,7 +28,6 @@
                 VerticalAlignment="Top"
                 Margin="-4,-15,2,0"/>
         <TabControl Margin="15,0,0,0" SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
-            <!-- UI Settings tab -->
             <TabItem Header="GUI" FontSize="30">
                 <ScrollViewer>
                     <StackPanel Margin="15,20,0,0">
@@ -53,7 +51,6 @@
                                     Foreground="WhiteSmoke"
                                     FontSize="20"/>
                         <StackPanel Orientation="Horizontal">
-                            <!-- Particle slider -->
                             <Slider x:Name="ParticleSlider"
                                     Background="DarkGray"
                                     Width="260"
@@ -68,56 +65,66 @@
                                         Foreground="WhiteSmoke"
                                         FontSize="20"/>
                         </StackPanel>
-                        <!-- Show particles -->
                         <StackPanel Margin="0,15,0,15" Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="Show Particles" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
                             <ToggleSwitch FontSize="20" IsChecked="{Binding ShowParticles, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
-                        <!-- Show spectrum -->
                         <StackPanel Margin="0,15,0,15" Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="Show Spectrum" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
                             <ToggleSwitch FontSize="20" IsChecked="{Binding ShowSpectrum, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
-                        <!-- Shadertoy -->
                         <TextBlock Margin="0,15,0,15" Text="ShaderToy" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="30"/>
                         <Separator Margin="0,0,0,15"/>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="Show ShaderToy" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
                             <ToggleSwitch FontSize="20" IsChecked="{Binding ShowShaderToy, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
-                        <!-- Shadertoy selection -->
                         <StackPanel Orientation="Horizontal"
                                     Margin="0,15,0,15"
                                     Spacing="10">
-							<TextBlock Text="Current" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
+                            <TextBlock Text="Current" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
                             <ComboBox Width="250" ItemsSource="{Binding ShaderToys}" DisplayMemberBinding="{Binding Name}" FontSize="16" SelectedItem="{Binding SelectedShadertoy}">
-					            <Interaction.Behaviors>
-						            <behavors:ComboBoxPopupScaler/>	
-                                </Interaction.Behaviors>	
+                                <Interaction.Behaviors>
+                                    <behavors:ComboBoxPopupScaler/>
+                                </Interaction.Behaviors>
                             </ComboBox>
+                        </StackPanel>
+
+                        <TextBlock Margin="0,15,0,15" Text="UI Background" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="30"/>
+                        <Separator Margin="0,0,0,15"/>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Show Background" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
+                            <ToggleSwitch FontSize="20" IsChecked="{Binding ShowBackground, Mode=TwoWay}" Margin="8,0"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,15" Spacing="15" IsVisible="{Binding ShowBackground}">
+                            <Button Command="{Binding SelectBackgroundImageCommand}" Padding="0" BorderThickness="1" BorderBrush="DimGray">
+                                <Panel Width="120" Height="70">
+                                    <Image asyncImageLoader:ImageLoader.Source="{Binding BackgroundImagePath}" Stretch="UniformToFill"/>
+                                    <Border Background="#80000000" VerticalAlignment="Bottom">
+                                        <TextBlock Text="Change" HorizontalAlignment="Center" FontSize="12" Foreground="White"/>
+                                    </Border>
+                                </Panel>
+                            </Button>
+                            <TextBlock Text="{Binding BackgroundImagePath}" VerticalAlignment="Center" Foreground="DarkGray" FontSize="12" TextWrapping="Wrap" MaxWidth="200"/>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
-            
-            <!-- Audio settings -->
+
             <TabItem Header="Audio" FontSize="30">
                 <ScrollViewer>
                     <StackPanel Margin="15,20,0,0">
                         <TextBlock Text="Spectrum" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,0,0,10"/>
-                        
                         <Grid ColumnDefinitions="Auto, Auto, Auto" RowDefinitions="Auto, Auto, Auto" Margin="0,0,0,8">
-                            <!-- Height -->
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Height" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,8"/>
                             <Slider Grid.Row="0" Grid.Column="1" Width="300" Minimum="50" Maximum="1000" Value="{Binding SpectrumHeight, Mode=TwoWay}" Margin="10,0,0,0"/>
                             <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding SpectrumHeight, StringFormat='{} {0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
-                            <!-- Bar Width -->
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Bar Width" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,8"/>
                             <Slider Grid.Row="1" Grid.Column="1" Width="300" Minimum="10" Maximum="100" Value="{Binding BarWidth, Mode=TwoWay}" Margin="10,0,0,0"/>
                             <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding BarWidth, StringFormat='{} {0:0.##}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
-                            <!-- Bar Spacing -->
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="Bar Spacing" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,8"/>
                             <Slider Grid.Row="2" Grid.Column="1" Width="300" Minimum="0" Maximum="100" Value="{Binding BarSpacing, Mode=TwoWay}" Margin="10,0,0,0"/>
                             <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding BarSpacing, StringFormat='{} {0:0.##}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
@@ -128,7 +135,6 @@
                             <ToggleSwitch IsChecked="{Binding ShowMusicSpectrum, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
 
-                        <!-- Spectrum gradient -->
                         <TextBlock Margin="0,8,0,8" Text="Spectrum Gradient" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
                         <WrapPanel Orientation="Horizontal" Margin="0,8,0,8">
                             <ColorPicker Width="80" Height="40" Margin="0,0,10,10" Color="{Binding SpectrumColor0, Mode=TwoWay}"/>
@@ -137,8 +143,7 @@
                             <ColorPicker Width="80" Height="40" Margin="0,0,10,10" Color="{Binding SpectrumColor3, Mode=TwoWay}"/>
                             <ColorPicker Width="80" Height="40" Margin="0,0,10,10" Color="{Binding SpectrumColor4, Mode=TwoWay}"/>
                         </WrapPanel>
-                        
-                        <!-- Trailing silence advance delay -->
+
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,8,0,8" Spacing="10">
                             <TextBlock Text="Silence advance delay (ms):" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="16"/>
                             <TextBox Width="80" Text="{Binding SilenceAdvanceDelayMs, Mode=TwoWay}">
@@ -147,11 +152,9 @@
                                      </Interaction.Behaviors>
                                 </TextBox>
                         </StackPanel>
-                        
-                        <!-- ReplayGain / Normalisation -->
+
                         <TextBlock Margin="0,18,0,8" Text="ReplayGain / Normalization" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
                         <StackPanel Orientation="Vertical" Margin="0,0,0,10">
-                            <!-- Volume processing options -->
                             <StackPanel Orientation="Vertical" Spacing="6" Margin="0,4,0,12">
                                 <CheckBox IsChecked="{Binding SmoothVolumeChange, Mode=TwoWay}">
                                     <TextBlock Text="Smooth volume changing" Foreground="WhiteSmoke" VerticalAlignment="Center"/>
@@ -177,7 +180,7 @@
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
                                     <TextBlock Text="Preamp (dB):" VerticalAlignment="Center" Foreground="WhiteSmoke"/>
                                     <Slider Width="220" Minimum="-12" Maximum="12" Value="{Binding ReplayGainPreampDb, Mode=TwoWay}"/>
-                                    <TextBlock Text="{Binding ReplayGainPreampDb, StringFormat='{}{0:0.##} dB'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0,0,0"/>
+                                    <TextBlock Text="{Binding ReplayGainPreampDb, StringFormat='{} {0:0.##} dB'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0,0,0"/>
                                 </StackPanel>
                             </StackPanel>
 
@@ -189,7 +192,7 @@
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
                                     <TextBlock Text="Preamp (dB):" VerticalAlignment="Center" Foreground="WhiteSmoke"/>
                                     <Slider Width="180" Minimum="-12" Maximum="12" Value="{Binding ReplayGainTagsPreampDb, Mode=TwoWay}"/>
-                                    <TextBlock Text="{Binding ReplayGainTagsPreampDb, StringFormat='{}{0:0.##} dB'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0,0,0"/>
+                                    <TextBlock Text="{Binding ReplayGainTagsPreampDb, StringFormat='{} {0:0.##} dB'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0,0,0"/>
                                     <ComboBox Width="120" SelectedIndex="{Binding ReplayGainTagSource, Mode=TwoWay}" Margin="12,0,0,0">
                                         <ComboBoxItem>Track</ComboBoxItem>
                                         <ComboBoxItem>Album</ComboBoxItem>
@@ -200,12 +203,10 @@
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
-            
-            <!-- Carousel settings -->
+
             <TabItem Header="Carousel" FontSize="30">
                 <StackPanel Margin="15,20,0,0">
                     <TextBlock Text="Setup" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,0,0,10"/>
-
                     <Grid ColumnDefinitions="Auto, 320, Auto, *" RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto" Margin="0,0,0,8" HorizontalAlignment="Stretch" ClipToBounds="False">
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Item Spacing" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
                         <Slider Grid.Row="0" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0.2" Maximum="3.0" SmallChange="0.01" LargeChange="0.1" Value="{Binding CarouselSpacing, Mode=TwoWay}" Margin="0,0"/>
@@ -220,7 +221,7 @@
                         <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding CarouselVerticalOffset, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Slider Vertical Offset" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
-                        <Slider Grid.Row="3" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="{Binding $parent[UserControl].Bounds.Height}" SmallChange="1" LargeChange="5" Value="{Binding CarouselSliderVerticalOffset, Mode=TwoWay}" Margin="0,0"/>
+                        <Slider Grid.Row="3" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="1080" SmallChange="1" LargeChange="5" Value="{Binding CarouselSliderVerticalOffset, Mode=TwoWay}" Margin="0,0"/>
                         <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding CarouselSliderVerticalOffset, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="Slider Track Height" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
@@ -241,18 +242,15 @@
                 </StackPanel>
             </TabItem>
 
-            <!-- Libraries settings tab -->
             <TabItem Header="Libraries" FontSize="30">
                 <ScrollViewer>
                     <StackPanel Margin="15,20,0,0">
                         <TextBlock Text="External tools" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,0,0,10"/>
                         <Separator Margin="0,0,0,15"/>
-
                         <StackPanel Spacing="5" Margin="0,0,0,15">
                             <TextBlock Text="FFmpeg Status" FontSize="20" Foreground="WhiteSmoke"/>
                             <TextBlock Text="{Binding FfmpegManager.Status}" FontSize="16" Foreground="DarkGray"/>
                         </StackPanel>
-
                         <StackPanel Orientation="Horizontal" Spacing="40" Margin="0,0,0,25">
                             <StackPanel Spacing="5">
                                 <TextBlock Text="CURRENT VERSION" FontSize="14" Foreground="DarkGray" FontWeight="SemiBold"/>
@@ -263,124 +261,43 @@
                                 <TextBlock Text="{Binding FfmpegUpdateVersion}" FontSize="18" Foreground="Gold"/>
                             </StackPanel>
                         </StackPanel>
-
                         <StackPanel Orientation="Horizontal" Spacing="10">
-                            <!-- Install Button -->
-                            <Button Content="Install FFmpeg"
-                                    Command="{Binding InstallFFmpegCommand}"
-                                    IsVisible="{Binding !IsFfmpegInstalled}"
-                                    IsEnabled="{Binding !FfmpegManager.IsBusy}"
-                                    Padding="15,8"/>
-
-                            <!-- Update Button -->
-                            <Button Content="Update"
-                                    Command="{Binding UpdateFFmpegCommand}"
-                                    IsVisible="{Binding IsFfmpegUpdateAvailable}"
-                                    IsEnabled="{Binding !FfmpegManager.IsBusy}"
-                                    Padding="15,8"
-                                    Background="Gold"
-                                    Foreground="Black"/>
-
-                            <!-- Uninstall Button (Red) -->
-                            <Button Content="Uninstall"
-                                    Background="#F44336"
-                                    Foreground="White"
-                                    Command="{Binding UninstallFFmpegCommand}"
-                                    IsVisible="{Binding IsFfmpegInstalled}"
-                                    IsEnabled="{Binding !FfmpegManager.IsBusy}"
-                                    Padding="15,8"/>
-
-                            <!-- Refresh/Check Updates -->
-                            <Button Content="Check for Updates"
-                                    Command="{Binding RefreshFFmpegInfoCommand}"
-                                    IsEnabled="{Binding !FfmpegManager.IsBusy}"
-                                    Padding="15,8"/>
+                            <Button Content="Install FFmpeg" Command="{Binding InstallFFmpegCommand}" IsVisible="{Binding !IsFfmpegInstalled}" IsEnabled="{Binding !FfmpegManager.IsBusy}" Padding="15,8"/>
+                            <Button Content="Update" Command="{Binding UpdateFFmpegCommand}" IsVisible="{Binding IsFfmpegUpdateAvailable}" IsEnabled="{Binding !FfmpegManager.IsBusy}" Padding="15,8" Background="Gold" Foreground="Black"/>
+                            <Button Content="Uninstall" Background="#F44336" Foreground="White" Command="{Binding UninstallFFmpegCommand}" IsVisible="{Binding IsFfmpegInstalled}" IsEnabled="{Binding !FfmpegManager.IsBusy}" Padding="15,8"/>
+                            <Button Content="Check for Updates" Command="{Binding RefreshFFmpegInfoCommand}" IsEnabled="{Binding !FfmpegManager.IsBusy}" Padding="15,8"/>
                         </StackPanel>
-
-                        <!-- Activity Indicator if busy -->
-                        <ProgressBar IsIndeterminate="True"
-                                     IsVisible="{Binding FfmpegManager.IsBusy}"
-                                     Margin="0,30,0,0"
-                                     Height="2"
-                                     Width="400"
-                                     HorizontalAlignment="Left"
-                                     VerticalAlignment="Top"/>
-
-                        <!-- libmpv Management Section -->
+                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding FfmpegManager.IsBusy}" Margin="0,30,0,0" Height="2" Width="400" HorizontalAlignment="Left" VerticalAlignment="Top"/>
                         <TextBlock Text="libmpv Status" FontSize="20" Foreground="WhiteSmoke" Margin="0,30,0,10"/>
                         <Separator Margin="0,0,0,15"/>
-
                         <StackPanel Spacing="10" Margin="0,0,0,15">
                             <TextBlock Text="{Binding MpvManager.Status}" FontSize="16" Foreground="DarkGray"/>
-
                             <StackPanel Orientation="Horizontal" Spacing="40" Margin="0,0,0,10" IsVisible="{Binding IsMpvInstalled}">
                                 <StackPanel Spacing="5">
                                     <TextBlock Text="CURRENT VERSION" FontSize="14" Foreground="DarkGray" FontWeight="SemiBold"/>
                                     <TextBlock Text="{Binding MpvVersion, FallbackValue='Not Found'}" FontSize="18" Foreground="WhiteSmoke"/>
                                 </StackPanel>
                             </StackPanel>
-
                             <StackPanel Orientation="Horizontal" Spacing="20">
                                 <TextBlock Text="Available Versions (Win builds)" VerticalAlignment="Center" FontSize="16" Foreground="WhiteSmoke"/>
-                                <ComboBox Width="300" 
-                                          ItemsSource="{Binding AvailableMpvVersions}" 
-                                          SelectedItem="{Binding SelectedMpvVersion}" 
-                                          FontSize="14">
+                                <ComboBox Width="300" ItemsSource="{Binding AvailableMpvVersions}" SelectedItem="{Binding SelectedMpvVersion}" FontSize="14">
                                     <Interaction.Behaviors>
                                         <behavors:ComboBoxPopupScaler/>
                                     </Interaction.Behaviors>
                                 </ComboBox>
                             </StackPanel>
                         </StackPanel>
-
                         <StackPanel Orientation="Horizontal" Spacing="10">
-                            <!-- Install Selected Version Button -->
-                            <Button Content="Install"
-                                    Command="{Binding InstallMpvCommand}"
-                                    IsVisible="{Binding !IsMpvInstalled}"
-                                    IsEnabled="{Binding !MpvManager.IsBusy}"
-                                    Padding="15,8"/>
-
-                            <!-- Update/Re-Install Selected Version Button -->
-                            <Button Content="Force Reinstall Specific"
-                                    Command="{Binding InstallSpecificMpvVersionCommand}"
-                                    IsEnabled="{Binding !MpvManager.IsBusy}"
-                                    Padding="15,8"
-                                    Background="Gold"
-                                    Foreground="Black"/>
-
-                            <!-- Uninstall Button (Red) -->
-                            <Button Content="Uninstall libmpv"
-                                    Background="#F44336"
-                                    Foreground="White"
-                                    Command="{Binding UninstallMpvCommand}"
-                                    IsVisible="{Binding IsMpvInstalled}"
-                                    IsEnabled="{Binding !MpvManager.IsBusy}"
-                                    Padding="15,8"/>
-
-                            <!-- Refresh/Check Updates -->
-                            <Button Content="Refresh libmpv Info"
-                                    Command="{Binding RefreshMpvInfoCommand}"
-                                    IsEnabled="{Binding !MpvManager.IsBusy}"
-                                    Padding="15,8"/>
+                            <Button Content="Install" Command="{Binding InstallMpvCommand}" IsVisible="{Binding !IsMpvInstalled}" IsEnabled="{Binding !MpvManager.IsBusy}" Padding="15,8"/>
+                            <Button Content="Force Reinstall Specific" Command="{Binding InstallSpecificMpvVersionCommand}" IsEnabled="{Binding !MpvManager.IsBusy}" Padding="15,8" Background="Gold" Foreground="Black"/>
+                            <Button Content="Uninstall libmpv" Background="#F44336" Foreground="White" Command="{Binding UninstallMpvCommand}" IsVisible="{Binding IsMpvInstalled}" IsEnabled="{Binding !MpvManager.IsBusy}" Padding="15,8"/>
+                            <Button Content="Refresh libmpv Info" Command="{Binding RefreshMpvInfoCommand}" IsEnabled="{Binding !MpvManager.IsBusy}" Padding="15,8"/>
                         </StackPanel>
-
-                        <!-- Activity Indicator if mpv manager is busy -->
-                        <ProgressBar IsIndeterminate="True"
-                                     IsVisible="{Binding MpvManager.IsBusy}"
-                                     Margin="0,30,0,0"
-                                     Height="2"
-                                     Width="400"
-                                     HorizontalAlignment="Left"
-                                     VerticalAlignment="Top"/>
-
-                        <!-- yt-dlp Management Section -->
+                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding MpvManager.IsBusy}" Margin="0,30,0,0" Height="2" Width="400" HorizontalAlignment="Left" VerticalAlignment="Top"/>
                         <TextBlock Text="yt-dlp Status" FontSize="20" Foreground="WhiteSmoke" Margin="0,30,0,10"/>
                         <Separator Margin="0,0,0,15"/>
-
                         <StackPanel Spacing="10" Margin="0,0,0,15">
                             <TextBlock Text="{Binding YtDlp.Status}" FontSize="16" Foreground="DarkGray"/>
-
                             <StackPanel Orientation="Horizontal" Spacing="40" Margin="0,0,0,10">
                                 <StackPanel Spacing="5">
                                     <TextBlock Text="CURRENT VERSION" FontSize="14" Foreground="DarkGray" FontWeight="SemiBold"/>
@@ -392,52 +309,16 @@
                                 </StackPanel>
                             </StackPanel>
                         </StackPanel>
-
                         <StackPanel Orientation="Horizontal" Spacing="10">
-                            <!-- Install Button -->
-                            <Button Content="Install yt-dlp"
-                                    Command="{Binding InstallYtDlpCommand}"
-                                    IsVisible="{Binding !IsYtDlpInstalled}"
-                                    IsEnabled="{Binding !YtDlp.IsBusy}"
-                                    Padding="15,8"/>
-
-                            <!-- Update Button -->
-                            <Button Content="Update"
-                                    Command="{Binding UpdateYtDlpCommand}"
-                                    IsVisible="{Binding IsYtDlpUpdateAvailable}"
-                                    IsEnabled="{Binding !YtDlp.IsBusy}"
-                                    Padding="15,8"
-                                    Background="Gold"
-                                    Foreground="Black"/>
-
-                            <!-- Uninstall Button (Red) -->
-                            <Button Content="Uninstall"
-                                    Background="#F44336"
-                                    Foreground="White"
-                                    Command="{Binding UninstallYtDlpCommand}"
-                                    IsVisible="{Binding IsYtDlpInstalled}"
-                                    IsEnabled="{Binding !YtDlp.IsBusy}"
-                                    Padding="15,8"/>
-
-                            <!-- Refresh/Check Updates -->
-                            <Button Content="Check for Updates"
-                                    Command="{Binding RefreshYtDlpInfoCommand}"
-                                    IsEnabled="{Binding !YtDlp.IsBusy}"
-                                    Padding="15,8"/>
+                            <Button Content="Install yt-dlp" Command="{Binding InstallYtDlpCommand}" IsVisible="{Binding !IsYtDlpInstalled}" IsEnabled="{Binding !YtDlp.IsBusy}" Padding="15,8"/>
+                            <Button Content="Update" Command="{Binding UpdateYtDlpCommand}" IsVisible="{Binding IsYtDlpUpdateAvailable}" IsEnabled="{Binding !YtDlp.IsBusy}" Padding="15,8" Background="Gold" Foreground="Black"/>
+                            <Button Content="Uninstall" Background="#F44336" Foreground="White" Command="{Binding UninstallYtDlpCommand}" IsVisible="{Binding IsYtDlpInstalled}" IsEnabled="{Binding !YtDlp.IsBusy}" Padding="15,8"/>
+                            <Button Content="Check for Updates" Command="{Binding RefreshYtDlpInfoCommand}" IsEnabled="{Binding !YtDlp.IsBusy}" Padding="15,8"/>
                         </StackPanel>
-
-                        <!-- Activity Indicator if yt-dlp manager is busy -->
-                        <ProgressBar IsIndeterminate="True"
-                                     IsVisible="{Binding YtDlp.IsBusy}"
-                                     Margin="0,30,0,0"
-                                     Height="2"
-                                     Width="400"
-                                     HorizontalAlignment="Left"
-                                     VerticalAlignment="Top"/>
+                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding YtDlp.IsBusy}" Margin="0,30,0,0" Height="2" Width="400" HorizontalAlignment="Left" VerticalAlignment="Top"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
-
         </TabControl>
     </Grid>
 </UserControl>

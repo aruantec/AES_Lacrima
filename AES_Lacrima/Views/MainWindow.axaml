@@ -61,15 +61,14 @@
             </Style>
         </Grid.Styles>
         <!-- Background -->
-        <!--<Image asyncImageLoader:ImageLoader.Source="Assets/background.jpg" Stretch="UniformToFill"/>-->
+        <Image asyncImageLoader:ImageLoader.Source="{Binding SettingsViewModel.BackgroundImagePath}" 
+               IsVisible="{Binding SettingsViewModel.ShowBackground}"
+               Stretch="UniformToFill"/>
         <!--Shadertoy-->
         <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
                                IsVisible="{Binding SettingsViewModel.ShowShaderToy}"
                                Spectrum="{Binding Spectrum}"
                                SpectrumGradient="{Binding SettingsViewModel.SpectrumGradient}">
-            <Interaction.Behaviors>
-                <behaviors:IsActiveBehavior IsActive="{Binding NavigationService.View.IsActive}"/>
-            </Interaction.Behaviors>
         </gl:GlShaderToyControl>
         
         <!-- Scalable decorator and main content-->
