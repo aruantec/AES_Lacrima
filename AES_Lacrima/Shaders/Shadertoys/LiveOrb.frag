@@ -26,6 +26,49 @@ vec3 neonColor(float id) {
     return mix(vec3(1.0), rgb, 0.75) * 1.1;
 }
 
+// 2D noise for electricity with tiling-friendly coordinates
+float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    // Use a simpler hashing that is better for angular wrapping
+    float a = hash01(mod(i.x, 360.0) + i.y * 57.0);
+    float b = hash01(mod(i.x + 1.0, 360.0) + i.y * 57.0);
+    float c = hash01(mod(i.x, 360.0) + (i.y + 1.0) * 57.0);
+    float d = hash01(mod(i.x + 1.0, 360.0) + (i.y + 1.0) * 57.0);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float fbm(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 4; i++) {
+        v += a * noise(p);
+        p *= 2.0;
+        a *= 0.5;
+    }
+    return v;
+}
+
+// Electric arc function following a circular path
+float electricArc(vec2 uv, vec2 center, float radius, float t, float seed) {
+    vec2 p = uv - center;
+    float d = length(p);
+    float angle = atan(p.y, p.x);
+    
+    // Use circular noise coordinates to avoid 180-degree seams
+    vec2 circ = vec2(cos(angle), sin(angle)) * 2.5;
+    float distortion = fbm(circ + vec2(seed, t * 1.5)) * 0.18;
+    float arcPath = abs(d - (radius + distortion));
+    
+    // Core of the bolt
+    float glow = 0.0015 / (arcPath + 0.001);
+    // Outer fuzzy glow
+    glow += 0.02 * exp(-arcPath * 25.0);
+    
+    return glow;
+}
+
 void mainImage(out vec4 fragColor, in vec2 fragCoord)
 {
     vec2  res  = iResolution.xy;
@@ -76,6 +119,37 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     // ---- per-pixel output ---------------------------------------------
     vec3  col   = vec3(0.0);
     float bestZ = 1e5;                            // z-buffer (smaller = closer)
+
+    // ==== INTERNAL ELECTRICITY (Big Sphere) ============================
+    // Core plasma effect inside the big orb that reacts to volume
+    float corePulse = beat * 1.5 + sparkle * 0.5;
+    if (corePulse > 0.01) {
+        float d = length(uv);
+        // Distort coordinates for winding arcs
+        // Use cos/sin of angle for noise input to ensure perfect wrapping
+        float angle = atan(uv.y, uv.x);
+        vec2 circularUV = vec2(cos(angle), sin(angle)) * 1.5;
+        float coreDistort = fbm(circularUV + vec2(0.0, t * 1.5)) * 0.25;
+        float coreRadius = (mainR * 0.8) + coreDistort;
+        
+        // Multiple internal arc layers
+        float arcA = 0.002 / (abs(d - coreRadius * 0.95) + 0.002);
+        float arcB = 0.002 / (abs(d - coreRadius * 0.65) + 0.002);
+        float arcC = 0.0015 / (abs(d - coreRadius * 1.15) + 0.0015);
+        
+        // Central core glow
+        float coreGlow = exp(-d * 4.0) * corePulse * 0.45;
+        
+        float flicker = hash01(t * 30.0) > 0.1 ? 1.0 : 0.3;
+        float totalCoreArc = (arcA + arcB * 0.7 + arcC * 0.5) * corePulse * flicker;
+        
+        // Use a mix of primary neon and white core for the lightning
+        vec3 coreNeon = mix(neonBase, u_primary.rgb, 0.5);
+        vec3 coreArcCol = mix(coreNeon, vec3(0.9, 0.95, 1.0), 0.75);
+        
+        col += coreArcCol * totalCoreArc * 1.2;
+        col += coreNeon * coreGlow;
+    }
 
     // ==== 140 child spheres on a fibonacci sphere ======================
     // Optimized for performance while maintaining the "Big Orb" density.
@@ -237,6 +311,29 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         // Strong emissive bloom in the ball's neon color
         float emissive = activity * activity * (0.20 + 0.80 * jumpHeight);
         bc += ballNeon * emissive;
+
+        // ---- ELECTRIC STRINGS on active spheres ----------------------
+        if (activity > 0.15) {
+            vec3 pOffset = sn * (mainR + 0.1);
+            vec2 pCenter = (rot * pOffset).xy * (1.55 / (pOffset.z + camD));
+            
+            // Multiple arcs at different radii to simulate the "plasma ball" effect
+            float a1 = electricArc(uv, pCenter, sr * 1.35, t * 1.2, fi);
+            float a2 = electricArc(uv, pCenter, sr * 0.95, t * 0.8, fi * 1.5);
+            float a3 = electricArc(uv, pCenter, sr * 1.85, t * 1.5, fi * 2.0);
+            
+            // Interaction with distance
+            float dist = length(uv - pCenter);
+            float mask = smoothstep(sr * 3.5, sr * 0.5, dist);
+            
+            // Electric flicker logic
+            float flicker = hash01(t * 24.0 + fi) > 0.2 ? 1.0 : 0.4;
+            float totalArc = (a1 + a2 * 0.8 + a3 * 0.6) * activity * flicker * mask;
+            
+            // Combine colors: White-ish core with neon glow
+            vec3 arcCol = mix(ballNeon, vec3(0.9, 0.95, 1.0), 0.7);
+            bc += arcCol * totalArc * 1.5;
+        }
 
         float alpha = smoothstep(1.0, 0.93, lrd);
         bestZ = ez;
