@@ -752,6 +752,77 @@ namespace AES_Lacrima.ViewModels
                 }
             }
         }
+
+        [RelayCommand]
+        private async Task ScanFolders()
+        {
+            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+            if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
+            var lifetime = Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+            var storageProvider = lifetime?.MainWindow?.StorageProvider;
+
+            if (storageProvider != null)
+            {
+                var folders = await storageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
+                {
+                    Title = "Select Folder to Scan",
+                    AllowMultiple = false,
+                });
+
+                if (folders.Count > 0)
+                {
+                    var rootPath = folders[0].Path.LocalPath;
+                    if (Directory.Exists(rootPath))
+                    {
+                        await Task.Run(() => 
+                        {
+                            var directories = Directory.GetDirectories(rootPath, "*", SearchOption.AllDirectories).ToList();
+                            directories.Insert(0, rootPath); // Include root folder
+
+                            foreach (var dir in directories)
+                            {
+                                var mediaFiles = _supportedTypes
+                                    .SelectMany(pattern => Directory.EnumerateFiles(dir, pattern))
+                                    .Where(file => 
+                                    {
+                                        var name = Path.GetFileName(file);
+                                        return !(string.IsNullOrEmpty(name) || name.StartsWith("._") || name.StartsWith("."));
+                                    })
+                                    .ToList();
+
+                                if (mediaFiles.Count > 0)
+                                {
+                                    Avalonia.Threading.Dispatcher.UIThread.Post(() => 
+                                    {
+                                        // Check if already in list
+                                        if (AlbumList.Any(a => a.FileName == dir)) return;
+
+                                        var folderItem = new FolderMediaItem
+                                        {
+                                            FileName = dir,
+                                            Title = GetUniqueAlbumName(Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))),
+                                            CoverBitmap = DefaultFolderCover
+                                        };
+
+                                        var mediaItems = mediaFiles.Select(file => new MediaItem
+                                        {
+                                            FileName = file,
+                                            Title = Path.GetFileName(file),
+                                            CoverBitmap = DefaultFolderCover
+                                        }).ToList();
+
+                                        folderItem.Children.AddRange(mediaItems);
+                                        AlbumList.Add(folderItem);
+                                        
+                                        _ = new MetadataScrapper(folderItem.Children, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+                                    });
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        }
         #endregion
 
         #region Constructor/Prepare
