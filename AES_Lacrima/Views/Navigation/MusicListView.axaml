@@ -354,6 +354,20 @@
 						</Viewbox>
 					</MenuItem.Icon>
 				</MenuItem>
+				<MenuItem Header="Scan Folders" CornerRadius="8" Command="{Binding ScanFoldersCommand}">
+					<MenuItem.Icon>
+						<Viewbox Width="32" Height="32" Stretch="Uniform">
+							<Canvas Width="100" Height="100">
+								<!-- Folder outline -->
+								<Path Data="M 10,25 L 10,80 Q 10,85 15,85 L 85,85 Q 90,85 90,80 L 90,35 Q 90,30 85,30 L 45,30 L 35,20 L 15,20 Q 10,20 10,25"
+									  Stroke="#CCFFFFFF" StrokeThickness="6" Fill="Transparent" />
+								<!-- Search glass (simplified) -->
+								<Ellipse Canvas.Left="50" Canvas.Top="45" Width="25" Height="25" Stroke="#CCFFFFFF" StrokeThickness="5" Fill="Transparent" />
+								<Line StartPoint="72,67" EndPoint="85,80" Stroke="#CCFFFFFF" StrokeThickness="5" StrokeLineCap="Round" />
+							</Canvas>
+						</Viewbox>
+					</MenuItem.Icon>
+				</MenuItem>
 			</ContextMenu>
 		</Grid.ContextMenu>
 	</Grid>
