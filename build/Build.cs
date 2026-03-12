@@ -72,6 +72,16 @@ sealed class Build : NukeBuild
             }
         });
 
+    Target Run => _ => _
+        .DependsOn(Compile)
+        .Executes(() =>
+        {
+            DotNetRun(s => s
+                .SetProjectFile(AppProjectFile)
+                .SetConfiguration(Configuration)
+                .EnableNoBuild());
+        });
+
     Target Publish => _ => _
         .DependsOn(Compile)
         .Executes(() =>

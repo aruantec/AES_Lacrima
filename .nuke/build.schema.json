@@ -28,6 +28,7 @@
         "Compile",
         "Publish",
         "Restore",
+        "Run",
         "Test"
       ]
     },

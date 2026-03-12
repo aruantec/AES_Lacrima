@@ -19,6 +19,7 @@ Some of the included shaders react to the music by using the player's spectrum d
 This repo now uses [NUKE](https://nuke.build/) for solution builds and app publishing.
 
 - Linux/macOS: `./build.sh Compile`
+- Run the app: `./build.sh Run`
 - Windows PowerShell: `./build.ps1 Compile`
 - Windows CMD: `build.cmd Compile`
 - Run tests: `./build.sh Test`
