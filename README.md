@@ -14,6 +14,18 @@ Supports Plasma6 Wallpaper(Shadertoy/Fragment) Shaders. Simply copy the *.frag f
 
 Some of the included shaders react to the music by using the player's spectrum data. This is currently done for demonstration purposes, and the Shadertoy control itself allows you to disable this feature by simply removing the spectrum binding.
 
+## Build
+
+This repo now uses [NUKE](https://nuke.build/) for solution builds and app publishing.
+
+- Linux/macOS: `./build.sh Compile`
+- Windows PowerShell: `./build.ps1 Compile`
+- Windows CMD: `build.cmd Compile`
+- Run tests: `./build.sh Test`
+- Publish the app: `./build.sh Publish --configuration Release --runtime linux-x64`
+
+GitHub Actions now runs `./build.sh Test --configuration Release` on pushes to `main` and on pull requests.
+
 Showcase:
 
 <img width="3840" height="2004" alt="image" src="https://github.com/user-attachments/assets/d6b80046-6521-4c75-906d-3593c3650482" />
@@ -22,4 +34,3 @@ Showcase:
 https://github.com/user-attachments/assets/95b3ac5f-fee6-4caa-8df7-81d011ac575e
 
 https://github.com/user-attachments/assets/ed415876-dd81-4a5c-b518-e27e106b603f
-
