@@ -16,16 +16,16 @@ Some of the included shaders react to the music by using the player's spectrum d
 
 ## Build
 
-This repo now uses [NUKE](https://nuke.build/) for solution builds and app publishing.
+This repo uses [NUKE](https://nuke.build/) for solution builds and app publishing.
 
-- Linux/macOS: `./build.sh Compile`
+- Linux/macOS compile: `./build.sh Compile`
 - Run the app: `./build.sh Run`
-- Windows PowerShell: `./build.ps1 Compile`
-- Windows CMD: `build.cmd Compile`
+- Windows PowerShell compile: `./build.ps1 Compile`
+- Windows CMD compile: `build.cmd Compile`
 - Run tests: `./build.sh Test`
-- Publish the app: `./build.sh Publish --configuration Release --runtime linux-x64`
+- Publish an app build: `./build.sh Publish --configuration Release --runtime <rid>`
 
-GitHub Actions now runs `./build.sh Test --configuration Release` on pushes to `main` and on pull requests.
+See `BUILDING.md` for platform packaging details, AppImage guidance, CI artifacts, and GitHub Release workflow notes.
 
 Showcase:
 
