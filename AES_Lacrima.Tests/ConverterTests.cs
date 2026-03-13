@@ -1,5 +1,6 @@
 using System.Globalization;
 using AES_Lacrima.Converters;
+using Avalonia.Media;
 
 namespace AES_Lacrima.Tests;
 
@@ -29,6 +30,18 @@ public sealed class ConverterTests
         Assert.Equal("Disabled", falseResult);
     }
 
+    [Fact]
+    public void BoolToValueConverter_ReturnsParameterOnlyWhenTrue()
+    {
+        var converter = new BoolToValueConverter();
+
+        var trueResult = converter.Convert(true, typeof(object), "Visible", CultureInfo.InvariantCulture);
+        var falseResult = converter.Convert(false, typeof(object), "Visible", CultureInfo.InvariantCulture);
+
+        Assert.Equal("Visible", trueResult);
+        Assert.Null(falseResult);
+    }
+
     [Theory]
     [InlineData("value", true)]
     [InlineData("", false)]
@@ -54,5 +67,19 @@ public sealed class ConverterTests
         Assert.Equal(true, equalResult);
         Assert.Equal(false, notEqualResult);
         Assert.Equal(true, nullResult);
+    }
+
+    [Fact]
+    public void ColorAndBrushConverters_RoundTripColorValues()
+    {
+        var color = Color.Parse("#336699");
+        var colorToBrush = new ColorToBrushConverter();
+        var brushToColor = new BrushToColorConverter();
+
+        var brush = Assert.IsType<SolidColorBrush>(colorToBrush.Convert(color, typeof(SolidColorBrush), null, CultureInfo.InvariantCulture));
+        var convertedColor = Assert.IsType<Color>(brushToColor.Convert(brush, typeof(Color), null, CultureInfo.InvariantCulture));
+
+        Assert.Equal(color, brush.Color);
+        Assert.Equal(color, convertedColor);
     }
 }
