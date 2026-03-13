@@ -1,4 +1,5 @@
 ﻿using AES_Controls.Helpers;
+using AES_Core.IO;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Media;
@@ -40,8 +41,8 @@ public class GlShaderToyControl : OpenGlControlBase
     // Track subscriptions to dispose on deinit
     private readonly List<IDisposable> _propertySubscriptions = new();
 
-    private static string CachePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Cache", "ShaderCache");
-    private static string LogPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
+    private static string CachePath => Path.Combine(ApplicationPaths.CacheDirectory, "ShaderCache");
+    private static string LogPath => ApplicationPaths.LogsDirectory;
     private const int GlProgramBinaryLength = 0x8741;
     private const int GlLinkStatus = 0x8B82;
 
@@ -655,4 +656,3 @@ public class GlShaderToyControl : OpenGlControlBase
 
     }
 }
-

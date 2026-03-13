@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using AES_Core.IO;
+using System.Runtime.InteropServices;
 
 namespace AES_Controls.Helpers
 {
@@ -25,6 +26,9 @@ namespace AES_Controls.Helpers
             // Check the local directory first
             string localPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, binaryName);
             if (File.Exists(localPath)) return localPath;
+
+            string managedToolPath = ApplicationPaths.GetToolFile(binaryName);
+            if (File.Exists(managedToolPath)) return managedToolPath;
 
             // Search the System PATH
             var pathVar = Environment.GetEnvironmentVariable("PATH");

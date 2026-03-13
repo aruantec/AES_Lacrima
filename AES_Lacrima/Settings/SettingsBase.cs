@@ -1,4 +1,5 @@
 ﻿using AES_Core.Interfaces;
+using AES_Core.IO;
 using Avalonia.Collections;
 using CommunityToolkit.Mvvm.ComponentModel;
 using System;
@@ -32,9 +33,9 @@ namespace AES_Lacrima.Settings
         /// <summary>
         /// Default path for the settings file. Derived classes can override this
         /// property to change where settings are stored.
-        /// The default is "{AppContext.BaseDirectory}/Settings/Settings.json".
+        /// The default is the writable application settings directory.
         /// </summary>
-        protected virtual string SettingsFilePath => Path.Combine(AppContext.BaseDirectory, "Settings", "Settings.json");
+        protected virtual string SettingsFilePath => ApplicationPaths.GetSettingsFile("Settings.json");
 
         /// <summary>
         /// JSON property name under which view model settings are grouped in the
@@ -89,18 +90,18 @@ namespace AES_Lacrima.Settings
         private void DoSaveSettings()
         {
             // Ensure the directory for the settings file exists. Use full path to handle
-            // relative or unusual SettingsFilePath values and fall back to AppContext.BaseDirectory.
+            // relative or unusual SettingsFilePath values and fall back to the writable application data root.
             try
             {
                 var fullPath = Path.GetFullPath(SettingsFilePath);
                 var dir = Path.GetDirectoryName(fullPath);
-                if (string.IsNullOrEmpty(dir)) dir = AppContext.BaseDirectory;
+                if (string.IsNullOrEmpty(dir)) dir = ApplicationPaths.DataRootDirectory;
                 Directory.CreateDirectory(dir);
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"Failed to create settings directory for '{SettingsFilePath}': {ex.Message}");
-                try { Directory.CreateDirectory(AppContext.BaseDirectory); } catch { /* ignore */ }
+                try { Directory.CreateDirectory(ApplicationPaths.DataRootDirectory); } catch { /* ignore */ }
             }
 
             JsonObject root;

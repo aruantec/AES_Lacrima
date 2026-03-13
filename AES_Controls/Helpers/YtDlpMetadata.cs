@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using AES_Core.IO;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Runtime.InteropServices;
 
@@ -260,7 +261,7 @@ public static class YtDlpMetadata
 
     private static string? FindLocalExecutable(params string[] names)
     {
-        var dirs = new List<string> { AppContext.BaseDirectory };
+        var dirs = new List<string> { AppContext.BaseDirectory, ApplicationPaths.ToolsDirectory };
         
         var processPathDir = Path.GetDirectoryName(Environment.ProcessPath);
         if (!string.IsNullOrEmpty(processPathDir) && !dirs.Contains(processPathDir))

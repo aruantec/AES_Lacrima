@@ -1,4 +1,5 @@
-﻿using Avalonia;
+using Avalonia;
+using AES_Core.IO;
 using log4net.Appender;
 using log4net.Config;
 using log4net.Layout;
@@ -39,18 +40,17 @@ namespace AES_Lacrima
             }
             Environment.SetEnvironmentVariable("PATH", currentPath);
 
-            // Ensure the Logs directory exists and configure a rolling file appender so
-            // that logs are written to Logs/log.txt
-            Directory.CreateDirectory("Logs");
+            var logsDirectory = ApplicationPaths.LogsDirectory;
+            Directory.CreateDirectory(logsDirectory);
 
             var layout = new PatternLayout { ConversionPattern = "%date %-5level %logger - %message%newline%exception" };
             layout.ActivateOptions();
 
-            // Use a single file appender that writes to Logs/log.txt
+            // Use a single file appender that writes to a writable per-user log directory.
             var fileAppender = new FileAppender
             {
                 AppendToFile = false,
-                File = Path.Combine("Logs", "log.txt"),
+                File = Path.Combine(logsDirectory, "log.txt"),
                 Layout = layout,
                 LockingModel = new FileAppender.MinimalLock()
             };

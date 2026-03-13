@@ -2,6 +2,7 @@ using AES_Code.Models;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using Avalonia.Collections;
+using AES_Core.IO;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using log4net;
@@ -26,6 +27,10 @@ namespace AES_Controls.Helpers
         private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(10) };
         private static readonly SemaphoreSlim SharedThrottle = new(3);
         private readonly AvaloniaList<MediaItem> _playlist;
+
+        /// <summary>The collection of media items to track.</summary>
+        public AvaloniaList<MediaItem> Playlist => _playlist;
+
         private readonly Bitmap _defaultCover;
         private readonly ConcurrentDictionary<string, Bitmap> _coverCache = new(StringComparer.OrdinalIgnoreCase);
 
@@ -91,7 +96,11 @@ namespace AES_Controls.Helpers
             if (e.NewItems != null)
             {
                 foreach (var o in e.NewItems)
-                    if (o is MediaItem mi) _ = EnqueueLoadFor(mi);
+                    if (o is MediaItem mi)
+                    {
+                        // Use Task.Run to ensure we don't block the UI thread during EnqueueLoadFor
+                        _ = Task.Run(async () => await EnqueueLoadFor(mi));
+                    }
             }
             if (e.OldItems != null)
             {
@@ -528,7 +537,7 @@ namespace AES_Controls.Helpers
                 // Use a safe hash for the cache filename to avoid illegal characters
                 string cacheId = BinaryMetadataHelper.GetCacheId(url);
 
-                var cachePath = Path.Combine(AppContext.BaseDirectory, "Cache", cacheId + ".meta");
+                var cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
                 var cacheDir = Path.GetDirectoryName(cachePath);
                 if (!string.IsNullOrEmpty(cacheDir) && !Directory.Exists(cacheDir)) Directory.CreateDirectory(cacheDir);
 
@@ -673,7 +682,7 @@ namespace AES_Controls.Helpers
 
                 string cacheId = BinaryMetadataHelper.GetCacheId(mi.FileName);
 
-                var cachePath = Path.Combine(AppContext.BaseDirectory, "Cache", cacheId + ".meta");
+                var cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
                 var cacheDir = Path.GetDirectoryName(cachePath);
                 if (!string.IsNullOrEmpty(cacheDir) && !Directory.Exists(cacheDir))
                     Directory.CreateDirectory(cacheDir);
@@ -825,7 +834,7 @@ namespace AES_Controls.Helpers
                 if (!File.Exists(item.FileName) && (item.FileName.Contains("youtu", StringComparison.OrdinalIgnoreCase) || item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase)))
                 {
                     string cacheId = BinaryMetadataHelper.GetCacheId(item.FileName);
-                    var cachePath = Path.Combine(AppContext.BaseDirectory, "Cache", cacheId + ".meta");
+                    var cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
 
                     var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
                     metadata.Images ??= new List<ImageData>();

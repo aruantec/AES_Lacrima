@@ -146,7 +146,8 @@
   <Target Name="InstallLinuxDesktopEntryOnPublish"
           AfterTargets="Publish"
           Condition="'$(AutoInstallLinuxDesktopEntry)' == 'true'
-                     and '$(RuntimeIdentifier)' == 'linux-x64'
+                     and ('$(RuntimeIdentifier)' == 'linux-x64' or '$(RuntimeIdentifier)' == 'linux-arm64')
+                     and '$(CI)' != 'true'
                      and Exists('$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh')">
     <Message Importance="high"
              Text="Installing Linux desktop entry for publish output at '$(PublishDir)'" />

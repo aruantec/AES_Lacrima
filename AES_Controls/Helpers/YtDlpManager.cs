@@ -1,4 +1,5 @@
 using AES_Core.DI;
+using AES_Core.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using SharpCompress.Archives;
 using System.Diagnostics;
@@ -34,11 +35,14 @@ public partial class YtDlpManager : ObservableObject
     private static readonly ILog Log = LogManager.GetLogger(typeof(YtDlpManager));
     private const string Repo = "yt-dlp/yt-dlp";
         
-        private readonly string _destFolder = string.IsNullOrEmpty(Environment.ProcessPath) 
-            ? AppContext.BaseDirectory 
-            : (Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory);
+        private readonly string _destFolder = ApplicationPaths.ToolsDirectory;
 
-        private static readonly HttpClient Client = new();
+    private static readonly HttpClient Client = new();
+
+    public YtDlpManager()
+    {
+        Directory.CreateDirectory(_destFolder);
+    }
 
     public event EventHandler<InstallationCompletedEventArgs>? InstallationCompleted;
 
@@ -57,7 +61,7 @@ public partial class YtDlpManager : ObservableObject
     /// <summary>
     /// Gets a value indicating whether yt-dlp is locally installed in the application directory.
     /// </summary>
-    public static bool IsInstalled => File.Exists(Path.Combine(AppContext.BaseDirectory, RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp"));
+    public static bool IsInstalled => File.Exists(ApplicationPaths.GetToolFile(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp"));
 
     /// <summary>
     /// Percentage (0-100) representing the current download progress.
@@ -293,7 +297,7 @@ public partial class YtDlpManager : ObservableObject
     }
 
     private static YtDlpCacheEntry? _cache;
-    private static readonly string _cachePath = Path.Combine(AppContext.BaseDirectory, "ytdlp_cache.json");
+    private static readonly string _cachePath = Path.Combine(ApplicationPaths.DataRootDirectory, "ytdlp_cache.json");
 
     private sealed class YtDlpCacheEntry
     {
@@ -307,6 +311,7 @@ public partial class YtDlpManager : ObservableObject
     {
         try
         {
+            Directory.CreateDirectory(Path.GetDirectoryName(_cachePath)!);
             var json = JsonSerializer.Serialize(_cache);
             File.WriteAllText(_cachePath, json);
         }
