@@ -26,6 +26,9 @@ jobs:
       - name: Ensure scripts are executable
         run: chmod +x ./build.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh
 
+      - name: Restore local tools
+        run: dotnet tool restore
+
       - name: Run NUKE test target
         run: ./build.sh Test --configuration Release
 
