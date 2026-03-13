@@ -129,3 +129,11 @@ Important notes:
 2. Expand `AES_Lacrima.Headless.Tests` with control, binding, and interaction scenarios.
 3. Add more test projects for other assemblies as needed.
 4. Keep the NUKE and CI test flow aligned with local commands.
+
+## Suggested Next Steps
+
+These are the most natural follow-up areas if test coverage continues after this initial PR:
+
+1. Add more `AES_Controls.Tests` coverage for helper edge cases such as additional `FFmpegLocator` scenarios and more `YouTubeThumbnail` parsing inputs.
+2. Expand `AES_Lacrima.Headless.Tests` with more Avalonia binding, focus, and command interaction tests.
+3. Add file-backed settings coverage for types such as `SettingsBase` and related persistence logic.
