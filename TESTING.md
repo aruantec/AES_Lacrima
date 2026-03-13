@@ -19,6 +19,7 @@ Test projects live at the repository root and must include `Tests` in the projec
 
 Current layout:
 
+- `AES_Controls.Tests/`
 - `AES_Core.Tests/`
 - `AES_Lacrima.Tests/`
 - `AES_Lacrima.Headless.Tests/`
@@ -100,6 +101,8 @@ Good example scenarios:
 Reference examples in this repository:
 
 - `AES_Core.Tests/SettingsServiceTests.cs`
+- `AES_Controls.Tests/SimpleObserverTests.cs`
+- `AES_Controls.Tests/YouTubeThumbnailTests.cs`
 - `AES_Lacrima.Tests/ConverterTests.cs`
 - `AES_Lacrima.Headless.Tests/TextBoxInputTests.cs`
 - `AES_Lacrima.Headless.Tests/ButtonInteractionTests.cs`

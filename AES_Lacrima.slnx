@@ -2,6 +2,7 @@
   <Folder Name="/build/">
     <Project Path="build/_build.csproj" />
   </Folder>
+  <Project Path="AES_Controls.Tests/AES_Controls.Tests.csproj" />
   <Project Path="AES_Controls/AES_Controls.csproj" />
   <Project Path="AES_Core.Tests/AES_Core.Tests.csproj" />
   <Project Path="AES_Core/AES_Core.csproj" />
