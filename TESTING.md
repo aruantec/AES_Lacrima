@@ -20,11 +20,12 @@ Test projects live at the repository root and must include `Tests` in the projec
 Current layout:
 
 - `AES_Core.Tests/`
+- `AES_Lacrima.Tests/`
 - `AES_Lacrima.Headless.Tests/`
 
 ## Local Tooling
 
-Coverage HTML reports are generated with a repo-local .NET tool manifest stored in `dotnet-tools.json`.
+Coverage HTML reports are generated with a repo-local .NET tool manifest stored in `.config/dotnet-tools.json`.
 
 Restore local tools with:
 
@@ -56,6 +57,12 @@ Run a specific Avalonia headless test project:
 
 ```bash
 dotnet test AES_Lacrima.Headless.Tests/AES_Lacrima.Headless.Tests.csproj
+```
+
+Run the converter-focused Avalonia project tests:
+
+```bash
+dotnet test AES_Lacrima.Tests/AES_Lacrima.Tests.csproj
 ```
 
 ## Collecting Coverage
@@ -93,6 +100,7 @@ Good example scenarios:
 Reference examples in this repository:
 
 - `AES_Core.Tests/SettingsServiceTests.cs`
+- `AES_Lacrima.Tests/ConverterTests.cs`
 - `AES_Lacrima.Headless.Tests/TextBoxInputTests.cs`
 - `AES_Lacrima.Headless.Tests/ButtonInteractionTests.cs`
 
