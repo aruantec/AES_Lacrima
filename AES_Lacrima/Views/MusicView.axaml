@@ -13,15 +13,14 @@
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.MusicView"
-             x:DataType="vm:MusicViewModel"
-             ClipToBounds="False">
+             x:DataType="vm:MusicViewModel">
 
     <!-- Sets the DataContext for the previewer -->
     <Design.DataContext>
         <vm:MusicViewModel/>
     </Design.DataContext>
 
-    <Grid Grid.RowDefinitions="*,Auto,Auto,Auto" ClipToBounds="False">
+    <Grid RowDefinitions="*,Auto,Auto,Auto" ClipToBounds="False">
         <Border Background="#0F0F0F" Grid.RowSpan="2"/>
 
         <!-- Carousel -->
@@ -169,7 +168,7 @@
             </StackPanel>
             <TextBlock FontSize="33">
                 <TextBlock.Text>
-                    <MultiBinding StringFormat="{}{0} / {1}">
+                    <MultiBinding StringFormat="\{0\} / \{1\}">
                         <Binding Path="AudioPlayer.Position" Converter="{StaticResource TimeSpanConverter}" />
                         <Binding Path="AudioPlayer.Duration" Converter="{StaticResource TimeSpanConverter}" />
                     </MultiBinding>
@@ -378,6 +377,7 @@
                 <MultiBinding Converter="{x:Static BoolConverters.Or}">
                     <Binding Path="AudioPlayer.IsLoadingMedia"/>
                     <Binding Path="AudioPlayer.IsBuffering"/>
+                    <Binding Path="IsAddingPlaylist"/>
                 </MultiBinding>
             </StackPanel.IsVisible>
 		    <controls:LoadingControl Width="90"

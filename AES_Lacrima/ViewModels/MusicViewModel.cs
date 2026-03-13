@@ -119,6 +119,11 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private string? _addPlaylistText;
 
+        private MetadataScrapper? _playlistScrapper;
+
+        [ObservableProperty]
+        private bool _isAddingPlaylist;
+
         private string? _originalFolderTitle;
 
         [ObservableProperty]
@@ -984,20 +989,43 @@ namespace AES_Lacrima.ViewModels
                 if (!string.IsNullOrWhiteSpace(AddPlaylistText))
                 {
                     var playlistUrl = AddPlaylistText!.Trim();
+                    AddPlaylistText = string.Empty;
+                    IsAddingPlaylist = true;
+
+                    // Ensure we have a scrapper for the current cover items if not already created
+                    if (_playlistScrapper == null && AudioPlayer != null)
+                    {
+                        var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+                        if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
+                        _playlistScrapper = new MetadataScrapper(CoverItems, AudioPlayer, DefaultFolderCover, agentInfo, 512);
+                    }
+
                     _ = Task.Run(async () =>
                     {
-                        var urls = await GetPlaylistVideoUrls(playlistUrl);
-                        if (urls == null || urls.Count == 0) return;
-
-                        var newMediaItems = new List<MediaItem>();
-                        
-                        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                        try
                         {
-                            if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
-                            
+                            var urls = await GetPlaylistVideoUrls(playlistUrl);
+                            if (urls == null || urls.Count == 0) return;
+
+                            if (DefaultFolderCover == null)
+                            {
+                                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                                {
+                                    DefaultFolderCover = GenerateDefaultFolderCover();
+                                });
+                            }
+
+                            bool firstItem = true;
+
                             foreach (var url in urls)
                             {
-                                if (IsMediaDuplicate(url, out _)) continue;
+                                bool isDuplicate = false;
+                                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                                {
+                                    isDuplicate = IsMediaDuplicate(url, out _);
+                                });
+
+                                if (isDuplicate) continue;
 
                                 var item = new MediaItem
                                 {
@@ -1005,35 +1033,46 @@ namespace AES_Lacrima.ViewModels
                                     Title = Path.GetFileName(url),
                                     CoverBitmap = DefaultFolderCover
                                 };
+
+                                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                                {
+                                    CoverItems.Add(item);
+
+                                    if (LoadedAlbum?.Children != null && !ReferenceEquals(CoverItems, LoadedAlbum.Children))
+                                    {
+                                        if (!LoadedAlbum.Children.Any(c => c.FileName == item.FileName))
+                                            LoadedAlbum.Children.Add(item);
+                                    }
+
+                                    if (firstItem && CoverItems.Count == 1)
+                                    {
+                                        SelectedIndex = 0;
+                                        HighlightedItem = item;
+                                        IsNoAlbumLoadedVisible = false;
+                                        SearchText = string.Empty;
+                                    }
+                                    firstItem = false;
+                                });
+
+                                // MetadataScrapper is already watching CoverItems, so it will pick up the new item automatically.
                                 
-                                newMediaItems.Add(item);
-                                CoverItems.Add(item);
-
-                                if (LoadedAlbum?.Children != null && !ReferenceEquals(CoverItems, LoadedAlbum.Children))
-                                {
-                                    if (!LoadedAlbum.Children.Any(c => c.FileName == item.FileName))
-                                        LoadedAlbum.Children.Add(item);
-                                }
+                                // Brief yield to allow UI to breathe
+                                await Task.Delay(50);
                             }
-
-                            if (newMediaItems.Count > 0)
+                        }
+                        finally
+                        {
+                            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                             {
-                                var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
-                                var scanList = new AvaloniaList<MediaItem>(newMediaItems);
-                                _ = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
-
-                                if (CoverItems.Count == newMediaItems.Count)
-                                {
-                                    SelectedIndex = 0;
-                                    HighlightedItem = CoverItems[0];
-                                    IsNoAlbumLoadedVisible = false;
-                                    SearchText = string.Empty;
-                                }
-                            }
-                        });
+                                IsAddingPlaylist = false;
+                            });
+                        }
                     });
                 }
-                AddPlaylistText = string.Empty;
+                else
+                {
+                    AddPlaylistText = string.Empty;
+                }
             }
         }
 
