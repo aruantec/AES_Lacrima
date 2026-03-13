@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/build/">
+    <Project Path="build/_build.csproj" />
+  </Folder>
   <Project Path="AES_Controls/AES_Controls.csproj" />
   <Project Path="AES_Core/AES_Core.csproj" />
   <Project Path="AES_Di.Generator/AES_Di.Generator.csproj" />

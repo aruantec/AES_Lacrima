@@ -15,3 +15,8 @@
 *.user
 *.user
 .vscode/settings.json
+/.nuke-tools
+/.nuke/temp
+/build/bin
+/build/obj
+/output
