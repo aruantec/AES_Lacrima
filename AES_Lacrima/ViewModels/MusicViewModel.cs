@@ -957,7 +957,7 @@ namespace AES_Lacrima.ViewModels
                     var item = new MediaItem
                     {
                         FileName = url,
-                        Title = YouTubeThumbnail.ExtractVideoIdWithRegex(url) ?? Path.GetFileName(url),
+                        Title = YouTubeThumbnail.ExtractVideoId(url) ?? url,
                         CoverBitmap = DefaultFolderCover
                     };
                     CoverItems.Add(item);
@@ -1011,6 +1011,11 @@ namespace AES_Lacrima.ViewModels
 
                             foreach (var url in urls)
                             {
+                                if (string.IsNullOrWhiteSpace(url)) continue;
+
+                                // Skip YouTube Shorts
+                                if (url.Contains("/shorts/") || url.Contains("shorts/")) continue;
+
                                 bool isDuplicate = false;
                                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                                 {
@@ -1022,7 +1027,7 @@ namespace AES_Lacrima.ViewModels
                                 var item = new MediaItem
                                 {
                                     FileName = url,
-                                    Title = YouTubeThumbnail.ExtractVideoIdWithRegex(url) ?? Path.GetFileName(url),
+                                    Title = YouTubeThumbnail.ExtractVideoId(url) ?? url,
                                     CoverBitmap = DefaultFolderCover
                                 };
 
@@ -1046,12 +1051,12 @@ namespace AES_Lacrima.ViewModels
                                     firstItem = false;
                                 });
 
-                        // Start scrapper for this single item
+                                // New scrapper per item, but with a sequential delay
                                 var scanList = new AvaloniaList<MediaItem> { item };
                                 _ = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
 
-                                // Brief yield to allow UI to breathe
-                                await Task.Delay(50);
+                                // Sequential delay to prevent rate limiting and allow UI to breathe
+                                await Task.Delay(200);
                             }
                         }
                         finally
@@ -1158,15 +1163,17 @@ namespace AES_Lacrima.ViewModels
                 }
                 return false;
             }
-            foreach (var album in AlbumList)
+
+            // If we have a LoadedAlbum (specific album selected), only check that album
+            if (LoadedAlbum != null)
             {
-                // Children is initialized and never null
-                existing = album.Children.FirstOrDefault(Matches);
-                if (existing != null) return true;
+                existing = LoadedAlbum.Children.FirstOrDefault(Matches);
+                return existing != null;
             }
+
+            // Otherwise check the general/global list
             existing = CoverItems.FirstOrDefault(Matches);
-            if (existing != null) return true;
-            return false;
+            return existing != null;
         }
 
         private void MetadataService_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -1180,7 +1187,7 @@ namespace AES_Lacrima.ViewModels
         private void StartMetadataScrappersForLoadedFolders()
         {
             if (AudioPlayer == null || AlbumList.Count == 0) return;
-            var agentInfo = "AES_Lacrima/1.0 (contact: email@gmail.com)";
+            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
             foreach (var folder in AlbumList)
             {
                 if (folder == null || folder.Children.Count == 0) continue;

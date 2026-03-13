@@ -298,9 +298,15 @@ public abstract class YouTubeThumbnail
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("User-Agent", userAgent);
             request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
-            request.Headers.Add("Cookie", "CONSENT=YES+cb.20210328-17-p0.en+FX+417"); // Attempt to bypass consent page
+            request.Headers.Add("Cookie", "CONSENT=YES+cb.20230531-04-p0.en+FX+911"); // Updated consent cookie format
 
             var res = await Client.SendAsync(request);
+            if (res.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                // Rate limited - wait a bit more?
+                await Task.Delay(2000);
+            }
+            
             string html = await res.Content.ReadAsStringAsync();
 
             // Try to find ytInitialPlayerResponse. It can be var, window, or inside a JSON object.
