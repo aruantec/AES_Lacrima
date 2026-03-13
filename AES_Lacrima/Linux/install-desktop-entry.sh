@@ -79,17 +79,6 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -f -t "$ICON_BASE_DIR" >/dev/null 2>&1 || true
 fi
 
-# Create a copy on the user's desktop for visibility
-if [[ -d "$USER_DESKTOP_DIR" ]]; then
-  cp -f "$DESKTOP_FILE" "$USER_DESKTOP_DIR/aes-lacrima.desktop"
-  chmod +x "$USER_DESKTOP_DIR/aes-lacrima.desktop"
-  
-  # On some GNOME versions, we need to mark it as trusted
-  if command -v gio >/dev/null 2>&1; then
-    gio set "$USER_DESKTOP_DIR/aes-lacrima.desktop" metadata::trusted true >/dev/null 2>&1 || true
-  fi
-fi
-
 # Optional: Set a custom icon on the raw ELF file for Nautilus/GNOME.
 if command -v gio >/dev/null 2>&1; then
   gio set "$APP_BIN" metadata::custom-icon "file://$ICON_FILE" >/dev/null 2>&1 || true

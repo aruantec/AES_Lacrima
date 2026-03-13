@@ -24,8 +24,10 @@ namespace AES_Controls.Helpers
 
         /// <summary>The default limit for embedded image extraction (4MB).</summary>
         internal const int DefaultMaxEmbeddedImageBytes = 4 * 1024 * 1024;
-        private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(10) };
-        private static readonly SemaphoreSlim SharedThrottle = new(3);
+
+        // Default timeout and instance-level HttpClient/Throttle
+        private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
+        private static readonly SemaphoreSlim SharedThrottle = new(5);
         private readonly AvaloniaList<MediaItem> _playlist;
 
         /// <summary>The collection of media items to track.</summary>
