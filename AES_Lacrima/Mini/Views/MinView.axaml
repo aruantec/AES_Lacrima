@@ -407,6 +407,102 @@
                 </Image.OpacityMask>
             </Image>
         </Border>
+
+        <!--Albums-->
+        <Grid Grid.Row="2"
+              IsVisible="{Binding ShowPlaylist}"
+              RowDefinitions="Auto,*">
+            <!-- Selected Album Info -->
+            <Grid Grid.Row="0" Margin="10" ColumnDefinitions="Auto,*">
+                <Border Grid.Column="0" Width="60" Height="60" ClipToBounds="True" BorderBrush="DimGray" BorderThickness="1">
+                    <composition:FolderCompositionControl Items="{Binding MusicViewModel.SelectedAlbum.Children}"
+                                                          FolderCoverItem="{Binding MusicViewModel.SelectedAlbum}"
+                                                          DefaultCover="{Binding MusicViewModel.DefaultFolderCover}"
+                                                          MaxVisibleCovers="3"
+                                                          Margin="1"/>
+                </Border>
+                <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Text="{Binding MusicViewModel.SelectedAlbum.Title, FallbackValue='No Album Selected'}"
+                               Foreground="White"
+                               FontSize="16"
+                               FontWeight="Bold"
+                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding MusicViewModel.SelectedAlbum.Children.Count, StringFormat='{}{0} Tracks', FallbackValue='0 Tracks'}"
+                               Foreground="DimGray"
+                               FontSize="12"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Album List -->
+            <ListBox Grid.Row="1" Background="Transparent"
+                     ItemsSource="{Binding MusicViewModel.AlbumList}"
+                     SelectedItem="{Binding MusicViewModel.SelectedAlbum, Mode=TwoWay}"
+                     Padding="5"
+                     Grid.IsSharedSizeScope="True">
+                <ListBox.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Scan Folders" Command="{Binding MusicViewModel.ScanFoldersCommand}" />
+                        <MenuItem Header="Add Folder" Command="{Binding MusicViewModel.OpenFolderCommand}" />
+                    </ContextMenu>
+                </ListBox.ContextMenu>
+                <ListBox.Styles>
+                    <Style Selector="ListBoxItem">
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Template">
+                            <ControlTemplate TargetType="ListBoxItem">
+                                <Grid Background="Transparent">
+                                    <Border x:Name="SelectionBackground"
+                                            Background="{Binding ((vm:MinViewModel)DataContext).SelectionBrush, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                            IsVisible="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"/>
+                                    <ContentPresenter Content="{TemplateBinding Content}"
+                                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                </Grid>
+                            </ControlTemplate>
+                        </Setter>
+                    </Style>
+                </ListBox.Styles>
+
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,2" Background="Transparent" Opacity="0.8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="AlbumIndexColumn" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="AlbumDurationColumn" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Name Placeholder (Or Folder Icon) -->
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" 
+                                       Foreground="DimGray" FontSize="12" Margin="6,0,6,0" Text="📁" />
+
+                            <!-- Album Title -->
+                            <TextBlock Grid.Column="1" Text="{Binding Title}" 
+                                       IsVisible="{Binding !IsRenaming}"
+                                       Foreground="White" FontSize="12" 
+                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="6,0" />
+
+                            <TextBox Grid.Column="1" Text="{Binding Title, Mode=TwoWay}"
+                                     IsVisible="{Binding IsRenaming}"
+                                     Foreground="White" FontSize="12"
+                                     VerticalAlignment="Center" Margin="6,0" />
+
+                            <!-- Total Tracks -->
+                            <TextBlock Grid.Column="3" Text="{Binding Children.Count, StringFormat='{}{0} Tracks'}" 
+                                       Foreground="White" FontSize="12" Margin="6,0,10,0" 
+                                       HorizontalAlignment="Left" VerticalAlignment="Center" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+                
+                <Interaction.Behaviors>
+                    <ExecuteCommandOnDoubleTappedBehavior Command="{Binding MusicViewModel.OpenSelectedFolderCommand}"/>
+                </Interaction.Behaviors>
+            </ListBox>
+        </Grid>
         
         <!-- Playlist -->
         <ListBox Grid.Row="2" Background="Transparent"
@@ -417,7 +513,8 @@
                  BorderBrush="DimGray"
                  BorderThickness="0.5,0,0,0.5"
                  Padding="5"
-                 Grid.IsSharedSizeScope="True">
+                 Grid.IsSharedSizeScope="True"
+                 IsVisible="{Binding !ShowPlaylist}">
 
             <!-- Right-click context menu: same actions as the Add button -->
             <ListBox.ContextMenu>

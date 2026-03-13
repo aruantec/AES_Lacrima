@@ -45,7 +45,7 @@
                 <!-- Add Files -->
                 <MenuItem Header="Add Files" CornerRadius="8" Command="{Binding AddItemsCommand}">
                     <MenuItem.Icon>
-                        <Viewbox Width="32" Height="32" Stretch="Uniform">
+                         <Viewbox Width="32" Height="32" Stretch="Uniform">
                             <Canvas Width="100" Height="100">
                                 <!-- Rounded frame -->
                                 <Rectangle Canvas.Left="2" Canvas.Top="2" Width="96" Height="96" RadiusX="22" RadiusY="22" Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" />
@@ -71,6 +71,22 @@
 
                                 <!-- Base bar under monitor -->
                                 <Rectangle Canvas.Left="24" Canvas.Top="76" Width="52" Height="8" RadiusX="6" RadiusY="6" Fill="White" />
+                            </Canvas>
+                        </Viewbox>
+                    </MenuItem.Icon>
+                </MenuItem>
+
+                <!-- Add Playlist -->
+                <MenuItem Header="Add Playlist" CornerRadius="8" Command="{Binding AddPlaylistCommand}">
+                    <MenuItem.Icon>
+                        <Viewbox Width="32" Height="32" Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Three stacked bars -->
+                                <Rectangle Canvas.Left="15" Canvas.Top="15" Width="70" Height="8" RadiusX="4" RadiusY="4" Fill="White" />
+                                <Rectangle Canvas.Left="15" Canvas.Top="35" Width="70" Height="8" RadiusX="4" RadiusY="4" Fill="White" />
+                                <Rectangle Canvas.Left="15" Canvas.Top="55" Width="45" Height="8" RadiusX="4" RadiusY="4" Fill="White" />
+                                <!-- Play triangle at bottom-right -->
+                                <Path Data="M70,50 L90,65 L70,80 Z" Fill="White" />
                             </Canvas>
                         </Viewbox>
                     </MenuItem.Icon>
@@ -725,6 +741,58 @@
 				<TextBox.KeyBindings>
 					<KeyBinding Gesture="Enter" Command="{Binding SubmitAddUrlCommand}" />
 					<KeyBinding Gesture="Escape" Command="{Binding SubmitAddUrlCommand}" />
+				</TextBox.KeyBindings>
+				<Interaction.Behaviors>
+					<behaviors:FocusOnVisibleBehavior />
+				</Interaction.Behaviors>
+			</TextBox>
+		</Grid>
+
+		<!-- Add Playlist Overlay -->
+		<Grid Background="#E6000000"
+			  Grid.RowSpan="4"
+			  IsVisible="{Binding IsAddPlaylistPopupOpen}"
+			  IsHitTestVisible="{Binding IsAddPlaylistPopupOpen}"
+			  Opacity="{Binding IsAddPlaylistPopupOpen, Converter={StaticResource BoolToOpacityConverter}}"
+			  ZIndex="2000">
+			<Grid.Transitions>
+				<Transitions>
+					<DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut"/>
+				</Transitions>
+			</Grid.Transitions>
+
+			<TextBox Text="{Binding AddPlaylistText, Mode=TwoWay}"
+					 Width="450"
+					 Height="45"
+					 VerticalAlignment="Center"
+					 HorizontalAlignment="Center"
+					 FontSize="18"
+					 Watermark="Enter Playlist Url here"
+					 Background="#CC141414"
+					 Foreground="White"
+					 BorderBrush="#44FFFFFF"
+					 BorderThickness="1"
+					 CornerRadius="22"
+					 Padding="10,0"
+					 VerticalContentAlignment="Center">
+				<TextBox.Styles>
+					<Style Selector="TextBox /template/ Border#PART_BorderElement">
+						<Setter Property="CornerRadius" Value="22"/>
+					</Style>
+				</TextBox.Styles>
+				<TextBox.InnerLeftContent>
+					<Viewbox Width="24" Height="24" Margin="10,0,0,0">
+						<Canvas Width="100" Height="100">
+							<Rectangle Canvas.Left="15" Canvas.Top="15" Width="70" Height="8" RadiusX="4" RadiusY="4" Fill="White" />
+							<Rectangle Canvas.Left="15" Canvas.Top="35" Width="70" Height="8" RadiusX="4" RadiusY="4" Fill="White" />
+							<Rectangle Canvas.Left="15" Canvas.Top="55" Width="45" Height="8" RadiusX="4" RadiusY="4" Fill="White" />
+							<Path Data="M70,50 L90,65 L70,80 Z" Fill="White" />
+						</Canvas>
+					</Viewbox>
+				</TextBox.InnerLeftContent>
+				<TextBox.KeyBindings>
+					<KeyBinding Gesture="Enter" Command="{Binding SubmitAddPlaylistCommand}" />
+					<KeyBinding Gesture="Escape" Command="{Binding SubmitAddPlaylistCommand}" />
 				</TextBox.KeyBindings>
 				<Interaction.Behaviors>
 					<behaviors:FocusOnVisibleBehavior />

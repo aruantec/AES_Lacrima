@@ -17,6 +17,9 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using System.Net.Http;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 namespace AES_Lacrima.ViewModels
 {
@@ -108,7 +111,13 @@ namespace AES_Lacrima.ViewModels
         private bool _isAddUrlPopupOpen;
 
         [ObservableProperty]
+        private bool _isAddPlaylistPopupOpen;
+
+        [ObservableProperty]
         private string? _addUrlText;
+
+        [ObservableProperty]
+        private string? _addPlaylistText;
 
         private string? _originalFolderTitle;
 
@@ -352,6 +361,20 @@ namespace AES_Lacrima.ViewModels
 
         [RelayCommand]
         private void SubmitAddUrl() => IsAddUrlPopupOpen = false;
+
+        [RelayCommand(CanExecute = nameof(CanAddItems))]
+        private void AddPlaylist()
+        {
+            if (IsEqualizerVisible) IsEqualizerVisible = false;
+            if (MetadataService != null && MetadataService.IsMetadataLoaded) 
+                MetadataService.IsMetadataLoaded = false;
+
+            AddPlaylistText = string.Empty;
+            IsAddPlaylistPopupOpen = true;
+        }
+
+        [RelayCommand]
+        private void SubmitAddPlaylist() => IsAddPlaylistPopupOpen = false;
 
         [RelayCommand(CanExecute = nameof(CanDeletePointedItem))]
         private void DeletePointedItem()
@@ -954,6 +977,66 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
+        partial void OnIsAddPlaylistPopupOpenChanged(bool value)
+        {
+            if (!value)
+            {
+                if (!string.IsNullOrWhiteSpace(AddPlaylistText))
+                {
+                    var playlistUrl = AddPlaylistText!.Trim();
+                    _ = Task.Run(async () =>
+                    {
+                        var urls = await GetPlaylistVideoUrls(playlistUrl);
+                        if (urls == null || urls.Count == 0) return;
+
+                        var newMediaItems = new List<MediaItem>();
+                        
+                        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                        {
+                            if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
+                            
+                            foreach (var url in urls)
+                            {
+                                if (IsMediaDuplicate(url, out _)) continue;
+
+                                var item = new MediaItem
+                                {
+                                    FileName = url,
+                                    Title = Path.GetFileName(url),
+                                    CoverBitmap = DefaultFolderCover
+                                };
+                                
+                                newMediaItems.Add(item);
+                                CoverItems.Add(item);
+
+                                if (LoadedAlbum?.Children != null && !ReferenceEquals(CoverItems, LoadedAlbum.Children))
+                                {
+                                    if (!LoadedAlbum.Children.Any(c => c.FileName == item.FileName))
+                                        LoadedAlbum.Children.Add(item);
+                                }
+                            }
+
+                            if (newMediaItems.Count > 0)
+                            {
+                                var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+                                var scanList = new AvaloniaList<MediaItem>(newMediaItems);
+                                _ = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+
+                                if (CoverItems.Count == newMediaItems.Count)
+                                {
+                                    SelectedIndex = 0;
+                                    HighlightedItem = CoverItems[0];
+                                    IsNoAlbumLoadedVisible = false;
+                                    SearchText = string.Empty;
+                                }
+                            }
+                        });
+                    });
+                }
+                AddPlaylistText = string.Empty;
+            }
+        }
+
         partial void OnSelectedIndexChanged(int value)
         {
             // Use the incoming value (new SelectedIndex) to avoid referencing the property which may have changed
@@ -1154,7 +1237,67 @@ namespace AES_Lacrima.ViewModels
         #endregion
 
         #region Public methods
-        // Public methods
+        
+        /// <summary>
+        /// Asynchronously retrieves a list of video IDs from a online playlist URL by fetching the page's HTML content and extracting video IDs using a regular expression.
+        /// </summary>
+        /// <param name="playlistUrl">Playlist URL</param>
+        /// <returns>Playlist videos</returns>
+        public async Task<List<string>> GetPlaylistVideoIds(string playlistUrl)
+        {
+            using var client = new HttpClient();
+            // Setting a User-Agent makes the request look like a browser to avoid blocks
+            client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
+            
+            var html = await client.GetStringAsync(playlistUrl);
+            
+            // This regex looks for video IDs inside the page source
+            var matches = Regex.Matches(html, @"\""videoId\"":\""([^\""]+)\""");
+            
+            var videoIds = new HashSet<string>();
+            foreach (Match match in matches)
+            {
+                videoIds.Add(match.Groups[1].Value);
+            }
+            
+            return [.. videoIds];
+        }
+
+        /// <summary>
+        /// Asynchronously retrieves a list of video URLs from a online playlist URL by fetching the page's HTML content, extracting video IDs using a regular expression, and constructing full online URLs for each video ID.
+        /// </summary>
+        /// <param name="playlistUrl">Playlist URL</param>
+        /// <returns>Playlist Urls</returns>
+        public async Task<List<string>> GetPlaylistVideoUrls(string playlistUrl)
+        {
+            using var client = new HttpClient();
+            // Headers mimic a browser to prevent being flagged as a bot
+            client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            
+            try 
+            {
+                var html = await client.GetStringAsync(playlistUrl);
+                
+                // Regex looks for "videoId":"[ID]" in the page source
+                var matches = Regex.Matches(html, @"\""videoId\"":\""([^\""]+)\""");
+                
+                var videoUrls = new HashSet<string>();
+                foreach (Match match in matches)
+                {
+                    string id = match.Groups[1].Value;
+                    // Standard YouTube URL format
+                    videoUrls.Add($"https://www.youtube.com/watch?v={id}");
+                }
+                
+                return [.. videoUrls];
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error fetching playlist: {ex.Message}");
+                return new List<string>();
+            }
+}
+
         #endregion
 
         #region Everything Else
