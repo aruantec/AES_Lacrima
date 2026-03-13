@@ -19,6 +19,8 @@ sealed class Build : NukeBuild
     AbsolutePath SolutionFile => RootDirectory / "AES_Lacrima.sln";
     AbsolutePath AppProjectFile => RootDirectory / "AES_Lacrima" / "AES_Lacrima.csproj";
     AbsolutePath ArtifactsDirectory => RootDirectory / "output";
+    AbsolutePath TestResultsDirectory => ArtifactsDirectory / "test-results";
+    AbsolutePath CoverageReportDirectory => TestResultsDirectory / "coverage-report";
     AbsolutePath PublishDirectory => ArtifactsDirectory / "publish" / Configuration;
     string[] TestProjects => Directory
         .EnumerateFiles(RootDirectory, "*.csproj", SearchOption.AllDirectories)
@@ -62,14 +64,30 @@ sealed class Build : NukeBuild
                 return;
             }
 
+            Directory.CreateDirectory(TestResultsDirectory);
+
+            DotNet("tool restore", RootDirectory);
+
             foreach (var testProject in TestProjects)
             {
-                DotNetTest(s => s
-                    .SetProjectFile(testProject)
-                    .SetConfiguration(Configuration)
-                    .EnableNoBuild()
-                    .EnableNoRestore());
+                DotNet($"test \"{testProject}\" --configuration {Configuration} --no-build --no-restore --results-directory \"{TestResultsDirectory}\" --collect:\"XPlat Code Coverage\"", RootDirectory);
             }
+
+            var coverageFiles = Directory
+                .EnumerateFiles(TestResultsDirectory, "coverage.cobertura.xml", SearchOption.AllDirectories)
+                .ToArray();
+
+            if (coverageFiles.Length == 0)
+            {
+                Console.WriteLine("No coverage files were generated. Skipping report generation.");
+                return;
+            }
+
+            var coveragePattern = Path.Combine(TestResultsDirectory, "**", "coverage.cobertura.xml")
+                .Replace(Path.DirectorySeparatorChar, '/');
+            var reportTarget = CoverageReportDirectory.ToString().Replace(Path.DirectorySeparatorChar, '/');
+
+            DotNet($"tool run reportgenerator -- -reports:\"{coveragePattern}\" -targetdir:\"{reportTarget}\" -reporttypes:Html", RootDirectory);
         });
 
     Target Run => _ => _

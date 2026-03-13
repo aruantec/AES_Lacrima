@@ -17,14 +17,14 @@ Use Avalonia headless tests for controls, bindings, focus/input behavior, and ot
 
 Test projects live at the repository root and must include `Tests` in the project name so the NUKE build can discover them automatically.
 
-Planned initial layout:
+Current layout:
 
 - `AES_Core.Tests/`
 - `AES_Lacrima.Headless.Tests/`
 
 ## Local Tooling
 
-Coverage HTML reports should be generated with a repo-local .NET tool manifest.
+Coverage HTML reports are generated with a repo-local .NET tool manifest stored in `dotnet-tools.json`.
 
 Restore local tools with:
 
@@ -38,6 +38,12 @@ Run all tests:
 
 ```bash
 dotnet test AES_Lacrima.sln
+```
+
+Run the NUKE test target, including coverage collection and report generation:
+
+```bash
+./build.sh Test --configuration Debug
 ```
 
 Run a specific unit test project:
@@ -84,6 +90,12 @@ Good example scenarios:
 - clicking a `Button` with `MouseDown(...)` and `MouseUp(...)`
 - testing bindings, focus, and command execution with a shown `Window`
 
+Reference examples in this repository:
+
+- `AES_Core.Tests/SettingsServiceTests.cs`
+- `AES_Lacrima.Headless.Tests/TextBoxInputTests.cs`
+- `AES_Lacrima.Headless.Tests/ButtonInteractionTests.cs`
+
 ## Output Locations
 
 - Raw test results: `output/test-results/`
@@ -98,11 +110,11 @@ Important notes:
 - test project names must include `Tests`
 - test projects must also be added to `AES_Lacrima.sln`
 - the current NUKE `Test` target runs tests with `--no-build --no-restore`, so solution integration is required
+- the current NUKE `Test` target restores local tools, collects coverage, and generates the HTML report automatically
 
 ## Initial Rollout
 
-1. Add `AES_Core.Tests` for plain xUnit coverage.
-2. Add a repo-local `ReportGenerator` tool manifest.
-3. Add `AES_Lacrima.Headless.Tests` with one or two basic Avalonia examples.
-4. Update the NUKE `Test` target to emit coverage and HTML reports.
-5. Wire the same flow into CI.
+1. Expand `AES_Core.Tests` with additional service and helper coverage.
+2. Expand `AES_Lacrima.Headless.Tests` with control, binding, and interaction scenarios.
+3. Add more test projects for other assemblies as needed.
+4. Keep the NUKE and CI test flow aligned with local commands.
