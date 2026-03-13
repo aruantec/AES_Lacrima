@@ -7,5 +7,6 @@
   <Project Path="AES_Core/AES_Core.csproj" />
   <Project Path="AES_Di.Generator/AES_Di.Generator.csproj" />
   <Project Path="AES_Lacrima.Headless.Tests/AES_Lacrima.Headless.Tests.csproj" />
+  <Project Path="AES_Lacrima.Tests/AES_Lacrima.Tests.csproj" />
   <Project Path="AES_Lacrima/AES_Lacrima.csproj" />
 </Solution>
