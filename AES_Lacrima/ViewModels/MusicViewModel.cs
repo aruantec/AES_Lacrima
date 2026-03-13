@@ -1318,23 +1318,84 @@ namespace AES_Lacrima.ViewModels
             {
                 var html = await client.GetStringAsync(playlistUrl);
                 
-                // Regex looks for "videoId":"[ID]" in the page source
-                var matches = Regex.Matches(html, @"\""videoId\"":\""([^\""]+)\""");
+                var videoUrls = new List<string>();
+                var seenIds = new HashSet<string>();
+
+                // 1. Target specifically the "playlistId" associated with the videoId.
+                // This is the most robust way to ensure we only get items that belong to THE playlist.
+                // Recommendations and Reels usually do not have a "playlistId" in their watchEndpoint.
+                var playlistMatches = Regex.Matches(html, @"\""videoId\""\s*:\s*\""([^\""]+)\""\s*,\s*\""playlistId\""\s*:\s*\""([^\""]+)\""");
                 
-                var videoUrls = new HashSet<string>();
-                foreach (Match match in matches)
+                string? targetPlaylistId = null;
+                if (playlistUrl.Contains("list="))
                 {
-                    string id = match.Groups[1].Value;
-                    // Standard YouTube URL format
-                    videoUrls.Add($"https://www.youtube.com/watch?v={id}");
+                    var uri = new Uri(playlistUrl);
+                    var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+                    targetPlaylistId = query["list"];
+                }
+
+                if (playlistMatches.Count > 0)
+                {
+                    foreach (Match m in playlistMatches)
+                    {
+                        string id = m.Groups[1].Value;
+                        string pid = m.Groups[2].Value;
+
+                        // Only add if it belongs to the playlist we are interested in (if we know it)
+                        // OR if we don't know it, at least it MUST have a playlistId context.
+                        if (targetPlaylistId == null || pid == targetPlaylistId)
+                        {
+                            if (seenIds.Add(id)) videoUrls.Add($"https://www.youtube.com/watch?v={id}");
+                        }
+                    }
+                }
+
+                // 2. Fallback to renderer-based search if playlistId matching found nothing
+                if (videoUrls.Count == 0)
+                {
+                    var rendererMatches = Regex.Matches(html, @"\""(playlistVideoRenderer|playlistPanelVideoRenderer|playlistVideoListRenderer)\""\s*:\s*\{.*?\""videoId\""\s*:\s*\""([^\""]+)\""");
+                    foreach (Match m in rendererMatches)
+                    {
+                        string id = m.Groups[2].Value;
+                        if (seenIds.Add(id)) videoUrls.Add($"https://www.youtube.com/watch?v={id}");
+                    }
+                }
+
+                // 3. Strict exclusion for recommendations if we are still searching
+                if (videoUrls.Count == 0)
+                {
+                    var matches = Regex.Matches(html, @"\""videoId\"":\""([^\""]+)\""");
+                    foreach (Match match in matches)
+                    {
+                        string id = match.Groups[1].Value;
+                        if (seenIds.Add(id))
+                        {
+                            int index = match.Index;
+                            string context = html.Substring(Math.Max(0, index - 200), Math.Min(html.Length - index, 400));
+                            
+                            // EXCLUDE if it's clearly a recommendation or a short
+                            if (context.Contains("compactVideoRenderer") || 
+                                context.Contains("reelWatchEndpoint") || 
+                                context.Contains("shortsLockupViewModel"))
+                                continue;
+
+                            // INCLUDE if it has playlist keywords
+                            if (context.Contains("playlistVideoRenderer") || 
+                                context.Contains("playlistPanelVideoRenderer") ||
+                                context.Contains("playlistId"))
+                            {
+                                videoUrls.Add($"https://www.youtube.com/watch?v={id}");
+                            }
+                        }
+                    }
                 }
                 
-                return [.. videoUrls];
+                return videoUrls;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error fetching playlist: {ex.Message}");
-                return [.. new List<string>()];
+                return new List<string>();
             }
         }
 
