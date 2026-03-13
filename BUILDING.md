@@ -119,6 +119,8 @@ Recommended tooling:
 - `linuxdeploy`: `https://docs.appimage.org/packaging-guide/from-source/linuxdeploy-user-guide.html`
 - `appimagetool`: `https://github.com/AppImage/appimagetool`
 
+The repository includes `AES_Lacrima/Linux/package-appimage.sh` to turn a published Linux build into a final AppImage.
+
 General flow:
 
 1. Publish the app for `linux-x64` or `linux-arm64`.
@@ -154,10 +156,12 @@ GitHub Actions artifacts and GitHub Releases serve different purposes:
 
 The recommended release flow is tag-driven:
 
-1. Create and push a tag such as `v1.2.3`.
+1. Create and push a tag such as `v1.2.3`, `v0.1.0-alpha`, or `v0.1.0-beta`.
 2. Build all release targets in GitHub Actions.
 3. Create a GitHub Release from that tag.
 4. Attach only the final packaged assets.
+
+If the tag already has a GitHub Release entry, the release workflow should upload or replace the packaged assets on that existing release instead of failing.
 
 Recommended release assets:
 
