@@ -1,3 +1,4 @@
+﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
@@ -10,31 +11,86 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AES_Di.Generator", "AES_Di.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AES_Controls", "AES_Controls\AES_Controls.csproj", "{8D65BD59-7899-B0C9-5C66-3CAD6B6037BE}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "build", "build", "{DEE5DD87-39C1-BF34-B639-A387DCCF972B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "_build", "build\_build.csproj", "{E95E349A-4A79-4CF6-9D73-292B5C84C66D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
 		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{918A262E-E61C-F900-C1B5-FF7346EF9797}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{918A262E-E61C-F900-C1B5-FF7346EF9797}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{918A262E-E61C-F900-C1B5-FF7346EF9797}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{918A262E-E61C-F900-C1B5-FF7346EF9797}.Debug|x64.Build.0 = Debug|Any CPU
+		{918A262E-E61C-F900-C1B5-FF7346EF9797}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{918A262E-E61C-F900-C1B5-FF7346EF9797}.Debug|x86.Build.0 = Debug|Any CPU
 		{918A262E-E61C-F900-C1B5-FF7346EF9797}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{918A262E-E61C-F900-C1B5-FF7346EF9797}.Release|Any CPU.Build.0 = Release|Any CPU
+		{918A262E-E61C-F900-C1B5-FF7346EF9797}.Release|x64.ActiveCfg = Release|Any CPU
+		{918A262E-E61C-F900-C1B5-FF7346EF9797}.Release|x64.Build.0 = Release|Any CPU
+		{918A262E-E61C-F900-C1B5-FF7346EF9797}.Release|x86.ActiveCfg = Release|Any CPU
+		{918A262E-E61C-F900-C1B5-FF7346EF9797}.Release|x86.Build.0 = Release|Any CPU
 		{FCDBFBC1-5EEA-DCD6-08DC-2FBFF90C4689}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{FCDBFBC1-5EEA-DCD6-08DC-2FBFF90C4689}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FCDBFBC1-5EEA-DCD6-08DC-2FBFF90C4689}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{FCDBFBC1-5EEA-DCD6-08DC-2FBFF90C4689}.Debug|x64.Build.0 = Debug|Any CPU
+		{FCDBFBC1-5EEA-DCD6-08DC-2FBFF90C4689}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{FCDBFBC1-5EEA-DCD6-08DC-2FBFF90C4689}.Debug|x86.Build.0 = Debug|Any CPU
 		{FCDBFBC1-5EEA-DCD6-08DC-2FBFF90C4689}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FCDBFBC1-5EEA-DCD6-08DC-2FBFF90C4689}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FCDBFBC1-5EEA-DCD6-08DC-2FBFF90C4689}.Release|x64.ActiveCfg = Release|Any CPU
+		{FCDBFBC1-5EEA-DCD6-08DC-2FBFF90C4689}.Release|x64.Build.0 = Release|Any CPU
+		{FCDBFBC1-5EEA-DCD6-08DC-2FBFF90C4689}.Release|x86.ActiveCfg = Release|Any CPU
+		{FCDBFBC1-5EEA-DCD6-08DC-2FBFF90C4689}.Release|x86.Build.0 = Release|Any CPU
 		{322C8E17-5CFD-247F-35FF-9EDD18827300}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{322C8E17-5CFD-247F-35FF-9EDD18827300}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{322C8E17-5CFD-247F-35FF-9EDD18827300}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{322C8E17-5CFD-247F-35FF-9EDD18827300}.Debug|x64.Build.0 = Debug|Any CPU
+		{322C8E17-5CFD-247F-35FF-9EDD18827300}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{322C8E17-5CFD-247F-35FF-9EDD18827300}.Debug|x86.Build.0 = Debug|Any CPU
 		{322C8E17-5CFD-247F-35FF-9EDD18827300}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{322C8E17-5CFD-247F-35FF-9EDD18827300}.Release|Any CPU.Build.0 = Release|Any CPU
+		{322C8E17-5CFD-247F-35FF-9EDD18827300}.Release|x64.ActiveCfg = Release|Any CPU
+		{322C8E17-5CFD-247F-35FF-9EDD18827300}.Release|x64.Build.0 = Release|Any CPU
+		{322C8E17-5CFD-247F-35FF-9EDD18827300}.Release|x86.ActiveCfg = Release|Any CPU
+		{322C8E17-5CFD-247F-35FF-9EDD18827300}.Release|x86.Build.0 = Release|Any CPU
 		{8D65BD59-7899-B0C9-5C66-3CAD6B6037BE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{8D65BD59-7899-B0C9-5C66-3CAD6B6037BE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8D65BD59-7899-B0C9-5C66-3CAD6B6037BE}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{8D65BD59-7899-B0C9-5C66-3CAD6B6037BE}.Debug|x64.Build.0 = Debug|Any CPU
+		{8D65BD59-7899-B0C9-5C66-3CAD6B6037BE}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{8D65BD59-7899-B0C9-5C66-3CAD6B6037BE}.Debug|x86.Build.0 = Debug|Any CPU
 		{8D65BD59-7899-B0C9-5C66-3CAD6B6037BE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8D65BD59-7899-B0C9-5C66-3CAD6B6037BE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8D65BD59-7899-B0C9-5C66-3CAD6B6037BE}.Release|x64.ActiveCfg = Release|Any CPU
+		{8D65BD59-7899-B0C9-5C66-3CAD6B6037BE}.Release|x64.Build.0 = Release|Any CPU
+		{8D65BD59-7899-B0C9-5C66-3CAD6B6037BE}.Release|x86.ActiveCfg = Release|Any CPU
+		{8D65BD59-7899-B0C9-5C66-3CAD6B6037BE}.Release|x86.Build.0 = Release|Any CPU
+		{E95E349A-4A79-4CF6-9D73-292B5C84C66D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E95E349A-4A79-4CF6-9D73-292B5C84C66D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E95E349A-4A79-4CF6-9D73-292B5C84C66D}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E95E349A-4A79-4CF6-9D73-292B5C84C66D}.Debug|x64.Build.0 = Debug|Any CPU
+		{E95E349A-4A79-4CF6-9D73-292B5C84C66D}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{E95E349A-4A79-4CF6-9D73-292B5C84C66D}.Debug|x86.Build.0 = Debug|Any CPU
+		{E95E349A-4A79-4CF6-9D73-292B5C84C66D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E95E349A-4A79-4CF6-9D73-292B5C84C66D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E95E349A-4A79-4CF6-9D73-292B5C84C66D}.Release|x64.ActiveCfg = Release|Any CPU
+		{E95E349A-4A79-4CF6-9D73-292B5C84C66D}.Release|x64.Build.0 = Release|Any CPU
+		{E95E349A-4A79-4CF6-9D73-292B5C84C66D}.Release|x86.ActiveCfg = Release|Any CPU
+		{E95E349A-4A79-4CF6-9D73-292B5C84C66D}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{E95E349A-4A79-4CF6-9D73-292B5C84C66D} = {DEE5DD87-39C1-BF34-B639-A387DCCF972B}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {684E2A1C-F979-4E96-864C-9BAB05E107FC}
