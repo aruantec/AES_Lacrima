@@ -14,7 +14,7 @@ sealed class Build : NukeBuild
     string? Runtime { get; }
 
     [Parameter("Publish as a self-contained app")]
-    bool SelfContained { get; }
+    bool? SelfContained { get; }
 
     AbsolutePath SolutionFile => RootDirectory / "AES_Lacrima.sln";
     AbsolutePath AppProjectFile => RootDirectory / "AES_Lacrima" / "AES_Lacrima.csproj";
@@ -83,7 +83,7 @@ sealed class Build : NukeBuild
         });
 
     Target Publish => _ => _
-        .DependsOn(Compile)
+        .DependsOn(Restore)
         .Executes(() =>
         {
             var publishDirectory = string.IsNullOrWhiteSpace(Runtime)
@@ -95,14 +95,13 @@ sealed class Build : NukeBuild
                 var settings = s
                     .SetProject(AppProjectFile)
                     .SetConfiguration(Configuration)
-                    .SetOutput(publishDirectory)
-                    .EnableNoBuild();
+                    .SetOutput(publishDirectory);
 
                 if (!string.IsNullOrWhiteSpace(Runtime))
                     settings = settings.SetRuntime(Runtime);
 
-                if (SelfContained || !string.IsNullOrWhiteSpace(Runtime))
-                    settings = settings.SetSelfContained(SelfContained);
+                if (SelfContained.HasValue)
+                    settings = settings.SetSelfContained(SelfContained.Value);
 
                 return settings;
             });

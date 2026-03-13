@@ -1,7 +1,8 @@
-﻿using AES_Code.Models;
+using AES_Code.Models;
 using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
+using AES_Core.IO;
 using AES_Lacrima.ViewModels;
 using Avalonia;
 using Avalonia.Collections;
@@ -83,7 +84,7 @@ namespace AES_Lacrima.Services
                     // Get unique cache id for the URL/Online item
                     var cacheId = BinaryMetadataHelper.GetCacheId(FilePath!);
                     // Construct metadata path
-                    var metaData = Path.Combine(AppContext.BaseDirectory, "Cache", cacheId) + ".meta";
+                    var metaData = ApplicationPaths.GetCacheFile(cacheId + ".meta");
                     // Load metadata
                     if (BinaryMetadataHelper.LoadMetadata(metaData) is not { } metadata)
                         return;
@@ -190,7 +191,7 @@ namespace AES_Lacrima.Services
                     // Get unique cache id
                     var cacheId = BinaryMetadataHelper.GetCacheId(FilePath);
                     // Construct metadata path
-                    var metaData = Path.Combine(AppContext.BaseDirectory, "Cache", cacheId) + ".meta";
+                    var metaData = ApplicationPaths.GetCacheFile(cacheId + ".meta");
 
                     // Ensure Cache directory exists
                     var metaDir = Path.GetDirectoryName(metaData);

@@ -1,7 +1,8 @@
-﻿using AES_Controls.Helpers;
+using AES_Controls.Helpers;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
+using AES_Core.IO;
 using AES_Lacrima.Services;
 using Avalonia;
 using Avalonia.Collections;
@@ -1334,7 +1335,7 @@ namespace AES_Lacrima.ViewModels
 
         #region Everything Else
         // Everything Else
-        protected override string SettingsFilePath => Path.Combine(AppContext.BaseDirectory, "Settings", "Playlist.json");
+        protected override string SettingsFilePath => ApplicationPaths.GetSettingsFile("Playlist.json");
 
         protected override void OnLoadSettings(JsonObject section)
         {
@@ -1358,8 +1359,6 @@ namespace AES_Lacrima.ViewModels
         #endregion
     }
 }
-
-
 
 
 

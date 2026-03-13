@@ -1,4 +1,5 @@
 using AES_Controls.Helpers;
+using AES_Core.IO;
 using AES_Controls.Player.Interfaces;
 using AES_Controls.Player.Models;
 using AES_Controls.Players;
@@ -218,7 +219,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             else if (_lastOptions == null)
             {
                 // Try reading from disk for the first time
-                var settingsPath = Path.Combine(AppContext.BaseDirectory, "Settings", "Settings.json");
+                var settingsPath = ApplicationPaths.GetSettingsFile("Settings.json");
                 bool enabled = false;
                 bool useTags = true;
                 bool analyze = true;
@@ -781,7 +782,12 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             
             // Explicitly point MPV to the bundled yt-dlp to fix macOS sandbox path issues
             var ytdlBin = OperatingSystem.IsWindows() ? "yt-dlp.exe" : "yt-dlp";
-            var ytdlPath = System.IO.Path.Combine(AppContext.BaseDirectory, ytdlBin);
+            var ytdlPath = ApplicationPaths.GetToolFile(ytdlBin);
+            if (!System.IO.File.Exists(ytdlPath))
+            {
+                ytdlPath = System.IO.Path.Combine(AppContext.BaseDirectory, ytdlBin);
+            }
+
             if (System.IO.File.Exists(ytdlPath))
             {
                 SetProperty("script-opts", $"ytdl_hook-ytdl_path={ytdlPath}");
