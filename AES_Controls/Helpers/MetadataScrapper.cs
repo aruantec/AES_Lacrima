@@ -2,6 +2,7 @@ using AES_Code.Models;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using Avalonia.Collections;
+using AES_Core.IO;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using log4net;
@@ -528,7 +529,7 @@ namespace AES_Controls.Helpers
                 // Use a safe hash for the cache filename to avoid illegal characters
                 string cacheId = BinaryMetadataHelper.GetCacheId(url);
 
-                var cachePath = Path.Combine(AppContext.BaseDirectory, "Cache", cacheId + ".meta");
+                var cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
                 var cacheDir = Path.GetDirectoryName(cachePath);
                 if (!string.IsNullOrEmpty(cacheDir) && !Directory.Exists(cacheDir)) Directory.CreateDirectory(cacheDir);
 
@@ -673,7 +674,7 @@ namespace AES_Controls.Helpers
 
                 string cacheId = BinaryMetadataHelper.GetCacheId(mi.FileName);
 
-                var cachePath = Path.Combine(AppContext.BaseDirectory, "Cache", cacheId + ".meta");
+                var cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
                 var cacheDir = Path.GetDirectoryName(cachePath);
                 if (!string.IsNullOrEmpty(cacheDir) && !Directory.Exists(cacheDir))
                     Directory.CreateDirectory(cacheDir);
@@ -825,7 +826,7 @@ namespace AES_Controls.Helpers
                 if (!File.Exists(item.FileName) && (item.FileName.Contains("youtu", StringComparison.OrdinalIgnoreCase) || item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase)))
                 {
                     string cacheId = BinaryMetadataHelper.GetCacheId(item.FileName);
-                    var cachePath = Path.Combine(AppContext.BaseDirectory, "Cache", cacheId + ".meta");
+                    var cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
 
                     var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
                     metadata.Images ??= new List<ImageData>();

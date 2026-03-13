@@ -1,4 +1,5 @@
-﻿using Avalonia;
+using Avalonia;
+using AES_Core.IO;
 using log4net.Appender;
 using log4net.Config;
 using log4net.Layout;
@@ -39,7 +40,7 @@ namespace AES_Lacrima
             }
             Environment.SetEnvironmentVariable("PATH", currentPath);
 
-            var logsDirectory = GetLogsDirectory();
+            var logsDirectory = ApplicationPaths.LogsDirectory;
             Directory.CreateDirectory(logsDirectory);
 
             var layout = new PatternLayout { ConversionPattern = "%date %-5level %logger - %message%newline%exception" };
@@ -75,63 +76,5 @@ namespace AES_Lacrima
                 .WithInterFont()
                 .With(new SkiaOptions() { MaxGpuResourceSizeBytes = 256000000 })
                 .LogToTrace();
-
-        private static string GetLogsDirectory()
-        {
-            var baseDirectoryLogs = Path.Combine(AppContext.BaseDirectory, "Logs");
-            if (IsDirectoryWritable(AppContext.BaseDirectory))
-            {
-                return baseDirectoryLogs;
-            }
-
-            if (OperatingSystem.IsWindows())
-            {
-                return Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "AES_Lacrima",
-                    "Logs");
-            }
-
-            if (OperatingSystem.IsMacOS())
-            {
-                return Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Personal),
-                    "Library",
-                    "Logs",
-                    "AES_Lacrima");
-            }
-
-            var stateHome = Environment.GetEnvironmentVariable("XDG_STATE_HOME");
-            if (!string.IsNullOrWhiteSpace(stateHome))
-            {
-                return Path.Combine(stateHome, "AES_Lacrima", "Logs");
-            }
-
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.Personal),
-                ".local",
-                "state",
-                "AES_Lacrima",
-                "Logs");
-        }
-
-        private static bool IsDirectoryWritable(string path)
-        {
-            try
-            {
-                Directory.CreateDirectory(path);
-                var probePath = Path.Combine(path, $".write-test-{Guid.NewGuid():N}");
-                using (File.Create(probePath))
-                {
-                }
-
-                File.Delete(probePath);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
     }
 }

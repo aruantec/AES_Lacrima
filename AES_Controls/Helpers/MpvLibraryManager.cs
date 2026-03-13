@@ -1,4 +1,5 @@
-﻿using AES_Core.DI;
+using AES_Core.DI;
+using AES_Core.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using SharpCompress.Archives;
 using SharpCompress.Archives.SevenZip;
@@ -37,12 +38,17 @@ public partial class MpvLibraryManager : ObservableObject
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(MpvLibraryManager));
     private const string Repo = "zhongfly/mpv-winbuild";
-    private readonly string _destFolder = AppContext.BaseDirectory;
+    private readonly string _destFolder = ApplicationPaths.ToolsDirectory;
     private static readonly HttpClient Client = new();
     private int _lastInstallerExitCode;
 
     private static MpvCacheEntry? _cache;
-    private static readonly string _cachePath = Path.Combine(AppContext.BaseDirectory, "mpv_cache.json");
+    private static readonly string _cachePath = Path.Combine(ApplicationPaths.DataRootDirectory, "mpv_cache.json");
+
+    public MpvLibraryManager()
+    {
+        Directory.CreateDirectory(_destFolder);
+    }
 
     private sealed class MpvCacheEntry
     {
@@ -59,6 +65,7 @@ public partial class MpvLibraryManager : ObservableObject
     {
         try
         {
+            Directory.CreateDirectory(Path.GetDirectoryName(_cachePath)!);
             var json = JsonSerializer.Serialize(_cache);
             File.WriteAllText(_cachePath, json);
         }

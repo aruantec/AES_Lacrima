@@ -3,6 +3,7 @@ using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.Interfaces;
+using AES_Core.IO;
 using AES_Lacrima.ViewModels;
 using AES_Core.Services;
 using Avalonia;
@@ -61,7 +62,7 @@ namespace AES_Lacrima.Mini.ViewModels
 
         #region Observable / AutoResolve properties
         // Settings path
-        protected override string SettingsFilePath => Path.Combine(AppContext.BaseDirectory, "Settings", "CustomPlaylist.json");
+        protected override string SettingsFilePath => ApplicationPaths.GetSettingsFile("CustomPlaylist.json");
 
         [ObservableProperty]
         private bool _extensionAreaOpen;
