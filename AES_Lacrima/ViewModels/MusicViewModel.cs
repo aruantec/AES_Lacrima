@@ -119,8 +119,6 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private string? _addPlaylistText;
 
-        private MetadataScrapper? _playlistScrapper;
-
         [ObservableProperty]
         private bool _isAddingPlaylist;
 
@@ -958,7 +956,7 @@ namespace AES_Lacrima.ViewModels
                     var item = new MediaItem
                     {
                         FileName = url,
-                        Title = Path.GetFileName(url),
+                        Title = YouTubeThumbnail.ExtractVideoIdWithRegex(url) ?? Path.GetFileName(url),
                         CoverBitmap = DefaultFolderCover
                     };
                     CoverItems.Add(item);
@@ -992,14 +990,6 @@ namespace AES_Lacrima.ViewModels
                     AddPlaylistText = string.Empty;
                     IsAddingPlaylist = true;
 
-                    // Ensure we have a scrapper for the current cover items if not already created
-                    if (_playlistScrapper == null && AudioPlayer != null)
-                    {
-                        var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
-                        if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
-                        _playlistScrapper = new MetadataScrapper(CoverItems, AudioPlayer, DefaultFolderCover, agentInfo, 512);
-                    }
-
                     _ = Task.Run(async () =>
                     {
                         try
@@ -1016,6 +1006,7 @@ namespace AES_Lacrima.ViewModels
                             }
 
                             bool firstItem = true;
+                            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
 
                             foreach (var url in urls)
                             {
@@ -1030,7 +1021,7 @@ namespace AES_Lacrima.ViewModels
                                 var item = new MediaItem
                                 {
                                     FileName = url,
-                                    Title = Path.GetFileName(url),
+                                    Title = YouTubeThumbnail.ExtractVideoIdWithRegex(url) ?? Path.GetFileName(url),
                                     CoverBitmap = DefaultFolderCover
                                 };
 
@@ -1054,8 +1045,10 @@ namespace AES_Lacrima.ViewModels
                                     firstItem = false;
                                 });
 
-                                // MetadataScrapper is already watching CoverItems, so it will pick up the new item automatically.
-                                
+                        // Start scrapper for this single item
+                                var scanList = new AvaloniaList<MediaItem> { item };
+                                _ = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+
                                 // Brief yield to allow UI to breathe
                                 await Task.Delay(50);
                             }
@@ -1333,9 +1326,9 @@ namespace AES_Lacrima.ViewModels
             catch (Exception ex)
             {
                 Console.WriteLine($"Error fetching playlist: {ex.Message}");
-                return new List<string>();
+                return [.. new List<string>()];
             }
-}
+        }
 
         #endregion
 

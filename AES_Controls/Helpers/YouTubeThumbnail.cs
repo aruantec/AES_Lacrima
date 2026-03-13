@@ -62,7 +62,7 @@ public abstract class YouTubeThumbnail
     /// </summary>
     /// <param name="url">The URL or potential video ID.</param>
     /// <returns>The extracted 11-character video ID, or null if not found.</returns>
-    public static string? ExtractVideoIdWithRegex(string url)
+    public static string? ExtractVideoId(string url)
     {
         if (string.IsNullOrWhiteSpace(url))
             return null;
@@ -91,6 +91,12 @@ public abstract class YouTubeThumbnail
 
         return null;
     }
+
+    /// <summary>
+    /// Obsolete. Use ExtractVideoId.
+    /// </summary>
+    public static string? ExtractVideoIdWithRegex(string url) => ExtractVideoId(url);
+
 
     /// <summary>
     /// Cleans up a URL or video ID to its canonical watch format.
@@ -228,10 +234,10 @@ public abstract class YouTubeThumbnail
     {
         try
         {
-            string videoId = ExtractVideoId(url);
+            string? videoId = ExtractVideoIdWithRegex(url);
             bool isYouTube = url.Contains("youtube.com") || url.Contains("youtu.be");
 
-            if (isYouTube && videoId != url && videoId.Length == 11)
+            if (isYouTube && videoId != null && videoId.Length == 11)
             {
                 var ytMeta = await GetVideoMetadataAsync(videoId);
                 // If specific scraping worked, return it.
@@ -609,31 +615,5 @@ public abstract class YouTubeThumbnail
                       .Replace(")", "")
                       .Replace("/", "_")
                       .Replace("\\", "_");
-    }
-
-    /// <summary>
-    /// Extracts a 11-character video ID from various URL formats.
-    /// </summary>
-    /// <param name="input">The URL or string containing the video ID.</param>
-    /// <returns>The extracted video ID or the original input if no match is found.</returns>
-    public static string ExtractVideoId(string input)
-    {
-        // Handle different URL formats
-        if (input.Contains("youtube.com/watch?v="))
-        {
-            var match = Regex.Match(input, @"[?&]v=([^&]+)");
-            return match.Success ? match.Groups[1].Value : input;
-        }
-        else if (input.Contains("youtu.be/"))
-        {
-            var match = Regex.Match(input, @"youtu\.be/([^?]+)");
-            return match.Success ? match.Groups[1].Value : input;
-        }
-        else if (input.Contains("youtube.com/embed/"))
-        {
-            var match = Regex.Match(input, @"embed/([^?]+)");
-            return match.Success ? match.Groups[1].Value : input;
-        }
-        return input;
     }
 }
