@@ -39,18 +39,17 @@ namespace AES_Lacrima
             }
             Environment.SetEnvironmentVariable("PATH", currentPath);
 
-            // Ensure the Logs directory exists and configure a rolling file appender so
-            // that logs are written to Logs/log.txt
-            Directory.CreateDirectory("Logs");
+            var logsDirectory = GetLogsDirectory();
+            Directory.CreateDirectory(logsDirectory);
 
             var layout = new PatternLayout { ConversionPattern = "%date %-5level %logger - %message%newline%exception" };
             layout.ActivateOptions();
 
-            // Use a single file appender that writes to Logs/log.txt
+            // Use a single file appender that writes to a writable per-user log directory.
             var fileAppender = new FileAppender
             {
                 AppendToFile = false,
-                File = Path.Combine("Logs", "log.txt"),
+                File = Path.Combine(logsDirectory, "log.txt"),
                 Layout = layout,
                 LockingModel = new FileAppender.MinimalLock()
             };
@@ -76,5 +75,63 @@ namespace AES_Lacrima
                 .WithInterFont()
                 .With(new SkiaOptions() { MaxGpuResourceSizeBytes = 256000000 })
                 .LogToTrace();
+
+        private static string GetLogsDirectory()
+        {
+            var baseDirectoryLogs = Path.Combine(AppContext.BaseDirectory, "Logs");
+            if (IsDirectoryWritable(AppContext.BaseDirectory))
+            {
+                return baseDirectoryLogs;
+            }
+
+            if (OperatingSystem.IsWindows())
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "AES_Lacrima",
+                    "Logs");
+            }
+
+            if (OperatingSystem.IsMacOS())
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.Personal),
+                    "Library",
+                    "Logs",
+                    "AES_Lacrima");
+            }
+
+            var stateHome = Environment.GetEnvironmentVariable("XDG_STATE_HOME");
+            if (!string.IsNullOrWhiteSpace(stateHome))
+            {
+                return Path.Combine(stateHome, "AES_Lacrima", "Logs");
+            }
+
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Personal),
+                ".local",
+                "state",
+                "AES_Lacrima",
+                "Logs");
+        }
+
+        private static bool IsDirectoryWritable(string path)
+        {
+            try
+            {
+                Directory.CreateDirectory(path);
+                var probePath = Path.Combine(path, $".write-test-{Guid.NewGuid():N}");
+                using (File.Create(probePath))
+                {
+                }
+
+                File.Delete(probePath);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
     }
 }
