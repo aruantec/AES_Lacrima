@@ -1056,7 +1056,7 @@ namespace AES_Lacrima.ViewModels
                                 _ = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
 
                                 // Sequential delay to prevent rate limiting and allow UI to breathe
-                                await Task.Delay(200);
+                                await Task.Delay(500);
                             }
                         }
                         finally
