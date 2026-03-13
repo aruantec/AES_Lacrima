@@ -19,5 +19,8 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Restore local tools
+        run: dotnet tool restore
+
       - name: Run NUKE test target
         run: ./build.sh Test --configuration Release
