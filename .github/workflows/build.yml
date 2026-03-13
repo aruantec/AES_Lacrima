@@ -6,8 +6,12 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  test:
+    name: Test
     runs-on: ubuntu-latest
 
     steps:
@@ -19,8 +23,104 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Ensure scripts are executable
+        run: chmod +x ./build.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh
+
       - name: Restore local tools
         run: dotnet tool restore
 
       - name: Run NUKE test target
         run: ./build.sh Test --configuration Release
+
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows win-x64
+            runs_on: windows-latest
+            runtime: win-x64
+            package_type: windows
+            artifact_name: AES-Lacrima-windows-win-x64
+            asset_name: AES-Lacrima-windows-win-x64.zip
+          - name: macOS osx-arm64
+            runs_on: macos-latest
+            runtime: osx-arm64
+            package_type: macos
+            artifact_name: AES-Lacrima-macos-osx-arm64
+            asset_name: AES-Lacrima-macos-osx-arm64.zip
+          - name: Linux x86_64 AppImage
+            runs_on: ubuntu-latest
+            runtime: linux-x64
+            package_type: appimage
+            artifact_name: AES-Lacrima-x86_64
+            asset_name: AES-Lacrima-x86_64.AppImage
+            appimage_arch: x86_64
+          - name: Linux aarch64 AppImage
+            runs_on: ubuntu-24.04-arm
+            runtime: linux-arm64
+            package_type: appimage
+            artifact_name: AES-Lacrima-aarch64
+            asset_name: AES-Lacrima-aarch64.AppImage
+            appimage_arch: aarch64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Ensure scripts are executable
+        if: runner.os != 'Windows'
+        run: chmod +x ./build.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh
+
+      - name: Publish app on Windows
+        if: matrix.package_type == 'windows'
+        shell: pwsh
+        run: .\build.cmd Publish --configuration Release --runtime ${{ matrix.runtime }}
+
+      - name: Publish app on Unix
+        if: matrix.package_type != 'windows'
+        run: ./build.sh Publish --configuration Release --runtime ${{ matrix.runtime }}
+
+      - name: Package Windows archive
+        if: matrix.package_type == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          Compress-Archive -Path output/publish/Release/${{ matrix.runtime }}/* -DestinationPath artifacts/${{ matrix.asset_name }}
+
+      - name: Package macOS archive
+        if: matrix.package_type == 'macos'
+        run: |
+          mkdir -p artifacts
+          ditto -c -k --sequesterRsrc --keepParent "output/publish/Release/${{ matrix.runtime }}/AES_Lacrima.app" "artifacts/${{ matrix.asset_name }}"
+
+      - name: Download appimagetool
+        if: matrix.package_type == 'appimage'
+        run: |
+          mkdir -p tools artifacts
+          curl -fsSL -o "tools/appimagetool.AppImage" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.appimage_arch }}.AppImage"
+          chmod +x "tools/appimagetool.AppImage"
+
+      - name: Package AppImage
+        if: matrix.package_type == 'appimage'
+        env:
+          APPIMAGETOOL: ${{ github.workspace }}/tools/appimagetool.AppImage
+        run: |
+          ./AES_Lacrima/Linux/package-appimage.sh \
+            "output/publish/Release/${{ matrix.runtime }}" \
+            "artifacts" \
+            "${{ matrix.appimage_arch }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: artifacts/${{ matrix.asset_name }}
+          if-no-files-found: error
