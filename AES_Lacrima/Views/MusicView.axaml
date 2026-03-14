@@ -91,6 +91,23 @@
                     </MenuItem.Icon>
                 </MenuItem>
 
+                <!-- Reload Metadata -->
+                <MenuItem Header="Reload Metadata" CornerRadius="8" 
+                          Command="{Binding ReloadMetadataCommand}" 
+                          CommandParameter="{Binding PointedIndex}"
+                          IsVisible="{Binding IsItemPointed}">
+                    <MenuItem.Icon>
+                        <Viewbox Width="32" Height="32" Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <!-- Circular arrow for reload -->
+                                <Path Data="M 80,50 C 80,66.5 66.5,80 50,80 C 33.5,80 20,66.5 20,50 C 20,33.5 33.5,20 50,20 C 58,20 65,23 71,28" 
+                                      Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" StrokeLineCap="Round" />
+                                <Path Data="M 65,35 L 71,28 L 65,21" Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" StrokeLineCap="Round" />
+                            </Canvas>
+                        </Viewbox>
+                    </MenuItem.Icon>
+                </MenuItem>
+
                 <!-- Edit Metadata -->
                 <MenuItem Header="Edit Metadata" CornerRadius="8" 
                           Command="{Binding OpenMetadataCommand}" 
