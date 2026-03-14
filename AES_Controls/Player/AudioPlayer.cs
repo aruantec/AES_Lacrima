@@ -1468,22 +1468,30 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
             if (cached != null && durationKnown && cached.DurationSeconds > 0)
             {
-                if (Math.Abs(cached.DurationSeconds - duration) > 1.0)
+                // For long remote streams we only analyze up to 10 minutes, so duration can drift
+                // without meaning the cache is invalid. Only enforce strict duration checks when
+                // we analyzed (or intended to analyze) the full duration.
+                bool validateDuration = !isRemote || duration <= 600 || cached.MaxSecondsAnalyzed >= duration - 1;
+                if (validateDuration)
                 {
-                    try
+                    var tolerance = Math.Max(1.0, duration * 0.005);
+                    if (Math.Abs(cached.DurationSeconds - duration) > tolerance)
                     {
-                        if (cachePath != null && File.Exists(cachePath))
-                            File.Delete(cachePath);
+                        try
+                        {
+                            if (cachePath != null && File.Exists(cachePath))
+                                File.Delete(cachePath);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warn("Failed to delete stale waveform cache", ex);
+                        }
+                        cached = null;
+                        cachedWaveform = null;
+                        cachedFilled = 0;
+                        cachedGlobalMax = 0f;
+                        cachedTrailingSilence = 0;
                     }
-                    catch (Exception ex)
-                    {
-                        Log.Warn("Failed to delete stale waveform cache", ex);
-                    }
-                    cached = null;
-                    cachedWaveform = null;
-                    cachedFilled = 0;
-                    cachedGlobalMax = 0f;
-                    cachedTrailingSilence = 0;
                 }
             }
 
