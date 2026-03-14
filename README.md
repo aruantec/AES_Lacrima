@@ -29,6 +29,8 @@ See `BUILDING.md` for platform packaging details, AppImage guidance, CI artifact
 
 Showcase:
 
+![ShowCaseMain](AES_Lacrima/Assets/ShowCaseMain.png)
+
 <img width="3840" height="2004" alt="image" src="https://github.com/user-attachments/assets/d6b80046-6521-4c75-906d-3593c3650482" />
 
 
