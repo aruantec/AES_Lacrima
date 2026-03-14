@@ -42,6 +42,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     private readonly FFmpegManager? _ffmpegManager;
     private readonly MpvLibraryManager? _mpvLibraryManager;
     private CancellationTokenSource? _waveformCts;
+    private Task? _waveformTask;
+    private string? _waveformInProgressFile;
     private readonly TaskCompletionSource _initTcs = new();
     // Dedicated MPV thread queue and worker to ensure all libmpv interop
     // runs on a single thread that owns the mpv handle.
@@ -1155,7 +1157,11 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         // Attempting to generate before duration is available often produces garbage
         // data, so simply defer until Duration > 0.  The Duration setter below will
         // call this method again when the property is updated.
-        if (EnableWaveform && (_waveformLoadedFile != _loadedFile) && Duration > 0)
+        bool sameWaveformRunning = _waveformTask != null
+            && !_waveformTask.IsCompleted
+            && string.Equals(_waveformInProgressFile, _loadedFile, StringComparison.Ordinal);
+
+        if (EnableWaveform && (_waveformLoadedFile != _loadedFile) && Duration > 0 && !sameWaveformRunning)
         {
             try { _waveformCts?.Cancel(); }
             catch (Exception ex) { Log.Warn("Failed to cancel waveform CTS", ex); }
@@ -1163,7 +1169,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             catch (Exception ex) { Log.Warn("Failed to dispose waveform CTS", ex); }
             _waveformCts = new CancellationTokenSource();
             var cacheKey = _waveformCacheKey ?? _loadedFile;
-            _ = GenerateWaveformAsync(_loadedFile, cacheKey, _waveformCts.Token, WaveformBuckets);
+            _waveformInProgressFile = _loadedFile;
+            _waveformTask = GenerateWaveformAsync(_loadedFile, cacheKey, _waveformCts.Token, WaveformBuckets);
         }
     }
 
@@ -1786,6 +1793,11 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             catch (Exception ex)
             {
                 Log.Warn("Failed to persist waveform cache in finally", ex);
+            }
+            if (string.Equals(_waveformInProgressFile, path, StringComparison.Ordinal))
+            {
+                _waveformInProgressFile = null;
+                _waveformTask = null;
             }
             _activeFfmpegProcess = null;
             IsLoadingWaveform = false;
