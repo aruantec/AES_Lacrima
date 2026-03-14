@@ -573,6 +573,24 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
+        private async Task ReloadMetadata(object? parameter)
+        {
+            MediaItem? target;
+            if (parameter is MediaItem mi) target = mi;
+            else if (parameter is int index && index >= 0 && index < CoverItems.Count) target = CoverItems[index];
+            else target = HighlightedItem;
+
+            if (target == null || AudioPlayer == null) return;
+
+            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+            if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
+
+            // Use the scrapper to force a reload, which will bypass the cache and update the item
+            var scrapper = new MetadataScrapper(new AvaloniaList<MediaItem>(), AudioPlayer, DefaultFolderCover, agentInfo, 512);
+            await scrapper.EnqueueLoadForPublic(target);
+        }
+
+        [RelayCommand]
         private void ToggleEqualizer()
         {
             if (MetadataService != null && MetadataService.IsMetadataLoaded)
@@ -917,7 +935,30 @@ namespace AES_Lacrima.ViewModels
             AudioPlayer.AutoSkipTrailingSilence = true;
             // Re-subscribe to events
             AudioPlayer.PropertyChanged += AudioPlayer_PropertyChanged;
-            AudioPlayer.EndReached += async (_, _) => await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(PlayNext);
+            
+            bool isTransitioning = false;
+            AudioPlayer.EndReached += async (_, _) => 
+            {
+                if (isTransitioning) return;
+                isTransitioning = true;
+                
+                try
+                {
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () => 
+                    {
+                        await PlayNext();
+                    });
+                }
+                finally
+                {
+                    // Brief delay to prevent double-skipping while song is loading
+                    _ = Task.Run(async () => 
+                    {
+                        await Task.Delay(1000);
+                        isTransitioning = false;
+                    });
+                }
+            };
         }
         #endregion
 

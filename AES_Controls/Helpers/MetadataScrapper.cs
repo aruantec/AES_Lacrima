@@ -117,7 +117,7 @@ namespace AES_Controls.Helpers
         /// <param name="mi">The media item to process.</param>
         /// <param name="ct">Unused cancellation token for legacy compatibility.</param>
         /// <returns>A task representing the load operation.</returns>
-        public Task EnqueueLoadForPublic(MediaItem mi, CancellationToken ct = default) => LoadMetadataForItemAsync(mi, ct);
+        public Task EnqueueLoadForPublic(MediaItem mi, CancellationToken ct = default) => LoadMetadataForItemAsync(mi, ct, true);
 
         /// <summary>
         /// Internal logic to decide if metadata needs to be loaded (e.g. if title is missing or cover is default).
@@ -136,13 +136,14 @@ namespace AES_Controls.Helpers
         /// Performs the actual extraction of metadata for a media item.
         /// Extracts local tags, embedded images, or fetches online metadata if needed.
         /// </summary>
-        private async Task LoadMetadataForItemAsync(MediaItem mi, CancellationToken? externalToken = null)
+        private async Task LoadMetadataForItemAsync(MediaItem mi, CancellationToken? externalToken = null, bool force = false)
         {
             if (string.IsNullOrWhiteSpace(mi.FileName) || _disposed) return;
 
             var key = mi.FileName!;
 
-            if (_coverCache.TryGetValue(key, out var cachedBmp))
+            // Bypass memory cache if force is true
+            if (!force && _coverCache.TryGetValue(key, out var cachedBmp))
             {
                 await Dispatcher.UIThread.InvokeAsync(() => {
                     mi.CoverBitmap = cachedBmp;
@@ -168,9 +169,24 @@ namespace AES_Controls.Helpers
 
                 await Dispatcher.UIThread.InvokeAsync(() => mi.IsLoadingCover = true);
 
-                if (!File.Exists(key))
+                bool isLocalFile = File.Exists(key);
+                string cacheId = BinaryMetadataHelper.GetCacheId(key);
+                string cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
+
+                // Check for sidecar .meta file first (local or remote)
+                if (!force && File.Exists(cachePath))
                 {
-                    await SetupOnlineMetadata(mi).ConfigureAwait(false);
+                    var meta = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath), token);
+                    if (meta != null && !string.IsNullOrWhiteSpace(meta.Title) && !key.Contains(meta.Title))
+                    {
+                        await ApplyMetadataToItem(mi, meta, key).ConfigureAwait(false);
+                        return;
+                    }
+                }
+
+                if (!isLocalFile)
+                {
+                    await SetupOnlineMetadata(mi, force).ConfigureAwait(false);
                     return;
                 }
 
@@ -318,6 +334,50 @@ namespace AES_Controls.Helpers
                 }
             }
             catch (Exception ex) { Log.Error($"Error processing embedded images for {key}", ex); }
+        }
+
+        private async Task ApplyMetadataToItem(MediaItem mi, CustomMetadata meta, string key)
+        {
+            await Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                if (meta == null) return;
+
+                mi.Title = meta.Title;
+                mi.Artist = meta.Artist;
+                mi.Album = meta.Album;
+                mi.Year = meta.Year;
+                mi.Genre = meta.Genre;
+                mi.Track = meta.Track;
+                mi.Comment = meta.Comment;
+                mi.Lyrics = meta.Lyrics;
+                mi.ReplayGainTrackGain = meta.ReplayGainTrackGain;
+                mi.ReplayGainAlbumGain = meta.ReplayGainAlbumGain;
+
+                var cover = meta.Images?.FirstOrDefault(x => x.Kind != TagImageKind.Wallpaper);
+                if (cover != null)
+                {
+                    var bmp = await Task.Run(() =>
+                    {
+                        using var ms = new MemoryStream(cover.Data);
+                        return _maxThumbnailWidth.HasValue
+                            ? Bitmap.DecodeToWidth(ms, _maxThumbnailWidth.Value)
+                            : new Bitmap(ms);
+                    });
+                    AddToCoverCache(key, bmp);
+                    mi.CoverBitmap = bmp;
+                }
+
+                var wall = meta.Images?.FirstOrDefault(x => x.Kind == TagImageKind.Wallpaper);
+                if (wall != null)
+                {
+                    var wBmp = await Task.Run(() =>
+                    {
+                        using var ms = new MemoryStream(wall.Data);
+                        return new Bitmap(ms);
+                    });
+                    mi.WallpaperBitmap = wBmp;
+                }
+            });
         }
 
         private bool IsWithinEmbeddedImageCap(byte[] data)
@@ -529,7 +589,7 @@ namespace AES_Controls.Helpers
         /// Attempts to find and apply metadata for a URL.
         /// Checks local cache first before fetching from online providers.
         /// </summary>
-        public async Task SetupOnlineMetadata(MediaItem mi)
+        public async Task SetupOnlineMetadata(MediaItem mi, bool force = false)
         {
             try
             {
@@ -543,56 +603,12 @@ namespace AES_Controls.Helpers
                 var cacheDir = Path.GetDirectoryName(cachePath);
                 if (!string.IsNullOrEmpty(cacheDir) && !Directory.Exists(cacheDir)) Directory.CreateDirectory(cacheDir);
 
-                if (File.Exists(cachePath))
+                if (!force && File.Exists(cachePath))
                 {
                     var meta = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath));
-
-                    // Check if cache contains valid info or just leftovers from a failed previous scrape
-                    bool isPlaceholder = meta == null || string.IsNullOrWhiteSpace(meta.Title) || 
-                                       url.Contains(meta.Title, StringComparison.OrdinalIgnoreCase);
-
-                    if (!isPlaceholder)
+                    if (meta != null && !string.IsNullOrWhiteSpace(meta.Title) && !url.Contains(meta.Title))
                     {
-                        await Dispatcher.UIThread.InvokeAsync(async () =>
-                        {
-                            if (meta == null) return;
-
-                            //Load basic info from metadata
-                            if (!string.IsNullOrWhiteSpace(meta.Title))
-                                mi.Title = meta.Title;
-                            if (!string.IsNullOrWhiteSpace(meta.Artist))
-                                mi.Artist = meta.Artist;
-                            if (!string.IsNullOrWhiteSpace(meta.Album))
-                                mi.Album = meta.Album;
-                            if (meta.Year > 0)
-                                mi.Year = meta.Year;
-                            if (!string.IsNullOrWhiteSpace(meta.Genre))
-                                mi.Genre = meta.Genre;
-                            if (meta.Track > 0)
-                                mi.Track = meta.Track;
-                            if (!string.IsNullOrWhiteSpace(meta.Comment))
-                                mi.Comment = meta.Comment;
-                            if (!string.IsNullOrWhiteSpace(meta.Lyrics))
-                                mi.Lyrics = meta.Lyrics;
-
-                            mi.ReplayGainTrackGain = meta.ReplayGainTrackGain;
-                            mi.ReplayGainAlbumGain = meta.ReplayGainAlbumGain;
-
-                            //Load cover from metadata
-                            var cover = meta.Images?.FirstOrDefault(x => x.Kind != TagImageKind.Wallpaper);
-                            if (cover != null)
-                            {
-                                var mi_bmp = await Task.Run(() => {
-                                    using var ms = new MemoryStream(cover.Data);
-                                    return _maxThumbnailWidth.HasValue
-                                        ? Bitmap.DecodeToWidth(ms, _maxThumbnailWidth.Value)
-                                        : new Bitmap(ms);
-                                });
-
-                                AddToCoverCache(mi.FileName!, mi_bmp);
-                                mi.CoverBitmap = mi_bmp;
-                            }
-                        });
+                        await ApplyMetadataToItem(mi, meta, url).ConfigureAwait(false);
                         return;
                     }
                 }
@@ -602,19 +618,19 @@ namespace AES_Controls.Helpers
 
                 // Immediately set title/artist/genre/year on UI
                 await Dispatcher.UIThread.InvokeAsync(() => {
-                    // Overwrite title if it is empty, matches the full URL, or contains the title (likely placeholder like video ID)
+                    // Overwrite title regardless if force is true, otherwise only if it's a placeholder
                     bool isPlaceholder = string.IsNullOrWhiteSpace(mi.Title) || 
                                        mi.Title == mi.FileName || 
                                        (mi.FileName != null && mi.FileName.Contains(mi.Title));
 
-                    if (isPlaceholder)
+                    if (force || isPlaceholder)
                         mi.Title = videoTitle;
 
-                    if (string.IsNullOrWhiteSpace(mi.Artist))
+                    if (force || string.IsNullOrWhiteSpace(mi.Artist))
                         mi.Artist = videoAuthor;
-                    if (mi.Year == 0 && videoYear > 0)
+                    if (force || (mi.Year == 0 && videoYear > 0))
                         mi.Year = videoYear;
-                    if (string.IsNullOrWhiteSpace(mi.Genre))
+                    if (force || string.IsNullOrWhiteSpace(mi.Genre))
                         mi.Genre = videoGenre;
                 });
 
