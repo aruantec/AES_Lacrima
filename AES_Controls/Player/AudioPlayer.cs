@@ -11,6 +11,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Collections.Concurrent;
+using System.Text.Json;
 using log4net;
 
 namespace AES_Controls.Player;
@@ -24,7 +25,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(AudioPlayer));
 
-    private string? _loadedFile, _waveformLoadedFile;
+    private string? _loadedFile, _waveformLoadedFile, _waveformCacheKey;
     private readonly SynchronizationContext? _syncContext;
     private volatile bool _isLoadingMedia, _isSeeking;
     private CancellationTokenSource? _seekRestartCts;
@@ -89,6 +90,11 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     // THROTTLING: Keep track of the last time the spectrum was updated
     private long _lastSpectrumUpdateTicks;
     private const long SpectrumThrottleIntervalTicks = 83333; // ~8.3ms for 120 FPS
+    private const int WaveformCacheVersion = 1;
+    private static readonly JsonSerializerOptions WaveformCacheJsonOptions = new()
+    {
+        WriteIndented = false
+    };
 
     /// <summary>
     /// True when a programmatic seek operation is in progress.
@@ -423,6 +429,158 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             throw new ObjectDisposedException(nameof(AudioPlayer));
 
         _mpvQueue.Add(action);
+    }
+
+    private sealed class WaveformCacheEntry
+    {
+        public int Version { get; set; } = WaveformCacheVersion;
+        public int Buckets { get; set; }
+        public int FilledBuckets { get; set; }
+        public float GlobalMax { get; set; }
+        public double TrailingSilenceSeconds { get; set; }
+        public double MaxSecondsAnalyzed { get; set; }
+        public double DurationSeconds { get; set; }
+        public bool IsComplete { get; set; }
+        public DateTime UpdatedUtc { get; set; }
+        public float[] Waveform { get; set; } = [];
+    }
+
+    private static string GetWaveformCachePath(string cacheKey, int buckets)
+    {
+        var cacheId = BinaryMetadataHelper.GetCacheId(cacheKey);
+        var dir = Path.Combine(ApplicationPaths.CacheDirectory, "Waveform");
+        return Path.Combine(dir, $"{cacheId}_{buckets}.json");
+    }
+
+    private static bool IsRemoteUri(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri)
+               && !uri.IsFile
+               && (uri.Scheme == "http" || uri.Scheme == "https" || uri.Scheme == "rtmp" || uri.Scheme == "rtsp");
+    }
+
+    private static readonly HashSet<string> VolatileQueryKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "expire", "expires", "exp", "signature", "sig", "s", "lsig", "lsparams", "token", "auth",
+        "policy", "key", "h", "hash", "mh", "mm", "mn", "ms", "mt", "mv", "mvi", "ratebypass",
+        "rn", "rbuf", "range", "clen", "dur", "lmt", "ei", "source", "gir", "alr", "reqid",
+        "cp", "cver", "c", "fexp", "cms_redirect", "redirect_counter", "redirect_attempts"
+    };
+
+    private static string NormalizeRemoteCacheKey(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return url;
+        if (string.IsNullOrEmpty(uri.Query)) return uri.GetLeftPart(UriPartial.Path);
+
+        var pairs = new List<(string key, string value)>();
+        var query = uri.Query.TrimStart('?');
+        foreach (var part in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var idx = part.IndexOf('=');
+            string key;
+            string value;
+            if (idx >= 0)
+            {
+                key = Uri.UnescapeDataString(part[..idx]);
+                value = Uri.UnescapeDataString(part[(idx + 1)..]);
+            }
+            else
+            {
+                key = Uri.UnescapeDataString(part);
+                value = string.Empty;
+            }
+
+            if (VolatileQueryKeys.Contains(key)) continue;
+            pairs.Add((key, value));
+        }
+
+        if (pairs.Count == 0) return uri.GetLeftPart(UriPartial.Path);
+
+        pairs.Sort((a, b) =>
+        {
+            var c = string.Compare(a.key, b.key, StringComparison.OrdinalIgnoreCase);
+            return c != 0 ? c : string.Compare(a.value, b.value, StringComparison.OrdinalIgnoreCase);
+        });
+
+        var rebuilt = string.Join("&", pairs.Select(p =>
+            string.IsNullOrEmpty(p.value)
+                ? Uri.EscapeDataString(p.key)
+                : $"{Uri.EscapeDataString(p.key)}={Uri.EscapeDataString(p.value)}"));
+
+        return $"{uri.GetLeftPart(UriPartial.Path)}?{rebuilt}";
+    }
+
+    private static string GetWaveformCacheKey(MediaItem? item, string fileToPlay)
+    {
+        if (item != null && IsRemoteUri(item.FileName))
+        {
+            return NormalizeRemoteCacheKey(item.FileName!);
+        }
+
+        if (IsRemoteUri(fileToPlay))
+        {
+            return NormalizeRemoteCacheKey(fileToPlay);
+        }
+
+        return fileToPlay;
+    }
+
+    private static WaveformCacheEntry? LoadWaveformCache(string cachePath, int buckets)
+    {
+        try
+        {
+            if (!File.Exists(cachePath)) return null;
+            var json = File.ReadAllText(cachePath);
+            var entry = JsonSerializer.Deserialize<WaveformCacheEntry>(json, WaveformCacheJsonOptions);
+            if (entry == null) return null;
+            if (entry.Version != WaveformCacheVersion) return null;
+            if (entry.Buckets != buckets) return null;
+            if (entry.Waveform == null || entry.Waveform.Length != buckets) return null;
+            if (entry.FilledBuckets < 0 || entry.FilledBuckets > buckets) return null;
+            return entry;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to load waveform cache", ex);
+            return null;
+        }
+    }
+
+    private static void SaveWaveformCache(string cachePath, WaveformCacheEntry entry)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(cachePath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            entry.UpdatedUtc = DateTime.UtcNow;
+            var json = JsonSerializer.Serialize(entry, WaveformCacheJsonOptions);
+            var tmp = cachePath + ".tmp";
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, cachePath, true);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to save waveform cache", ex);
+        }
+    }
+
+    private static float[] NormalizeWaveform(float[] raw, float globalMax)
+    {
+        const float verticalGain = 1.1f;
+        const float minVisible = 0.01f;
+
+        var normalized = new float[raw.Length];
+        if (globalMax <= 0f) globalMax = 1f;
+
+        for (int i = 0; i < raw.Length; i++)
+        {
+            var v = (raw[i] / globalMax) * verticalGain;
+            v = Math.Max(v, minVisible);
+            normalized[i] = Math.Min(1f, v);
+        }
+
+        return normalized;
     }
 
     /// <summary>
@@ -1004,7 +1162,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             try { _waveformCts?.Dispose(); }
             catch (Exception ex) { Log.Warn("Failed to dispose waveform CTS", ex); }
             _waveformCts = new CancellationTokenSource();
-            _ = GenerateWaveformAsync(_loadedFile, _waveformCts.Token, WaveformBuckets);
+            var cacheKey = _waveformCacheKey ?? _loadedFile;
+            _ = GenerateWaveformAsync(_loadedFile, cacheKey, _waveformCts.Token, WaveformBuckets);
         }
     }
 
@@ -1174,6 +1333,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         IsLoadingMedia = true;
         OnPropertyChanged(nameof(IsLoadingMedia));
         _loadedFile = fileToPlay;
+        _waveformCacheKey = GetWaveformCacheKey(item, fileToPlay);
         var mpvLoadTarget = ToMpvLoadTarget(fileToPlay);
 
         // Reset per-file gain synchronously to ensure the initial UpdateAf call doesn't use stale metadata
@@ -1247,14 +1407,25 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     }
 
 
-    private async Task GenerateWaveformAsync(string path, CancellationToken token, int buckets = 4000)
+    private async Task GenerateWaveformAsync(string path, string cacheKey, CancellationToken token, int buckets = 4000)
     {
         if (!EnableWaveform || string.IsNullOrEmpty(path) || buckets <= 0) return;
+        if (string.IsNullOrEmpty(cacheKey)) cacheKey = path;
         // do not mark the file as "loaded" until we successfully generate the data;
         // earlier code placed this at the start which prevented retries when the
         // operation was cancelled or failed midway.
 
         _ffmpegManager?.ReportActivity(true);
+        string? cachePath = null;
+        WaveformCacheEntry? cached = null;
+        float[]? cachedWaveform = null;
+        float[]? waveformData = null;
+        float globalMax = 0f;
+        double maxSecondsToAnalyze = 0;
+        double duration = 0;
+        bool durationKnown = false;
+        int currentBucket = 0;
+        bool completed = false;
         try
         {
             if (_activeFfmpegProcess != null && !_activeFfmpegProcess.HasExited)
@@ -1274,32 +1445,102 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         {
             if (token.IsCancellationRequested) return;
 
-            bool isRemote = false;
-            if (Uri.TryCreate(path, UriKind.Absolute, out var uri))
-                isRemote = !uri.IsFile && (uri.Scheme == "http" || uri.Scheme == "https" || uri.Scheme == "rtmp" || uri.Scheme == "rtsp");
+            bool isRemote = IsRemoteUri(path);
 
             // Wait for a valid duration. 
             // For long files (1h+), mpv might take a split second to probe it.
-            var duration = Duration;
+            duration = Duration;
             for (int i = 0; i < 50 && duration <= 0; i++)
             {
                 await Task.Delay(100, token);
                 duration = Duration;
             }
 
-            if (duration <= 0) duration = 300; // Final fallback
+            durationKnown = duration > 0;
+            if (!durationKnown) duration = 300; // Final fallback
+
+            cachePath = GetWaveformCachePath(cacheKey, buckets);
+            cached = LoadWaveformCache(cachePath, buckets);
+            cachedWaveform = cached?.Waveform;
+            var cachedFilled = cached?.FilledBuckets ?? 0;
+            var cachedGlobalMax = cached?.GlobalMax ?? 0f;
+            var cachedTrailingSilence = cached?.TrailingSilenceSeconds ?? 0;
+
+            if (cached != null && durationKnown && cached.DurationSeconds > 0)
+            {
+                if (Math.Abs(cached.DurationSeconds - duration) > 1.0)
+                {
+                    try
+                    {
+                        if (cachePath != null && File.Exists(cachePath))
+                            File.Delete(cachePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("Failed to delete stale waveform cache", ex);
+                    }
+                    cached = null;
+                    cachedWaveform = null;
+                    cachedFilled = 0;
+                    cachedGlobalMax = 0f;
+                    cachedTrailingSilence = 0;
+                }
+            }
+
+            if (cachedWaveform != null && cachedWaveform.Length == buckets)
+            {
+                if (cached.IsComplete && cachedFilled >= buckets)
+                {
+                    var normalized = NormalizeWaveform(cachedWaveform, cachedGlobalMax);
+                    _syncContext?.Post(_ =>
+                    {
+                        Waveform.Clear();
+                        Waveform.AddRange(normalized);
+                    }, null);
+                    _trailingSilenceSeconds = cachedTrailingSilence;
+                    _waveformLoadedFile = path;
+                    completed = true;
+                    return;
+                }
+
+                _syncContext?.Post(_ =>
+                {
+                    Waveform.Clear();
+                    if (cachedFilled > 0)
+                    {
+                        var normalized = NormalizeWaveform(cachedWaveform, cachedGlobalMax);
+                        var seed = new float[Math.Min(cachedFilled, normalized.Length)];
+                        Array.Copy(normalized, 0, seed, 0, seed.Length);
+                        Waveform.AddRange(seed);
+                    }
+                }, null);
+            }
+            else
+            {
+                _syncContext?.Post(_ => Waveform.Clear(), null);
+            }
 
             // Accuracy: For streams, we try to analyze more data (up to 10 mins)
-            var maxSecondsToAnalyze = isRemote ? Math.Min(duration, 600) : duration;
+            maxSecondsToAnalyze = cached?.MaxSecondsAnalyzed > 0
+                ? cached.MaxSecondsAnalyzed
+                : (isRemote ? Math.Min(duration, 600) : duration);
                 
             // PERFORMANCE: Use 16kHz for faster processing as visual waveform doesn't need 44.1kHz
             const int internalSampleRate = 16000;
             const int readBufferSize = 65536; // Larger buffer for better I/O performance
 
+            var startBucket = Math.Min(cachedFilled, buckets);
+            var resumeSeconds = startBucket > 0
+                ? (startBucket / (double)buckets) * maxSecondsToAnalyze
+                : 0.0;
+
             var timeLimitArg = isRemote ? $"-t {maxSecondsToAnalyze.ToString(CultureInfo.InvariantCulture)}" : string.Empty;
+            var startArg = resumeSeconds > 0
+                ? $"-ss {resumeSeconds.ToString(CultureInfo.InvariantCulture)}"
+                : string.Empty;
                 
             // FIXED: Using a more robust probesize and hide_banner/loglevel to prevent pipe deadlock
-            var args = $"-hide_banner -loglevel error -probesize 1000000 -analyzeduration 1500000 -i \"{path}\" {timeLimitArg} -vn -sn -dn -ac 1 -ar {internalSampleRate} -f s16le -";
+            var args = $"-hide_banner -loglevel error -probesize 1000000 -analyzeduration 1500000 {startArg} -i \"{path}\" {timeLimitArg} -vn -sn -dn -ac 1 -ar {internalSampleRate} -f s16le -";
 
             // Get FFmpeg path
             var ffmpegPath = FFmpegLocator.FindFFmpegPath();
@@ -1333,14 +1574,20 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
             int samplesPerBucket = Math.Max(1, (int)Math.Ceiling(maxSecondsToAnalyze * internalSampleRate / buckets));
 
-            var waveformData = new float[buckets];
-            float globalMax = 0f;
-            _syncContext?.Post(_ => Waveform.Clear(), null);
+            waveformData = cachedWaveform != null && cachedWaveform.Length == buckets
+                ? (float[])cachedWaveform.Clone()
+                : new float[buckets];
+            globalMax = cachedGlobalMax;
 
             var buffer = new byte[readBufferSize];
-            int bytesRead, currentBucket = 0, samplesInBucket = 0, batchCounter = 0;
+            int bytesRead, samplesInBucket = 0, batchCounter = 0;
+            currentBucket = startBucket;
             float bucketPeak = 0f;
             int currentBatchSize = 16; // Start with smaller batch for immediate feedback
+            int lastCacheSaveBucket = currentBucket;
+            long lastCacheSaveTicks = Stopwatch.GetTimestamp();
+            int lastUiNormalizeBucket = currentBucket;
+            long lastUiNormalizeTicks = Stopwatch.GetTimestamp();
 
             while ((bytesRead = await output.ReadAsync(buffer.AsMemory(0, buffer.Length), token).ConfigureAwait(false)) > 0)
             {
@@ -1349,8 +1596,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                 // PERFORMANCE: Use Span and MemoryMarshal for fast sample conversion
                 var samples = MemoryMarshal.Cast<byte, short>(buffer.AsSpan(0, bytesRead));
 
-                foreach (var sample in samples)
+                for (int i = 0; i < samples.Length; i++)
                 {
+                    var sample = samples[i];
                     float v = Math.Abs(sample / 32768f);
                     if (v > bucketPeak) bucketPeak = v;
                     samplesInBucket++;
@@ -1373,7 +1621,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                             int count = batchCounter;
                             var batch = new float[count];
                             Array.Copy(waveformData, currentIdx - count, batch, 0, count);
-                            _syncContext?.Post(_ => Waveform.AddRange(batch), null);
+                            var normalizedBatch = NormalizeWaveform(batch, globalMax);
+                            _syncContext?.Post(_ => Waveform.AddRange(normalizedBatch), null);
                             batchCounter = 0;
                                 
 
@@ -1384,6 +1633,50 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                     }
                 }
                     if (currentBucket >= buckets) break;
+
+                // Persist progress periodically so we can resume after switching tracks or restart
+                var nowTicks = Stopwatch.GetTimestamp();
+                var elapsedSeconds = (nowTicks - lastCacheSaveTicks) / (double)Stopwatch.Frequency;
+                if (cachePath != null && (currentBucket - lastCacheSaveBucket >= 128 || elapsedSeconds >= 2.0))
+                {
+                    var entry = new WaveformCacheEntry
+                    {
+                        Buckets = buckets,
+                        FilledBuckets = currentBucket,
+                        GlobalMax = globalMax,
+                        TrailingSilenceSeconds = _trailingSilenceSeconds,
+                        MaxSecondsAnalyzed = maxSecondsToAnalyze,
+                        DurationSeconds = durationKnown ? duration : 0,
+                        IsComplete = false,
+                        Waveform = waveformData
+                    };
+                    SaveWaveformCache(cachePath, entry);
+                    lastCacheSaveBucket = currentBucket;
+                    lastCacheSaveTicks = nowTicks;
+                }
+
+                // Refresh normalization periodically so early waveform isn't visually compressed
+                var uiElapsedSeconds = (nowTicks - lastUiNormalizeTicks) / (double)Stopwatch.Frequency;
+                if (currentBucket - lastUiNormalizeBucket >= 256 || uiElapsedSeconds >= 0.75)
+                {
+                    var snapshot = (float[])waveformData.Clone();
+                    var snapshotMax = globalMax;
+                    var snapshotCount = currentBucket;
+                    _syncContext?.Post(_ =>
+                    {
+                        var normalized = NormalizeWaveform(snapshot, snapshotMax);
+                        Waveform.Clear();
+                        var count = Math.Min(snapshotCount, normalized.Length);
+                        if (count > 0)
+                        {
+                            var seed = new float[count];
+                            Array.Copy(normalized, 0, seed, 0, count);
+                            Waveform.AddRange(seed);
+                        }
+                    }, null);
+                    lastUiNormalizeBucket = currentBucket;
+                    lastUiNormalizeTicks = nowTicks;
+                }
                 }
 
                 // Handle partial bucket and remaining batch items at end of file
@@ -1400,7 +1693,8 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                     int count = batchCounter;
                     var batch = new float[count];
                     Array.Copy(waveformData, currentBucket - count, batch, 0, count);
-                    _syncContext?.Post(_ => { foreach (var b in batch) Waveform.Add(b); }, null);
+                    var normalizedBatch = NormalizeWaveform(batch, globalMax);
+                    _syncContext?.Post(_ => Waveform.AddRange(normalizedBatch), null);
                 }
 
                 // Padding to ensure exactly 'buckets' items to avoid gaps in UI
@@ -1411,8 +1705,6 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                         for (int i = 0; i < remaining; i++) Waveform.Add(0f);
                     }, null);
                 }
-
-            if (globalMax <= 0f) globalMax = 1f;
 
             // compute trailing silence length using raw waveform data before normalization
             if (AutoSkipTrailingSilence && buckets > 0 && Duration > 0)
@@ -1428,28 +1720,65 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             }
 
             // Final normalization for consistency
+            waveformData ??= new float[buckets];
             _syncContext?.Post(_ => {
-                const float verticalGain = 1.1f;
-                const float minVisible = 0.01f;
-
-                if (globalMax <= 0f) globalMax = 1f;
-
-                for (int i = 0; i < Waveform.Count; i++)
-                {
-                    var v = (Waveform[i] / globalMax) * verticalGain;
-                    v = Math.Max(v, minVisible);
-                    Waveform[i] = Math.Min(1f, v);
-                }
+                var normalized = NormalizeWaveform(waveformData, globalMax);
+                Waveform.Clear();
+                Waveform.AddRange(normalized);
             }, null);
 
 
             // mark success so future calls know waveform was generated
-            _waveformLoadedFile = path;
+            if (durationKnown)
+            {
+                _waveformLoadedFile = path;
+                if (cachePath != null)
+                {
+                    SaveWaveformCache(cachePath, new WaveformCacheEntry
+                    {
+                        Buckets = buckets,
+                        FilledBuckets = Math.Min(currentBucket, buckets),
+                        GlobalMax = globalMax,
+                        TrailingSilenceSeconds = _trailingSilenceSeconds,
+                        MaxSecondsAnalyzed = maxSecondsToAnalyze,
+                        DurationSeconds = duration,
+                        IsComplete = true,
+                        Waveform = waveformData
+                    });
+                }
+            }
+            else
+            {
+                _waveformLoadedFile = null;
+            }
+            completed = true;
         }
         catch (OperationCanceledException) { /* Ignored on cancel */ }
         catch (Exception ex) { Log.Error($"Error generating waveform for {path}", ex); }
         finally
         {
+            try
+            {
+                if (!completed && cachePath != null && waveformData != null && waveformData.Length == buckets && currentBucket > 0)
+                {
+                    var entry = new WaveformCacheEntry
+                    {
+                        Buckets = buckets,
+                        FilledBuckets = Math.Min(currentBucket, buckets),
+                        GlobalMax = globalMax,
+                        TrailingSilenceSeconds = _trailingSilenceSeconds,
+                        MaxSecondsAnalyzed = maxSecondsToAnalyze,
+                        DurationSeconds = durationKnown ? duration : 0,
+                        IsComplete = false,
+                        Waveform = waveformData
+                    };
+                    SaveWaveformCache(cachePath, entry);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Failed to persist waveform cache in finally", ex);
+            }
             _activeFfmpegProcess = null;
             IsLoadingWaveform = false;
             _ffmpegManager?.ReportActivity(false);
@@ -1623,6 +1952,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         _isInternalChange = true;
         IsLoadingMedia = true;
         _loadedFile = path;
+        _waveformCacheKey = GetWaveformCacheKey(_currentMediaItem, path);
 
         // Reload the file
         // enqueue loadfile without blocking the mpv thread; we'll wait for the
