@@ -15,7 +15,7 @@
     <!-- Single EXE settings -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Runtime is provided by the CLI (dotnet publish -r) so builds are portable across runners. -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
 
     <!-- Exclude PDB files -->

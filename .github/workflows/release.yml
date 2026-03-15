@@ -30,7 +30,7 @@ jobs:
         run: dotnet restore AES_Lacrima.sln
 
       - name: Run tests
-        run: dotnet test AES_Lacrima.sln -c Release --no-restore
+        run: dotnet test AES_Lacrima.sln -c Release
 
   package:
     name: ${{ matrix.name }}
