@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
+using AES_Core.IO;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -504,7 +505,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             {
                 if (MpvManager.IsNewVersionPending())
                     MpvManager.Status = "Installation is staged and will be applied on the next restart.";
-                else if (File.Exists(Path.Combine(AppContext.BaseDirectory, "libmpv-2.dll.delete")))
+                else if (File.Exists(Path.Combine(AppContext.BaseDirectory, "libmpv-2.dll.delete")) ||
+                         File.Exists(Path.Combine(ApplicationPaths.ToolsDirectory, "libmpv-2.dll.delete")))
                     MpvManager.Status = "libmpv is uninstalled.";
                 else
                     MpvManager.Status = "libmpv check completed: Not found.";
