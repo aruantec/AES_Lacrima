@@ -21,6 +21,7 @@ using System.Threading.Tasks;
 using System.Net.Http;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using TagLib;
 
 namespace AES_Lacrima.ViewModels
 {
@@ -734,18 +735,7 @@ namespace AES_Lacrima.ViewModels
                     {
                         if (Directory.Exists(path))
                         {
-                            var mediaItems = _supportedTypes
-                                .SelectMany(pattern => Directory.EnumerateFiles(path, pattern))
-                                .Where(file => {
-                                    var name = Path.GetFileName(file);
-                                    return !(string.IsNullOrEmpty(name) || name.StartsWith("._") || name.StartsWith("."));
-                                })
-                                .Select(file => new MediaItem
-                                {
-                                    FileName = file,
-                                    Title = Path.GetFileName(file),
-                                    CoverBitmap = DefaultFolderCover
-                                }).ToList();
+                            var mediaItems = LoadMediaItemsWithTrackOrder(path).ToList();
 
                             var addedItems = new AvaloniaList<MediaItem>();
                             foreach (var item in mediaItems)
@@ -773,18 +763,7 @@ namespace AES_Lacrima.ViewModels
                     };
                     if (Directory.Exists(path))
                     {
-                        var mediaItems = _supportedTypes
-                            .SelectMany(pattern => Directory.EnumerateFiles(path, pattern))
-                            .Where(file => {
-                                var name = Path.GetFileName(file);
-                                return !(string.IsNullOrEmpty(name) || name.StartsWith("._") || name.StartsWith("."));
-                            })
-                            .Select(file => new MediaItem
-                            {
-                                FileName = file,
-                                Title = Path.GetFileName(file),
-                                CoverBitmap = DefaultFolderCover
-                            });
+                        var mediaItems = LoadMediaItemsWithTrackOrder(path);
                         folderItem.Children.AddRange(mediaItems);
                         _ = new MetadataScrapper(folderItem.Children, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
                     }
@@ -1239,6 +1218,48 @@ namespace AES_Lacrima.ViewModels
 
         private static Bitmap GenerateDefaultFolderCover() => PlaceholderGenerator.GenerateMusicPlaceholder();
 
+        private IEnumerable<MediaItem> LoadMediaItemsWithTrackOrder(string path)
+        {
+            var files = _supportedTypes
+                .SelectMany(pattern => Directory.EnumerateFiles(path, pattern))
+                .Where(file =>
+                {
+                    var name = Path.GetFileName(file);
+                    return !(string.IsNullOrEmpty(name) || name.StartsWith("._") || name.StartsWith("."));
+                });
+
+            var ordered = files
+                .Select(file => new { File = file, Track = TryReadTrackNumber(file) })
+                .OrderBy(x => x.Track.HasValue ? 0 : 1)
+                .ThenBy(x => x.Track ?? uint.MaxValue)
+                .ThenBy(x => Path.GetFileName(x.File), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var entry in ordered)
+            {
+                yield return new MediaItem
+                {
+                    FileName = entry.File,
+                    Title = Path.GetFileName(entry.File),
+                    CoverBitmap = DefaultFolderCover,
+                    Track = entry.Track ?? 0
+                };
+            }
+        }
+
+        private static uint? TryReadTrackNumber(string file)
+        {
+            try
+            {
+                using var tagFile = TagLib.File.Create(file);
+                var track = tagFile.Tag.Track;
+                return track > 0 ? track : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private bool CanDeletePointedItem() => PointedIndex != -1 && PointedIndex < CoverItems.Count;
 
         private bool CanAddItems() => LoadedAlbum != null;
@@ -1265,10 +1286,13 @@ namespace AES_Lacrima.ViewModels
         private async Task PlayMediaItemAsync(MediaItem item)
         {
             // 'item' is non-nullable; only check other nullable dependencies and the file name
-            if (AudioPlayer == null || _mediaUrlService == null || item.FileName == null) return;
+            if (AudioPlayer == null || item.FileName == null) return;
             // Check if the item is a URL and resolve it if necessary
             if (item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase) || item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_mediaUrlService == null) return;
                 await _mediaUrlService.OpenMediaItemAsync(AudioPlayer, item);
+            }
             else
                 await AudioPlayer.PlayFile(item);
         }
@@ -1469,9 +1493,6 @@ namespace AES_Lacrima.ViewModels
         #endregion
     }
 }
-
-
-
 
 
 

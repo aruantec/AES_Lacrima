@@ -1368,9 +1368,12 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         }
 
         // Check if the file is a URL and if OnlineUrls are available for selection
-        var fileToPlay = item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase) && item.OnlineUrls != null && item.OnlineUrls.HasValue 
-            ? video ? item.OnlineUrls.Value.Item1 : item.OnlineUrls.Value.Item2 
-            : item.FileName; 
+        string? resolvedUrl = null;
+        if (item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase) && item.OnlineUrls != null && item.OnlineUrls.HasValue)
+        {
+            resolvedUrl = video ? item.OnlineUrls.Value.Item1 : item.OnlineUrls.Value.Item2;
+        }
+        var fileToPlay = !string.IsNullOrWhiteSpace(resolvedUrl) ? resolvedUrl : item.FileName;
 
         // Prepare for loading the new file
         _ignoreTimePos = true;
@@ -1540,7 +1543,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                 }
             }
 
-            if (cachedWaveform != null && cachedWaveform.Length == buckets)
+            if (cached != null && cachedWaveform != null && cachedWaveform.Length == buckets)
             {
                 if (cached.IsComplete && cachedFilled >= buckets)
                 {
