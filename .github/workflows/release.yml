@@ -2,10 +2,13 @@ name: Release
 
 on:
   release:
-    types: [published]
+    # Trigger when a release is created/published (including prereleases)
+    types: [created, published, prereleased]
   push:
     tags:
       - 'v*'
+  # Allow manual reruns from the Actions UI
+  workflow_dispatch:
 
 permissions:
   contents: write
