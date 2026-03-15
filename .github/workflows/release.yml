@@ -1,6 +1,8 @@
 name: Release
 
 on:
+  release:
+    types: [published]
   push:
     tags:
       - 'v*'
@@ -9,8 +11,27 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    name: Run unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore AES_Lacrima.sln
+
+      - name: Run tests
+        run: dotnet test AES_Lacrima.sln -c Release --no-restore
+
   package:
     name: ${{ matrix.name }}
+    needs: test
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
@@ -28,6 +49,12 @@ jobs:
             package_type: macos
             artifact_name: release-AES-Lacrima-macos-osx-arm64
             asset_name: AES-Lacrima-macos-osx-arm64.zip
+          - name: macOS osx-x64
+            runs_on: macos-latest
+            runtime: osx-x64
+            package_type: macos
+            artifact_name: release-AES-Lacrima-macos-osx-x64
+            asset_name: AES-Lacrima-macos-osx-x64.zip
           - name: Linux x86_64 AppImage
             runs_on: ubuntu-latest
             runtime: linux-x64
