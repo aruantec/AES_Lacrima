@@ -34,3 +34,6 @@ Linux:
 
 Windows:
 ![WindowsBuild](AES_Lacrima/Assets/WindowsBuild.png)
+
+MacOS:
+![MacOSBuild](AES_Lacrima/Assets/MacOSBuild.png)
