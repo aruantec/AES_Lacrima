@@ -29,4 +29,8 @@ See `BUILDING.md` for platform packaging details, AppImage guidance, CI artifact
 
 Showcase:
 
-![ShowCaseMain](AES_Lacrima/Assets/ShowCaseMain.png)
+Linux:
+![LinuxBuild](AES_Lacrima/Assets/LinuxBuild.png)
+
+Windows:
+![WindowsBuild](AES_Lacrima/Assets/WindowsBuild.png)
