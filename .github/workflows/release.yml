@@ -142,21 +142,41 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Create GitHub release
+      - name: List downloaded assets for debug
+        run: |
+          echo "--- release-assets tree ---"
+          find release-assets -type f -maxdepth 3 -print
+
+      - name: Create GitHub release + upload assets
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" release-assets/* --clobber
-            exit 0
+          set -euo pipefail
+
+          # Find all built release artifacts (zip/AppImage) under the downloaded artifact folder.
+          mapfile -t files < <(find release-assets -type f \( -iname '*.zip' -o -iname '*.AppImage' \) -print)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "No release assets found in release-assets/"
+            ls -la release-assets || true
+            exit 1
           fi
 
-          prerelease_flag=""
-          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
-            prerelease_flag="--prerelease"
+          echo "Found ${#files[@]} release assets to upload:"
+          for f in "${files[@]}"; do
+            echo "  - $f"
+          done
+
+          # Ensure the GitHub Release exists (create if missing)
+          if ! gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            prerelease_flag=""
+            if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+              prerelease_flag="--prerelease"
+            fi
+            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --generate-notes ${prerelease_flag}
           fi
 
-          gh release create "${GITHUB_REF_NAME}" release-assets/* \
-            --title "${GITHUB_REF_NAME}" \
-            --generate-notes \
-            ${prerelease_flag}
+          # Upload all artifacts (overwrite existing if present)
+          for f in "${files[@]}"; do
+            echo "Uploading $f"
+            gh release upload "${GITHUB_REF_NAME}" "$f" --clobber
+          done
