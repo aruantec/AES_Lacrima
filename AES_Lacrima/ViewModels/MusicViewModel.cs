@@ -1009,7 +1009,8 @@ namespace AES_Lacrima.ViewModels
                     }
                     var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
                     var scanList = new AvaloniaList<MediaItem> { item };
-                    _ = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+                    var scrapper = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+                    _ = scrapper.EnqueueLoadForPublic(item);
                     if (CoverItems.Count == 1)
                     {
                         SelectedIndex = 0;
@@ -1468,7 +1469,6 @@ namespace AES_Lacrima.ViewModels
         #endregion
     }
 }
-
 
 
 
