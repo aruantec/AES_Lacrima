@@ -2,6 +2,7 @@
 			 xmlns:behaviors="using:AES_Controls.Behaviors"
 			 xmlns:localBehaviors="using:AES_Lacrima.Behaviors"
 			 xmlns:composition="using:AES_Controls.Composition"
+			 xmlns:controls="using:AES_Controls"
 			 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 			 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
 			 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -390,5 +391,21 @@
 				</MenuItem>
 			</ContextMenu>
 		</Grid.ContextMenu>
+
+		<!-- Loading Overlay for metadata/albums -->
+		<Panel IsVisible="{Binding IsAddingPlaylist}"
+			   Background="#22000000"
+			   VerticalAlignment="Center"
+			   HorizontalAlignment="Center"
+			   ZIndex="50">
+			<StackPanel Orientation="Vertical" Spacing="10">
+				<controls:LoadingControl Width="100" Height="100" Foreground="DeepSkyBlue"/>
+				<TextBlock Text="Updating metadata and covers..." 
+						   Foreground="White" 
+						   FontSize="16" 
+						   HorizontalAlignment="Center"
+						   Opacity="0.8"/>
+			</StackPanel>
+		</Panel>
 	</Grid>
 </UserControl>

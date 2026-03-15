@@ -54,13 +54,15 @@ namespace AES_Controls.Helpers
         /// <param name="maxThumbnailWidth">Optional maximum width to decode thumbnails to.</param>
         /// <param name="maxCacheEntries">Maximum number of bitmaps to keep in the memory cache.</param>
         /// <param name="maxEmbeddedImageBytes">Maximum byte size for embedded images to be processed.</param>
+        /// <param name="forceUpdate">Whether to bypass local metadata caches and force a fresh scan.</param>
         public MetadataScrapper(AvaloniaList<MediaItem> playlist,
                                 AudioPlayer player,
                                 Bitmap? defaultCover,
                                 string agentInfo,
                                 int? maxThumbnailWidth = null,
                                 int maxCacheEntries = 200,
-                                int maxEmbeddedImageBytes = DefaultMaxEmbeddedImageBytes)
+                                int maxEmbeddedImageBytes = DefaultMaxEmbeddedImageBytes,
+                                bool forceUpdate = false)
         {
             //Initializers
             _playlist = playlist;
@@ -84,9 +86,13 @@ namespace AES_Controls.Helpers
                 var items = _playlist.ToArray();
                 for (int i = 0; i < items.Length; i++)
                 {
-                    // Delay slightly every 5 items to allow UI thread breathing room
-                    if (items.Length > 15 && i % 5 == 0) await Task.Delay(10);
-                    await EnqueueLoadFor(items[i]);
+                    bool didNetwork;
+                    if (forceUpdate) didNetwork = await LoadMetadataForItemAsync(items[i], null, true);
+                    else didNetwork = await EnqueueLoadFor(items[i]);
+
+                    // Delay slightly only if we actually did a network request OR every 5 items to allow UI thread breathing room
+                    if (didNetwork) await Task.Delay(500);
+                    else if (items.Length > 15 && i % 5 == 0) await Task.Delay(10);
                 }
             });
             // Subscribe to playlist changes to handle new items and removals
@@ -121,24 +127,25 @@ namespace AES_Controls.Helpers
 
         /// <summary>
         /// Internal logic to decide if metadata needs to be loaded (e.g. if title is missing or cover is default).
+        /// Returns true if a network request was initiated/performed, false if it was skipped or handled locally.
         /// </summary>
-        private Task EnqueueLoadFor(MediaItem mi)
+        private async Task<bool> EnqueueLoadFor(MediaItem mi)
         {
             if (mi.CoverBitmap == null) mi.CoverBitmap = _defaultCover;
 
             if (!string.IsNullOrWhiteSpace(mi.Title) && mi.CoverBitmap != null && mi.CoverBitmap != _defaultCover)
-                return Task.CompletedTask;
+                return false;
 
-            return LoadMetadataForItemAsync(mi);
+            return await LoadMetadataForItemAsync(mi);
         }
 
         /// <summary>
         /// Performs the actual extraction of metadata for a media item.
-        /// Extracts local tags, embedded images, or fetches online metadata if needed.
+        /// Returns true if a network operation was involved.
         /// </summary>
-        private async Task LoadMetadataForItemAsync(MediaItem mi, CancellationToken? externalToken = null, bool force = false)
+        private async Task<bool> LoadMetadataForItemAsync(MediaItem mi, CancellationToken? externalToken = null, bool force = false)
         {
-            if (string.IsNullOrWhiteSpace(mi.FileName) || _disposed) return;
+            if (string.IsNullOrWhiteSpace(mi.FileName) || _disposed) return false;
 
             var key = mi.FileName!;
 
@@ -149,7 +156,7 @@ namespace AES_Controls.Helpers
                     mi.CoverBitmap = cachedBmp;
                     mi.IsLoadingCover = false;
                 });
-                return;
+                return false;
             }
 
             // Global throttle for metadata extraction to prevent OOM with large playlists
@@ -180,14 +187,14 @@ namespace AES_Controls.Helpers
                     if (meta != null && !string.IsNullOrWhiteSpace(meta.Title) && !key.Contains(meta.Title))
                     {
                         await ApplyMetadataToItem(mi, meta, key).ConfigureAwait(false);
-                        return;
+                        return false;
                     }
                 }
 
                 if (!isLocalFile)
                 {
                     await SetupOnlineMetadata(mi, force).ConfigureAwait(false);
-                    return;
+                    return true;
                 }
 
                 var tagResult = await Task.Run(() =>
@@ -250,7 +257,7 @@ namespace AES_Controls.Helpers
                     }
                 }, token);
 
-                if (token.IsCancellationRequested) return;
+                if (token.IsCancellationRequested) return false;
 
                 // Log what we found in tags for diagnostics
                 try
@@ -281,17 +288,20 @@ namespace AES_Controls.Helpers
                     Log.Debug($"MetadataScrapper: {key} - processing embedded images (will skip online lookups)");
                     await ProcessEmbeddedImagesInternal(mi, tagResult.pic, tagResult.wall, key, token).ConfigureAwait(false);
                     await UpdateLocalMetadataAsync(mi, tagResult.pic, tagResult.wall).ConfigureAwait(false);
-                    return;
+                    return false;
                 }
 
                 // No embedded pictures - fall back to online services
                 Log.Debug($"MetadataScrapper: {key} - no embedded images, performing online lookup");
+                bool didNetwork = false;
                 if (mi.CoverBitmap == null || mi.CoverBitmap == _defaultCover)
                 {
                     await FetchAppleMetadataInternal(mi, tagResult.t, tagResult.a, key, token).ConfigureAwait(false);
+                    didNetwork = true;
                 }
 
                 await UpdateLocalMetadataAsync(mi, tagResult.pic, tagResult.wall).ConfigureAwait(false);
+                return didNetwork;
             }
             finally
             {

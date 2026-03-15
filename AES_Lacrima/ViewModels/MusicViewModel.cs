@@ -1205,15 +1205,33 @@ namespace AES_Lacrima.ViewModels
 
         
 
-        private void StartMetadataScrappersForLoadedFolders()
+        private void StartMetadataScrappersForLoadedFolders(bool forceUpdate = false)
         {
-            if (AudioPlayer == null || AlbumList.Count == 0) return;
+            if (AudioPlayer == null || AlbumList.Count == 0 || IsAddingPlaylist) return;
+
             var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
-            foreach (var folder in AlbumList)
+            IsAddingPlaylist = true;
+
+            _ = Task.Run(async () =>
             {
-                if (folder == null || folder.Children.Count == 0) continue;
-                _ = new MetadataScrapper(folder.Children, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
-            }
+                try
+                {
+                    foreach (var folder in AlbumList)
+                    {
+                        if (folder == null || folder.Children.Count == 0) continue;
+
+                        // Start scrapper for this folder's children
+                        _ = new MetadataScrapper(folder.Children, AudioPlayer!, DefaultFolderCover, agentInfo, 512, forceUpdate: forceUpdate);
+                    }
+                }
+                finally
+                {
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        IsAddingPlaylist = false;
+                    });
+                }
+            });
         }
 
         private static Bitmap GenerateDefaultFolderCover() => PlaceholderGenerator.GenerateMusicPlaceholder();
