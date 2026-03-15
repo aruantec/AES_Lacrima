@@ -1,5 +1,6 @@
 using Avalonia;
 using AES_Core.IO;
+using log4net;
 using log4net.Appender;
 using log4net.Config;
 using log4net.Layout;
@@ -10,6 +11,8 @@ namespace AES_Lacrima
 {
     internal sealed class Program
     {
+        private static readonly ILog Log = LogManager.GetLogger(typeof(Program));
+
         // Initialization code. Don't use any Avalonia, third-party APIs or any
         // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
         // yet and stuff might break.
@@ -38,6 +41,26 @@ namespace AES_Lacrima
                 // Appending BaseDirectory to the END so native fast Homebrew binaries take precedence over slow bundled PyInstaller binaries
                 currentPath = $"{currentPath}{pathSeparator}{AppDomain.CurrentDomain.BaseDirectory}";
             }
+
+            // Ensure our per-user Tools directory is also on the PATH so native libraries (e.g. libmpv) can be loaded
+            // even when the app is installed in a protected location (Program Files).
+            if (OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    var toolsDirectory = ApplicationPaths.ToolsDirectory;
+                    Directory.CreateDirectory(toolsDirectory);
+                    if (!currentPath.Contains(toolsDirectory, StringComparison.OrdinalIgnoreCase))
+                    {
+                        currentPath = $"{currentPath}{pathSeparator}{toolsDirectory}";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Failed to add Tools directory to PATH", ex);
+                }
+            }
+
             Environment.SetEnvironmentVariable("PATH", currentPath);
 
             var logsDirectory = ApplicationPaths.LogsDirectory;

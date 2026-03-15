@@ -4,16 +4,10 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using SharpCompress.Archives;
 using SharpCompress.Archives.SevenZip;
 using System.Diagnostics;
-using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Collections.Generic;
-using System.Linq;
-using System.IO;
 using log4net;
 
 namespace AES_Controls.Helpers;
@@ -38,9 +32,23 @@ public partial class MpvLibraryManager : ObservableObject
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(MpvLibraryManager));
     private const string Repo = "zhongfly/mpv-winbuild";
-    private readonly string _destFolder = ApplicationPaths.ToolsDirectory;
+    private readonly string _destFolder = GetDestinationFolder();
     private static readonly HttpClient Client = new();
     private int _lastInstallerExitCode;
+
+    private static string GetDestinationFolder()
+    {
+        // Prefer the executable directory on Windows so that native
+        // DLL search paths can locate libmpv without additional PATH tweaks.
+        // If the app is installed in a protected location (e.g. Program Files),
+        // fall back to the per-user Tools directory.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && ApplicationPaths.IsAppBaseWritable())
+        {
+            return AppContext.BaseDirectory;
+        }
+
+        return ApplicationPaths.ToolsDirectory;
+    }
 
     private static MpvCacheEntry? _cache;
     private static readonly string _cachePath = Path.Combine(ApplicationPaths.DataRootDirectory, "mpv_cache.json");
