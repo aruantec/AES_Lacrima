@@ -585,6 +585,44 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         return normalized;
     }
 
+    private static float[] ResampleWaveform(float[] source, int sourceCount, int targetCount)
+    {
+        if (targetCount <= 0) return [];
+        if (sourceCount <= 0) return new float[targetCount];
+        if (sourceCount >= targetCount)
+        {
+            // Downsample by simple linear interpolation
+            var result = new float[targetCount];
+            var scale = (sourceCount - 1) / (double)(targetCount - 1);
+            for (int i = 0; i < targetCount; i++)
+            {
+                var pos = i * scale;
+                var idx = (int)pos;
+                var frac = pos - idx;
+                var a = source[Math.Min(idx, sourceCount - 1)];
+                var b = source[Math.Min(idx + 1, sourceCount - 1)];
+                result[i] = (float)(a + (b - a) * frac);
+            }
+            return result;
+        }
+        else
+        {
+            // Upsample by linear interpolation
+            var result = new float[targetCount];
+            var scale = (sourceCount - 1) / (double)(targetCount - 1);
+            for (int i = 0; i < targetCount; i++)
+            {
+                var pos = i * scale;
+                var idx = (int)pos;
+                var frac = pos - idx;
+                var a = source[Math.Min(idx, sourceCount - 1)];
+                var b = source[Math.Min(idx + 1, sourceCount - 1)];
+                result[i] = (float)(a + (b - a) * frac);
+            }
+            return result;
+        }
+    }
+
     /// <summary>
     /// Per-sample waveform values used by the UI waveform control.
     /// </summary>
@@ -1529,6 +1567,9 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                         Waveform.AddRange(seed);
                     }
                 }, null);
+
+                // Avoid using partial cached silence for skip logic until we finish analysis.
+                _trailingSilenceSeconds = 0;
             }
             else
             {
@@ -1721,8 +1762,27 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
                     }, null);
                 }
 
+            bool analysisComplete = currentBucket >= buckets;
+
+            // If we expected a full-duration analysis but ended early, resample the
+            // collected waveform to fill the target buckets instead of padding silence.
+            bool expectedFull = durationKnown && maxSecondsToAnalyze >= duration - 1;
+            if (!analysisComplete && expectedFull && currentBucket > 0)
+            {
+                waveformData ??= new float[buckets];
+                var resampled = ResampleWaveform(waveformData, currentBucket, buckets);
+                waveformData = resampled;
+                currentBucket = buckets;
+                analysisComplete = true;
+
+                // Recompute global max for normalized display and silence detection
+                globalMax = 0f;
+                for (int i = 0; i < waveformData.Length; i++)
+                    if (waveformData[i] > globalMax) globalMax = waveformData[i];
+            }
+
             // compute trailing silence length using raw waveform data before normalization
-            if (AutoSkipTrailingSilence && buckets > 0 && Duration > 0)
+            if (analysisComplete && AutoSkipTrailingSilence && buckets > 0 && Duration > 0)
             {
                 const float rawSilenceFrac = 0.05f; // 5% of peak considered silence
                 float rawThresh = globalMax * rawSilenceFrac;
@@ -1744,7 +1804,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
 
             // mark success so future calls know waveform was generated
-            if (durationKnown)
+            if (durationKnown && analysisComplete)
             {
                 _waveformLoadedFile = path;
                 if (cachePath != null)
@@ -1765,6 +1825,20 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             else
             {
                 _waveformLoadedFile = null;
+                if (cachePath != null && waveformData != null && waveformData.Length == buckets && currentBucket > 0)
+                {
+                    SaveWaveformCache(cachePath, new WaveformCacheEntry
+                    {
+                        Buckets = buckets,
+                        FilledBuckets = Math.Min(currentBucket, buckets),
+                        GlobalMax = globalMax,
+                        TrailingSilenceSeconds = 0,
+                        MaxSecondsAnalyzed = maxSecondsToAnalyze,
+                        DurationSeconds = durationKnown ? duration : 0,
+                        IsComplete = false,
+                        Waveform = waveformData
+                    });
+                }
             }
             completed = true;
         }
