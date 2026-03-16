@@ -9,6 +9,14 @@ on:
       - 'v*'
   # Allow manual reruns from the Actions UI
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Optional version tag to create (e.g. v1.2.3)'
+        required: false
+      prerelease:
+        description: 'If true, create a prerelease tag (e.g. v1.2.3-rc.1)'
+        required: false
+        default: 'false'
 
 permissions:
   contents: write
@@ -140,6 +148,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download packaged assets
         uses: actions/download-artifact@v4
@@ -172,17 +182,55 @@ jobs:
             echo "  - $f"
           done
 
+          # Determine release tag/name
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            RELEASE_TAG="$(jq -r '.release.tag_name' < "${GITHUB_EVENT_PATH}")"
+          else
+            # workflow_dispatch or other events
+            if [[ -n "${INPUT_VERSION:-}" ]]; then
+              RELEASE_TAG="${INPUT_VERSION}"
+            else
+              # Determine the next patch version from the most recent stable tag
+              stable_latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)
+              if [[ -z "${stable_latest}" ]]; then
+                stable_latest='v0.0.0'
+              fi
+
+              base="${stable_latest#v}"
+              IFS='.' read -r major minor patch <<< "${base}"
+              next_patch=$((patch + 1))
+              next_base="${major}.${minor}.${next_patch}"
+
+              if [[ "${INPUT_PRERELEASE:-false}" == "true" ]]; then
+                max_rc=0
+                for tag in $(git tag --list "v${next_base}-rc.*"); do
+                  rc="${tag##*-rc.}"
+                  if [[ "${rc}" =~ ^[0-9]+$ ]] && (( rc > max_rc )); then
+                    max_rc=$rc
+                  fi
+                done
+                RELEASE_TAG="v${next_base}-rc.$((max_rc + 1))"
+              else
+                RELEASE_TAG="v${next_base}"
+              fi
+            fi
+          fi
+
+          echo "Using release tag: ${RELEASE_TAG}"
+
           # Ensure the GitHub Release exists (create if missing)
-          if ! gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+          if ! gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             prerelease_flag=""
-            if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            if [[ "${RELEASE_TAG}" == *-* ]]; then
               prerelease_flag="--prerelease"
             fi
-            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --generate-notes ${prerelease_flag}
+            gh release create "${RELEASE_TAG}" --title "${RELEASE_TAG}" --generate-notes ${prerelease_flag}
           fi
 
           # Upload all artifacts (overwrite existing if present)
           for f in "${files[@]}"; do
             echo "Uploading $f"
-            gh release upload "${GITHUB_REF_NAME}" "$f" --clobber
+            gh release upload "${RELEASE_TAG}" "$f" --clobber
           done
