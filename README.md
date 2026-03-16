@@ -37,3 +37,6 @@ Windows:
 
 MacOS:
 ![MacOSBuild](AES_Lacrima/Assets/MacOSBuild.png)
+
+Mini Mode:
+![MiniMode](AES_Lacrima/Assets/MiniMode.png)
