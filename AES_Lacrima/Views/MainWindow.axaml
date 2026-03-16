@@ -19,7 +19,7 @@
         Title="AES Lacrima"
         Width="{Binding WindowWidth, Mode=TwoWay}"
         Height="{Binding WindowHeight, Mode=TwoWay}"
-        WindowStartupLocation="CenterOwner"
+        WindowStartupLocation="Manual"
         SystemDecorations="None"
         ExtendClientAreaChromeHints="NoChrome"
         ExtendClientAreaToDecorationsHint="True">

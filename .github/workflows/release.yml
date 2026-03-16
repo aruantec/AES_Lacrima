@@ -52,12 +52,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Windows win-x64
+          - name: Windows x64
             runs_on: windows-latest
             runtime: win-x64
             package_type: windows
-            artifact_name: release-AES-Lacrima-windows-win-x64
-            asset_name: AES-Lacrima-windows-win-x64.zip
+            artifact_name: release-AES-Lacrima-windows-x64
+            asset_name: AES-Lacrima-windows-x64.zip
           - name: macOS osx-arm64
             runs_on: macos-latest
             runtime: osx-arm64
@@ -69,13 +69,13 @@ jobs:
             runtime: osx-x64
             package_type: macos
             artifact_name: release-AES-Lacrima-macos-osx-x64
-            asset_name: AES-Lacrima-macos-osx-x64.zip
+            asset_name: AES-Lacrima-macos-osx-Intel-x64.zip
           - name: Linux x86_64 AppImage
             runs_on: ubuntu-latest
             runtime: linux-x64
             package_type: appimage
             artifact_name: release-AES-Lacrima-x86_64
-            asset_name: AES-Lacrima-x86_64.AppImage
+            asset_name: AES-Lacrima-Linux-x86_64.AppImage
             appimage_arch: x86_64
           - name: Linux aarch64 AppImage
             runs_on: ubuntu-24.04-arm

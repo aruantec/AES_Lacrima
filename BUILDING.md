@@ -142,9 +142,10 @@ Linux jobs should use publish output only as an intermediate build directory. Th
 
 Recommended artifact names:
 
-- `AES-Lacrima-windows-win-x64.zip`
+- `AES-Lacrima-windows-x64.zip`
 - `AES-Lacrima-macos-osx-arm64.zip`
-- `AES-Lacrima-x86_64.AppImage`
+  `AES-Lacrima-macos-osx-Intel-x64.zip`
+- `AES-Lacrima-Linux-x86_64.AppImage`
 - `AES-Lacrima-aarch64.AppImage`
 
 ## GitHub Releases
