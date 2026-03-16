@@ -681,7 +681,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private double _carouselVerticalOffset = -95.0;
 
     [ObservableProperty]
-    private double _carouselSliderVerticalOffset = 134.0;
+    private double _carouselSliderVerticalOffset = 119.0;
 
     [ObservableProperty]
     private double _carouselSliderTrackHeight = 17.0;
