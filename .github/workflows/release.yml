@@ -21,6 +21,10 @@ on:
 permissions:
   contents: write
 
+# Opt into Node.js 24 for JavaScript-based actions (e.g. actions/checkout, actions/setup-dotnet)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     name: Run unit tests
