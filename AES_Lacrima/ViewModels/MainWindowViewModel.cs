@@ -121,13 +121,72 @@ namespace AES_Lacrima.ViewModels
         /// </summary>
         public override void Prepare()
         {
-            //Load persisted settings
+            // Load persisted settings
             LoadSettings();
+
+            // If no size was saved, pick a sensible default based on the current screen and DPI.
+            ApplyDefaultWindowSizeAndScale();
 
             // Hook up MpvManager and YtDlpManager if SettingsViewModel is already available
             if (SettingsViewModel != null)
             {
                 SubscribeToMpvManager(SettingsViewModel.MpvManager);
+            }
+        }
+
+        private void ApplyDefaultWindowSizeAndScale()
+        {
+            // Only apply defaults when the window size is not explicitly set.
+            if (!double.IsNaN(WindowWidth) && WindowWidth > 0 &&
+                !double.IsNaN(WindowHeight) && WindowHeight > 0)
+            {
+                return;
+            }
+
+            var mainWindow = AppLifetime?.MainWindow;
+            var primary = mainWindow?.Screens?.Primary;
+            if (primary == null)
+                return;
+
+            // Determine scaling based on DPI (screen scaling factor) and physical DPI (pixel density).
+            // When the UI is scaled for a high‑DPI display, the app should start at a usable size.
+            var dpiScale = primary.Scaling;
+
+            // PixelDensity is obsolete in Avalonia, but can provide an additional indicator for high-DPI panels.
+            // Use reflection to avoid compile-time dependence on an obsolete property.
+            var pixelDensityScale = 0.0;
+            var pdProp = primary.GetType().GetProperty("PixelDensity");
+            if (pdProp?.GetValue(primary) is double pd)
+            {
+                pixelDensityScale = pd / 96.0;
+            }
+            else if (pdProp?.GetValue(primary) is float pf)
+            {
+                pixelDensityScale = pf / 96.0;
+            }
+
+            dpiScale = Math.Max(dpiScale, pixelDensityScale);
+
+            // Cap the scale factor to avoid extremely large UI on high-DPI screens.
+            // (Users can still adjust the slider manually if they want bigger UI.)
+            dpiScale = Math.Clamp(dpiScale, 1.0, 2.0);
+
+            // Choose a base size that is a nice square with ~30% extra width.
+            // We constrain it to a large but not fullscreen size (e.g., <= 90% of the screen).
+            var maxWidth = primary.WorkingArea.Width;
+            var maxHeight = primary.WorkingArea.Height;
+
+            var baseHeight = Math.Min(maxHeight * 0.6, maxWidth * 0.9 / 1.3);
+            baseHeight = Math.Clamp(baseHeight, 600, maxHeight * 0.8);
+            var baseWidth = Math.Min(baseHeight * 1.3, maxWidth * 0.9);
+
+            WindowWidth = baseWidth;
+            WindowHeight = baseHeight;
+
+            // Respect DPI scaling if the user hasn't already configured a scale.
+            if (SettingsViewModel != null && Math.Abs(SettingsViewModel.ScaleFactor - 1.0) < 0.01)
+            {
+                SettingsViewModel.ScaleFactor = dpiScale;
             }
         }
 

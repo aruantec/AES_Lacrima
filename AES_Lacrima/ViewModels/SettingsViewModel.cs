@@ -85,14 +85,14 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// Gets or sets a value indicating whether particle effects are displayed.
     /// </summary>
     [ObservableProperty]
-    private bool _showParticles;
+    private bool _showParticles = true;
 
     /// <summary>
     /// Backing field for the <c>ShowShaderToy</c> observable property.
     /// When true the ShaderToy view will be visible in the UI.
     /// </summary>
     [ObservableProperty]
-    private bool _showShaderToy;
+    private bool _showShaderToy = true;
 
     /// <summary>
     /// Gets or sets the collection of shader items used by the control.
@@ -169,25 +169,25 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// Gets or sets the height of the spectrum visualizer.
     /// </summary>
     [ObservableProperty]
-    private double _spectrumHeight = 60.0;
+    private double _spectrumHeight = 170.0;
 
     /// <summary>
     /// Gets or sets the width of each spectrum bar.
     /// </summary>
     [ObservableProperty]
-    private double _barWidth = 4.0;
+    private double _barWidth = 15.0;
 
     /// <summary>
     /// Gets or sets the spacing between spectrum bars.
     /// </summary>
     [ObservableProperty]
-    private double _barSpacing = 2.0;
+    private double _barSpacing = 5.0;
 
     /// <summary>
     /// Gets or sets a value indicating whether spectrum bars are shown in the main view.
     /// </summary>
     [ObservableProperty]
-    private bool _showSpectrum = true;
+    private bool _showSpectrum = false;
 
     /// <summary>
     /// Gets or sets a value indicating whether spectrum bars are shown in the music view.
@@ -868,11 +868,32 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         };
     }
 
+    partial void OnShaderToysChanged(AvaloniaList<ShaderItem>? value)
+    {
+        // Ensure we always have a selected shader after the list is populated.
+        EnsureDefaultSelectedShaderToy();
+    }
+
+    private void EnsureDefaultSelectedShaderToy()
+    {
+        if (ShaderToys == null || ShaderToys.Count == 0)
+            return;
+
+        // If the selection is already valid, nothing to do.
+        if (SelectedShadertoy != null && ShaderToys.Contains(SelectedShadertoy))
+            return;
+
+        // Prefer ElectricBlur when available, otherwise pick the first item.
+        SelectedShadertoy = ShaderToys.FirstOrDefault(s => s.Name == "ElectricBlur")
+                            ?? ShaderToys.FirstOrDefault();
+    }
+
     public override void Prepare()
     {
         // Load shader items from the local shaders directory (Linux-safe path resolution).
         _shaderToysDirectory = ResolveShaderToysDirectory();
         ShaderToys = [.. GetLocalShaders(_shaderToysDirectory, "*.frag")];
+        EnsureDefaultSelectedShaderToy();
 
         // Disable our property‑changed handler while we populate values from disk.
         // the constructor already wired the handler for gradient updates but we don't
@@ -928,7 +949,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ShowShaderToy = ReadBoolSetting(section, nameof(ShowShaderToy), true);
         ShowBackground = ReadBoolSetting(section, nameof(ShowBackground));
         BackgroundImagePath = ReadStringSetting(section, nameof(BackgroundImagePath), "Assets/background.jpg")!;
-        ShowParticles = ReadBoolSetting(section, nameof(ShowParticles));
+        ShowParticles = ReadBoolSetting(section, nameof(ShowParticles), true);
         // Spectrum settings
         SpectrumHeight = ReadDoubleSetting(section, nameof(SpectrumHeight), SpectrumHeight);
         BarWidth = ReadDoubleSetting(section, nameof(BarWidth), BarWidth);
@@ -947,9 +968,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (ReadStringSetting(section, nameof(SpectrumColor4)) is { } c4) SpectrumColor4 = Color.Parse(c4);
         WaveformPlayedColor = Color.Parse(ReadStringSetting(section, nameof(WaveformPlayedColor), "RoyalBlue")!);
         
-        // Set the selected shadertoy if it exists, otherwise default to "Waves"
+        // Set the selected shadertoy if it exists, otherwise default to "ElectricBlur"
         string? selectedshadertoy = ReadStringSetting(section, nameof(SelectedShadertoy));
-        SelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == (selectedshadertoy ?? "Waves")) 
+        SelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == (selectedshadertoy ?? "ElectricBlur")) 
                             ?? ShaderToys?.FirstOrDefault();
 
         // Carousel settings
