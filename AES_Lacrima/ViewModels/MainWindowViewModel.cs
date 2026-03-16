@@ -1,6 +1,5 @@
 ﻿using AES_Core.DI;
 using AES_Core.Interfaces;
-using AES_Lacrima.Models;
 using AES_Lacrima.Services;
 using AES_Core.Services;
 using AES_Lacrima.ViewModels.Prompts;
@@ -10,9 +9,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
-using System.IO;
 using System.Text.Json.Nodes;
 
 namespace AES_Lacrima.ViewModels
@@ -56,6 +53,13 @@ namespace AES_Lacrima.ViewModels
         /// </summary>
         [ObservableProperty]
         private double _windowHeight = double.NaN;
+
+        /// <summary>
+        /// Backing field for the generated <c>HasUserResizedWindow</c> property.
+        /// Tracks whether the user has explicitly resized the window.
+        /// </summary>
+        [ObservableProperty]
+        private bool _hasUserResizedWindow;
 
         /// <summary>
         /// Gets or sets the view model that manages application settings.
@@ -137,7 +141,8 @@ namespace AES_Lacrima.ViewModels
         private void ApplyDefaultWindowSizeAndScale()
         {
             // Only apply defaults when the window size is not explicitly set.
-            if (!double.IsNaN(WindowWidth) && WindowWidth > 0 &&
+            if (HasUserResizedWindow &&
+                !double.IsNaN(WindowWidth) && WindowWidth > 0 &&
                 !double.IsNaN(WindowHeight) && WindowHeight > 0)
             {
                 return;
@@ -171,14 +176,14 @@ namespace AES_Lacrima.ViewModels
             // (Users can still adjust the slider manually if they want bigger UI.)
             dpiScale = Math.Clamp(dpiScale, 1.0, 2.0);
 
-            // Choose a base size that is a nice square with ~30% extra width.
-            // We constrain it to a large but not fullscreen size (e.g., <= 90% of the screen).
+            // Use a simple, predictable default based on screen working area.
             var maxWidth = primary.WorkingArea.Width;
             var maxHeight = primary.WorkingArea.Height;
 
-            var baseHeight = Math.Min(maxHeight * 0.6, maxWidth * 0.9 / 1.3);
-            baseHeight = Math.Clamp(baseHeight, 600, maxHeight * 0.8);
-            var baseWidth = Math.Min(baseHeight * 1.3, maxWidth * 0.9);
+            // Convert from physical pixels to DIPs so sizing respects high DPI scaling.
+            var scale = Math.Max(1.0, primary.Scaling);
+            var baseWidth = (maxWidth * 0.7) / scale;
+            var baseHeight = (maxHeight * 0.9) / scale;
 
             WindowWidth = baseWidth;
             WindowHeight = baseHeight;
@@ -349,6 +354,7 @@ namespace AES_Lacrima.ViewModels
         {
             WindowWidth = ReadDoubleSetting(section, "WindowWidth", WindowWidth);
             WindowHeight = ReadDoubleSetting(section, "WindowHeight", WindowHeight);
+            HasUserResizedWindow = ReadBoolSetting(section, nameof(HasUserResizedWindow), false);
         }
 
         /// <summary>
@@ -361,6 +367,7 @@ namespace AES_Lacrima.ViewModels
         {
             WriteSetting(section, "WindowWidth", WindowWidth);
             WriteSetting(section, "WindowHeight", WindowHeight);
+            WriteSetting(section, nameof(HasUserResizedWindow), HasUserResizedWindow);
         }
 
         /// <summary>
