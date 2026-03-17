@@ -109,7 +109,11 @@ exec "$APPDIR/usr/bin/AES_Lacrima" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
-OUTPUT_FILE="$OUTPUT_DIR/${APP_NAME}-${TARGET_ARCH}.AppImage"
+if [[ "$TARGET_ARCH" == "x86_64" ]]; then
+  OUTPUT_FILE="$OUTPUT_DIR/${APP_NAME}-Linux-${TARGET_ARCH}.AppImage"
+else
+  OUTPUT_FILE="$OUTPUT_DIR/${APP_NAME}-${TARGET_ARCH}.AppImage"
+fi
 export ARCH="$TARGET_ARCH"
 export VERSION="${VERSION:-${GITHUB_REF_NAME:-dev}}"
 export APPIMAGE_EXTRACT_AND_RUN=1
