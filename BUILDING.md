@@ -90,7 +90,7 @@ Linux releases should be distributed as AppImages only.
 - Do not upload raw Linux publish folders as CI artifacts.
 - Do not attach raw Linux binaries to GitHub Releases.
 - Supported Linux release assets should be:
-  - `AES-Lacrima-x86_64.AppImage`
+  - `AES-Lacrima-Linux-x86_64.AppImage`
   - `AES-Lacrima-aarch64.AppImage`
 
 This keeps Linux distribution portable and avoids encouraging unsupported binary drops.

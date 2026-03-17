@@ -56,7 +56,7 @@ jobs:
             runtime: linux-x64
             package_type: appimage
             artifact_name: AES-Lacrima-x86_64
-            asset_name: AES-Lacrima-x86_64.AppImage
+            asset_name: AES-Lacrima-Linux-x86_64.AppImage
             appimage_arch: x86_64
           - name: Linux aarch64 AppImage
             runs_on: ubuntu-24.04-arm
