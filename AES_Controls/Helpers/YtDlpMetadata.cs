@@ -261,8 +261,9 @@ public static class YtDlpMetadata
 
     private static string? FindLocalExecutable(params string[] names)
     {
-        var dirs = new List<string> { AppContext.BaseDirectory, ApplicationPaths.ToolsDirectory };
-        
+        // Prefer the per-user Tools directory (OS standard location) to keep all downloaded helpers together.
+        var dirs = new List<string> { ApplicationPaths.ToolsDirectory };
+
         var processPathDir = Path.GetDirectoryName(Environment.ProcessPath);
         if (!string.IsNullOrEmpty(processPathDir) && !dirs.Contains(processPathDir))
         {

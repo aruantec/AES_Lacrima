@@ -23,12 +23,13 @@ namespace AES_Controls.Helpers
             // Determine the binary name for the current OS
             string binaryName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "ffmpeg.exe" : "ffmpeg";
 
-            // Check the local directory first
-            string localPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, binaryName);
-            if (File.Exists(localPath)) return localPath;
-
+            // Prefer the per-user Tools directory (inside the OS standard app data folder) first.
             string managedToolPath = ApplicationPaths.GetToolFile(binaryName);
             if (File.Exists(managedToolPath)) return managedToolPath;
+
+            // Fallback: allow a bundled copy next to the executable (portable builds).
+            string localPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, binaryName);
+            if (File.Exists(localPath)) return localPath;
 
             // Search the System PATH
             var pathVar = Environment.GetEnvironmentVariable("PATH");

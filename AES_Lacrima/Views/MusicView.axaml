@@ -394,7 +394,6 @@
                 <MultiBinding Converter="{x:Static BoolConverters.Or}">
                     <Binding Path="AudioPlayer.IsLoadingMedia"/>
                     <Binding Path="AudioPlayer.IsBuffering"/>
-                    <Binding Path="IsAddingPlaylist"/>
                 </MultiBinding>
             </StackPanel.IsVisible>
 		    <controls:LoadingControl Width="90"

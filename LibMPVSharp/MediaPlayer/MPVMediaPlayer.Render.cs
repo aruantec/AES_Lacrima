@@ -1,6 +1,4 @@
-﻿using System.Runtime.InteropServices;
-
-namespace LibMPVSharp
+﻿namespace LibMPVSharp
 {
     public unsafe partial class MPVMediaPlayer
     {

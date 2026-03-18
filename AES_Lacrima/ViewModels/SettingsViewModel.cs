@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -42,8 +43,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(SettingsViewModel));
 
-    private string _shaderToysDirectory = Path.Combine(AppContext.BaseDirectory, "Shaders", "Shadertoys");
-    private string _shadersDirectory = Path.Combine(AppContext.BaseDirectory, "Shaders", "glsl");
+    private string _shaderToysDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "Shadertoys");
+    private string _shadersDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "glsl");
 
     /// <summary>
     /// Gets or sets the collection of dummy media items used for the carousel preview.
@@ -505,8 +506,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             {
                 if (MpvManager.IsNewVersionPending())
                     MpvManager.Status = "Installation is staged and will be applied on the next restart.";
-                else if (File.Exists(Path.Combine(AppContext.BaseDirectory, "libmpv-2.dll.delete")) ||
-                         File.Exists(Path.Combine(ApplicationPaths.ToolsDirectory, "libmpv-2.dll.delete")))
+                else if (File.Exists(Path.Combine(ApplicationPaths.ToolsDirectory, "libmpv-2.dll.delete")))
                     MpvManager.Status = "libmpv is uninstalled.";
                 else
                     MpvManager.Status = "libmpv check completed: Not found.";
@@ -842,6 +842,37 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         }
     }
 
+    [RelayCommand]
+    private void OpenLibraryDirectory()
+    {
+        try
+        {
+            var path = ApplicationPaths.DataRootDirectory;
+            Directory.CreateDirectory(path);
+            OpenFolderInFileManager(path);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to open library directory", ex);
+        }
+    }
+
+    private static void OpenFolderInFileManager(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            Process.Start(new ProcessStartInfo("open", $"\"{path}\"") { UseShellExecute = true });
+        }
+        else
+        {
+            Process.Start(new ProcessStartInfo("xdg-open", $"\"{path}\"") { UseShellExecute = true });
+        }
+    }
+
     /// <summary>
     /// Rebuilds the <see cref="SpectrumGradient"/> based on the current collection of colors,
     /// distributing them evenly across the gradient stops.
@@ -1069,8 +1100,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)];
         }
 
-        // Fallback: scan any fragment shader under /Shaders recursively.
-        var shadersRoot = Path.Combine(AppContext.BaseDirectory, "Shaders");
+        // Fallback: scan any fragment shader under the standard shaders directory.
+        var shadersRoot = ApplicationPaths.ShadersDirectory;
         if (!Directory.Exists(shadersRoot)) return [];
 
         return [.. Directory.EnumerateFiles(shadersRoot, pattern, SearchOption.AllDirectories)
@@ -1080,7 +1111,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
     private static string ResolveShaderToysDirectory()
     {
-        var shadersRoot = Path.Combine(AppContext.BaseDirectory, "Shaders");
+        var shadersRoot = ApplicationPaths.ShadersDirectory;
         var candidates = new[]
         {
             Path.Combine(shadersRoot, "Shadertoys"),

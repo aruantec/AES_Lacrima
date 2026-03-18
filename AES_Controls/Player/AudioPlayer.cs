@@ -981,9 +981,10 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             // Explicitly point MPV to the bundled yt-dlp to fix macOS sandbox path issues
             var ytdlBin = OperatingSystem.IsWindows() ? "yt-dlp.exe" : "yt-dlp";
             var ytdlPath = ApplicationPaths.GetToolFile(ytdlBin);
-            if (!System.IO.File.Exists(ytdlPath))
+            if (!File.Exists(ytdlPath))
             {
-                ytdlPath = System.IO.Path.Combine(AppContext.BaseDirectory, ytdlBin);
+                // Fallback: if the binary exists alongside the app (e.g. in portable builds), use it.
+                ytdlPath = Path.Combine(AppContext.BaseDirectory, ytdlBin);
             }
 
             if (System.IO.File.Exists(ytdlPath))
