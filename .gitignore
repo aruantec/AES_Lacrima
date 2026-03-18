@@ -8,6 +8,8 @@
 /AES_Lacrima/bin
 /AES_Controls/bin
 /AES_Controls/obj
+/LibMPVSharp/bin
+/LibMPVSharp/obj
 /*.Tests/bin
 /*.Tests/obj
 /AES_Lacrima.Headless.Tests/bin

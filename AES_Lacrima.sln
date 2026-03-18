@@ -23,6 +23,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AES_Lacrima.Tests", "AES_La
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AES_Controls.Tests", "AES_Controls.Tests\AES_Controls.Tests.csproj", "{E6923C32-D4DA-4676-B834-9AE8517B3159}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LibMPVSharp", "LibMPVSharp\LibMPVSharp.csproj", "{625F3168-5F93-4032-B630-E536795408A1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -141,6 +143,18 @@ Global
 		{E6923C32-D4DA-4676-B834-9AE8517B3159}.Release|x64.Build.0 = Release|Any CPU
 		{E6923C32-D4DA-4676-B834-9AE8517B3159}.Release|x86.ActiveCfg = Release|Any CPU
 		{E6923C32-D4DA-4676-B834-9AE8517B3159}.Release|x86.Build.0 = Release|Any CPU
+		{625F3168-5F93-4032-B630-E536795408A1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{625F3168-5F93-4032-B630-E536795408A1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{625F3168-5F93-4032-B630-E536795408A1}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{625F3168-5F93-4032-B630-E536795408A1}.Debug|x64.Build.0 = Debug|Any CPU
+		{625F3168-5F93-4032-B630-E536795408A1}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{625F3168-5F93-4032-B630-E536795408A1}.Debug|x86.Build.0 = Debug|Any CPU
+		{625F3168-5F93-4032-B630-E536795408A1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{625F3168-5F93-4032-B630-E536795408A1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{625F3168-5F93-4032-B630-E536795408A1}.Release|x64.ActiveCfg = Release|Any CPU
+		{625F3168-5F93-4032-B630-E536795408A1}.Release|x64.Build.0 = Release|Any CPU
+		{625F3168-5F93-4032-B630-E536795408A1}.Release|x86.ActiveCfg = Release|Any CPU
+		{625F3168-5F93-4032-B630-E536795408A1}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

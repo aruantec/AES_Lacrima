@@ -27,7 +27,7 @@
 		</PackageReference>
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
 		<PackageReference Include="FFmpeg.AutoGen" Version="8.0.0" />
-		<PackageReference Include="LibMPVSharp" Version="0.0.2-beta" />
+		<!-- Switched from NuGet package to project reference for local development. -->
 		<PackageReference Include="MathNet.Numerics" Version="6.0.0-beta2" />
 		<PackageReference Include="Microsoft.NETCore.App" Version="2.2.8" />
 		<PackageReference Include="Microsoft.NETCore.Jit" Version="2.0.8" />
@@ -42,6 +42,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\AES_Core\AES_Core.csproj" />
+		<ProjectReference Include="..\LibMPVSharp\LibMPVSharp.csproj" />
 		<ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 	</ItemGroup>
 </Project>
