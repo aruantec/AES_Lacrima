@@ -160,6 +160,17 @@
 																	  DefaultCover="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).DefaultFolderCover}"
 																	  ClipToBounds="True"
 																	  MaxVisibleCovers="3"/>
+								<!-- Loading overlay per album -->
+								<Panel IsVisible="{Binding IsLoadingCover}"
+									   IsHitTestVisible="False"
+									   Background="#66000000">
+									<controls:LoadingControl Width="60"
+															 Height="60"
+															 Foreground="DeepSkyBlue"
+															 HorizontalAlignment="Center"
+															 VerticalAlignment="Center"
+															 IsHitTestVisible="False"/>
+								</Panel>
 								<!-- Album title overlay -->
 								<Border VerticalAlignment="Bottom" Height="50" Background="#CC000000" ClipToBounds="False">
 									<Panel Margin="5">
@@ -392,20 +403,5 @@
 			</ContextMenu>
 		</Grid.ContextMenu>
 
-		<!-- Loading Overlay for metadata/albums -->
-		<Panel IsVisible="{Binding IsAddingPlaylist}"
-			   Background="#22000000"
-			   VerticalAlignment="Center"
-			   HorizontalAlignment="Center"
-			   ZIndex="50">
-			<StackPanel Orientation="Vertical" Spacing="10">
-				<controls:LoadingControl Width="100" Height="100" Foreground="DeepSkyBlue"/>
-				<TextBlock Text="Updating metadata and covers..." 
-						   Foreground="White" 
-						   FontSize="16" 
-						   HorizontalAlignment="Center"
-						   Opacity="0.8"/>
-			</StackPanel>
-		</Panel>
 	</Grid>
 </UserControl>

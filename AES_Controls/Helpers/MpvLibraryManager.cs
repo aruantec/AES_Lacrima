@@ -38,15 +38,8 @@ public partial class MpvLibraryManager : ObservableObject
 
     private static string GetDestinationFolder()
     {
-        // Prefer the executable directory on Windows so that native
-        // DLL search paths can locate libmpv without additional PATH tweaks.
-        // If the app is installed in a protected location (e.g. Program Files),
-        // fall back to the per-user Tools directory.
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && ApplicationPaths.IsAppBaseWritable())
-        {
-            return AppContext.BaseDirectory;
-        }
-
+        // Always store native binaries in the per-user Tools directory (inside the OS-standard data folder).
+        // This keeps the application directory clean and avoids permission issues when installed under Program Files.
         return ApplicationPaths.ToolsDirectory;
     }
 
@@ -56,6 +49,9 @@ public partial class MpvLibraryManager : ObservableObject
     public MpvLibraryManager()
     {
         Directory.CreateDirectory(_destFolder);
+        // Ensure libmpv is loaded from the same folder where we install it.
+        // This allows the application to control the directory used for the native library.
+        LibMPVSharp.LibraryName.LibraryDirectory = _destFolder;
     }
 
     private sealed class MpvCacheEntry

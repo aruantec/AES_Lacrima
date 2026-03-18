@@ -128,8 +128,11 @@ namespace AES_Controls.Composition
                 {
                     if (!newImgs.Contains(img)) 
                     {
-                        _dimCache.Remove(img);
-                        DisposeShaderOnly(img);
+                        if (img != null)
+                        {
+                            _dimCache.Remove(img);
+                            DisposeShaderOnly(img);
+                        }
                     }
                 }
                 _images = imgs; 
@@ -144,8 +147,11 @@ namespace AES_Controls.Composition
 
                     if (oldImg != newImg)
                     {
-                        _dimCache.Remove(oldImg);
-                        DisposeShaderOnly(oldImg);
+                        if (oldImg != null)
+                        {
+                            _dimCache.Remove(oldImg);
+                            DisposeShaderOnly(oldImg);
+                        }
                     }
 
                     if (newImg != null)
@@ -165,8 +171,11 @@ namespace AES_Controls.Composition
             }
             else if (message is DisposeImageMessage dispose)
             {
-                _dimCache.Remove(dispose.Image);
-                DisposeImageAndShader(dispose.Image);
+                if (dispose.Image != null)
+                {
+                    _dimCache.Remove(dispose.Image);
+                    DisposeImageAndShader(dispose.Image);
+                }
             }
             else if (message is DragStateMessage ds) 
             { 
@@ -641,4 +650,3 @@ namespace AES_Controls.Composition
         }
     }
 }
-

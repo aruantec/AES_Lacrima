@@ -27,17 +27,8 @@ public sealed class ApplicationPathsTests : IDisposable
     }
 
     [Fact]
-    public void DataRootDirectory_UsesAppBaseWhenWritable()
+    public void DataRootDirectory_UsesUserStandardLocation()
     {
-        SetPrivateStaticBool("_isAppBaseWritable", true);
-        Assert.Equal(AppContext.BaseDirectory, ApplicationPaths.DataRootDirectory);
-    }
-
-    [Fact]
-    public void DataRootDirectory_FallsBackToUserPathWhenAppBaseNotWritable()
-    {
-        SetPrivateStaticBool("_isAppBaseWritable", false);
-
         if (OperatingSystem.IsWindows())
         {
             var expected = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AES_Lacrima");

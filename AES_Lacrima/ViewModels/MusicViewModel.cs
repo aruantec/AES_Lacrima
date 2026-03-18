@@ -748,7 +748,9 @@ namespace AES_Lacrima.ViewModels
                             }
 
                             if (addedItems.Count > 0)
-                                _ = new MetadataScrapper(addedItems, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+                            {
+                                _ = Task.Run(async () => await LoadAlbumCoversAsync(existing, agentInfo, false));
+                            }
                         }
                         SelectedAlbum = existing;
                         OpenSelectedFolder();
@@ -765,7 +767,7 @@ namespace AES_Lacrima.ViewModels
                     {
                         var mediaItems = LoadMediaItemsWithTrackOrder(path);
                         folderItem.Children.AddRange(mediaItems);
-                        _ = new MetadataScrapper(folderItem.Children, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+                        _ = Task.Run(async () => await LoadAlbumCoversAsync(folderItem, agentInfo, false));
                     }
                     if (folderItem.Children.Count > 0)
                     {
@@ -838,7 +840,7 @@ namespace AES_Lacrima.ViewModels
                                         folderItem.Children.AddRange(mediaItems);
                                         AlbumList.Add(folderItem);
                                         
-                                        _ = new MetadataScrapper(folderItem.Children, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+                                        _ = Task.Run(async () => await LoadAlbumCoversAsync(folderItem, agentInfo, false));
                                     });
                                 }
                             }
@@ -910,8 +912,11 @@ namespace AES_Lacrima.ViewModels
             var ffmpegManager = DiLocator.ResolveViewModel<FFmpegManager>();
             var mpvManager = DiLocator.ResolveViewModel<MpvLibraryManager>();
 
-            AudioPlayer = new AudioPlayer(ffmpegManager, mpvManager);
-            AudioPlayer.AutoSkipTrailingSilence = true;
+            //LibMPVSharp.LibraryName.LibraryDirectory = "/home/aruan/Dokumente/Test/";
+            AudioPlayer = new AudioPlayer(ffmpegManager, mpvManager)
+            {
+                AutoSkipTrailingSilence = true
+            };
             // Re-subscribe to events
             AudioPlayer.PropertyChanged += AudioPlayer_PropertyChanged;
             
@@ -1216,12 +1221,12 @@ namespace AES_Lacrima.ViewModels
             {
                 try
                 {
-                    foreach (var folder in AlbumList)
+                    var albums = AlbumList.ToList();
+                    foreach (var folder in albums)
                     {
                         if (folder == null || folder.Children.Count == 0) continue;
 
-                        // Start scrapper for this folder's children
-                        _ = new MetadataScrapper(folder.Children, AudioPlayer!, DefaultFolderCover, agentInfo, 512, forceUpdate: forceUpdate);
+                        await LoadAlbumCoversAsync(folder, agentInfo, forceUpdate);
                     }
                 }
                 finally
@@ -1232,6 +1237,70 @@ namespace AES_Lacrima.ViewModels
                     });
                 }
             });
+        }
+
+        private bool NeedsCoverLoad(MediaItem item)
+        {
+            if (item.CoverBitmap == null) return true;
+            if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
+            return item.CoverBitmap == DefaultFolderCover || string.IsNullOrWhiteSpace(item.Title);
+        }
+
+        private async Task LoadAlbumCoversAsync(FolderMediaItem folder, string agentInfo, bool forceUpdate)
+        {
+            if (AudioPlayer == null) return;
+
+            var albumItems = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var snapshot = folder.Children.ToList();
+                foreach (var child in folder.Children)
+                {
+                    if (NeedsCoverLoad(child))
+                    {
+                        if (child.CoverBitmap == null)
+                        {
+                            DefaultFolderCover ??= GenerateDefaultFolderCover();
+                            child.CoverBitmap = DefaultFolderCover;
+                        }
+                        child.IsLoadingCover = true;
+                    }
+                }
+
+                folder.IsLoadingCover = snapshot.Any(NeedsCoverLoad);
+                return snapshot;
+            });
+
+            if (!albumItems.Any(NeedsCoverLoad))
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    folder.IsLoadingCover = false;
+                });
+                return;
+            }
+
+            var orderedItems = new AvaloniaList<MediaItem>(albumItems.AsEnumerable().Reverse());
+            _ = new MetadataScrapper(orderedItems, AudioPlayer!, DefaultFolderCover, agentInfo, 512, forceUpdate: forceUpdate);
+
+            await WaitForAlbumCoversAsync(albumItems);
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                folder.IsLoadingCover = false;
+            });
+        }
+
+        private static async Task WaitForAlbumCoversAsync(IReadOnlyList<MediaItem> items)
+        {
+            if (items.Count == 0) return;
+
+            // Allow the scrapper to flip IsLoadingCover before we start polling.
+            await Task.Delay(50);
+
+            while (items.Any(i => i.IsLoadingCover))
+            {
+                await Task.Delay(150);
+            }
         }
 
         private static Bitmap GenerateDefaultFolderCover() => PlaceholderGenerator.GenerateMusicPlaceholder();
@@ -1511,15 +1580,6 @@ namespace AES_Lacrima.ViewModels
         #endregion
     }
 }
-
-
-
-
-
-
-
-
-
 
 
 

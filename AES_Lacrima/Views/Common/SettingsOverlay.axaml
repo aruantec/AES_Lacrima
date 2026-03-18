@@ -108,6 +108,19 @@
                             </Button>
                             <TextBlock Text="{Binding BackgroundImagePath}" VerticalAlignment="Center" Foreground="DarkGray" FontSize="12" TextWrapping="Wrap" MaxWidth="200"/>
                         </StackPanel>
+
+                        <Separator Margin="0,10,0,10"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,5,0,20" Spacing="10">
+                            <Button Content="Open Library Directory"
+                                    Command="{Binding OpenLibraryDirectoryCommand}"
+                                    Padding="18,10"
+                                    FontSize="18"
+                                    MinWidth="220"
+                                    Background="#2B2B2B"
+                                    Foreground="WhiteSmoke"
+                                    BorderBrush="DimGray"
+                                    BorderThickness="1"/>
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Runtime.InteropServices;
 
 namespace AES_Core.IO;
 
@@ -9,17 +8,36 @@ public static class ApplicationPaths
     private const string ApplicationName = "AES_Lacrima";
     private static bool? _isAppBaseWritable;
 
-    public static string DataRootDirectory => IsAppBaseWritable()
-        ? AppContext.BaseDirectory
-        : GetUserDataRootDirectory();
+    /// <summary>
+    /// Root directory where all application data (cache, settings, downloaded tools, etc.) is stored.
+    /// This uses operating system standard locations (e.g. AppData on Windows, ~/.local/share on Linux).
+    /// </summary>
+    public static string DataRootDirectory => GetUserDataRootDirectory();
 
-    public static string LogsDirectory => IsAppBaseWritable()
-        ? Path.Combine(AppContext.BaseDirectory, "Logs")
-        : GetUserLogsDirectory();
+    /// <summary>
+    /// Directory where log files should be written.
+    /// </summary>
+    public static string LogsDirectory => GetUserLogsDirectory();
 
+    /// <summary>
+    /// Directory for application settings files.
+    /// </summary>
     public static string SettingsDirectory => Path.Combine(DataRootDirectory, "Settings");
+
+    /// <summary>
+    /// Directory for application cache files.
+    /// </summary>
     public static string CacheDirectory => Path.Combine(DataRootDirectory, "Cache");
+
+    /// <summary>
+    /// Directory for downloaded native/tool binaries (ffmpeg, libmpv, yt-dlp, etc.).
+    /// </summary>
     public static string ToolsDirectory => Path.Combine(DataRootDirectory, "Tools");
+
+    /// <summary>
+    /// Directory for shader files used by the application.
+    /// </summary>
+    public static string ShadersDirectory => Path.Combine(DataRootDirectory, "Shaders");
 
     public static string GetSettingsFile(string fileName) => Path.Combine(SettingsDirectory, fileName);
     public static string GetCacheFile(string fileName) => Path.Combine(CacheDirectory, fileName);

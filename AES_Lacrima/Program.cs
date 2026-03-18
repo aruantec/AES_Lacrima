@@ -6,6 +6,7 @@ using log4net.Config;
 using log4net.Layout;
 using System;
 using System.IO;
+using System.Linq;
 
 namespace AES_Lacrima
 {
@@ -22,10 +23,10 @@ namespace AES_Lacrima
             // Set working directory to the app base directory so it doesn't crash on macOS when launched via double-click where Working Directory is '/'
             Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
 
-            // Add the base directory to the PATH so that MPV can find the bundled yt-dlp binary
+            // Add standard tool locations to PATH so native libraries (ffmpeg, libmpv, yt-dlp) can be located.
             var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
             var pathSeparator = Path.PathSeparator;
-            
+
             // On macOS launched via Finder, standard Homebrew and Unix paths are missing. We must inject them so tools like 'brew' function properly.
             if (OperatingSystem.IsMacOS())
             {
@@ -36,29 +37,40 @@ namespace AES_Lacrima
                 }
             }
 
-            if (!currentPath.Contains(AppDomain.CurrentDomain.BaseDirectory))
+            // Ensure our per-user Tools directory is also on the PATH so native libraries can be loaded
+            // even when the app is installed in a protected location (Program Files).
+            try
             {
-                // Appending BaseDirectory to the END so native fast Homebrew binaries take precedence over slow bundled PyInstaller binaries
-                currentPath = $"{currentPath}{pathSeparator}{AppDomain.CurrentDomain.BaseDirectory}";
+                var toolsDirectory = ApplicationPaths.ToolsDirectory;
+                Directory.CreateDirectory(toolsDirectory);
+                if (!currentPath.Contains(toolsDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    currentPath = $"{currentPath}{pathSeparator}{toolsDirectory}";
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Failed to add Tools directory to PATH", ex);
             }
 
-            // Ensure our per-user Tools directory is also on the PATH so native libraries (e.g. libmpv) can be loaded
-            // even when the app is installed in a protected location (Program Files).
-            if (OperatingSystem.IsWindows())
+            Environment.SetEnvironmentVariable("PATH", currentPath);
+
+            // Ensure key application folders exist
+            Directory.CreateDirectory(ApplicationPaths.LogsDirectory);
+            Directory.CreateDirectory(ApplicationPaths.SettingsDirectory);
+            Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
+            Directory.CreateDirectory(ApplicationPaths.ShadersDirectory);
+            Directory.CreateDirectory(ApplicationPaths.ToolsDirectory);
+            EnsureShadersPresent();
+
+            // Ensure libmpv and other native helpers are loaded from the per-user Tools folder
+            try
             {
-                try
-                {
-                    var toolsDirectory = ApplicationPaths.ToolsDirectory;
-                    Directory.CreateDirectory(toolsDirectory);
-                    if (!currentPath.Contains(toolsDirectory, StringComparison.OrdinalIgnoreCase))
-                    {
-                        currentPath = $"{currentPath}{pathSeparator}{toolsDirectory}";
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn("Failed to add Tools directory to PATH", ex);
-                }
+                LibMPVSharp.LibraryName.LibraryDirectory = ApplicationPaths.ToolsDirectory;
+            }
+            catch
+            {
+                // Ignore if the LibMPVSharp assembly isn't available in this build configuration
             }
 
             Environment.SetEnvironmentVariable("PATH", currentPath);
@@ -90,6 +102,62 @@ namespace AES_Lacrima
 
             // Start the Avalonia application with the classic desktop lifetime
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        }
+
+        private static void EnsureShadersPresent()
+        {
+            try
+            {
+                var targetRoot = ApplicationPaths.ShadersDirectory;
+                var targetShadertoys = Path.Combine(targetRoot, "Shadertoys");
+                var hasShadertoys = Directory.Exists(targetShadertoys) &&
+                                    Directory.EnumerateFiles(targetShadertoys, "*.frag", SearchOption.AllDirectories).Any();
+
+                if (hasShadertoys)
+                {
+                    return;
+                }
+
+                var sourceRoot = Path.Combine(AppContext.BaseDirectory, "Shaders");
+                if (!Directory.Exists(sourceRoot))
+                {
+                    Log.Warn($"Shaders source directory not found: {sourceRoot}");
+                    return;
+                }
+
+                CopyDirectoryIfMissing(sourceRoot, targetRoot);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Failed to ensure default shaders are available", ex);
+            }
+        }
+
+        private static void CopyDirectoryIfMissing(string sourceRoot, string targetRoot)
+        {
+            Directory.CreateDirectory(targetRoot);
+
+            foreach (var directory in Directory.EnumerateDirectories(sourceRoot, "*", SearchOption.AllDirectories))
+            {
+                var relativePath = Path.GetRelativePath(sourceRoot, directory);
+                Directory.CreateDirectory(Path.Combine(targetRoot, relativePath));
+            }
+
+            foreach (var file in Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories))
+            {
+                var relativePath = Path.GetRelativePath(sourceRoot, file);
+                var destination = Path.Combine(targetRoot, relativePath);
+                var destinationDir = Path.GetDirectoryName(destination);
+                if (!string.IsNullOrEmpty(destinationDir))
+                {
+                    Directory.CreateDirectory(destinationDir);
+                }
+
+                if (!File.Exists(destination))
+                {
+                    File.Copy(file, destination, overwrite: false);
+                }
+            }
         }
 
         // Avalonia configuration, don't remove; also used by visual designer.
