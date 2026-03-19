@@ -243,11 +243,13 @@ public partial class MediaItem : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Disposes any native bitmap resources owned by this model.
+    /// Disposes runtime bitmap resources that are uniquely owned by this model.
     /// </summary>
     public void Dispose()
     {
-        _coverBitmap?.Dispose();
+        // Cover bitmaps are commonly shared (default placeholders and metadata cache entries)
+        // and can still be referenced by UI Image controls when items are removed/replaced.
+        // Do not dispose here to avoid invalidating shared sources during layout.
         _coverBitmap = null;
 
         _wallpaperBitmap?.Dispose();

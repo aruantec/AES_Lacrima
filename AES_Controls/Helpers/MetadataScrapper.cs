@@ -133,7 +133,11 @@ namespace AES_Controls.Helpers
         {
             if (mi.CoverBitmap == null) mi.CoverBitmap = _defaultCover;
 
-            if (!string.IsNullOrWhiteSpace(mi.Title) && mi.CoverBitmap != null && mi.CoverBitmap != _defaultCover)
+            // Keep existing fast-skip behavior, but only skip when duration is already known as well.
+            if (!string.IsNullOrWhiteSpace(mi.Title)
+                && mi.CoverBitmap != null
+                && mi.CoverBitmap != _defaultCover
+                && mi.Duration > 0)
                 return false;
 
             return await LoadMetadataForItemAsync(mi);
@@ -154,9 +158,11 @@ namespace AES_Controls.Helpers
             {
                 await Dispatcher.UIThread.InvokeAsync(() => {
                     mi.CoverBitmap = cachedBmp;
-                    mi.IsLoadingCover = false;
                 });
-                return false;
+
+                // Keep the fast path only when duration is already known.
+                // If duration is missing, continue loading metadata so we can fill it.
+                if (mi.Duration > 0) return false;
             }
 
             // Global throttle for metadata extraction to prevent OOM with large playlists
@@ -187,6 +193,32 @@ namespace AES_Controls.Helpers
                     if (meta != null && !string.IsNullOrWhiteSpace(meta.Title) && !key.Contains(meta.Title))
                     {
                         await ApplyMetadataToItem(mi, meta, key).ConfigureAwait(false);
+
+                        // For local files, ensure duration is backfilled even when sidecar existed
+                        // but was created before duration support (or contains 0).
+                        if (isLocalFile && mi.Duration <= 0)
+                        {
+                            try
+                            {
+                                var localDuration = await Task.Run(() =>
+                                {
+                                    using var localFile = TagLib.File.Create(key);
+                                    return localFile.Properties?.Duration.TotalSeconds ?? 0.0;
+                                }, token).ConfigureAwait(false);
+
+                                if (localDuration > 0)
+                                {
+                                    await Dispatcher.UIThread.InvokeAsync(() => mi.Duration = localDuration);
+                                    meta.Duration = localDuration;
+                                    await Task.Run(() => BinaryMetadataHelper.SaveMetadata(cachePath, meta), token).ConfigureAwait(false);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Warn($"MetadataScrapper: failed to backfill local duration for {key}", ex);
+                            }
+                        }
+
                         return false;
                     }
                 }
@@ -362,6 +394,7 @@ namespace AES_Controls.Helpers
                 mi.Lyrics = meta.Lyrics;
                 mi.ReplayGainTrackGain = meta.ReplayGainTrackGain;
                 mi.ReplayGainAlbumGain = meta.ReplayGainAlbumGain;
+                if (meta.Duration > 0) mi.Duration = meta.Duration;
 
                 var cover = meta.Images?.FirstOrDefault(x => x.Kind != TagImageKind.Wallpaper);
                 if (cover != null)
@@ -543,6 +576,9 @@ namespace AES_Controls.Helpers
                     var primaryGenreName = first.TryGetProperty("primaryGenreName", out var gn) ? gn.GetString() : null;
                     var releaseDate = first.TryGetProperty("releaseDate", out var rd) ? rd.GetString() : null;
                     var trackNumber = first.TryGetProperty("trackNumber", out var tnum) ? tnum.GetUInt32() : 0;
+                    double trackTimeMillis = 0.0;
+                    if (first.TryGetProperty("trackTimeMillis", out var ttm) && ttm.ValueKind == JsonValueKind.Number)
+                        ttm.TryGetDouble(out trackTimeMillis);
 
                     if (!string.IsNullOrEmpty(artUrl))
                     {
@@ -565,6 +601,7 @@ namespace AES_Controls.Helpers
                                 if (string.IsNullOrWhiteSpace(mi.Genre)) mi.Genre = primaryGenreName;
                                 if (mi.Year == 0 && DateTime.TryParse(releaseDate, out var dt)) mi.Year = (uint)dt.Year;
                                 if (mi.Track == 0) mi.Track = trackNumber;
+                                if (mi.Duration <= 0 && trackTimeMillis > 0) mi.Duration = trackTimeMillis / 1000.0;
 
                                 mi.CoverBitmap = bmp;
                                 mi.CoverFound = !string.IsNullOrEmpty(mi.FileName) && File.Exists(mi.FileName);
@@ -727,6 +764,7 @@ namespace AES_Controls.Helpers
                     Lyrics = mi.Lyrics ?? "",
                     ReplayGainTrackGain = mi.ReplayGainTrackGain,
                     ReplayGainAlbumGain = mi.ReplayGainAlbumGain,
+                    Duration = mi.Duration,
                     Images = []
                 };
 
@@ -761,9 +799,10 @@ namespace AES_Controls.Helpers
         /// <summary>
         /// Adds a bitmap image to the cover cache, updating the entry if the specified key already exists.
         /// </summary>
-        /// <remarks>If an existing bitmap is replaced, the previous instance is disposed to prevent
-        /// memory leaks. The method manages the order of cached items and trims the cache if it exceeds the allowed
-        /// limit.</remarks>
+        /// <remarks>
+        /// Cached bitmaps can be shared with live UI bindings. Cache replacement/eviction intentionally avoids
+        /// disposing bitmap instances here to prevent disposing images that Avalonia is still rendering.
+        /// </remarks>
         /// <param name="key">The unique identifier for the bitmap image to be added or updated in the cache. This parameter cannot be
         /// null or empty.</param>
         /// <param name="bmp">The bitmap image to add to the cache. This parameter cannot be null.</param>
@@ -771,13 +810,13 @@ namespace AES_Controls.Helpers
         {
             if (string.IsNullOrEmpty(key) || bmp == null) return;
 
-            // Try to add or update the cache without leaking previous Bitmap instances
+            // Try to add or update the cache. Do not dispose replaced instances here because they may still
+            // be referenced by Image controls on the UI thread.
             if (_coverCache.TryGetValue(key, out var existing))
             {
                 // Attempt to replace the existing bitmap atomically
                 if (_coverCache.TryUpdate(key, bmp, existing))
                 {
-                    try { existing?.Dispose(); } catch (Exception ex) { Log.Debug("Error disposing existing cover bitmap on update", ex); }
                     // Do not enqueue on replacement to avoid duplicate ordering entries
                 }
                 else
@@ -794,8 +833,8 @@ namespace AES_Controls.Helpers
                 }
                 else
                 {
-                    // Concurrent add/race: try to dispose the bmp we couldn't store to avoid leaks
-                    try { if (!_coverCache.ContainsKey(key)) bmp.Dispose(); } catch (Exception ex) { Log.Debug("Error disposing bmp on race condition", ex); }
+                    // Concurrent add/race: keep the instance alive to avoid disposing a bitmap that may
+                    // already be in use by UI bindings from a parallel path.
                 }
             }
 
@@ -807,19 +846,17 @@ namespace AES_Controls.Helpers
         /// Removes the oldest entries from the cache to ensure the total number of cached items does not exceed the
         /// maximum allowed.
         /// </summary>
-        /// <remarks>This method disposes of removed cache entries to free resources. It handles and logs
-        /// any exceptions that occur during the trimming process. Call this method after adding new items to the cache
-        /// to maintain the cache size within the specified limit.</remarks>
+        /// <remarks>
+        /// Evicted entries are removed from dictionary ownership only. They are not disposed here because
+        /// references can remain active in Avalonia visual tree bindings.
+        /// </remarks>
         private void TrimCacheIfNeeded()
         {
             try
             {
                 while (_coverCache.Count > _maxCacheEntries && _cacheOrder.TryDequeue(out var oldest))
                 {
-                    if (_coverCache.TryRemove(oldest, out var removedBmp))
-                    {
-                        try { removedBmp?.Dispose(); } catch (Exception ex) { Log.Debug("Error disposing removed cover bitmap during trim", ex); }
-                    }
+                    _coverCache.TryRemove(oldest, out _);
                     // if TryRemove failed it means it was already removed/updated; continue draining
                 }
             }
@@ -929,15 +966,8 @@ namespace AES_Controls.Helpers
             _playlist.CollectionChanged -= Playlist_CollectionChanged;
             foreach (var cts in _loadingCts.Values) { try { cts.Cancel(); } catch (Exception ex) { Log.Debug("Error canceling load during dispose", ex); } cts.Dispose(); }
 
-            // Dispose and clear cached bitmaps
-            try
-            {
-                foreach (var kv in _coverCache)
-                {
-                    try { kv.Value?.Dispose(); } catch (Exception ex) { Log.Debug("Error disposing cached bitmap during dispose", ex); }
-                }
-            }
-            catch (Exception ex) { Log.Warn("Error during cover cache disposal", ex); }
+            // Do not dispose cached bitmaps during scrapper disposal.
+            // Some controls may still reference these instances briefly during teardown/recomposition.
             _coverCache.Clear();
             // Clear ordering queue
             while (_cacheOrder.TryDequeue(out _)) { }

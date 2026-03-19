@@ -18,7 +18,7 @@
             <ContextMenu MaxHeight="400"/>
         </Grid.ContextMenu>
 		<!-- Spectrum -->
-        <spectrum:GlSpectrumControl Spectrum="{Binding MusicViewModel.AudioPlayer.Spectrum}"
+        <spectrum:GlSpectrumControl Spectrum="{Binding SpectrumSource}"
                                     IsVisible="{Binding !IsShaderToySelected}"
                                     VerticalAlignment="Bottom"
                                     Height="90"
@@ -30,7 +30,7 @@
                                     BarGradient="{Binding MinViewModel.ColorGradientBrush}"/>
         <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
                                IsVisible="{Binding IsShaderToySelected}"
-                               Spectrum="{Binding MusicViewModel.AudioPlayer.Spectrum}"
+                               Spectrum="{Binding SpectrumSource}"
                                SpectrumGradient="{Binding MinViewModel.ColorGradientBrush}"/>
     </Grid>
 </UserControl>

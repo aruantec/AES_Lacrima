@@ -87,10 +87,11 @@ public class OpenShaderToyContextMenuBehavior : Behavior<Control>
         }
 
         var selected = viewModel.SettingsViewModel?.SelectedShadertoy;
+        var isDefaultSelected = !viewModel.IsShaderToySelected;
 
         var items = new List<object>
         {
-            CreateShaderMenuItem("Default Spectrum", null, viewModel, selected == null)
+            CreateShaderMenuItem("Default Spectrum", null, viewModel, isDefaultSelected)
         };
 
         var shaders = viewModel.SettingsViewModel?.ShaderToys;
@@ -99,7 +100,7 @@ public class OpenShaderToyContextMenuBehavior : Behavior<Control>
             items.Add(new Separator());
             foreach (var shader in shaders)
             {
-                var isSelected = IsSameShader(selected, shader);
+                var isSelected = viewModel.IsShaderToySelected && IsSameShader(selected, shader);
                 items.Add(CreateShaderMenuItem(shader.Name, shader, viewModel, isSelected));
             }
         }

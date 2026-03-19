@@ -6,6 +6,7 @@ using AES_Core.Interfaces;
 using AES_Core.IO;
 using AES_Lacrima.ViewModels;
 using AES_Core.Services;
+using AES_Lacrima.Services;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -135,6 +136,9 @@ namespace AES_Lacrima.Mini.ViewModels
         [AutoResolve]
         [ObservableProperty]
         private SettingsViewModel? _settingsViewModel;
+
+        [AutoResolve]
+        private MediaUrlService? _mediaUrlService;
 
         [ObservableProperty]
         private bool _isVisualizerActive;
@@ -278,6 +282,12 @@ namespace AES_Lacrima.Mini.ViewModels
             if (_isSwitchingExtension) return;
 
             var desiredVm = DiLocator.ResolveViewModel<VisualizerViewModel>();
+            if (desiredVm != null)
+            {
+                desiredVm.MinViewModel = this;
+                desiredVm.MusicViewModel = MusicViewModel;
+                desiredVm.SettingsViewModel = SettingsViewModel;
+            }
 
             if (ExtensionAreaOpen && ExtensionView != null && ExtensionView.GetType() != desiredVm?.GetType())
             {
@@ -342,12 +352,30 @@ namespace AES_Lacrima.Mini.ViewModels
         }
 
         [RelayCommand]
-        private void PlaySelectedMediaItem()
+        private async Task PlaySelectedMediaItem()
         {
             if (SelectedMediaItem == null) return;
-            MusicViewModel?.AudioPlayer?.PlayFile(SelectedMediaItem);
+            await PlayMediaItemAsync(SelectedMediaItem);
             LoadedMediaItem = SelectedMediaItem;
             UpdateLoadedBrush(SelectedMediaItem);
+        }
+
+        private async Task PlayMediaItemAsync(MediaItem item)
+        {
+            if (MusicViewModel?.AudioPlayer == null || string.IsNullOrWhiteSpace(item.FileName)) return;
+
+            if (item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase) ||
+                item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_mediaUrlService != null)
+                    await _mediaUrlService.OpenMediaItemAsync(MusicViewModel.AudioPlayer, item);
+                else
+                    await MusicViewModel.AudioPlayer.PlayFile(item);
+            }
+            else
+            {
+                await MusicViewModel.AudioPlayer.PlayFile(item);
+            }
         }
 
         [RelayCommand]
@@ -377,7 +405,7 @@ namespace AES_Lacrima.Mini.ViewModels
                 // we have a playlist but nothing loaded; pick selected or first
                 if (SelectedMediaItem == null && MediaItems.FirstOrDefault() is MediaItem firstItem)
                     SelectedMediaItem = firstItem;
-                PlaySelectedMediaItem();
+                _ = PlaySelectedMediaItem();
             }
             else
             {
@@ -408,7 +436,7 @@ namespace AES_Lacrima.Mini.ViewModels
                         nextIndex = (index + 1) % MediaItems.Count;
                 }
                 var next = MediaItems[nextIndex];
-                MusicViewModel?.AudioPlayer.PlayFile(next);
+                _ = PlayMediaItemAsync(next);
                 LoadedMediaItem = next;
                 SelectedMediaItem = next;
                 return;
@@ -416,7 +444,7 @@ namespace AES_Lacrima.Mini.ViewModels
             var nextIndexSequential = index + 1;
             if (nextIndexSequential >= MediaItems.Count) return;
             var nextSequential = MediaItems[nextIndexSequential];
-            MusicViewModel?.AudioPlayer.PlayFile(nextSequential);
+            _ = PlayMediaItemAsync(nextSequential);
             LoadedMediaItem = nextSequential;
             SelectedMediaItem = nextSequential;
         }
@@ -430,7 +458,7 @@ namespace AES_Lacrima.Mini.ViewModels
             var prevIndex = index - 1;
             if (prevIndex < 0) return;
             var prev = MediaItems[prevIndex];
-            MusicViewModel?.AudioPlayer.PlayFile(prev);
+            _ = PlayMediaItemAsync(prev);
             LoadedMediaItem = prev;
             SelectedMediaItem = prev;
         }
@@ -605,14 +633,20 @@ namespace AES_Lacrima.Mini.ViewModels
         #region Private methods
         private void UpdateLoadedBrush(MediaItem? item)
         {
-            LoadedBrush = null; IsCoverPlaceholder = true;
-            if (item?.CoverBitmap != null && item.CoverBitmap != _defaultCover)
+            LoadedBrush = null;
+            IsCoverPlaceholder = true;
+
+            var coverBitmap = item?.CoverBitmap;
+            var hasCustomCover = coverBitmap != null && coverBitmap != _defaultCover;
+
+            if (hasCustomCover)
             {
-                LoadedBrush = new SolidColorBrush(BitmapColorHelper.GetDominantColor(item.CoverBitmap));
+                LoadedBrush = new SolidColorBrush(BitmapColorHelper.GetDominantColor(coverBitmap));
                 IsCoverPlaceholder = false;
             }
+
             ControlsBrush = LoadedBrush;
-            ColorGradientBrush = _colorHelper.GetColorGradient(item?.CoverBitmap! != _defaultCover ? item?.CoverBitmap! : null!);
+            ColorGradientBrush = _colorHelper.GetColorGradient(hasCustomCover ? coverBitmap : null);
         }
 
         private void SubscribeToCollection(AvaloniaList<MediaItem>? list)
@@ -691,7 +725,8 @@ namespace AES_Lacrima.Mini.ViewModels
                 {
                     if (MusicViewModel?.AudioPlayer?.RepeatMode == RepeatMode.All && MediaItems != null && MediaItems.Count > 0 && LoadedMediaItem != null && MediaItems.IndexOf(LoadedMediaItem) == MediaItems.Count - 1 && MediaItems.FirstOrDefault() is MediaItem firstItem)
                     {
-                        SelectedMediaItem = firstItem; PlaySelectedMediaItem();
+                        SelectedMediaItem = firstItem;
+                        _ = PlaySelectedMediaItem();
                     }
                     else Next();
                 }
@@ -750,6 +785,9 @@ namespace AES_Lacrima.Mini.ViewModels
                 var desiredVm = DiLocator.ResolveViewModel<VisualizerViewModel>();
                 if (desiredVm != null)
                 {
+                    desiredVm.MinViewModel = this;
+                    desiredVm.MusicViewModel = MusicViewModel;
+                    desiredVm.SettingsViewModel = SettingsViewModel;
                     ExtensionView = desiredVm;
                     ExtensionAreaOpen = true;
                 }

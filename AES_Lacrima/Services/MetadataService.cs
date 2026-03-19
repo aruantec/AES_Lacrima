@@ -102,6 +102,8 @@ namespace AES_Lacrima.Services
                         Comment = metadata.Comment;
                         ReplayGainTrackGain = metadata.ReplayGainTrackGain;
                         ReplayGainAlbumGain = metadata.ReplayGainAlbumGain;
+                        if (_currentSelectedMedia != null && metadata.Duration > 0)
+                            _currentSelectedMedia.Duration = metadata.Duration;
                         IsOnlineMedia = true;
 
                         // Clear images and dispose
@@ -213,6 +215,7 @@ namespace AES_Lacrima.Services
                             Comment = Comment!,
                             ReplayGainTrackGain = ReplayGainTrackGain,
                             ReplayGainAlbumGain = ReplayGainAlbumGain,
+                            Duration = _currentSelectedMedia?.Duration ?? 0.0,
                             Images = [.. Images.Select(img => new ImageData
                             {
                                 Data = img.Data,
