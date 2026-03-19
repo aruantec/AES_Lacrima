@@ -6,59 +6,79 @@ namespace AES_Controls.Helpers;
 
 public class BitmapColorHelper
 {
-    public static unsafe Color GetDominantColor(Bitmap bitmap)
+    public static unsafe Color GetDominantColor(Bitmap? bitmap)
     {
         if (bitmap == null) return Colors.Transparent;
 
-        var size = new PixelSize(32, 32);
-        // Use RenderTargetBitmap for scaling as it's more robust than CreateScaledBitmap for various bitmap implementations
-        using var small = new RenderTargetBitmap(size);
-        using (var ctx = small.CreateDrawingContext())
+        try
         {
-            ctx.DrawImage(bitmap, new Rect(0, 0, bitmap.Size.Width, bitmap.Size.Height), new Rect(0, 0, size.Width, size.Height));
+            var sourceSize = bitmap.Size;
+            if (sourceSize.Width <= 0 || sourceSize.Height <= 0) return Colors.Transparent;
+
+            var size = new PixelSize(32, 32);
+            // Use RenderTargetBitmap for scaling as it's more robust than CreateScaledBitmap for various bitmap implementations
+            using var small = new RenderTargetBitmap(size);
+            using (var ctx = small.CreateDrawingContext())
+            {
+                ctx.DrawImage(bitmap, new Rect(0, 0, sourceSize.Width, sourceSize.Height), new Rect(0, 0, size.Width, size.Height));
+            }
+
+            var pixels = new byte[size.Width * size.Height * 4];
+
+            fixed (byte* p = pixels)
+            {
+                small.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), (IntPtr)p, pixels.Length, size.Width * 4);
+            }
+
+            long r = 0, g = 0, b = 0;
+            var totalPixels = size.Width * size.Height;
+
+            for (var i = 0; i < pixels.Length; i += 4)
+            {
+                // Bitmap.CopyPixels usually returns BGRA
+                b += pixels[i];
+                g += pixels[i + 1];
+                r += pixels[i + 2];
+            }
+
+            return Color.FromUInt32(0xFF000000 |
+                  (uint)(r / totalPixels) << 16 |
+                  (uint)(g / totalPixels) << 8 |
+                  (uint)(b / totalPixels));
         }
-
-        var pixels = new byte[size.Width * size.Height * 4];
-
-        fixed (byte* p = pixels)
+        catch
         {
-            small.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), (IntPtr)p, pixels.Length, size.Width * 4);
+            return Colors.Transparent;
         }
-
-        long r = 0, g = 0, b = 0;
-        var totalPixels = size.Width * size.Height;
-
-        for (var i = 0; i < pixels.Length; i += 4)
-        {
-            // Bitmap.CopyPixels usually returns BGRA
-            b += pixels[i];
-            g += pixels[i + 1];
-            r += pixels[i + 2];
-        }
-
-        return Color.FromUInt32(0xFF000000 |
-              (uint)(r / totalPixels) << 16 |
-              (uint)(g / totalPixels) << 8 |
-              (uint)(b / totalPixels));
     }
 
-    private unsafe (Color primary, Color secondary) GetThemePalette(Bitmap bitmap)
+    private unsafe (Color primary, Color secondary) GetThemePalette(Bitmap? bitmap)
     {
         if (bitmap == null) return (Color.Parse("#FF004D"), Color.Parse("#00CCFF"));
 
-        var size = new PixelSize(32, 32);
-        // Use RenderTargetBitmap for scaling as it's more robust than CreateScaledBitmap for various bitmap implementations
-        using var small = new RenderTargetBitmap(size);
-        using (var ctx = small.CreateDrawingContext())
+        byte[] pixels;
+        try
         {
-            ctx.DrawImage(bitmap, new Rect(0, 0, bitmap.Size.Width, bitmap.Size.Height), new Rect(0, 0, size.Width, size.Height));
+            var sourceSize = bitmap.Size;
+            if (sourceSize.Width <= 0 || sourceSize.Height <= 0) return (Color.Parse("#FF004D"), Color.Parse("#00CCFF"));
+
+            var size = new PixelSize(32, 32);
+            // Use RenderTargetBitmap for scaling as it's more robust than CreateScaledBitmap for various bitmap implementations
+            using var small = new RenderTargetBitmap(size);
+            using (var ctx = small.CreateDrawingContext())
+            {
+                ctx.DrawImage(bitmap, new Rect(0, 0, sourceSize.Width, sourceSize.Height), new Rect(0, 0, size.Width, size.Height));
+            }
+
+            pixels = new byte[size.Width * size.Height * 4];
+            fixed (byte* p = pixels)
+            {
+                small.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), (IntPtr)p, pixels.Length, size.Width * 4);
+            }
         }
-
-        var pixels = new byte[size.Width * size.Height * 4];
-
-        fixed (byte* p = pixels)
+        catch
         {
-            small.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), (IntPtr)p, pixels.Length, size.Width * 4);
+            return (Color.Parse("#FF004D"), Color.Parse("#00CCFF"));
         }
 
         // track counts and raw sums so we can compute an unbiased representative color
@@ -158,7 +178,7 @@ public class BitmapColorHelper
     /// different hues when possible; falls back to a default palette when no
     /// usable pixels are found.
     /// </summary>
-    public unsafe LinearGradientBrush GetColorGradient(Bitmap bitmap)
+    public unsafe LinearGradientBrush GetColorGradient(Bitmap? bitmap)
     {
         // Default palette (matches existing default gradient in other controls)
         var defaultColors = new[] {
@@ -181,17 +201,53 @@ public class BitmapColorHelper
             };
         }
 
-        var size = new PixelSize(48, 48);
-        using var small = new RenderTargetBitmap(size);
-        using (var ctx = small.CreateDrawingContext())
+        byte[] pixels;
+        try
         {
-            ctx.DrawImage(bitmap, new Rect(0, 0, bitmap.Size.Width, bitmap.Size.Height), new Rect(0, 0, size.Width, size.Height));
-        }
+            var sourceSize = bitmap.Size;
+            if (sourceSize.Width <= 0 || sourceSize.Height <= 0)
+            {
+                var emptyStops = new GradientStops();
+                for (int i = 0; i < defaultColors.Length; i++)
+                {
+                    double offset = defaultColors.Length == 1 ? 0.0 : i / (double)(defaultColors.Length - 1);
+                    emptyStops.Add(new GradientStop(defaultColors[i], offset));
+                }
+                return new LinearGradientBrush
+                {
+                    GradientStops = emptyStops,
+                    StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                    EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative)
+                };
+            }
 
-        var pixels = new byte[size.Width * size.Height * 4];
-        fixed (byte* p = pixels)
+            var size = new PixelSize(48, 48);
+            using var small = new RenderTargetBitmap(size);
+            using (var ctx = small.CreateDrawingContext())
+            {
+                ctx.DrawImage(bitmap, new Rect(0, 0, sourceSize.Width, sourceSize.Height), new Rect(0, 0, size.Width, size.Height));
+            }
+
+            pixels = new byte[size.Width * size.Height * 4];
+            fixed (byte* p = pixels)
+            {
+                small.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), (IntPtr)p, pixels.Length, size.Width * 4);
+            }
+        }
+        catch
         {
-            small.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), (IntPtr)p, pixels.Length, size.Width * 4);
+            var fallbackStops = new GradientStops();
+            for (int i = 0; i < defaultColors.Length; i++)
+            {
+                double offset = defaultColors.Length == 1 ? 0.0 : i / (double)(defaultColors.Length - 1);
+                fallbackStops.Add(new GradientStop(defaultColors[i], offset));
+            }
+            return new LinearGradientBrush
+            {
+                GradientStops = fallbackStops,
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative)
+            };
         }
 
         // store count plus sums so we can recover a more accurate representative color later

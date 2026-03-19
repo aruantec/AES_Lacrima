@@ -6,9 +6,8 @@
         xmlns:vm="using:AES_Lacrima.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:gl="using:AES_Controls.GL"
-        xmlns:locators="using:AES_Lacrima.Helpers"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:composition="clr-namespace:AES_Controls.Composition;assembly=AES_Controls"
+        xmlns:composition="using:AES_Controls.Composition"
         xmlns:nav="clr-namespace:AES_Controls.Navigation;assembly=AES_Controls"
         xmlns:common="clr-namespace:AES_Lacrima.Views.Common"
         xmlns:behaviors="clr-namespace:AES_Lacrima.Behaviors"
@@ -23,11 +22,6 @@
         SystemDecorations="None"
         ExtendClientAreaChromeHints="NoChrome"
         ExtendClientAreaToDecorationsHint="True">
-
-    <!-- Sets the DataContext -->
-    <Window.DataContext>
-        <locators:TypeResolverExtension Type="vm:MainWindowViewModel"/>
-    </Window.DataContext>
 
     <!-- Sets the DataContext for the previewer -->
     <Design.DataContext>
@@ -60,54 +54,59 @@
                 </Setter>
             </Style>
         </Grid.Styles>
-        <!-- Background -->
-        <Image asyncImageLoader:ImageLoader.Source="{Binding SettingsViewModel.BackgroundImagePath}" 
-               IsVisible="{Binding SettingsViewModel.ShowBackground}"
-               Stretch="UniformToFill"/>
-        <!--Shadertoy-->
-        <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
-                               IsVisible="{Binding SettingsViewModel.ShowShaderToy}"
-                               Spectrum="{Binding Spectrum}"
-                               SpectrumGradient="{Binding SettingsViewModel.SpectrumGradient}">
-        </gl:GlShaderToyControl>
-        
-        <!-- Scalable decorator and main content-->
-        <controls:ScalableDecorator Scale="{Binding SettingsViewModel.ScaleFactor}">
-            <Grid RowDefinitions="Auto,*" ColumnDefinitions="60*,40*">
-                <!-- Top bar -->
-                <common:MainTopBar Grid.Row="0" Grid.ColumnSpan="2"/>
-				<!-- Main content -->
-				<nav:CachedContentPresenter Grid.Row="1"
-                                            Grid.ColumnSpan="2" Grid.Column="0"
-                                            TransitionsEnabled="True"
-											Duration="0:0:0.500"
-											Easing="SineEaseInOut"
-											CurrentViewModel="{Binding NavigationService.View}"
-                                            TransitionCompletedCommand="{Binding NavigationService.TransitionCompletedCommand}"/>
-				<!-- Settings Overlay -->
-				<Border x:Name="SettingsOverlay"
-						Grid.Row="1"
-                        Grid.Column="1"
-						Background="#E6000000"
-                        BorderBrush="DimGray"
-						BorderThickness="0.5,0,0,0"
-						Opacity="{Binding NavigationService.ShowSettingsOverlay, Converter={StaticResource BoolToOpacityConverter}}"
-						IsHitTestVisible="{Binding NavigationService.ShowSettingsOverlay}">
-					<ScrollViewer>
-						<common:SettingsOverlay Margin="5,15,0,0"/>
-					</ScrollViewer>
-				</Border>
-                <!-- Prompt overlay -->
-                <ContentControl Content="{Binding PromptView}"
+        <!--Removes the background on purpose and forces transparency-->
+        <composition:TransparentComposition/>
+
+        <Border x:Name="MainBorder" ClipToBounds="True" CornerRadius="10" BorderBrush="DimGray" BorderThickness="0.5" Background="Black">
+            <Grid x:Name="MainBorderContent">
+                <!-- Background -->
+                <Image asyncImageLoader:ImageLoader.Source="{Binding SettingsViewModel.BackgroundImagePath}" 
+                    IsVisible="{Binding SettingsViewModel.ShowBackground}"
+                    Stretch="UniformToFill"/>
+                <!--Shadertoy-->
+                <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
+                                    IsVisible="{Binding SettingsViewModel.ShowShaderToy}"
+                                    Spectrum="{Binding Spectrum}"
+                                    SpectrumGradient="{Binding SettingsViewModel.SpectrumGradient}">
+                </gl:GlShaderToyControl>
+                
+                <!-- Scalable decorator and main content-->
+                <controls:ScalableDecorator Scale="{Binding SettingsViewModel.ScaleFactor}">
+                    <Grid RowDefinitions="Auto,*" ColumnDefinitions="60*,40*">
+                        <!-- Top bar -->
+                        <common:MainTopBar Grid.Row="0" Grid.ColumnSpan="2"/>
+                        <!-- Main content -->
+                        <nav:CachedContentPresenter Grid.Row="1"
+                                                    Grid.ColumnSpan="2" Grid.Column="0"
+                                                    TransitionsEnabled="True"
+                                                    Duration="0:0:0.500"
+                                                    Easing="SineEaseInOut"
+                                                    CurrentViewModel="{Binding NavigationService.View}"
+                                                    TransitionCompletedCommand="{Binding NavigationService.TransitionCompletedCommand}"/>
+                        <!-- Settings Overlay -->
+                        <Border x:Name="SettingsOverlay"
                                 Grid.Row="1"
-                                Grid.Column="0"
-                                Grid.ColumnSpan="2"/>
+                                Grid.Column="1"
+                                Background="#E6000000"
+                                BorderBrush="DimGray"
+                                BorderThickness="0.5,0,0,0"
+                                Opacity="{Binding NavigationService.ShowSettingsOverlay, Converter={StaticResource BoolToOpacityConverter}}"
+                                IsHitTestVisible="{Binding NavigationService.ShowSettingsOverlay}">
+                            <ScrollViewer>
+                                <common:SettingsOverlay Margin="5,15,0,0"/>
+                            </ScrollViewer>
+                        </Border>
+                        <!-- Prompt overlay -->
+                        <ContentControl Content="{Binding PromptView}"
+                                        Grid.Row="1"
+                                        Grid.Column="0"
+                                        Grid.ColumnSpan="2"/>
+                    </Grid>
+                </controls:ScalableDecorator>
+                <!--Particle control-->
+                <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"
+                                                        IsVisible="{Binding SettingsViewModel.ShowParticles}"/>
             </Grid>
-
-        </controls:ScalableDecorator>
-
-        <!--Particle control-->
-        <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"
-                                                IsVisible="{Binding SettingsViewModel.ShowParticles}"/>
+        </Border>
     </Grid>
 </Window>

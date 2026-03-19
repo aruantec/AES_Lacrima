@@ -1,5 +1,6 @@
 ﻿using AES_Core.DI;
 using AES_Lacrima.ViewModels;
+using Avalonia.Collections;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.ComponentModel;
@@ -25,7 +26,23 @@ namespace AES_Lacrima.Mini.ViewModels
         [ObservableProperty]
         private SettingsViewModel? _settingsViewModel;
 
-        public bool IsShaderToySelected => SettingsViewModel?.SelectedShadertoy != null;
+        public bool IsShaderToySelected =>
+            SettingsViewModel?.ShowShaderToy == true &&
+            SettingsViewModel.SelectedShadertoy != null;
+
+        public AvaloniaList<double>? SpectrumSource =>
+            MinViewModel?.MusicViewModel?.AudioPlayer?.Spectrum ??
+            MusicViewModel?.AudioPlayer?.Spectrum;
+
+        partial void OnMusicViewModelChanged(MusicViewModel? value)
+        {
+            OnPropertyChanged(nameof(SpectrumSource));
+        }
+
+        partial void OnMinViewModelChanged(MinViewModel? value)
+        {
+            OnPropertyChanged(nameof(SpectrumSource));
+        }
 
         partial void OnSettingsViewModelChanged(SettingsViewModel? value)
         {
@@ -41,6 +58,7 @@ namespace AES_Lacrima.Mini.ViewModels
 
             _subscribedSettingsViewModel = value;
             OnPropertyChanged(nameof(IsShaderToySelected));
+            OnPropertyChanged(nameof(SpectrumSource));
         }
 
         [RelayCommand]
@@ -49,12 +67,14 @@ namespace AES_Lacrima.Mini.ViewModels
             if (SettingsViewModel == null) return;
 
             SettingsViewModel.SelectedShadertoy = shaderItem;
+            SettingsViewModel.ShowShaderToy = shaderItem != null;
             OnPropertyChanged(nameof(IsShaderToySelected));
         }
 
         private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(SettingsViewModel.SelectedShadertoy))
+            if (e.PropertyName == nameof(SettingsViewModel.SelectedShadertoy) ||
+                e.PropertyName == nameof(SettingsViewModel.ShowShaderToy))
             {
                 OnPropertyChanged(nameof(IsShaderToySelected));
             }

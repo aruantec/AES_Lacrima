@@ -48,7 +48,7 @@
                                Foreground="White">
                         <Run Text="{Binding MusicViewModel.AudioPlayer.Position, Converter={StaticResource TimeSpanConverter}, FallbackValue='00:00'}" />
                         <Run Text=" / " />
-                        <Run Text="{Binding LoadedMediaItem.Duration, Converter={StaticResource TimeSpanConverter}, FallbackValue='00:00'}" />
+                        <Run Text="{Binding LoadedMediaItem.Duration, Converter={StaticResource TimeSpanConverter}, ConverterParameter=UnknownAsDashes, FallbackValue='--:--'}" />
                     </TextBlock>
 				</StackPanel>
             </Grid>
@@ -605,7 +605,7 @@
                                 </Interaction.Behaviors>
                             </TextBlock>
                         </Border>
-                        <TextBlock Grid.Column="3" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}}" Foreground="White" FontSize="12" Margin="6,4,10,4" HorizontalAlignment="Left" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="3" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}, ConverterParameter=UnknownAsDashes}" Foreground="White" FontSize="12" Margin="6,4,10,4" HorizontalAlignment="Left" VerticalAlignment="Center" />
                     </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>

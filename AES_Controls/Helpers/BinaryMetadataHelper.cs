@@ -31,6 +31,8 @@ public class CustomMetadata
     public double ReplayGainTrackGain { get; set; }
     /// <summary>Gets or sets the ReplayGain album gain in dB.</summary>
     public double ReplayGainAlbumGain { get; set; }
+    /// <summary>Gets or sets the duration in seconds.</summary>
+    public double Duration { get; set; }
     /// <summary>Gets or sets the list of associated images.</summary>
     public List<ImageData> Images { get; set; } = [];
     /// <summary>Gets or sets the list of associated video data.</summary>

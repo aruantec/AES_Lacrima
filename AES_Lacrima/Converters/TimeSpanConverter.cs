@@ -23,8 +23,13 @@ public class TimeSpanConverter : IValueConverter
     /// </returns>
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
+        var unknownAsDashes = string.Equals(parameter?.ToString(), "UnknownAsDashes", StringComparison.OrdinalIgnoreCase);
+
         if (value is double seconds)
         {
+            if (seconds <= 0 && unknownAsDashes)
+                return "--:--";
+
             // Convert seconds to TimeSpan
             var timeSpan = TimeSpan.FromSeconds(seconds);
 
@@ -41,7 +46,7 @@ public class TimeSpanConverter : IValueConverter
             }
         }
 
-        return string.Empty;
+        return unknownAsDashes ? "--:--" : string.Empty;
     }
 
     /// <summary>

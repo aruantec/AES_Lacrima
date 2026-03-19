@@ -1,5 +1,7 @@
-﻿using Avalonia;
+﻿using AES_Core.DI;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Media;
 using Avalonia.Threading;
 using System;
 
@@ -13,6 +15,7 @@ namespace AES_Lacrima.Views
         public MainWindow()
         {
             InitializeComponent();
+            DataContext ??= DiLocator.TryResolve(typeof(ViewModels.MainWindowViewModel));
             Opened += OnOpened;
             SizeChanged += OnSizeChanged;
             LayoutUpdated += OnLayoutUpdated;
@@ -37,6 +40,7 @@ namespace AES_Lacrima.Views
             }
 
             CenterWindow(vm, renderScale);
+            UpdateMainBorderClip();
 
             // Allow size change tracking after initial layout settles.
             _ignoreSizeChange = true;
@@ -59,6 +63,8 @@ namespace AES_Lacrima.Views
 
         private void OnLayoutUpdated(object? sender, EventArgs e)
         {
+            UpdateMainBorderClip();
+
             var currentScale = VisualRoot?.RenderScaling ?? _lastRenderScale;
             if (double.IsNaN(currentScale) || Math.Abs(currentScale - _lastRenderScale) < 0.01)
                 return;
@@ -72,6 +78,24 @@ namespace AES_Lacrima.Views
                 CenterWindow(vm, currentScale);
                 Dispatcher.UIThread.Post(() => _ignoreSizeChange = false, DispatcherPriority.Background);
             }
+        }
+
+        private void UpdateMainBorderClip()
+        {
+            if (MainBorder is null || MainBorderContent is null)
+                return;
+
+            var size = MainBorderContent.Bounds.Size;
+            if (size.Width <= 0 || size.Height <= 0)
+                return;
+
+            var radius = Math.Max(0, MainBorder.CornerRadius.TopLeft);
+            MainBorderContent.Clip = new RectangleGeometry
+            {
+                Rect = new Rect(size),
+                RadiusX = radius,
+                RadiusY = radius
+            };
         }
 
         private void CenterWindow(ViewModels.MainWindowViewModel vm, double? renderScaleOverride = null)
