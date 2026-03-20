@@ -271,7 +271,7 @@
 		<!-- Search Bar (on top) -->
 		<TextBox HorizontalAlignment="Right"
 				 VerticalAlignment="Top"
-				 Margin="0,15,30,0"
+				 Margin="0,-5,30,0"
 				 Watermark="Filter Albums"
 				 Text="{Binding SearchAlbumText, Mode=TwoWay}"
 				 Classes="AlbumSearch"
