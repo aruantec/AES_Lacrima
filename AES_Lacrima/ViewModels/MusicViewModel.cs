@@ -1300,6 +1300,19 @@ namespace AES_Lacrima.ViewModels
                 return;
             }
 
+            // Match Add Playlist/Add URL behavior: kick off fast direct YouTube thumbnail fetch
+            // first, then let MetadataScrapper backfill/normalize metadata in the background.
+            var fastThumbCandidates = albumItems
+                .Where(NeedsCoverLoad)
+                .Where(item => !string.IsNullOrWhiteSpace(item.FileName)
+                               && !string.IsNullOrWhiteSpace(YouTubeThumbnail.ExtractVideoId(item.FileName)))
+                .ToList();
+
+            foreach (var item in fastThumbCandidates)
+            {
+                _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
+            }
+
             var orderedItems = new AvaloniaList<MediaItem>(albumItems.AsEnumerable().Reverse());
             _ = new MetadataScrapper(orderedItems, AudioPlayer!, DefaultFolderCover, agentInfo, 512, forceUpdate: forceUpdate);
 
