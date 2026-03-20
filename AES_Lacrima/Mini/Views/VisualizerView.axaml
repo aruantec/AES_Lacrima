@@ -31,6 +31,7 @@
         <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
                                IsVisible="{Binding IsShaderToySelected}"
                                Spectrum="{Binding SpectrumSource}"
+                               CoverBitmap="{Binding MinViewModel.LoadedMediaItem.CoverBitmap}"
                                SpectrumGradient="{Binding MinViewModel.ColorGradientBrush}"/>
     </Grid>
 </UserControl>

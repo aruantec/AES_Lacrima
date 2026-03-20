@@ -44,7 +44,7 @@ namespace AES_Lacrima.ViewModels
         private readonly string[] _supportedTypes = new[] { "*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4" };
         private static readonly HttpClient FastThumbnailClient = new() { Timeout = TimeSpan.FromSeconds(10) };
         private static readonly SemaphoreSlim FastThumbnailThrottle = new(16);
-        private const int MetadataStaggerDelayMs = 500;
+        private const int MetadataStaggerDelayMs = 120;
 
         private TaskbarButton[]? _taskbarButtons;
         private IntPtr _playIcon;
@@ -487,6 +487,7 @@ namespace AES_Lacrima.ViewModels
             AlbumList.Add(newAlbum);
             SelectedAlbum = newAlbum;
             OpenSelectedFolder();
+            RenameFolder(newAlbum);
         }
 
         [RelayCommand]
@@ -1654,4 +1655,3 @@ namespace AES_Lacrima.ViewModels
         #endregion
     }
 }
-

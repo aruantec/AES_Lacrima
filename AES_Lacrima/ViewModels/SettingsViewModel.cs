@@ -914,8 +914,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (SelectedShadertoy != null && ShaderToys.Contains(SelectedShadertoy))
             return;
 
-        // Prefer ElectricBlur when available, otherwise pick the first item.
-        SelectedShadertoy = ShaderToys.FirstOrDefault(s => s.Name == "ElectricBlur")
+        // Prefer AnimatedBackground when available, otherwise pick the first item.
+        SelectedShadertoy = ShaderToys.FirstOrDefault(s => s.Name == "AnimatedBackground")
                             ?? ShaderToys.FirstOrDefault();
     }
 
@@ -999,9 +999,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (ReadStringSetting(section, nameof(SpectrumColor4)) is { } c4) SpectrumColor4 = Color.Parse(c4);
         WaveformPlayedColor = Color.Parse(ReadStringSetting(section, nameof(WaveformPlayedColor), "RoyalBlue")!);
         
-        // Set the selected shadertoy if it exists, otherwise default to "ElectricBlur"
+        // Set the selected shadertoy if it exists, otherwise default to "AnimatedBackground"
         string? selectedshadertoy = ReadStringSetting(section, nameof(SelectedShadertoy));
-        SelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == (selectedshadertoy ?? "ElectricBlur")) 
+        SelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == (selectedshadertoy ?? "AnimatedBackground")) 
                             ?? ShaderToys?.FirstOrDefault();
 
         // Carousel settings

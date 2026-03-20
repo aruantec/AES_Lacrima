@@ -109,15 +109,6 @@ namespace AES_Lacrima
             try
             {
                 var targetRoot = ApplicationPaths.ShadersDirectory;
-                var targetShadertoys = Path.Combine(targetRoot, "Shadertoys");
-                var hasShadertoys = Directory.Exists(targetShadertoys) &&
-                                    Directory.EnumerateFiles(targetShadertoys, "*.frag", SearchOption.AllDirectories).Any();
-
-                if (hasShadertoys)
-                {
-                    return;
-                }
-
                 var sourceRoot = Path.Combine(AppContext.BaseDirectory, "Shaders");
                 if (!Directory.Exists(sourceRoot))
                 {
@@ -125,6 +116,7 @@ namespace AES_Lacrima
                     return;
                 }
 
+                // Keep user-provided/cached shader folders intact, but always copy any newly shipped shaders.
                 CopyDirectoryIfMissing(sourceRoot, targetRoot);
             }
             catch (Exception ex)
@@ -156,6 +148,16 @@ namespace AES_Lacrima
                 if (!File.Exists(destination))
                 {
                     File.Copy(file, destination, overwrite: false);
+                    continue;
+                }
+
+                // Update shipped files when the source is newer, while preserving
+                // locally modified files that have a newer timestamp.
+                var sourceWriteTime = File.GetLastWriteTimeUtc(file);
+                var destinationWriteTime = File.GetLastWriteTimeUtc(destination);
+                if (sourceWriteTime > destinationWriteTime)
+                {
+                    File.Copy(file, destination, overwrite: true);
                 }
             }
         }
