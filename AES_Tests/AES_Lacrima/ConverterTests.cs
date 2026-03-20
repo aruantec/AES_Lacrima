@@ -1,5 +1,6 @@
 using System.Globalization;
 using AES_Lacrima.Converters;
+using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 
 namespace AES_Lacrima.Tests;
@@ -69,7 +70,7 @@ public sealed class ConverterTests
         Assert.Equal(true, nullResult);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void ColorAndBrushConverters_RoundTripColorValues()
     {
         var color = Color.Parse("#336699");
