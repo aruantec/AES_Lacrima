@@ -1,6 +1,8 @@
 ﻿using AES_Core.DI;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Platform;
+using log4net;
 using Avalonia.Media;
 using Avalonia.Threading;
 using System;
@@ -9,6 +11,7 @@ namespace AES_Lacrima.Views
 {
     public partial class MainWindow : Window
     {
+        private static readonly ILog Log = LogManager.GetLogger(typeof(MainWindow));
         private bool _ignoreSizeChange = true;
         private double _lastRenderScale = double.NaN;
 
@@ -73,6 +76,15 @@ namespace AES_Lacrima.Views
 
             if (DataContext is ViewModels.MainWindowViewModel vm && vm.IsPrepared && !vm.HasUserResizedWindow)
             {
+                // When render scaling changes (for example when moving the window to another monitor)
+                // only apply default sizing/centering if the window is currently on the primary screen
+                // or if the current screen could not be determined. This avoids forcing the window
+                // back to the primary display when the user moves it between monitors.
+                var primary = Screens.Primary;
+                var currentScreen = GetCurrentScreenForWindow(currentScale);
+                if (currentScreen != null && primary != null && !currentScreen.WorkingArea.Equals(primary.WorkingArea))
+                    return;
+
                 _ignoreSizeChange = true;
                 ApplyDefaultWindowSizeFromScreen(vm);
                 CenterWindow(vm, currentScale);
@@ -114,6 +126,36 @@ namespace AES_Lacrima.Views
             var centerY = primary.WorkingArea.Y + (int)((primary.WorkingArea.Height - (height * renderScale)) / 2);
 
             Position = new PixelPoint(centerX, centerY);
+        }
+
+        private Screen? GetCurrentScreenForWindow(double renderScale)
+        {
+            try
+            {
+                var all = Screens.All;
+                if (all == null)
+                    return null;
+
+                // Compute window center in physical pixels
+                var pxWidth = (int)(Width * renderScale);
+                var pxHeight = (int)(Height * renderScale);
+                var centerX = Position.X + pxWidth / 2;
+                var centerY = Position.Y + pxHeight / 2;
+
+                foreach (var s in all)
+                {
+                    var wa = s.WorkingArea;
+                    if (centerX >= wa.X && centerX <= wa.X + wa.Width && centerY >= wa.Y && centerY <= wa.Y + wa.Height)
+                        return s;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log and return null so callers fall back to primary screen behavior
+                Log.Warn("Failed to determine current screen for window", ex);
+            }
+
+            return null;
         }
 
         private void ApplyDefaultWindowSizeFromScreen(ViewModels.MainWindowViewModel vm)
