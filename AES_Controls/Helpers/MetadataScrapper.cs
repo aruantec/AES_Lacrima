@@ -123,7 +123,7 @@ namespace AES_Controls.Helpers
         /// <param name="mi">The media item to process.</param>
         /// <param name="ct">Unused cancellation token for legacy compatibility.</param>
         /// <returns>A task representing the load operation.</returns>
-        public Task EnqueueLoadForPublic(MediaItem mi, CancellationToken ct = default) => LoadMetadataForItemAsync(mi, ct, true);
+        public Task EnqueueLoadForPublic(MediaItem mi, CancellationToken ct = default, bool force = true) => LoadMetadataForItemAsync(mi, ct, force);
 
         /// <summary>
         /// Internal logic to decide if metadata needs to be loaded (e.g. if title is missing or cover is default).
@@ -974,3 +974,4 @@ namespace AES_Controls.Helpers
         }
     }
 }
+

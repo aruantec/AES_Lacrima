@@ -17,6 +17,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Net.Http;
 using System.Collections.Generic;
@@ -41,6 +42,9 @@ namespace AES_Lacrima.ViewModels
         #region Private fields
         // Private fields
         private readonly string[] _supportedTypes = new[] { "*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4" };
+        private static readonly HttpClient FastThumbnailClient = new() { Timeout = TimeSpan.FromSeconds(10) };
+        private static readonly SemaphoreSlim FastThumbnailThrottle = new(16);
+        private const int MetadataStaggerDelayMs = 500;
 
         private TaskbarButton[]? _taskbarButtons;
         private IntPtr _playIcon;
@@ -994,7 +998,12 @@ namespace AES_Lacrima.ViewModels
                     var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
                     var scanList = new AvaloniaList<MediaItem> { item };
                     var scrapper = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
-                    _ = scrapper.EnqueueLoadForPublic(item);
+                    _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(MetadataStaggerDelayMs);
+                        await scrapper.EnqueueLoadForPublic(item, force: false);
+                    });
                     if (CoverItems.Count == 1)
                     {
                         SelectedIndex = 0;
@@ -1006,7 +1015,6 @@ namespace AES_Lacrima.ViewModels
                 AddUrlText = string.Empty;
             }
         }
-
         partial void OnIsAddPlaylistPopupOpenChanged(bool value)
         {
             if (!value)
@@ -1034,6 +1042,7 @@ namespace AES_Lacrima.ViewModels
 
                             bool firstItem = true;
                             var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+                            var addedItems = new List<MediaItem>();
 
                             foreach (var url in urls)
                             {
@@ -1077,12 +1086,24 @@ namespace AES_Lacrima.ViewModels
                                     firstItem = false;
                                 });
 
-                                // New scrapper per item, but with a sequential delay
-                                var scanList = new AvaloniaList<MediaItem> { item };
-                                _ = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+                                addedItems.Add(item);
+                                _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
+                            }
 
-                                // Sequential delay to prevent rate limiting and allow UI to breathe
-                                await Task.Delay(500);
+                            if (addedItems.Count > 0)
+                            {
+                                var scanList = new AvaloniaList<MediaItem>(addedItems);
+                                var scrapper = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+                                for (int i = 0; i < addedItems.Count; i++)
+                                {
+                                    var queuedItem = addedItems[i];
+                                    var delayMs = i * MetadataStaggerDelayMs;
+                                    _ = Task.Run(async () =>
+                                    {
+                                        if (delayMs > 0) await Task.Delay(delayMs);
+                                        await scrapper.EnqueueLoadForPublic(queuedItem, force: false);
+                                    });
+                                }
                             }
                         }
                         finally
@@ -1100,7 +1121,6 @@ namespace AES_Lacrima.ViewModels
                 }
             }
         }
-
         partial void OnSelectedIndexChanged(int value)
         {
             // Use the incoming value (new SelectedIndex) to avoid referencing the property which may have changed
@@ -1304,6 +1324,60 @@ namespace AES_Lacrima.ViewModels
         }
 
         private static Bitmap GenerateDefaultFolderCover() => PlaceholderGenerator.GenerateMusicPlaceholder();
+
+        private async Task TryLoadYouTubeThumbnailFastAsync(MediaItem item)
+        {
+            try
+            {
+                if (item.FileName == null) return;
+                var videoId = YouTubeThumbnail.ExtractVideoId(item.FileName);
+                if (string.IsNullOrWhiteSpace(videoId)) return;
+
+                var urls = new[]
+                {
+                    $"https://img.youtube.com/vi/{videoId}/maxresdefault.jpg",
+                    $"https://img.youtube.com/vi/{videoId}/hqdefault.jpg",
+                    $"https://img.youtube.com/vi/{videoId}/mqdefault.jpg"
+                };
+
+                await FastThumbnailThrottle.WaitAsync();
+                try
+                {
+                    foreach (var url in urls)
+                    {
+                        try
+                        {
+                            using var response = await FastThumbnailClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                            if (!response.IsSuccessStatusCode) continue;
+
+                            var bytes = await response.Content.ReadAsByteArrayAsync();
+                            if (bytes.Length == 0) continue;
+
+                            using var stream = new MemoryStream(bytes);
+                            var bitmap = new Bitmap(stream);
+                            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                            {
+                                item.CoverBitmap = bitmap;
+                                item.IsLoadingCover = false;
+                            });
+                            return;
+                        }
+                        catch
+                        {
+                            // Try the next fallback thumbnail quality.
+                        }
+                    }
+                }
+                finally
+                {
+                    FastThumbnailThrottle.Release();
+                }
+            }
+            catch
+            {
+                // Ignore thumbnail errors to keep adding URLs resilient.
+            }
+        }
 
         private IEnumerable<MediaItem> LoadMediaItemsWithTrackOrder(string path)
         {
@@ -1580,49 +1654,4 @@ namespace AES_Lacrima.ViewModels
         #endregion
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
