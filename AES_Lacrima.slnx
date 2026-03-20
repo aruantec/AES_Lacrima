@@ -10,4 +10,5 @@
   <Project Path="AES_Lacrima.Headless.Tests/AES_Lacrima.Headless.Tests.csproj" />
   <Project Path="AES_Lacrima.Tests/AES_Lacrima.Tests.csproj" />
   <Project Path="AES_Lacrima/AES_Lacrima.csproj" />
+  <Project Path="LibMPVSharp/LibMPVSharp.csproj" />
 </Solution>
