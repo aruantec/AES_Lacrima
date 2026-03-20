@@ -684,7 +684,6 @@ namespace AES_Controls.Helpers
                 byte[]? data = null;
                 if (!string.IsNullOrEmpty(thumbUrl))
                 {
-                    await SharedThrottle.WaitAsync();
                     try
                     {
                         data = await SharedHttpClient.GetByteArrayAsync(thumbUrl).ConfigureAwait(false);
@@ -727,7 +726,6 @@ namespace AES_Controls.Helpers
                         }
                     }
                     catch (Exception ex) { Log.Error($"Failed to fetch online thumbnail for {mi.FileName}", ex); }
-                    finally { SharedThrottle.Release(); }
                 }
 
                 // Persist collected metadata and thumbnail to local sidecar file
@@ -974,4 +972,3 @@ namespace AES_Controls.Helpers
         }
     }
 }
-

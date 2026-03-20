@@ -195,7 +195,7 @@ namespace AES_Controls.Players
 
                     if (localProcess == null)
                     {
-                        if (token.CanBeCanceled && token.WaitHandle.WaitOne(1000)) break;
+                        if (WaitCanceled(token, 1000)) break;
                         continue;
                     }
                     _ffmpegProcess = localProcess;
@@ -225,13 +225,13 @@ namespace AES_Controls.Players
                             {
                                 _player.UpdateSpectrumThrottled(_currentValues);
                             }
-                            if (token.CanBeCanceled && token.WaitHandle.WaitOne(30)) break;
+                            if (WaitCanceled(token, 30)) break;
                             continue;
                         }
 
                         if (_player.IsBuffering)
                         {
-                            if (token.CanBeCanceled && token.WaitHandle.WaitOne(50)) break;
+                            if (WaitCanceled(token, 50)) break;
                             continue;
                         }
 
@@ -249,7 +249,7 @@ namespace AES_Controls.Players
 
                         if (drift > 0.1)
                         {
-                            if (token.CanBeCanceled && token.WaitHandle.WaitOne(10)) break;
+                            if (WaitCanceled(token, 10)) break;
                             continue;
                         }
 
@@ -308,7 +308,7 @@ namespace AES_Controls.Players
                 catch (Exception ex) when (!token.IsCancellationRequested)
                 {
                     Log.Error($"[SpectrumAnalyzer] Loop error: {ex.Message}", ex);
-                    if (token.CanBeCanceled && token.WaitHandle.WaitOne(1000)) break;
+                    if (WaitCanceled(token, 1000)) break;
                 }
                 finally
                 {
@@ -316,10 +316,24 @@ namespace AES_Controls.Players
                     try { localProcess?.Dispose(); } catch (Exception ex) { Log.Debug("Cleanup: Error disposing ffmpeg process", ex); }
                     if (ReferenceEquals(_ffmpegProcess, localProcess)) _ffmpegProcess = null;
                     
-                    if (token.CanBeCanceled && !token.IsCancellationRequested)
-                        token.WaitHandle.WaitOne(200);
+                    if (!token.IsCancellationRequested)
+                        _ = WaitCanceled(token, 200);
                 }
             }
+        }
+
+        private static bool WaitCanceled(CancellationToken token, int delayMs)
+        {
+            if (token.IsCancellationRequested) return true;
+            try
+            {
+                Thread.Sleep(delayMs);
+            }
+            catch
+            {
+                // ignore sleep interruption
+            }
+            return token.IsCancellationRequested;
         }
 
         /// <summary>

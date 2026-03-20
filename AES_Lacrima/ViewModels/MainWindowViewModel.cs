@@ -106,6 +106,10 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private NavigationService? _navigationService;
 
+        [AutoResolve]
+        [ObservableProperty]
+        private MusicViewModel? _musicViewModel;
+
         /// <summary>
         /// Gets or sets the collection of spectrum data points.
         /// </summary>

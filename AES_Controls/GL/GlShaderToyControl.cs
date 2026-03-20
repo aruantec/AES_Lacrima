@@ -3,11 +3,13 @@ using AES_Core.IO;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using System.Diagnostics;
+using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -23,12 +25,15 @@ namespace AES_Controls.GL;
 public class GlShaderToyControl : OpenGlControlBase
 {
     private string _processedShaderCode = string.Empty;
-    private int _program, _vbo, _vao, _audioTexture;
+    private int _program, _vbo, _vao, _audioTexture, _coverTexture;
+    private bool _coverTextureDirty = true;
+    private PixelSize _coverTextureSize;
     private readonly Stopwatch _st = Stopwatch.StartNew();
     private bool _isDirty = true;
     private float _fadeAlpha;
     private bool _isInErrorState;
     private bool _actuallyAllowedToRender;
+    private bool _isEs;
 
     // Buffer for the OpenGL texture (512 bins)
     private readonly float[] _gpuBuffer = new float[512];
@@ -40,6 +45,13 @@ public class GlShaderToyControl : OpenGlControlBase
 
     // Track subscriptions to dispose on deinit
     private readonly List<IDisposable> _propertySubscriptions = new();
+    private readonly BitmapColorHelper _bitmapColorHelper = new();
+    private Color? _coverPrimaryColor;
+    private Color? _coverSecondaryColor;
+    private float _primaryR = 0.5f, _primaryG = 0.2f, _primaryB = 0.8f;
+    private float _secondaryR = 0.5f, _secondaryG = 0.8f, _secondaryB = 0.2f;
+    private bool _colorSmoothingInitialized;
+    private double _lastColorUpdateTime;
 
     private static string CachePath => Path.Combine(ApplicationPaths.CacheDirectory, "ShaderCache");
     private static string LogPath => ApplicationPaths.LogsDirectory;
@@ -85,6 +97,18 @@ public class GlShaderToyControl : OpenGlControlBase
     {
         get => GetValue(CoverProperty);
         set => SetValue(CoverProperty, value);
+    }
+
+    public static readonly StyledProperty<Bitmap?> CoverBitmapProperty =
+        AvaloniaProperty.Register<GlShaderToyControl, Bitmap?>(nameof(CoverBitmap));
+
+    /// <summary>
+    /// Gets or sets the cover bitmap uploaded to the shader as iChannel1.
+    /// </summary>
+    public Bitmap? CoverBitmap
+    {
+        get => GetValue(CoverBitmapProperty);
+        set => SetValue(CoverBitmapProperty, value);
     }
 
     public static readonly StyledProperty<double> FadeSpeedProperty =
@@ -154,6 +178,14 @@ public class GlShaderToyControl : OpenGlControlBase
                 {
                     _ = ResumeRenderingWithDelay();
                 }
+            })));
+
+        _propertySubscriptions.Add(this.GetObservable(CoverBitmapProperty).Subscribe(
+            new SimpleObserver<Bitmap?>(bitmap =>
+            {
+                _coverTextureDirty = true;
+                UpdateCoverPalette(bitmap);
+                RequestNextFrameRendering();
             })));
 
         // HEARTBEAT: This drives the animation at a steady pace without flooding 
@@ -229,7 +261,7 @@ public class GlShaderToyControl : OpenGlControlBase
         // and any `main()` implementation. Keep functions like `mainImage`.
         var lines = content.Replace("\r\n", "\n").Split('\n');
         var keep = new List<string>();
-        var forbiddenUniformNames = new[] { "iResolution", "iTime", "iMouse", "u_fade", "iChannel0", "u_primary", "u_secondary", "u_grad0", "u_grad1", "u_grad2", "u_grad3", "u_grad4" };
+        var forbiddenUniformNames = new[] { "iResolution", "iTime", "iMouse", "u_fade", "iChannel0", "iChannel1", "iChannel1Size", "u_primary", "u_secondary", "u_grad0", "u_grad1", "u_grad2", "u_grad3", "u_grad4" };
 
         foreach (var raw in lines)
         {
@@ -284,6 +316,20 @@ public class GlShaderToyControl : OpenGlControlBase
         gl.TexParameteri(0x0DE1, 0x2802, 0x812F);
         gl.TexParameteri(0x0DE1, 0x2803, 0x812F);
         gl.TexImage2D(0x0DE1, 0, 0x1903, 512, 1, 0, 0x1903, 0x1406, nint.Zero);
+
+        _coverTexture = gl.GenTexture();
+        gl.BindTexture(0x0DE1, _coverTexture);
+        gl.TexParameteri(0x0DE1, 0x2801, 0x2601);
+        gl.TexParameteri(0x0DE1, 0x2800, 0x2601);
+        gl.TexParameteri(0x0DE1, 0x2802, 0x812F);
+        gl.TexParameteri(0x0DE1, 0x2803, 0x812F);
+        _coverTextureSize = new PixelSize(1, 1);
+        byte* blackPixel = stackalloc byte[4];
+        blackPixel[0] = 0;
+        blackPixel[1] = 0;
+        blackPixel[2] = 0;
+        blackPixel[3] = 255;
+        gl.TexImage2D(0x0DE1, 0, 0x1908, 1, 1, 0, 0x1908, 0x1401, (IntPtr)blackPixel);
     }
 
     protected override unsafe void OnOpenGlRender(GlInterface gl, int fb)
@@ -302,6 +348,7 @@ public class GlShaderToyControl : OpenGlControlBase
             if (_program == 0) return;
 
             UpdateAudioTexture(gl);
+            UpdateCoverTexture(gl);
             _fadeAlpha = Math.Min(1.0f, _fadeAlpha + (float)FadeSpeed);
 
             float scaling = (float)(VisualRoot?.RenderScaling ?? 1.0);
@@ -320,6 +367,11 @@ public class GlShaderToyControl : OpenGlControlBase
             gl.ActiveTexture(0x84C0);
             gl.BindTexture(0x0DE1, _audioTexture);
             SetUniform1I(gl, _program, "iChannel0", 0);
+
+            gl.ActiveTexture(0x84C1);
+            gl.BindTexture(0x0DE1, _coverTexture);
+            SetUniform1I(gl, _program, "iChannel1", 1);
+            SetUniform2F(gl, _program, "iChannel1Size", _coverTextureSize.Width, _coverTextureSize.Height);
 
             gl.BindVertexArray(_vao);
             gl.BindBuffer(0x8892, _vbo);
@@ -375,6 +427,85 @@ public class GlShaderToyControl : OpenGlControlBase
         }
     }
 
+    private unsafe void UpdateCoverTexture(GlInterface gl)
+    {
+        if (!_coverTextureDirty) return;
+        _coverTextureDirty = false;
+
+        var bitmap = CoverBitmap;
+        gl.BindTexture(0x0DE1, _coverTexture);
+
+        if (bitmap == null || bitmap.PixelSize.Width <= 0 || bitmap.PixelSize.Height <= 0)
+        {
+            _coverTextureSize = new PixelSize(1, 1);
+            byte* blackPixel = stackalloc byte[4];
+            blackPixel[0] = 0;
+            blackPixel[1] = 0;
+            blackPixel[2] = 0;
+            blackPixel[3] = 255;
+            gl.TexImage2D(0x0DE1, 0, 0x1908, 1, 1, 0, 0x1908, 0x1401, (IntPtr)blackPixel);
+            return;
+        }
+
+        var size = bitmap.PixelSize;
+        int stride = size.Width * 4;
+        int pxLen = size.Height * stride;
+        var pool = ArrayPool<byte>.Shared;
+        byte[]? px = null;
+
+        try
+        {
+            px = pool.Rent(pxLen);
+            fixed (byte* p = px)
+            {
+                bitmap.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), (IntPtr)p, pxLen, stride);
+
+                // Avalonia pixels are top-left origin while OpenGL textures are bottom-left origin.
+                // Flip rows so the sampled texture orientation matches the source bitmap.
+                for (int y = 0; y < size.Height / 2; y++)
+                {
+                    int top = y * stride;
+                    int bottom = (size.Height - 1 - y) * stride;
+                    for (int x = 0; x < stride; x++)
+                    {
+                        (px[top + x], px[bottom + x]) = (px[bottom + x], px[top + x]);
+                    }
+                }
+
+                if (_isEs)
+                {
+                    for (int i = 0; i < pxLen; i += 4)
+                    {
+                        byte b = px[i + 0], g = px[i + 1], r = px[i + 2], a = px[i + 3];
+                        px[i + 0] = r;
+                        px[i + 1] = g;
+                        px[i + 2] = b;
+                        px[i + 3] = a;
+                    }
+
+                    gl.TexImage2D(0x0DE1, 0, 0x1908, size.Width, size.Height, 0, 0x1908, 0x1401, (IntPtr)p);
+                }
+                else
+                {
+                    // Avalonia bitmaps expose BGRA. Upload directly for desktop GL.
+                    gl.TexImage2D(0x0DE1, 0, 0x1908, size.Width, size.Height, 0, 0x80E1, 0x1401, (IntPtr)p);
+                }
+            }
+
+            gl.TexParameteri(0x0DE1, 0x2801, 0x2601);
+            gl.TexParameteri(0x0DE1, 0x2800, 0x2601);
+            _coverTextureSize = size;
+        }
+        catch
+        {
+            _coverTextureSize = new PixelSize(1, 1);
+        }
+        finally
+        {
+            if (px != null) pool.Return(px, clearArray: false);
+        }
+    }
+
     private void UpdateProgram(GlInterface gl)
     {
         if (string.IsNullOrEmpty(_processedShaderCode)) return;
@@ -393,12 +524,14 @@ public class GlShaderToyControl : OpenGlControlBase
         }
 
         var shaderInfo = GlHelper.GetShaderVersion(gl);
+        _isEs = shaderInfo.Item2;
         string vs = $@"{shaderInfo.Item1}
             in vec2 a_pos; void main() {{ gl_Position = vec4(a_pos, 0.0, 1.0); }}";
         string fs = $@"{shaderInfo.Item1}
             precision highp float;
             uniform vec3 iResolution; uniform float iTime; uniform vec4 iMouse;
             uniform float u_fade; uniform sampler2D iChannel0;
+            uniform sampler2D iChannel1; uniform vec2 iChannel1Size;
             uniform vec3 u_primary; uniform vec3 u_secondary;
             out vec4 outFragColor;
             {_processedShaderCode}
@@ -499,25 +632,51 @@ public class GlShaderToyControl : OpenGlControlBase
         SetUniform3F(gl, _program, "iResolution", width, height, 1.0f);
         SetUniform1F(gl, _program, "iTime", (float)_st.Elapsed.TotalSeconds);
 
-        float r = 0.5f, g = 0.2f, b = 0.8f;
-        if (Cover is Color col)
+        float targetPrimaryR = 0.5f, targetPrimaryG = 0.2f, targetPrimaryB = 0.8f;
+        float targetSecondaryR;
+        float targetSecondaryG;
+        float targetSecondaryB;
+
+        if (_coverPrimaryColor is Color coverPrimary)
         {
-            r = col.R / 255f;
-            g = col.G / 255f;
-            b = col.B / 255f;
+            targetPrimaryR = coverPrimary.R / 255f;
+            targetPrimaryG = coverPrimary.G / 255f;
+            targetPrimaryB = coverPrimary.B / 255f;
+        }
+        else if (Cover is Color col)
+        {
+            targetPrimaryR = col.R / 255f;
+            targetPrimaryG = col.G / 255f;
+            targetPrimaryB = col.B / 255f;
         }
         else if (Cover is ISolidColorBrush scb)
         {
-            r = scb.Color.R / 255f;
-            g = scb.Color.G / 255f;
-            b = scb.Color.B / 255f;
+            targetPrimaryR = scb.Color.R / 255f;
+            targetPrimaryG = scb.Color.G / 255f;
+            targetPrimaryB = scb.Color.B / 255f;
         }
 
-        SetUniform3F(gl, _program, "u_primary", r, g, b);
-        SetUniform3F(gl, _program, "u_secondary", 1.0f - r, 1.0f - g, 1.0f - b);
+        if (_coverSecondaryColor is Color coverSecondary)
+        {
+            targetSecondaryR = coverSecondary.R / 255f;
+            targetSecondaryG = coverSecondary.G / 255f;
+            targetSecondaryB = coverSecondary.B / 255f;
+        }
+        else
+        {
+            targetSecondaryR = 1.0f - targetPrimaryR;
+            targetSecondaryG = 1.0f - targetPrimaryG;
+            targetSecondaryB = 1.0f - targetPrimaryB;
+        }
+
+        UpdateSmoothedCoverColors(targetPrimaryR, targetPrimaryG, targetPrimaryB, targetSecondaryR, targetSecondaryG,
+            targetSecondaryB);
+
+        SetUniform3F(gl, _program, "u_primary", _primaryR, _primaryG, _primaryB);
+        SetUniform3F(gl, _program, "u_secondary", _secondaryR, _secondaryG, _secondaryB);
         SetUniform1F(gl, _program, "u_fade", _fadeAlpha);
 
-        var fallback = Color.FromRgb((byte)(r * 255f), (byte)(g * 255f), (byte)(b * 255f));
+        var fallback = Color.FromRgb((byte)(_primaryR * 255f), (byte)(_primaryG * 255f), (byte)(_primaryB * 255f));
         var gradientColors = GetGradientColors(SpectrumGradient, fallback);
         SetUniform3F(gl, _program, "u_grad0", gradientColors[0].R / 255f, gradientColors[0].G / 255f,
             gradientColors[0].B / 255f);
@@ -529,6 +688,66 @@ public class GlShaderToyControl : OpenGlControlBase
             gradientColors[3].B / 255f);
         SetUniform3F(gl, _program, "u_grad4", gradientColors[4].R / 255f, gradientColors[4].G / 255f,
             gradientColors[4].B / 255f);
+    }
+
+    private void UpdateSmoothedCoverColors(
+        float targetPrimaryR, float targetPrimaryG, float targetPrimaryB,
+        float targetSecondaryR, float targetSecondaryG, float targetSecondaryB)
+    {
+        var now = _st.Elapsed.TotalSeconds;
+        if (!_colorSmoothingInitialized)
+        {
+            _primaryR = targetPrimaryR;
+            _primaryG = targetPrimaryG;
+            _primaryB = targetPrimaryB;
+            _secondaryR = targetSecondaryR;
+            _secondaryG = targetSecondaryG;
+            _secondaryB = targetSecondaryB;
+            _lastColorUpdateTime = now;
+            _colorSmoothingInitialized = true;
+            return;
+        }
+
+        var dt = Math.Clamp(now - _lastColorUpdateTime, 0.0, 0.25);
+        _lastColorUpdateTime = now;
+
+        // Exponential smoothing to avoid abrupt color jumps when cover art changes.
+        float lerp = 1f - MathF.Exp((float)(-dt * 3.6));
+
+        _primaryR += (targetPrimaryR - _primaryR) * lerp;
+        _primaryG += (targetPrimaryG - _primaryG) * lerp;
+        _primaryB += (targetPrimaryB - _primaryB) * lerp;
+        _secondaryR += (targetSecondaryR - _secondaryR) * lerp;
+        _secondaryG += (targetSecondaryG - _secondaryG) * lerp;
+        _secondaryB += (targetSecondaryB - _secondaryB) * lerp;
+    }
+
+    private void UpdateCoverPalette(Bitmap? bitmap)
+    {
+        _coverPrimaryColor = null;
+        _coverSecondaryColor = null;
+
+        if (bitmap == null) return;
+
+        try
+        {
+            var dominant = BitmapColorHelper.GetDominantColor(bitmap);
+            if (dominant.A != 0)
+            {
+                _coverPrimaryColor = dominant;
+            }
+
+            var gradient = _bitmapColorHelper.GetColorGradient(bitmap);
+            var stops = gradient.GradientStops?.OrderBy(stop => stop.Offset).ToList();
+            if (stops != null && stops.Count >= 2)
+            {
+                _coverSecondaryColor = stops[^1].Color;
+            }
+        }
+        catch
+        {
+            // ignore color extraction errors; fallback path remains active
+        }
     }
 
     private static Color[] GetGradientColors(LinearGradientBrush? brush, Color fallback)
@@ -644,6 +863,18 @@ public class GlShaderToyControl : OpenGlControlBase
         }
     }
 
+    private unsafe void SetUniform2F(GlInterface gl, int prg, string name, float x, float y)
+    {
+        nint ptr = Marshal.StringToHGlobalAnsi(name);
+        int loc = gl.GetUniformLocation(prg, ptr);
+        Marshal.FreeHGlobal(ptr);
+        if (loc != -1)
+        {
+            var f = (delegate* unmanaged[Stdcall]<int, float, float, void>)gl.GetProcAddress("glUniform2f");
+            if (f != null) f(loc, x, y);
+        }
+    }
+
     #endregion
 
     protected override void OnOpenGlDeinit(GlInterface gl)
@@ -651,6 +882,7 @@ public class GlShaderToyControl : OpenGlControlBase
         _uiHeartbeat?.Stop();
         if (_program != 0) gl.DeleteProgram(_program);
         if (_audioTexture != 0) gl.DeleteTexture(_audioTexture);
+        if (_coverTexture != 0) gl.DeleteTexture(_coverTexture);
         if (_vbo != 0) gl.DeleteBuffer(_vbo);
         if (_vao != 0) gl.DeleteVertexArray(_vao);
 
