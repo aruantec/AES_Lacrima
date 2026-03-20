@@ -19,10 +19,11 @@ Test projects live at the repository root and must include `Tests` in the projec
 
 Current layout:
 
-- `AES_Controls.Tests/`
-- `AES_Core.Tests/`
-- `AES_Lacrima.Tests/`
-- `AES_Lacrima.Headless.Tests/`
+- `AES_Tests/`
+- `AES_Tests/AES_Controls/`
+- `AES_Tests/AES_Core/`
+- `AES_Tests/AES_Lacrima/`
+- `AES_Tests/AES_Lacrima.Headless/`
 
 ## Local Tooling
 
@@ -39,7 +40,7 @@ dotnet tool restore
 Run all tests:
 
 ```bash
-dotnet test AES_Lacrima.sln
+dotnet test AES_Lacrima.slnx
 ```
 
 Run the NUKE test target, including coverage collection and report generation:
@@ -48,22 +49,22 @@ Run the NUKE test target, including coverage collection and report generation:
 ./build.sh Test --configuration Debug
 ```
 
-Run a specific unit test project:
+Run the unified test project:
 
 ```bash
-dotnet test AES_Core.Tests/AES_Core.Tests.csproj
+dotnet test AES_Tests/AES_Tests.csproj
 ```
 
-Run a specific Avalonia headless test project:
+Run only AES Core tests from the unified project:
 
 ```bash
-dotnet test AES_Lacrima.Headless.Tests/AES_Lacrima.Headless.Tests.csproj
+dotnet test AES_Tests/AES_Tests.csproj --filter "FullyQualifiedName~AES_Core.Tests"
 ```
 
-Run the converter-focused Avalonia project tests:
+Run only headless UI tests from the unified project:
 
 ```bash
-dotnet test AES_Lacrima.Tests/AES_Lacrima.Tests.csproj
+dotnet test AES_Tests/AES_Tests.csproj --filter "FullyQualifiedName~AES_Lacrima.Headless.Tests"
 ```
 
 ## Collecting Coverage
@@ -71,7 +72,7 @@ dotnet test AES_Lacrima.Tests/AES_Lacrima.Tests.csproj
 Run tests with XPlat code coverage enabled and store results under `output/test-results`:
 
 ```bash
-dotnet test AES_Lacrima.sln --collect:"XPlat Code Coverage" --results-directory output/test-results
+dotnet test AES_Lacrima.slnx --collect:"XPlat Code Coverage" --results-directory output/test-results
 ```
 
 ## Generating HTML Coverage Reports
@@ -100,12 +101,12 @@ Good example scenarios:
 
 Reference examples in this repository:
 
-- `AES_Core.Tests/SettingsServiceTests.cs`
-- `AES_Controls.Tests/SimpleObserverTests.cs`
-- `AES_Controls.Tests/YouTubeThumbnailTests.cs`
-- `AES_Lacrima.Tests/ConverterTests.cs`
-- `AES_Lacrima.Headless.Tests/TextBoxInputTests.cs`
-- `AES_Lacrima.Headless.Tests/ButtonInteractionTests.cs`
+- `AES_Tests/AES_Core/SettingsServiceTests.cs`
+- `AES_Tests/AES_Controls/SimpleObserverTests.cs`
+- `AES_Tests/AES_Controls/YouTubeThumbnailTests.cs`
+- `AES_Tests/AES_Lacrima/ConverterTests.cs`
+- `AES_Tests/AES_Lacrima.Headless/TextBoxInputTests.cs`
+- `AES_Tests/AES_Lacrima.Headless/ButtonInteractionTests.cs`
 
 ## Output Locations
 
@@ -119,21 +120,21 @@ The NUKE build discovers test projects by searching for `*.csproj` paths contain
 Important notes:
 
 - test project names must include `Tests`
-- test projects must also be added to `AES_Lacrima.sln`
+- test projects must also be added to `AES_Lacrima.slnx`
 - the current NUKE `Test` target runs tests with `--no-build --no-restore`, so solution integration is required
 - the current NUKE `Test` target restores local tools, collects coverage, and generates the HTML report automatically
 
 ## Initial Rollout
 
-1. Expand `AES_Core.Tests` with additional service and helper coverage.
-2. Expand `AES_Lacrima.Headless.Tests` with control, binding, and interaction scenarios.
-3. Add more test projects for other assemblies as needed.
+1. Expand `AES_Tests/AES_Core` with additional service and helper coverage.
+2. Expand `AES_Tests/AES_Lacrima.Headless` with control, binding, and interaction scenarios.
+3. Keep all new tests inside `AES_Tests`, grouped by source project.
 4. Keep the NUKE and CI test flow aligned with local commands.
 
 ## Suggested Next Steps
 
 These are the most natural follow-up areas if test coverage continues after this initial PR:
 
-1. Add more `AES_Controls.Tests` coverage for helper edge cases such as additional `FFmpegLocator` scenarios and more `YouTubeThumbnail` parsing inputs.
-2. Expand `AES_Lacrima.Headless.Tests` with more Avalonia binding, focus, and command interaction tests.
+1. Add more `AES_Tests/AES_Controls` coverage for helper edge cases such as additional `FFmpegLocator` scenarios and more `YouTubeThumbnail` parsing inputs.
+2. Expand `AES_Tests/AES_Lacrima.Headless` with more Avalonia binding, focus, and command interaction tests.
 3. Add file-backed settings coverage for types such as `SettingsBase` and related persistence logic.

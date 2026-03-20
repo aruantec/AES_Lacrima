@@ -22,11 +22,7 @@ sealed class Build : NukeBuild
     AbsolutePath TestResultsDirectory => ArtifactsDirectory / "test-results";
     AbsolutePath CoverageReportDirectory => TestResultsDirectory / "coverage-report";
     AbsolutePath PublishDirectory => ArtifactsDirectory / "publish" / Configuration;
-    string[] TestProjects => Directory
-        .EnumerateFiles(RootDirectory, "*.csproj", SearchOption.AllDirectories)
-        .Where(x => x.Contains("Tests", StringComparison.OrdinalIgnoreCase))
-        .Where(x => !x.Contains($"{Path.DirectorySeparatorChar}build{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
-        .ToArray();
+    AbsolutePath TestsProjectFile => RootDirectory / "AES_Tests" / "AES_Tests.csproj";
 
     Target Clean => _ => _
         .Executes(() =>
@@ -58,20 +54,16 @@ sealed class Build : NukeBuild
         .DependsOn(Compile)
         .Executes(() =>
         {
-            if (TestProjects.Length == 0)
+            if (!File.Exists(TestsProjectFile))
             {
-                Console.WriteLine("No test projects found. Skipping dotnet test.");
+                Console.WriteLine($"Tests project not found at {TestsProjectFile}. Skipping dotnet test.");
                 return;
             }
 
             Directory.CreateDirectory(TestResultsDirectory);
 
             DotNet("tool restore", RootDirectory);
-
-            foreach (var testProject in TestProjects)
-            {
-                DotNet($"test \"{testProject}\" --configuration {Configuration} --no-build --no-restore --results-directory \"{TestResultsDirectory}\" --collect:\"XPlat Code Coverage\"", RootDirectory);
-            }
+            DotNet($"test \"{TestsProjectFile}\" --configuration {Configuration} --no-build --no-restore --results-directory \"{TestResultsDirectory}\" --collect:\"XPlat Code Coverage\"", RootDirectory);
 
             var coverageFiles = Directory
                 .EnumerateFiles(TestResultsDirectory, "coverage.cobertura.xml", SearchOption.AllDirectories)

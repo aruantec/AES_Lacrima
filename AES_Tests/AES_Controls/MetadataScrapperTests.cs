@@ -1,0 +1,118 @@
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using AES_Controls.Helpers;
+using TagLib;
+
+namespace AES_Controls.Tests;
+
+public sealed class MetadataScrapperTests
+{
+    [Fact]
+    public void SelectEmbeddedImages_PrefersFrontCover_EvenWhenOverMaxBytes()
+    {
+        var front = new byte[] { 1, 2, 3, 4, 5, 6 };
+        var other = new byte[] { 9, 9 };
+        var pictures = new IPicture[]
+        {
+            new FakePicture(PictureType.Other, "", other),
+            new FakePicture(PictureType.FrontCover, "", front)
+        };
+
+        var (cover, wallpaper) = InvokeSelectEmbeddedImages(pictures, maxBytes: 3, includeCover: true, includeWallpaper: true);
+
+        Assert.Equal(front, cover);
+        Assert.Null(wallpaper);
+    }
+
+    [Fact]
+    public void SelectEmbeddedImages_SkipsWallpaperAndBackCover_WhenChoosingFallbackCover()
+    {
+        var wallpaperBytes = new byte[] { 7, 7 };
+        var backCoverBytes = new byte[] { 8, 8 };
+        var validCoverBytes = new byte[] { 3, 3, 3 };
+
+        var pictures = new IPicture[]
+        {
+            new FakePicture(PictureType.Other, "wallpaper", wallpaperBytes),
+            new FakePicture(PictureType.BackCover, "", backCoverBytes),
+            new FakePicture(PictureType.Other, "", validCoverBytes)
+        };
+
+        var (cover, _) = InvokeSelectEmbeddedImages(pictures, maxBytes: 10, includeCover: true, includeWallpaper: false);
+
+        Assert.Equal(validCoverBytes, cover);
+    }
+
+    [Fact]
+    public void SelectEmbeddedImages_PicksIllustrationForWallpaper()
+    {
+        var illustrationBytes = new byte[] { 4, 4, 4 };
+        var pictures = new IPicture[]
+        {
+            new FakePicture(PictureType.Other, "", new byte[] { 1 }),
+            new FakePicture(PictureType.Illustration, "", illustrationBytes)
+        };
+
+        var (_, wallpaper) = InvokeSelectEmbeddedImages(pictures, maxBytes: 10, includeCover: false, includeWallpaper: true);
+
+        Assert.Equal(illustrationBytes, wallpaper);
+    }
+
+    [Fact]
+    public void SelectEmbeddedImages_RespectsIncludeFlags()
+    {
+        var pictures = new IPicture[]
+        {
+            new FakePicture(PictureType.FrontCover, "", new byte[] { 1, 2 }),
+            new FakePicture(PictureType.Illustration, "wallpaper", new byte[] { 3, 4 })
+        };
+
+        var (cover, wallpaper) = InvokeSelectEmbeddedImages(pictures, maxBytes: 10, includeCover: false, includeWallpaper: false);
+
+        Assert.Null(cover);
+        Assert.Null(wallpaper);
+    }
+
+    [Theory]
+    [InlineData("My Song (Official Video) [HD]", "My Song")]
+    [InlineData("Artist - Track", "Artist - Track")]
+    [InlineData("Track (lyrics)", "Track")]
+    public void CleanSearchQuery_RemovesCommonVideoNoise(string input, string expected)
+    {
+        var instance = RuntimeHelpers.GetUninitializedObject(typeof(MetadataScrapper));
+        var method = typeof(MetadataScrapper).GetMethod("CleanSearchQuery", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(method);
+        var result = Assert.IsType<string>(method!.Invoke(instance, new object[] { input }));
+
+        Assert.Equal(expected, result);
+    }
+
+    private static (byte[]? cover, byte[]? wallpaper) InvokeSelectEmbeddedImages(IPicture[] pictures, int maxBytes, bool includeCover, bool includeWallpaper)
+    {
+        var method = typeof(MetadataScrapper).GetMethod("SelectEmbeddedImages", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var args = new object?[] { pictures, maxBytes, includeCover, includeWallpaper, null, null };
+        method!.Invoke(null, args);
+
+        return ((byte[]?)args[4], (byte[]?)args[5]);
+    }
+
+    private sealed class FakePicture : IPicture
+    {
+        public FakePicture(PictureType type, string description, byte[] data)
+        {
+            Type = type;
+            Description = description;
+            Data = new ByteVector(data);
+            MimeType = "image/png";
+        }
+
+        public string MimeType { get; set; }
+        public string Filename { get; set; } = string.Empty;
+        public PictureType Type { get; set; }
+        public string Description { get; set; }
+        public ByteVector Data { get; set; }
+    }
+}
