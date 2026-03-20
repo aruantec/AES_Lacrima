@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics;
-using System.Runtime.InteropServices.Marshalling;
 using System.Text;
 using LibMPVSharp.Wraps;
 
@@ -85,37 +84,11 @@ namespace LibMPVSharp
             }
         }
 
-        public long GetPropertyLong(string name)
-        {
-            CheckClientHandle();
-            var array = new long[] { 0 };
-            fixed (long* val = array)
-            {
-                var error = Client.MpvGetProperty(_clientHandle, name, MpvFormat.MPV_FORMAT_INT64, val);
-                CheckError(error, nameof(Client.MpvGetProperty), name);
-                return array[0];
-            }
-        }
-
         public void SetProperty(string name, string? value)
         {
             CheckClientHandle();
             var error = Client.MpvSetPropertyString(_clientHandle, name, value);
             CheckError(error, nameof(Client.MpvSetPropertyString), name, value ?? "<null>");
-        }
-
-        public string? GetPropertyString(string name)
-        {
-            CheckClientHandle();
-            var valuePtr = Client.MpvGetPropertyString(_clientHandle, name);
-            try
-            {
-                return Utf8StringMarshaller.ConvertToManaged(valuePtr);
-            }
-            finally
-            {
-                Client.MpvFree(valuePtr);
-            }
         }
 
         public bool SetProperty(string name, double value)
@@ -150,30 +123,6 @@ namespace LibMPVSharp
             {
                 var error = Client.MpvSetProperty(_clientHandle, name, MpvFormat.MPV_FORMAT_FLAG, val);
                 CheckError(error, nameof(Client.MpvSetProperty), name, value.ToString());
-            }
-        }
-
-        public bool GetPropertyBoolean(string name)
-        {
-            CheckClientHandle();
-            bool[] array = [false];
-            fixed(bool* arrayptr = array)
-            {
-                var error = Client.MpvGetProperty(_clientHandle, name, MpvFormat.MPV_FORMAT_FLAG, arrayptr);
-                CheckError(error, nameof(Client.MpvGetProperty), name);
-                return array[0];
-            }
-        }
-
-        public MpvNodeWrap GetPropertyNode(string name)
-        {
-            CheckClientHandle();
-            var array = new MpvNode[1];
-            fixed (MpvNode* node = array)
-            {
-                var error = Client.MpvGetProperty(_clientHandle, name, MpvFormat.MPV_FORMAT_NODE, node);
-                CheckError(error, nameof(Client.MpvGetProperty), name);
-                return new MpvNodeWrap(node, array[0]);
             }
         }
 
@@ -227,168 +176,11 @@ namespace LibMPVSharp
             return tcs.Task;
         }
 
-        public MpvNodeWrap? ExecuteCommandNode(MpvNode args, ref MpvNode? result)
-        {
-            CheckClientHandle();
-            var arr = new MpvNode[] { args };
-            int err = 0;
-            fixed (MpvNode* nodePtr = arr)
-            {
-                if (result.HasValue)
-                {
-                    var resultArray = new MpvNode[]{ result.Value };
-                    fixed (MpvNode* resultPtr = resultArray)
-                    {
-                        err = Client.MpvCommandNode(_clientHandle, nodePtr, resultPtr);
-                        CheckError(err, nameof(Client.MpvCommandNode), "mpv node");
-                        return new MpvNodeWrap(resultPtr, result.Value);
-                    }
-                }
-                else
-                {
-                    err = Client.MpvCommandNode(_clientHandle, nodePtr, null);
-                    CheckError(err, nameof(Client.MpvCommandNode), "mpv node");
-                    return null;
-                }
-            }
-        }
-        
-        public Task<MpvNodeWrap?> ExecuteCommandNodeAsync(MpvNode args, ref MpvNode? result, CancellationToken cancellation = default)
-        {
-            CheckClientHandle();
-            var arr = new MpvNode[] { args };
-            int err = 0;
-            var tcs = new TaskCompletionSource<MpvNodeWrap?>();
-            var handle = GCHandle.Alloc(tcs);
-            var userData = (ulong)GCHandle.ToIntPtr(handle);
-            cancellation.Register(() =>
-            {
-                Client.MpvAbortAsyncCommand(_clientHandle, userData);
-                tcs.TrySetCanceled();
-                if (handle.IsAllocated)
-                {
-                    handle.Free();
-                }
-            });
-            
-            try
-            {
-                fixed (MpvNode* nodePtr = arr)
-                {
-                    if (result.HasValue)
-                    {
-                        var resultArray = new MpvNode[]{ result.Value };
-                        fixed (MpvNode* resultPtr = resultArray)
-                        {
-                            err = Client.MpvCommandNodeAsync(_clientHandle, userData, resultPtr);
-                            CheckError(err, nameof(Client.MpvCommandNode), "mpv node");
-                        }
-                    }
-                    else
-                    {
-                        err = Client.MpvCommandNodeAsync(_clientHandle, userData, null);
-                        CheckError(err, nameof(Client.MpvCommandNode), "mpv node");
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                handle.Free();
-                tcs.TrySetException(e);
-            }
-            return tcs.Task;
-        }
-
-        public MpvNodeWrap? ExecuteCommandRet(ref MpvNode? result, params string[] args)
-        {
-            CheckClientHandle();
-
-            var rootPtr = GetStringArrayPointer(args, out var disposable);
-
-            try
-            {
-                if (result.HasValue)
-                {
-                    var array = new MpvNode[] { result.Value };
-                    fixed (MpvNode* resultPtr = array)
-                    {
-                        var err = Client.MpvCommandRet(_clientHandle, (char**)rootPtr, resultPtr);
-                        CheckError(err, nameof(Client.MpvCommand), args);
-                        return new MpvNodeWrap(resultPtr, result.Value);
-                    }
-                }
-                else
-                {
-                    var err = Client.MpvCommandRet(_clientHandle, (char**)rootPtr, null);
-                    CheckError(err, nameof(Client.MpvCommand), args);
-                    return null;
-                }
-            }
-            finally
-            {
-                disposable.Dispose();
-            }
-        }
-        
-        public void ExecuteCommandString(string args)
-        {
-            CheckClientHandle();
-            var err = Client.MpvCommandString(_clientHandle, args);
-            CheckError(err, nameof(Client.MpvCommandString), args);
-        }
-
-        public void RequestLogMessage(string min_level)
-        {
-            CheckClientHandle();
-            var error = Client.MpvRequestLogMessages(_clientHandle, min_level);
-            CheckError(error, nameof(Client.MpvRequestLogMessages), min_level);
-        }
-        public void RequestEvent(MpvEventId eventId, int enable)
-        {
-            CheckClientHandle();
-            var error = Client.MpvRequestEvent(_clientHandle, eventId, enable);
-            CheckError(error, nameof(Client.MpvRequestEvent), eventId.ToString(), enable.ToString());
-        }
-
-        public string GetClientName()
-        {
-            CheckClientHandle();
-            return Client.MpvClientName(_clientHandle);
-        }
-
-        public long GetClientId()
-        {
-            CheckClientHandle();
-            return Client.MpvClientId(_clientHandle);
-        }
-
-        public void LoadConfigFile(string filename)
-        {
-            CheckClientHandle();
-            var error = Client.MpvLoadConfigFile(_clientHandle, filename);
-            CheckError(error, nameof(Client.MpvLoadConfigFile), filename);
-        }
-
-        public long GetTimeNs()
-        {
-            CheckClientHandle();
-            return Client.MpvGetTimeNs(_clientHandle);
-        }
-
-        public long GetTimeUS()
-        {
-            CheckClientHandle();
-            return Client.MpvGetTimeUs(_clientHandle);
-        }
-
-        public void FreeNode(MpvNodeWrap node) => Client.MpvFreeNodeContents(node.Native);
-
         public void Dispose() => Dispose(false);
 
         public void Dispose(bool terminate)
         {
             _disposed = true;
-
             ReleaseRenderContext();
 
             if (_clientHandle == null) return;
