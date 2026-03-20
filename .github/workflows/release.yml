@@ -39,10 +39,10 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Restore
-        run: dotnet restore AES_Lacrima.sln
+        run: dotnet restore AES_Lacrima.slnx
 
       - name: Run tests
-        run: dotnet test AES_Lacrima.sln -c Release
+        run: dotnet test AES_Lacrima.slnx -c Release
 
   package:
     name: ${{ matrix.name }}

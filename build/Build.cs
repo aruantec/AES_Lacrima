@@ -16,7 +16,7 @@ sealed class Build : NukeBuild
     [Parameter("Publish as a self-contained app")]
     bool? SelfContained { get; }
 
-    AbsolutePath SolutionFile => RootDirectory / "AES_Lacrima.sln";
+    AbsolutePath SolutionFile => RootDirectory / "AES_Lacrima.slnx";
     AbsolutePath AppProjectFile => RootDirectory / "AES_Lacrima" / "AES_Lacrima.csproj";
     AbsolutePath ArtifactsDirectory => RootDirectory / "output";
     AbsolutePath TestResultsDirectory => ArtifactsDirectory / "test-results";
