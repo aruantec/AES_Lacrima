@@ -39,7 +39,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Restore
-        run: dotnet restore AES_Tests/AES_Tests.csproj -c Release -r linux-x64
+        run: dotnet restore AES_Tests/AES_Tests.csproj -r linux-x64
 
       - name: Run tests
         run: dotnet test AES_Tests/AES_Tests.csproj -c Release -r linux-x64 --no-restore
