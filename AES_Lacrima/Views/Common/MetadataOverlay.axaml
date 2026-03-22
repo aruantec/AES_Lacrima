@@ -184,6 +184,47 @@
                         </Button>
                     </StackPanel>
 
+                    <Border Margin="0,12,30,0"
+                            HorizontalAlignment="Left"
+                            Padding="12"
+                            Background="#1AFFFFFF"
+                            BorderBrush="#3FFFFFFF"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Cover From Clipboard / URL / Web Search"
+                                       Foreground="White"
+                                       FontSize="16"
+                                       FontWeight="SemiBold" />
+                            <Grid ColumnDefinitions="300,Auto,Auto" ColumnSpacing="8">
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding AddImageUrl, Mode=TwoWay}"
+                                         Watermark="Paste image URL..." />
+                                <Button Grid.Column="1"
+                                        Content="Add URL"
+                                        Command="{Binding AddImageFromUrlCommand}" />
+                                <Button Grid.Column="2"
+                                        Content="Paste"
+                                        Command="{Binding PasteImageFromClipboardCommand}" />
+                            </Grid>
+                            <Grid ColumnDefinitions="300,Auto,Auto" ColumnSpacing="8">
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding ImageSearchQuery, Mode=TwoWay}"
+                                         Watermark="Search cover images..." />
+                                <Button Grid.Column="1"
+                                        Content="Search"
+                                        Command="{Binding SearchImagesCommand}" />
+                                <Button Grid.Column="2"
+                                        Content="Use Title"
+                                        Command="{Binding SearchImagesByTitleCommand}" />
+                            </Grid>
+                            <TextBlock Text="{Binding ImageSearchStatus}"
+                                       Foreground="#FFE4E4E4"
+                                       FontSize="12"
+                                       IsVisible="{Binding ImageSearchStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                    </Border>
+
                     <Border Margin="0,40,0,0">
                         <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                             <ItemsControl Margin="0,0,30,0" ItemsSource="{Binding Images}" HorizontalAlignment="Stretch">
@@ -243,6 +284,7 @@
                     </Border>
                 </StackPanel>
             </Grid>
+
         </StackPanel>
     </Grid>
 </UserControl>

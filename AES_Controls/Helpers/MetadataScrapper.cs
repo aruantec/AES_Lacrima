@@ -133,11 +133,16 @@ namespace AES_Controls.Helpers
         {
             if (mi.CoverBitmap == null) mi.CoverBitmap = _defaultCover;
 
+            bool isOnlineMedia = !string.IsNullOrWhiteSpace(mi.FileName) && !File.Exists(mi.FileName);
+
             // Keep existing fast-skip behavior, but only skip when duration is already known as well.
+            // For online media we must still check sidecar metadata, because a fast thumbnail fetch
+            // may temporarily set a non-default cover before local cached metadata is applied.
             if (!string.IsNullOrWhiteSpace(mi.Title)
                 && mi.CoverBitmap != null
                 && mi.CoverBitmap != _defaultCover
-                && mi.Duration > 0)
+                && mi.Duration > 0
+                && !isOnlineMedia)
                 return false;
 
             return await LoadMetadataForItemAsync(mi);
@@ -190,7 +195,7 @@ namespace AES_Controls.Helpers
                 if (!force && File.Exists(cachePath))
                 {
                     var meta = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath), token);
-                    if (meta != null && !string.IsNullOrWhiteSpace(meta.Title) && !key.Contains(meta.Title))
+                    if (meta != null)
                     {
                         await ApplyMetadataToItem(mi, meta, key).ConfigureAwait(false);
 
@@ -653,7 +658,7 @@ namespace AES_Controls.Helpers
                 if (!force && File.Exists(cachePath))
                 {
                     var meta = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath));
-                    if (meta != null && !string.IsNullOrWhiteSpace(meta.Title) && !url.Contains(meta.Title))
+                    if (meta != null)
                     {
                         await ApplyMetadataToItem(mi, meta, url).ConfigureAwait(false);
                         return;

@@ -206,19 +206,6 @@
             </widgets:WidgetControl>
         </Panel>
 
-        <!-- Spectrum -->
-        <spectrum:GlSpectrumControl Spectrum="{Binding MusicViewModel.AudioPlayer.Spectrum}"
-                                    Grid.Row="1"
-                                    Height="{Binding SettingsViewModel.SpectrumHeight}"
-                                    VerticalAlignment="Bottom"
-                                    BarWidth="{Binding SettingsViewModel.BarWidth}"
-                                    BarSpacing="{Binding SettingsViewModel.BarSpacing}"
-                                    BlockHeight="5"
-                                    UseDeltaTime="True"
-                                    IsHitTestVisible="False"
-                                    BarGradient="{Binding SettingsViewModel.SpectrumGradient}"
-                                    IsVisible="{Binding SettingsViewModel.ShowSpectrum}"/>
-
         <!-- Main menu-->
         <navigation:MainMenuView Grid.Row="1" ClipToBounds="False"/>
     </Grid>

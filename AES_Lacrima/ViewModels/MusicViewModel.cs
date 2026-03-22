@@ -1583,6 +1583,16 @@ namespace AES_Lacrima.ViewModels
             try
             {
                 if (item.FileName == null) return;
+
+                // Do not replace a cover that was already restored from local metadata cache.
+                var shouldFetch = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    var hasCover = item.CoverBitmap != null;
+                    var hasCustomCover = hasCover && (DefaultFolderCover == null || item.CoverBitmap != DefaultFolderCover);
+                    return !hasCustomCover;
+                });
+                if (!shouldFetch) return;
+
                 var videoId = YouTubeThumbnail.ExtractVideoId(item.FileName);
                 if (string.IsNullOrWhiteSpace(videoId)) return;
 
@@ -1610,6 +1620,14 @@ namespace AES_Lacrima.ViewModels
                             var bitmap = new Bitmap(stream);
                             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                             {
+                                var hasCurrentCover = item.CoverBitmap != null;
+                                var hasCustomCover = hasCurrentCover && (DefaultFolderCover == null || item.CoverBitmap != DefaultFolderCover);
+                                if (hasCustomCover)
+                                {
+                                    bitmap.Dispose();
+                                    return;
+                                }
+
                                 item.CoverBitmap = bitmap;
                                 item.IsLoadingCover = false;
                             });
