@@ -12,6 +12,8 @@
 /LibMPVSharp/obj
 /AES_Tests/bin
 /AES_Tests/obj
+/AES_Lacrima.Android/bin
+/AES_Lacrima.Android/obj
 /*.Tests/bin
 /*.Tests/obj
 /AES_Lacrima.Headless.Tests/bin

@@ -9,7 +9,6 @@
              mc:Ignorable="d"
              x:Class="AES_Lacrima.Views.Common.SettingsOverlay"
              x:DataType="vm:SettingsViewModel"
-             DataContext="{ReflectionBinding SettingsViewModel}"
              ClipToBounds="False">
 
     <Design.DataContext>

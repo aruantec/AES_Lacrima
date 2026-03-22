@@ -15,8 +15,8 @@
     <PackageReference Include="Avalonia" Version="11.3.11" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.11" />
     <PackageReference Include="Avalonia.Skia" Version="11.3.11" />
-    <!-- Direct2D1 package enables Skia Direct3D/Direct2D backend on Windows -->
-    <PackageReference Include="Avalonia.Direct2D1" Version="11.3.11" />
+    <!-- Direct2D1 backend is Windows-only; keep it out of Linux/Android restore graph. -->
+    <PackageReference Include="Avalonia.Direct2D1" Version="11.3.11" Condition="'$(OS)' == 'Windows_NT'" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.11" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.11" />
     <PackageReference Include="Avalonia.Diagnostics" Version="11.3.11">
@@ -27,8 +27,6 @@
     <PackageReference Include="FFmpeg.AutoGen" Version="8.0.0" />
     <!-- Switched from NuGet package to project reference for local development. -->
     <PackageReference Include="MathNet.Numerics" Version="6.0.0-beta2" />
-    <PackageReference Include="Microsoft.NETCore.App" Version="2.2.8" />
-    <PackageReference Include="Microsoft.NETCore.Jit" Version="2.0.8" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.5-beta1" />
     <PackageReference Include="NWaves" Version="0.9.6" />
     <PackageReference Include="SharpCompress" Version="0.44.5" />

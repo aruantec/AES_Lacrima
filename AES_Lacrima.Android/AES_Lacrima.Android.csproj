@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <SupportedOSPlatformVersion>21</SupportedOSPlatformVersion>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <ApplicationId>com.aruantec.aeslacrima</ApplicationId>
+    <ApplicationTitle>AES Lacrima</ApplicationTitle>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-android'">
+    <!-- Allow CLI builds to discover the Android SDK automatically. -->
+    <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == '' and '$(ANDROID_SDK_ROOT)' != ''">$(ANDROID_SDK_ROOT)</AndroidSdkDirectory>
+    <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == '' and '$(ANDROID_HOME)' != ''">$(ANDROID_HOME)</AndroidSdkDirectory>
+    <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == '' and Exists('$(HOME)/Android/Sdk')">$(HOME)/Android/Sdk</AndroidSdkDirectory>
+    <!-- XA0141 is emitted for third-party native libs that are not yet 16KB-page aligned. -->
+    <NoWarn>$(NoWarn);XA0141</NoWarn>
+
+    <!-- Bundled Android libmpv (LGPL) inputs.
+         Expected layout under AndroidMpvSourceRoot:
+         arm64-v8a/libmpv.so
+         armeabi-v7a/libmpv.so
+         x86_64/libmpv.so
+         x86/libmpv.so -->
+    <RequireBundledAndroidMpv Condition="'$(RequireBundledAndroidMpv)' == ''">true</RequireBundledAndroidMpv>
+    <AndroidMpvSourceRoot Condition="'$(AndroidMpvSourceRoot)' == '' and '$(MPV_ANDROID_LIBS_DIR)' != ''">$(MPV_ANDROID_LIBS_DIR)</AndroidMpvSourceRoot>
+    <AndroidMpvSourceRoot Condition="'$(AndroidMpvSourceRoot)' == ''">$(HOME)/.local/share/AES_Lacrima/Tools/android-libmpv</AndroidMpvSourceRoot>
+    <AndroidMpvLibArm64 Condition="'$(AndroidMpvLibArm64)' == ''">$(AndroidMpvSourceRoot)/arm64-v8a/libmpv.so</AndroidMpvLibArm64>
+    <AndroidMpvLibArmV7a Condition="'$(AndroidMpvLibArmV7a)' == ''">$(AndroidMpvSourceRoot)/armeabi-v7a/libmpv.so</AndroidMpvLibArmV7a>
+    <AndroidMpvLibX86_64 Condition="'$(AndroidMpvLibX86_64)' == ''">$(AndroidMpvSourceRoot)/x86_64/libmpv.so</AndroidMpvLibX86_64>
+    <AndroidMpvLibX86 Condition="'$(AndroidMpvLibX86)' == ''">$(AndroidMpvSourceRoot)/x86/libmpv.so</AndroidMpvLibX86>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Android" Version="11.3.11" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-android'">
+    <!-- Bundle shared ShaderToy fragment shaders into APK assets. -->
+    <AndroidAsset Include="..\AES_Lacrima\Shaders\Shadertoys\**\*.frag"
+                  Link="Shadertoys/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-android'">
+    <_BundledMpvNativeLib Include="$(AndroidMpvLibArm64)"
+                          Link="lib/arm64-v8a/libmpv.so"
+                          Condition="Exists('$(AndroidMpvLibArm64)')" />
+    <_BundledMpvNativeLib Include="$(AndroidMpvLibArmV7a)"
+                          Link="lib/armeabi-v7a/libmpv.so"
+                          Condition="Exists('$(AndroidMpvLibArmV7a)')" />
+    <_BundledMpvNativeLib Include="$(AndroidMpvLibX86_64)"
+                          Link="lib/x86_64/libmpv.so"
+                          Condition="Exists('$(AndroidMpvLibX86_64)')" />
+    <_BundledMpvNativeLib Include="$(AndroidMpvLibX86)"
+                          Link="lib/x86/libmpv.so"
+                          Condition="Exists('$(AndroidMpvLibX86)')" />
+    <AndroidNativeLibrary Include="@(_BundledMpvNativeLib)" Link="%(_BundledMpvNativeLib.Link)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AES_Lacrima\AES_Lacrima.csproj"
+                      AdditionalProperties="BuildingForAndroid=true;SelfContained=true" />
+  </ItemGroup>
+
+  <Target Name="ValidateBundledAndroidMpv"
+          BeforeTargets="Build"
+          Condition="'$(TargetFramework)' == 'net10.0-android' and '$(RequireBundledAndroidMpv)' == 'true'">
+    <Error Condition="'@(_BundledMpvNativeLib)' == ''"
+           Text="No Android libmpv.so was found for APK bundling. Provide Android ABI-specific libmpv files under '$(AndroidMpvSourceRoot)' or set one or more of: AndroidMpvLibArm64, AndroidMpvLibArmV7a, AndroidMpvLibX86_64, AndroidMpvLibX86. The Linux desktop libmpv.so is not compatible with Android." />
+  </Target>
+</Project>

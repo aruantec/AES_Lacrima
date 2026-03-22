@@ -13,6 +13,7 @@ using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using log4net;
 
 namespace AES_Controls.GL;
 
@@ -24,6 +25,7 @@ namespace AES_Controls.GL;
 /// </summary>
 public class GlShaderToyControl : OpenGlControlBase
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(GlShaderToyControl));
     private string _processedShaderCode = string.Empty;
     private int _program, _vbo, _vao, _audioTexture, _coverTexture;
     private bool _coverTextureDirty = true;
@@ -799,16 +801,46 @@ public class GlShaderToyControl : OpenGlControlBase
     private int CreateProgram(GlInterface gl, string v, string f)
     {
         int p = gl.CreateProgram(), vs = gl.CreateShader(0x8B31), fs = gl.CreateShader(0x8B30);
-        if (!CompileShader(gl, vs, v) || !CompileShader(gl, fs, f)) return 0;
+        if (!CompileShader(gl, vs, v, "vertex") || !CompileShader(gl, fs, f, "fragment"))
+        {
+            if (vs != 0) gl.DeleteShader(vs);
+            if (fs != 0) gl.DeleteShader(fs);
+            if (p != 0) gl.DeleteProgram(p);
+            return 0;
+        }
+
         gl.AttachShader(p, vs);
         gl.AttachShader(p, fs);
+        BindAttribLocation(gl, p, 0, "a_pos");
         gl.LinkProgram(p);
+
+        int linked = 0;
+        unsafe
+        {
+            gl.GetProgramiv(p, GlLinkStatus, &linked);
+        }
+
+        if (linked == 0)
+        {
+            var linkLog = GetProgramInfoLog(gl, p);
+            if (!string.IsNullOrWhiteSpace(linkLog))
+            {
+                Log.Warn($"ShaderToy program link failed: {linkLog}");
+                TryWriteGlErrorFile("shadertoy-link-error.log", linkLog);
+            }
+
+            gl.DeleteShader(vs);
+            gl.DeleteShader(fs);
+            gl.DeleteProgram(p);
+            return 0;
+        }
+
         gl.DeleteShader(vs);
         gl.DeleteShader(fs);
         return p;
     }
 
-    private unsafe bool CompileShader(GlInterface gl, int s, string src)
+    private unsafe bool CompileShader(GlInterface gl, int s, string src, string stage)
     {
         var b = Encoding.UTF8.GetBytes(src);
         int len = b.Length;
@@ -822,7 +854,75 @@ public class GlShaderToyControl : OpenGlControlBase
         gl.CompileShader(s);
         int success = 0;
         gl.GetShaderiv(s, 0x8B81, &success);
+        if (success == 0)
+        {
+            var log = GetShaderInfoLog(gl, s);
+            if (!string.IsNullOrWhiteSpace(log))
+            {
+                Log.Warn($"ShaderToy {stage} shader compilation failed: {log}");
+                TryWriteGlErrorFile($"shadertoy-{stage}-compile-error.log", log + Environment.NewLine + Environment.NewLine + src);
+            }
+        }
         return success != 0;
+    }
+
+    private unsafe void BindAttribLocation(GlInterface gl, int program, uint index, string name)
+    {
+        var bind = (delegate* unmanaged[Stdcall]<uint, uint, sbyte*, void>)gl.GetProcAddress("glBindAttribLocation");
+        if (bind == null) return;
+
+        var bytes = Encoding.ASCII.GetBytes(name + '\0');
+        fixed (byte* p = bytes)
+        {
+            bind((uint)program, index, (sbyte*)p);
+        }
+    }
+
+    private unsafe string GetShaderInfoLog(GlInterface gl, int shader)
+    {
+        int length = 0;
+        gl.GetShaderiv(shader, 0x8B84, &length); // GL_INFO_LOG_LENGTH
+        if (length <= 1) return string.Empty;
+
+        var data = new byte[length];
+        fixed (byte* p = data)
+        {
+            int written = 0;
+            var getLog = (delegate* unmanaged[Stdcall]<uint, int, int*, sbyte*, void>)gl.GetProcAddress("glGetShaderInfoLog");
+            if (getLog == null) return string.Empty;
+            getLog((uint)shader, length, &written, (sbyte*)p);
+            return Encoding.UTF8.GetString(data, 0, Math.Max(0, written)).TrimEnd('\0', '\r', '\n', ' ');
+        }
+    }
+
+    private unsafe string GetProgramInfoLog(GlInterface gl, int program)
+    {
+        int length = 0;
+        gl.GetProgramiv(program, 0x8B84, &length); // GL_INFO_LOG_LENGTH
+        if (length <= 1) return string.Empty;
+
+        var data = new byte[length];
+        fixed (byte* p = data)
+        {
+            int written = 0;
+            var getLog = (delegate* unmanaged[Stdcall]<uint, int, int*, sbyte*, void>)gl.GetProcAddress("glGetProgramInfoLog");
+            if (getLog == null) return string.Empty;
+            getLog((uint)program, length, &written, (sbyte*)p);
+            return Encoding.UTF8.GetString(data, 0, Math.Max(0, written)).TrimEnd('\0', '\r', '\n', ' ');
+        }
+    }
+
+    private static void TryWriteGlErrorFile(string fileName, string text)
+    {
+        try
+        {
+            Directory.CreateDirectory(LogPath);
+            File.WriteAllText(Path.Combine(LogPath, fileName), text);
+        }
+        catch
+        {
+            // ignore logging failures
+        }
     }
 
     #region Uniform Helpers

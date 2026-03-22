@@ -27,6 +27,7 @@
         "Clean",
         "Compile",
         "Publish",
+        "PublishAndroidApk",
         "Restore",
         "Run",
         "Test"

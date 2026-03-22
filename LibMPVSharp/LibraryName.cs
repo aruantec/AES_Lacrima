@@ -48,7 +48,15 @@ namespace LibMPVSharp
                 }
                 else if (OperatingSystem.IsAndroid())
                 {
-                    return NativeLibrary.Load(ResolvePath(AndroidLibrary), assembly, searchPath);
+                    // Prefer Android's default native loader so APK-bundled libs are found.
+                    try
+                    {
+                        return NativeLibrary.Load(AndroidLibrary, assembly, searchPath);
+                    }
+                    catch
+                    {
+                        return NativeLibrary.Load(ResolvePath(AndroidLibrary), assembly, searchPath);
+                    }
                 }
                 else if (OperatingSystem.IsLinux())
                 {
