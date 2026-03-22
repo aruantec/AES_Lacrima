@@ -4,17 +4,13 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:composition="using:AES_Controls.Composition"
              xmlns:asyncImageLoader="clr-namespace:AsyncImageLoader;assembly=AsyncImageLoader.Avalonia"
-             xmlns:locators="using:AES_Lacrima.Helpers"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d"
              x:Class="AES_Lacrima.Views.Common.SettingsOverlay"
              x:DataType="vm:SettingsViewModel"
+             DataContext="{ReflectionBinding SettingsViewModel}"
              ClipToBounds="False">
-
-    <UserControl.DataContext>
-        <locators:TypeResolverExtension Type="vm:SettingsViewModel"/>
-    </UserControl.DataContext>
 
     <Design.DataContext>
         <vm:SettingsViewModel/>
@@ -68,10 +64,6 @@
                         <StackPanel Margin="0,15,0,15" Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="Show Particles" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
                             <ToggleSwitch FontSize="20" IsChecked="{Binding ShowParticles, Mode=TwoWay}" Margin="8,0"/>
-                        </StackPanel>
-                        <StackPanel Margin="0,15,0,15" Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="Show Spectrum" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
-                            <ToggleSwitch FontSize="20" IsChecked="{Binding ShowSpectrum, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
                         <TextBlock Margin="0,15,0,15" Text="ShaderToy" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="30"/>
                         <Separator Margin="0,0,0,15"/>
