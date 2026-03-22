@@ -13,6 +13,7 @@ For local packaging work, you may also need platform-specific tools:
 - macOS bundling: `sips`, `iconutil`, and `codesign`
 - Linux desktop integration script: `ffmpeg`, `update-desktop-database`, `gtk-update-icon-cache`, and `gio` are optional
 - Linux AppImage packaging: `linuxdeploy` and `appimagetool`, or an equivalent AppImage toolchain
+- Android packaging: .NET Android workload (`dotnet workload install android`)
 
 ## Build entrypoints
 
@@ -26,6 +27,7 @@ Common NUKE targets:
 - `Run`
 - `Test`
 - `Publish`
+- `PublishAndroidApk`
 
 ## Local development
 
@@ -79,6 +81,47 @@ On macOS, `AES_Lacrima/Mac/publish-macos.sh` runs automatically after publish an
 
 ```bash
 ./build.sh Publish --configuration Release --runtime linux-arm64
+```
+
+### Android (APK)
+
+```bash
+./build.sh PublishAndroidApk --configuration Release
+```
+
+The APK output is written under `output/publish/<Configuration>/android-apk`.
+
+#### Bundled Android libmpv (LGPL)
+
+Android builds are configured to bundle ABI-specific `libmpv.so` files into the APK.
+The desktop/Linux `libmpv.so` is not Android-compatible.
+
+Default lookup root:
+
+- `~/.local/share/AES_Lacrima/Tools/android-libmpv`
+
+Expected structure:
+
+- `arm64-v8a/libmpv.so`
+- `armeabi-v7a/libmpv.so`
+- `x86_64/libmpv.so`
+- `x86/libmpv.so`
+
+You can override the source location with either:
+
+- environment variable `MPV_ANDROID_LIBS_DIR`
+- MSBuild properties:
+  - `AndroidMpvSourceRoot`
+  - `AndroidMpvLibArm64`
+  - `AndroidMpvLibArmV7a`
+  - `AndroidMpvLibX86_64`
+  - `AndroidMpvLibX86`
+
+Example:
+
+```bash
+dotnet build AES_Lacrima.Android/AES_Lacrima.Android.csproj -t:Run -v minimal /nr:false \
+  /p:AndroidMpvSourceRoot=/path/to/android-libmpv
 ```
 
 Raw Linux publish output is useful for local testing, but it is not the recommended end-user distribution format.

@@ -1,0 +1,97 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:asyncImageLoader="using:AsyncImageLoader"
+             xmlns:controls="using:AES_Controls"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:AES_Lacrima.Converters;assembly=AES_Lacrima"
+             xmlns:vm="using:AES_Lacrima.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:gl="using:AES_Controls.GL"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:composition="using:AES_Controls.Composition"
+             xmlns:nav="clr-namespace:AES_Controls.Navigation;assembly=AES_Controls"
+             xmlns:common="clr-namespace:AES_Lacrima.Views.Common"
+             xmlns:behaviors="clr-namespace:AES_Lacrima.Behaviors"
+             mc:Ignorable="d"
+             x:Class="AES_Lacrima.Views.Mobile.MobileMainView"
+             x:DataType="vm:MainWindowViewModel">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <UserControl.Resources>
+        <local:BoolToOpacityConverter x:Key="BoolToOpacityConverter" />
+    </UserControl.Resources>
+
+    <Grid x:DataType="vm:MainWindowViewModel" ClipToBounds="False">
+        <Interaction.Behaviors>
+            <behaviors:CloseOnClickOutsideBehavior
+                TargetControl="{Binding #SettingsOverlay}"
+                IsEnabled="{Binding NavigationService.ShowSettingsOverlay}"
+                PropertyOwner="{Binding NavigationService}"
+                PropertyName="ShowSettingsOverlay" />
+        </Interaction.Behaviors>
+
+        <Grid.Styles>
+            <Style Selector="Border#SettingsOverlay">
+                <Setter Property="Transitions">
+                    <Setter.Value>
+                        <Transitions>
+                            <DoubleTransition Property="Opacity" Duration="0:0:0.25" />
+                        </Transitions>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </Grid.Styles>
+
+        <composition:TransparentComposition/>
+
+        <Grid x:Name="MainBorderContent">
+            <Image asyncImageLoader:ImageLoader.Source="{Binding SettingsViewModel.BackgroundImagePath}"
+                   IsVisible="{Binding SettingsViewModel.ShowBackground}"
+                   Stretch="UniformToFill"/>
+
+            <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
+                                   IsVisible="{Binding SettingsViewModel.ShowShaderToy}"
+                                   Spectrum="{Binding Spectrum}"
+                                   CoverBitmap="{Binding MusicViewModel.SelectedMediaItem.CoverBitmap}"
+                                   SpectrumGradient="{Binding SettingsViewModel.SpectrumGradient}"/>
+
+            <controls:ScalableDecorator Scale="{Binding SettingsViewModel.ScaleFactor}">
+                <Grid RowDefinitions="Auto,*" ColumnDefinitions="60*,40*">
+                    <common:MainTopBar Grid.Row="0" Grid.ColumnSpan="2"/>
+
+                    <nav:CachedContentPresenter Grid.Row="1"
+                                                Grid.ColumnSpan="2"
+                                                Grid.Column="0"
+                                                TransitionsEnabled="True"
+                                                Duration="0:0:0.500"
+                                                Easing="SineEaseInOut"
+                                                CurrentViewModel="{Binding NavigationService.View}"
+                                                TransitionCompletedCommand="{Binding NavigationService.TransitionCompletedCommand}"/>
+
+                    <Border x:Name="SettingsOverlay"
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Background="#E6000000"
+                            BorderBrush="DimGray"
+                            BorderThickness="0.5,0,0,0"
+                            Opacity="{Binding NavigationService.ShowSettingsOverlay, Converter={StaticResource BoolToOpacityConverter}}"
+                            IsHitTestVisible="{Binding NavigationService.ShowSettingsOverlay}">
+                        <ScrollViewer>
+                            <common:SettingsOverlay DataContext="{Binding SettingsViewModel}" Margin="5,15,0,0"/>
+                        </ScrollViewer>
+                    </Border>
+
+                    <ContentControl Content="{Binding PromptView}"
+                                    Grid.Row="1"
+                                    Grid.Column="0"
+                                    Grid.ColumnSpan="2"/>
+                </Grid>
+            </controls:ScalableDecorator>
+
+            <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"
+                                                    IsVisible="{Binding SettingsViewModel.ShowParticles}"/>
+        </Grid>
+    </Grid>
+</UserControl>

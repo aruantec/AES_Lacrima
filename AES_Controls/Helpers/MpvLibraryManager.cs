@@ -49,9 +49,9 @@ public partial class MpvLibraryManager : ObservableObject
     public MpvLibraryManager()
     {
         Directory.CreateDirectory(_destFolder);
-        // Ensure libmpv is loaded from the same folder where we install it.
-        // This allows the application to control the directory used for the native library.
-        LibMPVSharp.LibraryName.LibraryDirectory = _destFolder;
+        // Desktop platforms load from our managed tools directory.
+        // Android should resolve libmpv from APK-bundled native libs by name.
+        LibMPVSharp.LibraryName.LibraryDirectory = OperatingSystem.IsAndroid() ? null : _destFolder;
     }
 
     private sealed class MpvCacheEntry
@@ -191,6 +191,21 @@ public partial class MpvLibraryManager : ObservableObject
     /// <returns>A task that completes when the check and any installation are finished.</returns>
     public async Task EnsureLibraryInstalledAsync()
     {
+        if (OperatingSystem.IsAndroid())
+        {
+            if (IsLibraryInstalled())
+            {
+                Status = "Bundled Android libmpv is available.";
+                InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(true, Status));
+            }
+            else
+            {
+                Status = "Bundled Android libmpv was not found. Rebuild APK with Android libmpv.so.";
+                InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(false, Status));
+            }
+            return;
+        }
+
         string libName = GetPlatformLibName();
 
         // Clear user-requested uninstallation marker if manual install is triggered
@@ -282,6 +297,13 @@ public partial class MpvLibraryManager : ObservableObject
     /// </summary>
     public async Task<bool> UninstallAsync()
     {
+        if (OperatingSystem.IsAndroid())
+        {
+            Status = "Bundled Android libmpv cannot be uninstalled at runtime. Rebuild the APK instead.";
+            InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(false, Status));
+            return false;
+        }
+
         KillAllMpvActivity();
         await Task.Delay(1000); // Give player more time to fully release the library
 
@@ -352,6 +374,14 @@ public partial class MpvLibraryManager : ObservableObject
     /// </summary>
     public bool IsLibraryInstalled()
     {
+        if (OperatingSystem.IsAndroid())
+        {
+            if (NativeLibrary.TryLoad(LibMPVSharp.LibraryName.AndroidLibrary, out var handle))
+            {
+                NativeLibrary.Free(handle);
+                return true;
+            }
+        }
         return File.Exists(Path.Combine(_destFolder, GetPlatformLibName()));
     }
 

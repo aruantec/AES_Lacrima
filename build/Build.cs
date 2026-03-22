@@ -18,6 +18,7 @@ sealed class Build : NukeBuild
 
     AbsolutePath SolutionFile => RootDirectory / "AES_Lacrima.slnx";
     AbsolutePath AppProjectFile => RootDirectory / "AES_Lacrima" / "AES_Lacrima.csproj";
+    AbsolutePath AndroidProjectFile => RootDirectory / "AES_Lacrima.Android" / "AES_Lacrima.Android.csproj";
     AbsolutePath ArtifactsDirectory => RootDirectory / "output";
     AbsolutePath TestResultsDirectory => ArtifactsDirectory / "test-results";
     AbsolutePath CoverageReportDirectory => TestResultsDirectory / "coverage-report";
@@ -115,5 +116,19 @@ sealed class Build : NukeBuild
 
                 return settings;
             });
+        });
+
+    Target PublishAndroidApk => _ => _
+        .DependsOn(Clean)
+        .Executes(() =>
+        {
+            var apkPublishDirectory = PublishDirectory / "android-apk";
+
+            DotNetPublish(s => s
+                .SetProject(AndroidProjectFile)
+                .SetConfiguration(Configuration)
+                .SetFramework("net10.0-android")
+                .SetOutput(apkPublishDirectory)
+                .SetProperty("AndroidPackageFormat", "apk"));
         });
 }

@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.X11;
 using AES_Core.IO;
 using log4net;
 using log4net.Appender;
@@ -164,10 +165,23 @@ namespace AES_Lacrima
 
         // Avalonia configuration, don't remove; also used by visual designer.
         public static AppBuilder BuildAvaloniaApp()
-            => AppBuilder.Configure<App>()
+        {
+            var builder = AppBuilder.Configure<App>()
                 .UsePlatformDetect()
                 .WithInterFont()
-                .With(new SkiaOptions() { MaxGpuResourceSizeBytes = 256000000 })
-                .LogToTrace();
+                .With(new SkiaOptions() { MaxGpuResourceSizeBytes = 256000000 });
+
+            if (OperatingSystem.IsLinux())
+            {
+                // Work around IBus services that don't implement Destroy on shutdown.
+                builder = builder.With(new X11PlatformOptions
+                {
+                    EnableIme = false,
+                    EnableSessionManagement = false
+                });
+            }
+
+            return builder;
+        }
     }
 }

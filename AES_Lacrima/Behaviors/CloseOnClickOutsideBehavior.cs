@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using Avalonia.Xaml.Interactivity;
 using System.Reflection;
 
@@ -11,8 +12,10 @@ namespace AES_Lacrima.Behaviors;
 /// A behavior that closes/hides a target control when clicking outside of it.
 /// Useful for overlays, dropdowns, and modal-like controls.
 /// </summary>
-public class CloseOnClickOutsideBehavior : Behavior<Window>
+public class CloseOnClickOutsideBehavior : Behavior<InputElement>
 {
+    private InputElement? _pointerEventSource;
+
     /// <summary>
     /// Defines the <see cref="TargetControl"/> property.
     /// </summary>
@@ -93,10 +96,11 @@ public class CloseOnClickOutsideBehavior : Behavior<Window>
     protected override void OnAttached()
     {
         base.OnAttached();
-        if (AssociatedObject != null)
-        {
-            AssociatedObject.AddHandler(InputElement.PointerPressedEvent, OnWindowPointerPressed, RoutingStrategies.Tunnel);
-        }
+        if (AssociatedObject == null) return;
+
+        AssociatedObject.AttachedToVisualTree += OnAssociatedObjectAttachedToVisualTree;
+        AssociatedObject.DetachedFromVisualTree += OnAssociatedObjectDetachedFromVisualTree;
+        HookPointerSource();
     }
 
     protected override void OnDetaching()
@@ -104,8 +108,41 @@ public class CloseOnClickOutsideBehavior : Behavior<Window>
         base.OnDetaching();
         if (AssociatedObject != null)
         {
-            AssociatedObject.RemoveHandler(InputElement.PointerPressedEvent, OnWindowPointerPressed);
+            AssociatedObject.AttachedToVisualTree -= OnAssociatedObjectAttachedToVisualTree;
+            AssociatedObject.DetachedFromVisualTree -= OnAssociatedObjectDetachedFromVisualTree;
         }
+
+        UnhookPointerSource();
+    }
+
+    private void OnAssociatedObjectAttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
+        => HookPointerSource();
+
+    private void OnAssociatedObjectDetachedFromVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
+        => UnhookPointerSource();
+
+    private void HookPointerSource()
+    {
+        if (_pointerEventSource != null || AssociatedObject == null)
+            return;
+
+        // Behaviors can be attached to Window or nested controls.
+        // We listen at TopLevel to catch click-outside events for the whole surface.
+        var topLevel = TopLevel.GetTopLevel(AssociatedObject);
+        if (topLevel is InputElement inputElement)
+        {
+            _pointerEventSource = inputElement;
+            _pointerEventSource.AddHandler(InputElement.PointerPressedEvent, OnWindowPointerPressed, RoutingStrategies.Tunnel);
+        }
+    }
+
+    private void UnhookPointerSource()
+    {
+        if (_pointerEventSource == null)
+            return;
+
+        _pointerEventSource.RemoveHandler(InputElement.PointerPressedEvent, OnWindowPointerPressed);
+        _pointerEventSource = null;
     }
 
     private void OnWindowPointerPressed(object? sender, PointerPressedEventArgs e)

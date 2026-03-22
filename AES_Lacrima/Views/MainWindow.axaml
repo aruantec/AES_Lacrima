@@ -94,7 +94,7 @@
                                 Opacity="{Binding NavigationService.ShowSettingsOverlay, Converter={StaticResource BoolToOpacityConverter}}"
                                 IsHitTestVisible="{Binding NavigationService.ShowSettingsOverlay}">
                             <ScrollViewer>
-                                <common:SettingsOverlay Margin="5,15,0,0"/>
+                                <common:SettingsOverlay DataContext="{Binding SettingsViewModel}" Margin="5,15,0,0"/>
                             </ScrollViewer>
                         </Border>
                         <!-- Prompt overlay -->

@@ -5,6 +5,7 @@ using AES_Core.Services;
 using AES_Lacrima.Mini.Views;
 using AES_Lacrima.ViewModels;
 using AES_Lacrima.Views;
+using AES_Lacrima.Views.Mobile;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -76,6 +77,23 @@ namespace AES_Lacrima
 
                 // Configure FFmpeg, libmpv and yt-dlp checks. Skip auto-installation on startup.
                 await PerformInitialToolChecksAsync(desktop.MainWindow);
+            }
+            else if (ApplicationLifetime is ISingleViewApplicationLifetime singleView)
+            {
+                DisableAvaloniaDataAnnotationValidation();
+                DiLocator.ConfigureContainer();
+
+                var settingsVm = DiLocator.ResolveViewModel<SettingsViewModel>();
+                settingsVm?.Prepare();
+
+                var mainVm = DiLocator.ResolveViewModel<MainWindowViewModel>();
+                if (mainVm is { IsPrepared: false })
+                {
+                    mainVm.Prepare();
+                    mainVm.IsPrepared = true;
+                }
+
+                singleView.MainView = new MobileMainView();
             }
 
             base.OnFrameworkInitializationCompleted();

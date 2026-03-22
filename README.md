@@ -24,6 +24,7 @@ This repo uses [NUKE](https://nuke.build/) for solution builds and app publishin
 - Windows CMD compile: `build.cmd Compile`
 - Run tests: `./build.sh Test`
 - Publish an app build: `./build.sh Publish --configuration Release --runtime <rid>`
+- Android APK build (NUKE): `./build.sh PublishAndroidApk --configuration Release`
 
 See `BUILDING.md` for platform packaging details, AppImage guidance, CI artifacts, and GitHub Release workflow notes.
 
