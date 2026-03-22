@@ -22,6 +22,8 @@ using System.Threading.Tasks;
 using System.Net.Http;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Security.Cryptography;
+using System.Text;
 using TagLib;
 
 namespace AES_Lacrima.ViewModels
@@ -58,6 +60,7 @@ namespace AES_Lacrima.ViewModels
 
         // last window handle we added thumbnail buttons to; used to re‑initialize after a mode switch
         private IntPtr _taskbarHwnd = IntPtr.Zero;
+        private MprisService? _mprisService;
 
         [ObservableProperty]
         private bool _isAlbumlistOpen;
@@ -263,6 +266,11 @@ namespace AES_Lacrima.ViewModels
                     else
                         TaskbarProgressHelper.SetProgressState(AudioPlayer.IsPlaying ? TaskbarProgressBarState.Normal : TaskbarProgressBarState.Paused);
                 }
+            }
+
+            if (AudioPlayer != null && RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                _mprisService?.NotifyStateChanged(e.PropertyName);
             }
         }
 
@@ -948,11 +956,242 @@ namespace AES_Lacrima.ViewModels
                     });
                 }
             };
+
+            _ = InitializeLinuxMprisAsync();
+        }
+
+        private async Task InitializeLinuxMprisAsync()
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                return;
+
+            if (_mprisService == null)
+            {
+                _mprisService = new MprisService(
+                    getState: BuildMprisState,
+                    playAsync: () => InvokeOnUiAsync(async () =>
+                    {
+                        if (AudioPlayer != null && !AudioPlayer.IsPlaying)
+                            await TogglePlay();
+                    }),
+                    pauseAsync: () => InvokeOnUiAsync(async () =>
+                    {
+                        if (AudioPlayer != null && AudioPlayer.IsPlaying)
+                            await TogglePlay();
+                    }),
+                    playPauseAsync: () => InvokeOnUiAsync(TogglePlay),
+                    stopAsync: () => InvokeOnUiAsync(() => Stop()),
+                    nextAsync: () => InvokeOnUiAsync(PlayNext),
+                    previousAsync: () => InvokeOnUiAsync(PlayPrevious),
+                    seekRelativeAsync: offsetUs => InvokeOnUiAsync(() =>
+                    {
+                        if (AudioPlayer == null) return;
+                        var newPos = AudioPlayer.Position + (offsetUs / 1_000_000d);
+                        AudioPlayer.SetPosition(Math.Max(0, newPos));
+                    }),
+                    setPositionAsync: positionUs => InvokeOnUiAsync(() =>
+                    {
+                        if (AudioPlayer == null) return;
+                        AudioPlayer.SetPosition(Math.Max(0, positionUs / 1_000_000d));
+                    }),
+                    setVolumeAsync: volume => InvokeOnUiAsync(() =>
+                    {
+                        if (AudioPlayer == null) return;
+                        AudioPlayer.Volume = Math.Clamp(volume, 0, 1) * 100d;
+                    }),
+                    setShuffleAsync: shuffle => InvokeOnUiAsync(() =>
+                    {
+                        if (AudioPlayer == null) return;
+                        AudioPlayer.RepeatMode = shuffle ? RepeatMode.Shuffle : RepeatMode.Off;
+                    }),
+                    setLoopStatusAsync: loopStatus => InvokeOnUiAsync(() =>
+                    {
+                        if (AudioPlayer == null) return;
+                        AudioPlayer.RepeatMode = loopStatus switch
+                        {
+                            "Track" => RepeatMode.One,
+                            "Playlist" => RepeatMode.All,
+                            _ => RepeatMode.Off
+                        };
+                    }),
+                    raiseRequested: () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    {
+                        if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop &&
+                            desktop.MainWindow != null)
+                        {
+                            desktop.MainWindow.Activate();
+                        }
+                    }),
+                    quitRequested: () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    {
+                        if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
+                        {
+                            desktop.Shutdown();
+                        }
+                    }));
+            }
+
+            try
+            {
+                await _mprisService.StartAsync();
+            }
+            catch
+            {
+                // Ignore MPRIS startup errors so normal playback remains unaffected.
+            }
+        }
+
+        private static Task InvokeOnUiAsync(Action action)
+        {
+            if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                action();
+                return Task.CompletedTask;
+            }
+
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                try
+                {
+                    action();
+                    tcs.SetResult(true);
+                }
+                catch (Exception ex)
+                {
+                    tcs.SetException(ex);
+                }
+            });
+            return tcs.Task;
+        }
+
+        private static Task InvokeOnUiAsync(Func<Task> action)
+        {
+            if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+                return action();
+
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+            {
+                try
+                {
+                    await action();
+                    tcs.SetResult(true);
+                }
+                catch (Exception ex)
+                {
+                    tcs.SetException(ex);
+                }
+            });
+            return tcs.Task;
+        }
+
+        private MprisState BuildMprisState()
+        {
+            var player = AudioPlayer;
+            var item = SelectedMediaItem;
+
+            var duration = item?.Duration > 0 ? item.Duration : player?.Duration ?? 0;
+            var title = !string.IsNullOrWhiteSpace(item?.Title)
+                ? item!.Title!
+                : Path.GetFileNameWithoutExtension(item?.FileName ?? string.Empty);
+
+            return new MprisState(
+                IsPlaying: player?.IsPlaying == true,
+                IsStopped: player == null || (!player.IsPlaying && player.Position <= 0.001 && duration <= 0.001),
+                CanPlay: item != null,
+                CanPause: player?.IsPlaying == true,
+                CanSeek: duration > 0,
+                CanGoNext: CanGoNextForMpris(),
+                CanGoPrevious: CanGoPreviousForMpris(),
+                Shuffle: player?.RepeatMode == RepeatMode.Shuffle,
+                LoopStatus: player?.RepeatMode switch
+                {
+                    RepeatMode.One => "Track",
+                    RepeatMode.All => "Playlist",
+                    RepeatMode.Shuffle => "Playlist",
+                    _ => "None"
+                },
+                Volume: Math.Clamp((player?.Volume ?? 70d) / 100d, 0d, 1d),
+                PositionUs: (long)Math.Max(0, (player?.Position ?? 0) * 1_000_000d),
+                LengthUs: (long)Math.Max(0, duration * 1_000_000d),
+                TrackIdObjectPath: BuildMprisTrackId(item?.FileName),
+                Title: title,
+                Artist: item?.Artist ?? string.Empty,
+                Album: item?.Album ?? string.Empty,
+                ArtUrl: BuildMprisArtUrl(item));
+        }
+
+        private bool CanGoNextForMpris()
+        {
+            if (PlaybackQueue.Count == 0 || SelectedMediaItem == null)
+                return false;
+
+            var idx = PlaybackQueue.IndexOf(SelectedMediaItem);
+            if (idx < 0)
+                return false;
+
+            return idx < PlaybackQueue.Count - 1 || AudioPlayer?.RepeatMode == RepeatMode.All;
+        }
+
+        private bool CanGoPreviousForMpris()
+        {
+            if (PlaybackQueue.Count == 0 || SelectedMediaItem == null)
+                return false;
+
+            var idx = PlaybackQueue.IndexOf(SelectedMediaItem);
+            return idx > 0;
+        }
+
+        private static string BuildMprisTrackId(string? key)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                return "/org/mpris/MediaPlayer2/track/none";
+
+            var bytes = Encoding.UTF8.GetBytes(key);
+            var hash = Convert.ToHexString(SHA1.HashData(bytes)).ToLowerInvariant();
+            return $"/org/mpris/MediaPlayer2/track/{hash}";
+        }
+
+        private static string BuildMprisArtUrl(MediaItem? item)
+        {
+            var localPath = item?.LocalCoverPath;
+            if (!string.IsNullOrWhiteSpace(localPath))
+            {
+                var path = localPath;
+                if (Path.IsPathRooted(path) && System.IO.File.Exists(path))
+                {
+                    return new Uri(path).AbsoluteUri;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(item?.FileName) &&
+                Uri.TryCreate(item.FileName, UriKind.Absolute, out var uri) &&
+                (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+            {
+                return uri.AbsoluteUri;
+            }
+
+            return string.Empty;
+        }
+
+        public void ShutdownPlatformIntegrations()
+        {
+            _mprisService?.Dispose();
+            _mprisService = null;
         }
         #endregion
 
         #region Partial methods
         // Partial methods
+        partial void OnSelectedMediaItemChanged(MediaItem? value)
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                _mprisService?.NotifyStateChanged(nameof(SelectedMediaItem));
+            }
+        }
+
         partial void OnAlbumListChanged(AvaloniaList<FolderMediaItem>? oldValue, AvaloniaList<FolderMediaItem> newValue)
         {
             if (oldValue != null)

@@ -139,6 +139,9 @@ namespace AES_Lacrima
                 // Try to resolve the settings service and save settings if present.
                 DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
                 Logger.Info("Settings saved successfully during shutdown");
+
+                // Dispose platform integrations (MPRIS, etc.) before the DI graph is torn down.
+                DiLocator.ResolveViewModel<MusicViewModel>()?.ShutdownPlatformIntegrations();
             }
             catch (Exception ex)
             {
