@@ -58,7 +58,24 @@
     <_BundledMpvNativeLib Include="$(AndroidMpvLibX86)"
                           Link="lib/x86/libmpv.so"
                           Condition="Exists('$(AndroidMpvLibX86)')" />
+    <_BundledMpvNativeDep Include="$(AndroidMpvSourceRoot)/arm64-v8a/*.so"
+                          Exclude="$(AndroidMpvLibArm64)"
+                          Link="lib/arm64-v8a/%(Filename)%(Extension)"
+                          Condition="Exists('$(AndroidMpvSourceRoot)/arm64-v8a')" />
+    <_BundledMpvNativeDep Include="$(AndroidMpvSourceRoot)/armeabi-v7a/*.so"
+                          Exclude="$(AndroidMpvLibArmV7a)"
+                          Link="lib/armeabi-v7a/%(Filename)%(Extension)"
+                          Condition="Exists('$(AndroidMpvSourceRoot)/armeabi-v7a')" />
+    <_BundledMpvNativeDep Include="$(AndroidMpvSourceRoot)/x86_64/*.so"
+                          Exclude="$(AndroidMpvLibX86_64)"
+                          Link="lib/x86_64/%(Filename)%(Extension)"
+                          Condition="Exists('$(AndroidMpvSourceRoot)/x86_64')" />
+    <_BundledMpvNativeDep Include="$(AndroidMpvSourceRoot)/x86/*.so"
+                          Exclude="$(AndroidMpvLibX86)"
+                          Link="lib/x86/%(Filename)%(Extension)"
+                          Condition="Exists('$(AndroidMpvSourceRoot)/x86')" />
     <AndroidNativeLibrary Include="@(_BundledMpvNativeLib)" Link="%(_BundledMpvNativeLib.Link)" />
+    <AndroidNativeLibrary Include="@(_BundledMpvNativeDep)" Link="%(_BundledMpvNativeDep.Link)" />
   </ItemGroup>
 
   <ItemGroup>
