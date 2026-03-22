@@ -8,6 +8,8 @@ using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -19,6 +21,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using TagLib;
 using File = System.IO.File;
@@ -26,12 +31,30 @@ using Path = System.IO.Path;
 
 namespace AES_Lacrima.Services
 {
+    public sealed class WebImageSearchResult
+    {
+        public required string ThumbnailUrl { get; init; }
+        public required string FullImageUrl { get; init; }
+        public string Title { get; init; } = string.Empty;
+        public string Artist { get; init; } = string.Empty;
+    }
+
     public interface IMetadataService;
 
     [AutoRegister]
     public partial class MetadataService : ViewModelBase, IMetadataService
     {
         private static readonly ILog SLog = LogManager.GetLogger(typeof(MetadataService));
+        private const int MaxImageSearchResults = 24;
+        private static readonly HttpClient ImageHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
+        private static readonly Regex BracketCleanupRegex = new(@"[\(\[\{].*?[\)\]\}]", RegexOptions.Compiled);
+        private static readonly Regex MultiSpaceRegex = new(@"\s{2,}", RegexOptions.Compiled);
+        private static readonly string[] NoiseTokens =
+        [
+            "lyrics", "lyric", "official video", "official audio", "official",
+            "music video", "video", "audio", "hd", "4k", "remastered",
+            "feat", "ft", "featuring", "live", "karaoke", "visualizer"
+        ];
 
         private MediaItem? _currentSelectedMedia;
 
@@ -54,6 +77,13 @@ namespace AES_Lacrima.Services
 
         [ObservableProperty]
         private AvaloniaList<TagImageModel> _images = [];
+
+        [ObservableProperty] private string? _addImageUrl;
+        [ObservableProperty] private string _imageSearchQuery = string.Empty;
+        [ObservableProperty] private bool _isImageSearchOverlayOpen;
+        [ObservableProperty] private bool _isImageSearchLoading;
+        [ObservableProperty] private string _imageSearchStatus = string.Empty;
+        [ObservableProperty] private AvaloniaList<WebImageSearchResult> _imageSearchResults = [];
 
         [AutoResolve]
         private MusicViewModel? _musicViewModel;
@@ -427,6 +457,122 @@ namespace AES_Lacrima.Services
             }
         }
 
+        [RelayCommand]
+        private async Task AddImageFromUrlAsync(string? imageUrl = null)
+        {
+            var url = string.IsNullOrWhiteSpace(imageUrl) ? AddImageUrl : imageUrl;
+            if (string.IsNullOrWhiteSpace(url))
+                return;
+
+            if (await TryAddImageFromUrlAsCoverAsync(url))
+            {
+                AddImageUrl = string.Empty;
+                ImageSearchStatus = "Image added.";
+            }
+        }
+
+        [RelayCommand]
+        private async Task PasteImageFromClipboardAsync()
+        {
+            var mainWindow = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+            if (mainWindow?.Clipboard == null)
+                return;
+
+            try
+            {
+                using var clipboardData = await mainWindow.Clipboard.TryGetDataAsync();
+                var bitmap = clipboardData != null
+                    ? await clipboardData.TryGetBitmapAsync()
+                    : null;
+                if (bitmap != null)
+                {
+                    using var ms = new MemoryStream();
+                    bitmap.Save(ms);
+                    AddImageToCollection(ms.ToArray(), "image/png", TagImageKind.Cover, "clipboard-image");
+                    ImageSearchStatus = "Pasted image from clipboard.";
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Clipboard bitmap read failed; trying text fallback.", ex);
+            }
+
+            try
+            {
+                var clipboardText = await mainWindow.Clipboard.TryGetTextAsync();
+                if (!string.IsNullOrWhiteSpace(clipboardText))
+                    await AddImageFromUrlAsync(clipboardText.Trim());
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Clipboard text read failed.", ex);
+            }
+        }
+
+        [RelayCommand]
+        private async Task SearchImagesByTitleAsync()
+        {
+            var normalized = NormalizeSearchTitle(Title);
+            if (string.IsNullOrWhiteSpace(normalized))
+                normalized = NormalizeSearchTitle(_currentSelectedMedia?.Title);
+            if (string.IsNullOrWhiteSpace(normalized))
+                return;
+
+            ImageSearchQuery = normalized;
+            await SearchImagesAsync(normalized);
+        }
+
+        [RelayCommand]
+        private async Task SearchImagesAsync(string? query = null)
+        {
+            var activeQuery = string.IsNullOrWhiteSpace(query) ? ImageSearchQuery : query;
+            if (string.IsNullOrWhiteSpace(activeQuery))
+                return;
+
+            IsImageSearchOverlayOpen = true;
+            IsImageSearchLoading = true;
+            ImageSearchStatus = "Searching web images...";
+
+            try
+            {
+                var results = await SearchWebImagesAsync(activeQuery.Trim());
+                ImageSearchResults = new AvaloniaList<WebImageSearchResult>(results.Take(MaxImageSearchResults).ToList());
+                ImageSearchStatus = ImageSearchResults.Count == 0
+                    ? "No images found."
+                    : $"Found {ImageSearchResults.Count} image candidates.";
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Image search failed.", ex);
+                ImageSearchStatus = "Image search failed.";
+                ImageSearchResults = [];
+            }
+            finally
+            {
+                IsImageSearchLoading = false;
+            }
+        }
+
+        [RelayCommand]
+        private void CloseImageSearchOverlay()
+        {
+            IsImageSearchOverlayOpen = false;
+        }
+
+        [RelayCommand]
+        private async Task SelectSearchImageAsync(WebImageSearchResult? result)
+        {
+            if (result == null)
+                return;
+
+            if (await TryAddImageFromUrlAsCoverAsync(result.FullImageUrl))
+            {
+                IsImageSearchOverlayOpen = false;
+                ImageSearchStatus = "Selected image added as cover.";
+            }
+        }
+
         private void Close()
         {
             IsMetadataLoaded = false;
@@ -435,6 +581,154 @@ namespace AES_Lacrima.Services
         private void OnDeleteImage(TagImageModel img)
         {
             Dispatcher.UIThread.Post(() => { Images.Remove(img); img.Dispose(); });
+        }
+
+        private static string NormalizeSearchTitle(string? title)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+                return string.Empty;
+
+            var normalized = BracketCleanupRegex.Replace(title, " ");
+            normalized = normalized.Replace('_', ' ').Replace('|', ' ');
+
+            foreach (var token in NoiseTokens)
+                normalized = Regex.Replace(normalized, $@"\b{Regex.Escape(token)}\b", " ", RegexOptions.IgnoreCase);
+
+            normalized = normalized.Replace(" - ", " ");
+            normalized = MultiSpaceRegex.Replace(normalized, " ").Trim();
+            return normalized;
+        }
+
+        private static async Task<List<WebImageSearchResult>> SearchWebImagesAsync(string query)
+        {
+            var results = new List<WebImageSearchResult>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var songUri = $"https://itunes.apple.com/search?term={Uri.EscapeDataString(query)}&media=music&entity=song&limit=80";
+            await LoadItunesResults(songUri, seen, results);
+
+            if (results.Count < MaxImageSearchResults)
+            {
+                var albumUri = $"https://itunes.apple.com/search?term={Uri.EscapeDataString(query)}&media=music&entity=album&limit=80";
+                await LoadItunesResults(albumUri, seen, results);
+            }
+
+            return results;
+        }
+
+        private static async Task LoadItunesResults(string uri, HashSet<string> seen, List<WebImageSearchResult> sink)
+        {
+            using var response = await ImageHttpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var doc = await JsonDocument.ParseAsync(stream);
+            if (!doc.RootElement.TryGetProperty("results", out var jsonResults) || jsonResults.ValueKind != JsonValueKind.Array)
+                return;
+
+            foreach (var item in jsonResults.EnumerateArray())
+            {
+                var thumb = item.TryGetProperty("artworkUrl100", out var artworkNode)
+                    ? artworkNode.GetString()
+                    : null;
+
+                if (string.IsNullOrWhiteSpace(thumb))
+                    continue;
+
+                var full = UpgradeArtworkSize(thumb);
+                if (!seen.Add(full))
+                    continue;
+
+                var trackName = item.TryGetProperty("trackName", out var trackNode) ? trackNode.GetString() : string.Empty;
+                var artistName = item.TryGetProperty("artistName", out var artistNode) ? artistNode.GetString() : string.Empty;
+
+                sink.Add(new WebImageSearchResult
+                {
+                    ThumbnailUrl = thumb,
+                    FullImageUrl = full,
+                    Title = trackName ?? string.Empty,
+                    Artist = artistName ?? string.Empty
+                });
+
+                if (sink.Count >= MaxImageSearchResults)
+                    return;
+            }
+        }
+
+        private static string UpgradeArtworkSize(string artworkUrl)
+        {
+            if (string.IsNullOrWhiteSpace(artworkUrl))
+                return artworkUrl;
+
+            return Regex.Replace(artworkUrl, @"\d+x\d+bb", "1200x1200bb", RegexOptions.IgnoreCase);
+        }
+
+        private async Task<bool> TryAddImageFromUrlAsCoverAsync(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
+                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                ImageSearchStatus = "Invalid image URL.";
+                return false;
+            }
+
+            try
+            {
+                using var response = await ImageHttpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+                if (!response.IsSuccessStatusCode)
+                {
+                    ImageSearchStatus = "Could not download image.";
+                    return false;
+                }
+
+                var mimeType = response.Content.Headers.ContentType?.MediaType;
+                var bytes = await response.Content.ReadAsByteArrayAsync();
+                if (bytes.Length == 0)
+                {
+                    ImageSearchStatus = "Downloaded image is empty.";
+                    return false;
+                }
+
+                mimeType ??= GuessMimeTypeFromUrl(uri.AbsolutePath);
+                if (!mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                {
+                    ImageSearchStatus = "URL is not an image.";
+                    return false;
+                }
+
+                AddImageToCollection(bytes, mimeType, TagImageKind.Cover, uri.AbsoluteUri);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to add image from URL: {url}", ex);
+                ImageSearchStatus = "Failed to add image from URL.";
+                return false;
+            }
+        }
+
+        private void AddImageToCollection(byte[] data, string mimeType, TagImageKind kind, string description)
+        {
+            var model = new TagImageModel(kind, data, mimeType, description)
+            {
+                OnDeleteImage = OnDeleteImage
+            };
+
+            Images.Add(model);
+        }
+
+        private static string GuessMimeTypeFromUrl(string url)
+        {
+            var lower = url.ToLowerInvariant();
+            return lower switch
+            {
+                var s when s.EndsWith(".png") => "image/png",
+                var s when s.EndsWith(".webp") => "image/webp",
+                var s when s.EndsWith(".avif") => "image/avif",
+                var s when s.EndsWith(".gif") => "image/gif",
+                _ => "image/jpeg"
+            };
         }
 
         private static PictureType MapKindToPictureType(TagImageModel model) => model.Kind switch

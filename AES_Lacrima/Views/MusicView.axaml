@@ -1,9 +1,11 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:composition="using:AES_Controls.Composition"
              xmlns:controls="using:AES_Controls"
+             xmlns:services="using:AES_Lacrima.Services"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:asyncImageLoader="clr-namespace:AsyncImageLoader;assembly=AsyncImageLoader.Avalonia"
              xmlns:navigation="using:AES_Lacrima.Views.Navigation"
              xmlns:player="using:AES_Controls.Player"
              xmlns:spectrum="using:AES_Controls.Player.Spectrum"
@@ -12,6 +14,7 @@
              xmlns:common="using:AES_Lacrima"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Name="RootMusicView"
              x:Class="AES_Lacrima.Views.MusicView"
              x:DataType="vm:MusicViewModel">
 
@@ -831,6 +834,103 @@
 				</TextBox>
 			</StackPanel>
 		</Grid>
+
+        <!-- Metadata Image Search Overlay -->
+        <Grid Background="#E0000000"
+              Grid.RowSpan="4"
+              IsVisible="{Binding MetadataService.IsImageSearchOverlayOpen}"
+              IsHitTestVisible="{Binding MetadataService.IsImageSearchOverlayOpen}"
+              Opacity="{Binding MetadataService.IsImageSearchOverlayOpen, Converter={StaticResource BoolToOpacityConverter}}"
+              ZIndex="2100">
+            <Grid.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Grid.Transitions>
+
+            <Border Width="1220"
+                    Height="760"
+                    Padding="24"
+                    Background="#F0202020"
+                    BorderBrush="#55FFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <Grid RowDefinitions="Auto,Auto,*">
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                        <TextBlock Grid.Column="0"
+                                   Text="Select A Cover (max 24)"
+                                   Foreground="White"
+                                   FontSize="32"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <Button Grid.Column="1"
+                                Content="Close"
+                                Command="{Binding MetadataService.CloseImageSearchOverlayCommand}" />
+                    </Grid>
+
+                    <TextBlock Grid.Row="1"
+                               Text="{Binding MetadataService.ImageSearchStatus}"
+                               Foreground="#FFE0E0E0"
+                               Margin="0,0,0,12"
+                               FontSize="18"
+                               IsVisible="{Binding MetadataService.ImageSearchStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                    <Grid Grid.Row="2">
+                        <TextBlock Text="Searching..."
+                                   Foreground="White"
+                                   FontSize="22"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   IsVisible="{Binding MetadataService.IsImageSearchLoading}" />
+                        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto"
+                                      IsVisible="{Binding !MetadataService.IsImageSearchLoading}">
+                            <ItemsControl ItemsSource="{Binding MetadataService.ImageSearchResults}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="services:WebImageSearchResult">
+                                        <Button Margin="6"
+                                                Padding="0"
+                                                Command="{Binding #RootMusicView.DataContext.MetadataService.SelectSearchImageCommand}"
+                                                CommandParameter="{Binding}">
+                                            <Border Background="#222"
+                                                    BorderBrush="#44FFFFFF"
+                                                    BorderThickness="1"
+                                                    CornerRadius="8"
+                                                    Width="210"
+                                                    Height="260">
+                                                <StackPanel>
+                                                    <Image Width="208"
+                                                           Height="198"
+                                                           Stretch="UniformToFill"
+                                                           asyncImageLoader:ImageLoader.Source="{Binding ThumbnailUrl}" />
+                                                    <TextBlock Text="{Binding Title}"
+                                                               Foreground="White"
+                                                               FontSize="14"
+                                                               Margin="6,6,6,0"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{Binding Artist}"
+                                                               Foreground="#FFBDBDBD"
+                                                               FontSize="13"
+                                                               Margin="6,0,6,0"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                            </Border>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel ItemSpacing="10" LineSpacing="10" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
 
 	</Grid>
 </UserControl>
