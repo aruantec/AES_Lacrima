@@ -91,7 +91,12 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
 
     // THROTTLING: Keep track of the last time the spectrum was updated
     private long _lastSpectrumUpdateTicks;
-    private const long SpectrumThrottleIntervalTicks = 83333; // ~8.3ms for 120 FPS
+    private static readonly long SpectrumThrottleIntervalTicks = Stopwatch.Frequency / 60; // Align UI updates to ~60 FPS
+    private readonly object _spectrumUpdateGate = new();
+    private double[] _pendingSpectrumValues = [];
+    private int _pendingSpectrumCount;
+    private int _pendingSpectrumVersion;
+    private int _spectrumUiDispatchPending;
     private const int WaveformCacheVersion = 1;
     private static readonly JsonSerializerOptions WaveformCacheJsonOptions = new()
     {
@@ -1219,29 +1224,63 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     /// <param name="newData">Array of spectrum magnitudes.</param>
     public void UpdateSpectrumThrottled(double[] newData)
     {
-        long currentTicks = DateTime.UtcNow.Ticks;
-        if (currentTicks - _lastSpectrumUpdateTicks < SpectrumThrottleIntervalTicks)
+        long currentTicks = Stopwatch.GetTimestamp();
+        if (currentTicks - Interlocked.Read(ref _lastSpectrumUpdateTicks) < SpectrumThrottleIntervalTicks)
             return;
 
-        _lastSpectrumUpdateTicks = currentTicks;
+        Interlocked.Exchange(ref _lastSpectrumUpdateTicks, currentTicks);
 
-        // Snapshot the data to avoid race conditions between the analysis thread and UI thread
-        var snapshot = new double[newData.Length];
-        Array.Copy(newData, snapshot, newData.Length);
-
-        _syncContext?.Post(_ =>
+        lock (_spectrumUpdateGate)
         {
-            if (Spectrum.Count != snapshot.Length)
-            {
-                Spectrum.Clear();
-                Spectrum.AddRange(snapshot);
-            }
-            else
-            {
-                for (int i = 0; i < snapshot.Length; i++)
-                    Spectrum[i] = snapshot[i];
-            }
-        }, null);
+            if (_pendingSpectrumValues.Length < newData.Length)
+                _pendingSpectrumValues = new double[newData.Length];
+
+            Array.Copy(newData, _pendingSpectrumValues, newData.Length);
+            _pendingSpectrumCount = newData.Length;
+            _pendingSpectrumVersion++;
+        }
+
+        if (_syncContext == null)
+        {
+            ApplyPendingSpectrumUpdate();
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _spectrumUiDispatchPending, 1, 0) == 0)
+            _syncContext.Post(static state => ((AudioPlayer)state!).ApplyPendingSpectrumUpdate(), this);
+    }
+
+    private void ApplyPendingSpectrumUpdate()
+    {
+        int appliedVersion;
+        int count;
+
+        lock (_spectrumUpdateGate)
+        {
+            appliedVersion = _pendingSpectrumVersion;
+            count = _pendingSpectrumCount;
+        }
+
+        if (Spectrum.Count != count)
+        {
+            Spectrum.Clear();
+            for (int i = 0; i < count; i++)
+                Spectrum.Add(_pendingSpectrumValues[i]);
+        }
+        else
+        {
+            for (int i = 0; i < count; i++)
+                Spectrum[i] = _pendingSpectrumValues[i];
+        }
+
+        Interlocked.Exchange(ref _spectrumUiDispatchPending, 0);
+
+        if (Volatile.Read(ref _pendingSpectrumVersion) != appliedVersion
+            && _syncContext != null
+            && Interlocked.CompareExchange(ref _spectrumUiDispatchPending, 1, 0) == 0)
+        {
+            _syncContext.Post(static state => ((AudioPlayer)state!).ApplyPendingSpectrumUpdate(), this);
+        }
     }
 
     /// <summary>
