@@ -3,8 +3,8 @@ using System.Collections;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Linq.Expressions;
 using System.Numerics;
-using System.Reflection;
 using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
@@ -34,13 +34,13 @@ namespace AES_Controls.Composition
         private List<SKImage> _images = new();
         private Dictionary<object, SKImage> _imageCache = new();
         private SKImage? _sharedPlaceholder;
-        private PropertyInfo? _propBitmap;
-        private PropertyInfo? _propFile;
-        private string? _cachedBitmapName;
-        private string? _cachedFileName;
         private HashSet<INotifyPropertyChanged> _subscribedItems = new();
         private readonly LinkedList<object> _imageCacheLru = new();
         private readonly Dictionary<object, LinkedListNode<object>> _imageCacheNodes = new();
+        private readonly Dictionary<(Type Type, string PropertyName), Func<object, object?>?> _propertyGetterCache = new();
+        private readonly Dictionary<object, int> _itemIndices = new(ReferenceEqualityComparer.Instance);
+        private object?[] _itemsSnapshot = Array.Empty<object?>();
+        private readonly Cursor _handCursor = new(StandardCursorType.Hand);
         private int _maxImageCacheEntries = 200;
 
         private int _lastVirtualizationIndex = -1;
@@ -418,6 +418,110 @@ namespace AES_Controls.Composition
 
         #region Private Methods
 
+        private static Func<object, object?>? CreatePropertyGetter(Type type, string propertyName)
+        {
+            var property = type.GetProperty(propertyName);
+            if (property == null || !property.CanRead || property.GetIndexParameters().Length != 0)
+                return null;
+
+            var instance = Expression.Parameter(typeof(object), "instance");
+            var typedInstance = Expression.Convert(instance, type);
+            var propertyAccess = Expression.Property(typedInstance, property);
+            var boxedValue = Expression.Convert(propertyAccess, typeof(object));
+            return Expression.Lambda<Func<object, object?>>(boxedValue, instance).Compile();
+        }
+
+        private Func<object, object?>? GetPropertyGetter(Type type, string propertyName)
+        {
+            var key = (type, propertyName);
+            if (_propertyGetterCache.TryGetValue(key, out var getter))
+                return getter;
+
+            getter = CreatePropertyGetter(type, propertyName);
+            _propertyGetterCache[key] = getter;
+            return getter;
+        }
+
+        private Bitmap? GetBitmapValue(object item, string? propertyName)
+        {
+            if (string.IsNullOrWhiteSpace(propertyName))
+                return null;
+
+            return GetPropertyGetter(item.GetType(), propertyName)?.Invoke(item) as Bitmap;
+        }
+
+        private string? GetFileNameValue(object item, string? propertyName)
+        {
+            if (string.IsNullOrWhiteSpace(propertyName))
+                return null;
+
+            return GetPropertyGetter(item.GetType(), propertyName)?.Invoke(item) as string;
+        }
+
+        private bool TryGetItemBool(object? item, string propertyName, out bool value)
+        {
+            value = false;
+            if (item == null)
+                return false;
+
+            if (GetPropertyGetter(item.GetType(), propertyName)?.Invoke(item) is bool boolValue)
+            {
+                value = boolValue;
+                return true;
+            }
+
+            return false;
+        }
+
+        private ICommand? GetItemCommand(object? item, string propertyName)
+        {
+            if (item == null)
+                return null;
+
+            return GetPropertyGetter(item.GetType(), propertyName)?.Invoke(item) as ICommand;
+        }
+
+        private object? GetSnapshotItem(int index) =>
+            index >= 0 && index < _itemsSnapshot.Length ? _itemsSnapshot[index] : null;
+
+        private void UpdateItemsSnapshot(IReadOnlyList<object?> items)
+        {
+            _itemsSnapshot = new object?[items.Count];
+            _itemIndices.Clear();
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                _itemsSnapshot[i] = item;
+                if (item != null)
+                    _itemIndices[item] = i;
+            }
+        }
+
+        private void MoveSnapshotItem(int from, int to)
+        {
+            if (from == to || from < 0 || to < 0 || from >= _itemsSnapshot.Length || to >= _itemsSnapshot.Length)
+                return;
+
+            var updatedItems = _itemsSnapshot.ToList();
+            var item = updatedItems[from];
+            updatedItems.RemoveAt(from);
+            updatedItems.Insert(to, item);
+            UpdateItemsSnapshot(updatedItems);
+        }
+
+        private HashSet<int> BuildCoverFoundSet(IReadOnlyList<object?> items)
+        {
+            var coverFoundSet = new HashSet<int>();
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (TryGetItemBool(items[i], "CoverFound", out var found) && found)
+                    coverFoundSet.Add(i);
+            }
+
+            return coverFoundSet;
+        }
+
         private SKImage GetPlaceholder()
         {
             if (_sharedPlaceholder == null || _sharedPlaceholder.Width == 0)
@@ -543,6 +647,8 @@ namespace AES_Controls.Composition
             _imageCacheLru.Clear();
             _sharedPlaceholder = null;
             _images.Clear();
+            _itemsSnapshot = Array.Empty<object?>();
+            _itemIndices.Clear();
 
             foreach (var item in _subscribedItems) item.PropertyChanged -= Item_PropertyChanged;
             _subscribedItems.Clear();
@@ -667,40 +773,35 @@ namespace AES_Controls.Composition
                 return;
             }
 
-            var items = ItemsSource?.Cast<object>().ToList() ?? new List<object>();
+            var items = ItemsSource.Cast<object?>().ToArray();
+            UpdateItemsSnapshot(items);
             
             // Re-sync _images list and reuse cached images if available
             _images.Clear();
             var placeholder = GetPlaceholder();
-            for (int i = 0; i < items.Count; i++) 
+            for (int i = 0; i < items.Length; i++) 
             {
-                if (_imageCache.TryGetValue(items[i], out var cached))
+                var item = items[i];
+                if (item != null && _imageCache.TryGetValue(item, out var cached))
                 {
                     _images.Add(cached);
-                    TouchCacheItem(items[i]);
+                    TouchCacheItem(item);
                 }
                 else
+                {
                     _images.Add(placeholder);
+                }
 
-                if (items[i] is INotifyPropertyChanged inpc)
+                if (item is INotifyPropertyChanged inpc)
                 {
                     if (_subscribedItems.Add(inpc)) inpc.PropertyChanged += Item_PropertyChanged;
                 }
             }
-            
-            _propBitmap = null; _propFile = null; _cachedBitmapName = null; _cachedFileName = null;
 
             _visual?.SendHandlerMessage(_images.ToArray());
 
             // Initial CoverFound sync
-            var coverFoundSet = new HashSet<int>();
-            for (int i = 0; i < items.Count; i++)
-            {
-                var prop = items[i]?.GetType().GetProperty("CoverFound");
-                if (prop != null && prop.GetValue(items[i]) is bool found && found)
-                    coverFoundSet.Add(i);
-            }
-            _visual?.SendHandlerMessage(new ResetCoverFoundMessage(coverFoundSet));
+            _visual?.SendHandlerMessage(new ResetCoverFoundMessage(BuildCoverFoundSet(items)));
 
             ClearProjectionCache();
             UpdateVirtualization();
@@ -709,7 +810,7 @@ namespace AES_Controls.Composition
         private void UpdateImageCacheSize(int cacheSize)
         {
             _maxImageCacheEntries = Math.Max(1, cacheSize);
-            TrimImageCache(new Dictionary<object, int>());
+            TrimImageCache(new Dictionary<object, int>(ReferenceEqualityComparer.Instance));
         }
 
 
@@ -731,19 +832,9 @@ namespace AES_Controls.Composition
                             var img = _images[e.OldStartingIndex];
                             _images.RemoveAt(e.OldStartingIndex);
                             _images.Insert(e.NewStartingIndex, img);
+                            MoveSnapshotItem(e.OldStartingIndex, e.NewStartingIndex);
                             _visual.SendHandlerMessage(_images);
-
-                            // Re-sync CoverFound on move
-                            var list = ItemsSource as IList ?? ItemsSource?.Cast<object>().ToList();
-                            if (list != null)
-                            {
-                                var set = new HashSet<int>();
-                                for (int i = 0; i < list.Count; i++) {
-                                    var p = list[i]?.GetType().GetProperty("CoverFound");
-                                    if (p != null && p.GetValue(list[i]) is bool found && found) set.Add(i);
-                                }
-                                _visual.SendHandlerMessage(new ResetCoverFoundMessage(set));
-                            }
+                            _visual.SendHandlerMessage(new ResetCoverFoundMessage(BuildCoverFoundSet(_itemsSnapshot)));
                         }
                         break;
                     case NotifyCollectionChangedAction.Add:
@@ -765,18 +856,18 @@ namespace AES_Controls.Composition
             string? bitmapProp = ImageBitmapProperty;
             string? fileProp = ImageFileNameProperty;
 
-            var list = ItemsSource as IList ?? ItemsSource.Cast<object>().ToList();
-            int totalCount = list.Count;
+            var items = _itemsSnapshot;
+            int totalCount = items.Length;
             if (totalCount == 0) return;
 
             // Smaller window for fluidity, faster response
             const int loadWindow = 12;
 
             // Build lookup dictionary for O(1) index check
-            var itemToIndex = new Dictionary<object, int>();
+            var itemToIndex = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
             for (int k = 0; k < totalCount; k++) 
             {
-                var val = list[k];
+                var val = items[k];
                 if (val != null) itemToIndex[val] = k;
             }
 
@@ -807,93 +898,96 @@ namespace AES_Controls.Composition
             }
 
             // Load missing items
-            int start = Math.Max(0, centerIdx - loadWindow);
-            int end = Math.Min(totalCount - 1, centerIdx + loadWindow);
-            var indicesToLoad = Enumerable.Range(start, end - start + 1)
-                                          .OrderBy(i => Math.Abs(i - centerIdx))
-                                          .ToList();
-
             var cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ImageCache");
             try { if (!Directory.Exists(cachePath)) Directory.CreateDirectory(cachePath); } catch (Exception ex) { Log.Warn("Could not create ImageCache directory", ex); }
 
-            foreach (int i in indicesToLoad)
+            for (int offset = 0; offset <= loadWindow; offset++)
             {
-                if (ct.IsCancellationRequested) return;
-                var item = list[i];
-                if (item == null || _imageCache.ContainsKey(item)) continue;
+                int left = centerIdx - offset;
+                if (left >= 0)
+                    await TryLoadItemAsync(left, items, bitmapProp, fileProp, cachePath, ct);
 
-                SetLoading(i, true);
+                int right = centerIdx + offset;
+                if (offset == 0 || right >= totalCount)
+                    continue;
 
-                Bitmap? bitmapValue = null;
-                string? fileName = null;
-                try
-                {
-                    var type = item.GetType();
-                    if (!string.IsNullOrEmpty(bitmapProp))
-                    {
-                        if (_propBitmap == null || _cachedBitmapName != bitmapProp)
-                        {
-                            _propBitmap = type.GetProperty(bitmapProp);
-                            _cachedBitmapName = bitmapProp;
-                        }
-                        bitmapValue = _propBitmap?.GetValue(item) as Bitmap;
-                    }
-                    if (bitmapValue == null && !string.IsNullOrEmpty(fileProp))
-                    {
-                        if (_propFile == null || _cachedFileName != fileProp)
-                        {
-                            _propFile = type.GetProperty(fileProp);
-                            _cachedFileName = fileProp;
-                        }
-                        fileName = _propFile?.GetValue(item) as string;
-                    }
-                }
-                catch (Exception ex) { Log.Warn($"Failed to read image properties for item at index {i}", ex); }
-
-                SKImage? realImage = null;
-                try
-                {
-                    if (ct.IsCancellationRequested) return;
-                    realImage = await LoadImageAsync(bitmapValue, fileName, cachePath, ct);
-                }
-                catch (Exception ex) { Log.Warn($"Failed to load image for item at index {i}", ex); }
-
-                if (ct.IsCancellationRequested)
-                {
-                    realImage?.Dispose();
-                    return;
-                }
-
-                if (realImage != null && realImage.Width > 0)
-                {
-                    await Dispatcher.UIThread.InvokeAsync(() =>
-                    {
-                        if (ct.IsCancellationRequested)
-                        {
-                            realImage.Dispose();
-                            return;
-                        }
-
-                        // Dispose old image if it was replaced (e.g. by another load or property change)
-                        if (_imageCache.TryGetValue(item, out var oldImg))
-                        {
-                            if (_visual != null) _visual.SendHandlerMessage(new DisposeImageMessage(oldImg));
-                            else oldImg.Dispose();
-                        }
-
-                        _imageCache[item] = realImage;
-                        TouchCacheItem(item);
-                        if (i < _images.Count) _images[i] = realImage;
-                        SetImage(i, realImage);
-                    });
-                }
-                else
-                {
-                    SetLoading(i, false);
-                }
+                await TryLoadItemAsync(right, items, bitmapProp, fileProp, cachePath, ct);
             }
 
             TrimImageCache(itemToIndex);
+        }
+
+        private async Task<bool> TryLoadItemAsync(int index, object?[] items, string? bitmapProp, string? fileProp, string cachePath, CancellationToken ct)
+        {
+            if (ct.IsCancellationRequested || index < 0 || index >= items.Length)
+                return false;
+
+            var item = items[index];
+            if (item == null || _imageCache.ContainsKey(item))
+                return false;
+
+            SetLoading(index, true);
+
+            Bitmap? bitmapValue = null;
+            string? fileName = null;
+            try
+            {
+                bitmapValue = GetBitmapValue(item, bitmapProp);
+                if (bitmapValue == null)
+                    fileName = GetFileNameValue(item, fileProp);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Failed to read image properties for item at index {index}", ex);
+            }
+
+            SKImage? realImage = null;
+            try
+            {
+                if (ct.IsCancellationRequested)
+                    return true;
+
+                realImage = await LoadImageAsync(bitmapValue, fileName, cachePath, ct);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Failed to load image for item at index {index}", ex);
+            }
+
+            if (ct.IsCancellationRequested)
+            {
+                realImage?.Dispose();
+                return true;
+            }
+
+            if (realImage != null && realImage.Width > 0)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (ct.IsCancellationRequested)
+                    {
+                        realImage.Dispose();
+                        return;
+                    }
+
+                    if (_imageCache.TryGetValue(item, out var oldImg))
+                    {
+                        if (_visual != null) _visual.SendHandlerMessage(new DisposeImageMessage(oldImg));
+                        else oldImg.Dispose();
+                    }
+
+                    _imageCache[item] = realImage;
+                    TouchCacheItem(item);
+                    if (index < _images.Count) _images[index] = realImage;
+                    SetImage(index, realImage);
+                });
+            }
+            else
+            {
+                SetLoading(index, false);
+            }
+
+            return true;
         }
 
         private void Item_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -905,14 +999,19 @@ namespace AES_Controls.Composition
 
                 if (sender == null || (e.PropertyName != bitmapProp && e.PropertyName != fileProp && e.PropertyName != "CoverFound")) return;
 
-                var list = ItemsSource as IList ?? ItemsSource?.Cast<object>().ToList();
-                int idx = list?.IndexOf(sender) ?? -1;
-                if (idx == -1) return;
+                if (!_itemIndices.TryGetValue(sender, out var idx))
+                    return;
+
+                if (idx < 0 || idx >= _itemsSnapshot.Length || !ReferenceEquals(_itemsSnapshot[idx], sender))
+                {
+                    UpdateItems();
+                    if (!_itemIndices.TryGetValue(sender, out idx))
+                        return;
+                }
 
                 if (e.PropertyName == "CoverFound")
                 {
-                    var prop = sender.GetType().GetProperty("CoverFound");
-                    if (prop != null && prop.GetValue(sender) is bool found)
+                    if (TryGetItemBool(sender, "CoverFound", out var found))
                         _visual?.SendHandlerMessage(new UpdateCoverFoundMessage(idx, found));
                     return;
                 }
@@ -921,11 +1020,9 @@ namespace AES_Controls.Composition
                 string? fileName = null;
                 try
                 {
-                    if (!string.IsNullOrEmpty(bitmapProp))
-                        bitmapValue = sender.GetType().GetProperty(bitmapProp)?.GetValue(sender) as Bitmap;
-
-                    if (bitmapValue == null && !string.IsNullOrEmpty(fileProp))
-                        fileName = sender.GetType().GetProperty(fileProp)?.GetValue(sender) as string;
+                    bitmapValue = GetBitmapValue(sender, bitmapProp);
+                    if (bitmapValue == null)
+                        fileName = GetFileNameValue(sender, fileProp);
                 }
                 catch (Exception ex) { Log.Warn("Failed to read image properties in PropertyChanged", ex); }
 
@@ -1284,19 +1381,14 @@ namespace AES_Controls.Composition
 
             if (hitIndex != -1)
             {
-                var list = ItemsSource as IList ?? ItemsSource?.Cast<object>().ToList();
-                if (list != null && hitIndex < list.Count)
+                var item = GetSnapshotItem(hitIndex);
+                if (TryGetItemBool(item, "CoverFound", out var found) && found)
                 {
-                    var item = list[hitIndex];
-                    var cfProp = item?.GetType().GetProperty("CoverFound");
-                    if (cfProp != null && cfProp.GetValue(item) is bool found && found)
+                    int btn = HitTestOverlayButtons(pos, hitIndex, new Vector2((float)Bounds.Width, (float)Bounds.Height));
+                    if (btn != 0)
                     {
-                        int btn = HitTestOverlayButtons(pos, hitIndex, new Vector2((float)Bounds.Width, (float)Bounds.Height));
-                        if (btn != 0)
-                        {
-                            _lastPressedItem = hitIndex; _lastPressedButton = btn;
-                            _visual?.SendHandlerMessage(new UpdateOverlayPressedMessage(hitIndex, btn));
-                        }
+                        _lastPressedItem = hitIndex; _lastPressedButton = btn;
+                        _visual?.SendHandlerMessage(new UpdateOverlayPressedMessage(hitIndex, btn));
                     }
                 }
             }
@@ -1352,21 +1444,16 @@ namespace AES_Controls.Composition
                 int hBtn = 0;
                 if (hIdx != -1)
                 {
-                    var list = ItemsSource as IList ?? ItemsSource?.Cast<object>().ToList();
-                    if (list != null && hIdx < list.Count)
-                    {
-                        var item = list[hIdx];
-                        var cfProp = item?.GetType().GetProperty("CoverFound");
-                        if (cfProp != null && cfProp.GetValue(item) is bool found && found)
-                            hBtn = HitTestOverlayButtons(point, hIdx, new Vector2((float)Bounds.Width, (float)Bounds.Height));
-                    }
+                    var item = GetSnapshotItem(hIdx);
+                    if (TryGetItemBool(item, "CoverFound", out var found) && found)
+                        hBtn = HitTestOverlayButtons(point, hIdx, new Vector2((float)Bounds.Width, (float)Bounds.Height));
                 }
 
                 if (hIdx != _lastHoveredItem || hBtn != _lastHoveredButton)
                 {
                     _lastHoveredItem = hIdx; _lastHoveredButton = hBtn;
                     _visual?.SendHandlerMessage(new UpdateOverlayHoverMessage(hIdx, hBtn));
-                    Cursor = hBtn != 0 ? new Cursor(StandardCursorType.Hand) : null;
+                    Cursor = hBtn != 0 ? _handCursor : null;
                 }
             }
         }
@@ -1412,6 +1499,7 @@ namespace AES_Controls.Composition
                         var img = _images[_draggingIndex];
                         _images.RemoveAt(_draggingIndex);
                         _images.Insert(targetIndex, img);
+                        MoveSnapshotItem(_draggingIndex, targetIndex);
                         _visual?.SendHandlerMessage(_images);
 
                         MoveItem(_draggingIndex, targetIndex);
@@ -1442,23 +1530,21 @@ namespace AES_Controls.Composition
                     int hitIndex = IndexAtPoint(point);
                     if (hitIndex != -1)
                     {
-                        var list = ItemsSource as IList ?? ItemsSource?.Cast<object>().ToList();
-                        if (list != null && hitIndex < list.Count)
+                        var item = GetSnapshotItem(hitIndex);
+                        if (item != null)
                         {
-                            var item = list[hitIndex];
-                            var cfProp = item?.GetType().GetProperty("CoverFound");
-                            if (cfProp != null && cfProp.GetValue(item) is bool found && found)
+                            if (TryGetItemBool(item, "CoverFound", out var found) && found)
                             {
                                 int btn = HitTestOverlayButtons(point, hitIndex, new Vector2((float)Bounds.Width, (float)Bounds.Height));
                                 if (btn == 1) // OK
                                 {
-                                    var cmd = item?.GetType().GetProperty("SaveCoverBitmapCommand")?.GetValue(item) as ICommand;
+                                    var cmd = GetItemCommand(item, "SaveCoverBitmapCommand");
                                     cmd?.Execute(null);
                                     return;
                                 }
                                 else if (btn == 2) // Cancel
                                 {
-                                    var cmd = item?.GetType().GetProperty("CancelCommand")?.GetValue(item) as ICommand;
+                                    var cmd = GetItemCommand(item, "CancelCommand");
                                     cmd?.Execute(null);
                                     return;
                                 }
@@ -1624,5 +1710,3 @@ namespace AES_Controls.Composition
         #endregion
     }
 }
-
-

@@ -96,20 +96,24 @@ namespace AES_Controls.Composition
         private readonly SKMaskFilter _blurFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 5);
         private readonly SKMaskFilter _sliderBlurFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 2);
         private readonly Dictionary<SKImage, (int Width, int Height)> _dimCache = new();
-        
         private SKPoint[] _meshVBuffer = Array.Empty<SKPoint>();
         private SKPoint[] _meshTBuffer = Array.Empty<SKPoint>();
-        
+        private readonly SKPoint[] _overlayTextPointBuffer = new SKPoint[1];
+        private readonly SKPoint[] _overlayRectBuffer = new SKPoint[4];
 
         private SKShader? _trackShader;
         private SKShader? _thumbShader;
-        private float _lastSliderW, _lastThumbX;
 
         private readonly SKColor _trackColor1 = SKColor.Parse("#444444").WithAlpha(240);
         private readonly SKColor _trackColor2 = SKColor.Parse("#777777").WithAlpha(240);
         private readonly SKColor _thumbColor1 = SKColors.White;
-
         private readonly SKColor _thumbColor2 = SKColor.Parse("#F0F0F0");
+        private readonly SKColor _okButtonColor = SKColor.Parse("#4CAF50");
+        private readonly SKColor _okButtonHoverColor = SKColor.Parse("#66BB6A");
+        private readonly SKColor _okButtonPressedColor = SKColor.Parse("#388E3C");
+        private readonly SKColor _cancelButtonColor = SKColor.Parse("#F44336");
+        private readonly SKColor _cancelButtonHoverColor = SKColor.Parse("#EF5350");
+        private readonly SKColor _cancelButtonPressedColor = SKColor.Parse("#D32F2F");
 
         public override void OnMessage(object message)
         {
@@ -379,9 +383,8 @@ namespace AES_Controls.Composition
             float margin = _sliderVerticalOffset;
             float sliderW = Math.Min(600, _visualSize.X * 0.8f);
             SKRect bounds = new SKRect((_visualSize.X - sliderW) / 2, _visualSize.Y - margin, (_visualSize.X + sliderW) / 2, _visualSize.Y - margin + 80);
-            if (sliderW != _lastSliderW) { ClearSliderShaders(); _lastSliderW = sliderW; }
             float trackY = bounds.MidY; SKRect trackRect = new SKRect(bounds.Left, trackY - _sliderTrackHeight / 2, bounds.Right, trackY + _sliderTrackHeight / 2);
-            if (_trackShader == null) _trackShader = SKShader.CreateLinearGradient(new SKPoint(trackRect.Left, trackRect.Top), new SKPoint(trackRect.Left, trackRect.Bottom), new[] { _trackColor1, _trackColor2 }, null, SKShaderTileMode.Clamp);
+            if (_trackShader == null) _trackShader = SKShader.CreateLinearGradient(new SKPoint(0, trackRect.Top), new SKPoint(0, trackRect.Bottom), new[] { _trackColor1, _trackColor2 }, null, SKShaderTileMode.Clamp);
             // Apply global composition opacity to slider visuals; make track slightly transparent by default
             float g = Math.Max(0f, Math.Min(1f, _currentGlobalOpacity));
             float baseTrackAlpha = 170f; // slightly transparent base (0-255)
@@ -392,19 +395,98 @@ namespace AES_Controls.Composition
             float thumbW = 45; float thumbH = 16; float pct = (float)(_currentIndex / Math.Max(1, _images.Count - 1)); float thumbX = bounds.Left + (thumbW / 2) + pct * (bounds.Width - thumbW);
 
             SKRect thumbRect = new SKRect(thumbX - thumbW / 2, trackY - thumbH / 2, thumbX + thumbW / 2, trackY + thumbH / 2);
-            if (Math.Abs(thumbX - _lastThumbX) > 0.1f || _thumbShader == null) { _thumbShader?.Dispose(); _thumbShader = SKShader.CreateLinearGradient(new SKPoint(thumbRect.Left, thumbRect.Top), new SKPoint(thumbRect.Left, thumbRect.Bottom), new[] { _thumbColor1, _thumbColor2 }, null, SKShaderTileMode.Clamp); _lastThumbX = thumbX; }
+            if (_thumbShader == null) _thumbShader = SKShader.CreateLinearGradient(new SKPoint(0, thumbRect.Top), new SKPoint(0, thumbRect.Bottom), new[] { _thumbColor1, _thumbColor2 }, null, SKShaderTileMode.Clamp);
             if (_isSliderPressed) { _sliderPaint.Style = SKPaintStyle.Fill; _sliderPaint.Color = SKColors.White.WithAlpha((byte)(120 * g)); _sliderPaint.MaskFilter = _blurFilter; var glow = thumbRect; glow.Inflate(4,4); canvas.DrawRoundRect(glow, 10, 10, _sliderPaint); _sliderPaint.MaskFilter = null; }
             _sliderPaint.Style = SKPaintStyle.Fill; _sliderPaint.Color = SKColors.Black.WithAlpha((byte)(100 * g)); _sliderPaint.MaskFilter = _sliderBlurFilter; canvas.DrawRoundRect(new SKRect(thumbRect.Left, thumbRect.Top + 1, thumbRect.Right, thumbRect.Bottom + 1), 8, 8, _sliderPaint); _sliderPaint.MaskFilter = null;
             _sliderPaint.Shader = _thumbShader; _sliderPaint.Color = SKColors.White.WithAlpha((byte)(255 * g)); canvas.DrawRoundRect(thumbRect, 8, 8, _sliderPaint); _sliderPaint.Shader = null;
             _sliderPaint.Style = SKPaintStyle.Stroke; _sliderPaint.StrokeWidth = 1.0f; _sliderPaint.Color = SKColors.Black.WithAlpha((byte)(50 * g)); canvas.DrawRoundRect(thumbRect, 8, 8, _sliderPaint);
         }
 
+        private void ProjectTextPoint(Matrix4x4 matrix, Vector2 center, float x, float y, float scaleMultiplier = 1.0f, float midX = 0, float midY = 0)
+        {
+            float dx = (x - midX) * scaleMultiplier;
+            float dy = (y - midY) * scaleMultiplier;
+            var transformed = Vector3.Transform(new Vector3(midX + dx, midY + dy, 0), matrix);
+            float projection = _projectionDistance / (_projectionDistance - transformed.Z);
+            if (projection < 0.5f) projection = 0.5f;
+            else if (projection > 1.6f) projection = 1.6f;
+
+            _overlayTextPointBuffer[0] = new SKPoint(center.X + transformed.X * projection, center.Y + transformed.Y * projection);
+        }
+
+        private void FillProjectedRect(SKCanvas canvas, Matrix4x4 matrix, Vector2 center, float x1, float y1, float x2, float y2, SKPaint paint, float scaleMultiplier = 1.0f)
+        {
+            float midX = (x1 + x2) / 2f;
+            float halfW = (x2 - x1) / 2f * scaleMultiplier;
+            float midY = (y1 + y2) / 2f;
+            float halfH = (y2 - y1) / 2f * scaleMultiplier;
+
+            var v1 = Vector3.Transform(new Vector3(midX - halfW, midY - halfH, 0), matrix);
+            var v2 = Vector3.Transform(new Vector3(midX + halfW, midY - halfH, 0), matrix);
+            var v3 = Vector3.Transform(new Vector3(midX + halfW, midY + halfH, 0), matrix);
+            var v4 = Vector3.Transform(new Vector3(midX - halfW, midY + halfH, 0), matrix);
+
+            float s1 = _projectionDistance / (_projectionDistance - v1.Z);
+            float s2 = _projectionDistance / (_projectionDistance - v2.Z);
+            float s3 = _projectionDistance / (_projectionDistance - v3.Z);
+            float s4 = _projectionDistance / (_projectionDistance - v4.Z);
+
+            _overlayRectBuffer[0] = new SKPoint(center.X + v1.X * s1, center.Y + v1.Y * s1);
+            _overlayRectBuffer[1] = new SKPoint(center.X + v2.X * s2, center.Y + v2.Y * s2);
+            _overlayRectBuffer[2] = new SKPoint(center.X + v3.X * s3, center.Y + v3.Y * s3);
+            _overlayRectBuffer[3] = new SKPoint(center.X + v4.X * s4, center.Y + v4.Y * s4);
+
+            canvas.DrawVertices(SKVertexMode.TriangleFan, _overlayRectBuffer, null, null, null, paint);
+        }
+
+        private void DrawCoverFoundOverlay(SKCanvas canvas, int index, Matrix4x4 matrix, Vector2 center, float itemW, float itemH)
+        {
+            float overlayH = itemH * 0.35f;
+            float topY = itemH / 2 - overlayH;
+            float botY = itemH / 2;
+            FillProjectedRect(canvas, matrix, center, -itemW / 2, topY, itemW / 2, botY, _overlayBgPaint);
+
+            ProjectTextPoint(matrix, center, 0, topY + 40);
+            var textPoint = _overlayTextPointBuffer[0];
+            canvas.DrawText("Cover found", textPoint.X, textPoint.Y, _overlayTextPaint);
+
+            float btnW = itemW * 0.4f;
+            float btnH = itemH * 0.15f;
+            float btnGap = itemW * 0.05f;
+            float btnY = itemH / 2 - btnH - 12;
+            float btnMidY = btnY + btnH / 2;
+
+            float okScale = 1.0f;
+            _okButtonPaint.Color = _okButtonColor;
+            if (_hoveredItemIndex == index && _hoveredButtonId == 1) _okButtonPaint.Color = _okButtonHoverColor;
+            if (_pressedItemIndex == index && _pressedButtonId == 1) { _okButtonPaint.Color = _okButtonPressedColor; okScale = 0.95f; }
+
+            float okMidX = -btnW / 2 - btnGap / 2;
+            FillProjectedRect(canvas, matrix, center, -btnW - btnGap / 2, btnY, -btnGap / 2, btnY + btnH, _okButtonPaint, okScale);
+            ProjectTextPoint(matrix, center, okMidX, btnMidY + 7, okScale, okMidX, btnMidY);
+            textPoint = _overlayTextPointBuffer[0];
+            canvas.DrawText("SAVE", textPoint.X, textPoint.Y, _buttonTextPaint);
+
+            float cancelScale = 1.0f;
+            _cancelButtonPaint.Color = _cancelButtonColor;
+            if (_hoveredItemIndex == index && _hoveredButtonId == 2) _cancelButtonPaint.Color = _cancelButtonHoverColor;
+            if (_pressedItemIndex == index && _pressedButtonId == 2) { _cancelButtonPaint.Color = _cancelButtonPressedColor; cancelScale = 0.95f; }
+
+            float cancelMidX = btnW / 2 + btnGap / 2;
+            FillProjectedRect(canvas, matrix, center, btnGap / 2, btnY, btnGap / 2 + btnW, btnY + btnH, _cancelButtonPaint, cancelScale);
+            ProjectTextPoint(matrix, center, cancelMidX, btnMidY + 7, cancelScale, cancelMidX, btnMidY);
+            textPoint = _overlayTextPointBuffer[0];
+            canvas.DrawText("Skip", textPoint.X, textPoint.Y, _buttonTextPaint);
+        }
+
         private void RenderItem(SKCanvas canvas, int i, Vector2 center, float baseWidth, float baseHeight)
         {
             SKImage? img = (i >= 0 && i < _images.Count) ? _images[i] : null;
+            bool isLoading = _loadingIndices.Contains(i);
+            bool showCoverFound = _coverFoundIndices.Contains(i);
             float itemW = baseWidth;
             float itemH = baseHeight;
-            if (img != null && !_loadingIndices.Contains(i) && _fullCoverSizeFactor > 0.001f)
+            if (img != null && !isLoading && _fullCoverSizeFactor > 0.001f)
             {
                 if (!_dimCache.TryGetValue(img, out var dims)) { try { dims = _dimCache[img] = (img.Width, img.Height); } catch { dims = (0, 0); } }
                 if (dims.Width > 0 && dims.Height > 0)
@@ -479,81 +561,10 @@ namespace AES_Controls.Composition
             float baseOpacity = (float)(1.0 - (i == _draggingIndex ? 0 : absDiff) * 0.2) * _globalTransitionAlpha * _currentGlobalOpacity;
             DrawQuad(canvas, itemW, itemH, matrix, img, baseOpacity, center, Math.Abs(rotationY));
 
-            if (_coverFoundIndices.Contains(i))
-            {
-                void ProjToBuffer(SKPoint[] buffer, float x, float y, float sMult = 1.0f, float midX = 0, float midY = 0)
-                {
-                    float dx = (x - midX) * sMult;
-                    float dy = (y - midY) * sMult;
-                    var vt = Vector3.Transform(new Vector3(midX + dx, midY + dy, 0), matrix);
-                    float s = _projectionDistance / (_projectionDistance - vt.Z);
-                    if (s < 0.5f) s = 0.5f; else if (s > 1.6f) s = 1.6f;
-                    buffer[0] = new SKPoint(center.X + vt.X * s, center.Y + vt.Y * s);
-                }
-                SKPoint[] pt = new SKPoint[1];
+            if (showCoverFound)
+                DrawCoverFoundOverlay(canvas, i, matrix, center, itemW, itemH);
 
-                float overlayH = itemH * 0.35f;
-                float topY = itemH / 2 - overlayH;
-                float botY = itemH / 2;
-
-                // Draw background manually using vertices to handle tilt
-                SKPoint[] rectV = new SKPoint[4];
-                void FillRectV(float x1, float y1, float x2, float y2, float sMult = 1.0f) {
-                   float midX = (x1 + x2) / 2;
-                   float halfW = (x2 - x1) / 2 * sMult;
-                   float midY = (y1 + y2) / 2;
-                   float halfH = (y2 - y1) / 2 * sMult;
-
-                   var v1 = new Vector3(midX - halfW, midY - halfH, 0);
-                   var v2 = new Vector3(midX + halfW, midY - halfH, 0);
-                   var v3 = new Vector3(midX + halfW, midY + halfH, 0);
-                   var v4 = new Vector3(midX - halfW, midY + halfH, 0);
-
-                   var vt1 = Vector3.Transform(v1, matrix); float st1 = _projectionDistance/(_projectionDistance-vt1.Z); rectV[0]=new SKPoint(center.X+vt1.X*st1, center.Y+vt1.Y*st1);
-                   var vt2 = Vector3.Transform(v2, matrix); float st2 = _projectionDistance/(_projectionDistance-vt2.Z); rectV[1]=new SKPoint(center.X+vt2.X*st2, center.Y+vt2.Y*st2);
-                   var vt3 = Vector3.Transform(v3, matrix); float st3 = _projectionDistance/(_projectionDistance-vt3.Z); rectV[2]=new SKPoint(center.X+vt3.X*st3, center.Y+vt3.Y*st3);
-                   var vt4 = Vector3.Transform(v4, matrix); float st4 = _projectionDistance/(_projectionDistance-vt4.Z); rectV[3]=new SKPoint(center.X+vt4.X*st4, center.Y+vt4.Y*st4);
-                }
-
-                FillRectV(-itemW/2, topY, itemW/2, botY);
-                canvas.DrawVertices(SKVertexMode.TriangleFan, rectV, null, null, null, _overlayBgPaint);
-
-                ProjToBuffer(pt, 0, topY + 40);
-                canvas.DrawText("Cover found", pt[0].X, pt[0].Y, _overlayTextPaint);
-
-                float btnW = itemW * 0.4f;
-                float btnH = itemH * 0.15f;
-                float btnGap = itemW * 0.05f;
-                float btnY = itemH / 2 - btnH - 12;
-
-                // OK Button effect
-                _okButtonPaint.Color = SKColor.Parse("#4CAF50");
-                float okScale = 1.0f;
-                if (_hoveredItemIndex == i && _hoveredButtonId == 1) _okButtonPaint.Color = SKColor.Parse("#66BB6A");
-                if (_pressedItemIndex == i && _pressedButtonId == 1) { _okButtonPaint.Color = SKColor.Parse("#388E3C"); okScale = 0.95f; }
-
-                float okMidX = -btnW / 2 - btnGap / 2;
-                float btnMidY = btnY + btnH / 2;
-
-                FillRectV(-btnW - btnGap / 2, btnY, -btnGap / 2, btnY + btnH, okScale);
-                canvas.DrawVertices(SKVertexMode.TriangleFan, rectV, null, null, null, _okButtonPaint);
-                ProjToBuffer(pt, okMidX, btnMidY + 7, okScale, okMidX, btnMidY);
-                canvas.DrawText("SAVE", pt[0].X, pt[0].Y, _buttonTextPaint);
-
-                // Cancel Button effect
-                _cancelButtonPaint.Color = SKColor.Parse("#F44336");
-                float cancelScale = 1.0f;
-                if (_hoveredItemIndex == i && _hoveredButtonId == 2) _cancelButtonPaint.Color = SKColor.Parse("#EF5350");
-                if (_pressedItemIndex == i && _pressedButtonId == 2) { _cancelButtonPaint.Color = SKColor.Parse("#D32F2F"); cancelScale = 0.95f; }
-
-                float cancelMidX = btnW / 2 + btnGap / 2;
-                FillRectV(btnGap / 2, btnY, btnGap / 2 + btnW, btnY + btnH, cancelScale);
-                canvas.DrawVertices(SKVertexMode.TriangleFan, rectV, null, null, null, _cancelButtonPaint);
-                ProjToBuffer(pt, cancelMidX, btnMidY + 7, cancelScale, cancelMidX, btnMidY);
-                canvas.DrawText("Skip", pt[0].X, pt[0].Y, _buttonTextPaint);
-            }
-
-            if (_loadingIndices.Contains(i)) DrawSpinner(canvas, center, matrix);
+            if (isLoading) DrawSpinner(canvas, center, matrix);
             var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
             DrawQuad(canvas, itemW, itemH, refMat, img, baseOpacity * 0.08f, center, Math.Abs(rotationY));
         }
