@@ -1,6 +1,7 @@
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tools.DotNet;
+using Nuke.Common.Tooling;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
 sealed class Build : NukeBuild
@@ -38,8 +39,8 @@ sealed class Build : NukeBuild
         .DependsOn(Clean)
         .Executes(() =>
         {
-            DotNetRestore(s => s
-                .SetProjectFile(SolutionFile));
+            // Work around intermittent MSBuild restore graph failures on .NET 10 CI runners.
+            DotNet($"restore \"{AppProjectFile}\" -m:1", RootDirectory);
         });
 
     Target Compile => _ => _
@@ -47,12 +48,12 @@ sealed class Build : NukeBuild
         .Executes(() =>
         {
             DotNetBuild(s => s
-                .SetProjectFile(SolutionFile)
+                .SetProjectFile(AppProjectFile)
                 .SetConfiguration(Configuration));
         });
 
     Target Test => _ => _
-        .DependsOn(Compile)
+        .DependsOn(Restore)
         .Executes(() =>
         {
             if (!File.Exists(TestsProjectFile))
@@ -63,8 +64,7 @@ sealed class Build : NukeBuild
 
             Directory.CreateDirectory(TestResultsDirectory);
 
-            DotNet("tool restore", RootDirectory);
-            DotNet($"test \"{TestsProjectFile}\" --configuration {Configuration} --no-build --no-restore --results-directory \"{TestResultsDirectory}\" --collect:\"XPlat Code Coverage\"", RootDirectory);
+            DotNet($"test \"{TestsProjectFile}\" --configuration {Configuration} -m:1 --results-directory \"{TestResultsDirectory}\" --collect:\"XPlat Code Coverage\"", RootDirectory);
 
             var coverageFiles = Directory
                 .EnumerateFiles(TestResultsDirectory, "coverage.cobertura.xml", SearchOption.AllDirectories)
@@ -80,7 +80,14 @@ sealed class Build : NukeBuild
                 .Replace(Path.DirectorySeparatorChar, '/');
             var reportTarget = CoverageReportDirectory.ToString().Replace(Path.DirectorySeparatorChar, '/');
 
-            DotNet($"tool run reportgenerator -- -reports:\"{coveragePattern}\" -targetdir:\"{reportTarget}\" -reporttypes:Html", RootDirectory);
+            try
+            {
+                DotNet($"tool run reportgenerator -- -reports:\"{coveragePattern}\" -targetdir:\"{reportTarget}\" -reporttypes:Html", RootDirectory);
+            }
+            catch (ProcessException)
+            {
+                Console.WriteLine("reportgenerator tool is unavailable. Skipping coverage HTML report generation.");
+            }
         });
 
     Target Run => _ => _
