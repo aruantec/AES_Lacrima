@@ -15,13 +15,16 @@ using log4net;
 
 namespace AES_Controls.GL;
 
-public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
+public unsafe class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(GlRadialSpectrumControl));
     private const int GL_DYNAMIC_DRAW = 0x88E8;
     private const int GL_SRC_ALPHA = 0x0302;
     private const int GL_ONE_MINUS_SRC_ALPHA = 0x0303;
     private const int GL_BLEND = 0x0BE2;
+    private const double MinAdaptiveFrameIntervalMs = 1000.0 / 120.0;
+    private const double MaxAdaptiveFrameIntervalMs = 1000.0 / 30.0;
+    private const double AdaptiveIntervalToleranceMs = 0.25;
 
     #region Styled Properties
     public static readonly StyledProperty<AvaloniaList<double>> SpectrumProperty = AvaloniaProperty.Register<GlRadialSpectrumControl, AvaloniaList<double>>(nameof(Spectrum));
@@ -92,13 +95,29 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
     private bool _textureDirty;
     private float[] _glVertices = [];
     private float[] _glowLineVertices = [];
+    private float[] _spectrumSnapshot = [];
+    private int[] _sampleMap = [];
+    private readonly float[] _gradientColors = new float[15];
     private double[] _displayedBarLevels = [];
     private double[] _glowLevels = [];
     private double[] _rawSmoothed = [];
     private double _globalMax = 1e-6;
     private float _rotationAngle;
     private bool _isEs;
-    private DispatcherTimer? _uiHeartbeat;
+    private bool _gradientDirty = true;
+    private bool _isAnimating;
+    private int _spectrumCount;
+    private int _sampleMapTargetCount = -1;
+    private int _sampleMapSourceCount = -1;
+    private int _barVertexFloatCount;
+    private int _glowVertexFloatCount;
+    private int _vertexBufferCapacityBytes;
+    private DispatcherTimer? _renderTimer;
+    private double _targetFrameIntervalMs = MinAdaptiveFrameIntervalMs;
+    private double _averageRenderDurationMs = MinAdaptiveFrameIntervalMs * 0.5;
+    private double _averageFrameDurationMs = MinAdaptiveFrameIntervalMs;
+    private int _overBudgetFrames;
+    private int _underBudgetFrames;
 
     // Precomputed trigonometric values (Cos, Sin) per bar
     private float[] _precomputedCos = [];
@@ -108,6 +127,7 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
     private readonly Stopwatch _st = Stopwatch.StartNew();
     private double _lastTicks;
     private bool _vsyncDisabled = false;
+    private int _pendingRedraw;
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int eglSwapIntervalDel(IntPtr dpy, int interval);
@@ -123,36 +143,71 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
     private INotifyCollectionChanged? _spectrumCollectionRef;
     private NotifyCollectionChangedEventHandler? _spectrumCollectionHandler;
 
-    // Render coalescing helpers
-    private int _renderScheduled = 0;
-    private readonly Action _renderCallback;
+    private int _barAspectLoc = -1;
+    private int _barOpacityLoc = -1;
+    private int _barBlurLoc = -1;
+    private int _barUseVerticalBlendLoc = -1;
+    private int _barInvertBlendLoc = -1;
+    private int _barGlowModeLoc = -1;
+    private readonly int[] _barColorLocs = new int[5];
+    private int _coverAspectLoc = -1;
+    private int _coverAngleLoc = -1;
+    private int _coverUvScaleLoc = -1;
+    private int _coverRingColorLoc = -1;
+    private int _coverInnerColorLoc = -1;
+    private int _coverOpacityLoc = -1;
+    private int _coverHasTextureLoc = -1;
+
+    private delegate* unmanaged[Stdcall]<int, int, void> _glBlendFunc;
+    private delegate* unmanaged[Stdcall]<int, float, void> _glUniform1F;
+    private delegate* unmanaged[Stdcall]<int, int, void> _glUniform1I;
+    private delegate* unmanaged[Stdcall]<int, float, float, void> _glUniform2F;
+    private delegate* unmanaged[Stdcall]<int, float, float, float, void> _glUniform3F;
+    private delegate* unmanaged[Stdcall]<int, float, float, float, float, void> _glUniform4F;
+    private delegate* unmanaged[Stdcall]<int, nint, nint, nint, void> _glBufferSubData;
 
     public GlRadialSpectrumControl()
     {
         _propertySubscriptions.Add(this.GetObservable(SpectrumProperty).Subscribe(new SimpleObserver<AvaloniaList<double>>(OnSpectrumChanged)));
-        _propertySubscriptions.Add(this.GetObservable(CoverProperty).Subscribe(new SimpleObserver<Bitmap?>(_ => _textureDirty = true)));
-
-        // Cache a single Action to avoid allocations per-post and coalesce multiple requests
-        _renderCallback = () =>
+        _propertySubscriptions.Add(this.GetObservable(CoverProperty).Subscribe(new SimpleObserver<Bitmap?>(_ =>
         {
-            try
-            {
-                RequestNextFrameRendering();
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _renderScheduled, 0);
-            }
-        };
+            _textureDirty = true;
+            RequestRedraw();
+        })));
+
+        _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(MinAdaptiveFrameIntervalMs), DispatcherPriority.Render, (_, _) =>
+        {
+            if (!IsVisible || (Volatile.Read(ref _pendingRedraw) == 0 && !_isAnimating))
+                return;
+
+            Interlocked.Exchange(ref _pendingRedraw, 0);
+            RequestNextFrameRendering();
+        });
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        // If the control just became visible, start the render loop again
+
+        if (change.Property == BarGradientProperty)
+        {
+            _gradientDirty = true;
+            RequestRedraw();
+        }
+        else if (change.Property != IsVisibleProperty && change.Property != SpectrumProperty && change.Property != CoverProperty)
+        {
+            RequestRedraw();
+        }
+
         if (change.Property == IsVisibleProperty && change.GetNewValue<bool>())
         {
+            if (_isAnimating || Volatile.Read(ref _pendingRedraw) != 0)
+                _renderTimer?.Start();
             RequestNextFrameRendering();
+        }
+        else if (change.Property == IsVisibleProperty)
+        {
+            _renderTimer?.Stop();
         }
     }
 
@@ -180,22 +235,12 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
 
     private void OnSpectrumCollectionChanged(object? s, NotifyCollectionChangedEventArgs e) => RequestRedraw();
 
-    // Coalesced RequestRedraw: ensure only one pending post exists
     private void RequestRedraw()
     {
-        if (Interlocked.CompareExchange(ref _renderScheduled, 1, 0) == 0)
-        {
-            try
-            {
-                Dispatcher.UIThread.Post(_renderCallback, DispatcherPriority.Render);
-            }
-            catch (Exception ex)
-            {
-                Log.Error("Error posting render callback", ex);
-                // If posting fails, clear the flag so future requests can retry
-                Interlocked.Exchange(ref _renderScheduled, 0);
-            }
-        }
+        _isAnimating = true;
+        Interlocked.Exchange(ref _pendingRedraw, 1);
+        if (IsVisible)
+            _renderTimer?.Start();
     }
 
     protected override unsafe void OnOpenGlInit(GlInterface gl)
@@ -312,6 +357,31 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
         _texVbo = gl.GenBuffer();
         _texture = gl.GenTexture();
 
+        _glBlendFunc = (delegate* unmanaged[Stdcall]<int, int, void>)gl.GetProcAddress("glBlendFunc");
+        _glUniform1F = (delegate* unmanaged[Stdcall]<int, float, void>)gl.GetProcAddress("glUniform1f");
+        _glUniform1I = (delegate* unmanaged[Stdcall]<int, int, void>)gl.GetProcAddress("glUniform1i");
+        _glUniform2F = (delegate* unmanaged[Stdcall]<int, float, float, void>)gl.GetProcAddress("glUniform2f");
+        _glUniform3F = (delegate* unmanaged[Stdcall]<int, float, float, float, void>)gl.GetProcAddress("glUniform3f");
+        _glUniform4F = (delegate* unmanaged[Stdcall]<int, float, float, float, float, void>)gl.GetProcAddress("glUniform4f");
+        _glBufferSubData = (delegate* unmanaged[Stdcall]<int, nint, nint, nint, void>)gl.GetProcAddress("glBufferSubData");
+
+        _barAspectLoc = GetUniformLocation(gl, _barProgram, "u_aspect");
+        _barOpacityLoc = GetUniformLocation(gl, _barProgram, "u_opacity");
+        _barBlurLoc = GetUniformLocation(gl, _barProgram, "u_blur");
+        _barUseVerticalBlendLoc = GetUniformLocation(gl, _barProgram, "u_useVerticalBlend");
+        _barInvertBlendLoc = GetUniformLocation(gl, _barProgram, "u_invertBlend");
+        _barGlowModeLoc = GetUniformLocation(gl, _barProgram, "u_glowMode");
+        for (int i = 0; i < _barColorLocs.Length; i++)
+            _barColorLocs[i] = GetUniformLocation(gl, _barProgram, $"u_col{i}");
+
+        _coverAspectLoc = GetUniformLocation(gl, _coverProgram, "u_aspect");
+        _coverAngleLoc = GetUniformLocation(gl, _coverProgram, "u_angle");
+        _coverUvScaleLoc = GetUniformLocation(gl, _coverProgram, "u_uvScale");
+        _coverRingColorLoc = GetUniformLocation(gl, _coverProgram, "u_ringCol");
+        _coverInnerColorLoc = GetUniformLocation(gl, _coverProgram, "u_innerCol");
+        _coverOpacityLoc = GetUniformLocation(gl, _coverProgram, "u_coverOpacity");
+        _coverHasTextureLoc = GetUniformLocation(gl, _coverProgram, "u_hasTexture");
+
         float[] quad = [-0.72f, 0.72f, 0, 0, -0.72f, -0.72f, 0, 1, 0.72f, 0.72f, 1, 0, 0.72f, -0.72f, 1, 1];
         gl.BindBuffer(0x8892, _texVbo);
         fixed (float* p = quad)
@@ -319,16 +389,19 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
             gl.BufferData(0x8892, quad.Length * 4, (nint)p, 0x88E4);
         }
 
-        _uiHeartbeat = new DispatcherTimer(TimeSpan.FromMilliseconds(4), DispatcherPriority.Render, (_, _) =>
-        {
-            if (IsVisible) RequestNextFrameRendering();
-        });
-        _uiHeartbeat.Start();
+        _gradientDirty = true;
+        _textureDirty = true;
+        _vsyncDisabled = false;
+        _lastTicks = _st.Elapsed.TotalSeconds;
+        ResetAdaptiveFramePacing();
+        _isAnimating = true;
+        _renderTimer?.Start();
     }
 
     protected override unsafe void OnOpenGlRender(GlInterface gl, int fb)
     {
-        if (Spectrum == null || !IsVisible)  return;
+        if (!IsVisible)  return;
+        double renderStartMs = _st.Elapsed.TotalMilliseconds;
         
         if (DisableVSync && !_vsyncDisabled)
         {
@@ -347,7 +420,8 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
         if (delta <= 0) delta = 1f / 120f; // Default to 120Hz for high-Hertz screens if timing is too fast
         _lastTicks = currentTicks;
 
-        UpdatePhysics(delta);
+        SnapshotSpectrum();
+        _isAnimating = UpdatePhysics(delta);
         float scaling = (float)(VisualRoot?.RenderScaling ?? 1.0);
         float winAspect = (float)(Bounds.Width / Math.Max(1, Bounds.Height));
 
@@ -356,8 +430,7 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
         gl.Clear(0x00004000 | 0x00000100); 
         gl.Enable(GL_BLEND);
 
-        var blendFunc = (delegate* unmanaged[Stdcall]<int, int, void>)gl.GetProcAddress("glBlendFunc");
-        if (blendFunc != null) blendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        if (_glBlendFunc != null) _glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         if (_textureDirty && Cover != null) UploadTexture(gl);
         gl.UseProgram(_coverProgram);
@@ -377,13 +450,13 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
             gl.BindTexture(0x0DE1, _texture);
         }
 
-        SetUniform1F(gl, _coverProgram, "u_aspect", winAspect);
-        SetUniform1F(gl, _coverProgram, "u_angle", Rotate ? _rotationAngle : 0);
-        SetUniform2F(gl, _coverProgram, "u_uvScale", uScale, vScale);
-        SetUniform3F(gl, _coverProgram, "u_ringCol", RingColor.R / 255f, RingColor.G / 255f, RingColor.B / 255f);
-        SetUniform4F(gl, _coverProgram, "u_innerCol", InnerCircleColor.R / 255f, InnerCircleColor.G / 255f, InnerCircleColor.B / 255f, InnerCircleColor.A / 255f);
-        SetUniform1F(gl, _coverProgram, "u_coverOpacity", (float)CoverOpacity);
-        SetUniform1F(gl, _coverProgram, "u_hasTexture", Cover != null ? 1.0f : 0.0f);
+        SetUniform1F(_coverAspectLoc, winAspect);
+        SetUniform1F(_coverAngleLoc, Rotate ? _rotationAngle : 0);
+        SetUniform2F(_coverUvScaleLoc, uScale, vScale);
+        SetUniform3F(_coverRingColorLoc, RingColor.R / 255f, RingColor.G / 255f, RingColor.B / 255f);
+        SetUniform4F(_coverInnerColorLoc, InnerCircleColor.R / 255f, InnerCircleColor.G / 255f, InnerCircleColor.B / 255f, InnerCircleColor.A / 255f);
+        SetUniform1F(_coverOpacityLoc, (float)CoverOpacity);
+        SetUniform1F(_coverHasTextureLoc, Cover != null ? 1.0f : 0.0f);
 
         gl.BindVertexArray(_vao);
         gl.BindBuffer(0x8892, _texVbo);
@@ -393,12 +466,36 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
         gl.DrawArrays(0x0005, 0, 4);
 
         RenderSpectrum(gl, winAspect, scaling);
-        RequestNextFrameRendering();
+        UpdateAdaptiveFramePacing(delta, _st.Elapsed.TotalMilliseconds - renderStartMs);
+        if (!_isAnimating && Volatile.Read(ref _pendingRedraw) == 0)
+            _renderTimer?.Stop();
     }
 
-    private void UpdatePhysics(float delta)
+    private void SnapshotSpectrum()
     {
-        if (Spectrum == null || !IsVisible) return;
+        var spectrum = Spectrum;
+        if (spectrum == null)
+        {
+            _spectrumCount = 0;
+            return;
+        }
+
+        lock (spectrum)
+        {
+            int count = spectrum.Count;
+            if (_spectrumSnapshot.Length < count)
+                _spectrumSnapshot = new float[count];
+
+            for (int i = 0; i < count; i++)
+                _spectrumSnapshot[i] = (float)spectrum[i];
+
+            _spectrumCount = count;
+        }
+    }
+
+    private bool UpdatePhysics(float delta)
+    {
+        if (!IsVisible) return false;
 
         int n = Math.Max(2, SampleCount);
         if (_displayedBarLevels.Length != n)
@@ -406,6 +503,8 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
             _displayedBarLevels = new double[n];
             _glowLevels = new double[n];
             _rawSmoothed = new double[n];
+            _sampleMap = new int[n];
+            _sampleMapTargetCount = -1;
         }
         
         // Re-precompute trig values if count changed
@@ -422,15 +521,21 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
             _lastSampleCount = n;
         }
 
-        double[] values = [];
-        lock (Spectrum)
+        if (_sampleMapTargetCount != n || _sampleMapSourceCount != _spectrumCount)
         {
-            int count = Spectrum.Count;
-            if (count > 0)
+            if (_sampleMap.Length < n)
+                _sampleMap = new int[n];
+
+            int srcCount = _spectrumCount;
+            for (int i = 0; i < n; i++)
             {
-                values = new double[count];
-                for (int i = 0; i < count; i++) values[i] = Spectrum[i];
+                _sampleMap[i] = srcCount > 0
+                    ? Math.Min(srcCount - 1, (int)((i / (double)n) * srcCount))
+                    : 0;
             }
+
+            _sampleMapTargetCount = n;
+            _sampleMapSourceCount = srcCount;
         }
 
         // Apply toggle logic
@@ -440,11 +545,12 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
         double adjPeakDecay = 1.0 - Math.Pow(1.0 - PeakDecay, timeFactor);
 
         double obsMax = 0;
+        bool hasVisibleActivity = false;
         double pushMargin = GlowMargin * PushDistanceMultiplier;
 
         for (int i = 0; i < n; i++)
         {
-            double src = values.Length > 0 ? values[(int)Math.Min(values.Length - 1, (i / (double)n) * values.Length)] : 0;
+            double src = _spectrumCount > 0 ? _spectrumSnapshot[_sampleMap[i]] : 0;
             if (double.IsNaN(src) || double.IsInfinity(src) || src < 0.001) src = 0.0;
 
             _rawSmoothed[i] += (src - _rawSmoothed[i]) * Math.Min(1.0, PrePowAttackAlpha * timeFactor);
@@ -467,18 +573,23 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
             }
 
             obsMax = Math.Max(obsMax, _displayedBarLevels[i]);
+            if (_displayedBarLevels[i] > 0.001 || _glowLevels[i] > 0.001 || _rawSmoothed[i] > 0.001)
+                hasVisibleActivity = true;
         }
 
         double desiredMax = Math.Max(obsMax, _globalMax * 0.98);
         _globalMax += (desiredMax - _globalMax) * (0.12 * timeFactor);
         if (_globalMax < 1e-6) _globalMax = 1e-6;
         if (Rotate) _rotationAngle = (_rotationAngle + 0.4f * timeFactor) % 360;
+        return hasVisibleActivity || Rotate || _globalMax > 0.002;
     }
 
     private unsafe void RenderSpectrum(GlInterface gl, float aspect, float scaling)
     {
         int n = _displayedBarLevels.Length; if (n == 0) return;
-        if (_glVertices.Length != n * 36) _glVertices = new float[n * 36];
+        int requiredFloatCount = n * 36;
+        if (_glVertices.Length < requiredFloatCount) _glVertices = new float[requiredFloatCount];
+        _barVertexFloatCount = requiredFloatCount;
         float innerR = 0.72f;
         double denom = _globalMax * 1.1 + 1e-9;
         float hFactor = (0.25f * (float)(BarHeightPercent / 100.0)) / (float)denom;
@@ -486,12 +597,12 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
         float lineThickNdc = (float)(GlowLineThickness / Math.Min(Bounds.Width, Bounds.Height)) * scaling;
 
         gl.UseProgram(_barProgram);
-        SetUniform1F(gl, _barProgram, "u_aspect", aspect);
-        SetUniform1F(gl, _barProgram, "u_opacity", (float)BarOpacity);
-        SetUniform1F(gl, _barProgram, "u_blur", (float)BarBlur);
-        SetUniform1I(gl, _barProgram, "u_useVerticalBlend", UseVerticalBlend ? 1 : 0);
-        SetUniform1I(gl, _barProgram, "u_invertBlend", InvertBlend ? 1 : 0);
-        UpdateGradientUniforms(gl, _barProgram);
+        SetUniform1F(_barAspectLoc, aspect);
+        SetUniform1F(_barOpacityLoc, (float)BarOpacity);
+        SetUniform1F(_barBlurLoc, (float)BarBlur);
+        SetUniform1I(_barUseVerticalBlendLoc, UseVerticalBlend ? 1 : 0);
+        SetUniform1I(_barInvertBlendLoc, InvertBlend ? 1 : 0);
+        UpdateGradientUniforms();
 
         for (int i = 0; i < n; i++)
         {
@@ -499,21 +610,22 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
             FillQuadData(_glVertices, i * 36, innerR, h, halfW, i, (float)i / n);
         }
 
-        SetUniform1I(gl, _barProgram, "u_glowMode", 0);
+        SetUniform1I(_barGlowModeLoc, 0);
         gl.BindVertexArray(_vao);
         gl.BindBuffer(0x8892, _vbo);
         fixed (float* ptr = _glVertices)
         {
-            gl.BufferData(0x8892, _glVertices.Length * 4, (nint)ptr, GL_DYNAMIC_DRAW);
+            UploadVertexData(gl, ptr, _barVertexFloatCount * sizeof(float));
         }
 
         SetupAttributes(gl);
-        gl.DrawArrays(4, 0, n * 6);
+        gl.DrawArrays(4, 0, _barVertexFloatCount / 6);
 
         if (UseGlowLine)
         {
-            SetUniform1I(gl, _barProgram, "u_glowMode", -1);
-            if (_glowLineVertices.Length != n * 36) _glowLineVertices = new float[n * 36];
+            SetUniform1I(_barGlowModeLoc, -1);
+            if (_glowLineVertices.Length < requiredFloatCount) _glowLineVertices = new float[requiredFloatCount];
+            _glowVertexFloatCount = requiredFloatCount;
             for (int i = 0; i < n; i++)
             {
                 float ur = (float)i / n;
@@ -531,9 +643,9 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
             }
             fixed (float* ptr = _glowLineVertices)
             {
-                gl.BufferData(0x8892, _glowLineVertices.Length * 4, (nint)ptr, GL_DYNAMIC_DRAW);
+                UploadVertexData(gl, ptr, _glowVertexFloatCount * sizeof(float));
             }
-            gl.DrawArrays(4, 0, n * 6);
+            gl.DrawArrays(4, 0, _glowVertexFloatCount / 6);
         }
     }
 
@@ -614,16 +726,21 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
 
     private int CreateProgram(GlInterface gl, string v, string f) { int p = gl.CreateProgram(), vs = gl.CreateShader(0x8B31), fs = gl.CreateShader(0x8B30); CompileShader(gl, vs, v); CompileShader(gl, fs, f); gl.AttachShader(p, vs); gl.AttachShader(p, fs); gl.LinkProgram(p); gl.DeleteShader(vs); gl.DeleteShader(fs); return p; }
     private unsafe void CompileShader(GlInterface gl, int s, string src) { var b = Encoding.UTF8.GetBytes(src); int len = b.Length; fixed (byte* p = b) { sbyte* ps = (sbyte*)p; sbyte** pps = &ps; gl.ShaderSource(s, 1, (IntPtr)pps, (IntPtr)(&len)); } gl.CompileShader(s); }
-    private unsafe void SetUniform1F(GlInterface gl, int prg, string name, float val) { nint ptr = Marshal.StringToHGlobalAnsi(name); int loc = gl.GetUniformLocation(prg, ptr); Marshal.FreeHGlobal(ptr); if (loc != -1) { var f = (delegate* unmanaged[Stdcall]<int, float, void>)gl.GetProcAddress("glUniform1f"); if (f != null) f(loc, val); } }
-    private unsafe void SetUniform1I(GlInterface gl, int prg, string name, int val) { nint ptr = Marshal.StringToHGlobalAnsi(name); int loc = gl.GetUniformLocation(prg, ptr); Marshal.FreeHGlobal(ptr); if (loc != -1) { var f = (delegate* unmanaged[Stdcall]<int, int, void>)gl.GetProcAddress("glUniform1i"); if (f != null) f(loc, val); } }
-    private unsafe void SetUniform2F(GlInterface gl, int prg, string name, float x, float y) { nint ptr = Marshal.StringToHGlobalAnsi(name); int loc = gl.GetUniformLocation(prg, ptr); Marshal.FreeHGlobal(ptr); if (loc != -1) { var f = (delegate* unmanaged[Stdcall]<int, float, float, void>)gl.GetProcAddress("glUniform2f"); if (f != null) f(loc, x, y); } }
-    private unsafe void SetUniform3F(GlInterface gl, int prg, string name, float r, float g, float b) { nint ptr = Marshal.StringToHGlobalAnsi(name); int loc = gl.GetUniformLocation(prg, ptr); Marshal.FreeHGlobal(ptr); if (loc != -1) { var f = (delegate* unmanaged[Stdcall]<int, float, float, float, void>)gl.GetProcAddress("glUniform3f"); if (f != null) f(loc, r, g, b); } }
-    private unsafe void SetUniform4F(GlInterface gl, int prg, string name, float r, float g, float b, float a) { nint ptr = Marshal.StringToHGlobalAnsi(name); int loc = gl.GetUniformLocation(prg, ptr); Marshal.FreeHGlobal(ptr); if (loc != -1) { var f = (delegate* unmanaged[Stdcall]<int, float, float, float, float, void>)gl.GetProcAddress("glUniform4f"); if (f != null) f(loc, r, g, b, a); } }
-    private void UpdateGradientUniforms(GlInterface gl, int prog) { var stops = BarGradient?.GradientStops.OrderBy(x => x.Offset).ToList(); if (stops == null || stops.Count < 2) return; for (int i = 0; i < 5; i++) { var color = GetColorAtOffset(stops, i / 4.0f); SetUniform3F(gl, prog, $"u_col{i}", color.R / 255f, color.G / 255f, color.B / 255f); } }
-    private Color GetColorAtOffset(List<GradientStop> stops, float offset) { var left = stops.LastOrDefault(x => x.Offset <= offset) ?? stops.First(); var right = stops.FirstOrDefault(x => x.Offset >= offset) ?? stops.Last(); if (left == right) return left.Color; float t = (offset - (float)left.Offset) / (float)(right.Offset - left.Offset); return Color.FromUInt32((uint)((byte)(left.Color.A + (right.Color.A - left.Color.A) * t) << 24 | (byte)(left.Color.R + (right.Color.R - left.Color.R) * t) << 16 | (byte)(left.Color.G + (right.Color.G - left.Color.G) * t) << 8 | (byte)(left.Color.B + (right.Color.B - left.Color.B) * t))); }
+    private unsafe int GetUniformLocation(GlInterface gl, int program, string name) { byte[] nameBytes = Encoding.UTF8.GetBytes(name + '\0'); fixed (byte* ptr = nameBytes) return gl.GetUniformLocation(program, (nint)ptr); }
+    private void SetUniform1F(int location, float value) { if (location != -1 && _glUniform1F != null) _glUniform1F(location, value); }
+    private void SetUniform1I(int location, int value) { if (location != -1 && _glUniform1I != null) _glUniform1I(location, value); }
+    private void SetUniform2F(int location, float x, float y) { if (location != -1 && _glUniform2F != null) _glUniform2F(location, x, y); }
+    private void SetUniform3F(int location, float r, float g, float b) { if (location != -1 && _glUniform3F != null) _glUniform3F(location, r, g, b); }
+    private void SetUniform4F(int location, float r, float g, float b, float a) { if (location != -1 && _glUniform4F != null) _glUniform4F(location, r, g, b, a); }
+    private void UploadVertexData(GlInterface gl, float* ptr, int byteCount) { if (byteCount > _vertexBufferCapacityBytes) { gl.BufferData(0x8892, byteCount, (nint)ptr, GL_DYNAMIC_DRAW); _vertexBufferCapacityBytes = byteCount; } else if (_glBufferSubData != null) { _glBufferSubData(0x8892, 0, byteCount, (nint)ptr); } else { gl.BufferData(0x8892, byteCount, (nint)ptr, GL_DYNAMIC_DRAW); } }
+    private void UpdateGradientUniforms() { if (!_gradientDirty) return; var stops = BarGradient?.GradientStops; if (stops == null || stops.Count == 0) { for (int i = 0; i < 5; i++) SetUniform3F(_barColorLocs[i], 0.0f, 0.8f, 1.0f); _gradientDirty = false; return; } for (int i = 0; i < 5; i++) { var color = GetColorAtOffset(stops, i / 4.0f); int colorIndex = i * 3; _gradientColors[colorIndex] = color.R / 255f; _gradientColors[colorIndex + 1] = color.G / 255f; _gradientColors[colorIndex + 2] = color.B / 255f; SetUniform3F(_barColorLocs[i], _gradientColors[colorIndex], _gradientColors[colorIndex + 1], _gradientColors[colorIndex + 2]); } _gradientDirty = false; }
+    private static Color GetColorAtOffset(AvaloniaList<GradientStop> stops, float offset) { GradientStop left = stops[0]; GradientStop right = stops[0]; double leftOffset = double.NegativeInfinity; double rightOffset = double.PositiveInfinity; for (int i = 0; i < stops.Count; i++) { var stop = stops[i]; double stopOffset = stop.Offset; if (stopOffset <= offset && stopOffset >= leftOffset) { left = stop; leftOffset = stopOffset; } if (stopOffset >= offset && stopOffset <= rightOffset) { right = stop; rightOffset = stopOffset; } } if (double.IsNegativeInfinity(leftOffset)) left = right; if (double.IsPositiveInfinity(rightOffset)) right = left; if (leftOffset == rightOffset) return left.Color; float t = (offset - (float)left.Offset) / (float)(right.Offset - left.Offset); return Color.FromArgb((byte)(left.Color.A + (right.Color.A - left.Color.A) * t), (byte)(left.Color.R + (right.Color.R - left.Color.R) * t), (byte)(left.Color.G + (right.Color.G - left.Color.G) * t), (byte)(left.Color.B + (right.Color.B - left.Color.B) * t)); }
+    private void ResetAdaptiveFramePacing() { _targetFrameIntervalMs = MinAdaptiveFrameIntervalMs; _averageRenderDurationMs = MinAdaptiveFrameIntervalMs * 0.5; _averageFrameDurationMs = MinAdaptiveFrameIntervalMs; _overBudgetFrames = 0; _underBudgetFrames = 0; ApplyRenderTimerInterval(); }
+    private void UpdateAdaptiveFramePacing(float delta, double renderDurationMs) { double frameDurationMs = Math.Clamp(delta * 1000.0, MinAdaptiveFrameIntervalMs, MaxAdaptiveFrameIntervalMs * 2.0); _averageFrameDurationMs += (_averageFrameDurationMs - frameDurationMs) * -0.12; _averageRenderDurationMs += (_averageRenderDurationMs - renderDurationMs) * -0.18; double budgetMs = _targetFrameIntervalMs; bool overBudget = _averageRenderDurationMs > budgetMs * 0.72 || renderDurationMs > budgetMs * 0.9; bool underBudget = _averageRenderDurationMs < budgetMs * 0.45 && _averageFrameDurationMs <= budgetMs * 1.15; if (overBudget) { _overBudgetFrames++; _underBudgetFrames = 0; if (_overBudgetFrames >= 3) { _targetFrameIntervalMs = Math.Min(MaxAdaptiveFrameIntervalMs, (_targetFrameIntervalMs * 1.15) + 0.5); _overBudgetFrames = 0; ApplyRenderTimerInterval(); } return; } _overBudgetFrames = 0; if (underBudget) { _underBudgetFrames++; if (_underBudgetFrames >= 18) { _targetFrameIntervalMs = Math.Max(MinAdaptiveFrameIntervalMs, (_targetFrameIntervalMs * 0.9) - 0.25); _underBudgetFrames = 0; ApplyRenderTimerInterval(); } } else if (_underBudgetFrames > 0) { _underBudgetFrames--; } }
+    private void ApplyRenderTimerInterval() { if (_renderTimer == null) return; if (Math.Abs(_renderTimer.Interval.TotalMilliseconds - _targetFrameIntervalMs) > AdaptiveIntervalToleranceMs) _renderTimer.Interval = TimeSpan.FromMilliseconds(_targetFrameIntervalMs); }
     protected override void OnOpenGlDeinit(GlInterface gl) 
     {
-        _uiHeartbeat?.Stop();
+        _renderTimer?.Stop();
         try
         {
             if (_barProgram != 0) gl.DeleteProgram(_barProgram);
@@ -634,6 +751,17 @@ public class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
             if (_texture != 0) gl.DeleteTexture(_texture);
         }
         catch (Exception ex) { Log.Warn("Error during OpenGL deinitialization", ex); }
+
+        _barProgram = 0;
+        _coverProgram = 0;
+        _vbo = 0;
+        _vao = 0;
+        _texVbo = 0;
+        _texture = 0;
+        _vertexBufferCapacityBytes = 0;
+        _gradientDirty = true;
+        _vsyncDisabled = false;
+        ResetAdaptiveFramePacing();
     }
     public void Dispose() { }
 }

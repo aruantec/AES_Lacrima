@@ -5,6 +5,7 @@ using MathNet.Numerics.IntegralTransforms;
 using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using log4net;
 
 namespace AES_Controls.Players
@@ -285,10 +286,10 @@ namespace AES_Controls.Players
 
                         if (bytesReadTotal < byteBuffer.Length) break;
 
+                        var samples = MemoryMarshal.Cast<byte, float>(byteBuffer);
                         for (int i = 0; i < fftLength; i++)
                         {
-                            float sample = BitConverter.ToSingle(byteBuffer, i * 4);
-                            complexBuffer[i] = new Complex(sample, 0);
+                            complexBuffer[i] = new Complex(samples[i], 0);
                         }
 
                         Fourier.Forward(complexBuffer, FourierOptions.NoScaling);

@@ -19,12 +19,15 @@ namespace AES_Controls.Player.Spectrum;
 /// backing collection. The control supports VSync toggling and delta-time
 /// scaled smoothing for stable visuals across frame rates.
 /// </summary>
-public class GlSpectrumControl : OpenGlControlBase, IDisposable
+public unsafe class GlSpectrumControl : OpenGlControlBase, IDisposable
 {
     private const int GL_DYNAMIC_DRAW = 0x88E8;
     private const int GL_SRC_ALPHA = 0x0302;
     private const int GL_ONE_MINUS_SRC_ALPHA = 0x0303;
     private const int GL_BLEND = 0x0BE2;
+    private const double MinAdaptiveFrameIntervalMs = 1000.0 / 120.0;
+    private const double MaxAdaptiveFrameIntervalMs = 1000.0 / 30.0;
+    private const double AdaptiveIntervalToleranceMs = 0.25;
 
     #region Styled Properties
     public static readonly StyledProperty<AvaloniaList<double>?> SpectrumProperty =
@@ -138,10 +141,25 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
     private int _program, _vertexBuffer, _vao;
     private double[] _displayedBarLevels = [], _peakLevels = [], _rawSmoothed = [];
     private float[] _glVertices = [];
+    private float[] _spectrumSnapshot = [];
+    private int[] _sampleMap = [];
+    private readonly float[] _gradientColors = new float[15];
     private double _globalMax = 1e-6;
     private bool _isFirstFrame = true;
     private bool _vsyncDisabled = false;
-    private DispatcherTimer? _uiHeartbeat;
+    private bool _gradientDirty = true;
+    private bool _isAnimating;
+    private int _spectrumCount;
+    private int _sampleMapTargetCount = -1;
+    private int _sampleMapSourceCount = -1;
+    private int _vertexFloatCount;
+    private int _vertexBufferCapacityBytes;
+    private DispatcherTimer? _renderTimer;
+    private double _targetFrameIntervalMs = MinAdaptiveFrameIntervalMs;
+    private double _averageRenderDurationMs = MinAdaptiveFrameIntervalMs * 0.5;
+    private double _averageFrameDurationMs = MinAdaptiveFrameIntervalMs;
+    private int _overBudgetFrames;
+    private int _underBudgetFrames;
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int eglSwapIntervalDel(IntPtr dpy, int interval);
@@ -153,9 +171,15 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
     private delegate IntPtr eglGetCurrentDisplayDel();
     private eglGetCurrentDisplayDel? _eglGetCurrentDisplay;
 
-    // Coalescing flag to prevent posting many dispatcher operations
     private int _pendingRedraw = 0;
-    private readonly Action _cachedRenderAction;
+    private int _uBlockHeightLoc = -1;
+    private int _uTotalHeightLoc = -1;
+    private readonly int[] _uColorLocs = new int[5];
+
+    private delegate* unmanaged[Stdcall]<int, int, void> _glBlendFunc;
+    private delegate* unmanaged[Stdcall]<int, float, void> _glUniform1F;
+    private delegate* unmanaged[Stdcall]<int, float, float, float, void> _glUniform3F;
+    private delegate* unmanaged[Stdcall]<int, nint, nint, nint, void> _glBufferSubData;
 
     private readonly Stopwatch _st = Stopwatch.StartNew();
     private double _lastTicks;
@@ -165,12 +189,14 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
 
     public GlSpectrumControl()
     {
-        // Prepare a cached Action to avoid allocating a new closure for each post
-        _cachedRenderAction = () =>
+        _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(MinAdaptiveFrameIntervalMs), DispatcherPriority.Render, (_, _) =>
         {
-            try { RequestNextFrameRendering(); }
-            finally { Interlocked.Exchange(ref _pendingRedraw, 0); }
-        };
+            if (!IsVisible || (Volatile.Read(ref _pendingRedraw) == 0 && !_isAnimating))
+                return;
+
+            Interlocked.Exchange(ref _pendingRedraw, 0);
+            RequestNextFrameRendering();
+        });
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -180,10 +206,25 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
         {
             OnSpectrumChanged(change.GetNewValue<AvaloniaList<double>?>());
         }
-        // If the control just became visible, start the render loop again
+        else if (change.Property == BarGradientProperty)
+        {
+            _gradientDirty = true;
+            RequestRedraw();
+        }
+        else if (change.Property != IsVisibleProperty)
+        {
+            RequestRedraw();
+        }
+
         if (change.Property == IsVisibleProperty && change.GetNewValue<bool>())
         {
+            if (_isAnimating || Volatile.Read(ref _pendingRedraw) != 0)
+                _renderTimer?.Start();
             RequestNextFrameRendering();
+        }
+        else if (change.Property == IsVisibleProperty)
+        {
+            _renderTimer?.Stop();
         }
     }
 
@@ -198,22 +239,16 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
             notify.CollectionChanged += _spectrumCollectionHandler;
         }
         _isFirstFrame = true;
+        _isAnimating = true;
         RequestRedraw();
     }
 
     private void RequestRedraw()
     {
-        if (Interlocked.CompareExchange(ref _pendingRedraw, 1, 0) == 0)
-        {
-            try
-            {
-                Dispatcher.UIThread.Post(_cachedRenderAction, DispatcherPriority.Render);
-            }
-            catch
-            {
-                Interlocked.Exchange(ref _pendingRedraw, 0);
-            }
-        }
+        _isAnimating = true;
+        Interlocked.Exchange(ref _pendingRedraw, 1);
+        if (IsVisible)
+            _renderTimer?.Start();
     }
 
     protected override void OnOpenGlInit(GlInterface gl)
@@ -281,16 +316,37 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
         _vao = gl.GenVertexArray();
         _vertexBuffer = gl.GenBuffer();
 
-        _uiHeartbeat = new DispatcherTimer(TimeSpan.FromMilliseconds(4), DispatcherPriority.Render, (_, _) =>
-        {
-            if (IsVisible) RequestNextFrameRendering();
-        });
-        _uiHeartbeat.Start();
+        _glBlendFunc = (delegate* unmanaged[Stdcall]<int, int, void>)gl.GetProcAddress("glBlendFunc");
+        _glUniform1F = (delegate* unmanaged[Stdcall]<int, float, void>)gl.GetProcAddress("glUniform1f");
+        _glUniform3F = (delegate* unmanaged[Stdcall]<int, float, float, float, void>)gl.GetProcAddress("glUniform3f");
+        _glBufferSubData = (delegate* unmanaged[Stdcall]<int, nint, nint, nint, void>)gl.GetProcAddress("glBufferSubData");
+
+        _uBlockHeightLoc = GetUniformLocation(gl, "u_blockHeight");
+        _uTotalHeightLoc = GetUniformLocation(gl, "u_totalHeight");
+        for (int i = 0; i < _uColorLocs.Length; i++)
+            _uColorLocs[i] = GetUniformLocation(gl, $"u_col{i}");
+
+        gl.BindVertexArray(_vao);
+        gl.BindBuffer(GL_ARRAY_BUFFER, _vertexBuffer);
+        gl.EnableVertexAttribArray(0);
+        gl.VertexAttribPointer(0, 2, GL_FLOAT, 0, 20, nint.Zero);
+        gl.EnableVertexAttribArray(1);
+        gl.VertexAttribPointer(1, 2, GL_FLOAT, 0, 20, 8);
+        gl.EnableVertexAttribArray(2);
+        gl.VertexAttribPointer(2, 1, GL_FLOAT, 0, 20, 16);
+
+        _gradientDirty = true;
+        _vsyncDisabled = false;
+        _lastTicks = _st.Elapsed.TotalSeconds;
+        ResetAdaptiveFramePacing();
+        _renderTimer?.Start();
+        _isAnimating = true;
     }
 
     protected override unsafe void OnOpenGlRender(GlInterface gl, int fb)
     {
-        if (!IsVisible)  return;
+        if (!IsVisible) return;
+        double renderStartMs = _st.Elapsed.TotalMilliseconds;
         
         if (DisableVSync && !_vsyncDisabled)
         {
@@ -318,11 +374,11 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
         float physicalHeight = (float)(Bounds.Height * scaling);
         int targetCount = Math.Max(1, (int)(logicalWidth / (BarWidth + BarSpacing)));
 
-        UpdatePhysics(targetCount, delta);
+        SnapshotSpectrum();
+        _isAnimating = UpdatePhysics(targetCount, delta);
 
         gl.Enable(GL_BLEND);
-        var glBlendFunc = (delegate* unmanaged[Stdcall]<int, int, void>)gl.GetProcAddress("glBlendFunc");
-        if (glBlendFunc != null) glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        if (_glBlendFunc != null) _glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         gl.Viewport(0, 0, (int)physicalWidth, (int)physicalHeight);
         gl.ClearColor(0, 0, 0, 0);
@@ -330,8 +386,8 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
         gl.UseProgram(_program);
 
         UpdateGradientUniforms(gl);
-        SetUniform1F(gl, "u_blockHeight", (float)(BlockHeight * scaling));
-        SetUniform1F(gl, "u_totalHeight", physicalHeight);
+        SetUniform1F(_uBlockHeightLoc, (float)(BlockHeight * scaling));
+        SetUniform1F(_uTotalHeightLoc, physicalHeight);
 
         // Pass logical width and physical height to PrepareVertices. The vertex
         // generator expects the width parameter to be in logical (device-independent)
@@ -344,42 +400,79 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
 
         fixed (float* ptr = _glVertices)
         {
-            gl.BufferData(GL_ARRAY_BUFFER, _glVertices.Length * 4, (nint)ptr, GL_DYNAMIC_DRAW);
+            int byteCount = _vertexFloatCount * sizeof(float);
+            if (byteCount > _vertexBufferCapacityBytes)
+            {
+                gl.BufferData(GL_ARRAY_BUFFER, byteCount, (nint)ptr, GL_DYNAMIC_DRAW);
+                _vertexBufferCapacityBytes = byteCount;
+            }
+            else if (_glBufferSubData != null)
+            {
+                _glBufferSubData(GL_ARRAY_BUFFER, 0, byteCount, (nint)ptr);
+            }
+            else
+            {
+                gl.BufferData(GL_ARRAY_BUFFER, byteCount, (nint)ptr, GL_DYNAMIC_DRAW);
+            }
         }
 
-        gl.EnableVertexAttribArray(0);
-        gl.VertexAttribPointer(0, 2, GL_FLOAT, 0, 20, nint.Zero);
-        gl.EnableVertexAttribArray(1);
-        gl.VertexAttribPointer(1, 2, GL_FLOAT, 0, 20, 8);
-        gl.EnableVertexAttribArray(2);
-        gl.VertexAttribPointer(2, 1, GL_FLOAT, 0, 20, 16);
+        gl.DrawArrays(GL_TRIANGLES, 0, _vertexFloatCount / 5);
 
-        gl.DrawArrays(GL_TRIANGLES, 0, _glVertices.Length / 5);
-        RequestNextFrameRendering();
+        UpdateAdaptiveFramePacing(delta, _st.Elapsed.TotalMilliseconds - renderStartMs);
+
+        if (!_isAnimating && Volatile.Read(ref _pendingRedraw) == 0)
+            _renderTimer?.Stop();
     }
 
-    private void UpdatePhysics(int targetCount, float delta)
+    private void SnapshotSpectrum()
+    {
+        var spectrum = Spectrum;
+        if (spectrum == null)
+        {
+            _spectrumCount = 0;
+            return;
+        }
+
+        lock (spectrum)
+        {
+            int count = spectrum.Count;
+            if (_spectrumSnapshot.Length < count)
+                _spectrumSnapshot = new float[count];
+
+            for (int i = 0; i < count; i++)
+                _spectrumSnapshot[i] = (float)spectrum[i];
+
+            _spectrumCount = count;
+        }
+    }
+
+    private bool UpdatePhysics(int targetCount, float delta)
     {
         if (_displayedBarLevels.Length != targetCount)
         {
             _displayedBarLevels = new double[targetCount];
             _peakLevels = new double[targetCount];
             _rawSmoothed = new double[targetCount];
+            _sampleMap = new int[targetCount];
+            _sampleMapTargetCount = -1;
             _isFirstFrame = true;
         }
 
-        double[] values = [];
-        if (Spectrum != null)
+        if (_sampleMapTargetCount != targetCount || _sampleMapSourceCount != _spectrumCount)
         {
-            lock (Spectrum)
+            if (_sampleMap.Length < targetCount)
+                _sampleMap = new int[targetCount];
+
+            int srcCount = _spectrumCount;
+            for (int i = 0; i < targetCount; i++)
             {
-                int count = Spectrum.Count;
-                if (count > 0)
-                {
-                    values = new double[count];
-                    for (int i = 0; i < count; i++) values[i] = Spectrum[i];
-                }
+                _sampleMap[i] = srcCount > 0
+                    ? Math.Min(srcCount - 1, (int)((i / (double)targetCount) * srcCount))
+                    : 0;
             }
+
+            _sampleMapTargetCount = targetCount;
+            _sampleMapSourceCount = srcCount;
         }
 
         // Use a fixed 1.0 factor if delta-time is disabled
@@ -390,9 +483,10 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
         double adjPeakDecay = 1.0 - Math.Pow(1.0 - PeakDecay, timeFactor);
 
         double observedMax = 0.0;
+        bool hasVisibleActivity = false;
         for (int i = 0; i < targetCount; i++)
         {
-            double src = values.Length > 0 ? values[(int)Math.Min(values.Length - 1, (i / (double)targetCount) * values.Length)] : 0.0;
+            double src = _spectrumCount > 0 ? _spectrumSnapshot[_sampleMap[i]] : 0.0;
 
             if (double.IsNaN(src) || double.IsInfinity(src) || src < 0.0001) src = 0.0;
 
@@ -418,6 +512,8 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
             }
 
             if (_displayedBarLevels[i] > observedMax) observedMax = _displayedBarLevels[i];
+            if (_displayedBarLevels[i] > 0.001 || _peakLevels[i] > 0.001 || _rawSmoothed[i] > 0.001)
+                hasVisibleActivity = true;
         }
 
         if (observedMax > 0.001)
@@ -435,12 +531,16 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
         }
 
         if (_globalMax < 0.05) _globalMax = 0.05;
+        return hasVisibleActivity || observedMax > 0.001 || _globalMax > 0.051;
     }
 
     private void PrepareVertices(float w, float h, int n)
     {
         if (n == 0) return;
-        if (_glVertices.Length != n * 60) _glVertices = new float[n * 60];
+        int requiredFloatCount = n * 60;
+        if (_glVertices.Length < requiredFloatCount)
+            _glVertices = new float[requiredFloatCount];
+        _vertexFloatCount = requiredFloatCount;
 
         float glStep = 2.0f / n;
         float glBarWidth = (float)((BarWidth / w) * 2.0f);
@@ -489,25 +589,63 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
 
     private void UpdateGradientUniforms(GlInterface gl)
     {
-        var stops = BarGradient?.GradientStops.OrderBy(x => x.Offset).ToList();
-        if (stops == null || stops.Count < 2)
+        if (!_gradientDirty)
+            return;
+
+        var stops = BarGradient?.GradientStops;
+        if (stops == null || stops.Count == 0)
         {
-            for (int i = 0; i < 5; i++) SetUniform3F(gl, $"u_col{i}", 0.0f, 0.8f, 1.0f);
+            for (int i = 0; i < 5; i++)
+                SetUniform3F(_uColorLocs[i], 0.0f, 0.8f, 1.0f);
+
+            _gradientDirty = false;
             return;
         }
 
         for (int i = 0; i < 5; i++)
         {
             var c = GetColorAtOffset(stops, i / 4.0f);
-            SetUniform3F(gl, $"u_col{i}", c.R / 255f, c.G / 255f, c.B / 255f);
+            int colorIndex = i * 3;
+            _gradientColors[colorIndex] = c.R / 255f;
+            _gradientColors[colorIndex + 1] = c.G / 255f;
+            _gradientColors[colorIndex + 2] = c.B / 255f;
+            SetUniform3F(_uColorLocs[i], _gradientColors[colorIndex], _gradientColors[colorIndex + 1], _gradientColors[colorIndex + 2]);
         }
+
+        _gradientDirty = false;
     }
 
-    private Color GetColorAtOffset(List<GradientStop> stops, float offset)
+    private static Color GetColorAtOffset(AvaloniaList<GradientStop> stops, float offset)
     {
-        var left = stops.LastOrDefault(x => x.Offset <= offset) ?? stops.First();
-        var right = stops.FirstOrDefault(x => x.Offset >= offset) ?? stops.Last();
-        if (left == right) return left.Color;
+        GradientStop left = stops[0];
+        GradientStop right = stops[0];
+        double leftOffset = double.NegativeInfinity;
+        double rightOffset = double.PositiveInfinity;
+
+        for (int i = 0; i < stops.Count; i++)
+        {
+            var stop = stops[i];
+            double stopOffset = stop.Offset;
+
+            if (stopOffset <= offset && stopOffset >= leftOffset)
+            {
+                left = stop;
+                leftOffset = stopOffset;
+            }
+
+            if (stopOffset >= offset && stopOffset <= rightOffset)
+            {
+                right = stop;
+                rightOffset = stopOffset;
+            }
+        }
+
+        if (double.IsNegativeInfinity(leftOffset))
+            left = right;
+        if (double.IsPositiveInfinity(rightOffset))
+            right = left;
+
+        if (leftOffset == rightOffset) return left.Color;
         float t = (offset - (float)left.Offset) / (float)(right.Offset - left.Offset);
         return Color.FromArgb(
             (byte)(left.Color.A + (right.Color.A - left.Color.A) * t),
@@ -529,36 +667,103 @@ public class GlSpectrumControl : OpenGlControlBase, IDisposable
         gl.CompileShader(shader);
     }
 
-    private unsafe void SetUniform1F(GlInterface gl, string name, float val)
+    private unsafe int GetUniformLocation(GlInterface gl, string name)
     {
-        nint ptr = Marshal.StringToHGlobalAnsi(name);
-        int loc = gl.GetUniformLocation(_program, ptr);
-        Marshal.FreeHGlobal(ptr);
-        if (loc != -1)
+        byte[] nameBytes = Encoding.UTF8.GetBytes(name + '\0');
+        fixed (byte* ptr = nameBytes)
+            return gl.GetUniformLocation(_program, (nint)ptr);
+    }
+
+    private void SetUniform1F(int location, float value)
+    {
+        if (location != -1 && _glUniform1F != null)
+            _glUniform1F(location, value);
+    }
+
+    private void SetUniform3F(int location, float r, float g, float b)
+    {
+        if (location != -1 && _glUniform3F != null)
+            _glUniform3F(location, r, g, b);
+    }
+
+    private void ResetAdaptiveFramePacing()
+    {
+        _targetFrameIntervalMs = MinAdaptiveFrameIntervalMs;
+        _averageRenderDurationMs = MinAdaptiveFrameIntervalMs * 0.5;
+        _averageFrameDurationMs = MinAdaptiveFrameIntervalMs;
+        _overBudgetFrames = 0;
+        _underBudgetFrames = 0;
+        ApplyRenderTimerInterval();
+    }
+
+    private void UpdateAdaptiveFramePacing(float delta, double renderDurationMs)
+    {
+        double frameDurationMs = Math.Clamp(delta * 1000.0, MinAdaptiveFrameIntervalMs, MaxAdaptiveFrameIntervalMs * 2.0);
+        _averageFrameDurationMs += (frameDurationMs - _averageFrameDurationMs) * 0.12;
+        _averageRenderDurationMs += (renderDurationMs - _averageRenderDurationMs) * 0.18;
+
+        double budgetMs = _targetFrameIntervalMs;
+        bool overBudget = _averageRenderDurationMs > budgetMs * 0.72 || renderDurationMs > budgetMs * 0.9;
+        bool underBudget = _averageRenderDurationMs < budgetMs * 0.45 && _averageFrameDurationMs <= budgetMs * 1.15;
+
+        if (overBudget)
         {
-            var func = (delegate* unmanaged[Stdcall]<int, float, void>)gl.GetProcAddress("glUniform1f");
-            if (func != null) func(loc, val);
+            _overBudgetFrames++;
+            _underBudgetFrames = 0;
+            if (_overBudgetFrames >= 3)
+            {
+                _targetFrameIntervalMs = Math.Min(MaxAdaptiveFrameIntervalMs, (_targetFrameIntervalMs * 1.15) + 0.5);
+                _overBudgetFrames = 0;
+                ApplyRenderTimerInterval();
+            }
+            return;
+        }
+
+        _overBudgetFrames = 0;
+
+        if (underBudget)
+        {
+            _underBudgetFrames++;
+            if (_underBudgetFrames >= 18)
+            {
+                _targetFrameIntervalMs = Math.Max(MinAdaptiveFrameIntervalMs, (_targetFrameIntervalMs * 0.9) - 0.25);
+                _underBudgetFrames = 0;
+                ApplyRenderTimerInterval();
+            }
+        }
+        else if (_underBudgetFrames > 0)
+        {
+            _underBudgetFrames--;
         }
     }
 
-    private unsafe void SetUniform3F(GlInterface gl, string name, float r, float g, float b)
+    private void ApplyRenderTimerInterval()
     {
-        nint ptr = Marshal.StringToHGlobalAnsi(name);
-        int loc = gl.GetUniformLocation(_program, ptr);
-        Marshal.FreeHGlobal(ptr);
-        if (loc != -1)
-        {
-            var func = (delegate* unmanaged[Stdcall]<int, float, float, float, void>)gl.GetProcAddress("glUniform3f");
-            if (func != null) func(loc, r, g, b);
-        }
+        if (_renderTimer == null)
+            return;
+
+        if (Math.Abs(_renderTimer.Interval.TotalMilliseconds - _targetFrameIntervalMs) > AdaptiveIntervalToleranceMs)
+            _renderTimer.Interval = TimeSpan.FromMilliseconds(_targetFrameIntervalMs);
     }
 
     protected override void OnOpenGlDeinit(GlInterface gl)
     {
-        _uiHeartbeat?.Stop();
+        _renderTimer?.Stop();
         try { if (_program != 0) gl.DeleteProgram(_program); } catch { }
         try { if (_vertexBuffer != 0) gl.DeleteBuffer(_vertexBuffer); } catch { }
         try { if (_vao != 0) gl.DeleteVertexArray(_vao); } catch { }
+
+        _program = 0;
+        _vertexBuffer = 0;
+        _vao = 0;
+        _vertexBufferCapacityBytes = 0;
+        _uBlockHeightLoc = -1;
+        _uTotalHeightLoc = -1;
+        _gradientDirty = true;
+        _vsyncDisabled = false;
+        ResetAdaptiveFramePacing();
+        for (int i = 0; i < _uColorLocs.Length; i++)
+            _uColorLocs[i] = -1;
 
         // Do not clear the property bindings or collection handlers here.
         // GlSpectrumControl may be reattached to the visual tree later and OpenGlInit called again.

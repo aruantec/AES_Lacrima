@@ -78,8 +78,8 @@ namespace AES_Lacrima.Behaviors
                 return;
             }
 
-            window.AddHandler(InputElement.PointerMovedEvent, OnPointerMoved, RoutingStrategies.Tunnel);
-            window.AddHandler(InputElement.PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel);
+            window.AddHandler(InputElement.PointerMovedEvent, OnPointerMoved, RoutingStrategies.Tunnel, handledEventsToo: true);
+            window.AddHandler(InputElement.PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
         }
 
         protected override void OnDetaching()
@@ -116,10 +116,14 @@ namespace AES_Lacrima.Behaviors
             if (sender is not Window window)
                 return;
 
-            if (!CanResize(window) || _currentEdge is null)
+            if (!CanResize(window))
                 return;
 
             if (!e.GetCurrentPoint(window).Properties.IsLeftButtonPressed)
+                return;
+
+            _currentEdge = GetResizeEdge(window, e.GetPosition(window));
+            if (_currentEdge is null)
                 return;
 
             window.BeginResizeDrag(_currentEdge.Value, e);
@@ -140,18 +144,23 @@ namespace AES_Lacrima.Behaviors
                 return null;
 
             var threshold = Math.Max(1d, ResizeBorderThickness);
+            var cornerThreshold = Math.Max(threshold, 14d);
             var left = point.X <= threshold;
             var right = point.X >= width - threshold;
             var top = point.Y <= threshold;
             var bottom = point.Y >= height - threshold;
+            var leftCorner = point.X <= cornerThreshold;
+            var rightCorner = point.X >= width - cornerThreshold;
+            var topCorner = point.Y <= cornerThreshold;
+            var bottomCorner = point.Y >= height - cornerThreshold;
 
-            if (left && top)
+            if (leftCorner && topCorner)
                 return WindowEdge.NorthWest;
-            if (right && top)
+            if (rightCorner && topCorner)
                 return WindowEdge.NorthEast;
-            if (left && bottom)
+            if (leftCorner && bottomCorner)
                 return WindowEdge.SouthWest;
-            if (right && bottom)
+            if (rightCorner && bottomCorner)
                 return WindowEdge.SouthEast;
             if (left)
                 return WindowEdge.West;
