@@ -5,6 +5,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Numerics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
@@ -41,6 +43,8 @@ namespace AES_Controls.Composition
         private readonly Dictionary<object, int> _itemIndices = new(ReferenceEqualityComparer.Instance);
         private object?[] _itemsSnapshot = Array.Empty<object?>();
         private readonly Cursor _handCursor = new(StandardCursorType.Hand);
+        private readonly string _diskCachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ImageCache");
+        private volatile bool _isDiskCachePathReady;
         private int _maxImageCacheEntries = 200;
 
         private int _lastVirtualizationIndex = -1;
@@ -522,6 +526,31 @@ namespace AES_Controls.Composition
             return coverFoundSet;
         }
 
+        private void EnsureDiskCacheDirectory()
+        {
+            if (_isDiskCachePathReady)
+                return;
+
+            try
+            {
+                Directory.CreateDirectory(_diskCachePath);
+                _isDiskCachePathReady = true;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Could not create ImageCache directory", ex);
+            }
+        }
+
+        private string GetCachedImagePath(string file)
+        {
+            string fullPath = Path.GetFullPath(file);
+            long lastWriteTicks = File.GetLastWriteTimeUtc(fullPath).Ticks;
+            string cacheKey = $"{fullPath}|{lastWriteTicks}";
+            string hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cacheKey)));
+            return Path.Combine(_diskCachePath, $"{hash}.png");
+        }
+
         private SKImage GetPlaceholder()
         {
             if (_sharedPlaceholder == null || _sharedPlaceholder.Width == 0)
@@ -898,26 +927,25 @@ namespace AES_Controls.Composition
             }
 
             // Load missing items
-            var cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ImageCache");
-            try { if (!Directory.Exists(cachePath)) Directory.CreateDirectory(cachePath); } catch (Exception ex) { Log.Warn("Could not create ImageCache directory", ex); }
+            EnsureDiskCacheDirectory();
 
             for (int offset = 0; offset <= loadWindow; offset++)
             {
                 int left = centerIdx - offset;
                 if (left >= 0)
-                    await TryLoadItemAsync(left, items, bitmapProp, fileProp, cachePath, ct);
+                    await TryLoadItemAsync(left, items, bitmapProp, fileProp, ct);
 
                 int right = centerIdx + offset;
                 if (offset == 0 || right >= totalCount)
                     continue;
 
-                await TryLoadItemAsync(right, items, bitmapProp, fileProp, cachePath, ct);
+                await TryLoadItemAsync(right, items, bitmapProp, fileProp, ct);
             }
 
             TrimImageCache(itemToIndex);
         }
 
-        private async Task<bool> TryLoadItemAsync(int index, object?[] items, string? bitmapProp, string? fileProp, string cachePath, CancellationToken ct)
+        private async Task<bool> TryLoadItemAsync(int index, object?[] items, string? bitmapProp, string? fileProp, CancellationToken ct)
         {
             if (ct.IsCancellationRequested || index < 0 || index >= items.Length)
                 return false;
@@ -947,7 +975,7 @@ namespace AES_Controls.Composition
                 if (ct.IsCancellationRequested)
                     return true;
 
-                realImage = await LoadImageAsync(bitmapValue, fileName, cachePath, ct);
+                realImage = await LoadImageAsync(bitmapValue, fileName, ct);
             }
             catch (Exception ex)
             {
@@ -1026,11 +1054,10 @@ namespace AES_Controls.Composition
                 }
                 catch (Exception ex) { Log.Warn("Failed to read image properties in PropertyChanged", ex); }
 
-                var cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ImageCache");
                 SKImage? realImage = null;
                 try
                 {
-                    realImage = await LoadImageAsync(bitmapValue, fileName, cachePath, CancellationToken.None);
+                    realImage = await LoadImageAsync(bitmapValue, fileName, CancellationToken.None);
                 }
                 catch (Exception ex) { Log.Warn("Failed to load image in PropertyChanged", ex); }
 
@@ -1134,13 +1161,13 @@ namespace AES_Controls.Composition
             }
         }
 
-        private async Task<SKImage?> LoadImageAsync(Bitmap? bitmapValue, string? fileName, string cachePath, CancellationToken ct)
+        private async Task<SKImage?> LoadImageAsync(Bitmap? bitmapValue, string? fileName, CancellationToken ct)
         {
             if (ct.IsCancellationRequested) return null;
             if (bitmapValue != null)
                 return await ToSkImageAsync(bitmapValue);
             if (!string.IsNullOrEmpty(fileName) && File.Exists(fileName))
-                return await Task.Run(() => LoadAndResize(fileName, cachePath), ct);
+                return await Task.Run(() => LoadAndResize(fileName), ct);
             return null;
         }
 
@@ -1199,11 +1226,12 @@ namespace AES_Controls.Composition
             return surface.Snapshot();
         }
 
-        private SKImage? LoadAndResize(string file, string cachePath)
+        private SKImage? LoadAndResize(string file)
         {
             try
             {
-                var cachedFile = Path.Combine(cachePath, Path.GetFileName(file));
+                EnsureDiskCacheDirectory();
+                var cachedFile = GetCachedImagePath(file);
                 if (File.Exists(cachedFile))
                 {
                     using var data = SKData.Create(cachedFile);
