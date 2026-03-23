@@ -132,6 +132,9 @@ namespace AES_Lacrima.ViewModels
         private bool _isAddingPlaylist;
 
         private string? _originalFolderTitle;
+        private readonly HashSet<FolderMediaItem> _subscribedFolders = [];
+        private readonly HashSet<MediaItem> _subscribedAlbumChildren = [];
+        private readonly Dictionary<FolderMediaItem, AvaloniaList<MediaItem>> _folderChildrenCollections = [];
 
         [ObservableProperty]
         private AudioPlayer? _audioPlayer;
@@ -1197,13 +1200,25 @@ namespace AES_Lacrima.ViewModels
             if (oldValue != null)
             {
                 oldValue.CollectionChanged -= AlbumList_CollectionChanged;
-                foreach (var item in oldValue) item.PropertyChanged -= Folder_PropertyChanged;
+                foreach (var item in oldValue)
+                    UnsubscribeFolder(item);
             }
             // Subscribe to changes in the new list
             newValue.CollectionChanged += AlbumList_CollectionChanged;
-            foreach (var item in newValue) item.PropertyChanged += Folder_PropertyChanged;
+            foreach (var item in newValue)
+                SubscribeFolder(item);
             ApplyAlbumFilter();
         }
+
+        partial void OnLoadedAlbumChanged(FolderMediaItem? value)
+        {
+            ApplyFilter();
+            IsNoAlbumLoadedVisible = value == null;
+        }
+
+        partial void OnSearchTextChanged(string? value) => ApplyFilter();
+
+        partial void OnSearchAlbumTextChanged(string? value) => ApplyAlbumFilter();
 
         partial void OnIsAddUrlPopupOpenChanged(bool value)
         {
@@ -1372,39 +1387,191 @@ namespace AES_Lacrima.ViewModels
 
         private void AlbumList_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
-            // To avoid nullable/analysis issues with the event args, detach and re-attach handlers for all current items.
-            foreach (var itm in AlbumList)
-                itm.PropertyChanged -= Folder_PropertyChanged;
-            foreach (var itm in AlbumList)
-                itm.PropertyChanged += Folder_PropertyChanged;
+            if (e.Action == NotifyCollectionChangedAction.Reset)
+            {
+                foreach (var folder in _subscribedFolders.ToArray())
+                    UnsubscribeFolder(folder);
+
+                foreach (var folder in AlbumList)
+                    SubscribeFolder(folder);
+            }
+            else
+            {
+                if (e.OldItems != null)
+                {
+                    foreach (var folder in e.OldItems.OfType<FolderMediaItem>())
+                        UnsubscribeFolder(folder);
+                }
+
+                if (e.NewItems != null)
+                {
+                    foreach (var folder in e.NewItems.OfType<FolderMediaItem>())
+                        SubscribeFolder(folder);
+                }
+            }
 
             ApplyAlbumFilter();
         }
 
+        private void SubscribeFolder(FolderMediaItem folder)
+        {
+            if (_subscribedFolders.Add(folder))
+                folder.PropertyChanged += Folder_PropertyChanged;
+
+            AttachFolderChildren(folder, folder.Children);
+        }
+
+        private void UnsubscribeFolder(FolderMediaItem folder)
+        {
+            if (_subscribedFolders.Remove(folder))
+                folder.PropertyChanged -= Folder_PropertyChanged;
+
+            if (_folderChildrenCollections.Remove(folder, out var children))
+            {
+                children.CollectionChanged -= FolderChildren_CollectionChanged;
+                foreach (var child in children)
+                    UnsubscribeAlbumChild(child);
+            }
+        }
+
+        private void AttachFolderChildren(FolderMediaItem folder, AvaloniaList<MediaItem> children)
+        {
+            if (_folderChildrenCollections.TryGetValue(folder, out var existingChildren))
+            {
+                if (ReferenceEquals(existingChildren, children))
+                    return;
+
+                existingChildren.CollectionChanged -= FolderChildren_CollectionChanged;
+                foreach (var child in existingChildren)
+                    UnsubscribeAlbumChild(child);
+            }
+
+            _folderChildrenCollections[folder] = children;
+            children.CollectionChanged += FolderChildren_CollectionChanged;
+            foreach (var child in children)
+                SubscribeAlbumChild(child);
+        }
+
+        private void SubscribeAlbumChild(MediaItem child)
+        {
+            if (_subscribedAlbumChildren.Add(child))
+                child.PropertyChanged += AlbumChild_PropertyChanged;
+        }
+
+        private void UnsubscribeAlbumChild(MediaItem child)
+        {
+            if (_subscribedAlbumChildren.Remove(child))
+                child.PropertyChanged -= AlbumChild_PropertyChanged;
+        }
+
+        private static bool IsSearchRelevantProperty(string? propertyName) =>
+            string.IsNullOrEmpty(propertyName) ||
+            propertyName == nameof(MediaItem.Title) ||
+            propertyName == nameof(MediaItem.Artist) ||
+            propertyName == nameof(MediaItem.Album);
+
+        private void RefreshAlbumFilterIfNeeded()
+        {
+            if (!string.IsNullOrWhiteSpace(SearchAlbumText) || !ReferenceEquals(FilteredAlbumList, AlbumList))
+                ApplyAlbumFilter();
+        }
+
+        private void RefreshTrackFilterIfNeeded()
+        {
+            if (LoadedAlbum == null)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(SearchText) || !ReferenceEquals(CoverItems, LoadedAlbum.Children))
+                ApplyFilter();
+        }
+
+        private void FolderChildren_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (sender is not AvaloniaList<MediaItem> children)
+                return;
+
+            if (e.Action == NotifyCollectionChangedAction.Reset)
+            {
+                foreach (var folder in _subscribedFolders.ToArray())
+                    AttachFolderChildren(folder, folder.Children);
+            }
+            else
+            {
+                if (e.OldItems != null)
+                {
+                    foreach (var child in e.OldItems.OfType<MediaItem>())
+                        UnsubscribeAlbumChild(child);
+                }
+
+                if (e.NewItems != null)
+                {
+                    foreach (var child in e.NewItems.OfType<MediaItem>())
+                        SubscribeAlbumChild(child);
+                }
+            }
+
+            RefreshAlbumFilterIfNeeded();
+            if (ReferenceEquals(children, LoadedAlbum?.Children))
+                RefreshTrackFilterIfNeeded();
+        }
+
+        private void AlbumChild_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (sender is not MediaItem item || !IsSearchRelevantProperty(e.PropertyName))
+                return;
+
+            RefreshAlbumFilterIfNeeded();
+            if (LoadedAlbum?.Children.Contains(item) == true)
+                RefreshTrackFilterIfNeeded();
+        }
+
         private void ApplyAlbumFilter()
         {
-            if (string.IsNullOrWhiteSpace(SearchAlbumText))
+            var query = SearchAlbumText?.Trim();
+            var previousSelection = SelectedAlbum;
+
+            if (string.IsNullOrWhiteSpace(query))
             {
                 FilteredAlbumList = AlbumList;
             }
             else
             {
                 var filtered = AlbumList.Where(a =>
-                    (a.Title?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (a.Title?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
                     // Children is never null (FolderMediaItem initializes it), so skip null check
                     a.Children.Any(c =>
-                         (c.Title?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                         (c.Artist?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                         (c.Album?.Contains(SearchAlbumText, StringComparison.OrdinalIgnoreCase) ?? false))
+                         (c.Title?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                         (c.Artist?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                         (c.Album?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false))
                     ).ToList();
                 FilteredAlbumList = new AvaloniaList<FolderMediaItem>(filtered);
             }
+
+            if (previousSelection != null && FilteredAlbumList.Contains(previousSelection))
+                SelectedAlbum = previousSelection;
+            else if (FilteredAlbumList.Count == 0)
+                SelectedAlbum = null;
         }
 
         private void Folder_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (sender is FolderMediaItem folder && e.PropertyName == nameof(MediaItem.Title) && folder.IsRenaming)
-                ValidateFolderTitle(folder);
+            if (sender is not FolderMediaItem folder)
+                return;
+
+            if (e.PropertyName == nameof(MediaItem.Title))
+            {
+                if (folder.IsRenaming)
+                    ValidateFolderTitle(folder);
+
+                RefreshAlbumFilterIfNeeded();
+            }
+            else if (e.PropertyName == nameof(FolderMediaItem.Children))
+            {
+                AttachFolderChildren(folder, folder.Children);
+                RefreshAlbumFilterIfNeeded();
+                if (ReferenceEquals(folder, LoadedAlbum))
+                    RefreshTrackFilterIfNeeded();
+            }
         }
 
         private void ValidateFolderTitle(FolderMediaItem folder)
@@ -1742,25 +1909,49 @@ namespace AES_Lacrima.ViewModels
             if (LoadedAlbum?.Children == null)
             {
                 CoverItems = new AvaloniaList<MediaItem>();
-                SelectedIndex = 0;
+                SelectedIndex = -1;
+                PointedIndex = -1;
                 HighlightedItem = new MediaItem { Title = string.Empty, Artist = string.Empty, Album = string.Empty };
                 return;
             }
-            if (string.IsNullOrWhiteSpace(SearchText))
+
+            var query = SearchText?.Trim();
+            MediaItem? preferredItem = null;
+            if (SelectedIndex >= 0 && SelectedIndex < CoverItems.Count)
+                preferredItem = CoverItems[SelectedIndex];
+            preferredItem ??= HighlightedItem;
+            preferredItem ??= SelectedMediaItem;
+
+            if (string.IsNullOrWhiteSpace(query))
                 CoverItems = LoadedAlbum.Children;
             else
             {
                 var filtered = LoadedAlbum.Children
                     .Where(item =>
-                        (item.Title?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                        (item.Artist?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                        (item.Album?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false))
+                        (item.Title?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                        (item.Artist?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                        (item.Album?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false))
                     .ToList();
                 CoverItems = new AvaloniaList<MediaItem>(filtered);
             }
-            SelectedIndex = 0;
-            if (CoverItems.Count > 0) HighlightedItem = CoverItems[0];
-            else HighlightedItem = new MediaItem { Title = string.Empty, Artist = string.Empty, Album = string.Empty };
+
+            if (CoverItems.Count == 0)
+            {
+                SelectedIndex = -1;
+                PointedIndex = -1;
+                HighlightedItem = new MediaItem { Title = string.Empty, Artist = string.Empty, Album = string.Empty };
+                return;
+            }
+
+            int nextIndex = preferredItem != null ? CoverItems.IndexOf(preferredItem) : -1;
+            if (nextIndex < 0)
+                nextIndex = 0;
+
+            SelectedIndex = nextIndex;
+            if (PointedIndex >= CoverItems.Count)
+                PointedIndex = -1;
+
+            HighlightedItem = CoverItems[nextIndex];
         }
 
         private string GetUniqueAlbumName(string baseName)
