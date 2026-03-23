@@ -28,6 +28,15 @@ namespace AES_Controls.Composition
     /// </summary>
     public class CompositionCarouselControl : ItemsControl
     {
+        private sealed class SharedImageEntry
+        {
+            public SharedImageEntry(SKImage image) => Image = image;
+
+            public SKImage Image { get; }
+
+            public int RefCount { get; set; } = 1;
+        }
+
         #region Private Fields
 
         private static readonly ILog Log = LogManager.GetLogger(typeof(CompositionCarouselControl));
@@ -41,6 +50,8 @@ namespace AES_Controls.Composition
         private readonly Dictionary<object, LinkedListNode<object>> _imageCacheNodes = new();
         private readonly Dictionary<(Type Type, string PropertyName), Func<object, object?>?> _propertyGetterCache = new();
         private readonly Dictionary<object, int> _itemIndices = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<object, object> _itemImageSourceKeys = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<object, SharedImageEntry> _sharedImageCache = new();
         private object?[] _itemsSnapshot = Array.Empty<object?>();
         private readonly Cursor _handCursor = new(StandardCursorType.Hand);
         private readonly string _diskCachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ImageCache");
@@ -551,6 +562,120 @@ namespace AES_Controls.Composition
             return Path.Combine(_diskCachePath, $"{hash}.png");
         }
 
+        private object? GetImageSourceKey(Bitmap? bitmapValue, string? fileName)
+        {
+            if (bitmapValue != null)
+                return bitmapValue;
+
+            if (!string.IsNullOrEmpty(fileName) && File.Exists(fileName))
+                return GetCachedImagePath(fileName);
+
+            return null;
+        }
+
+        private void DisposeImage(SKImage image)
+        {
+            if (_visual != null)
+                _visual.SendHandlerMessage(new DisposeImageMessage(image));
+            else
+                image.Dispose();
+        }
+
+        private void QueueImageDisposal(SKImage image, ICollection<SKImage>? disposalQueue = null)
+        {
+            if (disposalQueue != null)
+                disposalQueue.Add(image);
+            else
+                DisposeImage(image);
+        }
+
+        private void ReleaseItemImage(object item, ICollection<SKImage>? disposalQueue = null)
+        {
+            RemoveCacheNode(item);
+
+            if (!_imageCache.Remove(item, out var image))
+            {
+                _itemImageSourceKeys.Remove(item);
+                return;
+            }
+
+            if (_itemImageSourceKeys.Remove(item, out var sourceKey) && _sharedImageCache.TryGetValue(sourceKey, out var entry))
+            {
+                entry.RefCount--;
+                if (entry.RefCount <= 0)
+                {
+                    _sharedImageCache.Remove(sourceKey);
+                    QueueImageDisposal(image, disposalQueue);
+                }
+            }
+            else
+            {
+                QueueImageDisposal(image, disposalQueue);
+            }
+        }
+
+        private bool TryAcquireSharedImage(object? sourceKey, out SKImage? image)
+        {
+            if (sourceKey != null && _sharedImageCache.TryGetValue(sourceKey, out var entry))
+            {
+                entry.RefCount++;
+                image = entry.Image;
+                return true;
+            }
+
+            image = null;
+            return false;
+        }
+
+        private SKImage RegisterSharedImage(object? sourceKey, SKImage image)
+        {
+            if (sourceKey == null)
+                return image;
+
+            if (_sharedImageCache.TryGetValue(sourceKey, out var existing))
+            {
+                existing.RefCount++;
+                image.Dispose();
+                return existing.Image;
+            }
+
+            _sharedImageCache[sourceKey] = new SharedImageEntry(image);
+            return image;
+        }
+
+        private void StoreItemImage(object item, SKImage image, object? sourceKey)
+        {
+            _imageCache[item] = image;
+            if (sourceKey != null)
+                _itemImageSourceKeys[item] = sourceKey;
+            else
+                _itemImageSourceKeys.Remove(item);
+            TouchCacheItem(item);
+        }
+
+        private void AssignItemImage(object item, int index, SKImage image, object? sourceKey)
+        {
+            if (_imageCache.TryGetValue(item, out var existingImage))
+            {
+                bool sameSource = _itemImageSourceKeys.TryGetValue(item, out var existingSourceKey) && Equals(existingSourceKey, sourceKey);
+                if (ReferenceEquals(existingImage, image) && sameSource)
+                {
+                    TouchCacheItem(item);
+                    if (index < _images.Count)
+                        _images[index] = image;
+                    SetImage(index, image);
+                    return;
+                }
+
+                ReleaseItemImage(item);
+            }
+
+            StoreItemImage(item, image, sourceKey);
+            if (index < _images.Count)
+                _images[index] = image;
+            SetImage(index, image);
+        }
+
         private SKImage GetPlaceholder()
         {
             if (_sharedPlaceholder == null || _sharedPlaceholder.Width == 0)
@@ -668,12 +793,17 @@ namespace AES_Controls.Composition
 
         private void ClearResources()
         {
-            var oldCache = _imageCache.Values.ToList();
+            var disposedImages = new HashSet<SKImage>(ReferenceEqualityComparer.Instance);
             var oldPlaceholder = _sharedPlaceholder;
             
+            foreach (var key in _imageCache.Keys.ToList())
+                ReleaseItemImage(key, disposedImages);
+
             _imageCache.Clear();
             _imageCacheNodes.Clear();
             _imageCacheLru.Clear();
+            _sharedImageCache.Clear();
+            _itemImageSourceKeys.Clear();
             _sharedPlaceholder = null;
             _images.Clear();
             _itemsSnapshot = Array.Empty<object?>();
@@ -687,11 +817,8 @@ namespace AES_Controls.Composition
             _visual?.SendHandlerMessage(new List<SKImage>());
 
             // Then schedule disposal of native resources
-            foreach (var img in oldCache) 
-            {
-                var capturedImg = img;
-                _visual?.SendHandlerMessage(new DisposeImageMessage(capturedImg));
-            }
+            foreach (var img in disposedImages)
+                DisposeImage(img);
             if (oldPlaceholder != null)
             {
                 _visual?.SendHandlerMessage(new DisposeImageMessage(oldPlaceholder));
@@ -904,25 +1031,9 @@ namespace AES_Controls.Composition
             foreach (var key in _imageCache.Keys.ToList())
             {
                 if (ct.IsCancellationRequested) return;
-                bool exists = itemToIndex.TryGetValue(key, out int idx);
-                if (!exists)
+                if (!itemToIndex.ContainsKey(key))
                 {
-                    if (_imageCache.Remove(key, out var img))
-                    {
-                        RemoveCacheNode(key);
-                        if (exists && idx >= 0 && idx < _images.Count)
-                        {
-                            var placeholder = GetPlaceholder();
-                            _images[idx] = placeholder;
-                            _visual?.SendHandlerMessage(new UpdateImageMessage(idx, placeholder));
-                        }
-
-                        var imgToDispose = img;
-                        if (_visual != null)
-                            _visual.SendHandlerMessage(new DisposeImageMessage(imgToDispose));
-                        else
-                            imgToDispose.Dispose();
-                    }
+                    ReleaseItemImage(key);
                 }
             }
 
@@ -969,6 +1080,31 @@ namespace AES_Controls.Composition
                 Log.Warn($"Failed to read image properties for item at index {index}", ex);
             }
 
+            object? sourceKey = GetImageSourceKey(bitmapValue, fileName);
+            if (TryAcquireSharedImage(sourceKey, out var sharedImage))
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (ct.IsCancellationRequested)
+                    {
+                        if (sourceKey != null && _sharedImageCache.TryGetValue(sourceKey, out var sharedEntry))
+                        {
+                            sharedEntry.RefCount--;
+                            if (sharedEntry.RefCount <= 0)
+                            {
+                                _sharedImageCache.Remove(sourceKey);
+                                DisposeImage(sharedImage!);
+                            }
+                        }
+                        return;
+                    }
+
+                    AssignItemImage(item, index, sharedImage!, sourceKey);
+                });
+
+                return true;
+            }
+
             SKImage? realImage = null;
             try
             {
@@ -998,16 +1134,8 @@ namespace AES_Controls.Composition
                         return;
                     }
 
-                    if (_imageCache.TryGetValue(item, out var oldImg))
-                    {
-                        if (_visual != null) _visual.SendHandlerMessage(new DisposeImageMessage(oldImg));
-                        else oldImg.Dispose();
-                    }
-
-                    _imageCache[item] = realImage;
-                    TouchCacheItem(item);
-                    if (index < _images.Count) _images[index] = realImage;
-                    SetImage(index, realImage);
+                    var imageToUse = RegisterSharedImage(sourceKey, realImage);
+                    AssignItemImage(item, index, imageToUse, sourceKey);
                 });
             }
             else
@@ -1054,6 +1182,19 @@ namespace AES_Controls.Composition
                 }
                 catch (Exception ex) { Log.Warn("Failed to read image properties in PropertyChanged", ex); }
 
+                object? sourceKey = GetImageSourceKey(bitmapValue, fileName);
+                if (_itemImageSourceKeys.TryGetValue(sender, out var existingSourceKey) && Equals(existingSourceKey, sourceKey))
+                {
+                    TouchCacheItem(sender);
+                    return;
+                }
+
+                if (TryAcquireSharedImage(sourceKey, out var sharedImage))
+                {
+                    AssignItemImage(sender, idx, sharedImage!, sourceKey);
+                    return;
+                }
+
                 SKImage? realImage = null;
                 try
                 {
@@ -1063,11 +1204,15 @@ namespace AES_Controls.Composition
 
                 if (realImage != null)
                 {
-                    if (_imageCache.TryGetValue(sender, out var old))
-                        _visual?.SendHandlerMessage(new DisposeImageMessage(old));
-                    _imageCache[sender] = realImage;
-                    TouchCacheItem(sender);
-                    SetImage(idx, realImage);
+                    var imageToUse = RegisterSharedImage(sourceKey, realImage);
+                    AssignItemImage(sender, idx, imageToUse, sourceKey);
+                }
+                else if (_imageCache.ContainsKey(sender))
+                {
+                    ReleaseItemImage(sender);
+                    var placeholder = GetPlaceholder();
+                    if (idx < _images.Count) _images[idx] = placeholder;
+                    _visual?.SendHandlerMessage(new UpdateImageMessage(idx, placeholder));
                 }
             });
         }
@@ -1199,22 +1344,14 @@ namespace AES_Controls.Composition
             {
                 var key = _imageCacheLru.Last.Value;
                 _imageCacheLru.RemoveLast();
-                _imageCacheNodes.Remove(key);
-
-                if (_imageCache.Remove(key, out var img))
+                if (itemToIndex.TryGetValue(key, out var idx) && idx >= 0 && idx < _images.Count)
                 {
-                    if (itemToIndex.TryGetValue(key, out var idx) && idx >= 0 && idx < _images.Count)
-                    {
-                        var placeholder = GetPlaceholder();
-                        _images[idx] = placeholder;
-                        _visual?.SendHandlerMessage(new UpdateImageMessage(idx, placeholder));
-                    }
-
-                    if (_visual != null)
-                        _visual.SendHandlerMessage(new DisposeImageMessage(img));
-                    else
-                        img.Dispose();
+                    var placeholder = GetPlaceholder();
+                    _images[idx] = placeholder;
+                    _visual?.SendHandlerMessage(new UpdateImageMessage(idx, placeholder));
                 }
+
+                ReleaseItemImage(key);
             }
         }
 
