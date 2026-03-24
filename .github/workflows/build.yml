@@ -35,8 +35,6 @@ jobs:
   package:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runs_on }}
-    env:
-      VERSION: 0.0.0-local
     strategy:
       fail-fast: false
       matrix:
@@ -84,11 +82,11 @@ jobs:
       - name: Publish app on Windows
         if: matrix.package_type == 'windows'
         shell: pwsh
-        run: .\build.cmd Publish --configuration Release --runtime ${{ matrix.runtime }}
+        run: .\build.cmd Publish --configuration Release --runtime ${{ matrix.runtime }} --app-version 0.0.0-local
 
       - name: Publish app on Unix
         if: matrix.package_type != 'windows'
-        run: ./build.sh Publish --configuration Release --runtime ${{ matrix.runtime }}
+        run: ./build.sh Publish --configuration Release --runtime ${{ matrix.runtime }} --app-version 0.0.0-local
 
       - name: Package Windows archive
         if: matrix.package_type == 'windows'
@@ -114,6 +112,7 @@ jobs:
         if: matrix.package_type == 'appimage'
         env:
           APPIMAGETOOL: ${{ github.workspace }}/tools/appimagetool.AppImage
+          APP_VERSION: 0.0.0-local
         run: |
           ./AES_Lacrima/Linux/package-appimage.sh \
             "output/publish/Release/${{ matrix.runtime }}" \
