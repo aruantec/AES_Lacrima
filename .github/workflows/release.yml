@@ -171,6 +171,8 @@ jobs:
       - name: Create GitHub release + upload assets
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ github.event.inputs.version || '' }}
+          INPUT_PRERELEASE: ${{ github.event.inputs.prerelease || 'false' }}
         run: |
           set -euo pipefail
 
