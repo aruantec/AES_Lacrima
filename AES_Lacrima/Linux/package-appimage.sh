@@ -20,6 +20,10 @@ ICON_FILE="$PROJECT_DIR/Assets/AES.png"
 APP_VERSION="${VERSION:-${GITHUB_REF_NAME:-dev}}"
 APP_VERSION="${APP_VERSION#v}"
 
+if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+  APP_VERSION="0.0.0-local"
+fi
+
 if [[ ! -d "$PUBLISH_DIR" ]]; then
   echo "publish directory not found: $PUBLISH_DIR" >&2
   exit 1

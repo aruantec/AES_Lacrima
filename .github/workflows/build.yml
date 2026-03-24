@@ -35,6 +35,8 @@ jobs:
   package:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runs_on }}
+    env:
+      VERSION: 0.0.0-local
     strategy:
       fail-fast: false
       matrix:
