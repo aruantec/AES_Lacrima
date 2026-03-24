@@ -122,6 +122,22 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private ViewModelBase? _promptView;
 
+        private Func<ViewModelBase>? _pendingPromptFactory;
+
+        [AutoResolve]
+        [ObservableProperty]
+        private AppUpdateService? _appUpdateService;
+
+        partial void OnPromptViewChanged(ViewModelBase? value)
+        {
+            if (value == null && _pendingPromptFactory != null)
+            {
+                var factory = _pendingPromptFactory;
+                _pendingPromptFactory = null;
+                PromptView = factory();
+            }
+        }
+
         /// <summary>
         /// Prepare the view-model for use. This implementation loads
         /// persisted settings such as window size so the UI can be
@@ -223,6 +239,38 @@ namespace AES_Lacrima.ViewModels
             var prompt = new RestartPromptViewModel();
             prompt.RequestClose += () => { if (PromptView == prompt) PromptView = null; };
             PromptView = prompt;
+        }
+
+        /// <summary>
+        /// Displays the application update prompt, or queues it if another prompt is already active.
+        /// </summary>
+        public void ShowAppUpdatePrompt(AppReleaseInfo release)
+        {
+            var updateService = AppUpdateService ?? DiLocator.ResolveViewModel<AppUpdateService>();
+            if (updateService == null)
+                return;
+
+            if (PromptView is AppUpdatePromptViewModel current
+                && string.Equals(current.Release.Version, release.Version, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var prompt = new AppUpdatePromptViewModel(updateService, release);
+            prompt.RequestClose += () =>
+            {
+                if (PromptView == prompt)
+                    PromptView = null;
+            };
+
+            if (PromptView == null)
+            {
+                PromptView = prompt;
+            }
+            else
+            {
+                _pendingPromptFactory = () => prompt;
+            }
         }
 
         /// <summary>

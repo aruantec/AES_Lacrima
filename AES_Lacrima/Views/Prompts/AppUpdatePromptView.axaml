@@ -1,0 +1,91 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AES_Lacrima.ViewModels.Prompts"
+             mc:Ignorable="d"
+             d:DesignWidth="820"
+             d:DesignHeight="480"
+             x:Class="AES_Lacrima.Views.Prompts.AppUpdatePromptView"
+             x:DataType="vm:AppUpdatePromptViewModel">
+    <Grid Background="#B3000000" Grid.ColumnDefinitions="20*,60*,20*">
+        <Border Grid.Column="1"
+                Background="#151515"
+                BorderBrush="#3E3E42"
+                BorderThickness="1"
+                CornerRadius="10"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Center"
+                MaxWidth="760">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                <StackPanel Margin="28,24,28,14" Spacing="10">
+                    <TextBlock Text="{Binding Title}"
+                               FontSize="24"
+                               FontWeight="Bold"
+                               Foreground="White"/>
+                    <TextBlock Text="{Binding Message}"
+                               FontSize="18"
+                               Foreground="#E8E8E8"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding SecondaryMessage}"
+                               FontSize="15"
+                               Foreground="#BDBDBD"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <Border Grid.Row="1"
+                        Margin="28,0,28,0"
+                        Background="#202020"
+                        BorderBrush="#303030"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="14">
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Current Version" Foreground="#A8A8A8" FontSize="13"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding UpdateService.CurrentVersion}" Foreground="White" FontSize="16"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Text="Available Version" Foreground="#A8A8A8" FontSize="13"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Text="{Binding Release.Version}" Foreground="#FFD54F" FontSize="16" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Text="Download Asset" Foreground="#A8A8A8" FontSize="13"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Text="{Binding Release.SelectedAsset.Name}" Foreground="White" FontSize="14"/>
+                    </Grid>
+                </Border>
+
+                <StackPanel Grid.Row="2"
+                            Margin="28,18,28,0"
+                            Spacing="8">
+                    <TextBlock Text="{Binding UpdateService.Status}"
+                               Foreground="#D5D5D5"
+                               TextWrapping="Wrap"/>
+                    <ProgressBar Height="8"
+                                 Minimum="0"
+                                 Maximum="100"
+                                 Value="{Binding UpdateService.DownloadProgress}"
+                                 IsVisible="{Binding UpdateService.IsDownloading}"/>
+                    <TextBlock Text="{Binding UpdateService.DownloadProgress, StringFormat='{}{0:0}% downloaded'}"
+                               Foreground="#A8A8A8"
+                               IsVisible="{Binding UpdateService.IsDownloading}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Row="4"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            Margin="20,22,20,20"
+                            Spacing="10">
+                    <Button Content="SKIP"
+                            Command="{Binding SkipCommand}"
+                            IsEnabled="{Binding !UpdateService.IsBusy}"
+                            Background="Transparent"
+                            BorderBrush="#555555"
+                            Width="110"/>
+                    <Button Content="DOWNLOAD AND RESTART"
+                            Command="{Binding DownloadAndRestartCommand}"
+                            IsEnabled="{Binding !UpdateService.IsBusy}"
+                            Background="#FFD54F"
+                            Foreground="Black"
+                            FontWeight="Bold"
+                            Width="220"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

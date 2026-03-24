@@ -249,6 +249,40 @@
             <TabItem Header="Libraries" FontSize="30">
                 <ScrollViewer>
                     <StackPanel Margin="15,20,0,0">
+                        <TextBlock Text="Application updates" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,0,0,10"/>
+                        <Separator Margin="0,0,0,15"/>
+                        <StackPanel Spacing="5" Margin="0,0,0,15">
+                            <TextBlock Text="Updater Status" FontSize="20" Foreground="WhiteSmoke"/>
+                            <TextBlock Text="{Binding AppUpdateService.Status}" FontSize="16" Foreground="DarkGray" TextWrapping="Wrap" MaxWidth="720"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="40" Margin="0,0,0,20">
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="CURRENT VERSION" FontSize="14" Foreground="DarkGray" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding AppUpdateService.CurrentVersion, FallbackValue='Unknown'}" FontSize="18" Foreground="WhiteSmoke"/>
+                            </StackPanel>
+                            <StackPanel Spacing="5" IsVisible="{Binding AppUpdateService.IsUpdateAvailable}">
+                                <TextBlock Text="UPDATE AVAILABLE" FontSize="14" Foreground="Gold" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding AppUpdateService.LatestVersion}" FontSize="18" Foreground="Gold"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="18" VerticalAlignment="Center" Margin="0,0,0,15">
+                            <TextBlock Text="Check for updates on startup" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="16"/>
+                            <ToggleSwitch IsChecked="{Binding CheckForAppUpdatesOnStartup, Mode=TwoWay}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,25">
+                            <Button Content="Check for App Update"
+                                    Command="{Binding CheckForAppUpdateCommand}"
+                                    IsEnabled="{Binding !AppUpdateService.IsBusy}"
+                                    Padding="15,8"/>
+                        </StackPanel>
+                        <ProgressBar IsIndeterminate="True"
+                                     IsVisible="{Binding AppUpdateService.IsChecking}"
+                                     Margin="0,0,0,25"
+                                     Height="2"
+                                     Width="400"
+                                     HorizontalAlignment="Left"
+                                     VerticalAlignment="Top"/>
+
                         <TextBlock Text="External tools" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,0,0,10"/>
                         <Separator Margin="0,0,0,15"/>
                         <StackPanel Spacing="5" Margin="0,0,0,15">

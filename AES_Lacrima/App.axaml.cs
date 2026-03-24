@@ -128,6 +128,15 @@ namespace AES_Lacrima
                     {
                         mainViewModel.ShowSetupPrompt();
                     }
+
+                    if (settingsViewModel.CheckForAppUpdatesOnStartup && settingsViewModel.AppUpdateService != null)
+                    {
+                        var release = await settingsViewModel.AppUpdateService.CheckForUpdatesAsync();
+                        if (release != null)
+                        {
+                            mainViewModel.ShowAppUpdatePrompt(release);
+                        }
+                    }
                 }
             }
         }

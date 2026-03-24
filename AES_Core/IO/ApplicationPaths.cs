@@ -30,6 +30,11 @@ public static class ApplicationPaths
     public static string CacheDirectory => Path.Combine(DataRootDirectory, "Cache");
 
     /// <summary>
+    /// Directory for staged application updates and temporary update artifacts.
+    /// </summary>
+    public static string UpdatesDirectory => Path.Combine(DataRootDirectory, "Updates");
+
+    /// <summary>
     /// Directory for downloaded native/tool binaries (ffmpeg, libmpv, yt-dlp, etc.).
     /// </summary>
     public static string ToolsDirectory => Path.Combine(DataRootDirectory, "Tools");
