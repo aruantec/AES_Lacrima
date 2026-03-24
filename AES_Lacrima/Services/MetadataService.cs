@@ -21,6 +21,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -49,6 +50,10 @@ namespace AES_Lacrima.Services
         private static readonly HttpClient ImageHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
         private static readonly Regex BracketCleanupRegex = new(@"[\(\[\{].*?[\)\]\}]", RegexOptions.Compiled);
         private static readonly Regex MultiSpaceRegex = new(@"\s{2,}", RegexOptions.Compiled);
+        private static readonly Regex ImageKindDescriptionRegex = new(@"^\[AES_KIND:(?<kind>[A-Za-z]+)\]\s*", RegexOptions.Compiled);
+        private static readonly Regex GoogleImgTagRegex = new(@"<img[^>]+(?:src|data-src|data-iurl)=""(?<url>[^""]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex GoogleImgResRegex = new(@"[?&]imgurl=(?<url>[^&""'\s<>]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex DirectImageUrlRegex = new(@"https?://[^""'\s<>\\]+?\.(?:jpg|jpeg|png|webp|gif|bmp|avif)(?:\?[^""'\s<>\\]*)?", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly string[] NoiseTokens =
         [
             "lyrics", "lyric", "official video", "official audio", "official",
@@ -190,7 +195,7 @@ namespace AES_Lacrima.Services
                     var kind = MapPictureToKind(p);
                     var data = p.Data.Data;
                     var mime = p.MimeType;
-                    var desc = p.Description;
+                    var desc = StripImageKindMarker(p.Description);
                     var newImage = new TagImageModel(kind, data, mime, desc)
                     {
                         OnDeleteImage = OnDeleteImage
@@ -316,12 +321,13 @@ namespace AES_Lacrima.Services
                     // Add wallpaper description
                     if (img.Kind == TagImageKind.Wallpaper)
                     {
-                        img.Description = "wallpaper";
                         wallpaperImage = img;
                     }
-                    else if (img.Kind == TagImageKind.Cover || img.Kind == TagImageKind.Other)
+                    else if (img.Kind != TagImageKind.LiveWallpaper)
                     {
-                        coverImage = img;
+                        coverImage ??= img;
+                        if (img.Kind == TagImageKind.Cover || img.Kind == TagImageKind.Other)
+                            coverImage = img;
                     }
 
                     // Create picture
@@ -329,7 +335,7 @@ namespace AES_Lacrima.Services
                     {
                         Type = MapKindToPictureType(img),
                         MimeType = img.MimeType,
-                        Description = img.Description
+                        Description = BuildPictureDescription(img)
                     };
 
                     picList.Add(pic);
@@ -362,6 +368,10 @@ namespace AES_Lacrima.Services
                 {
                     using var ms = new MemoryStream(coverImage.Data);
                     _currentSelectedMedia.CoverBitmap = new Bitmap(ms);
+                }
+                else if (_currentSelectedMedia != null)
+                {
+                    _currentSelectedMedia.CoverBitmap = null;
                 }
 
                 // Set wallpaper bitmap in current media item
@@ -513,14 +523,32 @@ namespace AES_Lacrima.Services
         [RelayCommand]
         private async Task SearchImagesByTitleAsync()
         {
-            var normalized = NormalizeSearchTitle(Title);
-            if (string.IsNullOrWhiteSpace(normalized))
-                normalized = NormalizeSearchTitle(_currentSelectedMedia?.Title);
-            if (string.IsNullOrWhiteSpace(normalized))
+            var titleNorm = NormalizeSearchTitle(Title);
+            if (string.IsNullOrWhiteSpace(titleNorm))
+                titleNorm = NormalizeSearchTitle(_currentSelectedMedia?.Title);
+            
+            var artistNorm = NormalizeSearchTitle(Artists);
+            if (string.IsNullOrWhiteSpace(artistNorm))
+                artistNorm = NormalizeSearchTitle(_currentSelectedMedia?.Artist);
+
+            var albumNorm = NormalizeSearchTitle(Album);
+            if (string.IsNullOrWhiteSpace(albumNorm))
+                albumNorm = NormalizeSearchTitle(_currentSelectedMedia?.Album);
+
+            if (string.IsNullOrWhiteSpace(titleNorm)
+                && string.IsNullOrWhiteSpace(artistNorm)
+                && string.IsNullOrWhiteSpace(albumNorm))
+            {
+                titleNorm = NormalizeSearchTitle(GetSearchFallbackFromFilename());
+            }
+
+            var searchQueries = BuildMetadataSearchQueries(titleNorm, artistNorm, albumNorm);
+            if (searchQueries.Count == 0)
                 return;
 
-            ImageSearchQuery = normalized;
-            await SearchImagesAsync(normalized);
+            var activeQuery = searchQueries[0];
+            ImageSearchQuery = activeQuery;
+            await SearchImagesCoreAsync(activeQuery, searchQueries);
         }
 
         [RelayCommand]
@@ -530,13 +558,19 @@ namespace AES_Lacrima.Services
             if (string.IsNullOrWhiteSpace(activeQuery))
                 return;
 
+            await SearchImagesCoreAsync(activeQuery.Trim(), [activeQuery.Trim()]);
+        }
+
+        private async Task SearchImagesCoreAsync(string activeQuery, IReadOnlyList<string> searchQueries)
+        {
+            ImageSearchQuery = activeQuery;
             IsImageSearchOverlayOpen = true;
             IsImageSearchLoading = true;
             ImageSearchStatus = "Searching web images...";
 
             try
             {
-                var results = await SearchWebImagesAsync(activeQuery.Trim());
+                var results = await SearchWebImagesAsync(searchQueries);
                 ImageSearchResults = new AvaloniaList<WebImageSearchResult>(results.Take(MaxImageSearchResults).ToList());
                 ImageSearchStatus = ImageSearchResults.Count == 0
                     ? "No images found."
@@ -599,21 +633,239 @@ namespace AES_Lacrima.Services
             return normalized;
         }
 
-        private static async Task<List<WebImageSearchResult>> SearchWebImagesAsync(string query)
+        private string GetSearchFallbackFromFilename()
+        {
+            var candidates = new[]
+            {
+                FilePath,
+                _currentSelectedMedia?.FileName
+            };
+
+            foreach (var candidate in candidates)
+            {
+                var normalized = ExtractFilenameForSearch(candidate);
+                if (!string.IsNullOrWhiteSpace(normalized))
+                    return normalized;
+            }
+
+            return string.Empty;
+        }
+
+        private static string ExtractFilenameForSearch(string? pathOrUrl)
+        {
+            if (string.IsNullOrWhiteSpace(pathOrUrl))
+                return string.Empty;
+
+            string fileName;
+            if (Uri.TryCreate(pathOrUrl, UriKind.Absolute, out var uri)
+                && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeFile))
+            {
+                fileName = Path.GetFileNameWithoutExtension(uri.IsFile ? uri.LocalPath : uri.AbsolutePath);
+            }
+            else
+            {
+                fileName = Path.GetFileNameWithoutExtension(pathOrUrl);
+            }
+
+            return fileName.Replace('.', ' ')
+                .Replace('_', ' ')
+                .Replace('-', ' ')
+                .Trim();
+        }
+
+        private static List<string> BuildMetadataSearchQueries(string? title, string? artist, string? album)
+        {
+            var queries = new List<string>();
+
+            AddDistinctQuery(queries, title, artist, album);
+            AddDistinctQuery(queries, title, artist);
+            AddDistinctQuery(queries, title, album);
+            AddDistinctQuery(queries, artist, album, title);
+            AddDistinctQuery(queries, title);
+            AddDistinctQuery(queries, artist, album);
+            AddDistinctQuery(queries, artist);
+            AddDistinctQuery(queries, album);
+
+            return queries;
+        }
+
+        private static void AddDistinctQuery(List<string> queries, params string?[] parts)
+        {
+            var value = string.Join(" ", parts.Where(part => !string.IsNullOrWhiteSpace(part)).Select(part => part!.Trim()));
+            value = MultiSpaceRegex.Replace(value, " ").Trim();
+            if (!string.IsNullOrWhiteSpace(value) && !queries.Contains(value, StringComparer.OrdinalIgnoreCase))
+                queries.Add(value);
+        }
+
+        private static async Task<List<WebImageSearchResult>> SearchWebImagesAsync(IReadOnlyList<string> queries)
         {
             var results = new List<WebImageSearchResult>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var normalizedQueries = queries
+                .Select(NormalizeSearchTitle)
+                .Where(static query => !string.IsNullOrWhiteSpace(query))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            var songUri = $"https://itunes.apple.com/search?term={Uri.EscapeDataString(query)}&media=music&entity=song&limit=80";
-            await LoadItunesResults(songUri, seen, results);
-
-            if (results.Count < MaxImageSearchResults)
+            foreach (var query in normalizedQueries)
             {
+                if (results.Count >= MaxImageSearchResults)
+                    break;
+
+                // 1. Try iTunes for high-quality music-specific metadata
+                var songUri = $"https://itunes.apple.com/search?term={Uri.EscapeDataString(query)}&media=music&entity=song&limit=80";
+                await LoadItunesResults(songUri, seen, results);
+
+                if (results.Count >= MaxImageSearchResults)
+                    break;
+
                 var albumUri = $"https://itunes.apple.com/search?term={Uri.EscapeDataString(query)}&media=music&entity=album&limit=80";
                 await LoadItunesResults(albumUri, seen, results);
             }
 
+            foreach (var query in normalizedQueries)
+            {
+                if (results.Count >= MaxImageSearchResults)
+                    break;
+
+                // 2. Google Image Search fallback
+                await LoadGoogleImageResults(query, seen, results);
+            }
+
             return results;
+        }
+
+        private static async Task LoadGoogleImageResults(string query, HashSet<string> seen, List<WebImageSearchResult> sink)
+        {
+            try
+            {
+                foreach (var googleQuery in BuildGoogleQueries(query))
+                {
+                    if (sink.Count >= MaxImageSearchResults)
+                        break;
+
+                    var url = $"https://www.google.com/search?tbm=isch&udm=2&hl=en&q={Uri.EscapeDataString(googleQuery)}";
+
+                    using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
+                    request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
+
+                    using var response = await ImageHttpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead);
+                    if (!response.IsSuccessStatusCode)
+                        continue;
+
+                    var html = await response.Content.ReadAsStringAsync();
+                    ExtractGoogleImageResults(html, seen, sink);
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Google image search failed for query: {query}", ex);
+            }
+        }
+
+        private static IEnumerable<string> BuildGoogleQueries(string query)
+        {
+            var googleQueries = new List<string>();
+            AddDistinctQuery(googleQueries, query);
+            AddDistinctQuery(googleQueries, $"{query} album cover");
+            AddDistinctQuery(googleQueries, $"{query} cover art");
+            return googleQueries;
+        }
+
+        private static void ExtractGoogleImageResults(string html, HashSet<string> seen, List<WebImageSearchResult> sink)
+        {
+            foreach (Match match in GoogleImgTagRegex.Matches(html))
+            {
+                if (sink.Count >= MaxImageSearchResults)
+                    return;
+
+                var imageUrl = DecodeGoogleUrl(match.Groups["url"].Value);
+                TryAddGoogleImageResult(imageUrl, seen, sink);
+            }
+
+            var decodedHtml = WebUtility.HtmlDecode(html)
+                .Replace("\\u003d", "=")
+                .Replace("\\u0026", "&")
+                .Replace("\\/", "/");
+
+            foreach (Match match in GoogleImgResRegex.Matches(decodedHtml))
+            {
+                if (sink.Count >= MaxImageSearchResults)
+                    return;
+
+                var imageUrl = DecodeGoogleUrl(match.Groups["url"].Value);
+                TryAddGoogleImageResult(imageUrl, seen, sink);
+            }
+
+            foreach (Match match in DirectImageUrlRegex.Matches(decodedHtml))
+            {
+                if (sink.Count >= MaxImageSearchResults)
+                    return;
+
+                var imageUrl = DecodeGoogleUrl(match.Value);
+                TryAddGoogleImageResult(imageUrl, seen, sink);
+            }
+        }
+
+        private static string DecodeGoogleUrl(string rawUrl)
+        {
+            if (string.IsNullOrWhiteSpace(rawUrl))
+                return string.Empty;
+
+            var decoded = WebUtility.HtmlDecode(rawUrl.Trim());
+            decoded = decoded.Replace("\\u003d", "=")
+                .Replace("\\u0026", "&")
+                .Replace("\\/", "/");
+
+            try
+            {
+                decoded = Uri.UnescapeDataString(decoded);
+            }
+            catch
+            {
+                // Keep the best-effort decoded value.
+            }
+
+            return decoded;
+        }
+
+        private static void TryAddGoogleImageResult(string imageUrl, HashSet<string> seen, List<WebImageSearchResult> sink)
+        {
+            if (sink.Count >= MaxImageSearchResults)
+                return;
+
+            if (!IsUsableImageUrl(imageUrl) || !seen.Add(imageUrl))
+                return;
+
+            sink.Add(new WebImageSearchResult
+            {
+                ThumbnailUrl = imageUrl,
+                FullImageUrl = imageUrl,
+                Title = "Google Image",
+                Artist = "Web"
+            });
+        }
+
+        private static bool IsUsableImageUrl(string? imageUrl)
+        {
+            if (string.IsNullOrWhiteSpace(imageUrl))
+                return false;
+
+            if (!Uri.TryCreate(imageUrl, UriKind.Absolute, out var uri))
+                return false;
+
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+                return false;
+
+            var host = uri.Host;
+            if (host.Contains("google.", StringComparison.OrdinalIgnoreCase)
+                || host.Contains("gstatic.com", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return !imageUrl.Contains("googlelogo", StringComparison.OrdinalIgnoreCase);
         }
 
         private static async Task LoadItunesResults(string uri, HashSet<string> seen, List<WebImageSearchResult> sink)
@@ -641,13 +893,14 @@ namespace AES_Lacrima.Services
                     continue;
 
                 var trackName = item.TryGetProperty("trackName", out var trackNode) ? trackNode.GetString() : string.Empty;
+                var collectionName = item.TryGetProperty("collectionName", out var collectionNode) ? collectionNode.GetString() : string.Empty;
                 var artistName = item.TryGetProperty("artistName", out var artistNode) ? artistNode.GetString() : string.Empty;
 
                 sink.Add(new WebImageSearchResult
                 {
                     ThumbnailUrl = thumb,
                     FullImageUrl = full,
-                    Title = trackName ?? string.Empty,
+                    Title = trackName ?? collectionName ?? string.Empty,
                     Artist = artistName ?? string.Empty
                 });
 
@@ -731,6 +984,19 @@ namespace AES_Lacrima.Services
             };
         }
 
+        private static string BuildPictureDescription(TagImageModel model)
+        {
+            var baseDescription = StripImageKindMarker(model.Description);
+            if (model.Kind == TagImageKind.Wallpaper)
+            {
+                baseDescription = string.IsNullOrWhiteSpace(baseDescription)
+                    ? "wallpaper"
+                    : baseDescription;
+            }
+
+            return $"[AES_KIND:{model.Kind}] {baseDescription}".Trim();
+        }
+
         private static PictureType MapKindToPictureType(TagImageModel model) => model.Kind switch
         {
             TagImageKind.Cover => PictureType.FrontCover,
@@ -745,6 +1011,9 @@ namespace AES_Lacrima.Services
             if (pic == null)
                 return TagImageKind.Other;
 
+            if (TryGetKindFromDescription(pic.Description, out var descriptionKind))
+                return descriptionKind;
+
             return pic.Type switch
             {
                 PictureType.FrontCover => TagImageKind.Cover,
@@ -755,6 +1024,27 @@ namespace AES_Lacrima.Services
                     ? TagImageKind.Wallpaper
                     : TagImageKind.Other)
             };
+        }
+
+        private static bool TryGetKindFromDescription(string? description, out TagImageKind kind)
+        {
+            kind = TagImageKind.Other;
+            if (string.IsNullOrWhiteSpace(description))
+                return false;
+
+            var match = ImageKindDescriptionRegex.Match(description);
+            if (!match.Success)
+                return false;
+
+            return Enum.TryParse(match.Groups["kind"].Value, ignoreCase: true, out kind);
+        }
+
+        private static string StripImageKindMarker(string? description)
+        {
+            if (string.IsNullOrWhiteSpace(description))
+                return string.Empty;
+
+            return ImageKindDescriptionRegex.Replace(description, string.Empty).Trim();
         }
 
         private async Task LoadImageAsync(TagImageModel model)
