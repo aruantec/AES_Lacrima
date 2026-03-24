@@ -443,7 +443,9 @@ public partial class FFmpegManager : ObservableObject
             // UseShellExecute is TRUE so that winget/brew/sudo can 
             // open their own window for license agreements or passwords.
             UseShellExecute = true,
-            CreateNoWindow = false
+            CreateNoWindow = false,
+            // Run as administrator on Windows to avoid permission issues during installation/update
+            Verb = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "runas" : string.Empty
         };
 
         try

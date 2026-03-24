@@ -426,7 +426,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// Gets or sets the path to the current background image.
     /// </summary>
     [ObservableProperty]
-    private string _backgroundImagePath = "Assets/background.jpg";
+    private string _backgroundImagePath = Path.Combine("Assets", "background.jpg");
 
     /// <summary>
     /// Collection of available libmpv versions from GitHub (for Windows builds).
@@ -979,7 +979,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ParticleCount = ReadDoubleSetting(section, nameof(ParticleCount), 10);
         ShowShaderToy = ReadBoolSetting(section, nameof(ShowShaderToy), true);
         ShowBackground = ReadBoolSetting(section, nameof(ShowBackground));
-        BackgroundImagePath = ReadStringSetting(section, nameof(BackgroundImagePath), "Assets/background.jpg")!;
+        BackgroundImagePath = ReadStringSetting(section, nameof(BackgroundImagePath), Path.Combine("Assets", "background.jpg"))!;
         ShowParticles = ReadBoolSetting(section, nameof(ShowParticles), true);
         // Spectrum settings
         SpectrumHeight = ReadDoubleSetting(section, nameof(SpectrumHeight), SpectrumHeight);

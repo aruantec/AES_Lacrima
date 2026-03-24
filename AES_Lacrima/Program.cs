@@ -62,7 +62,9 @@ namespace AES_Lacrima
             Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
             Directory.CreateDirectory(ApplicationPaths.ShadersDirectory);
             Directory.CreateDirectory(ApplicationPaths.ToolsDirectory);
-            EnsureShadersPresent();
+
+            EnsureResourceFolderPresent("Shaders", ApplicationPaths.ShadersDirectory);
+            EnsureResourceFolderPresent("Assets", Path.Combine(ApplicationPaths.DataRootDirectory, "Assets"));
 
             // Ensure libmpv and other native helpers are loaded from the per-user Tools folder
             try
@@ -105,24 +107,23 @@ namespace AES_Lacrima
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
 
-        private static void EnsureShadersPresent()
+        private static void EnsureResourceFolderPresent(string folderName, string targetPath)
         {
             try
             {
-                var targetRoot = ApplicationPaths.ShadersDirectory;
-                var sourceRoot = Path.Combine(AppContext.BaseDirectory, "Shaders");
+                var sourceRoot = Path.Combine(AppContext.BaseDirectory, folderName);
                 if (!Directory.Exists(sourceRoot))
                 {
-                    Log.Warn($"Shaders source directory not found: {sourceRoot}");
+                    Log.Warn($"{folderName} source directory not found: {sourceRoot}");
                     return;
                 }
 
-                // Keep user-provided/cached shader folders intact, but always copy any newly shipped shaders.
-                CopyDirectoryIfMissing(sourceRoot, targetRoot);
+                // Keep user-provided/cached folders intact, but always copy any newly shipped files.
+                CopyDirectoryIfMissing(sourceRoot, targetPath);
             }
             catch (Exception ex)
             {
-                Log.Warn("Failed to ensure default shaders are available", ex);
+                Log.Warn($"Failed to ensure default {folderName} are available", ex);
             }
         }
 

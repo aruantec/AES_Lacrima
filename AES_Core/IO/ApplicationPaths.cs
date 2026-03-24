@@ -37,11 +37,24 @@ public static class ApplicationPaths
     /// <summary>
     /// Directory for shader files used by the application.
     /// </summary>
-    public static string ShadersDirectory => Path.Combine(DataRootDirectory, "Shaders");
+    public static string ShadersDirectory => GetShadersDirectory();
 
     public static string GetSettingsFile(string fileName) => Path.Combine(SettingsDirectory, fileName);
     public static string GetCacheFile(string fileName) => Path.Combine(CacheDirectory, fileName);
     public static string GetToolFile(string fileName) => Path.Combine(ToolsDirectory, fileName);
+
+    private static string GetShadersDirectory()
+    {
+        // Check if there is a 'Shaders' directory in the application base (dev/portable mode).
+        var localShaders = Path.Combine(AppContext.BaseDirectory, "Shaders");
+        if (Directory.Exists(localShaders))
+        {
+            return localShaders;
+        }
+
+        // Fallback to the standard OS data location.
+        return Path.Combine(DataRootDirectory, "Shaders");
+    }
 
     public static bool IsAppBaseWritable()
     {
