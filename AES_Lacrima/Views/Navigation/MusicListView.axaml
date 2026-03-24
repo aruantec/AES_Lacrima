@@ -58,11 +58,37 @@
 												<Path Data="M 63,30 A 25,25 0 0 1 88,55 M 63,40 A 15,15 0 0 1 78,55" Stroke="#000000" StrokeThickness="3" StrokeLineCap="Round" />
 											</Canvas>
 										</Viewbox>
-									</MenuItem.Icon>
-								</MenuItem>
-								<MenuItem Header="Rename Album" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).RenameFolderCommand}" CommandParameter="{Binding}">
-									<MenuItem.Icon>
-										<Path Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"
+								</MenuItem.Icon>
+							</MenuItem>
+							<Separator/>
+							<MenuItem Header="Sort Albums A to Z" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).SortAlbumsAscendingCommand}">
+								<MenuItem.Icon>
+									<Viewbox Width="32" Height="32" Stretch="Uniform">
+										<Canvas Width="100" Height="100">
+											<TextBlock Canvas.Left="14" Canvas.Top="10" Text="A" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
+											<TextBlock Canvas.Left="15" Canvas.Top="58" Text="Z" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
+											<Line StartPoint="66,18" EndPoint="66,68" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round"/>
+											<Path Data="M 52,56 L 66,78 L 80,56 Z" Fill="#CCFFFFFF"/>
+										</Canvas>
+									</Viewbox>
+								</MenuItem.Icon>
+							</MenuItem>
+							<MenuItem Header="Sort Albums Z to A" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).SortAlbumsDescendingCommand}">
+								<MenuItem.Icon>
+									<Viewbox Width="32" Height="32" Stretch="Uniform">
+										<Canvas Width="100" Height="100">
+											<TextBlock Canvas.Left="14" Canvas.Top="10" Text="Z" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
+											<TextBlock Canvas.Left="15" Canvas.Top="58" Text="A" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
+											<Line StartPoint="66,30" EndPoint="66,80" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round"/>
+											<Path Data="M 52,42 L 66,20 L 80,42 Z" Fill="#CCFFFFFF"/>
+										</Canvas>
+									</Viewbox>
+								</MenuItem.Icon>
+							</MenuItem>
+							<Separator/>
+							<MenuItem Header="Rename Album" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).RenameFolderCommand}" CommandParameter="{Binding}">
+								<MenuItem.Icon>
+									<Path Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"
 											  Fill="#CCFFFFFF"
 											  Width="32"
 											  Height="32"
@@ -386,6 +412,32 @@
 						</Viewbox>
 					</MenuItem.Icon>
 				</MenuItem>
+				<Separator/>
+				<MenuItem Header="Sort Albums A to Z" CornerRadius="8" Command="{Binding SortAlbumsAscendingCommand}">
+					<MenuItem.Icon>
+						<Viewbox Width="32" Height="32" Stretch="Uniform">
+							<Canvas Width="100" Height="100">
+								<TextBlock Canvas.Left="14" Canvas.Top="10" Text="A" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
+								<TextBlock Canvas.Left="15" Canvas.Top="58" Text="Z" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
+								<Line StartPoint="66,18" EndPoint="66,68" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round"/>
+								<Path Data="M 52,56 L 66,78 L 80,56 Z" Fill="#CCFFFFFF"/>
+							</Canvas>
+						</Viewbox>
+					</MenuItem.Icon>
+				</MenuItem>
+				<MenuItem Header="Sort Albums Z to A" CornerRadius="8" Command="{Binding SortAlbumsDescendingCommand}">
+					<MenuItem.Icon>
+						<Viewbox Width="32" Height="32" Stretch="Uniform">
+							<Canvas Width="100" Height="100">
+								<TextBlock Canvas.Left="14" Canvas.Top="10" Text="Z" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
+								<TextBlock Canvas.Left="15" Canvas.Top="58" Text="A" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
+								<Line StartPoint="66,30" EndPoint="66,80" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round"/>
+								<Path Data="M 52,42 L 66,20 L 80,42 Z" Fill="#CCFFFFFF"/>
+							</Canvas>
+						</Viewbox>
+					</MenuItem.Icon>
+				</MenuItem>
+				<Separator/>
 				<MenuItem Header="Scan Folders" CornerRadius="8" Command="{Binding ScanFoldersCommand}">
 					<MenuItem.Icon>
 						<Viewbox Width="32" Height="32" Stretch="Uniform">

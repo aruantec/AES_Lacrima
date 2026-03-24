@@ -502,6 +502,12 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
+        private void SortAlbumsAscending() => SortAlbums(alphabeticalAscending: true);
+
+        [RelayCommand]
+        private void SortAlbumsDescending() => SortAlbums(alphabeticalAscending: false);
+
+        [RelayCommand]
         private void RenameFolder(FolderMediaItem? folder)
         {
             if (folder == null) return;
@@ -1551,6 +1557,39 @@ namespace AES_Lacrima.ViewModels
                 SelectedAlbum = previousSelection;
             else if (FilteredAlbumList.Count == 0)
                 SelectedAlbum = null;
+        }
+
+        private void SortAlbums(bool alphabeticalAscending)
+        {
+            if (AlbumList.Count < 2)
+                return;
+
+            var comparer = StringComparer.OrdinalIgnoreCase;
+            var orderedAlbums = alphabeticalAscending
+                ? AlbumList
+                    .OrderBy(GetAlbumSortKey, comparer)
+                    .ThenBy(album => album.FileName ?? string.Empty, comparer)
+                    .ToList()
+                : AlbumList
+                    .OrderByDescending(GetAlbumSortKey, comparer)
+                    .ThenByDescending(album => album.FileName ?? string.Empty, comparer)
+                    .ToList();
+
+            if (AlbumList.SequenceEqual(orderedAlbums))
+                return;
+
+            AlbumList = new AvaloniaList<FolderMediaItem>(orderedAlbums);
+        }
+
+        private static string GetAlbumSortKey(FolderMediaItem album)
+        {
+            if (!string.IsNullOrWhiteSpace(album.Title))
+                return album.Title.Trim();
+
+            if (!string.IsNullOrWhiteSpace(album.FileName))
+                return Path.GetFileName(album.FileName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+
+            return string.Empty;
         }
 
         private void Folder_PropertyChanged(object? sender, PropertyChangedEventArgs e)
