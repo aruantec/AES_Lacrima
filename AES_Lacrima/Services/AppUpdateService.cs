@@ -232,9 +232,9 @@ public partial class AppUpdateService : ObservableObject
     {
         if (OperatingSystem.IsLinux())
         {
-            var appImageVersion = TryGetCurrentLinuxAppImageVersion();
-            if (!string.IsNullOrWhiteSpace(appImageVersion))
-                return appImageVersion;
+            var linuxPackageVersion = TryGetCurrentLinuxPackageVersion();
+            if (!string.IsNullOrWhiteSpace(linuxPackageVersion))
+                return linuxPackageVersion;
         }
 
         var entryAssembly = Assembly.GetEntryAssembly();
@@ -269,45 +269,70 @@ public partial class AppUpdateService : ObservableObject
         return NormalizeVersionString(entryAssembly?.GetName().Version?.ToString()) ?? "0.0.0-local";
     }
 
-    private static string? TryGetCurrentLinuxAppImageVersion()
+    private static string? TryGetCurrentLinuxPackageVersion()
     {
-        var appImagePath = Environment.GetEnvironmentVariable("APPIMAGE");
-        if (string.IsNullOrWhiteSpace(appImagePath))
-            return null;
-
         try
         {
-            var startInfo = new ProcessStartInfo
+            var appDir = Environment.GetEnvironmentVariable("APPDIR");
+            if (!string.IsNullOrWhiteSpace(appDir))
             {
-                FileName = appImagePath,
-                Arguments = "--appimage-version",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+                var explicitVersionPath = Path.Combine(appDir, "usr", "share", "aes-lacrima", "version.txt");
+                if (File.Exists(explicitVersionPath))
+                {
+                    var explicitVersion = NormalizeVersionString(File.ReadAllText(explicitVersionPath));
+                    if (!string.IsNullOrWhiteSpace(explicitVersion))
+                        return explicitVersion;
+                }
 
-            using var process = Process.Start(startInfo);
-            if (process == null)
-                return null;
-
-            if (!process.WaitForExit(5000))
-            {
-                try { process.Kill(entireProcessTree: true); } catch { }
-                return null;
+                foreach (var desktopPath in GetLinuxDesktopMetadataCandidates(appDir))
+                {
+                    var desktopVersion = TryReadDesktopEntryVersion(desktopPath);
+                    if (!string.IsNullOrWhiteSpace(desktopVersion))
+                        return desktopVersion;
+                }
             }
 
-            var output = process.StandardOutput.ReadToEnd().Trim();
-            if (string.IsNullOrWhiteSpace(output))
-                return null;
-
-            return NormalizeVersionString(output);
+            var processPath = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(processPath) && File.Exists(processPath))
+            {
+                var siblingVersionFile = Path.Combine(Path.GetDirectoryName(processPath)!, "version.txt");
+                if (File.Exists(siblingVersionFile))
+                {
+                    var explicitVersion = NormalizeVersionString(File.ReadAllText(siblingVersionFile));
+                    if (!string.IsNullOrWhiteSpace(explicitVersion))
+                        return explicitVersion;
+                }
+            }
         }
         catch (Exception ex)
         {
-            Log.Warn("Failed to read current AppImage version metadata", ex);
+            Log.Warn("Failed to read current Linux package version metadata", ex);
             return null;
         }
+
+        return null;
+    }
+
+    private static IEnumerable<string> GetLinuxDesktopMetadataCandidates(string appDir)
+    {
+        yield return Path.Combine(appDir, "aes-lacrima.desktop");
+        yield return Path.Combine(appDir, "usr", "share", "applications", "aes-lacrima.desktop");
+    }
+
+    private static string? TryReadDesktopEntryVersion(string desktopPath)
+    {
+        if (!File.Exists(desktopPath))
+            return null;
+
+        foreach (var line in File.ReadLines(desktopPath))
+        {
+            if (!line.StartsWith("Version=", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            return NormalizeVersionString(line["Version=".Length..]);
+        }
+
+        return null;
     }
 
     private static string? NormalizeVersionString(string? version)

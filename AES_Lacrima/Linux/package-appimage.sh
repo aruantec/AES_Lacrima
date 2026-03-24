@@ -17,6 +17,8 @@ APP_NAME="AES-Lacrima"
 EXECUTABLE_NAME="AES_Lacrima"
 DESKTOP_TEMPLATE="$PROJECT_DIR/Linux/aes-lacrima.desktop"
 ICON_FILE="$PROJECT_DIR/Assets/AES.png"
+APP_VERSION="${VERSION:-${GITHUB_REF_NAME:-dev}}"
+APP_VERSION="${APP_VERSION#v}"
 
 if [[ ! -d "$PUBLISH_DIR" ]]; then
   echo "publish directory not found: $PUBLISH_DIR" >&2
@@ -83,6 +85,7 @@ trap cleanup EXIT
 
 mkdir -p \
   "$APPDIR/usr/bin" \
+  "$APPDIR/usr/share/aes-lacrima" \
   "$APPDIR/usr/share/applications" \
   "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
@@ -94,12 +97,14 @@ DESKTOP_FILE="$WORK_DIR/aes-lacrima.desktop"
 sed \
   -e 's|__EXEC__|AES_Lacrima|g' \
   -e 's|__ICON__|aes-lacrima|g' \
+  -e "s|__VERSION__|$APP_VERSION|g" \
   "$DESKTOP_TEMPLATE" > "$DESKTOP_FILE"
 
 cp "$DESKTOP_FILE" "$APPDIR/aes-lacrima.desktop"
 cp "$DESKTOP_FILE" "$APPDIR/usr/share/applications/aes-lacrima.desktop"
 cp "$ICON_FILE" "$APPDIR/aes-lacrima.png"
 cp "$ICON_FILE" "$APPDIR/usr/share/icons/hicolor/256x256/apps/aes-lacrima.png"
+printf '%s\n' "$APP_VERSION" > "$APPDIR/usr/share/aes-lacrima/version.txt"
 
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/usr/bin/env bash
@@ -115,7 +120,7 @@ else
   OUTPUT_FILE="$OUTPUT_DIR/${APP_NAME}-${TARGET_ARCH}.AppImage"
 fi
 export ARCH="$TARGET_ARCH"
-export VERSION="${VERSION:-${GITHUB_REF_NAME:-dev}}"
+export VERSION="$APP_VERSION"
 export APPIMAGE_EXTRACT_AND_RUN=1
 
 "$APPIMAGETOOL_BIN" --no-appstream "$APPDIR" "$OUTPUT_FILE"
