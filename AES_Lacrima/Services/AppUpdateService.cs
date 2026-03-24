@@ -283,13 +283,6 @@ public partial class AppUpdateService : ObservableObject
                     if (!string.IsNullOrWhiteSpace(explicitVersion))
                         return explicitVersion;
                 }
-
-                foreach (var desktopPath in GetLinuxDesktopMetadataCandidates(appDir))
-                {
-                    var desktopVersion = TryReadDesktopEntryVersion(desktopPath);
-                    if (!string.IsNullOrWhiteSpace(desktopVersion))
-                        return desktopVersion;
-                }
             }
 
             var processPath = Environment.ProcessPath;
@@ -308,28 +301,6 @@ public partial class AppUpdateService : ObservableObject
         {
             Log.Warn("Failed to read current Linux package version metadata", ex);
             return null;
-        }
-
-        return null;
-    }
-
-    private static IEnumerable<string> GetLinuxDesktopMetadataCandidates(string appDir)
-    {
-        yield return Path.Combine(appDir, "aes-lacrima.desktop");
-        yield return Path.Combine(appDir, "usr", "share", "applications", "aes-lacrima.desktop");
-    }
-
-    private static string? TryReadDesktopEntryVersion(string desktopPath)
-    {
-        if (!File.Exists(desktopPath))
-            return null;
-
-        foreach (var line in File.ReadLines(desktopPath))
-        {
-            if (!line.StartsWith("Version=", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            return NormalizeVersionString(line["Version=".Length..]);
         }
 
         return null;

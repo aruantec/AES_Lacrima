@@ -97,7 +97,6 @@ DESKTOP_FILE="$WORK_DIR/aes-lacrima.desktop"
 sed \
   -e 's|__EXEC__|AES_Lacrima|g' \
   -e 's|__ICON__|aes-lacrima|g' \
-  -e "s|__VERSION__|$APP_VERSION|g" \
   "$DESKTOP_TEMPLATE" > "$DESKTOP_FILE"
 
 cp "$DESKTOP_FILE" "$APPDIR/aes-lacrima.desktop"

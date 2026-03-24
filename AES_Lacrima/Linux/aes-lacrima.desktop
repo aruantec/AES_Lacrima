@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Version=__VERSION__
+Version=1.0
 Name=AES Lacrima
 Comment=AES Lacrima media player
 Exec=__EXEC__
