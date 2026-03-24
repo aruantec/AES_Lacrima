@@ -17,7 +17,7 @@ APP_NAME="AES-Lacrima"
 EXECUTABLE_NAME="AES_Lacrima"
 DESKTOP_TEMPLATE="$PROJECT_DIR/Linux/aes-lacrima.desktop"
 ICON_FILE="$PROJECT_DIR/Assets/AES.png"
-APP_VERSION="${VERSION:-${GITHUB_REF_NAME:-dev}}"
+APP_VERSION="${APP_VERSION:-${VERSION:-${GITHUB_REF_NAME:-dev}}}"
 APP_VERSION="${APP_VERSION#v}"
 
 if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then

@@ -17,6 +17,9 @@ sealed class Build : NukeBuild
     [Parameter("Publish as a self-contained app")]
     bool? SelfContained { get; }
 
+    [Parameter("Optional application version for publish/package operations")]
+    string? AppVersion { get; }
+
     AbsolutePath SolutionFile => RootDirectory / "AES_Lacrima.slnx";
     AbsolutePath AppProjectFile => RootDirectory / "AES_Lacrima" / "AES_Lacrima.csproj";
     AbsolutePath AndroidProjectFile => RootDirectory / "AES_Lacrima.Android" / "AES_Lacrima.Android.csproj";
@@ -25,6 +28,11 @@ sealed class Build : NukeBuild
     AbsolutePath CoverageReportDirectory => TestResultsDirectory / "coverage-report";
     AbsolutePath PublishDirectory => ArtifactsDirectory / "publish" / Configuration;
     AbsolutePath TestsProjectFile => RootDirectory / "AES_Tests" / "AES_Tests.csproj";
+
+    string? SanitizedAppVersion =>
+        string.IsNullOrWhiteSpace(AppVersion)
+            ? null
+            : AppVersion.Trim().TrimStart('v', 'V');
 
     Target Clean => _ => _
         .Executes(() =>
@@ -120,6 +128,9 @@ sealed class Build : NukeBuild
 
                 if (SelfContained.HasValue)
                     settings = settings.SetSelfContained(SelfContained.Value);
+
+                if (!string.IsNullOrWhiteSpace(SanitizedAppVersion))
+                    settings = settings.SetProperty("Version", SanitizedAppVersion);
 
                 return settings;
             });
