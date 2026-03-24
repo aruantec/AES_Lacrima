@@ -10,6 +10,7 @@ using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Lacrima.Services;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -350,6 +351,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private YtDlpManager? _ytDlp;
 
     /// <summary>
+    /// Gets or sets the application updater service.
+    /// </summary>
+    [AutoResolve]
+    [ObservableProperty]
+    private AppUpdateService? _appUpdateService;
+
+    /// <summary>
     /// Gets or sets a value indicating whether FFmpeg is currently installed.
     /// </summary>
     [ObservableProperty]
@@ -421,6 +429,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// </summary>
     [ObservableProperty]
     private bool _showBackground;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the application should check for app updates on startup.
+    /// </summary>
+    [ObservableProperty]
+    private bool _checkForAppUpdatesOnStartup = true;
 
     /// <summary>
     /// Gets or sets the path to the current background image.
@@ -668,6 +682,22 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (YtDlp == null) return;
         await YtDlp.UninstallAsync();
         await RefreshYtDlpInfo();
+    }
+
+    /// <summary>
+    /// Checks whether a newer AES Lacrima release is available and opens the update prompt when appropriate.
+    /// </summary>
+    [RelayCommand]
+    private async Task CheckForAppUpdate()
+    {
+        if (AppUpdateService == null)
+            return;
+
+        var release = await AppUpdateService.CheckForUpdatesAsync();
+        if (release != null)
+        {
+            DiLocator.ResolveViewModel<MainWindowViewModel>()?.ShowAppUpdatePrompt(release);
+        }
     }
 
     // Carousel settings (used by CompositionCarouselControl)
@@ -990,6 +1020,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         // application mode (window type)
         AppMode = ReadIntSetting(section, nameof(AppMode), AppMode);
+        CheckForAppUpdatesOnStartup = ReadBoolSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
 
         // Individual spectrum colors (persisted as strings)
         if (ReadStringSetting(section, nameof(SpectrumColor0)) is { } c0) SpectrumColor0 = Color.Parse(c0);
@@ -1059,6 +1090,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         // Persist application mode (window type)
         WriteSetting(section, nameof(AppMode), AppMode);
+        WriteSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
 
         // Persist Carousel settings
         WriteSetting(section, nameof(CarouselSpacing), CarouselSpacing);

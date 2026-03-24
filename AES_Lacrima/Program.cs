@@ -60,6 +60,7 @@ namespace AES_Lacrima
             Directory.CreateDirectory(ApplicationPaths.LogsDirectory);
             Directory.CreateDirectory(ApplicationPaths.SettingsDirectory);
             Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
+            Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
             Directory.CreateDirectory(ApplicationPaths.ShadersDirectory);
             Directory.CreateDirectory(ApplicationPaths.ToolsDirectory);
 
