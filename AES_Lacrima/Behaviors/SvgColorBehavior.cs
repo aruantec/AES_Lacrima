@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Platform;
+using Avalonia.Svg.Skia;
 using Avalonia.Threading;
 using Avalonia.Xaml.Interactivity;
 using log4net;
@@ -148,12 +149,7 @@ namespace AES_Lacrima.Behaviors
             try
             {
                 if (AssociatedObject == null) return;
-                // Common property names used by Svg controls: Path, Source
-                var prop = AssociatedObject.GetType().GetProperty("Path") ?? AssociatedObject.GetType().GetProperty("Source");
-                if (prop != null && prop.PropertyType == typeof(string))
-                {
-                    // No straightforward way to subscribe to arbitrary CLR property changes; require user to bind Source on behavior
-                }
+                // Source updates are driven by the behavior's own Source property.
             }
             catch (Exception ex)
             {
@@ -177,13 +173,6 @@ namespace AES_Lacrima.Behaviors
                 // Capture current values quickly to avoid accessing styled properties on background thread
                 var associated = AssociatedObject;
                 string? effectiveSource = Source;
-                if (string.IsNullOrEmpty(effectiveSource))
-                {
-                    var tmpType = associated.GetType();
-                    var propStr = tmpType.GetProperty("Path") ?? tmpType.GetProperty("Source");
-                    if (propStr != null && propStr.PropertyType == typeof(string))
-                        effectiveSource = propStr.GetValue(associated) as string;
-                }
 
                 if (string.IsNullOrEmpty(effectiveSource)) return;
 
@@ -273,45 +262,12 @@ namespace AES_Lacrima.Behaviors
                         {
                             try
                             {
-                                var controlType = associated.GetType();
-
-                                // Prefer a Stream 'Source' property
-                                var propStream = controlType.GetProperty("Source");
-                                if (propStream != null && propStream.PropertyType == typeof(Stream))
+                                if (TryApplySvg(associated, svgText))
                                 {
-                                    var bytes = Encoding.UTF8.GetBytes(svgText);
-                                    var ms = new MemoryStream(bytes);
-                                    propStream.SetValue(associated, ms);
                                     return;
                                 }
 
-                                // If control accepts a string Source/Path, write to temporary file and set path
-                                var propString = controlType.GetProperty("Path") ?? controlType.GetProperty("Source");
-                                if (propString != null && propString.PropertyType == typeof(string))
-                                {
-                                    TryRemoveTemp();
-                                    var temp = Path.Combine(Path.GetTempPath(), $"aes_svg_{Guid.NewGuid():N}.svg");
-                                    File.WriteAllText(temp, svgText, Encoding.UTF8);
-                                    _lastTempPath = temp;
-                                    propString.SetValue(associated, temp);
-                                    return;
-                                }
-
-                                // Fallback: try method Load(Stream)
-                                var m = controlType.GetMethod("Load") ?? controlType.GetMethod("SetSource");
-                                if (m != null)
-                                {
-                                    using var ms2 = new MemoryStream(Encoding.UTF8.GetBytes(svgText));
-                                    m.Invoke(associated, new object[] { ms2 });
-                                    return;
-                                }
-
-                                // Last resort: set property named Svg or SvgSource
-                                var p2 = controlType.GetProperty("Svg") ?? controlType.GetProperty("SvgSource");
-                                if (p2 != null && p2.PropertyType == typeof(string))
-                                {
-                                    p2.SetValue(associated, svgText);
-                                }
+                                Log.Warn($"SvgColorBehavior: unsupported control type '{associated.GetType().FullName}'. Supported target: Avalonia.Controls.Image.");
                             }
                             catch (Exception ex)
                             {
@@ -330,6 +286,25 @@ namespace AES_Lacrima.Behaviors
             catch (Exception ex)
             {
                 Log.Error($"SvgColorBehavior: apply failed: {ex}");
+            }
+        }
+
+        private bool TryApplySvg(Control control, string svgText)
+        {
+            switch (control)
+            {
+                case Image image:
+                    TryRemoveTemp();
+                    var temp = Path.Combine(Path.GetTempPath(), $"aes_svg_{Guid.NewGuid():N}.svg");
+                    File.WriteAllText(temp, svgText, Encoding.UTF8);
+                    _lastTempPath = temp;
+                    image.Source = new SvgImage
+                    {
+                        Source = SvgSource.Load(temp, baseUri: null)
+                    };
+                    return true;
+                default:
+                    return false;
             }
         }
 
