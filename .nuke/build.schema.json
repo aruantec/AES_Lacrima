@@ -104,8 +104,16 @@
   "allOf": [
     {
       "properties": {
+        "AppVersion": {
+          "type": "string",
+          "description": "Optional application version for publish/package operations"
+        },
         "Configuration": {
           "type": "string"
+        },
+        "PublishAot": {
+          "type": "boolean",
+          "description": "Publish with Native AOT enabled"
         },
         "Runtime": {
           "type": "string",

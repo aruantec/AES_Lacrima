@@ -7,6 +7,13 @@
     <LangVersion>preview</LangVersion>
     <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
+  <PropertyGroup>
+    <EnableWindowsTaskbarSupport Condition="'$(RuntimeIdentifier)' != '' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(RuntimeIdentifier)', '^win'))">true</EnableWindowsTaskbarSupport>
+    <EnableWindowsTaskbarSupport Condition="'$(EnableWindowsTaskbarSupport)' == '' and '$(OS)' == 'Windows_NT'">true</EnableWindowsTaskbarSupport>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(EnableWindowsTaskbarSupport)' == 'true'">
+    <DefineConstants>$(DefineConstants);WINDOWS_TASKBAR</DefineConstants>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
@@ -38,6 +45,24 @@
   <ItemGroup>
     <ProjectReference Include="..\AES_Core\AES_Core.csproj" />
     <ProjectReference Include="..\LibMPVSharp\LibMPVSharp.csproj" />
-    <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <ItemGroup Condition="'$(PublishAot)' != 'true'">
+    <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PublishAot)' == 'true'">
+    <Analyzer Include="..\AES_Di.Generator\bin\$(Configuration)\netstandard2.0\AES_Di.Generator.dll" />
+  </ItemGroup>
+
+  <Target Name="BuildAesDiGeneratorForAot"
+          BeforeTargets="CoreCompile"
+          Condition="'$(PublishAot)' == 'true'">
+    <MSBuild Projects="..\AES_Di.Generator\AES_Di.Generator.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)"
+             RemoveProperties="PublishAot;PublishTrimmed;RuntimeIdentifier;SelfContained" />
+  </Target>
 </Project>

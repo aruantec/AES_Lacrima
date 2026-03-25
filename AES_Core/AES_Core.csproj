@@ -2,7 +2,7 @@
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
-        <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+        <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
         <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
         <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
@@ -30,7 +30,22 @@
         <PackageReference Include="log4net" Version="3.2.0" />
     </ItemGroup>
 
-    <ItemGroup>
-      <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
+    <ItemGroup Condition="'$(PublishAot)' != 'true'">
+      <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj"
+                        OutputItemType="Analyzer"
+                        ReferenceOutputAssembly="false"/>
     </ItemGroup>
+
+    <ItemGroup Condition="'$(PublishAot)' == 'true'">
+      <Analyzer Include="..\AES_Di.Generator\bin\$(Configuration)\netstandard2.0\AES_Di.Generator.dll" />
+    </ItemGroup>
+
+    <Target Name="BuildAesDiGeneratorForAot"
+            BeforeTargets="CoreCompile"
+            Condition="'$(PublishAot)' == 'true'">
+        <MSBuild Projects="..\AES_Di.Generator\AES_Di.Generator.csproj"
+                 Targets="Build"
+                 Properties="Configuration=$(Configuration)"
+                 RemoveProperties="PublishAot;PublishTrimmed;RuntimeIdentifier;SelfContained" />
+    </Target>
 </Project>

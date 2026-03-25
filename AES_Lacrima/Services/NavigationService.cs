@@ -78,6 +78,12 @@ namespace AES_Lacrima.Services
             ShowSettingsOverlay = !ShowSettingsOverlay;
         }
 
+        [RelayCommand]
+        private void CloseSettingsOverlay()
+        {
+            ShowSettingsOverlay = false;
+        }
+
         /// <summary>
         /// Shows the settings overlay and selects the specified tab.
         /// </summary>
@@ -180,7 +186,6 @@ namespace AES_Lacrima.Services
         {
             return t == typeof(MusicViewModel) ||
                    t == typeof(VideoViewModel) ||
-                   t.GetInterfaces().Any(i => i.Name.EndsWith("IMusicViewModel") || i.Name.EndsWith("IVideoViewModel")) ||
                    t.Name.EndsWith("MusicViewModel") || t.Name.EndsWith("VideoViewModel");
         }
     }

@@ -107,6 +107,7 @@ public class TaskbarButton
     public THUMBBUTTONFLAGS Flags { get; set; } = THUMBBUTTONFLAGS.Enabled;
 }
 
+#if WINDOWS_TASKBAR
 [ComImport]
 [Guid("56FDF344-FD6D-11d0-958A-006097C9A090")]
 [ClassInterface(ClassInterfaceType.None)]
@@ -521,3 +522,30 @@ public static class TaskbarProgressHelper
         _prevWndProc = SetWindowLongPtr(hwnd, GWL_WNDPROC, Marshal.GetFunctionPointerForDelegate(wndProc));
     }
 }
+#else
+/// <summary>
+/// Helper for managing taskbar progress integration.
+/// Non-Windows builds provide a no-op implementation so desktop Native AOT
+/// can compile without COM interop.
+/// </summary>
+public static class TaskbarProgressHelper
+{
+    public static void SetProgressValue(double current, double total) { }
+
+    public static void SetProgressState(TaskbarProgressBarState state) { }
+
+    public static void SetThumbnailButtons(TaskbarButton[] buttons) { }
+
+    public static void UpdateThumbnailButtons(TaskbarButton[] buttons) { }
+
+    public static IntPtr CreateHIconFromGeometry(Geometry geometry, Color color, int size = 32) => IntPtr.Zero;
+
+    public static IntPtr CreateHIconFromCharacter(string character, Color color, string fontFamily = "Segoe MDL2 Assets", int size = 64) => IntPtr.Zero;
+
+    public static IntPtr CreateHIconFromBitmap(Bitmap bitmap) => IntPtr.Zero;
+
+    public static bool DestroyIcon(IntPtr hIcon) => false;
+
+    public static void HookWindow(Avalonia.Controls.Window window, Action<TaskbarButtonId> onButtonClick) { }
+}
+#endif

@@ -173,24 +173,7 @@ namespace AES_Lacrima.ViewModels
             if (primary == null)
                 return;
 
-            // Determine scaling based on DPI (screen scaling factor) and physical DPI (pixel density).
-            // When the UI is scaled for a high‑DPI display, the app should start at a usable size.
             var dpiScale = primary.Scaling;
-
-            // PixelDensity is obsolete in Avalonia, but can provide an additional indicator for high-DPI panels.
-            // Use reflection to avoid compile-time dependence on an obsolete property.
-            var pixelDensityScale = 0.0;
-            var pdProp = primary.GetType().GetProperty("PixelDensity");
-            if (pdProp?.GetValue(primary) is double pd)
-            {
-                pixelDensityScale = pd / 96.0;
-            }
-            else if (pdProp?.GetValue(primary) is float pf)
-            {
-                pixelDensityScale = pf / 96.0;
-            }
-
-            dpiScale = Math.Max(dpiScale, pixelDensityScale);
 
             // Cap the scale factor to avoid extremely large UI on high-DPI screens.
             // (Users can still adjust the slider manually if they want bigger UI.)

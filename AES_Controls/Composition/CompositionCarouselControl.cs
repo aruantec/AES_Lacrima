@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Linq.Expressions;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
@@ -17,6 +16,7 @@ using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
 using log4net;
 using SkiaSharp;
+using AES_Controls.Player.Models;
 
 namespace AES_Controls.Composition
 {
@@ -48,7 +48,6 @@ namespace AES_Controls.Composition
         private HashSet<INotifyPropertyChanged> _subscribedItems = new();
         private readonly LinkedList<object> _imageCacheLru = new();
         private readonly Dictionary<object, LinkedListNode<object>> _imageCacheNodes = new();
-        private readonly Dictionary<(Type Type, string PropertyName), Func<object, object?>?> _propertyGetterCache = new();
         private readonly Dictionary<object, int> _itemIndices = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<object, object> _itemImageSourceKeys = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<object, SharedImageEntry> _sharedImageCache = new();
@@ -245,8 +244,8 @@ namespace AES_Controls.Composition
 
         /// <summary>
         /// Optional property name on items which contains a file path to load
-        /// the image from. When set the control will read this property via
-        /// reflection during virtualization.
+        /// the image from. Supported names are resolved explicitly for known
+        /// item types to remain trim- and AOT-safe.
         /// </summary>
         public string? ImageFileNameProperty
         {
@@ -258,6 +257,7 @@ namespace AES_Controls.Composition
         /// Optional property name on items which contains an Avalonia Bitmap
         /// that can be converted into a Skia image. The control will attempt
         /// to read this before falling back to <see cref="ImageFileNameProperty"/>.
+        /// Supported names are resolved explicitly for known item types.
         /// </summary>
         public string? ImageBitmapProperty
         {
@@ -433,67 +433,45 @@ namespace AES_Controls.Composition
 
         #region Private Methods
 
-        private static Func<object, object?>? CreatePropertyGetter(Type type, string propertyName)
-        {
-            var property = type.GetProperty(propertyName);
-            if (property == null || !property.CanRead || property.GetIndexParameters().Length != 0)
-                return null;
-
-            var instance = Expression.Parameter(typeof(object), "instance");
-            var typedInstance = Expression.Convert(instance, type);
-            var propertyAccess = Expression.Property(typedInstance, property);
-            var boxedValue = Expression.Convert(propertyAccess, typeof(object));
-            return Expression.Lambda<Func<object, object?>>(boxedValue, instance).Compile();
-        }
-
-        private Func<object, object?>? GetPropertyGetter(Type type, string propertyName)
-        {
-            var key = (type, propertyName);
-            if (_propertyGetterCache.TryGetValue(key, out var getter))
-                return getter;
-
-            getter = CreatePropertyGetter(type, propertyName);
-            _propertyGetterCache[key] = getter;
-            return getter;
-        }
-
         private Bitmap? GetBitmapValue(object item, string? propertyName)
         {
-            if (string.IsNullOrWhiteSpace(propertyName))
-                return null;
-
-            return GetPropertyGetter(item.GetType(), propertyName)?.Invoke(item) as Bitmap;
+            return item switch
+            {
+                MediaItem mediaItem when string.Equals(propertyName, nameof(MediaItem.CoverBitmap), StringComparison.Ordinal) => mediaItem.CoverBitmap,
+                _ => null
+            };
         }
 
         private string? GetFileNameValue(object item, string? propertyName)
         {
-            if (string.IsNullOrWhiteSpace(propertyName))
-                return null;
-
-            return GetPropertyGetter(item.GetType(), propertyName)?.Invoke(item) as string;
+            return item switch
+            {
+                MediaItem mediaItem when string.Equals(propertyName, nameof(MediaItem.FileName), StringComparison.Ordinal) => mediaItem.FileName,
+                _ => null
+            };
         }
 
         private bool TryGetItemBool(object? item, string propertyName, out bool value)
         {
-            value = false;
-            if (item == null)
-                return false;
-
-            if (GetPropertyGetter(item.GetType(), propertyName)?.Invoke(item) is bool boolValue)
+            switch (item)
             {
-                value = boolValue;
-                return true;
+                case MediaItem mediaItem when string.Equals(propertyName, nameof(MediaItem.CoverFound), StringComparison.Ordinal):
+                    value = mediaItem.CoverFound;
+                    return true;
+                default:
+                    value = false;
+                    return false;
             }
-
-            return false;
         }
 
         private ICommand? GetItemCommand(object? item, string propertyName)
         {
-            if (item == null)
-                return null;
-
-            return GetPropertyGetter(item.GetType(), propertyName)?.Invoke(item) as ICommand;
+            return item switch
+            {
+                MediaItem mediaItem when string.Equals(propertyName, nameof(MediaItem.SaveCoverBitmapCommand), StringComparison.Ordinal) => mediaItem.SaveCoverBitmapCommand,
+                MediaItem mediaItem when string.Equals(propertyName, nameof(MediaItem.CancelCommand), StringComparison.Ordinal) => mediaItem.CancelCommand,
+                _ => null
+            };
         }
 
         private object? GetSnapshotItem(int index) =>

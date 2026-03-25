@@ -4,8 +4,8 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Rendering.Composition;
 using SkiaSharp;
-using System.Numerics;
 using System.Windows.Input;
+using System.Numerics;
 
 namespace AES_Controls.Composition
 {
@@ -20,28 +20,11 @@ namespace AES_Controls.Composition
 
         private SKColor ConvertBrushToSkColor(IBrush? brush)
         {
-            try
-            {
-                if (brush is SolidColorBrush scb)
-                {
-                    var c = scb.Color;
-                    return new SKColor(c.R, c.G, c.B, c.A);
-                }
-                // Some brush implementations (immutable variants) may not be SolidColorBrush
-                // but still expose a Color property. Try to read it via reflection as a fallback.
-                if (brush != null)
-                {
-                    var t = brush.GetType();
-                    var prop = t.GetProperty("Color");
-                    if (prop != null && prop.PropertyType == typeof(Avalonia.Media.Color))
-                    {
-                        var val = (Avalonia.Media.Color)prop.GetValue(brush)!;
-                        return new SKColor(val.R, val.G, val.B, val.A);
-                    }
-                }
-            }
-            catch { }
-            return SKColors.Transparent;
+            if (brush is not ISolidColorBrush solidColorBrush)
+                return SKColors.Transparent;
+
+            var c = solidColorBrush.Color;
+            return new SKColor(c.R, c.G, c.B, c.A);
         }
 
         

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using AES_Code.Models;
 
 namespace AES_Controls.Helpers;
@@ -80,7 +81,7 @@ public static class BinaryMetadataHelper
         try
         {
             using var fs = File.Create(cachePath);
-            JsonSerializer.Serialize(fs, metadata);
+            JsonSerializer.Serialize(fs, metadata, BinaryMetadataJsonContext.Default.CustomMetadata);
         }
         catch (Exception ex)
         {
@@ -100,7 +101,7 @@ public static class BinaryMetadataHelper
         try
         {
             using var fs = File.OpenRead(cachePath);
-            return JsonSerializer.Deserialize<CustomMetadata>(fs);
+            return JsonSerializer.Deserialize(fs, BinaryMetadataJsonContext.Default.CustomMetadata);
         }
         catch (JsonException ex)
         {
@@ -120,3 +121,9 @@ public static class BinaryMetadataHelper
         return BitConverter.ToString(hash).Replace("-", "").ToLower();
     }
 }
+
+[JsonSourceGenerationOptions(WriteIndented = false)]
+[JsonSerializable(typeof(CustomMetadata))]
+[JsonSerializable(typeof(ImageData))]
+[JsonSerializable(typeof(VideoData))]
+internal partial class BinaryMetadataJsonContext : JsonSerializerContext;

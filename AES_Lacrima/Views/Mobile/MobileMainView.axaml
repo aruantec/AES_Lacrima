@@ -28,8 +28,7 @@
             <behaviors:CloseOnClickOutsideBehavior
                 TargetControl="{Binding #SettingsOverlay}"
                 IsEnabled="{Binding NavigationService.ShowSettingsOverlay}"
-                PropertyOwner="{Binding NavigationService}"
-                PropertyName="ShowSettingsOverlay" />
+                CloseCommand="{Binding NavigationService.CloseSettingsOverlayCommand}" />
         </Interaction.Behaviors>
 
         <Grid.Styles>

@@ -12,6 +12,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using log4net;
 
 namespace AES_Controls.Player;
@@ -21,7 +22,7 @@ namespace AES_Controls.Player;
 /// observable properties for UI binding (position, duration, volume, etc.),
 /// waveform and spectrum data, and helper methods for loading and managing media.
 /// </summary>
-public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyPropertyChanged, IDisposable
+public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyPropertyChanged, IDisposable
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(AudioPlayer));
 
@@ -98,11 +99,6 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
     private int _pendingSpectrumVersion;
     private int _spectrumUiDispatchPending;
     private const int WaveformCacheVersion = 1;
-    private static readonly JsonSerializerOptions WaveformCacheJsonOptions = new()
-    {
-        WriteIndented = false
-    };
-
     /// <summary>
     /// True when a programmatic seek operation is in progress.
     /// </summary>
@@ -539,7 +535,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
         {
             if (!File.Exists(cachePath)) return null;
             var json = File.ReadAllText(cachePath);
-            var entry = JsonSerializer.Deserialize<WaveformCacheEntry>(json, WaveformCacheJsonOptions);
+            var entry = JsonSerializer.Deserialize(json, WaveformCacheJsonContext.Default.WaveformCacheEntry);
             if (entry == null) return null;
             if (entry.Version != WaveformCacheVersion) return null;
             if (entry.Buckets != buckets) return null;
@@ -561,7 +557,7 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             var dir = Path.GetDirectoryName(cachePath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             entry.UpdatedUtc = DateTime.UtcNow;
-            var json = JsonSerializer.Serialize(entry, WaveformCacheJsonOptions);
+            var json = JsonSerializer.Serialize(entry, WaveformCacheJsonContext.Default.WaveformCacheEntry);
             var tmp = cachePath + ".tmp";
             File.WriteAllText(tmp, json);
             File.Move(tmp, cachePath, true);
@@ -571,6 +567,10 @@ public sealed class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyProper
             Log.Warn("Failed to save waveform cache", ex);
         }
     }
+
+    [JsonSourceGenerationOptions(WriteIndented = false)]
+    [JsonSerializable(typeof(WaveformCacheEntry))]
+    private partial class WaveformCacheJsonContext : JsonSerializerContext;
 
     private static float[] NormalizeWaveform(float[] raw, float globalMax)
     {

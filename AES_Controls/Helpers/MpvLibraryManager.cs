@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using log4net;
 
@@ -70,7 +71,8 @@ public partial class MpvLibraryManager : ObservableObject
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_cachePath)!);
-            var json = JsonSerializer.Serialize(_cache);
+            var cache = _cache ?? new MpvCacheEntry();
+            var json = JsonSerializer.Serialize(cache, MpvLibraryJsonContext.Default.MpvCacheEntry);
             File.WriteAllText(_cachePath, json);
         }
         catch (Exception ex) { Log.Warn("Failed to save mpv cache to disk", ex); }
@@ -88,7 +90,7 @@ public partial class MpvLibraryManager : ObservableObject
         try
         {
             var json = File.ReadAllText(_cachePath);
-            _cache = JsonSerializer.Deserialize<MpvCacheEntry>(json) ?? new MpvCacheEntry();
+            _cache = JsonSerializer.Deserialize(json, MpvLibraryJsonContext.Default.MpvCacheEntry) ?? new MpvCacheEntry();
         }
         catch (Exception ex) 
         { 
@@ -96,6 +98,10 @@ public partial class MpvLibraryManager : ObservableObject
             _cache = new MpvCacheEntry();
         }
     }
+
+    [JsonSourceGenerationOptions(WriteIndented = false)]
+    [JsonSerializable(typeof(MpvCacheEntry))]
+    private partial class MpvLibraryJsonContext : JsonSerializerContext;
 
     /// <summary>
     /// Event raised when libmpv usage should be terminated (e.g., before uninstallation).
