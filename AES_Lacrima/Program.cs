@@ -1,13 +1,12 @@
 using Avalonia;
-using Avalonia.X11;
 using AES_Core.IO;
 using log4net;
 using log4net.Appender;
 using log4net.Config;
 using log4net.Layout;
+using log4net.Repository;
 using System;
 using System.IO;
-using System.Linq;
 
 namespace AES_Lacrima
 {
@@ -95,13 +94,15 @@ namespace AES_Lacrima
             };
             fileAppender.ActivateOptions();
 
-            // Use the programmatic appender as the basic configuration
-            BasicConfigurator.Configure(fileAppender);
+            ILoggerRepository loggingRepository = LogManager.GetRepository(typeof(Program).Assembly);
 
-            // If a log4net.config file is present, allow it to override/watch settings
+            // Use the programmatic appender as the basic configuration
+            BasicConfigurator.Configure(loggingRepository, fileAppender);
+
+            // If a log4net.config file is present, allow it to override the defaults.
             if (File.Exists("log4net.config"))
             {
-                XmlConfigurator.ConfigureAndWatch(new FileInfo("log4net.config"));
+                XmlConfigurator.Configure(loggingRepository, new FileInfo("log4net.config"));
             }
 
             // Start the Avalonia application with the classic desktop lifetime

@@ -33,6 +33,11 @@
     <NoWarn>$(NoWarn);IL2104;IL3000;IL3053</NoWarn>
   </PropertyGroup>
 
+  <ItemGroup Condition="'$(PublishAot)' == 'true'">
+    <TrimmerRootAssembly Include="log4net" />
+    <TrimmerRootAssembly Include="System.Configuration.ConfigurationManager" />
+  </ItemGroup>
+
   <ItemGroup>
 	<AvaloniaResource Include="Assets\**" />
   </ItemGroup>
