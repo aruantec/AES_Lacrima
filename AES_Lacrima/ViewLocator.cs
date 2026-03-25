@@ -1,5 +1,10 @@
 using System;
-using AES_Lacrima.ViewModels;
+using System.Collections.Generic;
+using AES_Lacrima.Mini.ViewModels;
+using AES_Lacrima.Mini.Views;
+using AES_Lacrima.ViewModels.Prompts;
+using AES_Lacrima.Views;
+using AES_Lacrima.Views.Prompts;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 
@@ -8,13 +13,27 @@ namespace AES_Lacrima
     /// <summary>
     /// Simple view locator implementing <see cref="IDataTemplate"/>.
     ///
-    /// Maps a view-model instance to a view by replacing the suffix
-    /// "ViewModel" with "View" in the view-model's full type name and
-    /// attempting to instantiate the corresponding control type via
-    /// <see cref="Activator.CreateInstance(Type)"/>.
+    /// Maps known view-model types to pre-registered view factories so
+    /// view activation stays explicit and Native AOT-friendly.
     /// </summary>
     public class ViewLocator : IDataTemplate
     {
+        private static readonly IReadOnlyDictionary<Type, Func<Control>> ViewFactories =
+            new Dictionary<Type, Func<Control>>
+            {
+                [typeof(AppUpdatePromptViewModel)] = static () => new AppUpdatePromptView(),
+                [typeof(ComponentSetupPromptViewModel)] = static () => new ComponentSetupPromptView(),
+                [typeof(RestartPromptViewModel)] = static () => new RestartPromptView(),
+                [typeof(ViewModels.EmulationViewModel)] = static () => new EmulationView(),
+                [typeof(ViewModels.MainContentViewModel)] = static () => new MainContentView(),
+                [typeof(ViewModels.MainWindowViewModel)] = static () => new MainWindow(),
+                [typeof(MiniEqualizerViewModel)] = static () => new MiniEqualizerView(),
+                [typeof(MinViewModel)] = static () => new MinView(),
+                [typeof(ViewModels.MusicViewModel)] = static () => new MusicView(),
+                [typeof(ViewModels.VideoViewModel)] = static () => new VideoView(),
+                [typeof(VisualizerViewModel)] = static () => new VisualizerView()
+            };
+
         /// <summary>
         /// Build a view for the supplied view-model parameter.
         /// </summary>
@@ -28,14 +47,14 @@ namespace AES_Lacrima
             if (param is null)
                 return null;
 
-            var name = param.GetType().FullName!.Replace("ViewModel", "View", StringComparison.Ordinal);
-            // Attempt to find the view type by name and instantiate it.
-            // If the type cannot be found, return a TextBlock with an error message.
-            if (Type.GetType(name) is { } type)
+            if (ViewFactories.TryGetValue(param.GetType(), out var factory))
             {
-                return (Control)Activator.CreateInstance(type)!;
+                return factory();
             }
-            return new TextBlock { Text = "Not Found: " + name };
+
+            var viewName = param.GetType().FullName?.Replace("ViewModel", "View", StringComparison.Ordinal)
+                           ?? param.GetType().Name;
+            return new TextBlock { Text = "Not Found: " + viewName };
         }
 
         /// <summary>
@@ -46,7 +65,7 @@ namespace AES_Lacrima
         /// <returns><c>true</c> when <paramref name="data"/> is a <see cref="ViewModelBase"/>; otherwise <c>false</c>.</returns>
         public bool Match(object? data)
         {
-            return data is ViewModelBase;
+            return data is ViewModels.ViewModelBase;
         }
     }
 }
