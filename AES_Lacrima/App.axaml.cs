@@ -13,6 +13,7 @@ using Avalonia.Data.Core.Plugins;
 using Avalonia.Markup.Xaml;
 using log4net;
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -141,6 +142,7 @@ namespace AES_Lacrima
             }
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "This only removes Avalonia's DataAnnotationsValidationPlugin instances and does not depend on trimmed property accessor discovery.")]
         private void DisableAvaloniaDataAnnotationValidation()
         {
             // Get an array of plugins to remove

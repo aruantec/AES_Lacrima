@@ -4,7 +4,6 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 using Avalonia.Xaml.Interactivity;
-using System.Reflection;
 
 namespace AES_Lacrima.Behaviors;
 
@@ -60,37 +59,6 @@ public class CloseOnClickOutsideBehavior : Behavior<InputElement>
     {
         get => GetValue(CloseCommandProperty);
         set => SetValue(CloseCommandProperty, value);
-    }
-
-    /// <summary>
-    /// Defines the <see cref="PropertyOwner"/> property.
-    /// </summary>
-    public static readonly StyledProperty<object?> PropertyOwnerProperty =
-        AvaloniaProperty.Register<CloseOnClickOutsideBehavior, object?>(nameof(PropertyOwner));
-
-    /// <summary>
-    /// Gets or sets the object that owns the property to be set when clicking outside.
-    /// </summary>
-    public object? PropertyOwner
-    {
-        get => GetValue(PropertyOwnerProperty);
-        set => SetValue(PropertyOwnerProperty, value);
-    }
-
-    /// <summary>
-    /// Defines the <see cref="PropertyName"/> property.
-    /// </summary>
-    public static readonly StyledProperty<string?> PropertyNameProperty =
-        AvaloniaProperty.Register<CloseOnClickOutsideBehavior, string?>(nameof(PropertyName));
-
-    /// <summary>
-    /// Gets or sets the name of the boolean property to set to false when clicking outside.
-    /// For example, "ShowSettingsOverlay" or "IsOpen".
-    /// </summary>
-    public string? PropertyName
-    {
-        get => GetValue(PropertyNameProperty);
-        set => SetValue(PropertyNameProperty, value);
     }
 
     protected override void OnAttached()
@@ -159,23 +127,10 @@ public class CloseOnClickOutsideBehavior : Behavior<InputElement>
             point.X > TargetControl.Bounds.Width ||
             point.Y > TargetControl.Bounds.Height)
         {
-            // Execute close command if provided
             if (CloseCommand?.CanExecute(null) == true)
             {
                 CloseCommand.Execute(null);
                 e.Handled = true;
-                return;
-            }
-
-            // Otherwise, try to set the property to false using reflection
-            if (PropertyOwner != null && !string.IsNullOrEmpty(PropertyName))
-            {
-                var propertyInfo = PropertyOwner.GetType().GetProperty(PropertyName, BindingFlags.Public | BindingFlags.Instance);
-                if (propertyInfo != null && propertyInfo.PropertyType == typeof(bool) && propertyInfo.CanWrite)
-                {
-                    propertyInfo.SetValue(PropertyOwner, false);
-                    e.Handled = true;
-                }
             }
         }
     }

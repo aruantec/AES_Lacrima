@@ -3,6 +3,7 @@ set -euo pipefail
 
 PUBLISH_DIR="${1:-$(pwd)}"
 PUBLISH_DIR="$(realpath "$PUBLISH_DIR")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # We detect if we are running inside a snap (like VS Code)
 # and try to use the real home path for installation.
@@ -12,6 +13,14 @@ REAL_HOME=$(getent passwd "$USER" | cut -d: -f6)
 APP_BIN="$PUBLISH_DIR/AES_Lacrima"
 ICON_FILE="$PUBLISH_DIR/Assets/AES.png"
 TEMPLATE_FILE="$PUBLISH_DIR/Linux/aes-lacrima.desktop"
+
+if [[ ! -f "$ICON_FILE" ]]; then
+  ICON_FILE="$SCRIPT_DIR/../Assets/AES.png"
+fi
+
+if [[ ! -f "$TEMPLATE_FILE" ]]; then
+  TEMPLATE_FILE="$SCRIPT_DIR/aes-lacrima.desktop"
+fi
 
 # Standard paths using real home to bypass snap isolation for the installer
 DESKTOP_DIR="$REAL_HOME/.local/share/applications"
@@ -23,12 +32,6 @@ ICON_64_DIR="$ICON_BASE_DIR/64x64/apps"
 ICON_48_DIR="$ICON_BASE_DIR/48x48/apps"
 ICON_32_DIR="$ICON_BASE_DIR/32x32/apps"
 ICON_NAME="aes-lacrima"
-
-# Use absolute icon path as a fallback if the theme doesn't work correctly
-FALLBACK_ICON_DIR="$REAL_HOME/.local/share/aes-lacrima"
-mkdir -p "$FALLBACK_ICON_DIR"
-cp -f "$ICON_FILE" "$FALLBACK_ICON_DIR/icon.png"
-ICON_PATH_ABSOLUTE="$FALLBACK_ICON_DIR/icon.png"
 
 # Determine localized desktop directory
 USER_DESKTOP_DIR=$(xdg-user-dir DESKTOP 2>/dev/null || echo "$REAL_HOME/Desktop")
@@ -51,6 +54,12 @@ if [[ ! -f "$TEMPLATE_FILE" ]]; then
   echo "Desktop template not found: $TEMPLATE_FILE" >&2
   exit 1
 fi
+
+# Use absolute icon path as a fallback if the theme doesn't work correctly.
+FALLBACK_ICON_DIR="$REAL_HOME/.local/share/aes-lacrima"
+mkdir -p "$FALLBACK_ICON_DIR"
+cp -f "$ICON_FILE" "$FALLBACK_ICON_DIR/icon.png"
+ICON_PATH_ABSOLUTE="$FALLBACK_ICON_DIR/icon.png"
 
 mkdir -p "$DESKTOP_DIR"
 mkdir -p "$ICON_256_DIR" "$ICON_128_DIR" "$ICON_64_DIR" "$ICON_48_DIR" "$ICON_32_DIR"

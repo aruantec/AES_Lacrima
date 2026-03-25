@@ -5,6 +5,7 @@ using SharpCompress.Archives;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using log4net;
 
 namespace AES_Controls.Helpers;
@@ -312,7 +313,8 @@ public partial class YtDlpManager : ObservableObject
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_cachePath)!);
-            var json = JsonSerializer.Serialize(_cache);
+            var cache = _cache ?? new YtDlpCacheEntry();
+            var json = JsonSerializer.Serialize(cache, YtDlpJsonContext.Default.YtDlpCacheEntry);
             File.WriteAllText(_cachePath, json);
         }
         catch (Exception ex) { Log.Warn("Failed to save yt-dlp cache to disk", ex); }
@@ -330,7 +332,7 @@ public partial class YtDlpManager : ObservableObject
         try
         {
             var json = File.ReadAllText(_cachePath);
-            _cache = JsonSerializer.Deserialize<YtDlpCacheEntry>(json) ?? new YtDlpCacheEntry();
+            _cache = JsonSerializer.Deserialize(json, YtDlpJsonContext.Default.YtDlpCacheEntry) ?? new YtDlpCacheEntry();
         }
         catch (Exception ex) 
         { 
@@ -338,6 +340,10 @@ public partial class YtDlpManager : ObservableObject
             _cache = new YtDlpCacheEntry();
         }
     }
+
+    [JsonSourceGenerationOptions(WriteIndented = false)]
+    [JsonSerializable(typeof(YtDlpCacheEntry))]
+    private partial class YtDlpJsonContext : JsonSerializerContext;
 
     /// <summary>
     /// Forces an update to the latest version of yt-dlp.

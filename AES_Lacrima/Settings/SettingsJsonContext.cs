@@ -1,6 +1,7 @@
 ﻿using Avalonia.Layout;
 using AES_Controls.Player.Models;
 using System.Collections.Generic;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace AES_Lacrima.Settings
@@ -18,6 +19,8 @@ namespace AES_Lacrima.Settings
     [JsonSerializable(typeof(FolderMediaItem))]
     // Equalizer band model
     [JsonSerializable(typeof(BandModel))]
+    // Dynamic settings tree root
+    [JsonSerializable(typeof(JsonObject))]
     // Collections used when saving/loading view-model lists
     [JsonSerializable(typeof(List<MediaItem>))]
     [JsonSerializable(typeof(List<FolderMediaItem>))]

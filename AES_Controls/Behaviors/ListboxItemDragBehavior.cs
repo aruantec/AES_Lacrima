@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -9,6 +10,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Avalonia.Xaml.Interactivity;
+using AES_Controls.Player.Models;
 using System.Collections;
 using System.Collections.Specialized;
 using System.Diagnostics;
@@ -1066,55 +1068,13 @@ namespace AES_Controls.Behaviors
             var itemsSource = AssociatedObject.ItemsSource;
             if (itemsSource is IList list)
             {
-                // Use Move method if supported for contiguous blocks to preserve notifications
-                var listType = list.GetType();
-                var moveMethod = listType.GetMethod("Move", new[] { typeof(int), typeof(int) });
-
                 int start = fromIndices.First();
                 int count = fromIndices.Count;
                 bool contiguous = (fromIndices.Last() - start + 1) == count;
 
-                if (moveMethod != null && contiguous)
+                if (contiguous && TryMoveContiguousBlock(list, start, count, toIndex))
                 {
-                    // Compute safe target start such that block fits in list
-                    int adjustedTarget = Math.Clamp(toIndex, 0, Math.Max(0, list.Count - count));
-
-                    if (adjustedTarget != start)
-                    {
-                        // Moving block downwards (towards larger indices)
-                        if (adjustedTarget > start)
-                        {
-                            // For k in start+count .. adjustedTarget+count-1: move element at k to k-count
-                            for (int k = start + count; k <= adjustedTarget + count - 1; k++)
-                            {
-                                try { moveMethod.Invoke(list, new object[] { k, k - count }); } catch (Exception ex) { Log.Error("Error during downward block move", ex); }
-                            }
-                        }
-                        else // moving upwards
-                        {
-                            // For k in start-1 down to adjustedTarget: move element at k to k+count
-                            for (int k = start - 1; k >= adjustedTarget; k--)
-                            {
-                                try { moveMethod.Invoke(list, [k, k + count]); } catch (Exception ex) { Log.Error("Error during upward block move", ex); }
-                            }
-                        }
-                    }
-
-                    // Restore selection by re-selecting the preserved objects (if present)
-                    try
-                    {
-                        if (AssociatedObject.SelectedItems is { } selList2)
-                        {
-                            selList2.Clear();
-                            foreach (var o in preservedSelection)
-                            {
-                                try { selList2.Add(o); } catch (Exception ex) { Log.Error("Error restoring item to selection after block move", ex); }
-                            }
-                        }
-                    }
-                    catch (Exception ex) { Log.Error("Error restoring selection after block move", ex); }
-
-                    // Ensure transforms are cleared after the collection update/layout stabilizes
+                    RestoreSelection(preservedSelection, "block move");
                     Dispatcher.UIThread.Post(() => StopAllAnimationsAndResetTransforms(), DispatcherPriority.Background);
                     return;
                 }
@@ -1133,19 +1093,7 @@ namespace AES_Controls.Behaviors
                 for (int i = 0; i < movedItems.Count; i++)
                     list.Insert(adjustedToIndex + i, movedItems[i]);
 
-                // Restore selection by re-selecting the preserved objects (if present)
-                try
-                {
-                    if (AssociatedObject.SelectedItems is { } selList2)
-                    {
-                        selList2.Clear();
-                        foreach (var o in preservedSelection)
-                        {
-                            try { selList2.Add(o); } catch (Exception ex) { Log.Error("Error restoring item to selection after fallback move", ex); }
-                        }
-                    }
-                }
-                catch (Exception ex) { Log.Error("Error restoring selection after fallback move", ex); }
+                RestoreSelection(preservedSelection, "fallback move");
 
                 // Ensure transforms are cleared after the collection update/layout stabilizes
                 Dispatcher.UIThread.Post(() => StopAllAnimationsAndResetTransforms(), DispatcherPriority.Background);
@@ -1167,21 +1115,85 @@ namespace AES_Controls.Behaviors
                 for (int i = 0; i < movedItems.Count; i++)
                     items.Insert(adjustedToIndex + i, movedItems[i]);
 
-                // Restore selection by re-selecting the preserved objects (if present)
-                try
-                {
-                    if (AssociatedObject.SelectedItems is { } selList3)
-                    {
-                        selList3.Clear();
-                        foreach (var o in preservedSelection)
-                        {
-                            try { selList3.Add(o); } catch (Exception ex) { Log.Error("Error restoring item to selection after items move", ex); }
-                        }
-                    }
-                }
-                catch (Exception ex) { Log.Error("Error restoring selection after items move", ex); }
+                RestoreSelection(preservedSelection, "items move");
                 // Ensure transforms are cleared after the collection update/layout stabilizes
                 Dispatcher.UIThread.Post(() => StopAllAnimationsAndResetTransforms(), DispatcherPriority.Background);
+            }
+        }
+
+        private bool TryMoveContiguousBlock(IList list, int start, int count, int toIndex)
+        {
+            return list switch
+            {
+                AvaloniaList<MediaItem> mediaItems => TryMoveContiguousBlock(mediaItems, start, count, toIndex),
+                AvaloniaList<FolderMediaItem> folderItems => TryMoveContiguousBlock(folderItems, start, count, toIndex),
+                _ => false
+            };
+        }
+
+        private bool TryMoveContiguousBlock<T>(AvaloniaList<T> list, int start, int count, int toIndex)
+        {
+            int adjustedTarget = Math.Clamp(toIndex, 0, Math.Max(0, list.Count - count));
+            if (adjustedTarget == start)
+                return true;
+
+            if (adjustedTarget > start)
+            {
+                for (int k = start + count; k <= adjustedTarget + count - 1; k++)
+                {
+                    try
+                    {
+                        list.Move(k, k - count);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error("Error during downward block move", ex);
+                        return false;
+                    }
+                }
+            }
+            else
+            {
+                for (int k = start - 1; k >= adjustedTarget; k--)
+                {
+                    try
+                    {
+                        list.Move(k, k + count);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error("Error during upward block move", ex);
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private void RestoreSelection(IEnumerable<object> preservedSelection, string operationName)
+        {
+            try
+            {
+                if (AssociatedObject?.SelectedItems is not { } selectedItems)
+                    return;
+
+                selectedItems.Clear();
+                foreach (var item in preservedSelection)
+                {
+                    try
+                    {
+                        selectedItems.Add(item);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"Error restoring item to selection after {operationName}", ex);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Error restoring selection after {operationName}", ex);
             }
         }
 

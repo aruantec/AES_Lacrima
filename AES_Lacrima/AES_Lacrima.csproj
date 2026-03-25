@@ -4,7 +4,7 @@
     <OutputType Condition="'$(BuildingForAndroid)' != 'true'">WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
-    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationIcon>Assets\AES.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -29,6 +29,10 @@
     <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <NoWarn>$(NoWarn);IL2104;IL3000;IL3053</NoWarn>
+  </PropertyGroup>
+
   <ItemGroup>
 	<AvaloniaResource Include="Assets\**" />
   </ItemGroup>
@@ -51,13 +55,26 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Svg.Controls.Skia.Avalonia" Version="11.3.9.2" />
     <PackageReference Include="log4net" Version="3.2.0" />
-    <PackageReference Include="HotAvalonia" Version="3.*" PrivateAssets="All" Publish="True" />
+    <PackageReference Include="HotAvalonia"
+                      Version="3.*"
+                      PrivateAssets="All"
+                      Publish="True"
+                      Condition="'$(PublishAot)' != 'true'" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AES_Controls\AES_Controls.csproj" />
     <ProjectReference Include="..\AES_Core\AES_Core.csproj" />
-    <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PublishAot)' != 'true'">
+    <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PublishAot)' == 'true'">
+    <Analyzer Include="..\AES_Di.Generator\bin\$(Configuration)\netstandard2.0\AES_Di.Generator.dll" />
   </ItemGroup>
 
   <ItemGroup>
@@ -111,5 +128,14 @@
     <Message Importance="high"
              Text="Creating macOS application bundle for publish output at '$(PublishDir)'" />
     <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Mac/publish-macos.sh&quot; &quot;$(PublishDir)&quot;" />
+  </Target>
+
+  <Target Name="BuildAesDiGeneratorForAot"
+          BeforeTargets="CoreCompile"
+          Condition="'$(PublishAot)' == 'true'">
+    <MSBuild Projects="..\AES_Di.Generator\AES_Di.Generator.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)"
+             RemoveProperties="PublishAot;PublishTrimmed;RuntimeIdentifier;SelfContained" />
   </Target>
 </Project>

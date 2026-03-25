@@ -24,12 +24,6 @@ namespace AES_Lacrima.Settings
     /// </summary>
     public abstract class SettingsBase : ObservableObject, ISetting
     {
-        private static readonly JsonSerializerOptions SharedSerializerOptions = new()
-        {
-            WriteIndented = true,
-            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
-        };
-
         /// <summary>
         /// Default path for the settings file. Derived classes can override this
         /// property to change where settings are stored.
@@ -104,20 +98,7 @@ namespace AES_Lacrima.Settings
                 try { Directory.CreateDirectory(ApplicationPaths.DataRootDirectory); } catch { /* ignore */ }
             }
 
-            JsonObject root;
-            if (File.Exists(SettingsFilePath))
-            {
-                try
-                {
-                    var content = File.ReadAllText(SettingsFilePath);
-                    root = JsonSerializer.Deserialize<JsonNode>(content, SharedSerializerOptions)?.AsObject() ?? new JsonObject();
-                }
-                catch { root = new JsonObject(); }
-            }
-            else
-            {
-                root = new JsonObject();
-            }
+            var root = ReadSettingsRoot();
 
             if (!root.ContainsKey(ViewModelsSectionName))
             {
@@ -148,7 +129,7 @@ namespace AES_Lacrima.Settings
                 root.Remove(ViewModelsSectionName);
             }
 
-            File.WriteAllText(SettingsFilePath, root.ToJsonString(SharedSerializerOptions));
+            WriteSettingsRoot(root);
         }
 
         /// <summary>
@@ -164,9 +145,9 @@ namespace AES_Lacrima.Settings
                 if (!File.Exists(SettingsFilePath)) return;
 
                 var content = await File.ReadAllTextAsync(SettingsFilePath);
-                var root = JsonSerializer.Deserialize<JsonNode>(content, SharedSerializerOptions)?.AsObject();
+                var root = DeserializeSettingsRoot(content);
 
-                if (root != null && root.TryGetPropertyValue(ViewModelsSectionName, out var vmsNode) && vmsNode is JsonObject vmsElement)
+                if (root.TryGetPropertyValue(ViewModelsSectionName, out var vmsNode) && vmsNode is JsonObject vmsElement)
                 {
                     if (vmsElement.TryGetPropertyValue(GetType().Name, out var sectionNode) && sectionNode is JsonObject s)
                     {
@@ -210,13 +191,7 @@ namespace AES_Lacrima.Settings
             {
                 if (!File.Exists(SettingsFilePath)) return;
 
-                JsonObject root;
-                try
-                {
-                    var content = File.ReadAllText(SettingsFilePath);
-                    root = JsonSerializer.Deserialize<JsonNode>(content, SharedSerializerOptions)?.AsObject() ?? new JsonObject();
-                }
-                catch { return; }
+                var root = ReadSettingsRoot();
 
                 if (!root.TryGetPropertyValue(ViewModelsSectionName, out var vmsNode) || vmsNode is not JsonObject vmsElement)
                     return;
@@ -249,13 +224,7 @@ namespace AES_Lacrima.Settings
             {
                 if (!File.Exists(SettingsFilePath)) return;
 
-                JsonObject root;
-                try
-                {
-                    var content = File.ReadAllText(SettingsFilePath);
-                    root = JsonSerializer.Deserialize<JsonNode>(content, SharedSerializerOptions)?.AsObject() ?? new JsonObject();
-                }
-                catch { return; }
+                var root = ReadSettingsRoot();
 
                 if (root.TryGetPropertyValue(ViewModelsSectionName, out var vmsNode) && vmsNode is JsonObject vmsElement)
                 {
@@ -264,7 +233,7 @@ namespace AES_Lacrima.Settings
                         if (vmsElement.Count == 0)
                             root.Remove(ViewModelsSectionName);
 
-                        File.WriteAllText(SettingsFilePath, root.ToJsonString(SharedSerializerOptions));
+                        WriteSettingsRoot(root);
                     }
                 }
             }
@@ -272,6 +241,34 @@ namespace AES_Lacrima.Settings
             {
                 FileLock.Release();
             }
+        }
+
+        private JsonObject ReadSettingsRoot()
+        {
+            if (!File.Exists(SettingsFilePath))
+            {
+                return new JsonObject();
+            }
+
+            try
+            {
+                var content = File.ReadAllText(SettingsFilePath);
+                return DeserializeSettingsRoot(content);
+            }
+            catch
+            {
+                return new JsonObject();
+            }
+        }
+
+        private static JsonObject DeserializeSettingsRoot(string content)
+        {
+            return JsonSerializer.Deserialize(content, SettingsJsonContext.Default.JsonObject) ?? new JsonObject();
+        }
+
+        private void WriteSettingsRoot(JsonObject root)
+        {
+            File.WriteAllText(SettingsFilePath, JsonSerializer.Serialize(root, SettingsJsonContext.Default.JsonObject));
         }
 
         /// <summary>

@@ -55,34 +55,86 @@ jobs:
           - name: Windows x64
             runs_on: windows-latest
             runtime: win-x64
+            publish_dir_name: win-x64
+            publish_aot: false
             package_type: windows
             artifact_name: release-AES-Lacrima-windows-x64
             asset_name: AES-Lacrima-windows-x64.zip
+          - name: Windows x64 AOT
+            runs_on: windows-latest
+            runtime: win-x64
+            publish_dir_name: win-x64-AOT
+            publish_aot: true
+            package_type: windows
+            artifact_name: release-AES-Lacrima-windows-x64-AOT
+            asset_name: AES-Lacrima-windows-x64-AOT.zip
           - name: macOS osx-arm64
             runs_on: macos-latest
             runtime: osx-arm64
+            publish_dir_name: osx-arm64
+            publish_aot: false
             package_type: macos
             artifact_name: release-AES-Lacrima-macos-osx-arm64
             asset_name: AES-Lacrima-macos-osx-arm64.zip
+          - name: macOS osx-arm64 AOT
+            runs_on: macos-latest
+            runtime: osx-arm64
+            publish_dir_name: osx-arm64-AOT
+            publish_aot: true
+            package_type: macos
+            artifact_name: release-AES-Lacrima-macos-osx-arm64-AOT
+            asset_name: AES-Lacrima-macos-osx-arm64-AOT.zip
           - name: macOS osx-x64
             runs_on: macos-latest
             runtime: osx-x64
+            publish_dir_name: osx-x64
+            publish_aot: false
             package_type: macos
             artifact_name: release-AES-Lacrima-macos-osx-x64
             asset_name: AES-Lacrima-macos-osx-Intel-x64.zip
+          - name: macOS osx-x64 AOT
+            runs_on: macos-latest
+            runtime: osx-x64
+            publish_dir_name: osx-x64-AOT
+            publish_aot: true
+            package_type: macos
+            artifact_name: release-AES-Lacrima-macos-osx-x64-AOT
+            asset_name: AES-Lacrima-macos-osx-Intel-x64-AOT.zip
           - name: Linux x86_64 AppImage
             runs_on: ubuntu-latest
             runtime: linux-x64
+            publish_dir_name: linux-x64
+            publish_aot: false
             package_type: appimage
             artifact_name: release-AES-Lacrima-x86_64
             asset_name: AES-Lacrima-Linux-x86_64.AppImage
             appimage_arch: x86_64
+          - name: Linux x86_64 AppImage AOT
+            runs_on: ubuntu-latest
+            runtime: linux-x64
+            publish_dir_name: linux-x64-AOT
+            publish_aot: true
+            package_type: appimage
+            artifact_name: release-AES-Lacrima-x86_64-AOT
+            asset_name: AES-Lacrima-Linux-x86_64-AOT.AppImage
+            appimage_arch: x86_64
           - name: Linux aarch64 AppImage
             runs_on: ubuntu-24.04-arm
             runtime: linux-arm64
+            publish_dir_name: linux-arm64
+            publish_aot: false
             package_type: appimage
             artifact_name: release-AES-Lacrima-aarch64
             asset_name: AES-Lacrima-aarch64.AppImage
+            appimage_arch: aarch64
+          - name: Linux aarch64 AppImage AOT
+            runs_on: ubuntu-24.04-arm
+            runtime: linux-arm64
+            publish_dir_name: linux-arm64-AOT
+            publish_aot: true
+            package_type: appimage
+            artifact_name: release-AES-Lacrima-aarch64-AOT
+            asset_name: AES-Lacrima-aarch64-AOT.AppImage
             appimage_arch: aarch64
 
     steps:
@@ -98,27 +150,57 @@ jobs:
         if: runner.os != 'Windows'
         run: chmod +x ./build.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh
 
+      - name: Install Linux Native AOT prerequisites
+        if: runner.os == 'Linux' && matrix.publish_aot
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang zlib1g-dev
+
       - name: Publish app on Windows
         if: matrix.package_type == 'windows'
         shell: pwsh
-        run: .\build.cmd Publish --configuration Release --runtime ${{ matrix.runtime }} --app-version "${{ github.event.inputs.version || github.event.release.tag_name || github.ref_name || '0.0.0-local' }}"
+        run: |
+          $arguments = @(
+            'publish',
+            'AES_Lacrima/AES_Lacrima.csproj',
+            '-c', 'Release',
+            '-r', '${{ matrix.runtime }}',
+            '-o', 'output/publish/Release/${{ matrix.publish_dir_name }}',
+            '-p:Version=${{ github.event.inputs.version || github.event.release.tag_name || github.ref_name || '0.0.0-local' }}'
+          )
+          if ('${{ matrix.publish_aot }}' -eq 'true') {
+            $arguments += '-p:PublishAot=true'
+          }
+          dotnet @arguments
 
       - name: Publish app on Unix
         if: matrix.package_type != 'windows'
-        run: ./build.sh Publish --configuration Release --runtime ${{ matrix.runtime }} --app-version "${{ github.event.inputs.version || github.event.release.tag_name || github.ref_name || '0.0.0-local' }}"
+        run: |
+          args=(
+            publish
+            AES_Lacrima/AES_Lacrima.csproj
+            -c Release
+            -r "${{ matrix.runtime }}"
+            -o "output/publish/Release/${{ matrix.publish_dir_name }}"
+            -p:Version=${{ github.event.inputs.version || github.event.release.tag_name || github.ref_name || '0.0.0-local' }}
+          )
+          if [[ "${{ matrix.publish_aot }}" == "true" ]]; then
+            args+=(-p:PublishAot=true)
+          fi
+          dotnet "${args[@]}"
 
       - name: Package Windows archive
         if: matrix.package_type == 'windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          Compress-Archive -Path output/publish/Release/${{ matrix.runtime }}/* -DestinationPath artifacts/${{ matrix.asset_name }}
+          Compress-Archive -Path output/publish/Release/${{ matrix.publish_dir_name }}/* -DestinationPath artifacts/${{ matrix.asset_name }}
 
       - name: Package macOS archive
         if: matrix.package_type == 'macos'
         run: |
           mkdir -p artifacts
-          ditto -c -k --sequesterRsrc --keepParent "output/publish/Release/${{ matrix.runtime }}/AES_Lacrima.app" "artifacts/${{ matrix.asset_name }}"
+          ditto -c -k --sequesterRsrc --keepParent "output/publish/Release/${{ matrix.publish_dir_name }}/AES_Lacrima.app" "artifacts/${{ matrix.asset_name }}"
 
       - name: Download appimagetool
         if: matrix.package_type == 'appimage'
@@ -134,7 +216,7 @@ jobs:
           APP_VERSION: ${{ github.event.inputs.version || github.event.release.tag_name || github.ref_name || '0.0.0-local' }}
         run: |
           ./AES_Lacrima/Linux/package-appimage.sh \
-            "output/publish/Release/${{ matrix.runtime }}" \
+            "output/publish/Release/${{ matrix.publish_dir_name }}" \
             "artifacts" \
             "${{ matrix.appimage_arch }}"
 

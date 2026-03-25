@@ -233,9 +233,8 @@
 											</TextBox.KeyBindings>
 											<Interaction.Behaviors>
 												<localBehaviors:FocusOnVisibleBehavior />
-												<EventTriggerBehavior EventName="LostFocus">
-													<InvokeCommandAction Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).EndRenameCommand}" CommandParameter="{Binding}" />
-												</EventTriggerBehavior>
+												<localBehaviors:ExecuteCommandOnLostFocusBehavior Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).EndRenameCommand}"
+																								 CommandParameter="{Binding}" />
 											</Interaction.Behaviors>
 										</TextBox>
 									</Panel>
