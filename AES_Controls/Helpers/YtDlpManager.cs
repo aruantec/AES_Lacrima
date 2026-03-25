@@ -33,7 +33,7 @@ public sealed class InstallationCompletedEventArgs : EventArgs
 [AutoRegister]
 public partial class YtDlpManager : ObservableObject
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(YtDlpManager));
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For<YtDlpManager>();
     private const string Repo = "yt-dlp/yt-dlp";
         
         private readonly string _destFolder = ApplicationPaths.ToolsDirectory;

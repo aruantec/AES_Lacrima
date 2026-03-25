@@ -31,6 +31,7 @@
 
   <PropertyGroup Condition="'$(PublishAot)' == 'true'">
     <NoWarn>$(NoWarn);IL2104;IL3000;IL3053</NoWarn>
+    <DefineConstants>$(DefineConstants);NATIVE_AOT</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(PublishAot)' == 'true'">

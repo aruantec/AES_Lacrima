@@ -17,7 +17,7 @@ namespace AES_Controls.Composition;
 /// </summary>
 public class FolderCompositionControl : Control
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(FolderCompositionControl));
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For<FolderCompositionControl>();
 
     private class ItemState
     {

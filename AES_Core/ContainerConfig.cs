@@ -11,7 +11,7 @@ namespace AES_Core;
 /// </summary>
 public static class ContainerConfig
 {
-    private static readonly ILog Logger = LogManager.GetLogger(typeof(ContainerConfig));
+    private static readonly ILog Logger = AES_Core.Logging.LogHelper.For(typeof(ContainerConfig));
 
     /// <summary>
     /// Builds and returns an Autofac container using registrations discovered in the provided assemblies.

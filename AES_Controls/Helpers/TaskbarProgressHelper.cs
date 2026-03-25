@@ -119,7 +119,7 @@ internal class TaskbarList { }
 /// </summary>
 public static class TaskbarProgressHelper
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(TaskbarProgressHelper));
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For(typeof(TaskbarProgressHelper));
     private static readonly ITaskbarList3? _taskbarList;
     private static readonly bool _isSupported = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
 

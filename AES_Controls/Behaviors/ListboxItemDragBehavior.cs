@@ -87,7 +87,7 @@ namespace AES_Controls.Behaviors
 
     internal class ItemsSourceObserver : IObserver<IEnumerable?>
     {
-        private static readonly ILog Log = LogManager.GetLogger(typeof(ItemsSourceObserver));
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<ItemsSourceObserver>();
         private readonly ListboxItemDragBehavior _behavior;
 
         public ItemsSourceObserver(ListboxItemDragBehavior behavior)
@@ -105,7 +105,7 @@ namespace AES_Controls.Behaviors
     /// </summary>
     public class ListboxItemDragBehavior : Behavior<ListBox>
     {
-        private static readonly ILog Log = LogManager.GetLogger(typeof(ListboxItemDragBehavior));
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<ListboxItemDragBehavior>();
 
         /// <summary>
         /// Defines the <see cref="DropCommand"/> property.

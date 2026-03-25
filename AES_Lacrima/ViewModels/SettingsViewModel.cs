@@ -42,7 +42,7 @@ public record ShaderItem(string Path, string Name);
 [AutoRegister]
 public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(SettingsViewModel));
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For<SettingsViewModel>();
 
     private string _shaderToysDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "Shadertoys");
     private string _shadersDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "glsl");

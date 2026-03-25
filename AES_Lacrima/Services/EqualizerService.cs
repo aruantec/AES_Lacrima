@@ -16,7 +16,7 @@ namespace AES_Lacrima.Services
     [AutoRegister]
     public partial class EqualizerService : ViewModelBase, IEqualizerService
     {
-        private static readonly ILog Log = LogManager.GetLogger(typeof(EqualizerService));
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<EqualizerService>();
         [ObservableProperty]
         private Equalizer? _equalizer;
 

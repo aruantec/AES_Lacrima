@@ -55,7 +55,7 @@ namespace AES_Lacrima.Mini.ViewModels
         #endregion
 
         #region Static / readonly fields
-        private static readonly ILog Log = LogManager.GetLogger(typeof(MinViewModel));
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<MinViewModel>();
         private static readonly Random _random = new();
         private static readonly TimeSpan ExtensionTransitionDelay = TimeSpan.FromMilliseconds(620);
 

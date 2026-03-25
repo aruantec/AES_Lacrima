@@ -31,7 +31,7 @@ public readonly record struct MprisState(
 /// </summary>
 public sealed class MprisService : IMethodHandler, IDisposable
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(MprisService));
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For<MprisService>();
 
     private const string ObjectPathValue = "/org/mpris/MediaPlayer2";
     private const string BusName = "org.mpris.MediaPlayer2.aes_lacrima";

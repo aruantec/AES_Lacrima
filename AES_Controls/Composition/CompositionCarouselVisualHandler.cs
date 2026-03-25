@@ -36,7 +36,7 @@ namespace AES_Controls.Composition
 
     public class CompositionCarouselVisualHandler : CompositionCustomVisualHandler
     {
-        private static readonly ILog Log = LogManager.GetLogger(typeof(CompositionCarouselVisualHandler));
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<CompositionCarouselVisualHandler>();
 
         private float _visibleRange = 10;
         private bool _visibleRangeDirty = true;

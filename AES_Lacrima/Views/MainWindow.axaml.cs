@@ -11,7 +11,7 @@ namespace AES_Lacrima.Views
 {
     public partial class MainWindow : Window
     {
-        private static readonly ILog Log = LogManager.GetLogger(typeof(MainWindow));
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<MainWindow>();
         private bool _ignoreSizeChange = true;
         private double _lastRenderScale = double.NaN;
 

@@ -71,7 +71,7 @@ namespace AES_Lacrima.Services
             }
             catch (Exception ex)
             {
-                log4net.LogManager.GetLogger(typeof(MediaUrlService)).Error($"Fetch failed after retries: {ex.Message}", ex);
+                AES_Core.Logging.LogHelper.For<MediaUrlService>().Error($"Fetch failed after retries: {ex.Message}", ex);
             }
             return (string.Empty, string.Empty);
         }

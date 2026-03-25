@@ -34,7 +34,7 @@ namespace AES_Lacrima.Behaviors
     /// </summary>
     public class SvgColorBehavior : Behavior<Control>
     {
-        private static readonly ILog Log = LogManager.GetLogger(typeof(SvgColorBehavior));
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<SvgColorBehavior>();
         private static readonly ConcurrentDictionary<string, string?> SvgTextCache = new();
         private static readonly ConcurrentDictionary<string, DateTime> FailedCache = new();
 

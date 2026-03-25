@@ -24,7 +24,7 @@ namespace AES_Controls.Player;
 /// </summary>
 public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyPropertyChanged, IDisposable
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(AudioPlayer));
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For<AudioPlayer>();
 
     private string? _loadedFile, _waveformLoadedFile, _waveformCacheKey;
     private readonly SynchronizationContext? _syncContext;

@@ -17,7 +17,7 @@ namespace AES_Controls.GL;
 
 public unsafe class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(GlRadialSpectrumControl));
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For<GlRadialSpectrumControl>();
     private const int GL_DYNAMIC_DRAW = 0x88E8;
     private const int GL_SRC_ALPHA = 0x0302;
     private const int GL_ONE_MINUS_SRC_ALPHA = 0x0303;
