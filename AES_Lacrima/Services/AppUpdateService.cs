@@ -228,6 +228,21 @@ public partial class AppUpdateService : ObservableObject
         }
     }
 
+    public void DismissAvailableUpdate()
+    {
+        AvailableRelease = null;
+        IsUpdateAvailable = false;
+
+        if (!string.IsNullOrWhiteSpace(LatestVersion))
+        {
+            Status = $"Version {LatestVersion} is available.";
+        }
+        else
+        {
+            Status = $"Installed version: {CurrentVersion}.";
+        }
+    }
+
     private static string DetectCurrentVersion()
     {
         if (OperatingSystem.IsLinux())

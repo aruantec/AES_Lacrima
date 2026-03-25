@@ -418,6 +418,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private bool _isYtDlpUpdateAvailable;
 
     /// <summary>
+    /// Gets or sets the currently selected tab in the compact mini settings view.
+    /// This is not persisted and only exists to guide the mini-mode UX.
+    /// </summary>
+    [ObservableProperty]
+    private int _miniSettingsSelectedTab;
+
+    /// <summary>
     /// Gets or sets the index of the currently selected tab in the settings overlay.
     /// </summary>
     [ObservableProperty]
@@ -696,8 +703,30 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         var release = await AppUpdateService.CheckForUpdatesAsync();
         if (release != null)
         {
-            DiLocator.ResolveViewModel<MainWindowViewModel>()?.ShowAppUpdatePrompt(release);
+            if (AppMode == 1)
+            {
+                MiniSettingsSelectedTab = 2;
+            }
+            else
+            {
+                DiLocator.ResolveViewModel<MainWindowViewModel>()?.ShowAppUpdatePrompt(release);
+            }
         }
+    }
+
+    [RelayCommand]
+    private async Task DownloadAvailableAppUpdate()
+    {
+        if (AppUpdateService?.AvailableRelease is not { } release)
+            return;
+
+        await AppUpdateService.DownloadAndRestartToApplyUpdateAsync(release);
+    }
+
+    [RelayCommand]
+    private void DismissAvailableAppUpdate()
+    {
+        AppUpdateService?.DismissAvailableUpdate();
     }
 
     // Carousel settings (used by CompositionCarouselControl)
@@ -933,6 +962,26 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     {
         // Ensure we always have a selected shader after the list is populated.
         EnsureDefaultSelectedShaderToy();
+    }
+
+    partial void OnAppUpdateServiceChanged(AppUpdateService? oldValue, AppUpdateService? newValue)
+    {
+        if (oldValue != null)
+            oldValue.PropertyChanged -= OnAppUpdateServicePropertyChanged;
+
+        if (newValue != null)
+            newValue.PropertyChanged += OnAppUpdateServicePropertyChanged;
+    }
+
+    private void OnAppUpdateServicePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (AppMode != 1 || AppUpdateService == null)
+            return;
+
+        if (e.PropertyName == nameof(AppUpdateService.IsUpdateAvailable) && AppUpdateService.IsUpdateAvailable)
+        {
+            MiniSettingsSelectedTab = 2;
+        }
     }
 
     private void EnsureDefaultSelectedShaderToy()
