@@ -3,6 +3,7 @@ using AES_Core.DI;
 using AES_Core.Interfaces;
 using AES_Core.Services;
 using AES_Lacrima.Mini.Views;
+using AES_Lacrima.Mini.ViewModels;
 using AES_Lacrima.ViewModels;
 using AES_Lacrima.Views;
 using AES_Lacrima.Views.Mobile;
@@ -105,38 +106,46 @@ namespace AES_Lacrima
             // Give the main window a moment to finish launching and the view model to be fully ready
             await Task.Delay(500);
 
+            var settingsViewModel = DiLocator.ResolveViewModel<SettingsViewModel>();
+            if (settingsViewModel == null)
+                return;
+
+            // Refresh current state for users to see accurate info in settings
+            if (FFmpegLocator.FindFFmpegPath() is { } ffmpegPath)
+            {
+                settingsViewModel.FfmpegPath = ffmpegPath;
+            }
+
+            // Background checks for versions
+            _ = settingsViewModel.RefreshFFmpegInfo();
+            _ = settingsViewModel.RefreshMpvInfo();
+            _ = settingsViewModel.RefreshYtDlpInfo();
+
             if (mainWindow.DataContext is MainWindowViewModel mainViewModel)
             {
-                var settingsViewModel = DiLocator.ResolveViewModel<SettingsViewModel>();
-                if (settingsViewModel != null)
+                // Perform missing tool check. mpv and ffmpeg are critical.
+                bool ffmpegMissing = !FFmpegLocator.IsFFmpegAvailable();
+                bool mpvMissing = !(settingsViewModel.MpvManager?.IsLibraryInstalled() ?? false);
+
+                if (ffmpegMissing || mpvMissing)
                 {
-                    // Refresh current state for users to see accurate info in settings
-                    if (FFmpegLocator.FindFFmpegPath() is { } ffmpegPath)
+                    mainViewModel.ShowSetupPrompt();
+                }
+            }
+
+            if (settingsViewModel.CheckForAppUpdatesOnStartup && settingsViewModel.AppUpdateService != null)
+            {
+                var release = await settingsViewModel.AppUpdateService.CheckForUpdatesAsync();
+                if (release != null)
+                {
+                    if (mainWindow.DataContext is MainWindowViewModel desktopMainViewModel)
                     {
-                        settingsViewModel.FfmpegPath = ffmpegPath;
+                        desktopMainViewModel.ShowAppUpdatePrompt(release);
                     }
-
-                    // Background checks for versions
-                    _ = settingsViewModel.RefreshFFmpegInfo();
-                    _ = settingsViewModel.RefreshMpvInfo();
-                    _ = settingsViewModel.RefreshYtDlpInfo();
-
-                    // Perform missing tool check. mpv and ffmpeg are critical.
-                    bool ffmpegMissing = !FFmpegLocator.IsFFmpegAvailable();
-                    bool mpvMissing = !(settingsViewModel.MpvManager?.IsLibraryInstalled() ?? false);
-
-                    if (ffmpegMissing || mpvMissing)
+                    else if (mainWindow.DataContext is MinViewModel minViewModel)
                     {
-                        mainViewModel.ShowSetupPrompt();
-                    }
-
-                    if (settingsViewModel.CheckForAppUpdatesOnStartup && settingsViewModel.AppUpdateService != null)
-                    {
-                        var release = await settingsViewModel.AppUpdateService.CheckForUpdatesAsync();
-                        if (release != null)
-                        {
-                            mainViewModel.ShowAppUpdatePrompt(release);
-                        }
+                        settingsViewModel.MiniSettingsSelectedTab = 2;
+                        minViewModel.SettingsVisible = true;
                     }
                 }
             }
