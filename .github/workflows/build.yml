@@ -127,6 +127,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang zlib1g-dev
 
+      - name: Restore generator
+        run: dotnet restore AES_Di.Generator/AES_Di.Generator.csproj
+
       - name: Publish app on Windows
         if: matrix.package_type == 'windows'
         shell: pwsh
