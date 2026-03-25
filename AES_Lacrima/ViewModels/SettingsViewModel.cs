@@ -43,6 +43,11 @@ public record ShaderItem(string Path, string Name);
 public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 {
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<SettingsViewModel>();
+#if NATIVE_AOT
+    private const bool DefaultPreferAotAppUpdates = true;
+#else
+    private const bool DefaultPreferAotAppUpdates = false;
+#endif
 
     private string _shaderToysDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "Shadertoys");
     private string _shadersDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "glsl");
@@ -443,6 +448,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private bool _checkForAppUpdatesOnStartup = true;
 
+    [ObservableProperty]
+    private bool _preferAotAppUpdates = DefaultPreferAotAppUpdates;
+
     /// <summary>
     /// Gets or sets the path to the current background image.
     /// </summary>
@@ -769,6 +777,18 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (_isLoadingSettings)
             return;
 
+        if (e.PropertyName == nameof(CheckForAppUpdatesOnStartup) || e.PropertyName == nameof(PreferAotAppUpdates))
+        {
+            try
+            {
+                SaveSettings();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("OnSettingsPropertyChanged: failed to persist app update preferences", ex);
+            }
+        }
+
         // If one of the spectrum color properties changed, update the gradient
         var updatedColor = false;
         if (e.PropertyName == nameof(SpectrumColor0)) { _presetSpectrumColors[0] = SpectrumColor0; updatedColor = true; }
@@ -970,8 +990,21 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             oldValue.PropertyChanged -= OnAppUpdateServicePropertyChanged;
 
         if (newValue != null)
+        {
+            newValue.PreferAotUpdates = PreferAotAppUpdates;
             newValue.PropertyChanged += OnAppUpdateServicePropertyChanged;
+        }
     }
+
+    partial void OnPreferAotAppUpdatesChanged(bool value)
+    {
+        OnPropertyChanged(nameof(PreferredAppUpdateFlavorLabel));
+
+        if (AppUpdateService != null)
+            AppUpdateService.PreferAotUpdates = value;
+    }
+
+    public string PreferredAppUpdateFlavorLabel => PreferAotAppUpdates ? "AOT" : "Non-AOT";
 
     private void OnAppUpdateServicePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -1017,6 +1050,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         // finished loading
         _isLoadingSettings = false;
+
+        if (AppUpdateService != null)
+            AppUpdateService.PreferAotUpdates = PreferAotAppUpdates;
 
         // Re‑subscribe the handler so further user changes are observed
         try
@@ -1070,6 +1106,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         // application mode (window type)
         AppMode = ReadIntSetting(section, nameof(AppMode), AppMode);
         CheckForAppUpdatesOnStartup = ReadBoolSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
+        PreferAotAppUpdates = ReadBoolSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
 
         // Individual spectrum colors (persisted as strings)
         if (ReadStringSetting(section, nameof(SpectrumColor0)) is { } c0) SpectrumColor0 = Color.Parse(c0);
@@ -1140,6 +1177,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         // Persist application mode (window type)
         WriteSetting(section, nameof(AppMode), AppMode);
         WriteSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
+        WriteSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
 
         // Persist Carousel settings
         WriteSetting(section, nameof(CarouselSpacing), CarouselSpacing);

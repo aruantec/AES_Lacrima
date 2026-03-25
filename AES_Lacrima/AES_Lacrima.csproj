@@ -36,7 +36,6 @@
 
   <ItemGroup Condition="'$(PublishAot)' == 'true'">
     <TrimmerRootAssembly Include="log4net" />
-    <TrimmerRootAssembly Include="System.Configuration.ConfigurationManager" />
   </ItemGroup>
 
   <ItemGroup>

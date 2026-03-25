@@ -49,6 +49,18 @@
                                                   IsChecked="{Binding CheckForAppUpdatesOnStartup, Mode=TwoWay}"/>
                                 </Grid>
 
+                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                                    <TextBlock Text="Preferred update build"
+                                               VerticalAlignment="Center"
+                                               Foreground="WhiteSmoke"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding PreferredAppUpdateFlavorLabel}"
+                                               VerticalAlignment="Center"
+                                               Foreground="#C6C6C6"/>
+                                    <ToggleSwitch Grid.Column="2"
+                                                  IsChecked="{Binding PreferAotAppUpdates, Mode=TwoWay}"/>
+                                </Grid>
+
                                 <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
                                     <Button Content="Check now"
                                             Command="{Binding CheckForAppUpdateCommand}"
@@ -139,7 +151,7 @@
                                     <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="6">
                                         <TextBlock Text="Current Version" Foreground="#A8A8A8"/>
                                         <TextBlock Grid.Column="1"
-                                                   Text="{Binding AppUpdateService.CurrentVersion}"
+                                                   Text="{Binding AppUpdateService.CurrentVersionDisplay}"
                                                    Foreground="WhiteSmoke"/>
 
                                         <TextBlock Grid.Row="1" Text="Available Version" Foreground="#A8A8A8"/>

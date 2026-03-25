@@ -37,6 +37,11 @@ public partial class AppUpdateService : ObservableObject
     private const string Repo = "aruantec/AES_Lacrima";
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<AppUpdateService>();
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(10) };
+#if NATIVE_AOT
+    private const bool DefaultPreferAotUpdates = true;
+#else
+    private const bool DefaultPreferAotUpdates = false;
+#endif
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private AppReleaseInfo? _availableRelease;
@@ -110,6 +115,27 @@ public partial class AppUpdateService : ObservableObject
     [ObservableProperty]
     private string? _latestReleaseUrl;
 
+    [ObservableProperty]
+    private bool _preferAotUpdates = DefaultPreferAotUpdates;
+
+    public bool IsCurrentBuildAot
+    {
+        get
+        {
+#if NATIVE_AOT
+            return true;
+#else
+            return false;
+#endif
+        }
+    }
+
+    public string CurrentBuildFlavorLabel => IsCurrentBuildAot ? "AOT" : "Non-AOT";
+
+    public string CurrentVersionDisplay => $"{CurrentVersion} ({CurrentBuildFlavorLabel})";
+
+    public string PreferredUpdateFlavorLabel => PreferAotUpdates ? "AOT" : "Non-AOT";
+
     public async Task<AppReleaseInfo?> CheckForUpdatesAsync()
     {
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -137,14 +163,14 @@ public partial class AppUpdateService : ObservableObject
 
             if (CompareSemanticVersions(release.Version, CurrentVersion) <= 0)
             {
-                Status = $"AES Lacrima is up to date ({CurrentVersion}).";
+                Status = $"AES Lacrima is up to date ({CurrentVersionDisplay}).";
                 return null;
             }
 
-            var selectedAsset = SelectBestAsset(release.Assets, installTarget.Kind);
+            var selectedAsset = SelectBestAsset(release.Assets, installTarget.Kind, PreferAotUpdates);
             if (selectedAsset == null)
             {
-                Status = $"Version {release.Version} is available, but there is no compatible download for this platform.";
+                Status = $"Version {release.Version} is available, but there is no compatible {PreferredUpdateFlavorLabel} download for this platform.";
                 return null;
             }
 
@@ -239,8 +265,19 @@ public partial class AppUpdateService : ObservableObject
         }
         else
         {
-            Status = $"Installed version: {CurrentVersion}.";
+            Status = $"Installed version: {CurrentVersionDisplay}.";
         }
+    }
+
+    partial void OnCurrentVersionChanged(string value)
+    {
+        OnPropertyChanged(nameof(CurrentVersionDisplay));
+    }
+
+    partial void OnPreferAotUpdatesChanged(bool value)
+    {
+        OnPropertyChanged(nameof(PreferredUpdateFlavorLabel));
+        ReevaluateAvailableReleaseForPreferredFlavor();
     }
 
     private static string DetectCurrentVersion()
@@ -502,7 +539,31 @@ public partial class AppUpdateService : ObservableObject
             Assets: assets);
     }
 
-    private static AppReleaseAssetInfo? SelectBestAsset(IReadOnlyList<AppReleaseAssetInfo> assets, UpdateTargetKind targetKind)
+    private void ReevaluateAvailableReleaseForPreferredFlavor()
+    {
+        if (AvailableRelease == null)
+            return;
+
+        var installTarget = ResolveInstallTarget();
+        var selectedAsset = SelectBestAsset(AvailableRelease.Assets, installTarget.Kind, PreferAotUpdates);
+        AvailableAssetName = selectedAsset?.Name;
+
+        if (selectedAsset == null)
+        {
+            AvailableRelease = null;
+            IsUpdateAvailable = false;
+            var version = LatestVersion ?? CurrentVersion;
+            Status = $"Version {version} is available, but there is no compatible {PreferredUpdateFlavorLabel} download for this platform.";
+            return;
+        }
+
+        AvailableRelease = AvailableRelease with { SelectedAsset = selectedAsset };
+    }
+
+    private static AppReleaseAssetInfo? SelectBestAsset(
+        IReadOnlyList<AppReleaseAssetInfo> assets,
+        UpdateTargetKind targetKind,
+        bool preferAotUpdates)
     {
         if (assets.Count == 0)
             return null;
@@ -511,24 +572,30 @@ public partial class AppUpdateService : ObservableObject
         {
             UpdateTargetKind.DirectoryContents => ScoreAssets(
                 assets,
-                asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase),
+                asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && MatchesPreferredBuildFlavor(asset.Name, preferAotUpdates),
                 RuntimeInformation.ProcessArchitecture == Architecture.X64
                     ? ["windows", "x64"]
                     : ["windows", RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant()]),
             UpdateTargetKind.MacBundle => RuntimeInformation.ProcessArchitecture switch
             {
-                Architecture.Arm64 => ScoreAssets(assets, asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase), ["macos", "arm64"]),
-                Architecture.X64 => ScoreAssets(assets, asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase), ["macos", "x64"]),
+                Architecture.Arm64 => ScoreAssets(assets, asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && MatchesPreferredBuildFlavor(asset.Name, preferAotUpdates), ["macos", "arm64"]),
+                Architecture.X64 => ScoreAssets(assets, asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && MatchesPreferredBuildFlavor(asset.Name, preferAotUpdates), ["macos", "x64"]),
                 _ => null
             },
             UpdateTargetKind.LinuxAppImage => RuntimeInformation.ProcessArchitecture switch
             {
-                Architecture.Arm64 => ScoreAssets(assets, asset => asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase), ["aarch64", "arm64"]),
-                Architecture.X64 => ScoreAssets(assets, asset => asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase), ["x86_64", "x64"]),
+                Architecture.Arm64 => ScoreAssets(assets, asset => asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) && MatchesPreferredBuildFlavor(asset.Name, preferAotUpdates), ["aarch64", "arm64"]),
+                Architecture.X64 => ScoreAssets(assets, asset => asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) && MatchesPreferredBuildFlavor(asset.Name, preferAotUpdates), ["x86_64", "x64"]),
                 _ => null
             },
             _ => null
         };
+    }
+
+    private static bool MatchesPreferredBuildFlavor(string assetName, bool preferAotUpdates)
+    {
+        var isAotAsset = assetName.Contains("-AOT", StringComparison.OrdinalIgnoreCase);
+        return preferAotUpdates ? isAotAsset : !isAotAsset;
     }
 
     private static AppReleaseAssetInfo? ScoreAssets(

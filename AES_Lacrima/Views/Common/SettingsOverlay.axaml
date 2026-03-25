@@ -131,6 +131,16 @@
                             <TextBlock Text="Check for updates on startup" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="16"/>
                             <ToggleSwitch IsChecked="{Binding CheckForAppUpdatesOnStartup, Mode=TwoWay}"/>
                         </StackPanel>
+                        <Grid ColumnDefinitions="Auto,Auto,Auto" ColumnSpacing="18" VerticalAlignment="Center" Margin="0,0,0,15">
+                            <TextBlock Text="Preferred update build" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="16"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding PreferredAppUpdateFlavorLabel}"
+                                       VerticalAlignment="Center"
+                                       Foreground="DarkGray"
+                                       FontSize="16"/>
+                            <ToggleSwitch Grid.Column="2"
+                                          IsChecked="{Binding PreferAotAppUpdates, Mode=TwoWay}"/>
+                        </Grid>
                         <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,25">
                             <Button Content="Check for App Update"
                                     Command="{Binding CheckForAppUpdateCommand}"
@@ -369,7 +379,7 @@
                                Foreground="DarkGray"
                                FontWeight="SemiBold"
                                HorizontalAlignment="Right"/>
-                    <TextBlock Text="{Binding AppUpdateService.CurrentVersion, FallbackValue='Unknown'}"
+                    <TextBlock Text="{Binding AppUpdateService.CurrentVersionDisplay, FallbackValue='Unknown'}"
                                FontSize="16"
                                Foreground="WhiteSmoke"
                                HorizontalAlignment="Right"/>
