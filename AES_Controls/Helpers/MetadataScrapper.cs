@@ -27,7 +27,7 @@ namespace AES_Controls.Helpers
 
         // Default timeout and instance-level HttpClient/Throttle
         private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
-        private static readonly SemaphoreSlim SharedThrottle = new(5);
+        private static readonly SemaphoreSlim SharedThrottle = new(3);
         private readonly AvaloniaList<MediaItem> _playlist;
 
         /// <summary>The collection of media items to track.</summary>
@@ -60,7 +60,7 @@ namespace AES_Controls.Helpers
                                 Bitmap? defaultCover,
                                 string agentInfo,
                                 int? maxThumbnailWidth = null,
-                                int maxCacheEntries = 200,
+                                int maxCacheEntries = 80,
                                 int maxEmbeddedImageBytes = DefaultMaxEmbeddedImageBytes,
                                 bool forceUpdate = false)
         {

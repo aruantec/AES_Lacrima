@@ -47,6 +47,8 @@ namespace AES_Lacrima.ViewModels
         private static readonly HttpClient FastThumbnailClient = new() { Timeout = TimeSpan.FromSeconds(10) };
         private static readonly SemaphoreSlim FastThumbnailThrottle = new(4);
         private const int FastThumbnailDecodeWidth = 512;
+        private const int FolderPreviewCoverCount = 1;
+        private const int MetadataScrapperCacheEntries = 80;
         private const int MetadataStaggerDelayMs = 120;
 
         private TaskbarButton[]? _taskbarButtons;
@@ -738,7 +740,6 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private async Task OpenFolder()
         {
-            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
             if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
             var lifetime = Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
             var storageProvider = lifetime?.MainWindow?.StorageProvider;
@@ -772,7 +773,7 @@ namespace AES_Lacrima.ViewModels
 
                             if (addedItems.Count > 0)
                             {
-                                _ = Task.Run(async () => await LoadAlbumCoversAsync(existing, agentInfo, false));
+                                QueueAlbumCoverLoad(existing);
                             }
                         }
                         SelectedAlbum = existing;
@@ -790,7 +791,6 @@ namespace AES_Lacrima.ViewModels
                     {
                         var mediaItems = LoadMediaItemsWithTrackOrder(path);
                         folderItem.Children.AddRange(mediaItems);
-                        _ = Task.Run(async () => await LoadAlbumCoversAsync(folderItem, agentInfo, false));
                     }
                     if (folderItem.Children.Count > 0)
                     {
@@ -805,7 +805,6 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private async Task ScanFolders()
         {
-            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
             if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
             var lifetime = Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
             var storageProvider = lifetime?.MainWindow?.StorageProvider;
@@ -862,8 +861,8 @@ namespace AES_Lacrima.ViewModels
 
                                         folderItem.Children.AddRange(mediaItems);
                                         AlbumList.Add(folderItem);
-                                        
-                                        _ = Task.Run(async () => await LoadAlbumCoversAsync(folderItem, agentInfo, false));
+
+                                        QueueAlbumCoverLoad(folderItem, maxItemsToLoad: FolderPreviewCoverCount);
                                     });
                                 }
                             }
@@ -916,6 +915,7 @@ namespace AES_Lacrima.ViewModels
                     _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
                     MetadataService?.PropertyChanged += MetadataService_PropertyChanged;
 
+                    ReduceCoverResidency(LoadedAlbum);
                     StartMetadataScrappersForLoadedFolders();
                     ApplyAlbumFilter();
                     ApplyFilter();
@@ -1221,6 +1221,10 @@ namespace AES_Lacrima.ViewModels
         {
             ApplyFilter();
             IsNoAlbumLoadedVisible = value == null;
+            ReduceCoverResidency(value);
+
+            if (value != null && IsPrepared)
+                QueueAlbumCoverLoad(value);
         }
 
         partial void OnSearchTextChanged(string? value) => ApplyFilter();
@@ -1689,11 +1693,13 @@ namespace AES_Lacrima.ViewModels
                 try
                 {
                     var albums = AlbumList.ToList();
+                    var loadedAlbum = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => LoadedAlbum);
                     foreach (var folder in albums)
                     {
                         if (folder == null || folder.Children.Count == 0) continue;
 
-                        await LoadAlbumCoversAsync(folder, agentInfo, forceUpdate);
+                        int maxItemsToLoad = ReferenceEquals(folder, loadedAlbum) ? int.MaxValue : FolderPreviewCoverCount;
+                        await LoadAlbumCoversAsync(folder, agentInfo, forceUpdate, maxItemsToLoad);
                     }
                 }
                 finally
@@ -1706,6 +1712,50 @@ namespace AES_Lacrima.ViewModels
             });
         }
 
+        private void QueueAlbumCoverLoad(FolderMediaItem folder, bool forceUpdate = false, int maxItemsToLoad = int.MaxValue)
+        {
+            if (AudioPlayer == null || folder.Children.Count == 0) return;
+
+            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+            _ = Task.Run(async () => await LoadAlbumCoversAsync(folder, agentInfo, forceUpdate, maxItemsToLoad));
+        }
+
+        private void ReduceCoverResidency(FolderMediaItem? fullyLoadedAlbum)
+        {
+            DefaultFolderCover ??= GenerateDefaultFolderCover();
+            var defaultCover = DefaultFolderCover;
+            if (defaultCover == null) return;
+
+            var protectedSelected = SelectedMediaItem;
+            var protectedHighlighted = HighlightedItem;
+
+            foreach (var folder in AlbumList)
+            {
+                bool keepAllCovers = ReferenceEquals(folder, fullyLoadedAlbum);
+                int previewStart = Math.Max(0, folder.Children.Count - FolderPreviewCoverCount);
+
+                for (int i = 0; i < folder.Children.Count; i++)
+                {
+                    var child = folder.Children[i];
+                    if (keepAllCovers
+                        || i >= previewStart
+                        || ReferenceEquals(child, protectedSelected)
+                        || ReferenceEquals(child, protectedHighlighted))
+                    {
+                        continue;
+                    }
+
+                    if (child.CoverBitmap != null && child.CoverBitmap != defaultCover)
+                        child.CoverBitmap = defaultCover;
+
+                    child.IsLoadingCover = false;
+                }
+
+                if (!keepAllCovers)
+                    folder.IsLoadingCover = false;
+            }
+        }
+
         private bool NeedsCoverLoad(MediaItem item)
         {
             if (item.CoverBitmap == null) return true;
@@ -1713,14 +1763,26 @@ namespace AES_Lacrima.ViewModels
             return item.CoverBitmap == DefaultFolderCover || string.IsNullOrWhiteSpace(item.Title);
         }
 
-        private async Task LoadAlbumCoversAsync(FolderMediaItem folder, string agentInfo, bool forceUpdate)
+        private List<MediaItem> GetAlbumCoverLoadBatch(IReadOnlyList<MediaItem> items, int maxItemsToLoad)
+        {
+            var candidates = items.Where(NeedsCoverLoad).ToList();
+            if (maxItemsToLoad >= candidates.Count) return candidates;
+
+            return candidates
+                .Skip(Math.Max(0, candidates.Count - maxItemsToLoad))
+                .ToList();
+        }
+
+        private async Task LoadAlbumCoversAsync(FolderMediaItem folder, string agentInfo, bool forceUpdate, int maxItemsToLoad = int.MaxValue)
         {
             if (AudioPlayer == null) return;
 
-            var albumItems = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            var albumLoadState = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 var snapshot = folder.Children.ToList();
-                foreach (var child in folder.Children)
+                var itemsToLoad = GetAlbumCoverLoadBatch(snapshot, maxItemsToLoad);
+
+                foreach (var child in itemsToLoad)
                 {
                     if (NeedsCoverLoad(child))
                     {
@@ -1733,11 +1795,14 @@ namespace AES_Lacrima.ViewModels
                     }
                 }
 
-                folder.IsLoadingCover = snapshot.Any(NeedsCoverLoad);
-                return snapshot;
+                folder.IsLoadingCover = itemsToLoad.Count > 0;
+                return (Snapshot: snapshot, ItemsToLoad: itemsToLoad);
             });
 
-            if (!albumItems.Any(NeedsCoverLoad))
+            var albumItems = albumLoadState.Snapshot;
+            var itemsToLoad = albumLoadState.ItemsToLoad;
+
+            if (itemsToLoad.Count == 0)
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
@@ -1748,8 +1813,7 @@ namespace AES_Lacrima.ViewModels
 
             // Match Add Playlist/Add URL behavior: kick off fast direct YouTube thumbnail fetch
             // first, then let MetadataScrapper backfill/normalize metadata in the background.
-            var fastThumbCandidates = albumItems
-                .Where(NeedsCoverLoad)
+            var fastThumbCandidates = itemsToLoad
                 .Where(item => !string.IsNullOrWhiteSpace(item.FileName)
                                && !string.IsNullOrWhiteSpace(YouTubeThumbnail.ExtractVideoId(item.FileName)))
                 .ToList();
@@ -1759,10 +1823,17 @@ namespace AES_Lacrima.ViewModels
                 _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
             }
 
-            var orderedItems = new AvaloniaList<MediaItem>(albumItems.AsEnumerable().Reverse());
-            _ = new MetadataScrapper(orderedItems, AudioPlayer!, DefaultFolderCover, agentInfo, 512, forceUpdate: forceUpdate);
+            var orderedItems = new AvaloniaList<MediaItem>(itemsToLoad.AsEnumerable().Reverse());
+            _ = new MetadataScrapper(
+                orderedItems,
+                AudioPlayer!,
+                DefaultFolderCover,
+                agentInfo,
+                maxThumbnailWidth: 512,
+                maxCacheEntries: MetadataScrapperCacheEntries,
+                forceUpdate: forceUpdate);
 
-            await WaitForAlbumCoversAsync(albumItems);
+            await WaitForAlbumCoversAsync(itemsToLoad);
 
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {

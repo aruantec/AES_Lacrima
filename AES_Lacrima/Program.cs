@@ -14,7 +14,6 @@ namespace AES_Lacrima
     internal sealed class Program
     {
         private static readonly ILog Log = AES_Core.Logging.LogHelper.For<Program>();
-        private static readonly string TempStartupTracePath = Path.Combine(Path.GetTempPath(), "AES_Lacrima_startup_trace.txt");
 
         // Initialization code. Don't use any Avalonia, third-party APIs or any
         // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
@@ -24,11 +23,8 @@ namespace AES_Lacrima
         {
             try
             {
-                WriteStartupTrace("Main entered");
-
                 // Set working directory to the app base directory so it doesn't crash on macOS when launched via double-click where Working Directory is '/'
                 Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
-                WriteStartupTrace($"Working directory set to {AppDomain.CurrentDomain.BaseDirectory}");
 
                 // Add standard tool locations to PATH so native libraries (ffmpeg, libmpv, yt-dlp) can be located.
                 var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
@@ -61,7 +57,6 @@ namespace AES_Lacrima
                 }
 
                 Environment.SetEnvironmentVariable("PATH", currentPath);
-                WriteStartupTrace("PATH configured");
 
                 // Ensure key application folders exist
                 Directory.CreateDirectory(ApplicationPaths.LogsDirectory);
@@ -70,11 +65,9 @@ namespace AES_Lacrima
                 Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
                 Directory.CreateDirectory(ApplicationPaths.ShadersDirectory);
                 Directory.CreateDirectory(ApplicationPaths.ToolsDirectory);
-                WriteStartupTrace($"Application paths prepared under {ApplicationPaths.DataRootDirectory}");
 
                 EnsureResourceFolderPresent("Shaders", ApplicationPaths.ShadersDirectory);
                 EnsureResourceFolderPresent("Assets", Path.Combine(ApplicationPaths.DataRootDirectory, "Assets"));
-                WriteStartupTrace("Default resources ensured");
 
                 // Ensure libmpv and other native helpers are loaded from the per-user Tools folder
                 try
@@ -89,10 +82,8 @@ namespace AES_Lacrima
                 Environment.SetEnvironmentVariable("PATH", currentPath);
 
                 ConfigureLogging();
-                WriteStartupTrace("ConfigureLogging completed");
 
                 // Start the Avalonia application with the classic desktop lifetime
-                WriteStartupTrace("Starting Avalonia desktop lifetime");
                 BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
             }
             catch (Exception ex)
@@ -147,30 +138,13 @@ namespace AES_Lacrima
                     .ToString();
                 var path = Path.Combine(logsDirectory, "startup-fatal.txt");
                 File.AppendAllText(path, content);
-                File.AppendAllText(TempStartupTracePath, content);
                 Console.Error.WriteLine(ex);
                 Console.Error.WriteLine($"Startup failure log written to: {path}");
-                Console.Error.WriteLine($"Startup trace written to: {TempStartupTracePath}");
             }
             catch
             {
                 Console.Error.WriteLine(ex);
             }
-        }
-
-        private static void WriteStartupTrace(string message)
-        {
-#if NATIVE_AOT
-            try
-            {
-                var line = $"{DateTime.UtcNow:O} {message}{Environment.NewLine}";
-                File.AppendAllText(TempStartupTracePath, line);
-            }
-            catch
-            {
-                // Best-effort diagnostics only.
-            }
-#endif
         }
 
         private static void EnsureResourceFolderPresent(string folderName, string targetPath)

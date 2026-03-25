@@ -40,6 +40,7 @@ namespace AES_Controls.Composition
         #region Private Fields
 
         private static readonly ILog Log = AES_Core.Logging.LogHelper.For<CompositionCarouselControl>();
+        private const int CachedCarouselImageSize = 384;
 
         private CompositionCustomVisual? _visual;
         private List<SKImage> _images = new();
@@ -53,9 +54,9 @@ namespace AES_Controls.Composition
         private readonly Dictionary<object, SharedImageEntry> _sharedImageCache = new();
         private object?[] _itemsSnapshot = Array.Empty<object?>();
         private readonly Cursor _handCursor = new(StandardCursorType.Hand);
-        private readonly string _diskCachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ImageCache");
+        private readonly string _diskCachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"ImageCache_{CachedCarouselImageSize}");
         private volatile bool _isDiskCachePathReady;
-        private int _maxImageCacheEntries = 200;
+        private int _maxImageCacheEntries = 80;
 
         private int _lastVirtualizationIndex = -1;
 
@@ -139,7 +140,7 @@ namespace AES_Controls.Composition
             AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(GlobalOpacity), 1.0);
 
         public static readonly StyledProperty<int> ImageCacheSizeProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, int>(nameof(ImageCacheSize), 200);
+            AvaloniaProperty.Register<CompositionCarouselControl, int>(nameof(ImageCacheSize), 80);
 
         public static readonly StyledProperty<int> PointedItemIndexProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, int>(nameof(PointedItemIndex), -1);
@@ -535,7 +536,7 @@ namespace AES_Controls.Composition
         {
             string fullPath = Path.GetFullPath(file);
             long lastWriteTicks = File.GetLastWriteTimeUtc(fullPath).Ticks;
-            string cacheKey = $"{fullPath}|{lastWriteTicks}";
+            string cacheKey = $"{fullPath}|{lastWriteTicks}|{CachedCarouselImageSize}";
             string hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cacheKey)));
             return Path.Combine(_diskCachePath, $"{hash}.png");
         }
@@ -1234,10 +1235,10 @@ namespace AES_Controls.Composition
                 {
                     try
                     {
-                        int targetW = 512;
-                        int targetH = 512;
-                        if (w > h) targetH = (int)(512.0 * h / w);
-                        else targetW = (int)(512.0 * w / h);
+                        int targetW = CachedCarouselImageSize;
+                        int targetH = CachedCarouselImageSize;
+                        if (w > h) targetH = (int)(CachedCarouselImageSize * (double)h / w);
+                        else targetW = (int)(CachedCarouselImageSize * (double)w / h);
 
                         using var skBmp = new SKBitmap(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
                         unsafe
@@ -1265,7 +1266,7 @@ namespace AES_Controls.Composition
                             }
                         }
 
-                        if (skBmp.Width <= 512 && skBmp.Height <= 512)
+                        if (skBmp.Width <= CachedCarouselImageSize && skBmp.Height <= CachedCarouselImageSize)
                             return SKImage.FromBitmap(skBmp);
 
                         using var resized = skBmp.Resize(new SKImageInfo(targetW, targetH), SKFilterQuality.Medium);
@@ -1358,12 +1359,12 @@ namespace AES_Controls.Composition
                     using var bmp = new SKBitmap(codec.Info);
                     codec.GetPixels(bmp.Info, bmp.GetPixels());
 
-                    int targetW = 512;
-                    int targetH = 512;
+                    int targetW = CachedCarouselImageSize;
+                    int targetH = CachedCarouselImageSize;
                     if (bmp.Width > bmp.Height)
-                        targetH = (int)(512.0 * bmp.Height / bmp.Width);
+                        targetH = (int)(CachedCarouselImageSize * (double)bmp.Height / bmp.Width);
                     else
-                        targetW = (int)(512.0 * bmp.Width / bmp.Height);
+                        targetW = (int)(CachedCarouselImageSize * (double)bmp.Width / bmp.Height);
 
                     using var resized = bmp.Resize(new SKImageInfo(targetW, targetH), SKFilterQuality.Medium);
                     if (resized != null)
