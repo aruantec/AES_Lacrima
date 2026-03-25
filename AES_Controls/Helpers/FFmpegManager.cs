@@ -17,7 +17,7 @@ namespace AES_Controls.Helpers;
 [AutoRegister]
 public partial class FFmpegManager : ObservableObject
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(FFmpegManager));
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For<FFmpegManager>();
     /// <summary>
     /// Event raised when FFmpeg processes should be terminated (e.g., before uninstallation).
     /// </summary>

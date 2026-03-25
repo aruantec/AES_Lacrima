@@ -7,12 +7,14 @@ using log4net.Layout;
 using log4net.Repository;
 using System;
 using System.IO;
+using System.Text;
 
 namespace AES_Lacrima
 {
     internal sealed class Program
     {
-        private static readonly ILog Log = LogManager.GetLogger(typeof(Program));
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<Program>();
+        private static readonly string TempStartupTracePath = Path.Combine(Path.GetTempPath(), "AES_Lacrima_startup_trace.txt");
 
         // Initialization code. Don't use any Avalonia, third-party APIs or any
         // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
@@ -20,71 +22,99 @@ namespace AES_Lacrima
         [STAThread]
         public static void Main(string[] args)
         {
-            // Set working directory to the app base directory so it doesn't crash on macOS when launched via double-click where Working Directory is '/'
-            Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
-
-            // Add standard tool locations to PATH so native libraries (ffmpeg, libmpv, yt-dlp) can be located.
-            var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-            var pathSeparator = Path.PathSeparator;
-
-            // On macOS launched via Finder, standard Homebrew and Unix paths are missing. We must inject them so tools like 'brew' function properly.
-            if (OperatingSystem.IsMacOS())
-            {
-                var defaultMacPaths = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
-                foreach (var p in defaultMacPaths.Split(':'))
-                {
-                    if (!currentPath.Contains(p)) currentPath += $"{pathSeparator}{p}";
-                }
-            }
-
-            // Ensure our per-user Tools directory is also on the PATH so native libraries can be loaded
-            // even when the app is installed in a protected location (Program Files).
             try
             {
-                var toolsDirectory = ApplicationPaths.ToolsDirectory;
-                Directory.CreateDirectory(toolsDirectory);
-                if (!currentPath.Contains(toolsDirectory, StringComparison.OrdinalIgnoreCase))
+                WriteStartupTrace("Main entered");
+
+                // Set working directory to the app base directory so it doesn't crash on macOS when launched via double-click where Working Directory is '/'
+                Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
+                WriteStartupTrace($"Working directory set to {AppDomain.CurrentDomain.BaseDirectory}");
+
+                // Add standard tool locations to PATH so native libraries (ffmpeg, libmpv, yt-dlp) can be located.
+                var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+                var pathSeparator = Path.PathSeparator;
+
+                // On macOS launched via Finder, standard Homebrew and Unix paths are missing. We must inject them so tools like 'brew' function properly.
+                if (OperatingSystem.IsMacOS())
                 {
-                    currentPath = $"{currentPath}{pathSeparator}{toolsDirectory}";
+                    var defaultMacPaths = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+                    foreach (var p in defaultMacPaths.Split(':'))
+                    {
+                        if (!currentPath.Contains(p)) currentPath += $"{pathSeparator}{p}";
+                    }
                 }
+
+                // Ensure our per-user Tools directory is also on the PATH so native libraries can be loaded
+                // even when the app is installed in a protected location (Program Files).
+                try
+                {
+                    var toolsDirectory = ApplicationPaths.ToolsDirectory;
+                    Directory.CreateDirectory(toolsDirectory);
+                    if (!currentPath.Contains(toolsDirectory, StringComparison.OrdinalIgnoreCase))
+                    {
+                        currentPath = $"{currentPath}{pathSeparator}{toolsDirectory}";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Failed to add Tools directory to PATH", ex);
+                }
+
+                Environment.SetEnvironmentVariable("PATH", currentPath);
+                WriteStartupTrace("PATH configured");
+
+                // Ensure key application folders exist
+                Directory.CreateDirectory(ApplicationPaths.LogsDirectory);
+                Directory.CreateDirectory(ApplicationPaths.SettingsDirectory);
+                Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
+                Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
+                Directory.CreateDirectory(ApplicationPaths.ShadersDirectory);
+                Directory.CreateDirectory(ApplicationPaths.ToolsDirectory);
+                WriteStartupTrace($"Application paths prepared under {ApplicationPaths.DataRootDirectory}");
+
+                EnsureResourceFolderPresent("Shaders", ApplicationPaths.ShadersDirectory);
+                EnsureResourceFolderPresent("Assets", Path.Combine(ApplicationPaths.DataRootDirectory, "Assets"));
+                WriteStartupTrace("Default resources ensured");
+
+                // Ensure libmpv and other native helpers are loaded from the per-user Tools folder
+                try
+                {
+                    LibMPVSharp.LibraryName.LibraryDirectory = ApplicationPaths.ToolsDirectory;
+                }
+                catch
+                {
+                    // Ignore if the LibMPVSharp assembly isn't available in this build configuration
+                }
+
+                Environment.SetEnvironmentVariable("PATH", currentPath);
+
+                ConfigureLogging();
+                WriteStartupTrace("ConfigureLogging completed");
+
+                // Start the Avalonia application with the classic desktop lifetime
+                WriteStartupTrace("Starting Avalonia desktop lifetime");
+                BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
             }
             catch (Exception ex)
             {
-                Log.Warn("Failed to add Tools directory to PATH", ex);
+                WriteFatalStartupLog(ex);
+                throw;
             }
+        }
 
-            Environment.SetEnvironmentVariable("PATH", currentPath);
-
-            // Ensure key application folders exist
-            Directory.CreateDirectory(ApplicationPaths.LogsDirectory);
-            Directory.CreateDirectory(ApplicationPaths.SettingsDirectory);
-            Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
-            Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
-            Directory.CreateDirectory(ApplicationPaths.ShadersDirectory);
-            Directory.CreateDirectory(ApplicationPaths.ToolsDirectory);
-
-            EnsureResourceFolderPresent("Shaders", ApplicationPaths.ShadersDirectory);
-            EnsureResourceFolderPresent("Assets", Path.Combine(ApplicationPaths.DataRootDirectory, "Assets"));
-
-            // Ensure libmpv and other native helpers are loaded from the per-user Tools folder
-            try
-            {
-                LibMPVSharp.LibraryName.LibraryDirectory = ApplicationPaths.ToolsDirectory;
-            }
-            catch
-            {
-                // Ignore if the LibMPVSharp assembly isn't available in this build configuration
-            }
-
-            Environment.SetEnvironmentVariable("PATH", currentPath);
-
+        private static void ConfigureLogging()
+        {
+#if NATIVE_AOT
+            // log4net relies on reflection-heavy configuration paths that are unreliable under Native AOT.
+            // Keep startup logging minimal for AOT builds and write fatal errors directly to a file instead.
+            return;
+#else
             var logsDirectory = ApplicationPaths.LogsDirectory;
             Directory.CreateDirectory(logsDirectory);
 
             var layout = new PatternLayout { ConversionPattern = "%date %-5level %logger - %message%newline%exception" };
             layout.ActivateOptions();
 
-            // Use a single file appender that writes to a writable per-user log directory.
             var fileAppender = new FileAppender
             {
                 AppendToFile = false,
@@ -95,18 +125,52 @@ namespace AES_Lacrima
             fileAppender.ActivateOptions();
 
             ILoggerRepository loggingRepository = LogManager.GetRepository(typeof(Program).Assembly);
-
-            // Use the programmatic appender as the basic configuration
             BasicConfigurator.Configure(loggingRepository, fileAppender);
 
-            // If a log4net.config file is present, allow it to override the defaults.
             if (File.Exists("log4net.config"))
             {
                 XmlConfigurator.Configure(loggingRepository, new FileInfo("log4net.config"));
             }
+#endif
+        }
 
-            // Start the Avalonia application with the classic desktop lifetime
-            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        private static void WriteFatalStartupLog(Exception ex)
+        {
+            try
+            {
+                var logsDirectory = ApplicationPaths.LogsDirectory;
+                Directory.CreateDirectory(logsDirectory);
+                var content = new StringBuilder()
+                    .AppendLine(DateTime.UtcNow.ToString("O"))
+                    .AppendLine(ex.ToString())
+                    .AppendLine()
+                    .ToString();
+                var path = Path.Combine(logsDirectory, "startup-fatal.txt");
+                File.AppendAllText(path, content);
+                File.AppendAllText(TempStartupTracePath, content);
+                Console.Error.WriteLine(ex);
+                Console.Error.WriteLine($"Startup failure log written to: {path}");
+                Console.Error.WriteLine($"Startup trace written to: {TempStartupTracePath}");
+            }
+            catch
+            {
+                Console.Error.WriteLine(ex);
+            }
+        }
+
+        private static void WriteStartupTrace(string message)
+        {
+#if NATIVE_AOT
+            try
+            {
+                var line = $"{DateTime.UtcNow:O} {message}{Environment.NewLine}";
+                File.AppendAllText(TempStartupTracePath, line);
+            }
+            catch
+            {
+                // Best-effort diagnostics only.
+            }
+#endif
         }
 
         private static void EnsureResourceFolderPresent(string folderName, string targetPath)

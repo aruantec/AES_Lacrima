@@ -10,7 +10,7 @@ namespace AES_Controls.Helpers;
 /// </summary>
 public static class MpvSetup
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(MpvSetup));
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For(typeof(MpvSetup));
     private static readonly string AppFolder = AppDomain.CurrentDomain.BaseDirectory;
 
     /// <summary>

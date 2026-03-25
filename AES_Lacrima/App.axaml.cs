@@ -32,7 +32,7 @@ namespace AES_Lacrima
         // needed by the newly‑created window.
         public static bool IsSwitchingMode { get; set; }
 
-        private static readonly ILog Logger = LogManager.GetLogger(typeof(App));
+        private static readonly ILog Logger = AES_Core.Logging.LogHelper.For<App>();
         public override void Initialize()
         {
             AvaloniaXamlLoader.Load(this);

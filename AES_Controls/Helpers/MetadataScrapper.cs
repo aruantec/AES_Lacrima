@@ -20,7 +20,7 @@ namespace AES_Controls.Helpers
     /// </summary>
     public sealed class MetadataScrapper : IDisposable
     {
-        private static readonly ILog Log = LogManager.GetLogger(typeof(MetadataScrapper));
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<MetadataScrapper>();
 
         /// <summary>The default limit for embedded image extraction (4MB).</summary>
         internal const int DefaultMaxEmbeddedImageBytes = 4 * 1024 * 1024;

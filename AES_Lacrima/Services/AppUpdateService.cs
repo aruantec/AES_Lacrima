@@ -35,7 +35,7 @@ public sealed record AppReleaseInfo(
 public partial class AppUpdateService : ObservableObject
 {
     private const string Repo = "aruantec/AES_Lacrima";
-    private static readonly ILog Log = LogManager.GetLogger(typeof(AppUpdateService));
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For<AppUpdateService>();
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(10) };
 
     private readonly SemaphoreSlim _gate = new(1, 1);

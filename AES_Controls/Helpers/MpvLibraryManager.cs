@@ -31,7 +31,7 @@ public sealed class MpvReleaseInfo
 [AutoRegister]
 public partial class MpvLibraryManager : ObservableObject
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(MpvLibraryManager));
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For<MpvLibraryManager>();
     private const string Repo = "zhongfly/mpv-winbuild";
     private readonly string _destFolder = GetDestinationFolder();
     private static readonly HttpClient Client = new();

@@ -16,7 +16,7 @@ namespace AES_Controls.GL;
 
 public class GlWaveformSpectrumControl : OpenGlControlBase, IDisposable
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(GlWaveformSpectrumControl));
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For<GlWaveformSpectrumControl>();
     private const int GL_DYNAMIC_DRAW = 0x88E8;
     private const int GL_TRIANGLE_STRIP = 5;
     private const int GL_SRC_ALPHA = 0x0302;

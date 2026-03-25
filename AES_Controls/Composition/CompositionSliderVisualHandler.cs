@@ -13,7 +13,7 @@ namespace AES_Controls.Composition
     // so the carousel visual can remain untouched.
     public class CompositionSliderVisualHandler : CompositionCustomVisualHandler
     {
-        private static readonly ILog Log = LogManager.GetLogger(typeof(CompositionSliderVisualHandler));
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<CompositionSliderVisualHandler>();
 
         private Vector2 _visualSize;
         private double _currentIndex = 0.0; // normalized 0..1

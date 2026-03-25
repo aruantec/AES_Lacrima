@@ -39,7 +39,7 @@ namespace AES_Controls.Composition
 
         #region Private Fields
 
-        private static readonly ILog Log = LogManager.GetLogger(typeof(CompositionCarouselControl));
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<CompositionCarouselControl>();
 
         private CompositionCustomVisual? _visual;
         private List<SKImage> _images = new();

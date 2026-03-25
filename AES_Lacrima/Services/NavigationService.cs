@@ -17,7 +17,7 @@ namespace AES_Lacrima.Services
     {
         private ViewModelBase? _previousViewModel;
 
-        private static readonly ILog Log = LogManager.GetLogger(typeof(NavigationService));
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<NavigationService>();
 
         /// <summary>
         /// Backing field for the generated <c>View</c> property that holds

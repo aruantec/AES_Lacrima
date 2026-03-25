@@ -25,7 +25,7 @@ namespace AES_Controls.GL;
 /// </summary>
 public class GlShaderToyControl : OpenGlControlBase
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(GlShaderToyControl));
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For<GlShaderToyControl>();
     private string _processedShaderCode = string.Empty;
     private int _program, _vbo, _vao, _audioTexture, _coverTexture;
     private bool _coverTextureDirty = true;

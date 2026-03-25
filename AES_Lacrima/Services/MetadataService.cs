@@ -45,7 +45,7 @@ namespace AES_Lacrima.Services
     [AutoRegister]
     public partial class MetadataService : ViewModelBase, IMetadataService
     {
-        private static readonly ILog SLog = LogManager.GetLogger(typeof(MetadataService));
+        private static readonly ILog SLog = AES_Core.Logging.LogHelper.For<MetadataService>();
         private const int MaxImageSearchResults = 24;
         private static readonly HttpClient ImageHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
         private static readonly Regex BracketCleanupRegex = new(@"[\(\[\{].*?[\)\]\}]", RegexOptions.Compiled);

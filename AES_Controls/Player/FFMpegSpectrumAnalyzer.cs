@@ -18,7 +18,7 @@ namespace AES_Controls.Players
     /// </summary>
     public class FfMpegSpectrumAnalyzer
     {
-        private static readonly ILog Log = LogManager.GetLogger(typeof(FfMpegSpectrumAnalyzer));
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<FfMpegSpectrumAnalyzer>();
 
         private readonly AvaloniaList<double> _spectrum;
         private readonly AudioPlayer _player;
