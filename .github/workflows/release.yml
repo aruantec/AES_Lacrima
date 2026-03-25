@@ -221,7 +221,8 @@ jobs:
           ./AES_Lacrima/Linux/package-appimage.sh \
             "output/publish/Release/${{ matrix.publish_dir_name }}" \
             "artifacts" \
-            "${{ matrix.appimage_arch }}"
+            "${{ matrix.appimage_arch }}" \
+            "${{ matrix.asset_name }}"
 
       - name: Upload packaged asset
         uses: actions/upload-artifact@v4
