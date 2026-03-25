@@ -146,6 +146,21 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Resolve project version
+        id: version
+        shell: bash
+        run: |
+          RAW_VERSION="${{ github.event.inputs.version || github.event.release.tag_name || github.ref_name || '0.0.0-local' }}"
+          PROJECT_VERSION="${RAW_VERSION#v}"
+          PROJECT_VERSION="${PROJECT_VERSION#V}"
+          if [[ ! "$PROJECT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid project version after normalization: '$PROJECT_VERSION'" >&2
+            exit 1
+          fi
+
+          echo "raw=$RAW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "project=$PROJECT_VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Ensure scripts are executable
         if: runner.os != 'Windows'
         run: chmod +x ./build.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh
@@ -169,7 +184,7 @@ jobs:
             '-c', 'Release',
             '-r', '${{ matrix.runtime }}',
             '-o', 'output/publish/Release/${{ matrix.publish_dir_name }}',
-            '-p:Version=${{ github.event.inputs.version || github.event.release.tag_name || github.ref_name || '0.0.0-local' }}'
+            '-p:Version=${{ steps.version.outputs.project }}'
           )
           if ('${{ matrix.publish_aot }}' -eq 'true') {
             $arguments += '-p:PublishAot=true'
@@ -185,7 +200,7 @@ jobs:
             -c Release
             -r "${{ matrix.runtime }}"
             -o "output/publish/Release/${{ matrix.publish_dir_name }}"
-            -p:Version=${{ github.event.inputs.version || github.event.release.tag_name || github.ref_name || '0.0.0-local' }}
+            -p:Version=${{ steps.version.outputs.project }}
           )
           if [[ "${{ matrix.publish_aot }}" == "true" ]]; then
             args+=(-p:PublishAot=true)
@@ -216,7 +231,7 @@ jobs:
         if: matrix.package_type == 'appimage'
         env:
           APPIMAGETOOL: ${{ github.workspace }}/tools/appimagetool.AppImage
-          APP_VERSION: ${{ github.event.inputs.version || github.event.release.tag_name || github.ref_name || '0.0.0-local' }}
+          APP_VERSION: ${{ steps.version.outputs.project }}
         run: |
           ./AES_Lacrima/Linux/package-appimage.sh \
             "output/publish/Release/${{ matrix.publish_dir_name }}" \
