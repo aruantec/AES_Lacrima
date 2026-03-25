@@ -45,7 +45,8 @@ namespace AES_Lacrima.ViewModels
         // Private fields
         private readonly string[] _supportedTypes = new[] { "*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4" };
         private static readonly HttpClient FastThumbnailClient = new() { Timeout = TimeSpan.FromSeconds(10) };
-        private static readonly SemaphoreSlim FastThumbnailThrottle = new(16);
+        private static readonly SemaphoreSlim FastThumbnailThrottle = new(4);
+        private const int FastThumbnailDecodeWidth = 512;
         private const int MetadataStaggerDelayMs = 120;
 
         private TaskbarButton[]? _taskbarButtons;
@@ -1790,6 +1791,11 @@ namespace AES_Lacrima.ViewModels
             {
                 if (item.FileName == null) return;
 
+                // Let metadata cache win when we already have a persisted sidecar cover.
+                var cacheId = BinaryMetadataHelper.GetCacheId(item.FileName);
+                var cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
+                if (System.IO.File.Exists(cachePath)) return;
+
                 // Do not replace a cover that was already restored from local metadata cache.
                 var shouldFetch = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
@@ -1823,7 +1829,7 @@ namespace AES_Lacrima.ViewModels
                             if (bytes.Length == 0) continue;
 
                             using var stream = new MemoryStream(bytes);
-                            var bitmap = new Bitmap(stream);
+                            var bitmap = Bitmap.DecodeToWidth(stream, FastThumbnailDecodeWidth);
                             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                             {
                                 var hasCurrentCover = item.CoverBitmap != null;
