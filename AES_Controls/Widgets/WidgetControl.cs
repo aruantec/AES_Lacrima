@@ -8,6 +8,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using System.Linq;
 using System.Windows.Input;
 
 namespace AES_Controls.Widgets;
@@ -122,6 +123,8 @@ public class WidgetControl : ContentControl
 
     // Track ancestors whose ClipToBounds was cleared so we can restore on detach
     private readonly List<Control> _unclippedAncestors = new List<Control>();
+    private int? _savedZIndex;
+    private bool _hasTemporaryTopMostZIndex;
 
     static WidgetControl()
     {
@@ -185,9 +188,14 @@ public class WidgetControl : ContentControl
         AttachedToVisualTree += OnAttached;
         DetachedFromVisualTree += OnDetached;
 
-        GotFocus += (_, _) => InvalidateVisual();
+        GotFocus += (_, _) =>
+        {
+            BringToFrontWhileSelected();
+            InvalidateVisual();
+        };
         LostFocus += (_, _) =>
         {
+            RestoreOriginalZIndex();
             InvalidateVisual();
             if (_isCaptured) ReleasePointerCaptureAndReset();
         };
@@ -303,6 +311,7 @@ public class WidgetControl : ContentControl
         _containerBoundsSubscription?.Dispose();
         _containerBoundsSubscription = null;
         _container = null;
+        RestoreOriginalZIndex();
 
         _useExplicitPosition = false;
         _initialPositionApplied = false;
@@ -512,6 +521,7 @@ public class WidgetControl : ContentControl
     {
         if (e.Handled) return;
         base.OnPointerPressed(e);
+        BringToFrontWhileSelected();
         if (!IsFocused) Focus();
 
         var reference = _container ?? Parent as Visual;
@@ -724,6 +734,38 @@ public class WidgetControl : ContentControl
         _isCaptured = false;
         _mode = DragMode.None;
         SetCursorIfDifferent(StandardCursorType.Arrow);
+    }
+
+    private void BringToFrontWhileSelected()
+    {
+        if (_hasTemporaryTopMostZIndex)
+            return;
+
+        if (Parent is not Panel panel)
+            return;
+
+        _savedZIndex ??= ZIndex;
+        var topMost = panel.Children
+            .OfType<Control>()
+            .Where(control => !ReferenceEquals(control, this))
+            .Select(control => control.ZIndex)
+            .DefaultIfEmpty(_savedZIndex.Value)
+            .Max();
+
+        ZIndex = topMost + 1;
+        _hasTemporaryTopMostZIndex = true;
+    }
+
+    private void RestoreOriginalZIndex()
+    {
+        if (!_hasTemporaryTopMostZIndex)
+            return;
+
+        if (_savedZIndex.HasValue)
+            ZIndex = _savedZIndex.Value;
+
+        _hasTemporaryTopMostZIndex = false;
+        _savedZIndex = null;
     }
 
     // Disable clipping on ancestor Controls so this widget can draw outside parents' bounds.

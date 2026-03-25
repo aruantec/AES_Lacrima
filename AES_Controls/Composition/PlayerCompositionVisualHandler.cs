@@ -38,6 +38,8 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
     private float _rotationAngle = 0f;
     private long _lastRotationTicks = 0;
     private bool _showDiscCenter = false;
+    private float _armAngleDegrees = (float)PlayerCompositionArmMetrics.RestAngleDegrees;
+    private long _lastAnimationTicks = 0;
 
     // Paints
     private SKPaint? _ringBackgroundPaint = new()
@@ -112,6 +114,58 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
         Color = SKColors.Transparent
     };
 
+    private SKPaint? _armShadowPaint = new()
+    {
+        IsAntialias = true,
+        Style = SKPaintStyle.Stroke,
+        StrokeCap = SKStrokeCap.Round,
+        Color = new SKColor(0, 0, 0, 90)
+    };
+
+    private SKPaint? _armMetalPaint = new()
+    {
+        IsAntialias = true,
+        Style = SKPaintStyle.Stroke,
+        StrokeCap = SKStrokeCap.Round,
+        Color = new SKColor(208, 214, 221)
+    };
+
+    private SKPaint? _armAccentPaint = new()
+    {
+        IsAntialias = true,
+        Style = SKPaintStyle.Stroke,
+        StrokeCap = SKStrokeCap.Round,
+        Color = new SKColor(118, 126, 138)
+    };
+
+    private SKPaint? _armHeadPaint = new()
+    {
+        IsAntialias = true,
+        Style = SKPaintStyle.Fill,
+        Color = new SKColor(46, 48, 56)
+    };
+
+    private SKPaint? _armPivotPaint = new()
+    {
+        IsAntialias = true,
+        Style = SKPaintStyle.Fill,
+        Color = new SKColor(54, 57, 65)
+    };
+
+    private SKPaint? _armPivotInnerPaint = new()
+    {
+        IsAntialias = true,
+        Style = SKPaintStyle.Fill,
+        Color = new SKColor(210, 214, 220)
+    };
+
+    private SKPaint? _armStylusPaint = new()
+    {
+        IsAntialias = true,
+        Style = SKPaintStyle.Fill,
+        Color = new SKColor(225, 94, 94)
+    };
+
     public override void OnMessage(object message)
     {
         switch (message)
@@ -178,13 +232,13 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
 
         using var lease = leaseFeature.Lease();
         var canvas = lease.SkCanvas;
-
-        var centerX = _visualSize.X / 2f;
-        var centerY = _visualSize.Y / 2f;
-        var size = Math.Min(_visualSize.X, _visualSize.Y);
-
-        // Calculate ring radius - EXACTLY like ClockCompositionControl
-        var ringRadius = (size / 2f) - (_ringPaint!.StrokeWidth / 2f) - 10f;
+        var discLayout = PlayerCompositionArmMetrics.GetDiscLayout(new Size(_visualSize.X, _visualSize.Y));
+        var centerX = (float)discLayout.Center.X;
+        var centerY = (float)discLayout.Center.Y;
+        var size = (float)discLayout.DiscDiameter;
+        var ringRadius = (float)discLayout.RingRadius;
+        var nowTicks = DateTime.UtcNow.Ticks;
+        var shouldContinueAnimating = UpdateAnimations(nowTicks);
 
         // Draw circle background (color or bitmap)
         DrawCircleBackground(canvas, centerX, centerY, ringRadius);
@@ -226,23 +280,113 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
             DrawDiscCenter(canvas, centerX, centerY, ringRadius);
         }
 
-        // Handle animation for rotation
+        DrawArm(canvas);
+
+        if (shouldContinueAnimating)
+            Invalidate();
+    }
+
+    private bool UpdateAnimations(long nowTicks)
+    {
+        var deltaSeconds = _lastAnimationTicks == 0
+            ? (1.0 / 60.0)
+            : (nowTicks - _lastAnimationTicks) / (double)TimeSpan.TicksPerSecond;
+
+        _lastAnimationTicks = nowTicks;
+
+        var needsAnotherFrame = false;
+
         if (_rotate && _isPlaying)
         {
-            long currentTicks = DateTime.UtcNow.Ticks;
             if (_lastRotationTicks != 0)
             {
-                double deltaSeconds = (currentTicks - _lastRotationTicks) / (double)TimeSpan.TicksPerSecond;
-                // Rotate 30 degrees per second
-                _rotationAngle = (float)((_rotationAngle + deltaSeconds * 30.0) % 360.0);
+                var rotationDeltaSeconds = (nowTicks - _lastRotationTicks) / (double)TimeSpan.TicksPerSecond;
+                _rotationAngle = (float)((_rotationAngle + rotationDeltaSeconds * 30.0) % 360.0);
             }
-            _lastRotationTicks = currentTicks;
-            Invalidate(); // Request next frame
+
+            _lastRotationTicks = nowTicks;
+            needsAnotherFrame = true;
         }
         else
         {
             _lastRotationTicks = 0;
         }
+
+        var targetArmAngle = _isPlaying
+            ? (float)PlayerCompositionArmMetrics.PlayAngleDegrees
+            : (float)PlayerCompositionArmMetrics.RestAngleDegrees;
+
+        var angleDelta = targetArmAngle - _armAngleDegrees;
+        if (Math.Abs(angleDelta) > 0.15f)
+        {
+            var maxStep = (float)Math.Max(1.0, deltaSeconds * 220.0);
+            if (Math.Abs(angleDelta) <= maxStep)
+            {
+                _armAngleDegrees = targetArmAngle;
+            }
+            else
+            {
+                _armAngleDegrees += MathF.Sign(angleDelta) * maxStep;
+                needsAnotherFrame = true;
+            }
+        }
+        else
+        {
+            _armAngleDegrees = targetArmAngle;
+        }
+
+        return needsAnotherFrame;
+    }
+
+    private void DrawArm(SKCanvas canvas)
+    {
+        if (_armShadowPaint == null
+            || _armMetalPaint == null
+            || _armAccentPaint == null
+            || _armHeadPaint == null
+            || _armPivotPaint == null
+            || _armPivotInnerPaint == null
+            || _armStylusPaint == null)
+        {
+            return;
+        }
+
+        var layout = PlayerCompositionArmMetrics.GetLayout(new Size(_visualSize.X, _visualSize.Y), _armAngleDegrees);
+        var pivot = new SKPoint((float)layout.Pivot.X, (float)layout.Pivot.Y);
+        var armEnd = new SKPoint((float)layout.ArmEnd.X, (float)layout.ArmEnd.Y);
+        var headEnd = new SKPoint((float)layout.HeadEnd.X, (float)layout.HeadEnd.Y);
+        var counterweightEnd = new SKPoint((float)layout.CounterweightEnd.X, (float)layout.CounterweightEnd.Y);
+        var shadowOffset = new SKPoint(2f, 2f);
+
+        _armShadowPaint.StrokeWidth = (float)layout.TubeThickness + 4f;
+        _armMetalPaint.StrokeWidth = (float)layout.TubeThickness;
+        _armAccentPaint.StrokeWidth = Math.Max(2f, (float)layout.TubeThickness * 0.35f);
+
+        canvas.DrawLine(
+            new SKPoint(counterweightEnd.X + shadowOffset.X, counterweightEnd.Y + shadowOffset.Y),
+            new SKPoint(armEnd.X + shadowOffset.X, armEnd.Y + shadowOffset.Y),
+            _armShadowPaint);
+        canvas.DrawLine(counterweightEnd, armEnd, _armMetalPaint);
+        canvas.DrawLine(counterweightEnd, armEnd, _armAccentPaint);
+
+        canvas.Save();
+        canvas.Translate(armEnd.X, armEnd.Y);
+        canvas.RotateDegrees((float)layout.AngleDegrees);
+
+        var headRect = new SKRoundRect(new SKRect(
+            -2f,
+            (float)(-layout.HeadThickness / 2.0),
+            (float)layout.HeadLength,
+            (float)(layout.HeadThickness / 2.0)),
+            (float)(layout.HeadThickness * 0.38),
+            (float)(layout.HeadThickness * 0.38));
+
+        canvas.DrawRoundRect(headRect, _armHeadPaint);
+        canvas.DrawCircle((float)(layout.HeadLength - 2.5), 0f, Math.Max(2.5f, (float)layout.HeadThickness * 0.18f), _armStylusPaint);
+        canvas.Restore();
+
+        canvas.DrawCircle(pivot, (float)layout.PivotRadius, _armPivotPaint);
+        canvas.DrawCircle(pivot, (float)layout.PivotRadius * 0.42f, _armPivotInnerPaint);
     }
 
     private void DrawPlayPauseIcon(SKCanvas canvas, float centerX, float centerY, float size)
@@ -457,6 +601,20 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
         _durationPaint = null;
         _circleBackgroundPaint?.Dispose();
         _circleBackgroundPaint = null;
+        _armShadowPaint?.Dispose();
+        _armShadowPaint = null;
+        _armMetalPaint?.Dispose();
+        _armMetalPaint = null;
+        _armAccentPaint?.Dispose();
+        _armAccentPaint = null;
+        _armHeadPaint?.Dispose();
+        _armHeadPaint = null;
+        _armPivotPaint?.Dispose();
+        _armPivotPaint = null;
+        _armPivotInnerPaint?.Dispose();
+        _armPivotInnerPaint = null;
+        _armStylusPaint?.Dispose();
+        _armStylusPaint = null;
         _circleBackgroundBitmap?.Dispose();
         _circleBackgroundBitmap = null;
     }
