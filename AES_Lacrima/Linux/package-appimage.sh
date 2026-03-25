@@ -4,9 +4,10 @@ set -euo pipefail
 PUBLISH_DIR="${1:-}"
 OUTPUT_DIR="${2:-}"
 TARGET_ARCH="${3:-}"
+OUTPUT_NAME="${4:-}"
 
 if [[ -z "$PUBLISH_DIR" || -z "$OUTPUT_DIR" ]]; then
-  echo "usage: $0 <publish-dir> <output-dir> [x86_64|aarch64]" >&2
+  echo "usage: $0 <publish-dir> <output-dir> [x86_64|aarch64] [output-name]" >&2
   exit 1
 fi
 
@@ -117,7 +118,9 @@ exec "$APPDIR/usr/bin/AES_Lacrima" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
-if [[ "$TARGET_ARCH" == "x86_64" ]]; then
+if [[ -n "$OUTPUT_NAME" ]]; then
+  OUTPUT_FILE="$OUTPUT_DIR/$OUTPUT_NAME"
+elif [[ "$TARGET_ARCH" == "x86_64" ]]; then
   OUTPUT_FILE="$OUTPUT_DIR/${APP_NAME}-Linux-${TARGET_ARCH}.AppImage"
 else
   OUTPUT_FILE="$OUTPUT_DIR/${APP_NAME}-${TARGET_ARCH}.AppImage"
