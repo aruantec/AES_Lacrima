@@ -445,9 +445,17 @@ namespace AES_Lacrima.Mini.ViewModels
         {
             var playlistItems = GetCurrentPlaylistItems();
             var loadedAlbum = MusicViewModel?.LoadedAlbum;
-            if (SelectedItems == null || playlistItems == null || loadedAlbum == null) return;
+            if (playlistItems == null || loadedAlbum == null) return;
 
-            var itemsToRemove = SelectedItems.ToList();
+            var itemsToRemove = SelectedItems?.Count > 0
+                ? SelectedItems.ToList()
+                : SelectedMediaItem != null
+                    ? [SelectedMediaItem]
+                    : [];
+
+            if (itemsToRemove.Count == 0)
+                return;
+
             foreach (var item in itemsToRemove)
             {
                 if (item == LoadedMediaItem)
@@ -461,6 +469,7 @@ namespace AES_Lacrima.Mini.ViewModels
                     loadedAlbum.Children.Remove(item);
             }
 
+            SelectedItems = [];
             UpdateTotalDuration();
         }
 
@@ -769,9 +778,9 @@ namespace AES_Lacrima.Mini.ViewModels
         private void AttachAudioPlayerHandlers(AudioPlayer? player)
         {
             if (player == null) return;
-            try { player.EndReached -= OnAudioPlayerEndReached; player.Stopped -= OnAudioPlayerStopped; player.PropertyChanged -= Player_PropertyChanged; }
+            try { player.Stopped -= OnAudioPlayerStopped; player.PropertyChanged -= Player_PropertyChanged; }
             catch (Exception ex) { Log.Warn("AttachAudioPlayerHandlers: defensive unsubscribe failed", ex); }
-            try { player.EndReached += OnAudioPlayerEndReached; player.Stopped += OnAudioPlayerStopped; player.PropertyChanged += Player_PropertyChanged; }
+            try { player.Stopped += OnAudioPlayerStopped; player.PropertyChanged += Player_PropertyChanged; }
             catch (Exception ex) { Log.Warn("AttachAudioPlayerHandlers: subscribe failed", ex); }
 
             MusicViewModel?.TaskbarAction = (TaskbarButtonId id) =>
@@ -800,18 +809,6 @@ namespace AES_Lacrima.Mini.ViewModels
             {
                 OnPropertyChanged(nameof(ShuffleMode));
             }
-        }
-
-        private void OnAudioPlayerEndReached(object? sender, EventArgs e)
-        {
-            _ = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                try
-                {
-                    Next();
-                }
-                catch (Exception ex) { Log.Warn("OnAudioPlayerEndReached: Next() failed", ex); }
-            });
         }
 
         private void OnAudioPlayerStopped(object? sender, EventArgs e)
@@ -861,6 +858,9 @@ namespace AES_Lacrima.Mini.ViewModels
             if (activeItem == null)
                 return;
 
+            var activeItemIndex = MusicViewModel.CoverItems.IndexOf(activeItem);
+            var activeItemIsInCurrentPlaylist = activeItemIndex >= 0;
+
             var previousLoadedItem = LoadedMediaItem;
             var loadedItemChanged = !ReferenceEquals(previousLoadedItem, activeItem);
             if (loadedItemChanged)
@@ -871,14 +871,13 @@ namespace AES_Lacrima.Mini.ViewModels
                 ReferenceEquals(SelectedMediaItem, previousLoadedItem) ||
                 SelectedPlaylistIndex < 0;
 
-            if (shouldFollowActiveSelection && !ReferenceEquals(SelectedMediaItem, activeItem))
+            if (shouldFollowActiveSelection && activeItemIsInCurrentPlaylist && !ReferenceEquals(SelectedMediaItem, activeItem))
                 SelectedMediaItem = activeItem;
 
-            if (loadedItemChanged && shouldFollowActiveSelection)
+            if (loadedItemChanged && shouldFollowActiveSelection && activeItemIsInCurrentPlaylist)
             {
-                var index = MusicViewModel.CoverItems.IndexOf(activeItem);
-                if (index >= 0 && SelectedPlaylistIndex != index)
-                    SelectedPlaylistIndex = index;
+                if (SelectedPlaylistIndex != activeItemIndex)
+                    SelectedPlaylistIndex = activeItemIndex;
             }
         }
 
@@ -931,6 +930,7 @@ namespace AES_Lacrima.Mini.ViewModels
                 var playlistItems = GetCurrentPlaylistItems();
                 if (ReferenceEquals(_mediaItemsSubscribed, playlistItems))
                 {
+                    UpdateItemIndices();
                     UpdateTotalDuration();
                     return;
                 }
@@ -938,6 +938,14 @@ namespace AES_Lacrima.Mini.ViewModels
                 UnsubscribeFromCollection(_mediaItemsSubscribed);
                 SubscribeToCollection(playlistItems);
                 _mediaItemsSubscribed = playlistItems;
+                SelectedItems = [];
+
+                if (SelectedMediaItem != null && (playlistItems == null || !playlistItems.Contains(SelectedMediaItem)))
+                {
+                    SelectedPlaylistIndex = -1;
+                    SelectedMediaItem = null;
+                }
+
                 UpdateItemIndices();
                 UpdateTotalDuration();
                 OnPropertyChanged(nameof(VisibleItemCount));
