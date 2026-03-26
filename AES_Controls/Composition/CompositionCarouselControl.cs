@@ -56,7 +56,7 @@ namespace AES_Controls.Composition
         private readonly Cursor _handCursor = new(StandardCursorType.Hand);
         private readonly string _diskCachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"ImageCache_{CachedCarouselImageSize}");
         private volatile bool _isDiskCachePathReady;
-        private int _maxImageCacheEntries = 80;
+        private int _maxImageCacheEntries = 160;
 
         private int _lastVirtualizationIndex = -1;
 
@@ -140,7 +140,7 @@ namespace AES_Controls.Composition
             AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(GlobalOpacity), 1.0);
 
         public static readonly StyledProperty<int> ImageCacheSizeProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, int>(nameof(ImageCacheSize), 80);
+            AvaloniaProperty.Register<CompositionCarouselControl, int>(nameof(ImageCacheSize), 160);
 
         public static readonly StyledProperty<int> PointedItemIndexProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, int>(nameof(PointedItemIndex), -1);
@@ -996,7 +996,7 @@ namespace AES_Controls.Composition
             if (totalCount == 0) return;
 
             // Smaller window for fluidity, faster response
-            const int loadWindow = 12;
+            const int loadWindow = 20;
 
             // Build lookup dictionary for O(1) index check
             var itemToIndex = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
@@ -1854,3 +1854,4 @@ namespace AES_Controls.Composition
         #endregion
     }
 }
+
