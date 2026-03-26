@@ -16,6 +16,17 @@ public sealed class AppUpdateServiceVersionTests
         Assert.True(result > 0, $"Expected '{left}' to be newer than '{right}', but compare result was {result}.");
     }
 
+    [Theory]
+    [InlineData("0.1.12-c", "0.1.12c")]
+    [InlineData("v0.1.12-c", "0.1.12c")]
+    [InlineData("0.1.12-b", "0.1.12b")]
+    public void CompareSemanticVersions_DashedSingleLetter_EqualsUndashedSuffix(string left, string right)
+    {
+        var result = Compare(left, right);
+
+        Assert.Equal(0, result);
+    }
+
     [Fact]
     public void CompareSemanticVersions_Prerelease_RemainsOlderThanStable()
     {
@@ -33,3 +44,4 @@ public sealed class AppUpdateServiceVersionTests
         return Assert.IsType<int>(value);
     }
 }
+
