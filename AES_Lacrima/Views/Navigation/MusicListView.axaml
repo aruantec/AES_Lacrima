@@ -23,8 +23,8 @@
 		<ListBox ItemsSource="{Binding FilteredAlbumList}" 
 				 Background="Transparent" 
 				 ClipToBounds="False"
-				 SelectionMode="Multiple"
-				 SelectedItem="{Binding SelectedAlbum, Mode=TwoWay}"
+				 SelectionMode="Single"
+				 SelectedIndex="{Binding SelectedAlbumIndex, Mode=TwoWay}"
 				 ScrollViewer.HorizontalScrollBarVisibility="Auto"
 				 ScrollViewer.VerticalScrollBarVisibility="Disabled"
 				 Margin="0,20,0,10">
@@ -198,17 +198,19 @@
 															 IsHitTestVisible="False"/>
 								</Panel>
 								<!-- Album title overlay -->
-								<Border VerticalAlignment="Bottom" Height="50" Background="#CC000000" ClipToBounds="False">
-									<Panel Margin="5">
+								<Border VerticalAlignment="Bottom" MinHeight="50" Background="#CC000000" ClipToBounds="False">
+									<Grid Margin="5" RowDefinitions="Auto,Auto">
 										<TextBlock Text="{Binding Title}" 
 												   IsVisible="{Binding !IsRenaming}"
 												   HorizontalAlignment="Center" 
 												   VerticalAlignment="Center"
+												   Grid.RowSpan="2"
 												   TextAlignment="Center"
 												   TextWrapping="Wrap" 
 												   Foreground="White" 
 												   FontSize="18"/>
 										<TextBox Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+												 Grid.Row="0"
 												 IsVisible="{Binding IsRenaming}"
 												 HorizontalAlignment="Stretch"
 												 VerticalAlignment="Center"
@@ -237,7 +239,15 @@
 																								 CommandParameter="{Binding}" />
 											</Interaction.Behaviors>
 										</TextBox>
-									</Panel>
+										<TextBlock Grid.Row="1"
+												   Margin="4,4,4,0"
+												   Foreground="White"
+												   FontSize="12"
+												   Text="{Binding NameInvalidMessage}"
+												   TextAlignment="Center"
+												   TextWrapping="Wrap"
+												   IsVisible="{Binding IsNameInvalid}" />
+									</Grid>
 								</Border>
 								<!-- Selection Overlay -->
 								<Border Classes="SelectionHighlight" 
@@ -288,7 +298,7 @@
 				<!-- Items panel -->
 				<ListBox.ItemsPanel>
 					<ItemsPanelTemplate>
-						<VirtualizingStackPanel Orientation="Horizontal" Margin="10,0,0,0" ClipToBounds="False"/>
+						<StackPanel Orientation="Horizontal" Margin="10,0,0,0" ClipToBounds="False"/>
 					</ItemsPanelTemplate>
 				</ListBox.ItemsPanel>
 			</ListBox>

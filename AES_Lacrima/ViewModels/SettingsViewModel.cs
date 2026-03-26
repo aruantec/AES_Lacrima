@@ -101,6 +101,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private bool _showShaderToy = true;
 
+    [ObservableProperty]
+    private bool _miniShowShaderToy = true;
+
     /// <summary>
     /// Gets or sets the collection of shader items used by the control.
     /// </summary>
@@ -115,6 +118,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// </summary>
     [ObservableProperty]
     private ShaderItem? _selectedShadertoy;
+
+    [ObservableProperty]
+    private ShaderItem? _miniSelectedShadertoy;
 
     /// <summary>
     /// Gets or sets the color used for the played portion of the waveform.
@@ -1022,13 +1028,14 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (ShaderToys == null || ShaderToys.Count == 0)
             return;
 
-        // If the selection is already valid, nothing to do.
-        if (SelectedShadertoy != null && ShaderToys.Contains(SelectedShadertoy))
-            return;
-
-        // Prefer AnimatedBackground when available, otherwise pick the first item.
-        SelectedShadertoy = ShaderToys.FirstOrDefault(s => s.Name == "AnimatedBackground")
+        var defaultShader = ShaderToys.FirstOrDefault(s => s.Name == "AnimatedBackground")
                             ?? ShaderToys.FirstOrDefault();
+
+        if (SelectedShadertoy == null || !ShaderToys.Contains(SelectedShadertoy))
+            SelectedShadertoy = defaultShader;
+
+        if (MiniSelectedShadertoy == null || !ShaderToys.Contains(MiniSelectedShadertoy))
+            MiniSelectedShadertoy = defaultShader;
     }
 
     public override void Prepare()
@@ -1120,6 +1127,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         string? selectedshadertoy = ReadStringSetting(section, nameof(SelectedShadertoy));
         SelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == (selectedshadertoy ?? "AnimatedBackground")) 
                             ?? ShaderToys?.FirstOrDefault();
+        MiniShowShaderToy = ReadBoolSetting(section, nameof(MiniShowShaderToy), MiniShowShaderToy);
+        string? miniSelectedShadertoy = ReadStringSetting(section, nameof(MiniSelectedShadertoy));
+        MiniSelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == (miniSelectedShadertoy ?? "AnimatedBackground"))
+                               ?? ShaderToys?.FirstOrDefault();
 
         // Carousel settings
         CarouselSpacing = ReadDoubleSetting(section, nameof(CarouselSpacing), CarouselSpacing);
@@ -1155,11 +1166,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ScaleFactor), ScaleFactor);
         WriteSetting(section, nameof(ParticleCount), ParticleCount);
         WriteSetting(section, nameof(ShowShaderToy), ShowShaderToy);
+        WriteSetting(section, nameof(MiniShowShaderToy), MiniShowShaderToy);
         WriteSetting(section, nameof(ShowBackground), ShowBackground);
         WriteSetting(section, nameof(BackgroundImagePath), BackgroundImagePath);
         WriteSetting(section, nameof(ShowParticles), ShowParticles);
         WriteSetting(section, nameof(WaveformPlayedColor), WaveformPlayedColor.ToString());
         WriteSetting(section, nameof(SelectedShadertoy), SelectedShadertoy?.Name ?? string.Empty);
+        WriteSetting(section, nameof(MiniSelectedShadertoy), MiniSelectedShadertoy?.Name ?? string.Empty);
         // Spectrum settings
         WriteSetting(section, nameof(SpectrumHeight), SpectrumHeight);
         WriteSetting(section, nameof(BarWidth), BarWidth);

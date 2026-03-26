@@ -24,7 +24,7 @@
                                                Margin="10,0,0,0"/>
                                 </WrapPanel>
 
-                                <CheckBox IsChecked="{Binding ShowShaderToy, Mode=TwoWay}">
+                                <CheckBox IsChecked="{Binding MiniShowShaderToy, Mode=TwoWay}">
                                     <TextBlock Text="Show shader background" Foreground="WhiteSmoke"/>
                                 </CheckBox>
 

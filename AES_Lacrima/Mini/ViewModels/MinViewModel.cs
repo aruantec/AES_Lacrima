@@ -49,7 +49,9 @@ namespace AES_Lacrima.Mini.ViewModels
         private string _agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
         private Bitmap _defaultCover = PlaceholderGenerator.GenerateMusicPlaceholder();
         private AvaloniaList<MediaItem>? _mediaItemsSubscribed;
+        private MusicViewModel? _musicViewModelSubscribed;
         private bool _isSwitchingExtension;
+        private bool _isSyncingSearchText;
         private BitmapColorHelper _colorHelper = new();
 
         #endregion
@@ -83,7 +85,16 @@ namespace AES_Lacrima.Mini.ViewModels
 
         partial void OnSearchTextChanged(string value)
         {
-            UpdateFilteredItems();
+            if (_isSyncingSearchText)
+                return;
+
+            if (MusicViewModel == null)
+                return;
+
+            if (ShowPlaylist)
+                MusicViewModel.SearchAlbumText = value;
+            else
+                MusicViewModel.SearchText = value;
         }
 
         // filtered view of MediaItems based on SearchText; bound to the ListBox
@@ -92,6 +103,15 @@ namespace AES_Lacrima.Mini.ViewModels
 
         [ObservableProperty]
         private MediaItem? _selectedMediaItem;
+
+        [ObservableProperty]
+        private int _selectedPlaylistIndex = -1;
+
+        [ObservableProperty]
+        private FolderMediaItem? _selectedAlbum;
+
+        [ObservableProperty]
+        private int _selectedAlbumIndex = -1;
 
         [ObservableProperty]
         private MediaItem? _loadedMediaItem;
@@ -171,26 +191,17 @@ namespace AES_Lacrima.Mini.ViewModels
         [RelayCommand]
         private void Drop(object? param)
         {
-            // ListboxItemDragBehavior has already mutated the UI-bound FilteredMediaItems collection directly.
-            // If the user isn't searching, we map this new visible order back into the master MediaItems and update Indices.
-            if (string.IsNullOrWhiteSpace(SearchText) && FilteredMediaItems != null && MediaItems != null)
+            var playlistItems = GetCurrentPlaylistItems();
+            if (string.IsNullOrWhiteSpace(SearchText) && playlistItems != null)
             {
                 try
                 {
-                    UnsubscribeFromCollection(MediaItems);
-                    for (int i = 0; i < FilteredMediaItems.Count; i++)
-                    {
-                        var movedItem = FilteredMediaItems[i];
-                        int currentIndex = MediaItems.IndexOf(movedItem);
-                        if (currentIndex >= 0 && currentIndex != i)
-                        {
-                            MediaItems.Move(currentIndex, i);
-                        }
-                    }
+                    UnsubscribeFromCollection(playlistItems);
+                    UpdateItemIndices();
                 }
                 finally
                 {
-                    SubscribeToCollection(MediaItems);
+                    SubscribeToCollection(playlistItems);
                 }
 
                 UpdateItemIndices();
@@ -317,13 +328,15 @@ namespace AES_Lacrima.Mini.ViewModels
         [RelayCommand]
         private async Task EjectAsync()
         {
-            if (MediaItems == null) return;
-            if (MediaItems.Count > 0)
+            var musicViewModel = MusicViewModel;
+            if (musicViewModel?.LoadedAlbum != null)
             {
-                MusicViewModel?.AudioPlayer?.Stop();
+                musicViewModel.AudioPlayer?.Stop();
+                musicViewModel.LoadedAlbum = null;
+                musicViewModel.SelectedAlbum = null;
                 SelectedMediaItem = null;
                 LoadedMediaItem = null;
-                MediaItems.Clear();
+                ShowPlaylist = true;
             }
             else
                 await AddFolders();
@@ -336,7 +349,6 @@ namespace AES_Lacrima.Mini.ViewModels
         private void ClearSearch()
         {
             SearchText = string.Empty;
-            UpdateFilteredItems();
         }
 
         [RelayCommand]
@@ -354,10 +366,36 @@ namespace AES_Lacrima.Mini.ViewModels
         [RelayCommand]
         private async Task PlaySelectedMediaItem()
         {
-            if (SelectedMediaItem == null) return;
+            if (SelectedMediaItem == null || MusicViewModel == null) return;
+
+            var playlistItems = GetCurrentPlaylistItems();
+            if (playlistItems != null)
+                MusicViewModel.PlaybackQueue = playlistItems;
+
+            MusicViewModel.SelectedMediaItem = SelectedMediaItem;
+            var index = MusicViewModel.CoverItems.IndexOf(SelectedMediaItem);
+            if (index >= 0)
+            {
+                MusicViewModel.SelectedIndex = index;
+                MusicViewModel.PointedIndex = index;
+                MusicViewModel.HighlightedItem = SelectedMediaItem;
+            }
             await PlayMediaItemAsync(SelectedMediaItem);
             LoadedMediaItem = SelectedMediaItem;
             UpdateLoadedBrush(SelectedMediaItem);
+        }
+
+        [RelayCommand]
+        private void OpenSelectedAlbum()
+        {
+            if (MusicViewModel == null || SelectedAlbum == null)
+                return;
+
+            MusicViewModel.SelectedAlbum = SelectedAlbum;
+            MusicViewModel.OpenSelectedFolderCommand.Execute(null);
+            ShowPlaylist = false;
+            SyncSearchTextFromVisibleCollection();
+            SubscribeToCurrentPlaylist();
         }
 
         private async Task PlayMediaItemAsync(MediaItem item)
@@ -381,86 +419,19 @@ namespace AES_Lacrima.Mini.ViewModels
         [RelayCommand]
         private void PlayPause()
         {
-            if (MusicViewModel == null || MusicViewModel.AudioPlayer == null) return;
-
-            var player = MusicViewModel.AudioPlayer;
-
-            if (player.IsPlaying)
-            {
-                player.Pause();
-                return;
-            }
-
-            // not playing now ------------------------------------------------
-            if (player.CurrentMediaItem == null)
-            {
-                // no media loaded at all
-                if (MediaItems == null || MediaItems.Count == 0)
-                {
-                    // ensure state reset and do nothing else
-                    player.Stop();
-                    return;
-                }
-
-                // we have a playlist but nothing loaded; pick selected or first
-                if (SelectedMediaItem == null && MediaItems.FirstOrDefault() is MediaItem firstItem)
-                    SelectedMediaItem = firstItem;
-                _ = PlaySelectedMediaItem();
-            }
-            else
-            {
-                // media already loaded, just play it
-                player.Play();
-            }
+            MusicViewModel?.TogglePlayCommand.Execute(null);
         }
 
         [RelayCommand]
         private void Next()
         {
-            if (MediaItems == null || MediaItems.Count == 0 || LoadedMediaItem == null || MusicViewModel?.AudioPlayer == null) return;
-            var index = MediaItems.IndexOf(LoadedMediaItem);
-            if (index < 0) return;
-            if (MusicViewModel.AudioPlayer.RepeatMode == RepeatMode.Shuffle)
-            {
-                int nextIndex = index;
-                if (MediaItems.Count == 1) nextIndex = 0;
-                else
-                {
-                    int attempts = 0;
-                    while (nextIndex == index && attempts < 8)
-                    {
-                        nextIndex = _random.Next(0, MediaItems.Count);
-                        attempts++;
-                    }
-                    if (nextIndex == index)
-                        nextIndex = (index + 1) % MediaItems.Count;
-                }
-                var next = MediaItems[nextIndex];
-                _ = PlayMediaItemAsync(next);
-                LoadedMediaItem = next;
-                SelectedMediaItem = next;
-                return;
-            }
-            var nextIndexSequential = index + 1;
-            if (nextIndexSequential >= MediaItems.Count) return;
-            var nextSequential = MediaItems[nextIndexSequential];
-            _ = PlayMediaItemAsync(nextSequential);
-            LoadedMediaItem = nextSequential;
-            SelectedMediaItem = nextSequential;
+            MusicViewModel?.PlayNextCommand.Execute(null);
         }
 
         [RelayCommand]
         private void Previous()
         {
-            if (MediaItems == null || LoadedMediaItem == null || MusicViewModel?.AudioPlayer == null) return;
-            var index = MediaItems.IndexOf(LoadedMediaItem);
-            if (index <= 0) return;
-            var prevIndex = index - 1;
-            if (prevIndex < 0) return;
-            var prev = MediaItems[prevIndex];
-            _ = PlayMediaItemAsync(prev);
-            LoadedMediaItem = prev;
-            SelectedMediaItem = prev;
+            MusicViewModel?.PlayPreviousCommand.Execute(null);
         }
 
         [RelayCommand]
@@ -472,7 +443,10 @@ namespace AES_Lacrima.Mini.ViewModels
         [RelayCommand]
         private void DeleteSelectedItems()
         {
-            if (SelectedItems == null || MediaItems == null) return;
+            var playlistItems = GetCurrentPlaylistItems();
+            var loadedAlbum = MusicViewModel?.LoadedAlbum;
+            if (SelectedItems == null || playlistItems == null || loadedAlbum == null) return;
+
             var itemsToRemove = SelectedItems.ToList();
             foreach (var item in itemsToRemove)
             {
@@ -481,57 +455,70 @@ namespace AES_Lacrima.Mini.ViewModels
                     MusicViewModel?.AudioPlayer?.Stop();
                     LoadedMediaItem = null;
                 }
-                MediaItems.Remove(item);
+
+                playlistItems.Remove(item);
+                if (!ReferenceEquals(playlistItems, loadedAlbum.Children))
+                    loadedAlbum.Children.Remove(item);
             }
-            SaveSettings();
+
+            UpdateTotalDuration();
         }
 
         [RelayCommand]
         private async Task AddFolders()
         {
-            var lifetime = Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
-            var storageProvider = lifetime?.MainWindow?.StorageProvider;
-            if (storageProvider == null) return;
-            var folders = await storageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions { Title = "Select folder", AllowMultiple = false });
-            if (folders.Count == 0) return;
-            var path = folders[0].Path.LocalPath;
-            if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path)) return;
-            var mediaItems = _supportedTypes.SelectMany(pattern => Directory.EnumerateFiles(path, pattern))
-                .Where(file => { var name = Path.GetFileName(file); return !(string.IsNullOrEmpty(name) || name.StartsWith("._") || name.StartsWith(".")); })
-                .Select(file => new MediaItem { FileName = file, Title = Path.GetFileName(file), CoverBitmap = _defaultCover }).ToList();
-            if (MediaItems != null && LoadedMediaItem != null && MediaItems.Contains(LoadedMediaItem)) { MusicViewModel?.AudioPlayer?.Stop(); LoadedMediaItem = null; }
-            MediaItems = [.. mediaItems];
-            try { SaveSettings(); } catch (Exception ex) { Log.Warn("AddFolders: SaveSettings failed", ex); }
-            UpdateItemIndices();
-            if (MediaItems != null && MediaItems.Count > 0 && MusicViewModel?.AudioPlayer != null)
-                _ = new MetadataScrapper(MediaItems, MusicViewModel.AudioPlayer, _defaultCover, _agentInfo, 512);
+            if (MusicViewModel == null)
+                return;
+
+            MusicViewModel.OpenFolderCommand.Execute(null);
+            ShowPlaylist = MusicViewModel.LoadedAlbum == null;
+            SyncSearchTextFromVisibleCollection();
         }
 
         [RelayCommand]
         private async Task AddFilesAsync()
         {
-            if (MediaItems == null) return;
-            var lifetime = Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
-            var storageProvider = lifetime?.MainWindow?.StorageProvider;
-            if (storageProvider == null) return;
-            var files = await storageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions { Title = "Add Audio Files", AllowMultiple = true, FileTypeFilter = new[] { new Avalonia.Platform.Storage.FilePickerFileType("Audio Files") { Patterns = _supportedTypes } } });
-            if (files.Count == 0) return;
-            var existing = new HashSet<string>(MediaItems.Select(m => (m?.FileName ?? string.Empty).Trim()), StringComparer.OrdinalIgnoreCase);
-            var seenInPicker = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var file in files)
-            {
-                var localPath = file.Path.LocalPath; if (string.IsNullOrWhiteSpace(localPath)) continue; localPath = localPath.Trim();
-                if (existing.Contains(localPath)) continue;
-                if (seenInPicker.Contains(localPath)) continue;
-                seenInPicker.Add(localPath);
-                var item = new MediaItem { FileName = localPath, Title = Path.GetFileName(localPath), CoverBitmap = _defaultCover };
-                MediaItems.Add(item);
-            }
-            // Update indices for the entire list since we don't know where the new items were inserted (user can pick from any folder and the file picker doesn't return in a guaranteed order)
-            UpdateItemIndices();
-            try { SaveSettings(); } catch (Exception ex) { Log.Warn("AddFilesAsync: SaveSettings failed", ex); }
-            if (MediaItems.Count > 0 && MusicViewModel?.AudioPlayer != null)
-                _ = new MetadataScrapper(MediaItems, MusicViewModel.AudioPlayer, _defaultCover, _agentInfo, 512);
+            MusicViewModel?.AddItemsCommand.Execute(null);
+            SubscribeToCurrentPlaylist();
+        }
+
+        [RelayCommand]
+        private void AddUrl() => MusicViewModel?.AddUrlCommand.Execute(null);
+
+        [RelayCommand]
+        private void AddPlaylist() => MusicViewModel?.AddPlaylistCommand.Execute(null);
+
+        [RelayCommand]
+        private void ShowAlbumActions()
+        {
+            ShowPlaylist = true;
+            SyncSearchTextFromVisibleCollection();
+        }
+
+        [RelayCommand]
+        private void EndRenameAlbum(FolderMediaItem? album) => MusicViewModel?.EndRenameCommand.Execute(album);
+
+        [RelayCommand]
+        private void CancelRenameAlbum(FolderMediaItem? album) => MusicViewModel?.CancelRenameCommand.Execute(album);
+
+        [RelayCommand]
+        private void ReloadPlaylistItemMetadata(MediaItem? item)
+        {
+            if (!TryTargetPlaylistItem(item, out var targetItem))
+                return;
+
+            MusicViewModel?.ReloadMetadataCommand.Execute(targetItem);
+        }
+
+        [RelayCommand]
+        private void DeletePlaylistItem(MediaItem? item)
+        {
+            if (!TryTargetPlaylistItem(item, out _))
+                return;
+
+            MusicViewModel?.DeletePointedItemCommand.Execute(null);
+            SyncPlaybackStateFromMusicViewModel();
+            UpdateTotalDuration();
         }
 
         #endregion
@@ -543,11 +530,12 @@ namespace AES_Lacrima.Mini.ViewModels
             MusicViewModel?.AudioPlayer?.EnableWaveform = true;
             MusicViewModel?.AudioPlayer?.AutoSkipTrailingSilence = true;
             LoadSettings();
-            if (MediaItems == null || MediaItems.Count == 0)
-            {
-                MediaItems = [.. MusicViewModel?.AlbumList?.SelectMany(s => s.Children) ?? []];
-                UpdateItemIndices();
-            }
+            ShowPlaylist = MusicViewModel?.LoadedAlbum == null;
+            SyncSearchTextFromVisibleCollection();
+            SubscribeToCurrentPlaylist();
+            SyncPlaybackStateFromMusicViewModel();
+            if (LoadedMediaItem == null)
+                ResetStoppedDisplay();
             UpdateTotalDuration();
             try { if (MusicViewModel?.AudioPlayer != null) AttachAudioPlayerHandlers(MusicViewModel.AudioPlayer); }
             catch (Exception ex) { Log.Warn("Prepare: failed to attach audio player handlers", ex); }
@@ -579,13 +567,94 @@ namespace AES_Lacrima.Mini.ViewModels
 
         partial void OnSelectedMediaItemChanged(MediaItem? value)
         {
+            if (value != null && MusicViewModel != null)
+            {
+                var index = MusicViewModel.CoverItems.IndexOf(value);
+                if (index >= 0)
+                {
+                    if (SelectedPlaylistIndex != index)
+                        SelectedPlaylistIndex = index;
+                }
+            }
+            else if (value == null && SelectedPlaylistIndex != -1)
+            {
+                SelectedPlaylistIndex = -1;
+            }
+
             OnPropertyChanged(nameof(DisplayDuration));
+        }
+
+        partial void OnSelectedPlaylistIndexChanged(int value)
+        {
+            if (MusicViewModel == null)
+                return;
+
+            if (value < 0 || value >= MusicViewModel.CoverItems.Count)
+            {
+                if (SelectedMediaItem != null)
+                    SelectedMediaItem = null;
+                return;
+            }
+
+            var selectedItem = MusicViewModel.CoverItems[value];
+            if (!ReferenceEquals(SelectedMediaItem, selectedItem))
+                SelectedMediaItem = selectedItem;
+        }
+
+        partial void OnSelectedAlbumChanged(FolderMediaItem? value)
+        {
+            if (MusicViewModel == null)
+                return;
+
+            var index = value == null ? -1 : MusicViewModel.FilteredAlbumList.IndexOf(value);
+            if (SelectedAlbumIndex != index)
+                SelectedAlbumIndex = index;
+        }
+
+        partial void OnSelectedAlbumIndexChanged(int value)
+        {
+            if (MusicViewModel == null)
+                return;
+
+            if (value < 0 || value >= MusicViewModel.FilteredAlbumList.Count)
+            {
+                if (SelectedAlbum != null)
+                    SelectedAlbum = null;
+                return;
+            }
+
+            var selectedAlbum = MusicViewModel.FilteredAlbumList[value];
+            if (!ReferenceEquals(SelectedAlbum, selectedAlbum))
+                SelectedAlbum = selectedAlbum;
         }
 
         partial void OnMusicViewModelChanged(MusicViewModel? value)
         {
-            try { if (value?.AudioPlayer != null) AttachAudioPlayerHandlers(value.AudioPlayer); }
+            try
+            {
+                if (_musicViewModelSubscribed != null)
+                    _musicViewModelSubscribed.PropertyChanged -= MusicViewModel_PropertyChanged;
+
+                _musicViewModelSubscribed = value;
+
+                if (_musicViewModelSubscribed != null)
+                    _musicViewModelSubscribed.PropertyChanged += MusicViewModel_PropertyChanged;
+
+                if (value?.AudioPlayer != null)
+                    AttachAudioPlayerHandlers(value.AudioPlayer);
+
+                SyncSearchTextFromVisibleCollection();
+                SubscribeToCurrentPlaylist();
+                SyncSelectedAlbumFromMusicViewModel();
+                SyncPlaybackStateFromMusicViewModel();
+            }
             catch (Exception ex) { Log.Warn("OnMusicViewModelChanged failed to attach audio handlers", ex); }
+        }
+
+        partial void OnShowPlaylistChanged(bool value)
+        {
+            SyncSearchTextFromVisibleCollection();
+            OnPropertyChanged(nameof(VisibleItemCount));
         }
 
         // Called whenever SearchText or MediaItems change to rebuild the filtered collection
@@ -645,6 +714,7 @@ namespace AES_Lacrima.Mini.ViewModels
                 IsCoverPlaceholder = false;
             }
 
+            SelectionBrush = new SolidColorBrush(Color.Parse("#005CFE"));
             ControlsBrush = LoadedBrush;
             ColorGradientBrush = _colorHelper.GetColorGradient(hasCustomCover ? coverBitmap : null);
         }
@@ -670,28 +740,38 @@ namespace AES_Lacrima.Mini.ViewModels
                 if (e.NewItems != null) foreach (var ni in e.NewItems.Cast<MediaItem>()) if (ni is INotifyPropertyChanged inpc) inpc.PropertyChanged += MediaItem_PropertyChanged;
                 if (e.OldItems != null) foreach (var oi in e.OldItems.Cast<MediaItem>()) if (oi is INotifyPropertyChanged inpc) inpc.PropertyChanged -= MediaItem_PropertyChanged;
                 UpdateTotalDuration();
-                UpdateFilteredItems();
+                OnPropertyChanged(nameof(VisibleItemCount));
             }
             catch (Exception ex) { Log.Warn("MediaItems_CollectionChanged failed", ex); }
         }
 
         private void MediaItem_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(MediaItem.Duration)) { UpdateTotalDuration(); OnPropertyChanged(nameof(DisplayDuration)); }
+            if (e.PropertyName == nameof(MediaItem.Duration))
+            {
+                UpdateTotalDuration();
+                OnPropertyChanged(nameof(DisplayDuration));
+            }
+            else if (sender is MediaItem item
+                && ReferenceEquals(item, LoadedMediaItem)
+                && e.PropertyName == nameof(MediaItem.CoverBitmap))
+            {
+                UpdateLoadedBrush(item);
+            }
         }
 
         private void UpdateTotalDuration()
         {
-            try { TotalDuration = MediaItems?.Sum(m => m?.Duration ?? 0.0) ?? 0.0; }
+            try { TotalDuration = GetCurrentPlaylistItems()?.Sum(m => m?.Duration ?? 0.0) ?? 0.0; }
             catch (Exception ex) { Log.Warn("UpdateTotalDuration failed", ex); TotalDuration = 0.0; }
         }
 
         private void AttachAudioPlayerHandlers(AudioPlayer? player)
         {
             if (player == null) return;
-            try { player.EndReached -= OnAudioPlayerEndReached; player.PropertyChanged -= Player_PropertyChanged; }
+            try { player.EndReached -= OnAudioPlayerEndReached; player.Stopped -= OnAudioPlayerStopped; player.PropertyChanged -= Player_PropertyChanged; }
             catch (Exception ex) { Log.Warn("AttachAudioPlayerHandlers: defensive unsubscribe failed", ex); }
-            try { player.EndReached += OnAudioPlayerEndReached; player.PropertyChanged += Player_PropertyChanged; }
+            try { player.EndReached += OnAudioPlayerEndReached; player.Stopped += OnAudioPlayerStopped; player.PropertyChanged += Player_PropertyChanged; }
             catch (Exception ex) { Log.Warn("AttachAudioPlayerHandlers: subscribe failed", ex); }
 
             MusicViewModel?.TaskbarAction = (TaskbarButtonId id) =>
@@ -711,6 +791,11 @@ namespace AES_Lacrima.Mini.ViewModels
             {
                 _ = Task.Run(() => Avalonia.Threading.Dispatcher.UIThread.Post(() => IsMuted = MusicViewModel?.AudioPlayer?.Volume == 0));
             }
+            else if (e.PropertyName == nameof(AudioPlayer.IsPlaying) ||
+                     e.PropertyName == nameof(AudioPlayer.IsLoadingMedia))
+            {
+                SyncPlaybackStateFromMusicViewModel();
+            }
             else if (e.PropertyName == nameof(AudioPlayer.RepeatMode))
             {
                 OnPropertyChanged(nameof(ShuffleMode));
@@ -723,14 +808,21 @@ namespace AES_Lacrima.Mini.ViewModels
             {
                 try
                 {
-                    if (MusicViewModel?.AudioPlayer?.RepeatMode == RepeatMode.All && MediaItems != null && MediaItems.Count > 0 && LoadedMediaItem != null && MediaItems.IndexOf(LoadedMediaItem) == MediaItems.Count - 1 && MediaItems.FirstOrDefault() is MediaItem firstItem)
-                    {
-                        SelectedMediaItem = firstItem;
-                        _ = PlaySelectedMediaItem();
-                    }
-                    else Next();
+                    Next();
                 }
                 catch (Exception ex) { Log.Warn("OnAudioPlayerEndReached: Next() failed", ex); }
+            });
+        }
+
+        private void OnAudioPlayerStopped(object? sender, EventArgs e)
+        {
+            _ = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                try
+                {
+                    ResetStoppedDisplay();
+                }
+                catch (Exception ex) { Log.Warn("OnAudioPlayerStopped failed", ex); }
             });
         }
 
@@ -738,10 +830,160 @@ namespace AES_Lacrima.Mini.ViewModels
         {
             try
             {
-                if (MediaItems == null) return;
-                for (int i = 0; i < MediaItems.Count; i++) { var item = MediaItems[i]; if (item != null) item.Index = i + 1; }
+                var playlistItems = GetCurrentPlaylistItems();
+                if (playlistItems == null) return;
+                for (int i = 0; i < playlistItems.Count; i++) { var item = playlistItems[i]; if (item != null) item.Index = i + 1; }
             }
             catch (Exception ex) { Log.Warn("UpdateItemIndices failed", ex); }
+        }
+
+        private AvaloniaList<MediaItem>? GetCurrentPlaylistItems() => MusicViewModel?.CoverItems;
+
+        public int VisibleItemCount => ShowPlaylist
+            ? MusicViewModel?.FilteredAlbumList?.Count ?? 0
+            : GetCurrentPlaylistItems()?.Count ?? 0;
+
+        private void SyncSearchTextFromVisibleCollection()
+        {
+            _isSyncingSearchText = true;
+            SearchText = ShowPlaylist
+                ? MusicViewModel?.SearchAlbumText ?? string.Empty
+                : MusicViewModel?.SearchText ?? string.Empty;
+            _isSyncingSearchText = false;
+        }
+
+        private void SyncPlaybackStateFromMusicViewModel()
+        {
+            if (MusicViewModel == null)
+                return;
+
+            var activeItem = MusicViewModel.AudioPlayer?.CurrentMediaItem ?? MusicViewModel.SelectedMediaItem;
+            if (activeItem == null)
+                return;
+
+            var previousLoadedItem = LoadedMediaItem;
+            var loadedItemChanged = !ReferenceEquals(previousLoadedItem, activeItem);
+            if (loadedItemChanged)
+                LoadedMediaItem = activeItem;
+
+            var shouldFollowActiveSelection =
+                SelectedMediaItem == null ||
+                ReferenceEquals(SelectedMediaItem, previousLoadedItem) ||
+                SelectedPlaylistIndex < 0;
+
+            if (shouldFollowActiveSelection && !ReferenceEquals(SelectedMediaItem, activeItem))
+                SelectedMediaItem = activeItem;
+
+            if (loadedItemChanged && shouldFollowActiveSelection)
+            {
+                var index = MusicViewModel.CoverItems.IndexOf(activeItem);
+                if (index >= 0 && SelectedPlaylistIndex != index)
+                    SelectedPlaylistIndex = index;
+            }
+        }
+
+        private void SyncSelectedAlbumFromMusicViewModel()
+        {
+            if (MusicViewModel == null)
+                return;
+
+            var album = MusicViewModel.LoadedAlbum ?? MusicViewModel.SelectedAlbum;
+            if (!ReferenceEquals(SelectedAlbum, album))
+                SelectedAlbum = album;
+        }
+
+        private void ResetStoppedDisplay()
+        {
+            LoadedMediaItem = CreateStoppedPlaceholder();
+            OnPropertyChanged(nameof(DisplayDuration));
+        }
+
+        private MediaItem CreateStoppedPlaceholder() => new()
+        {
+            Title = "No File Loaded",
+            Artist = string.Empty,
+            Album = string.Empty,
+            Duration = 0,
+            Index = 0,
+            CoverBitmap = _defaultCover
+        };
+
+        private bool TryTargetPlaylistItem(MediaItem? item, out MediaItem? targetItem)
+        {
+            targetItem = item ?? SelectedMediaItem;
+            if (targetItem == null || MusicViewModel == null)
+                return false;
+
+            var index = MusicViewModel.CoverItems.IndexOf(targetItem);
+            if (index < 0)
+                return false;
+
+            SelectedMediaItem = targetItem;
+            MusicViewModel.PointedIndex = index;
+            MusicViewModel.HighlightedItem = targetItem;
+            return true;
+        }
+
+        private void SubscribeToCurrentPlaylist()
+        {
+            try
+            {
+                var playlistItems = GetCurrentPlaylistItems();
+                if (ReferenceEquals(_mediaItemsSubscribed, playlistItems))
+                {
+                    UpdateTotalDuration();
+                    return;
+                }
+
+                UnsubscribeFromCollection(_mediaItemsSubscribed);
+                SubscribeToCollection(playlistItems);
+                _mediaItemsSubscribed = playlistItems;
+                UpdateItemIndices();
+                UpdateTotalDuration();
+                OnPropertyChanged(nameof(VisibleItemCount));
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("SubscribeToCurrentPlaylist failed", ex);
+            }
+        }
+
+        private void MusicViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(MusicViewModel.SelectedMediaItem))
+            {
+                SyncPlaybackStateFromMusicViewModel();
+            }
+            else if (e.PropertyName == nameof(MusicViewModel.CoverItems))
+            {
+                SubscribeToCurrentPlaylist();
+                SyncPlaybackStateFromMusicViewModel();
+            }
+            else if (e.PropertyName == nameof(MusicViewModel.SearchText) && !ShowPlaylist)
+            {
+                SyncSearchTextFromVisibleCollection();
+            }
+            else if (e.PropertyName == nameof(MusicViewModel.SearchAlbumText) && ShowPlaylist)
+            {
+                SyncSearchTextFromVisibleCollection();
+            }
+            else if (e.PropertyName == nameof(MusicViewModel.SelectedAlbum))
+            {
+                if (MusicViewModel?.LoadedAlbum == null)
+                    SyncSelectedAlbumFromMusicViewModel();
+            }
+            else if (e.PropertyName == nameof(MusicViewModel.LoadedAlbum))
+            {
+                ShowPlaylist = MusicViewModel?.LoadedAlbum == null;
+                SyncSelectedAlbumFromMusicViewModel();
+                SubscribeToCurrentPlaylist();
+                OnPropertyChanged(nameof(VisibleItemCount));
+            }
+            else if (e.PropertyName == nameof(MusicViewModel.FilteredAlbumList))
+            {
+                SyncSelectedAlbumFromMusicViewModel();
+                OnPropertyChanged(nameof(VisibleItemCount));
+            }
         }
 
         #endregion

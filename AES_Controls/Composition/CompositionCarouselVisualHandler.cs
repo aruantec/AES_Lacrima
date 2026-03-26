@@ -128,7 +128,8 @@ namespace AES_Controls.Composition
             { 
                 var imgs = enumerableImgs as List<SKImage> ?? enumerableImgs.ToList();
                 var newImgs = new HashSet<SKImage>(imgs.Where(i => i != null));
-                foreach (var img in _images) 
+                var previousImages = _images.ToArray();
+                foreach (var img in previousImages) 
                 {
                     if (!newImgs.Contains(img)) 
                     {

@@ -86,7 +86,7 @@ public class OpenShaderToyContextMenuBehavior : Behavior<Control>
             return;
         }
 
-        var selected = viewModel.SettingsViewModel?.SelectedShadertoy;
+        var selected = viewModel.SettingsViewModel?.MiniSelectedShadertoy;
         var isDefaultSelected = !viewModel.IsShaderToySelected;
 
         var items = new List<object>

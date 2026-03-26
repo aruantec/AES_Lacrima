@@ -28,7 +28,7 @@
                                     BarWidth="7"
                                     BarSpacing="3"
                                     BarGradient="{Binding MinViewModel.ColorGradientBrush}"/>
-        <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
+        <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.MiniSelectedShadertoy.Path}"
                                IsVisible="{Binding IsShaderToySelected}"
                                Spectrum="{Binding SpectrumSource}"
                                CoverBitmap="{Binding MinViewModel.LoadedMediaItem.CoverBitmap}"
