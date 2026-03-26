@@ -50,10 +50,17 @@ public class GlShaderToyControl : OpenGlControlBase
     private readonly BitmapColorHelper _bitmapColorHelper = new();
     private Color? _coverPrimaryColor;
     private Color? _coverSecondaryColor;
-    private float _primaryR = 0.5f, _primaryG = 0.2f, _primaryB = 0.8f;
-    private float _secondaryR = 0.5f, _secondaryG = 0.8f, _secondaryB = 0.2f;
-    private bool _colorSmoothingInitialized;
-    private double _lastColorUpdateTime;
+    private float _primaryR = 0.5f, _primaryG = 0.5f, _primaryB = 0.5f;
+    private float _secondaryR = 0.5f, _secondaryG = 0.5f, _secondaryB = 0.5f;
+    private float _fromPrimaryR = 0.5f, _fromPrimaryG = 0.5f, _fromPrimaryB = 0.5f;
+    private float _fromSecondaryR = 0.5f, _fromSecondaryG = 0.5f, _fromSecondaryB = 0.5f;
+    private float _targetPrimaryR = 0.5f, _targetPrimaryG = 0.5f, _targetPrimaryB = 0.5f;
+    private float _targetSecondaryR = 0.5f, _targetSecondaryG = 0.5f, _targetSecondaryB = 0.5f;
+    private bool _colorTransitionInitialized;
+    private double _colorTransitionStartTime;
+    private const float DefaultGray = 0.5f;
+    private const double ColorTransitionDurationSeconds = 2.0;
+    private const float ColorTargetEpsilon = 0.0035f;
 
     private static string CachePath => Path.Combine(ApplicationPaths.CacheDirectory, "ShaderCache");
     private static string LogPath => ApplicationPaths.LogsDirectory;
@@ -634,7 +641,7 @@ public class GlShaderToyControl : OpenGlControlBase
         SetUniform3F(gl, _program, "iResolution", width, height, 1.0f);
         SetUniform1F(gl, _program, "iTime", (float)_st.Elapsed.TotalSeconds);
 
-        float targetPrimaryR = 0.5f, targetPrimaryG = 0.2f, targetPrimaryB = 0.8f;
+        float targetPrimaryR = DefaultGray, targetPrimaryG = DefaultGray, targetPrimaryB = DefaultGray;
         float targetSecondaryR;
         float targetSecondaryG;
         float targetSecondaryB;
@@ -671,7 +678,7 @@ public class GlShaderToyControl : OpenGlControlBase
             targetSecondaryB = 1.0f - targetPrimaryB;
         }
 
-        UpdateSmoothedCoverColors(targetPrimaryR, targetPrimaryG, targetPrimaryB, targetSecondaryR, targetSecondaryG,
+        UpdateTransitionedCoverColors(targetPrimaryR, targetPrimaryG, targetPrimaryB, targetSecondaryR, targetSecondaryG,
             targetSecondaryB);
 
         SetUniform3F(gl, _program, "u_primary", _primaryR, _primaryG, _primaryB);
@@ -691,13 +698,12 @@ public class GlShaderToyControl : OpenGlControlBase
         SetUniform3F(gl, _program, "u_grad4", gradientColors[4].R / 255f, gradientColors[4].G / 255f,
             gradientColors[4].B / 255f);
     }
-
-    private void UpdateSmoothedCoverColors(
+    private void UpdateTransitionedCoverColors(
         float targetPrimaryR, float targetPrimaryG, float targetPrimaryB,
         float targetSecondaryR, float targetSecondaryG, float targetSecondaryB)
     {
         var now = _st.Elapsed.TotalSeconds;
-        if (!_colorSmoothingInitialized)
+        if (!_colorTransitionInitialized)
         {
             _primaryR = targetPrimaryR;
             _primaryG = targetPrimaryG;
@@ -705,25 +711,77 @@ public class GlShaderToyControl : OpenGlControlBase
             _secondaryR = targetSecondaryR;
             _secondaryG = targetSecondaryG;
             _secondaryB = targetSecondaryB;
-            _lastColorUpdateTime = now;
-            _colorSmoothingInitialized = true;
+            _fromPrimaryR = _primaryR;
+            _fromPrimaryG = _primaryG;
+            _fromPrimaryB = _primaryB;
+            _fromSecondaryR = _secondaryR;
+            _fromSecondaryG = _secondaryG;
+            _fromSecondaryB = _secondaryB;
+            _targetPrimaryR = targetPrimaryR;
+            _targetPrimaryG = targetPrimaryG;
+            _targetPrimaryB = targetPrimaryB;
+            _targetSecondaryR = targetSecondaryR;
+            _targetSecondaryG = targetSecondaryG;
+            _targetSecondaryB = targetSecondaryB;
+            _colorTransitionStartTime = now;
+            _colorTransitionInitialized = true;
             return;
         }
 
-        var dt = Math.Clamp(now - _lastColorUpdateTime, 0.0, 0.25);
-        _lastColorUpdateTime = now;
+        bool targetChanged =
+            MathF.Abs(targetPrimaryR - _targetPrimaryR) > ColorTargetEpsilon ||
+            MathF.Abs(targetPrimaryG - _targetPrimaryG) > ColorTargetEpsilon ||
+            MathF.Abs(targetPrimaryB - _targetPrimaryB) > ColorTargetEpsilon ||
+            MathF.Abs(targetSecondaryR - _targetSecondaryR) > ColorTargetEpsilon ||
+            MathF.Abs(targetSecondaryG - _targetSecondaryG) > ColorTargetEpsilon ||
+            MathF.Abs(targetSecondaryB - _targetSecondaryB) > ColorTargetEpsilon;
 
-        // Exponential smoothing to avoid abrupt color jumps when cover art changes.
-        float lerp = 1f - MathF.Exp((float)(-dt * 3.6));
+        if (targetChanged)
+        {
+            _fromPrimaryR = _primaryR;
+            _fromPrimaryG = _primaryG;
+            _fromPrimaryB = _primaryB;
+            _fromSecondaryR = _secondaryR;
+            _fromSecondaryG = _secondaryG;
+            _fromSecondaryB = _secondaryB;
+            _targetPrimaryR = targetPrimaryR;
+            _targetPrimaryG = targetPrimaryG;
+            _targetPrimaryB = targetPrimaryB;
+            _targetSecondaryR = targetSecondaryR;
+            _targetSecondaryG = targetSecondaryG;
+            _targetSecondaryB = targetSecondaryB;
+            _colorTransitionStartTime = now;
+        }
 
-        _primaryR += (targetPrimaryR - _primaryR) * lerp;
-        _primaryG += (targetPrimaryG - _primaryG) * lerp;
-        _primaryB += (targetPrimaryB - _primaryB) * lerp;
-        _secondaryR += (targetSecondaryR - _secondaryR) * lerp;
-        _secondaryG += (targetSecondaryG - _secondaryG) * lerp;
-        _secondaryB += (targetSecondaryB - _secondaryB) * lerp;
+        float t = (float)Math.Clamp((now - _colorTransitionStartTime) / ColorTransitionDurationSeconds, 0.0, 1.0);
+
+        static float Smooth(float x)
+        {
+            x = Math.Clamp(x, 0f, 1f);
+            return x * x * (3f - (2f * x));
+        }
+
+        if (t < 0.5f)
+        {
+            float k = Smooth(t * 2f);
+            _primaryR = _fromPrimaryR + (DefaultGray - _fromPrimaryR) * k;
+            _primaryG = _fromPrimaryG + (DefaultGray - _fromPrimaryG) * k;
+            _primaryB = _fromPrimaryB + (DefaultGray - _fromPrimaryB) * k;
+            _secondaryR = _fromSecondaryR + (DefaultGray - _fromSecondaryR) * k;
+            _secondaryG = _fromSecondaryG + (DefaultGray - _fromSecondaryG) * k;
+            _secondaryB = _fromSecondaryB + (DefaultGray - _fromSecondaryB) * k;
+        }
+        else
+        {
+            float k = Smooth((t - 0.5f) * 2f);
+            _primaryR = DefaultGray + (_targetPrimaryR - DefaultGray) * k;
+            _primaryG = DefaultGray + (_targetPrimaryG - DefaultGray) * k;
+            _primaryB = DefaultGray + (_targetPrimaryB - DefaultGray) * k;
+            _secondaryR = DefaultGray + (_targetSecondaryR - DefaultGray) * k;
+            _secondaryG = DefaultGray + (_targetSecondaryG - DefaultGray) * k;
+            _secondaryB = DefaultGray + (_targetSecondaryB - DefaultGray) * k;
+        }
     }
-
     private void UpdateCoverPalette(Bitmap? bitmap)
     {
         _coverPrimaryColor = null;
@@ -988,3 +1046,4 @@ public class GlShaderToyControl : OpenGlControlBase
 
     }
 }
+
