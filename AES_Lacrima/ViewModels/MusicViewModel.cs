@@ -142,6 +142,7 @@ namespace AES_Lacrima.ViewModels
         private readonly HashSet<MediaItem> _subscribedAlbumChildren = [];
         private readonly Dictionary<FolderMediaItem, AvaloniaList<MediaItem>> _folderChildrenCollections = [];
         private bool _isSyncingAlbumSelection;
+        private bool _scanMissingStreamDurationsOnLoadedAlbum;
 
         [ObservableProperty]
         private AudioPlayer? _audioPlayer;
@@ -667,6 +668,7 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void OpenSelectedFolder()
         {
+            _scanMissingStreamDurationsOnLoadedAlbum = true;
             LoadedAlbum = SelectedAlbum;
             IsNoAlbumLoadedVisible = false;
             if (AudioPlayer != null)
@@ -1228,7 +1230,13 @@ namespace AES_Lacrima.ViewModels
             ReduceCoverResidency(value);
 
             if (value != null && IsPrepared)
+            {
                 QueueAlbumCoverLoad(value);
+                if (_scanMissingStreamDurationsOnLoadedAlbum)
+                    QueueOpenedAlbumStreamDurationScan(value);
+            }
+
+            _scanMissingStreamDurationsOnLoadedAlbum = false;
         }
 
         partial void OnSearchTextChanged(string? value) => ApplyFilter();
@@ -1886,18 +1894,6 @@ namespace AES_Lacrima.ViewModels
                 _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
             }
 
-            var streamMetadataCandidates = albumItems
-                .Where(item => !string.IsNullOrWhiteSpace(item.FileName)
-                               && (item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-                                   || item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase))
-                               && item.Duration <= 0)
-                .ToList();
-
-            foreach (var item in streamMetadataCandidates)
-            {
-                _ = Task.Run(() => TryPopulateStreamMetadataAsync(item));
-            }
-
             var orderedItems = new AvaloniaList<MediaItem>(itemsToLoad.AsEnumerable().Reverse());
             _ = new MetadataScrapper(
                 orderedItems,
@@ -1926,6 +1922,34 @@ namespace AES_Lacrima.ViewModels
             while (items.Any(i => i.IsLoadingCover))
             {
                 await Task.Delay(150);
+            }
+        }
+
+        private void QueueOpenedAlbumStreamDurationScan(FolderMediaItem folder)
+        {
+            _ = Task.Run(async () =>
+            {
+                var streamItems = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    folder.Children
+                        .Where(item => !string.IsNullOrWhiteSpace(item.FileName)
+                                       && (item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                                           || item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase))
+                                       && item.Duration <= 0)
+                        .ToList());
+
+                await PopulateMissingStreamMetadataAsync(streamItems);
+            });
+        }
+
+        private async Task PopulateMissingStreamMetadataAsync(IReadOnlyList<MediaItem> items)
+        {
+            foreach (var item in items)
+            {
+                if (item.Duration > 0)
+                    continue;
+
+                await TryPopulateStreamMetadataAsync(item);
+                await Task.Delay(MetadataStaggerDelayMs);
             }
         }
 

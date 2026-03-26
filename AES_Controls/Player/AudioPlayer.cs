@@ -1377,12 +1377,14 @@ public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INoti
                 {
                     bool isEof = prop.ReadBoolValue();
 
-                    // SKIP GUARD: Only trigger EndReached if not an internal change, 
-                    // not currently loading, and actually near the end of the duration.
+                    // SKIP GUARD: Only trigger EndReached if not an internal change,
+                    // not currently loading, and actually near the end of a known duration.
+                    // For streams/opening URLs, duration may still be unknown or zero for a while,
+                    // and treating EOF in that state as a real track end can cause false double-skips.
                     // Also skip if RepeatMode is One, as mpv handles looping internally.
                     if (isEof && !_isInternalChange && !IsLoadingMedia && RepeatMode != RepeatMode.One)
                     {
-                        if (Position > (Duration - 1.5) || Duration <= 0)
+                        if (Duration > 0 && Position > (Duration - 1.5))
                         {
                             IsPlaying = false;
                             EndReached?.Invoke(this, EventArgs.Empty);
