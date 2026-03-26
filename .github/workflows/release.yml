@@ -153,6 +153,12 @@ jobs:
           RAW_VERSION="${{ github.event.inputs.version || github.event.release.tag_name || github.ref_name || '0.0.0-local' }}"
           PROJECT_VERSION="${RAW_VERSION#v}"
           PROJECT_VERSION="${PROJECT_VERSION#V}"
+          
+          # Accept shorthand suffixes like 1.2.3b by converting to SemVer pre-release form 1.2.3-b.
+          if [[ "$PROJECT_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)([A-Za-z][0-9A-Za-z.-]*)$ ]]; then
+            PROJECT_VERSION="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+          fi
+          
           if [[ ! "$PROJECT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
             echo "Invalid project version after normalization: '$PROJECT_VERSION'" >&2
             exit 1
