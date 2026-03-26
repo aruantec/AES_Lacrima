@@ -592,7 +592,7 @@ namespace AES_Lacrima.ViewModels
             MediaItem? target;
             if (parameter is MediaItem mi) target = mi;
             else if (parameter is int index && index >= 0 && index < CoverItems.Count) target = CoverItems[index];
-            else target = HighlightedItem;
+            else target = SelectedMediaItem ?? HighlightedItem ?? AudioPlayer?.CurrentMediaItem;
 
             if (target == null) return;
 
@@ -608,7 +608,7 @@ namespace AES_Lacrima.ViewModels
             MediaItem? target;
             if (parameter is MediaItem mi) target = mi;
             else if (parameter is int index && index >= 0 && index < CoverItems.Count) target = CoverItems[index];
-            else target = HighlightedItem;
+            else target = SelectedMediaItem ?? HighlightedItem ?? AudioPlayer?.CurrentMediaItem;
 
             if (target == null || AudioPlayer == null) return;
 
@@ -1884,6 +1884,18 @@ namespace AES_Lacrima.ViewModels
             foreach (var item in fastThumbCandidates)
             {
                 _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
+            }
+
+            var streamMetadataCandidates = albumItems
+                .Where(item => !string.IsNullOrWhiteSpace(item.FileName)
+                               && (item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                                   || item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase))
+                               && item.Duration <= 0)
+                .ToList();
+
+            foreach (var item in streamMetadataCandidates)
+            {
+                _ = Task.Run(() => TryPopulateStreamMetadataAsync(item));
             }
 
             var orderedItems = new AvaloniaList<MediaItem>(itemsToLoad.AsEnumerable().Reverse());

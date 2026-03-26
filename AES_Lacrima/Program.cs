@@ -7,6 +7,7 @@ using log4net.Layout;
 using log4net.Repository;
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace AES_Lacrima
@@ -193,15 +194,32 @@ namespace AES_Lacrima
                     continue;
                 }
 
-                // Update shipped files when the source is newer, while preserving
-                // locally modified files that have a newer timestamp.
-                var sourceWriteTime = File.GetLastWriteTimeUtc(file);
-                var destinationWriteTime = File.GetLastWriteTimeUtc(destination);
-                if (sourceWriteTime > destinationWriteTime)
+                // Update shipped files whenever their contents differ.
+                // Release packaging can preserve timestamps in ways that make
+                // changed shader files look "not newer" even when they should
+                // be refreshed in the per-user data folder.
+                if (FilesDiffer(file, destination))
                 {
                     File.Copy(file, destination, overwrite: true);
                 }
             }
+        }
+
+        private static bool FilesDiffer(string sourcePath, string destinationPath)
+        {
+            var sourceInfo = new FileInfo(sourcePath);
+            var destinationInfo = new FileInfo(destinationPath);
+
+            if (sourceInfo.Length != destinationInfo.Length)
+                return true;
+
+            using var sourceStream = File.OpenRead(sourcePath);
+            using var destinationStream = File.OpenRead(destinationPath);
+            using var sha256 = SHA256.Create();
+
+            var sourceHash = sha256.ComputeHash(sourceStream);
+            var destinationHash = sha256.ComputeHash(destinationStream);
+            return !sourceHash.AsSpan().SequenceEqual(destinationHash);
         }
 
         // Avalonia configuration, don't remove; also used by visual designer.
