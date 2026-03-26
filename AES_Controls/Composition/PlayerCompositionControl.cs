@@ -14,13 +14,15 @@ namespace AES_Controls.Composition;
 
 internal readonly record struct PlayerArmLayout(
     Point Pivot,
-    Point ArmEnd,
-    Point HeadEnd,
+    Point Elbow,
+    Point HeadshellStart,
+    Point HeadshellEnd,
     Point CounterweightEnd,
     double TubeThickness,
-    double HeadThickness,
+    double HeadshellThickness,
     double PivotRadius,
-    double HeadLength,
+    double CounterweightWidth,
+    double CounterweightLength,
     double AngleDegrees);
 
 internal readonly record struct PlayerDiscLayout(
@@ -62,25 +64,34 @@ internal static class PlayerCompositionArmMetrics
         var centerY = disc.Center.Y;
 
         var pivot = new Point(centerX + ringRadius * 0.82, centerY + ringRadius * 0.82);
-        var totalLength = size * 0.235;
-        var headLength = size * 0.082;
+        var totalLength = size * 0.24;
+        var elbowLength = totalLength * 0.8;
+        var headshellLength = size * 0.055;
         var counterweightLength = size * 0.05;
-        var tubeLength = Math.Max(0.0, totalLength - headLength);
-        var tubeThickness = Math.Max(7.0, size * 0.021);
-        var headThickness = Math.Max(12.0, size * 0.034);
-        var pivotRadius = Math.Max(9.0, size * 0.036);
+        var tubeThickness = Math.Max(4.0, size * 0.012);
+        var headshellThickness = Math.Max(5.0, size * 0.015);
+        var pivotRadius = Math.Max(11.0, size * 0.041);
+        var counterweightWidth = Math.Max(4.0, size * 0.015);
 
         var radians = angleDegrees * Math.PI / 180.0;
         var dirX = Math.Cos(radians);
         var dirY = Math.Sin(radians);
 
-        var armEnd = new Point(
-            pivot.X + dirX * tubeLength,
-            pivot.Y + dirY * tubeLength);
+        var elbow = new Point(
+            pivot.X + dirX * elbowLength,
+            pivot.Y + dirY * elbowLength);
 
-        var headEnd = new Point(
-            pivot.X + dirX * totalLength,
-            pivot.Y + dirY * totalLength);
+        var headshellRadians = (angleDegrees + 18.0) * Math.PI / 180.0;
+        var headDirX = Math.Cos(headshellRadians);
+        var headDirY = Math.Sin(headshellRadians);
+
+        var headshellStart = new Point(
+            elbow.X - headDirX * (headshellLength * 0.15),
+            elbow.Y - headDirY * (headshellLength * 0.15));
+
+        var headshellEnd = new Point(
+            elbow.X + headDirX * headshellLength,
+            elbow.Y + headDirY * headshellLength);
 
         var counterweightEnd = new Point(
             pivot.X - dirX * counterweightLength,
@@ -88,13 +99,15 @@ internal static class PlayerCompositionArmMetrics
 
         return new PlayerArmLayout(
             pivot,
-            armEnd,
-            headEnd,
+            elbow,
+            headshellStart,
+            headshellEnd,
             counterweightEnd,
             tubeThickness,
-            headThickness,
+            headshellThickness,
             pivotRadius,
-            headLength,
+            counterweightWidth,
+            counterweightLength,
             angleDegrees);
     }
 
@@ -105,13 +118,13 @@ internal static class PlayerCompositionArmMetrics
         if (Distance(point, layout.Pivot) <= layout.PivotRadius * 1.2)
             return true;
 
-        if (DistanceToSegment(point, layout.CounterweightEnd, layout.Pivot) <= layout.TubeThickness * 0.85)
+        if (DistanceToSegment(point, layout.Pivot, layout.Elbow) <= layout.TubeThickness)
             return true;
 
-        if (DistanceToSegment(point, layout.Pivot, layout.ArmEnd) <= layout.TubeThickness * 0.9)
+        if (DistanceToSegment(point, layout.HeadshellStart, layout.HeadshellEnd) <= layout.HeadshellThickness)
             return true;
 
-        if (DistanceToSegment(point, layout.ArmEnd, layout.HeadEnd) <= layout.HeadThickness * 0.9)
+        if (DistanceToSegment(point, layout.CounterweightEnd, layout.Pivot) <= Math.Max(layout.CounterweightWidth, layout.TubeThickness * 0.95))
             return true;
 
         return false;
