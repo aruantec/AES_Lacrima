@@ -88,6 +88,8 @@
     </None>
     <None Update="Assets\AES.png">
       <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
 
     <None Update="Assets\background.jpg">

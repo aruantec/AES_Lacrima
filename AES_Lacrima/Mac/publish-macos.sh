@@ -74,9 +74,12 @@ ICON_PNG="$BUNDLE_DIR/Contents/MacOS/Assets/AES.png"
 if [[ ! -f "$ICON_PNG" && -f "$BUNDLE_DIR/Contents/MacOS/AES.png" ]]; then
     ICON_PNG="$BUNDLE_DIR/Contents/MacOS/AES.png"
 fi
+if [[ ! -f "$ICON_PNG" && -f "$PROJECT_DIR/Assets/AES.png" ]]; then
+    ICON_PNG="$PROJECT_DIR/Assets/AES.png"
+fi
 
 if [[ -f "$ICON_PNG" ]]; then
-    echo "Converting icon to AppIcon.icns"
+    echo "Converting icon to AppIcon.icns from $ICON_PNG"
     ICONSET="$BUNDLE_DIR/Contents/Resources/AppIcon.iconset"
     rm -rf "$ICONSET"
     mkdir -p "$ICONSET"
