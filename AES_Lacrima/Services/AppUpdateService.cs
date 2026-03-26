@@ -868,6 +868,11 @@ public partial class AppUpdateService : ObservableObject
             var major = parts.Length > 0 ? ParseIntegerToken(parts[0]) : 0;
             var minor = parts.Length > 1 ? ParseIntegerToken(parts[1]) : 0;
             var (patch, revisionSuffix) = parts.Length > 2 ? ParsePatchToken(parts[2]) : (0, null);
+            if (string.IsNullOrWhiteSpace(revisionSuffix) && IsSingleLetterRevision(preRelease))
+            {
+                revisionSuffix = preRelease;
+                preRelease = null;
+            }
             return new SemanticVersion(major, minor, patch, preRelease, revisionSuffix);
         }
 
@@ -939,6 +944,13 @@ public partial class AppUpdateService : ObservableObject
                 return 1;
 
             return ComparePreRelease(left!, right!);
+        }
+
+        private static bool IsSingleLetterRevision(string? token)
+        {
+            return !string.IsNullOrWhiteSpace(token)
+                && token!.Length == 1
+                && char.IsLetter(token[0]);
         }
 
         private static int ParseIntegerToken(string token)
