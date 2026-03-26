@@ -855,7 +855,7 @@ public partial class AppUpdateService : ObservableObject
         return leftParsed.CompareTo(rightParsed);
     }
 
-    private readonly record struct SemanticVersion(int Major, int Minor, int Patch, string? PreRelease) : IComparable<SemanticVersion>
+    private readonly record struct SemanticVersion(int Major, int Minor, int Patch, string? PreRelease, string? RevisionSuffix) : IComparable<SemanticVersion>
     {
         public static SemanticVersion Parse(string value)
         {
@@ -865,10 +865,10 @@ public partial class AppUpdateService : ObservableObject
             var preRelease = dashIndex >= 0 ? normalized[(dashIndex + 1)..] : null;
 
             var parts = core.Split('.', StringSplitOptions.RemoveEmptyEntries);
-            var major = parts.Length > 0 && int.TryParse(parts[0], out var parsedMajor) ? parsedMajor : 0;
-            var minor = parts.Length > 1 && int.TryParse(parts[1], out var parsedMinor) ? parsedMinor : 0;
-            var patch = parts.Length > 2 && int.TryParse(parts[2], out var parsedPatch) ? parsedPatch : 0;
-            return new SemanticVersion(major, minor, patch, preRelease);
+            var major = parts.Length > 0 ? ParseIntegerToken(parts[0]) : 0;
+            var minor = parts.Length > 1 ? ParseIntegerToken(parts[1]) : 0;
+            var (patch, revisionSuffix) = parts.Length > 2 ? ParsePatchToken(parts[2]) : (0, null);
+            return new SemanticVersion(major, minor, patch, preRelease, revisionSuffix);
         }
 
         public int CompareTo(SemanticVersion other)
@@ -883,13 +883,17 @@ public partial class AppUpdateService : ObservableObject
             if (patchCompare != 0) return patchCompare;
 
             if (string.IsNullOrWhiteSpace(PreRelease) && string.IsNullOrWhiteSpace(other.PreRelease))
-                return 0;
+                return CompareRevisionSuffix(RevisionSuffix, other.RevisionSuffix);
             if (string.IsNullOrWhiteSpace(PreRelease))
                 return 1;
             if (string.IsNullOrWhiteSpace(other.PreRelease))
                 return -1;
 
-            return ComparePreRelease(PreRelease!, other.PreRelease!);
+            var preReleaseCompare = ComparePreRelease(PreRelease!, other.PreRelease!);
+            if (preReleaseCompare != 0)
+                return preReleaseCompare;
+
+            return CompareRevisionSuffix(RevisionSuffix, other.RevisionSuffix);
         }
 
         private static int ComparePreRelease(string left, string right)
@@ -923,6 +927,37 @@ public partial class AppUpdateService : ObservableObject
             }
 
             return 0;
+        }
+
+        private static int CompareRevisionSuffix(string? left, string? right)
+        {
+            if (string.IsNullOrWhiteSpace(left) && string.IsNullOrWhiteSpace(right))
+                return 0;
+            if (string.IsNullOrWhiteSpace(left))
+                return -1;
+            if (string.IsNullOrWhiteSpace(right))
+                return 1;
+
+            return ComparePreRelease(left!, right!);
+        }
+
+        private static int ParseIntegerToken(string token)
+        {
+            return int.TryParse(token, out var parsed) ? parsed : 0;
+        }
+
+        private static (int Number, string? Suffix) ParsePatchToken(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+                return (0, null);
+
+            var index = 0;
+            while (index < token.Length && char.IsDigit(token[index]))
+                index++;
+
+            var number = index > 0 && int.TryParse(token[..index], out var parsed) ? parsed : 0;
+            var suffix = index < token.Length ? token[index..].TrimStart('.', '-', '_') : null;
+            return (number, string.IsNullOrWhiteSpace(suffix) ? null : suffix);
         }
     }
 }

@@ -340,53 +340,114 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
 
     private void DrawArm(SKCanvas canvas)
     {
-        if (_armShadowPaint == null
-            || _armMetalPaint == null
-            || _armAccentPaint == null
+        if (_armMetalPaint == null
             || _armHeadPaint == null
             || _armPivotPaint == null
-            || _armPivotInnerPaint == null
-            || _armStylusPaint == null)
+            || _armPivotInnerPaint == null)
         {
             return;
         }
 
         var layout = PlayerCompositionArmMetrics.GetLayout(new Size(_visualSize.X, _visualSize.Y), _armAngleDegrees);
         var pivot = new SKPoint((float)layout.Pivot.X, (float)layout.Pivot.Y);
-        var armEnd = new SKPoint((float)layout.ArmEnd.X, (float)layout.ArmEnd.Y);
-        var headEnd = new SKPoint((float)layout.HeadEnd.X, (float)layout.HeadEnd.Y);
+        var elbow = new SKPoint((float)layout.Elbow.X, (float)layout.Elbow.Y);
+        var headshellStart = new SKPoint((float)layout.HeadshellStart.X, (float)layout.HeadshellStart.Y);
+        var headshellEnd = new SKPoint((float)layout.HeadshellEnd.X, (float)layout.HeadshellEnd.Y);
         var counterweightEnd = new SKPoint((float)layout.CounterweightEnd.X, (float)layout.CounterweightEnd.Y);
-        var shadowOffset = new SKPoint(2f, 2f);
 
-        _armShadowPaint.StrokeWidth = (float)layout.TubeThickness + 4f;
+        var borderColor = _ringPaint?.Color ?? SKColors.White;
+        var armColor = borderColor.Alpha > 0 ? borderColor.WithAlpha(255) : SKColors.White;
+
+        _armMetalPaint.Style = SKPaintStyle.Stroke;
+        _armMetalPaint.StrokeCap = SKStrokeCap.Round;
+        _armMetalPaint.StrokeJoin = SKStrokeJoin.Round;
         _armMetalPaint.StrokeWidth = (float)layout.TubeThickness;
-        _armAccentPaint.StrokeWidth = Math.Max(2f, (float)layout.TubeThickness * 0.35f);
+        _armMetalPaint.Color = armColor;
 
-        canvas.DrawLine(
-            new SKPoint(counterweightEnd.X + shadowOffset.X, counterweightEnd.Y + shadowOffset.Y),
-            new SKPoint(armEnd.X + shadowOffset.X, armEnd.Y + shadowOffset.Y),
-            _armShadowPaint);
-        canvas.DrawLine(counterweightEnd, armEnd, _armMetalPaint);
-        canvas.DrawLine(counterweightEnd, armEnd, _armAccentPaint);
+        _armHeadPaint.Style = SKPaintStyle.Fill;
+        _armHeadPaint.Color = armColor;
 
-        canvas.Save();
-        canvas.Translate(armEnd.X, armEnd.Y);
-        canvas.RotateDegrees((float)layout.AngleDegrees);
+        _armPivotPaint.Style = SKPaintStyle.Stroke;
+        _armPivotPaint.StrokeWidth = Math.Max(3f, (float)layout.PivotRadius * 0.16f);
+        _armPivotPaint.Color = armColor;
 
-        var headRect = new SKRoundRect(new SKRect(
-            -2f,
-            (float)(-layout.HeadThickness / 2.0),
-            (float)layout.HeadLength,
-            (float)(layout.HeadThickness / 2.0)),
-            (float)(layout.HeadThickness * 0.38),
-            (float)(layout.HeadThickness * 0.38));
+        _armPivotInnerPaint.Style = SKPaintStyle.Fill;
+        _armPivotInnerPaint.Color = armColor;
 
-        canvas.DrawRoundRect(headRect, _armHeadPaint);
-        canvas.DrawCircle((float)(layout.HeadLength - 2.5), 0f, Math.Max(2.5f, (float)layout.HeadThickness * 0.18f), _armStylusPaint);
-        canvas.Restore();
+        canvas.DrawLine(pivot, elbow, _armMetalPaint);
+
+        using var headshellConnectorPaint = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeCap = SKStrokeCap.Round,
+            StrokeJoin = SKStrokeJoin.Round,
+            StrokeWidth = (float)layout.TubeThickness,
+            Color = armColor
+        };
+        var connectorTarget = new SKPoint(
+            headshellStart.X + (headshellEnd.X - headshellStart.X) * 0.78f,
+            headshellStart.Y + (headshellEnd.Y - headshellStart.Y) * 0.7f);
+        canvas.DrawLine(elbow, connectorTarget, headshellConnectorPaint);
+
+        using var elbowBlendPaint = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Fill,
+            Color = armColor
+        };
+        canvas.DrawCircle(elbow, Math.Max(1.6f, (float)layout.TubeThickness * 0.42f), elbowBlendPaint);
+
+        var hsDir = new SKPoint(headshellEnd.X - headshellStart.X, headshellEnd.Y - headshellStart.Y);
+        var hsLen = MathF.Max(1f, MathF.Sqrt(hsDir.X * hsDir.X + hsDir.Y * hsDir.Y));
+        var hsUx = hsDir.X / hsLen;
+        var hsUy = hsDir.Y / hsLen;
+        var hsPx = -hsUy;
+        var hsPy = hsUx;
+
+        var headHalfLen = Math.Max(8f, (float)layout.HeadshellThickness * 1.9f);
+        var headHalfWid = Math.Max(4.6f, (float)layout.HeadshellThickness * 1.22f);
+        var headCenter = new SKPoint(
+            headshellStart.X + hsUx * MathF.Max(headHalfLen * 1.55f, hsLen * 1.05f),
+            headshellStart.Y + hsUy * MathF.Max(headHalfLen * 1.55f, hsLen * 1.05f));
+
+        using var headshellPath = new SKPath();
+        headshellPath.MoveTo(headCenter.X - hsUx * headHalfLen - hsPx * headHalfWid, headCenter.Y - hsUy * headHalfLen - hsPy * headHalfWid);
+        headshellPath.LineTo(headCenter.X + hsUx * headHalfLen - hsPx * headHalfWid, headCenter.Y + hsUy * headHalfLen - hsPy * headHalfWid);
+        headshellPath.LineTo(headCenter.X + hsUx * headHalfLen + hsPx * headHalfWid, headCenter.Y + hsUy * headHalfLen + hsPy * headHalfWid);
+        headshellPath.LineTo(headCenter.X - hsUx * headHalfLen + hsPx * headHalfWid, headCenter.Y - hsUy * headHalfLen + hsPy * headHalfWid);
+        headshellPath.Close();
+        canvas.DrawPath(headshellPath, _armHeadPaint);
+
+        var counterweightMid = new SKPoint(
+            (pivot.X + counterweightEnd.X) * 0.5f,
+            (pivot.Y + counterweightEnd.Y) * 0.5f);
+        var counterweightDir = new SKPoint(counterweightEnd.X - pivot.X, counterweightEnd.Y - pivot.Y);
+        var counterweightLen = MathF.Max(1f, MathF.Sqrt(counterweightDir.X * counterweightDir.X + counterweightDir.Y * counterweightDir.Y));
+        var ux = counterweightDir.X / counterweightLen;
+        var uy = counterweightDir.Y / counterweightLen;
+        var px = -uy;
+        var py = ux;
+
+        var halfLen = (float)Math.Max(3.0, layout.CounterweightLength * 0.45);
+        var halfWid = (float)(layout.CounterweightWidth * 0.5);
+        using var counterweightPath = new SKPath();
+        counterweightPath.MoveTo(counterweightMid.X - ux * halfLen - px * halfWid, counterweightMid.Y - uy * halfLen - py * halfWid);
+        counterweightPath.LineTo(counterweightMid.X + ux * halfLen - px * halfWid, counterweightMid.Y + uy * halfLen - py * halfWid);
+        counterweightPath.LineTo(counterweightMid.X + ux * halfLen + px * halfWid, counterweightMid.Y + uy * halfLen + py * halfWid);
+        counterweightPath.LineTo(counterweightMid.X - ux * halfLen + px * halfWid, counterweightMid.Y - uy * halfLen + py * halfWid);
+        counterweightPath.Close();
+
+        using var counterweightPaint = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Fill,
+            Color = armColor
+        };
+        canvas.DrawPath(counterweightPath, counterweightPaint);
 
         canvas.DrawCircle(pivot, (float)layout.PivotRadius, _armPivotPaint);
-        canvas.DrawCircle(pivot, (float)layout.PivotRadius * 0.42f, _armPivotInnerPaint);
+        canvas.DrawCircle(pivot, (float)layout.PivotRadius * 0.48f, _armPivotInnerPaint);
     }
 
     private void DrawPlayPauseIcon(SKCanvas canvas, float centerX, float centerY, float size)
@@ -619,3 +680,10 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
         _circleBackgroundBitmap = null;
     }
 }
+
+
+
+
+
+
+
