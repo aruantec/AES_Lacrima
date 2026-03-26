@@ -27,8 +27,8 @@ namespace AES_Lacrima.Mini.ViewModels
         private SettingsViewModel? _settingsViewModel;
 
         public bool IsShaderToySelected =>
-            SettingsViewModel?.ShowShaderToy == true &&
-            SettingsViewModel.SelectedShadertoy != null;
+            SettingsViewModel?.MiniShowShaderToy == true &&
+            SettingsViewModel.MiniSelectedShadertoy != null;
 
         public AvaloniaList<double>? SpectrumSource =>
             MinViewModel?.MusicViewModel?.AudioPlayer?.Spectrum ??
@@ -66,15 +66,15 @@ namespace AES_Lacrima.Mini.ViewModels
         {
             if (SettingsViewModel == null) return;
 
-            SettingsViewModel.SelectedShadertoy = shaderItem;
-            SettingsViewModel.ShowShaderToy = shaderItem != null;
+            SettingsViewModel.MiniSelectedShadertoy = shaderItem;
+            SettingsViewModel.MiniShowShaderToy = shaderItem != null;
             OnPropertyChanged(nameof(IsShaderToySelected));
         }
 
         private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(SettingsViewModel.SelectedShadertoy) ||
-                e.PropertyName == nameof(SettingsViewModel.ShowShaderToy))
+            if (e.PropertyName == nameof(SettingsViewModel.MiniSelectedShadertoy) ||
+                e.PropertyName == nameof(SettingsViewModel.MiniShowShaderToy))
             {
                 OnPropertyChanged(nameof(IsShaderToySelected));
             }

@@ -415,19 +415,19 @@
             <!-- Selected Album Info -->
             <Grid Grid.Row="0" Margin="10" ColumnDefinitions="Auto,*">
                 <Border Grid.Column="0" Width="60" Height="60" ClipToBounds="True" BorderBrush="DimGray" BorderThickness="1">
-                    <composition:FolderCompositionControl Items="{Binding MusicViewModel.SelectedAlbum.Children}"
-                                                          FolderCoverItem="{Binding MusicViewModel.SelectedAlbum}"
+                    <composition:FolderCompositionControl Items="{Binding SelectedAlbum.Children}"
+                                                          FolderCoverItem="{Binding SelectedAlbum}"
                                                           DefaultCover="{Binding MusicViewModel.DefaultFolderCover}"
                                                           MaxVisibleCovers="3"
                                                           Margin="1"/>
                 </Border>
                 <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="2">
-                    <TextBlock Text="{Binding MusicViewModel.SelectedAlbum.Title, FallbackValue='No Album Selected'}"
+                    <TextBlock Text="{Binding SelectedAlbum.Title, FallbackValue='No Album Selected'}"
                                Foreground="White"
                                FontSize="16"
                                FontWeight="Bold"
                                TextTrimming="CharacterEllipsis"/>
-                    <TextBlock Text="{Binding MusicViewModel.SelectedAlbum.Children.Count, StringFormat='{}{0} Tracks', FallbackValue='0 Tracks'}"
+                    <TextBlock Text="{Binding SelectedAlbum.Children.Count, StringFormat='{}{0} Tracks', FallbackValue='0 Tracks'}"
                                Foreground="DimGray"
                                FontSize="12"/>
                 </StackPanel>
@@ -435,20 +435,41 @@
 
             <!-- Album List -->
             <ListBox Grid.Row="1" Background="Transparent"
-                     ItemsSource="{Binding MusicViewModel.AlbumList}"
-                     SelectedItem="{Binding MusicViewModel.SelectedAlbum, Mode=TwoWay}"
+                     ItemsSource="{Binding MusicViewModel.FilteredAlbumList}"
+                     SelectedItem="{Binding SelectedAlbum, Mode=TwoWay}"
+                     SelectedIndex="{Binding SelectedAlbumIndex, Mode=TwoWay}"
                      Padding="5"
                      Grid.IsSharedSizeScope="True">
+                <ListBox.KeyBindings>
+                    <KeyBinding Gesture="F2" Command="{Binding MusicViewModel.RenameFolderCommand}" CommandParameter="{Binding SelectedAlbum}"/>
+                </ListBox.KeyBindings>
                 <ListBox.ContextMenu>
-                    <ContextMenu>
-                        <MenuItem Header="Scan Folders" Command="{Binding MusicViewModel.ScanFoldersCommand}" />
-                        <MenuItem Header="Add Folder" Command="{Binding MusicViewModel.OpenFolderCommand}" />
+                    <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
+                        <MenuItem Header="Open Folder" CornerRadius="8" Command="{Binding MusicViewModel.OpenFolderCommand}" />
+                        <MenuItem Header="Create Album" CornerRadius="8" Command="{Binding MusicViewModel.CreateAlbumCommand}" />
+                        <Separator/>
+                        <MenuItem Header="Sort Albums A to Z" CornerRadius="8" Command="{Binding MusicViewModel.SortAlbumsAscendingCommand}" />
+                        <MenuItem Header="Sort Albums Z to A" CornerRadius="8" Command="{Binding MusicViewModel.SortAlbumsDescendingCommand}" />
+                        <Separator/>
+                        <MenuItem Header="Scan Folders" CornerRadius="8" Command="{Binding MusicViewModel.ScanFoldersCommand}" />
                     </ContextMenu>
                 </ListBox.ContextMenu>
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="Padding" Value="0" />
                         <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="ContextMenu">
+                            <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
+                                <MenuItem Header="Open Folder" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).MusicViewModel.OpenFolderCommand}" />
+                                <MenuItem Header="Create Album" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).MusicViewModel.CreateAlbumCommand}" />
+                                <Separator/>
+                                <MenuItem Header="Sort Albums A to Z" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).MusicViewModel.SortAlbumsAscendingCommand}" />
+                                <MenuItem Header="Sort Albums Z to A" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).MusicViewModel.SortAlbumsDescendingCommand}" />
+                                <Separator/>
+                                <MenuItem Header="Rename Album" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).MusicViewModel.RenameFolderCommand}" CommandParameter="{Binding}" />
+                                <MenuItem Header="Delete Album" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).MusicViewModel.DeleteFolderCommand}" CommandParameter="{Binding}" />
+                            </ContextMenu>
+                        </Setter>
                         <Setter Property="Template">
                             <ControlTemplate TargetType="ListBoxItem">
                                 <Grid Background="Transparent">
@@ -474,6 +495,10 @@
                                 <ColumnDefinition Width="8" />
                                 <ColumnDefinition Width="Auto" SharedSizeGroup="AlbumDurationColumn" />
                             </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
 
                             <!-- Name Placeholder (Or Folder Icon) -->
                             <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" 
@@ -482,16 +507,46 @@
                             <!-- Album Title -->
                             <TextBlock Grid.Column="1" Text="{Binding Title}" 
                                        IsVisible="{Binding !IsRenaming}"
+                                       Grid.RowSpan="2"
                                        Foreground="White" FontSize="12" 
                                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="6,0" />
 
-                            <TextBox Grid.Column="1" Text="{Binding Title, Mode=TwoWay}"
+                            <TextBox Grid.Column="1" Grid.Row="0" Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      IsVisible="{Binding IsRenaming}"
                                      Foreground="White" FontSize="12"
-                                     VerticalAlignment="Center" Margin="6,0" />
+                                     VerticalAlignment="Center" Margin="6,0"
+                                     Background="#44000000"
+                                     Classes.invalid="{Binding IsNameInvalid}"
+                                     CaretBrush="White"
+                                     ToolTip.Tip="{Binding NameInvalidMessage}"
+                                     ToolTip.IsOpen="{Binding IsNameInvalid}">
+                                <TextBox.Styles>
+                                    <Style Selector="TextBox.invalid /template/ Border#PART_BorderElement">
+                                        <Setter Property="BorderThickness" Value="2"/>
+                                        <Setter Property="BorderBrush" Value="Red"/>
+                                    </Style>
+                                </TextBox.Styles>
+                                <TextBox.KeyBindings>
+                                    <KeyBinding Gesture="Enter" Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).EndRenameAlbumCommand}" CommandParameter="{Binding}" />
+                                    <KeyBinding Gesture="Escape" Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).CancelRenameAlbumCommand}" CommandParameter="{Binding}" />
+                                </TextBox.KeyBindings>
+                                <Interaction.Behaviors>
+                                    <behaviors:FocusOnVisibleBehavior />
+                                    <behaviors:ExecuteCommandOnLostFocusBehavior Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).EndRenameAlbumCommand}"
+                                                                                 CommandParameter="{Binding}" />
+                                </Interaction.Behaviors>
+                            </TextBox>
+
+                            <TextBlock Grid.Column="1" Grid.Row="1"
+                                       Margin="6,3,6,0"
+                                       Foreground="White"
+                                       FontSize="10"
+                                       Text="{Binding NameInvalidMessage}"
+                                       TextWrapping="Wrap"
+                                       IsVisible="{Binding IsNameInvalid}" />
 
                             <!-- Total Tracks -->
-                            <TextBlock Grid.Column="3" Text="{Binding Children.Count, StringFormat='{}{0} Tracks'}" 
+                            <TextBlock Grid.Column="3" Grid.RowSpan="2" Text="{Binding Children.Count, StringFormat='{}{0} Tracks'}" 
                                        Foreground="White" FontSize="12" Margin="6,0,10,0" 
                                        HorizontalAlignment="Left" VerticalAlignment="Center" />
                         </Grid>
@@ -499,15 +554,16 @@
                 </ListBox.ItemTemplate>
                 
                 <Interaction.Behaviors>
-                    <ExecuteCommandOnDoubleTappedBehavior Command="{Binding MusicViewModel.OpenSelectedFolderCommand}"/>
+                    <ExecuteCommandOnDoubleTappedBehavior Command="{Binding OpenSelectedAlbumCommand}"/>
                 </Interaction.Behaviors>
             </ListBox>
         </Grid>
         
         <!-- Playlist -->
         <ListBox Grid.Row="2" Background="Transparent"
-                 ItemsSource="{Binding FilteredMediaItems}"
+                 ItemsSource="{Binding MusicViewModel.CoverItems}"
                  SelectedItem="{Binding SelectedMediaItem}"
+                 SelectedIndex="{Binding SelectedPlaylistIndex, Mode=TwoWay}"
                  SelectedItems="{Binding SelectedItems, Mode=TwoWay}"
                  SelectionMode="Multiple"
                  BorderBrush="DimGray"
@@ -518,11 +574,16 @@
 
             <!-- Right-click context menu: same actions as the Add button -->
             <ListBox.ContextMenu>
-                <ContextMenu>
-                    <MenuItem Header="Add Files" Command="{Binding AddFilesCommand}" />
-                    <MenuItem Header="Add Folder" Command="{Binding AddFoldersCommand}" />
-                    <Separator />
-                    <MenuItem Header="Delete Selected Items" Command="{Binding DeleteSelectedItemsCommand}" />
+                <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
+                    <MenuItem Header="Add Files" CornerRadius="8" Command="{Binding AddFilesCommand}" />
+                    <MenuItem Header="Add Url" CornerRadius="8" Command="{Binding AddUrlCommand}" />
+                    <MenuItem Header="Add Playlist" CornerRadius="8" Command="{Binding AddPlaylistCommand}" />
+                    <MenuItem Header="Reload Metadata" CornerRadius="8"
+                              Command="{Binding ReloadPlaylistItemMetadataCommand}"
+                              CommandParameter="{Binding SelectedMediaItem}" />
+                    <MenuItem Header="Delete" CornerRadius="8"
+                              Command="{Binding DeletePlaylistItemCommand}"
+                              CommandParameter="{Binding SelectedMediaItem}" />
                 </ContextMenu>
             </ListBox.ContextMenu>
 
@@ -532,6 +593,19 @@
                     <Setter Property="Margin" Value="0" />
                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                     <Setter Property="VerticalContentAlignment" Value="Center" />
+                    <Setter Property="ContextMenu">
+                        <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
+                            <MenuItem Header="Add Files" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).AddFilesCommand}" />
+                            <MenuItem Header="Add Url" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).AddUrlCommand}" />
+                            <MenuItem Header="Add Playlist" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).AddPlaylistCommand}" />
+                            <MenuItem Header="Reload Metadata" CornerRadius="8"
+                                      Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).ReloadPlaylistItemMetadataCommand}"
+                                      CommandParameter="{Binding}" />
+                            <MenuItem Header="Delete" CornerRadius="8"
+                                      Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).DeletePlaylistItemCommand}"
+                                      CommandParameter="{Binding}" />
+                        </ContextMenu>
+                    </Setter>
                     <Setter Property="Template">
                         <ControlTemplate TargetType="ListBoxItem">
                             <!-- Base selection/background layer -->
@@ -633,7 +707,14 @@
                     <Button.Flyout>
                         <MenuFlyout Placement="BottomEdgeAlignedLeft">
                             <MenuItem Header="Add Files" Command="{Binding AddFilesCommand}" />
-                            <MenuItem Header="Add Folder" Command="{Binding AddFoldersCommand}" />
+                            <MenuItem Header="Add Url" Command="{Binding AddUrlCommand}" />
+                            <MenuItem Header="Add Playlist" Command="{Binding AddPlaylistCommand}" />
+                            <MenuItem Header="Reload Metadata"
+                                      Command="{Binding ReloadPlaylistItemMetadataCommand}"
+                                      CommandParameter="{Binding SelectedMediaItem}" />
+                            <MenuItem Header="Delete"
+                                      Command="{Binding DeletePlaylistItemCommand}"
+                                      CommandParameter="{Binding SelectedMediaItem}" />
                         </MenuFlyout>
                     </Button.Flyout>
                     <Button.Template>
@@ -691,8 +772,19 @@
                 <Button Width="24" 
                         Height="24" 
                         Cursor="Hand" 
-                        ToolTip.Tip="Eject"
-                        Command="{Binding EjectCommand}">
+                        ToolTip.Tip="Albums"
+                        Command="{Binding ShowAlbumActionsCommand}">
+                    <Button.Flyout>
+                        <MenuFlyout Placement="TopEdgeAlignedLeft">
+                            <MenuItem Header="Open Folder" Command="{Binding MusicViewModel.OpenFolderCommand}" />
+                            <MenuItem Header="Create Album" Command="{Binding MusicViewModel.CreateAlbumCommand}" />
+                            <Separator />
+                            <MenuItem Header="Sort Albums A to Z" Command="{Binding MusicViewModel.SortAlbumsAscendingCommand}" />
+                            <MenuItem Header="Sort Albums Z to A" Command="{Binding MusicViewModel.SortAlbumsDescendingCommand}" />
+                            <Separator />
+                            <MenuItem Header="Scan Folders" Command="{Binding MusicViewModel.ScanFoldersCommand}" />
+                        </MenuFlyout>
+                    </Button.Flyout>
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">
@@ -835,7 +927,7 @@
             <TextBlock Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#BDBDBD" FontSize="12">
                 <Run Text="{Binding LoadedMediaItem.Index, FallbackValue=0}" />
                 <Run Text=" of " />
-                <Run Text="{Binding FilteredMediaItems.Count, FallbackValue=0}" />
+                <Run Text="{Binding VisibleItemCount, FallbackValue=0}" />
                 <Run Text=" - " />
                 <Run Text="{Binding TotalDuration, Converter={StaticResource TimeSpanConverter}, FallbackValue=''}" />
             </TextBlock>
@@ -854,6 +946,102 @@
                 <Ellipse Width="3" Height="3" Fill="#BDBDBD" Canvas.Left="11" Canvas.Top="15" />
                 <Ellipse Width="3" Height="3" Fill="#BDBDBD" Canvas.Left="16" Canvas.Top="15" />
             </Canvas>
+        </Grid>
+
+        <Grid Background="#E6000000"
+              Grid.RowSpan="4"
+              IsVisible="{Binding MusicViewModel.IsAddUrlPopupOpen}"
+              IsHitTestVisible="{Binding MusicViewModel.IsAddUrlPopupOpen}"
+              Opacity="{Binding MusicViewModel.IsAddUrlPopupOpen, Converter={StaticResource BoolToOpacityConverter}}"
+              ZIndex="2000">
+            <Grid.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Grid.Transitions>
+
+            <StackPanel VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Spacing="12">
+                <TextBlock Text="Enter Url"
+                           Foreground="White"
+                           FontSize="22"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center"/>
+                <TextBox Text="{Binding MusicViewModel.AddUrlText, Mode=TwoWay}"
+                         Width="360"
+                         Height="40"
+                         FontSize="16"
+                         Watermark="Enter Url here"
+                         Background="#CC141414"
+                         Foreground="White"
+                         BorderBrush="#44FFFFFF"
+                         BorderThickness="1"
+                         CornerRadius="20"
+                         Padding="10,0"
+                         VerticalContentAlignment="Center">
+                    <TextBox.Styles>
+                        <Style Selector="TextBox /template/ Border#PART_BorderElement">
+                            <Setter Property="CornerRadius" Value="20"/>
+                        </Style>
+                    </TextBox.Styles>
+                    <TextBox.KeyBindings>
+                        <KeyBinding Gesture="Enter" Command="{Binding MusicViewModel.SubmitAddUrlCommand}" />
+                        <KeyBinding Gesture="Escape" Command="{Binding MusicViewModel.SubmitAddUrlCommand}" />
+                    </TextBox.KeyBindings>
+                    <Interaction.Behaviors>
+                        <behaviors:FocusOnVisibleBehavior />
+                    </Interaction.Behaviors>
+                </TextBox>
+            </StackPanel>
+        </Grid>
+
+        <Grid Background="#E6000000"
+              Grid.RowSpan="4"
+              IsVisible="{Binding MusicViewModel.IsAddPlaylistPopupOpen}"
+              IsHitTestVisible="{Binding MusicViewModel.IsAddPlaylistPopupOpen}"
+              Opacity="{Binding MusicViewModel.IsAddPlaylistPopupOpen, Converter={StaticResource BoolToOpacityConverter}}"
+              ZIndex="2000">
+            <Grid.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Grid.Transitions>
+
+            <StackPanel VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Spacing="12">
+                <TextBlock Text="Enter Url"
+                           Foreground="White"
+                           FontSize="22"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center"/>
+                <TextBox Text="{Binding MusicViewModel.AddPlaylistText, Mode=TwoWay}"
+                         Width="360"
+                         Height="40"
+                         FontSize="16"
+                         Watermark="Enter Playlist Url here"
+                         Background="#CC141414"
+                         Foreground="White"
+                         BorderBrush="#44FFFFFF"
+                         BorderThickness="1"
+                         CornerRadius="20"
+                         Padding="10,0"
+                         VerticalContentAlignment="Center">
+                    <TextBox.Styles>
+                        <Style Selector="TextBox /template/ Border#PART_BorderElement">
+                            <Setter Property="CornerRadius" Value="20"/>
+                        </Style>
+                    </TextBox.Styles>
+                    <TextBox.KeyBindings>
+                        <KeyBinding Gesture="Enter" Command="{Binding MusicViewModel.SubmitAddPlaylistCommand}" />
+                        <KeyBinding Gesture="Escape" Command="{Binding MusicViewModel.SubmitAddPlaylistCommand}" />
+                    </TextBox.KeyBindings>
+                    <Interaction.Behaviors>
+                        <behaviors:FocusOnVisibleBehavior />
+                    </Interaction.Behaviors>
+                </TextBox>
+            </StackPanel>
         </Grid>
     </Grid>
 </UserControl>

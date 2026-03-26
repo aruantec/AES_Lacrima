@@ -75,6 +75,9 @@ namespace AES_Lacrima.ViewModels
         private int _selectedIndex;
 
         [ObservableProperty]
+        private int _selectedAlbumIndex = -1;
+
+        [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(DeletePointedItemCommand))]
         [NotifyPropertyChangedFor(nameof(IsItemPointed))]
         private int _pointedIndex = -1;
@@ -138,6 +141,7 @@ namespace AES_Lacrima.ViewModels
         private readonly HashSet<FolderMediaItem> _subscribedFolders = [];
         private readonly HashSet<MediaItem> _subscribedAlbumChildren = [];
         private readonly Dictionary<FolderMediaItem, AvaloniaList<MediaItem>> _folderChildrenCollections = [];
+        private bool _isSyncingAlbumSelection;
 
         [ObservableProperty]
         private AudioPlayer? _audioPlayer;
@@ -1231,6 +1235,16 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnSearchAlbumTextChanged(string? value) => ApplyAlbumFilter();
 
+        partial void OnSelectedAlbumChanged(FolderMediaItem? value)
+        {
+            SyncSelectedAlbumIndexFromAlbum(value);
+        }
+
+        partial void OnFilteredAlbumListChanged(AvaloniaList<FolderMediaItem>? oldValue, AvaloniaList<FolderMediaItem> newValue)
+        {
+            SyncSelectedAlbumIndexFromAlbum(SelectedAlbum);
+        }
+
         partial void OnIsAddUrlPopupOpenChanged(bool value)
         {
             if (!value)
@@ -1354,6 +1368,7 @@ namespace AES_Lacrima.ViewModels
 
                                 addedItems.Add(item);
                                 _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
+                                _ = Task.Run(() => TryPopulateStreamMetadataAsync(item));
                             }
 
                             if (addedItems.Count > 0)
@@ -1393,6 +1408,30 @@ namespace AES_Lacrima.ViewModels
             if (value >= 0 && value < CoverItems.Count && CoverItems[value] is { } highlighted)
             {
                 HighlightedItem = highlighted;
+            }
+        }
+
+        partial void OnSelectedAlbumIndexChanged(int value)
+        {
+            if (_isSyncingAlbumSelection)
+                return;
+
+            var nextAlbum =
+                value >= 0 && value < FilteredAlbumList.Count
+                    ? FilteredAlbumList[value]
+                    : null;
+
+            if (ReferenceEquals(SelectedAlbum, nextAlbum))
+                return;
+
+            try
+            {
+                _isSyncingAlbumSelection = true;
+                SelectedAlbum = nextAlbum;
+            }
+            finally
+            {
+                _isSyncingAlbumSelection = false;
             }
         }
 
@@ -1562,6 +1601,28 @@ namespace AES_Lacrima.ViewModels
                 SelectedAlbum = previousSelection;
             else if (FilteredAlbumList.Count == 0)
                 SelectedAlbum = null;
+
+            SyncSelectedAlbumIndexFromAlbum(SelectedAlbum);
+        }
+
+        private void SyncSelectedAlbumIndexFromAlbum(FolderMediaItem? album)
+        {
+            if (_isSyncingAlbumSelection)
+                return;
+
+            var nextIndex = album == null ? -1 : FilteredAlbumList.IndexOf(album);
+            if (SelectedAlbumIndex == nextIndex)
+                return;
+
+            try
+            {
+                _isSyncingAlbumSelection = true;
+                SelectedAlbumIndex = nextIndex;
+            }
+            finally
+            {
+                _isSyncingAlbumSelection = false;
+            }
         }
 
         private void SortAlbums(bool alphabeticalAscending)
@@ -1630,7 +1691,7 @@ namespace AES_Lacrima.ViewModels
             if (duplicate)
             {
                 folder.IsNameInvalid = true;
-                folder.NameInvalidMessage = $"Another folder named '{folder.Title}' already exists.";
+                folder.NameInvalidMessage = $"Album name '{folder.Title}' already exists.";
             }
             else
             {
@@ -1728,6 +1789,7 @@ namespace AES_Lacrima.ViewModels
 
             var protectedSelected = SelectedMediaItem;
             var protectedHighlighted = HighlightedItem;
+            var protectedPlaying = AudioPlayer?.CurrentMediaItem;
 
             foreach (var folder in AlbumList)
             {
@@ -1740,7 +1802,8 @@ namespace AES_Lacrima.ViewModels
                     if (keepAllCovers
                         || i >= previewStart
                         || ReferenceEquals(child, protectedSelected)
-                        || ReferenceEquals(child, protectedHighlighted))
+                        || ReferenceEquals(child, protectedHighlighted)
+                        || ReferenceEquals(child, protectedPlaying))
                     {
                         continue;
                     }
@@ -1855,6 +1918,36 @@ namespace AES_Lacrima.ViewModels
         }
 
         private static Bitmap GenerateDefaultFolderCover() => PlaceholderGenerator.GenerateMusicPlaceholder();
+
+        private async Task TryPopulateStreamMetadataAsync(MediaItem item)
+        {
+            try
+            {
+                if (item.FileName == null)
+                    return;
+
+                var info = await YtDlpMetadata.GetMetaDataAsync(item.FileName);
+
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (!string.IsNullOrWhiteSpace(info.Title) && (string.IsNullOrWhiteSpace(item.Title) || item.Title == (YouTubeThumbnail.ExtractVideoId(item.FileName) ?? item.FileName)))
+                        item.Title = info.Title;
+
+                    if (!string.IsNullOrWhiteSpace(info.Artist) && string.IsNullOrWhiteSpace(item.Artist))
+                        item.Artist = info.Artist;
+
+                    if (!string.IsNullOrWhiteSpace(info.Album) && string.IsNullOrWhiteSpace(item.Album))
+                        item.Album = info.Album;
+
+                    if (info.DurationSeconds is > 0 && item.Duration <= 0)
+                        item.Duration = info.DurationSeconds.Value;
+                });
+            }
+            catch
+            {
+                // Leave the item as-is when yt-dlp metadata is unavailable.
+            }
+        }
 
         private async Task TryLoadYouTubeThumbnailFastAsync(MediaItem item)
         {
@@ -2232,4 +2325,3 @@ namespace AES_Lacrima.ViewModels
         #endregion
     }
 }
-
