@@ -35,7 +35,7 @@ internal readonly record struct PlayerDiscLayout(
 internal static class PlayerCompositionArmMetrics
 {
     public const double RestAngleDegrees = -64.0;
-    public const double PlayAngleDegrees = -136.0;
+    public const double PlayAngleDegrees = -108.0;
 
     public static PlayerDiscLayout GetDiscLayout(Size bounds)
     {
@@ -64,14 +64,18 @@ internal static class PlayerCompositionArmMetrics
         var centerY = disc.Center.Y;
 
         var pivot = new Point(centerX + ringRadius * 0.82, centerY + ringRadius * 0.82);
-        var totalLength = size * 0.24;
-        var elbowLength = totalLength * 0.8;
-        var headshellLength = size * 0.055;
-        var counterweightLength = size * 0.05;
-        var tubeThickness = Math.Max(4.0, size * 0.012);
-        var headshellThickness = Math.Max(5.0, size * 0.015);
-        var pivotRadius = Math.Max(11.0, size * 0.041);
-        var counterweightWidth = Math.Max(4.0, size * 0.015);
+
+        var playElbow = new Point(
+            centerX + ringRadius * 0.7,
+            centerY + ringRadius * 0.46);
+
+        var elbowLength = Math.Max(size * 0.26, Distance(pivot, playElbow));
+        var headshellLength = size * 0.085;
+        var counterweightLength = size * 0.075;
+        var tubeThickness = Math.Max(5.0, size * 0.018);
+        var headshellThickness = Math.Max(6.5, size * 0.022);
+        var pivotRadius = Math.Max(13.0, size * 0.05);
+        var counterweightWidth = Math.Max(6.0, size * 0.022);
 
         var radians = angleDegrees * Math.PI / 180.0;
         var dirX = Math.Cos(radians);
@@ -81,17 +85,21 @@ internal static class PlayerCompositionArmMetrics
             pivot.X + dirX * elbowLength,
             pivot.Y + dirY * elbowLength);
 
-        var headshellRadians = (angleDegrees + 18.0) * Math.PI / 180.0;
+        var headshellRadians = (angleDegrees + 10.0) * Math.PI / 180.0;
         var headDirX = Math.Cos(headshellRadians);
         var headDirY = Math.Sin(headshellRadians);
 
+        var headCenter = new Point(
+            elbow.X + headDirX * (headshellLength * 1.45),
+            elbow.Y + headDirY * (headshellLength * 1.45));
+
         var headshellStart = new Point(
-            elbow.X - headDirX * (headshellLength * 0.15),
-            elbow.Y - headDirY * (headshellLength * 0.15));
+            headCenter.X - headDirX * (headshellLength * 0.5),
+            headCenter.Y - headDirY * (headshellLength * 0.5));
 
         var headshellEnd = new Point(
-            elbow.X + headDirX * headshellLength,
-            elbow.Y + headDirY * headshellLength);
+            headCenter.X + headDirX * (headshellLength * 0.5),
+            headCenter.Y + headDirY * (headshellLength * 0.5));
 
         var counterweightEnd = new Point(
             pivot.X - dirX * counterweightLength,

@@ -319,16 +319,9 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
         var angleDelta = targetArmAngle - _armAngleDegrees;
         if (Math.Abs(angleDelta) > 0.15f)
         {
-            var maxStep = (float)Math.Max(1.0, deltaSeconds * 220.0);
-            if (Math.Abs(angleDelta) <= maxStep)
-            {
-                _armAngleDegrees = targetArmAngle;
-            }
-            else
-            {
-                _armAngleDegrees += MathF.Sign(angleDelta) * maxStep;
-                needsAnotherFrame = true;
-            }
+            var easing = 1f - MathF.Exp((float)(-deltaSeconds * 9.0));
+            _armAngleDegrees += angleDelta * easing;
+            needsAnotherFrame = true;
         }
         else
         {
@@ -355,8 +348,7 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
         var headshellEnd = new SKPoint((float)layout.HeadshellEnd.X, (float)layout.HeadshellEnd.Y);
         var counterweightEnd = new SKPoint((float)layout.CounterweightEnd.X, (float)layout.CounterweightEnd.Y);
 
-        var borderColor = _ringPaint?.Color ?? SKColors.White;
-        var armColor = borderColor.Alpha > 0 ? borderColor.WithAlpha(255) : SKColors.White;
+        var armColor = _ringPaint?.Color ?? SKColors.White;
 
         _armMetalPaint.Style = SKPaintStyle.Stroke;
         _armMetalPaint.StrokeCap = SKStrokeCap.Round;
@@ -386,8 +378,8 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
             Color = armColor
         };
         var connectorTarget = new SKPoint(
-            headshellStart.X + (headshellEnd.X - headshellStart.X) * 0.78f,
-            headshellStart.Y + (headshellEnd.Y - headshellStart.Y) * 0.7f);
+            (headshellStart.X + headshellEnd.X) * 0.5f,
+            (headshellStart.Y + headshellEnd.Y) * 0.5f);
         canvas.DrawLine(elbow, connectorTarget, headshellConnectorPaint);
 
         using var elbowBlendPaint = new SKPaint
@@ -405,11 +397,11 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
         var hsPx = -hsUy;
         var hsPy = hsUx;
 
-        var headHalfLen = Math.Max(8f, (float)layout.HeadshellThickness * 1.9f);
-        var headHalfWid = Math.Max(4.6f, (float)layout.HeadshellThickness * 1.22f);
+        var headHalfLen = Math.Max(10f, (float)layout.HeadshellThickness * 2.2f);
+        var headHalfWid = Math.Max(5.8f, (float)layout.HeadshellThickness * 1.4f);
         var headCenter = new SKPoint(
-            headshellStart.X + hsUx * MathF.Max(headHalfLen * 1.55f, hsLen * 1.05f),
-            headshellStart.Y + hsUy * MathF.Max(headHalfLen * 1.55f, hsLen * 1.05f));
+            (headshellStart.X + headshellEnd.X) * 0.5f,
+            (headshellStart.Y + headshellEnd.Y) * 0.5f);
 
         using var headshellPath = new SKPath();
         headshellPath.MoveTo(headCenter.X - hsUx * headHalfLen - hsPx * headHalfWid, headCenter.Y - hsUy * headHalfLen - hsPy * headHalfWid);
@@ -680,9 +672,6 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
         _circleBackgroundBitmap = null;
     }
 }
-
-
-
 
 
 
