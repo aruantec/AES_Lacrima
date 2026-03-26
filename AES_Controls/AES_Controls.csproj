@@ -22,8 +22,6 @@
     <PackageReference Include="Avalonia" Version="11.3.11" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.11" />
     <PackageReference Include="Avalonia.Skia" Version="11.3.11" />
-    <!-- Direct2D1 backend is Windows-only; keep it out of Linux/Android restore graph. -->
-    <PackageReference Include="Avalonia.Direct2D1" Version="11.3.11" Condition="'$(OS)' == 'Windows_NT'" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.11" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.11" />
     <PackageReference Include="Avalonia.Diagnostics" Version="11.3.11">
