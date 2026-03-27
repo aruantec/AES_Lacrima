@@ -2,7 +2,7 @@ using Avalonia;
 using Avalonia.Media;
 using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
-using LibMPVSharp;
+using AES_Mpv.Player;
 using System.Diagnostics;
 using Avalonia.Threading;
 using System.Globalization;
@@ -24,10 +24,10 @@ public class VideoView : OpenGlControlBase
     private GlInterface? _glInterface;
     private DispatcherTimer? _uiHeartbeat;
 
-    public static readonly StyledProperty<MPVMediaPlayer?> PlayerProperty =
-        AvaloniaProperty.Register<VideoView, MPVMediaPlayer?>(nameof(Player));
+    public static readonly StyledProperty<AesMpvPlayer?> PlayerProperty =
+        AvaloniaProperty.Register<VideoView, AesMpvPlayer?>(nameof(Player));
 
-    public MPVMediaPlayer? Player
+    public AesMpvPlayer? Player
     {
         get => GetValue(PlayerProperty);
         set => SetValue(PlayerProperty, value);
@@ -139,7 +139,7 @@ public class VideoView : OpenGlControlBase
 
         try
         {
-            Player.Options.GetProcAddress = GetProcAddressInternal;
+            Player.Options.ResolveOpenGlAddress = GetProcAddressInternal;
 
             Player.SetProperty("video-sync", UseCustomHeartbeat ? "display-resample" : "audio");
             Player.SetProperty("audio-pitch-correction", "yes");
@@ -160,7 +160,7 @@ public class VideoView : OpenGlControlBase
                 _uiHeartbeat?.Stop();
             }
 
-            Player.EnsureRenderContextCreated();
+            Player.EnsureRenderContext();
 
             ApplyStretch(Stretch);
             ApplyRotation(Rotation);
@@ -239,7 +239,7 @@ public class VideoView : OpenGlControlBase
         {
             gl.BindFramebuffer(0x8D40, fb);
             gl.Viewport(0, 0, width, height);
-            Player.OpenGLRender(width, height, fb, flipY: 1);
+            Player.RenderToOpenGl(width, height, fb, flipY: 1);
 
             if (IsRenderingPaused) _hasRenderedOnceSincePause = true;
         }

@@ -42,7 +42,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AES_Core\AES_Core.csproj" />
-    <ProjectReference Include="..\LibMPVSharp\LibMPVSharp.csproj" />
+    <ProjectReference Include="..\AES_Mpv\AES_Mpv.csproj" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(PublishAot)' != 'true'">

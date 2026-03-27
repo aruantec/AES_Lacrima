@@ -3,9 +3,10 @@ using AES_Core.IO;
 using AES_Controls.Player.Interfaces;
 using AES_Controls.Player.Models;
 using AES_Controls.Players;
+using AES_Mpv.Events;
+using AES_Mpv.Native;
+using AES_Mpv.Player;
 using Avalonia.Collections;
-using LibMPVSharp;
-using LibMPVSharp.Extensions;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -22,7 +23,7 @@ namespace AES_Controls.Player;
 /// observable properties for UI binding (position, duration, volume, etc.),
 /// waveform and spectrum data, and helper methods for loading and managing media.
 /// </summary>
-public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INotifyPropertyChanged, IDisposable
+public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotifyPropertyChanged, IDisposable
 {
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<AudioPlayer>();
 
@@ -131,9 +132,9 @@ public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INoti
         _syncContext?.Post(_ => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName)), null);
 
     // Helper to run actions on the MPV thread and wait for completion.
-    // NOTE: the MPV API (via LibMPVSharp) dispatches command results back
+    // NOTE: the MPV API dispatches command results back
     // on the same thread that owns the mpv handle.  Blocking that thread by
-    // waiting for a Task returned from a command (e.g. ``ExecuteCommandAsync``)
+    // waiting for a Task returned from a command (e.g. ``RunCommandAsync``)
     // will prevent the response from ever being delivered and lead to a
     // deadlock.  In practice this manifested on macOS when loading a file
     // (``loadfile``) because the completion callback was posted to the mpv
@@ -417,7 +418,7 @@ public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INoti
     /// Enqueue an action on the MPV thread without waiting for completion.
     /// This is useful for operations that already return a <see cref="Task" />
     /// whose completion is signalled on the MPV thread (e.g. many of the
-    /// LibMPVSharp helpers such as <c>ExecuteCommandAsync</c>).  Blocking the
+    /// async player helpers such as <c>RunCommandAsync</c>). Blocking the
     /// thread in that case would deadlock because the continuation cannot run.
     /// </summary>
     private void PostToMpvThread(Action action)
@@ -955,17 +956,17 @@ public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INoti
         try
         {
             // Register properties for observation
-            ObservableProperty(Properties.Duration, MpvFormat.MPV_FORMAT_DOUBLE);
-            ObservableProperty(Properties.TimePos, MpvFormat.MPV_FORMAT_DOUBLE);
-            ObservableProperty("paused-for-cache", MpvFormat.MPV_FORMAT_FLAG);
-            ObservableProperty("eof-reached", MpvFormat.MPV_FORMAT_FLAG);
+            ObserveProperty(MpvPropertyNames.Playback.Duration, MpvFormat.Double);
+            ObserveProperty(MpvPropertyNames.Playback.TimePosition, MpvFormat.Double);
+            ObserveProperty("paused-for-cache", MpvFormat.Flag);
+            ObserveProperty("eof-reached", MpvFormat.Flag);
 
             // --- OS-SPECIFIC AUDIO INITIALIZATION ---
             if (OperatingSystem.IsMacOS())
             {
                 SetProperty("ao", "coreaudio");
                 // Use PostToMpvThread or a safe task for commands that might block or depend on the current thread
-                _ = ExecuteCommandAsync(["set", "coreaudio-change-device", "no"]);
+                _ = RunCommandAsync(["set", "coreaudio-change-device", "no"]);
             }
             else if (OperatingSystem.IsWindows())
             {
@@ -1002,7 +1003,7 @@ public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INoti
             SetProperty("loop-file", RepeatMode == RepeatMode.One ? "yes" : "no");
             SetProperty("demuxer-max-bytes", $"{CacheSize}M");
 
-            MpvEvent += OnMpvEvent;
+            EventReceived += OnMpvEvent;
 
             // Mark initialization as complete ONLY after we've applied the final property sync.
             _initTcs.SetResult();
@@ -1298,15 +1299,15 @@ public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INoti
 
     private void OnMpvEvent(object? sender, MpvEvent mpvEvent)
     {
-        if (mpvEvent.event_id == MpvEventId.MPV_EVENT_END_FILE)
+        if (mpvEvent.EventId == MpvEventId.EndFile)
         {
             // If it's an error from the demuxer/ffmpeg, we must clear the loading state.
             // However, we ignore 'STOP' events during track transitions (_isInternalChange is true)
             // to prevent the spinner from disappearing while waiting for the next file.
-            var endData = mpvEvent.ReadData<MpvEventEndFile>();
-            if (endData.error < 0)
+            var endData = mpvEvent.Read<MpvEndFileInfo>();
+            if (endData.Error < 0)
             {
-                Log.Warn($"MPV end-file error for '{_loadedFile}': {endData.error}");
+                Log.Warn($"MPV end-file error for '{_loadedFile}': {endData.Error}");
                 IsLoadingMedia = false;
                 _isInternalChange = false;
             }
@@ -1316,34 +1317,34 @@ public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INoti
             }
         }
 
-        if (mpvEvent.event_id == MpvEventId.MPV_EVENT_PROPERTY_CHANGE)
+        if (mpvEvent.EventId == MpvEventId.PropertyChange)
 
 
         {
-            var prop = mpvEvent.ReadData<MpvEventProperty>();
+            var prop = mpvEvent.Read<MpvPropertyEvent>();
 
-            if (prop.format == MpvFormat.MPV_FORMAT_NONE)
+            if (prop.Format == MpvFormat.None)
                 return;
 
-            if (prop.name == Properties.Duration)
+            if (prop.Name == MpvPropertyNames.Playback.Duration)
             {
-                if (prop.format == MpvFormat.MPV_FORMAT_DOUBLE)
+                if (prop.Format == MpvFormat.Double)
                 {
-                    Duration = prop.ReadDoubleValue();
+                    Duration = prop.ReadDouble();
                 }
             }
-            else if (prop.name == "paused-for-cache")
+            else if (prop.Name == "paused-for-cache")
             {
-                if (prop.format == MpvFormat.MPV_FORMAT_INT64)
+                if (prop.Format == MpvFormat.Flag)
                 {
-                    IsBuffering = prop.ReadLongValue() != 0;
+                    IsBuffering = prop.ReadFlag();
                 }
             }
-            else if (prop.name == Properties.TimePos && !_isSeeking)
+            else if (prop.Name == MpvPropertyNames.Playback.TimePosition && !_isSeeking)
             {
-                if (prop.format == MpvFormat.MPV_FORMAT_DOUBLE)
+                if (prop.Format == MpvFormat.Double)
                 {
-                    double newPos = prop.ReadDoubleValue();
+                    double newPos = prop.ReadDouble();
 
                     // SKIP GUARD: When loading a new file, mpv may still fire late time-pos 
                     // events from the OLD file before the loadfile command completes.
@@ -1370,12 +1371,12 @@ public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INoti
                     }
                 }
             }
-            else if (prop.name == "eof-reached")
+            else if (prop.Name == "eof-reached")
             {
-                // Fixed: ReadBoolValue() is the correct method for LibMPVSharp flags
-                if (prop.format == MpvFormat.MPV_FORMAT_FLAG)
+                // Read the boolean flag directly from the observed property payload.
+                if (prop.Format == MpvFormat.Flag)
                 {
-                    bool isEof = prop.ReadBoolValue();
+                    bool isEof = prop.ReadFlag();
 
                     // SKIP GUARD: Only trigger EndReached if not an internal change,
                     // not currently loading, and actually near the end of a known duration.
@@ -1465,12 +1466,12 @@ public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INoti
             SetProperty("audio-display", video ? "auto" : "no");
         });
         // queue the load command but do not block the mpv thread waiting for
-        // its completion.  ``ExecuteCommandAsync`` completes on the MPV
+        // its completion. ``RunCommandAsync`` completes on the MPV
         // thread, so waiting there would deadlock (see comments above).
         PostToMpvThread(async () => { 
             try 
             { 
-                await ExecuteCommandAsync(new[] { "loadfile", mpvLoadTarget }); 
+                await RunCommandAsync(new[] { "loadfile", mpvLoadTarget }); 
                 // Now load is fully initiated, old track stops playing.
                 _ignoreTimePos = false; // Safe to accept time-pos events again
 
@@ -2096,7 +2097,7 @@ public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INoti
         // Reload the file
         // enqueue loadfile without blocking the mpv thread; we'll wait for the
         // ``IsLoadingMedia`` flag later which is updated via property events.
-        PostToMpvThread(() => _ = ExecuteCommandAsync(new[] { "loadfile", ToMpvLoadTarget(path) }));
+        PostToMpvThread(() => _ = RunCommandAsync(new[] { "loadfile", ToMpvLoadTarget(path) }));
 
         // WAIT for MPV to initialize the file before seeking
         while (_isLoadingMedia)
@@ -2127,7 +2128,7 @@ public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INoti
     {
         if (!_disposed)
         {
-            PostToMpvThread(() => _ = ExecuteCommandAsync(new[] { "stop" }));
+            PostToMpvThread(() => _ = RunCommandAsync(new[] { "stop" }));
         }
 
         // make sure the spectrum analyzer is halted when playback is stopped so
@@ -2189,7 +2190,7 @@ public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INoti
             _mpvLibraryManager.InstallationCompleted -= OnMpvInstallationCompleted;
         }
 
-        try { MpvEvent -= OnMpvEvent; }
+        try { EventReceived -= OnMpvEvent; }
         catch (Exception ex) { Log.Warn("Failed to remove mpv event handler", ex); }
         try { _spectrumAnalyzer.Stop(); }
         catch (Exception ex) { Log.Warn("Failed to stop spectrum analyzer", ex); }
@@ -2230,7 +2231,7 @@ public sealed partial class AudioPlayer : MPVMediaPlayer, IMediaInterface, INoti
         }
         catch (Exception ex)
         {
-            Log.Warn("Error while disposing base MPVMediaPlayer", ex);
+            Log.Warn("Error while disposing base AesMpvPlayer", ex);
         }
 
         try

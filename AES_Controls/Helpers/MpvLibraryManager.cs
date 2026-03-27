@@ -1,5 +1,6 @@
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Mpv.Native;
 using CommunityToolkit.Mvvm.ComponentModel;
 using SharpCompress.Archives;
 using SharpCompress.Archives.SevenZip;
@@ -52,7 +53,7 @@ public partial class MpvLibraryManager : ObservableObject
         Directory.CreateDirectory(_destFolder);
         // Desktop platforms load from our managed tools directory.
         // Android should resolve libmpv from APK-bundled native libs by name.
-        LibMPVSharp.LibraryName.LibraryDirectory = OperatingSystem.IsAndroid() ? null : _destFolder;
+        MpvNativeLibrary.SearchDirectory = OperatingSystem.IsAndroid() ? null : _destFolder;
     }
 
     private sealed class MpvCacheEntry
@@ -382,7 +383,7 @@ public partial class MpvLibraryManager : ObservableObject
     {
         if (OperatingSystem.IsAndroid())
         {
-            if (NativeLibrary.TryLoad(LibMPVSharp.LibraryName.AndroidLibrary, out var handle))
+            if (NativeLibrary.TryLoad(MpvNativeLibrary.AndroidFileName, out var handle))
             {
                 NativeLibrary.Free(handle);
                 return true;
