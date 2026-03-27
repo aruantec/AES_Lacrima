@@ -157,7 +157,7 @@ public interface IMediaInterface
     /// <summary>
     /// Ensure render context is created
     /// </summary>
-    void EnsureRenderContextCreated();
+    void EnsureRenderContext();
 
     /// <summary>
     /// Suspends playback to allow editing and returns the current playback position and state.

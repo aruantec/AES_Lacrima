@@ -951,7 +951,7 @@ namespace AES_Lacrima.ViewModels
             var ffmpegManager = DiLocator.ResolveViewModel<FFmpegManager>();
             var mpvManager = DiLocator.ResolveViewModel<MpvLibraryManager>();
 
-            //LibMPVSharp.LibraryName.LibraryDirectory = "/home/aruan/Dokumente/Test/";
+            //AES_Mpv.Native.MpvNativeLibrary.SearchDirectory = "/home/aruan/Dokumente/Test/";
             AudioPlayer = new AudioPlayer(ffmpegManager, mpvManager)
             {
                 AutoSkipTrailingSilence = true

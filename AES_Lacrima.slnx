@@ -8,5 +8,5 @@
   <Project Path="AES_Tests/AES_Tests.csproj" />
   <Project Path="AES_Lacrima/AES_Lacrima.csproj" />
   <Project Path="AES_Lacrima.Android/AES_Lacrima.Android.csproj" />
-  <Project Path="LibMPVSharp/LibMPVSharp.csproj" />
+  <Project Path="AES_Mpv/AES_Mpv.csproj" />
 </Solution>

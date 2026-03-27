@@ -10,6 +10,8 @@
 /AES_Controls/obj
 /LibMPVSharp/bin
 /LibMPVSharp/obj
+/AES_Mpv/bin
+/AES_Mpv/obj
 /AES_Tests/bin
 /AES_Tests/obj
 /AES_Lacrima.Android/bin

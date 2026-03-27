@@ -1,4 +1,5 @@
 using Avalonia;
+using AES_Mpv.Native;
 using AES_Core.IO;
 using log4net;
 using log4net.Appender;
@@ -73,7 +74,7 @@ namespace AES_Lacrima
                 // Ensure libmpv and other native helpers are loaded from the per-user Tools folder
                 try
                 {
-                    LibMPVSharp.LibraryName.LibraryDirectory = ApplicationPaths.ToolsDirectory;
+                    MpvNativeLibrary.SearchDirectory = ApplicationPaths.ToolsDirectory;
                 }
                 catch
                 {

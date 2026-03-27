@@ -35,6 +35,7 @@
   </PropertyGroup>
 
   <ItemGroup Condition="'$(PublishAot)' == 'true'">
+    <TrimmerRootAssembly Include="AES_Mpv" />
     <TrimmerRootAssembly Include="log4net" />
     <TrimmerRootAssembly Include="TagLibSharp" />
   </ItemGroup>
