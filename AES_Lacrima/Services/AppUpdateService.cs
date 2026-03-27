@@ -2,6 +2,7 @@ using AES_Core.DI;
 using AES_Core.IO;
 using AES_Core.Services;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using log4net;
 using System;
@@ -961,7 +962,15 @@ public partial class AppUpdateService : ObservableObject
     {
         if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.Shutdown();
+            if (Dispatcher.UIThread.CheckAccess())
+            {
+                desktop.Shutdown();
+            }
+            else
+            {
+                Dispatcher.UIThread.Invoke(() => desktop.Shutdown());
+            }
+
             if (OperatingSystem.IsWindows())
                 Environment.Exit(0);
             return;
