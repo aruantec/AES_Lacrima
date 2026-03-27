@@ -32,6 +32,7 @@ namespace AES_Lacrima
         // transition because the application is still running and services are
         // needed by the newly‑created window.
         public static bool IsSwitchingMode { get; set; }
+        public static bool IsSelfUpdating { get; set; }
 
         private static readonly ILog Logger = AES_Core.Logging.LogHelper.For<App>();
         public override void Initialize()
@@ -172,6 +173,12 @@ namespace AES_Lacrima
         /// </summary>
         private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
         {
+            if (IsSelfUpdating)
+            {
+                Logger.Info("Skipping normal shutdown cleanup because a self-update restart is in progress");
+                return;
+            }
+
             try
             {
                 // Try to resolve the settings service and save settings if present.

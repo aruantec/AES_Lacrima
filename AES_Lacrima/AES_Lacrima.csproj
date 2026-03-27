@@ -138,7 +138,8 @@
                      and Exists('$(MSBuildProjectDirectory)/Mac/publish-macos.sh')">
     <Message Importance="high"
              Text="Creating macOS application bundle for publish output at '$(PublishDir)'" />
-    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Mac/publish-macos.sh&quot; &quot;$(PublishDir)&quot;" />
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Mac/publish-macos.sh&quot; &quot;$(PublishDir)&quot;"
+          EnvironmentVariables="APP_VERSION=$(Version)" />
   </Target>
 
   <Target Name="BuildAesDiGeneratorForAot"
