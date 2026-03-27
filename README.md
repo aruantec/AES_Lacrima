@@ -41,4 +41,3 @@ MacOS:
 
 Mini Mode:
 ![MiniMode](AES_Lacrima/Assets/MiniMode.png)
-![MiniMode2](AES_Lacrima/Assets/MiniMode2.png)

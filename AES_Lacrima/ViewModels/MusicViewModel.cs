@@ -1,6 +1,7 @@
 using AES_Controls.Helpers;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
+using AES_Code.Models;
 using AES_Core.DI;
 using AES_Core.IO;
 using AES_Lacrima.Services;
@@ -668,12 +669,21 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void OpenSelectedFolder()
         {
+            var selectedAlbum = SelectedAlbum;
+            var isSameAlbum = selectedAlbum != null && ReferenceEquals(LoadedAlbum, selectedAlbum);
             _scanMissingStreamDurationsOnLoadedAlbum = true;
-            LoadedAlbum = SelectedAlbum;
+            LoadedAlbum = selectedAlbum;
             IsNoAlbumLoadedVisible = false;
             if (AudioPlayer != null)
                 AudioPlayer.RepeatMode = RepeatMode.Off;
             ApplyFilter();
+
+            if (isSameAlbum && selectedAlbum != null)
+            {
+                QueueAlbumCoverLoad(selectedAlbum);
+                QueueOpenedAlbumStreamDurationScan(selectedAlbum);
+                _scanMissingStreamDurationsOnLoadedAlbum = false;
+            }
         }
 
         [RelayCommand]
@@ -1789,6 +1799,15 @@ namespace AES_Lacrima.ViewModels
             _ = Task.Run(async () => await LoadAlbumCoversAsync(folder, agentInfo, forceUpdate, maxItemsToLoad));
         }
 
+        public void RefreshLoadedAlbumMetadata()
+        {
+            if (LoadedAlbum == null || AudioPlayer == null)
+                return;
+
+            QueueAlbumCoverLoad(LoadedAlbum);
+            QueueOpenedAlbumStreamDurationScan(LoadedAlbum);
+        }
+
         private void ReduceCoverResidency(FolderMediaItem? fullyLoadedAlbum)
         {
             DefaultFolderCover ??= GenerateDefaultFolderCover();
@@ -1831,7 +1850,9 @@ namespace AES_Lacrima.ViewModels
         {
             if (item.CoverBitmap == null) return true;
             if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
-            return item.CoverBitmap == DefaultFolderCover || string.IsNullOrWhiteSpace(item.Title);
+            return item.CoverBitmap == DefaultFolderCover
+                || string.IsNullOrWhiteSpace(item.Title)
+                || item.Duration <= 0;
         }
 
         private List<MediaItem> GetAlbumCoverLoadBatch(IReadOnlyList<MediaItem> items, int maxItemsToLoad)
@@ -1894,7 +1915,7 @@ namespace AES_Lacrima.ViewModels
                 _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
             }
 
-            var orderedItems = new AvaloniaList<MediaItem>(itemsToLoad.AsEnumerable().Reverse());
+            var orderedItems = new AvaloniaList<MediaItem>(itemsToLoad);
             _ = new MetadataScrapper(
                 orderedItems,
                 AudioPlayer!,
@@ -1905,6 +1926,22 @@ namespace AES_Lacrima.ViewModels
                 forceUpdate: forceUpdate);
 
             await WaitForAlbumCoversAsync(itemsToLoad);
+
+            var unresolvedFastThumbCandidates = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                itemsToLoad
+                    .Where(item => !string.IsNullOrWhiteSpace(item.FileName)
+                                   && !string.IsNullOrWhiteSpace(YouTubeThumbnail.ExtractVideoId(item.FileName))
+                                   && (item.CoverBitmap == null || item.CoverBitmap == DefaultFolderCover))
+                    .ToList());
+
+            foreach (var item in unresolvedFastThumbCandidates)
+            {
+                _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
+            }
+
+            // Re-evaluate stream durations after the album metadata/cover pass settles so
+            // online items that still lack a duration are queued from the final album state.
+            QueueOpenedAlbumStreamDurationScan(folder);
 
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -1962,7 +1999,7 @@ namespace AES_Lacrima.ViewModels
                 if (item.FileName == null)
                     return;
 
-                var info = await YtDlpMetadata.GetMetaDataAsync(item.FileName);
+                var info = await YtDlpMetadata.GetBasicMetadataAsync(item.FileName);
 
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
@@ -1978,6 +2015,35 @@ namespace AES_Lacrima.ViewModels
                     if (info.DurationSeconds is > 0 && item.Duration <= 0)
                         item.Duration = info.DurationSeconds.Value;
                 });
+
+                if (info.DurationSeconds is > 0)
+                {
+                    await Task.Run(() =>
+                    {
+                        var cacheId = BinaryMetadataHelper.GetCacheId(item.FileName);
+                        var cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
+                        var cacheDir = Path.GetDirectoryName(cachePath);
+                        if (!string.IsNullOrEmpty(cacheDir) && !Directory.Exists(cacheDir))
+                            Directory.CreateDirectory(cacheDir);
+
+                        var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                        if (metadata.Duration <= 0)
+                        {
+                            metadata.Title = string.IsNullOrWhiteSpace(metadata.Title) ? item.Title ?? string.Empty : metadata.Title;
+                            metadata.Artist = string.IsNullOrWhiteSpace(metadata.Artist) ? item.Artist ?? string.Empty : metadata.Artist;
+                            metadata.Album = string.IsNullOrWhiteSpace(metadata.Album) ? item.Album ?? string.Empty : metadata.Album;
+                            metadata.Track = metadata.Track == 0 ? item.Track : metadata.Track;
+                            metadata.Year = metadata.Year == 0 ? item.Year : metadata.Year;
+                            metadata.Genre = string.IsNullOrWhiteSpace(metadata.Genre) ? item.Genre ?? string.Empty : metadata.Genre;
+                            metadata.Comment = string.IsNullOrWhiteSpace(metadata.Comment) ? item.Comment ?? string.Empty : metadata.Comment;
+                            metadata.Lyrics = string.IsNullOrWhiteSpace(metadata.Lyrics) ? item.Lyrics ?? string.Empty : metadata.Lyrics;
+                            metadata.ReplayGainTrackGain = metadata.ReplayGainTrackGain == 0 ? item.ReplayGainTrackGain : metadata.ReplayGainTrackGain;
+                            metadata.ReplayGainAlbumGain = metadata.ReplayGainAlbumGain == 0 ? item.ReplayGainAlbumGain : metadata.ReplayGainAlbumGain;
+                            metadata.Duration = info.DurationSeconds.Value;
+                            BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+                        }
+                    });
+                }
             }
             catch
             {
@@ -1991,10 +2057,20 @@ namespace AES_Lacrima.ViewModels
             {
                 if (item.FileName == null) return;
 
-                // Let metadata cache win when we already have a persisted sidecar cover.
+                // Let metadata cache win only when it already contains a usable cover.
                 var cacheId = BinaryMetadataHelper.GetCacheId(item.FileName);
                 var cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
-                if (System.IO.File.Exists(cachePath)) return;
+                if (System.IO.File.Exists(cachePath))
+                {
+                    var cachedMetadata = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath));
+                    var hasCachedCover = cachedMetadata?.Images?.Any(image =>
+                        image is { Data.Length: > 0 } &&
+                        image.Kind != TagImageKind.Wallpaper &&
+                        image.Kind != TagImageKind.LiveWallpaper) == true;
+
+                    if (hasCachedCover)
+                        return;
+                }
 
                 // Do not replace a cover that was already restored from local metadata cache.
                 var shouldFetch = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>

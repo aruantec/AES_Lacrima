@@ -21,6 +21,26 @@ namespace AES_Controls.Helpers
     public sealed class MetadataScrapper : IDisposable
     {
         private static readonly ILog Log = AES_Core.Logging.LogHelper.For<MetadataScrapper>();
+        private static readonly string[] PreferredLocalArtworkBaseNames =
+        [
+            "cover",
+            "folder",
+            "front",
+            "album",
+            "albumart",
+            "artwork",
+            "thumbnail",
+            "thumb"
+        ];
+        private static readonly string[] SupportedLocalArtworkExtensions =
+        [
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".webp",
+            ".bmp",
+            ".gif"
+        ];
 
         /// <summary>The default limit for embedded image extraction (32MB).</summary>
         internal const int DefaultMaxEmbeddedImageBytes = 32 * 1024 * 1024;
@@ -191,46 +211,19 @@ namespace AES_Controls.Helpers
                 string cacheId = BinaryMetadataHelper.GetCacheId(key);
                 string cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
 
-                // Check for sidecar .meta file first (local or remote).
-                // If local sidecar metadata has no usable cover, continue to embedded tag scan.
-                if (!force && File.Exists(cachePath))
+                // Online items should prefer cached sidecar metadata before hitting the network.
+                // Local files must prefer embedded metadata first and only use other fallbacks later.
+                if (!force && !isLocalFile && File.Exists(cachePath))
                 {
                     var meta = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath), token);
                     if (meta != null)
                     {
                         await ApplyMetadataToItem(mi, meta, key).ConfigureAwait(false);
 
-                        // For local files, ensure duration is backfilled even when sidecar existed
-                        // but was created before duration support (or contains 0).
-                        if (isLocalFile && mi.Duration <= 0)
-                        {
-                            try
-                            {
-                                var localDuration = await Task.Run(() =>
-                                {
-                                    using var localFile = TagLib.File.Create(key);
-                                    return localFile.Properties?.Duration.TotalSeconds ?? 0.0;
-                                }, token).ConfigureAwait(false);
-
-                                if (localDuration > 0)
-                                {
-                                    await Dispatcher.UIThread.InvokeAsync(() => mi.Duration = localDuration);
-                                    meta.Duration = localDuration;
-                                    await Task.Run(() => BinaryMetadataHelper.SaveMetadata(cachePath, meta), token).ConfigureAwait(false);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Log.Warn($"MetadataScrapper: failed to backfill local duration for {key}", ex);
-                            }
-                        }
-
                         var hasUsableSidecarCover = HasUsableCoverImage(meta.Images);
                         var hasCustomCoverAssigned = mi.CoverBitmap != null && mi.CoverBitmap != _defaultCover;
-                        if (!isLocalFile || (hasUsableSidecarCover && hasCustomCoverAssigned))
+                        if (hasUsableSidecarCover && hasCustomCoverAssigned)
                             return false;
-
-                        Log.Debug($"MetadataScrapper: {key} - sidecar metadata lacked usable cover; falling back to embedded tag scan");
                     }
                 }
 
@@ -325,13 +318,21 @@ namespace AES_Controls.Helpers
                 // Small yield to UI thread
                 await Task.Delay(1, token);
 
-                // If the tag contained usable embedded pictures, always prioritize those
-                // and do not perform online lookups even if decoding fails.
+                // Local embedded metadata is authoritative for local files.
+                // If usable embedded pictures exist, stop here and do not consult other sources.
                 if (tagResult.hasUsableEmbedded)
                 {
                     Log.Debug($"MetadataScrapper: {key} - processing usable embedded images (will skip online lookups)");
                     await ProcessEmbeddedImagesInternal(mi, tagResult.pic, tagResult.wall, key, token).ConfigureAwait(false);
                     await UpdateLocalMetadataAsync(mi, tagResult.pic, tagResult.wall).ConfigureAwait(false);
+                    return false;
+                }
+
+                var localArtworkResult = await TryProcessLocalArtworkAsync(mi, key, token).ConfigureAwait(false);
+                if (localArtworkResult.HasArtwork)
+                {
+                    Log.Debug($"MetadataScrapper: {key} - using local folder artwork at {localArtworkResult.ArtworkPath}; skipping online lookups");
+                    await UpdateLocalMetadataAsync(mi, localArtworkResult.CacheableCoverBytes, null).ConfigureAwait(false);
                     return false;
                 }
 
@@ -388,6 +389,52 @@ namespace AES_Controls.Helpers
                 }
             }
             catch (Exception ex) { Log.Error($"Error processing embedded images for {key}", ex); }
+        }
+
+        private async Task<(bool HasArtwork, string? ArtworkPath, byte[]? CacheableCoverBytes)> TryProcessLocalArtworkAsync(MediaItem mi, string key, CancellationToken token)
+        {
+            try
+            {
+                var artworkPath = FindLocalArtworkPath(key);
+                if (string.IsNullOrWhiteSpace(artworkPath))
+                    return (false, null, null);
+
+                var bmp = await Task.Run(() =>
+                {
+                    using var fs = File.OpenRead(artworkPath);
+                    return _maxThumbnailWidth.HasValue
+                        ? Bitmap.DecodeToWidth(fs, _maxThumbnailWidth.Value)
+                        : new Bitmap(fs);
+                }, token).ConfigureAwait(false);
+
+                AddToCoverCache(key, bmp);
+
+                byte[]? cacheableBytes = null;
+                try
+                {
+                    var info = new FileInfo(artworkPath);
+                    if (_maxEmbeddedImageBytes <= 0 || info.Length <= _maxEmbeddedImageBytes)
+                        cacheableBytes = await Task.Run(() => File.ReadAllBytes(artworkPath), token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"MetadataScrapper: failed to cache local artwork bytes for {artworkPath}", ex);
+                }
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    mi.CoverBitmap = bmp;
+                    mi.LocalCoverPath = artworkPath;
+                    mi.CoverFound = true;
+                });
+
+                return (true, artworkPath, cacheableBytes);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"MetadataScrapper: failed to process local artwork for {key}", ex);
+                return (false, null, null);
+            }
         }
 
         private async Task ApplyMetadataToItem(MediaItem mi, CustomMetadata meta, string key)
@@ -546,6 +593,51 @@ namespace AES_Controls.Helpers
         private static bool HasUsableCoverImage(IList<ImageData>? images)
         {
             return SelectPreferredCover(images) is { Data.Length: > 0 };
+        }
+
+        internal static string? FindLocalArtworkPath(string mediaPath)
+        {
+            if (string.IsNullOrWhiteSpace(mediaPath))
+                return null;
+
+            var directory = Path.GetDirectoryName(mediaPath);
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+                return null;
+
+            try
+            {
+                var imageFiles = Directory.EnumerateFiles(directory)
+                    .Where(path => SupportedLocalArtworkExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (imageFiles.Count == 0)
+                    return null;
+
+                foreach (var baseName in PreferredLocalArtworkBaseNames)
+                {
+                    var exactMatch = imageFiles.FirstOrDefault(path =>
+                        Path.GetFileNameWithoutExtension(path).Equals(baseName, StringComparison.OrdinalIgnoreCase));
+                    if (!string.IsNullOrWhiteSpace(exactMatch))
+                        return exactMatch;
+                }
+
+                foreach (var baseName in PreferredLocalArtworkBaseNames)
+                {
+                    var prefixMatch = imageFiles.FirstOrDefault(path =>
+                        Path.GetFileNameWithoutExtension(path).StartsWith(baseName, StringComparison.OrdinalIgnoreCase));
+                    if (!string.IsNullOrWhiteSpace(prefixMatch))
+                        return prefixMatch;
+                }
+
+                return imageFiles
+                    .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"MetadataScrapper: failed to scan local artwork for {mediaPath}", ex);
+                return null;
+            }
         }
 
         private static bool IsLikelyCoverPicture(IPicture picture)
@@ -710,7 +802,11 @@ namespace AES_Controls.Helpers
                     if (meta != null)
                     {
                         await ApplyMetadataToItem(mi, meta, url).ConfigureAwait(false);
-                        return;
+
+                        var hasUsableSidecarCover = HasUsableCoverImage(meta.Images);
+                        var hasCustomCoverAssigned = mi.CoverBitmap != null && mi.CoverBitmap != _defaultCover;
+                        if (mi.Duration > 0 && hasUsableSidecarCover && hasCustomCoverAssigned)
+                            return;
                     }
                 }
 
