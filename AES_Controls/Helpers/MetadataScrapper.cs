@@ -22,8 +22,8 @@ namespace AES_Controls.Helpers
     {
         private static readonly ILog Log = AES_Core.Logging.LogHelper.For<MetadataScrapper>();
 
-        /// <summary>The default limit for embedded image extraction (4MB).</summary>
-        internal const int DefaultMaxEmbeddedImageBytes = 4 * 1024 * 1024;
+        /// <summary>The default limit for embedded image extraction (32MB).</summary>
+        internal const int DefaultMaxEmbeddedImageBytes = 32 * 1024 * 1024;
 
         // Default timeout and instance-level HttpClient/Throttle
         private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
@@ -191,7 +191,8 @@ namespace AES_Controls.Helpers
                 string cacheId = BinaryMetadataHelper.GetCacheId(key);
                 string cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
 
-                // Check for sidecar .meta file first (local or remote)
+                // Check for sidecar .meta file first (local or remote).
+                // If local sidecar metadata has no usable cover, continue to embedded tag scan.
                 if (!force && File.Exists(cachePath))
                 {
                     var meta = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath), token);
@@ -224,7 +225,12 @@ namespace AES_Controls.Helpers
                             }
                         }
 
-                        return false;
+                        var hasUsableSidecarCover = HasUsableCoverImage(meta.Images);
+                        var hasCustomCoverAssigned = mi.CoverBitmap != null && mi.CoverBitmap != _defaultCover;
+                        if (!isLocalFile || (hasUsableSidecarCover && hasCustomCoverAssigned))
+                            return false;
+
+                        Log.Debug($"MetadataScrapper: {key} - sidecar metadata lacked usable cover; falling back to embedded tag scan");
                     }
                 }
 
@@ -252,7 +258,7 @@ namespace AES_Controls.Helpers
                         if (string.IsNullOrWhiteSpace(t))
                         {
                             var fileName = Path.GetFileNameWithoutExtension(key);
-                            var match = Regex.Match(fileName, @"^(.*?)\s*[-��]\s*(.*)$");
+                            var match = Regex.Match(fileName, @"^(.*?)\s*[\-\u2013\u2014]\s*(.*)$");
                             if (match.Success)
                             {
                                 a = string.IsNullOrWhiteSpace(a) ? match.Groups[1].Value.Trim() : a;
@@ -281,16 +287,17 @@ namespace AES_Controls.Helpers
                         }
                         var hasFrontCover = pictures != null && pictures.Any(p => p?.Type == PictureType.FrontCover);
                         var hasEmbedded = pictures != null && pictures.Length > 0;
+                        var hasUsableEmbedded = pic != null || wall != null;
                         // Read duration from file properties (in seconds)
                         double duration = 0.0;
                         try { duration = file.Properties?.Duration.TotalSeconds ?? 0.0; } catch { }
 
-                        return new { t = t ?? "", a = a ?? "", al, tr, yr, ge, co, ly, pic, wall, hasFrontCover, hasEmbedded, Success = true, duration };
+                        return new { t = t ?? "", a = a ?? "", al, tr, yr, ge, co, ly, pic, wall, hasFrontCover, hasEmbedded, hasUsableEmbedded, Success = true, duration };
                     }
                     catch (Exception ex)
                     {
                         Log.Error($"Error extracting tags from {key}", ex);
-                        return new { t = Path.GetFileNameWithoutExtension(key), a = "", al = "", tr = 0u, yr = 0u, ge = "", co = "", ly = "", pic = (byte[]?)null, wall = (byte[]?)null, hasFrontCover = false, hasEmbedded = false, Success = false, duration = 0.0 };
+                        return new { t = Path.GetFileNameWithoutExtension(key), a = "", al = "", tr = 0u, yr = 0u, ge = "", co = "", ly = "", pic = (byte[]?)null, wall = (byte[]?)null, hasFrontCover = false, hasEmbedded = false, hasUsableEmbedded = false, Success = false, duration = 0.0 };
                     }
                 }, token);
 
@@ -318,18 +325,18 @@ namespace AES_Controls.Helpers
                 // Small yield to UI thread
                 await Task.Delay(1, token);
 
-                // If the tag contained any embedded pictures, always prioritize those
+                // If the tag contained usable embedded pictures, always prioritize those
                 // and do not perform online lookups even if decoding fails.
-                if (tagResult.hasEmbedded)
+                if (tagResult.hasUsableEmbedded)
                 {
-                    Log.Debug($"MetadataScrapper: {key} - processing embedded images (will skip online lookups)");
+                    Log.Debug($"MetadataScrapper: {key} - processing usable embedded images (will skip online lookups)");
                     await ProcessEmbeddedImagesInternal(mi, tagResult.pic, tagResult.wall, key, token).ConfigureAwait(false);
                     await UpdateLocalMetadataAsync(mi, tagResult.pic, tagResult.wall).ConfigureAwait(false);
                     return false;
                 }
 
-                // No embedded pictures - fall back to online services
-                Log.Debug($"MetadataScrapper: {key} - no embedded images, performing online lookup");
+                // No usable embedded pictures - fall back to online services
+                Log.Debug($"MetadataScrapper: {key} - no usable embedded images, performing online lookup");
                 bool didNetwork = false;
                 if (mi.CoverBitmap == null || mi.CoverBitmap == _defaultCover)
                 {
@@ -401,7 +408,7 @@ namespace AES_Controls.Helpers
                 mi.ReplayGainAlbumGain = meta.ReplayGainAlbumGain;
                 if (meta.Duration > 0) mi.Duration = meta.Duration;
 
-                var cover = meta.Images?.FirstOrDefault(x => x.Kind != TagImageKind.Wallpaper);
+                var cover = SelectPreferredCover(meta.Images);
                 if (cover != null)
                 {
                     var bmp = await Task.Run(() =>
@@ -453,7 +460,7 @@ namespace AES_Controls.Helpers
 
             if (pictures == null || pictures.Length == 0) return;
 
-            // Prioritize explicit front-cover images
+            // Prefer explicit or strongly implied front-cover images.
             if (includeCover)
             {
                 foreach (var picture in pictures)
@@ -461,42 +468,51 @@ namespace AES_Controls.Helpers
                     if (picture == null) continue;
                     var data = picture.Data;
                     if (data == null) continue;
-                    // Allow FrontCover to be selected even if it exceeds the configured
-                    // embedded image byte cap � prefer honoring explicit front covers.
-                    if (maxBytes > 0 && data.Count > maxBytes && picture.Type != PictureType.FrontCover) continue;
                     var bytes = data.Data;
                     if (bytes == null || bytes.Length == 0) continue;
 
-                    if (picture.Type == PictureType.FrontCover)
-                    {
-                        cover = bytes;
-                        break;
-                    }
-                }
-            }
+                    var isLikelyCover = picture.Type == PictureType.FrontCover || IsLikelyCoverPicture(picture);
+                    if (!isLikelyCover) continue;
 
-            // If no front cover found, pick the first non-wallpaper, non-backcover picture as cover
-            if (includeCover && cover == null)
-            {
-                foreach (var picture in pictures)
-                {
-                    if (picture == null) continue;
-                    var isWallpaper = picture.Description?.Contains("wallpaper", StringComparison.OrdinalIgnoreCase) == true;
-                    if (isWallpaper) continue;
-                    if (picture.Type == PictureType.BackCover) continue; // explicitly skip back cover
-
-                    var data = picture.Data;
-                    if (data == null) continue;
-                    if (maxBytes > 0 && data.Count > maxBytes && picture.Type != PictureType.FrontCover) continue;
-                    var bytes = data.Data;
-                    if (bytes == null || bytes.Length == 0) continue;
-
+                    // For explicit/likely covers, allow extraction even when exceeding maxBytes.
                     cover = bytes;
                     break;
                 }
             }
 
-            // Wallpaper selection: prefer explicit illustration or description containing 'wallpaper'
+            // If no explicit/likely cover found, pick first non-wallpaper/non-backcover candidate.
+            if (includeCover && cover == null)
+            {
+                byte[]? oversizedFallback = null;
+
+                foreach (var picture in pictures)
+                {
+                    if (picture == null) continue;
+                    if (picture.Type == PictureType.BackCover) continue;
+                    if (picture.Type == PictureType.Illustration) continue;
+
+                    var isWallpaper = picture.Description?.Contains("wallpaper", StringComparison.OrdinalIgnoreCase) == true;
+                    if (isWallpaper) continue;
+
+                    var data = picture.Data;
+                    if (data == null) continue;
+                    var bytes = data.Data;
+                    if (bytes == null || bytes.Length == 0) continue;
+
+                    if (maxBytes > 0 && data.Count > maxBytes)
+                    {
+                        oversizedFallback ??= bytes;
+                        continue;
+                    }
+
+                    cover = bytes;
+                    break;
+                }
+
+                cover ??= oversizedFallback;
+            }
+
+            // Wallpaper selection: prefer explicit illustration or description containing 'wallpaper'.
             if (includeWallpaper)
             {
                 foreach (var picture in pictures)
@@ -513,6 +529,38 @@ namespace AES_Controls.Helpers
                     break;
                 }
             }
+        }
+
+        private static ImageData? SelectPreferredCover(IList<ImageData>? images)
+        {
+            if (images == null || images.Count == 0)
+                return null;
+
+            return images.FirstOrDefault(x => x.Kind == TagImageKind.Cover)
+                ?? images.FirstOrDefault(x => x.Kind == TagImageKind.Artist)
+                ?? images.FirstOrDefault(x => x.Kind == TagImageKind.Other)
+                ?? images.FirstOrDefault(x => x.Kind == TagImageKind.BackCover)
+                ?? images.FirstOrDefault(x => x.Kind != TagImageKind.Wallpaper && x.Kind != TagImageKind.LiveWallpaper);
+        }
+
+        private static bool HasUsableCoverImage(IList<ImageData>? images)
+        {
+            return SelectPreferredCover(images) is { Data.Length: > 0 };
+        }
+
+        private static bool IsLikelyCoverPicture(IPicture picture)
+        {
+            var desc = picture.Description;
+            if (string.IsNullOrWhiteSpace(desc))
+                return false;
+
+            var normalized = desc.Trim();
+            return normalized.Contains("[AES_KIND:Cover]", StringComparison.OrdinalIgnoreCase)
+                || normalized.Contains("front cover", StringComparison.OrdinalIgnoreCase)
+                || normalized.Contains("cover (front)", StringComparison.OrdinalIgnoreCase)
+                || normalized.Equals("cover", StringComparison.OrdinalIgnoreCase)
+                || normalized.StartsWith("cover", StringComparison.OrdinalIgnoreCase)
+                || normalized.Contains("album art", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -610,7 +658,8 @@ namespace AES_Controls.Helpers
 
                                 mi.CoverBitmap = bmp;
                                 mi.CoverFound = !string.IsNullOrEmpty(mi.FileName) && File.Exists(mi.FileName);
-                                mi.SaveCoverBitmapAction = item => TrySaveEmbeddedCover(item, imgData);
+                                var saveBytes = imgData.ToArray();
+                                mi.SaveCoverBitmapAction = item => TrySaveEmbeddedCover(item, saveBytes);
                             });
                             return true;
                         }
@@ -721,7 +770,8 @@ namespace AES_Controls.Helpers
                                 {
                                     mi.CoverBitmap = decoded;
                                     mi.CoverFound = !string.IsNullOrEmpty(mi.FileName) && File.Exists(mi.FileName);
-                                    mi.SaveCoverBitmapAction = item => TrySaveEmbeddedCover(item, data);
+                                    var saveBytes = data.ToArray();
+                                    mi.SaveCoverBitmapAction = item => TrySaveEmbeddedCover(item, saveBytes);
                                 }
                             });
                         }
@@ -880,6 +930,23 @@ namespace AES_Controls.Helpers
             }
         }
 
+        private static string DetectMimeType(byte[] bytes)
+        {
+            if (bytes.Length >= 8
+                && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47)
+                return "image/png";
+
+            if (bytes.Length >= 12
+                && bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46
+                && bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50)
+                return "image/webp";
+
+            if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8)
+                return "image/jpeg";
+
+            return "image/jpeg";
+        }
+
         /// <summary>
         /// Action callback to trigger background saving of cover art.
         /// </summary>
@@ -937,10 +1004,22 @@ namespace AES_Controls.Helpers
                         var pic = new TagLib.Picture(new ByteVector(bytes))
                         {
                             Type = PictureType.FrontCover,
-                            MimeType = "image/jpeg"
+                            MimeType = DetectMimeType(bytes),
+                            Description = "[AES_KIND:Cover] saved"
                         };
-                        f.Tag.Pictures = new[] { pic };
+
+                        var existing = (f.Tag.Pictures ?? Array.Empty<IPicture>())
+                            .Where(p => p != null && p.Type != PictureType.FrontCover)
+                            .ToList();
+                        existing.Insert(0, pic);
+                        f.Tag.Pictures = existing.ToArray();
                         f.Save();
+
+                        using var verify = TagLib.File.Create(item.FileName);
+                        var verifyHasCover = (verify.Tag.Pictures ?? Array.Empty<IPicture>())
+                            .Any(p => p?.Type == PictureType.FrontCover && p.Data != null && p.Data.Count > 0);
+                        if (!verifyHasCover)
+                            throw new InvalidOperationException($"Cover save verification failed for {item.FileName}");
                     }
                     catch (Exception ex)
                     {

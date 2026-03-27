@@ -98,124 +98,129 @@ namespace AES_Lacrima.Services
         public async Task LoadMetadataAsync(MediaItem item)
         {
             _currentSelectedMedia = item;
-            FilePath = item.FileName;
+            var resolvedPath = item.FileName;
+            FilePath = resolvedPath;
             IsOnlineMedia = false;
 
-            if (!File.Exists(FilePath))
+            try
             {
-                // Pre-populate with current media item info while loading from cache
-                Title = item.Title;
-                Artists = item.Artist;
-                Album = item.Album;
-                Track = item.Track;
-                Year = item.Year;
-                Genres = item.Genre;
-                Comment = item.Comment;
-                Lyrics = item.Lyrics;
-                IsOnlineMedia = true;
+                if (string.IsNullOrWhiteSpace(resolvedPath))
+                    throw new ArgumentException("file missing", nameof(item));
 
-                await Task.Run(() =>
+                if (!File.Exists(resolvedPath))
                 {
-                    // Get unique cache id for the URL/Online item
-                    var cacheId = BinaryMetadataHelper.GetCacheId(FilePath!);
-                    // Construct metadata path
-                    var metaData = ApplicationPaths.GetCacheFile(cacheId + ".meta");
-                    // Load metadata
-                    if (BinaryMetadataHelper.LoadMetadata(metaData) is not { } metadata)
-                        return;
+                    // Pre-populate with current media item info while loading from cache.
+                    Title = item.Title;
+                    Artists = item.Artist;
+                    Album = item.Album;
+                    Track = item.Track;
+                    Year = item.Year;
+                    Genres = item.Genre;
+                    Comment = item.Comment;
+                    Lyrics = item.Lyrics;
+                    IsOnlineMedia = true;
 
-                    // Set properties on UI thread
-                    Dispatcher.UIThread.Post(() =>
+                    var metadata = await Task.Run(() =>
                     {
-                        Title = metadata.Title;
-                        Album = metadata.Album;
-                        Artists = metadata.Artist;
-                        Track = metadata.Track;
-                        Year = metadata.Year;
-                        Lyrics = metadata.Lyrics;
-                        Genres = metadata.Genre;
-                        Comment = metadata.Comment;
-                        ReplayGainTrackGain = metadata.ReplayGainTrackGain;
-                        ReplayGainAlbumGain = metadata.ReplayGainAlbumGain;
-                        if (_currentSelectedMedia != null && metadata.Duration > 0)
-                            _currentSelectedMedia.Duration = metadata.Duration;
-                        IsOnlineMedia = true;
+                        var cacheId = BinaryMetadataHelper.GetCacheId(resolvedPath);
+                        var metaData = ApplicationPaths.GetCacheFile(cacheId + ".meta");
+                        return BinaryMetadataHelper.LoadMetadata(metaData);
+                    });
 
-                        // Clear images and dispose
+                    var newImages = (metadata?.Images ?? [])
+                        .Select(img => new TagImageModel(img.Kind, img.Data, img.MimeType ?? "image/png") { OnDeleteImage = OnDeleteImage })
+                        .ToList();
+
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (metadata != null)
+                        {
+                            Title = metadata.Title;
+                            Album = metadata.Album;
+                            Artists = metadata.Artist;
+                            Track = metadata.Track;
+                            Year = metadata.Year;
+                            Lyrics = metadata.Lyrics;
+                            Genres = metadata.Genre;
+                            Comment = metadata.Comment;
+                            ReplayGainTrackGain = metadata.ReplayGainTrackGain;
+                            ReplayGainAlbumGain = metadata.ReplayGainAlbumGain;
+                            if (_currentSelectedMedia != null && metadata.Duration > 0)
+                                _currentSelectedMedia.Duration = metadata.Duration;
+                        }
+
                         foreach (var old in Images)
                             old.Dispose();
 
                         Images.Clear();
-                    });
-
-                    // Load images
-                    var newImages = metadata.Images
-                        .Select(img => new TagImageModel(img.Kind, img.Data, "image/png") { OnDeleteImage = OnDeleteImage })
-                        .ToList();
-
-                    Dispatcher.UIThread.Post(() =>
-                    {
                         foreach (var image in newImages)
                         {
                             Images.Add(image);
                             if (image.Kind == TagImageKind.LiveWallpaper)
-                            {
-                                // Fire-and-forget loading of live wallpaper thumbnails.
                                 _ = LoadImageAsync(image);
-                            }
                         }
+
+                        IsMetadataLoaded = true;
                     });
-                });
 
-                IsMetadataLoaded = true;
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(FilePath) || !File.Exists(FilePath))
-                throw new ArgumentException("file missing", nameof(FilePath));
-
-            await Task.Run(() =>
-            {
-                using var tlFile = TagLib.File.Create(FilePath);
-                var tag = tlFile.Tag;
-
-                Title = tag.Title;
-                Artists = tag.JoinedPerformers;
-                Album = tag.Album;
-                Track = tag.Track;
-                Year = tag.Year;
-                Lyrics = tag.Lyrics;
-                Genres = string.Join(";", tag.Genres ?? []);
-                Comment = tag.Comment;
-
-                var pics = tag.Pictures ?? [];
-                var imagesToAdd = new List<TagImageModel>();
-                foreach (var p in pics)
-                {
-                    var kind = MapPictureToKind(p);
-                    var data = p.Data.Data;
-                    var mime = p.MimeType;
-                    var desc = StripImageKindMarker(p.Description);
-                    var newImage = new TagImageModel(kind, data, mime, desc)
-                    {
-                        OnDeleteImage = OnDeleteImage
-                    };
-
-                    imagesToAdd.Add(newImage);
+                    return;
                 }
 
-                Dispatcher.UIThread.Post(() =>
+                var snapshot = await Task.Run(() =>
                 {
+                    using var tlFile = TagLib.File.Create(resolvedPath);
+                    var tag = tlFile.Tag;
+                    var pics = tag.Pictures ?? [];
+                    var imagesToAdd = new List<TagImageModel>(pics.Length);
+                    foreach (var p in pics)
+                    {
+                        var kind = MapPictureToKind(p);
+                        var data = p.Data.Data;
+                        var mime = p.MimeType;
+                        var desc = StripImageKindMarker(p.Description);
+                        imagesToAdd.Add(new TagImageModel(kind, data, mime, desc) { OnDeleteImage = OnDeleteImage });
+                    }
+
+                    return new
+                    {
+                        tag.Title,
+                        Artists = tag.JoinedPerformers,
+                        tag.Album,
+                        tag.Track,
+                        tag.Year,
+                        tag.Lyrics,
+                        Genres = string.Join(";", tag.Genres ?? []),
+                        tag.Comment,
+                        Images = imagesToAdd
+                    };
+                });
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    Title = snapshot.Title;
+                    Artists = snapshot.Artists;
+                    Album = snapshot.Album;
+                    Track = snapshot.Track;
+                    Year = snapshot.Year;
+                    Lyrics = snapshot.Lyrics;
+                    Genres = snapshot.Genres;
+                    Comment = snapshot.Comment;
+
                     foreach (var old in Images)
                         old.Dispose();
 
                     Images.Clear();
-                    foreach (var img in imagesToAdd)
+                    foreach (var img in snapshot.Images)
                         Images.Add(img);
-                });
 
-                IsMetadataLoaded = true;
-            });
+                    IsMetadataLoaded = true;
+                });
+            }
+            catch (Exception ex)
+            {
+                SLog.Error("Failed to load metadata", ex);
+                await Dispatcher.UIThread.InvokeAsync(() => IsMetadataLoaded = false);
+            }
         }
 
         [RelayCommand]
