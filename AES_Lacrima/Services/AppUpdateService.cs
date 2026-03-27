@@ -238,6 +238,7 @@ public partial class AppUpdateService : ObservableObject
 
             DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
             Status = "Restarting to apply update...";
+            App.IsSelfUpdating = true;
             ShutdownApplication();
             return true;
         }
@@ -251,6 +252,8 @@ public partial class AppUpdateService : ObservableObject
         {
             IsDownloading = false;
             IsBusy = false;
+            if (!OperatingSystem.IsWindows())
+                App.IsSelfUpdating = false;
         }
     }
 
@@ -726,10 +729,15 @@ public partial class AppUpdateService : ObservableObject
                 timeout /t 1 /nobreak >NUL
                 goto wait_for_exit
             )
-            xcopy "%SRC%\*" "%DST%\" /E /I /Y /Q >NUL
-            start "" "%EXE%"
+            robocopy "%SRC%" "%DST%" /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP >NUL
+            if errorlevel 8 goto copy_failed
+            start "" /D "%DST%" "%EXE%"
             rmdir /S /Q "%STAGING%" >NUL 2>NUL
             del "%~f0"
+            exit /b 0
+            :copy_failed
+            start "" /D "%DST%" "%EXE%"
+            exit /b 1
             """;
 
         File.WriteAllText(scriptPath, script, Encoding.ASCII);
@@ -829,6 +837,8 @@ public partial class AppUpdateService : ObservableObject
         if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.Shutdown();
+            if (OperatingSystem.IsWindows())
+                Environment.Exit(0);
             return;
         }
 

@@ -14,9 +14,12 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_NAME="AES_Lacrima"
-BUNDLE_ID="com.aes.lacrima"
+APP_NAME="AES Lacrima"
+EXECUTABLE_NAME="AES_Lacrima"
+BUNDLE_ID="com.aruantec.aes-lacrima"
 MIN_SYS_VER="10.12"
+APP_VERSION="${APP_VERSION:-1.0.0}"
+APP_VERSION="${APP_VERSION#v}"
 
 PUBLISH_DIR="${1:-$(pwd)}"
 PUBLISH_DIR="$(realpath "$PUBLISH_DIR")"
@@ -33,11 +36,11 @@ find "$PUBLISH_DIR" -mindepth 1 -maxdepth 1 ! -name "$APP_NAME.app" \
 # Remove Linux-specific assets from the macOS bundle
 rm -rf "$BUNDLE_DIR/Contents/MacOS/Linux"
 
-if [[ ! -f "$BUNDLE_DIR/Contents/MacOS/$APP_NAME" ]]; then
+if [[ ! -f "$BUNDLE_DIR/Contents/MacOS/$EXECUTABLE_NAME" ]]; then
     echo "error: published executable not found in $PUBLISH_DIR" >&2
     exit 1
 fi
-chmod +x "$BUNDLE_DIR/Contents/MacOS/$APP_NAME"
+chmod +x "$BUNDLE_DIR/Contents/MacOS/$EXECUTABLE_NAME"
 
 # 2. Write Info.plist
 cat > "$BUNDLE_DIR/Contents/Info.plist" <<EOF
@@ -52,11 +55,11 @@ cat > "$BUNDLE_DIR/Contents/Info.plist" <<EOF
     <key>CFBundleIdentifier</key>
     <string>$BUNDLE_ID</string>
     <key>CFBundleExecutable</key>
-    <string>$APP_NAME</string>
+    <string>$EXECUTABLE_NAME</string>
     <key>CFBundleVersion</key>
-    <string>1.0</string>
+    <string>$APP_VERSION</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>$APP_VERSION</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleIconFile</key>
@@ -65,6 +68,8 @@ cat > "$BUNDLE_DIR/Contents/Info.plist" <<EOF
     <string>$MIN_SYS_VER</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
 </dict>
 </plist>
 EOF
