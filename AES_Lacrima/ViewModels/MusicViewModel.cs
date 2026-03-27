@@ -671,6 +671,9 @@ namespace AES_Lacrima.ViewModels
         {
             var selectedAlbum = SelectedAlbum;
             var isSameAlbum = selectedAlbum != null && ReferenceEquals(LoadedAlbum, selectedAlbum);
+            if (!isSameAlbum)
+                ResetPlaybackStateForAlbumSwitch();
+
             _scanMissingStreamDurationsOnLoadedAlbum = true;
             LoadedAlbum = selectedAlbum;
             IsNoAlbumLoadedVisible = false;
@@ -684,6 +687,15 @@ namespace AES_Lacrima.ViewModels
                 QueueOpenedAlbumStreamDurationScan(selectedAlbum);
                 _scanMissingStreamDurationsOnLoadedAlbum = false;
             }
+        }
+
+        private void ResetPlaybackStateForAlbumSwitch()
+        {
+            AudioPlayer?.Stop();
+            AudioPlayer?.ClearMedia();
+            SelectedMediaItem = null;
+            PlaybackQueue = new AvaloniaList<MediaItem>();
+            PointedIndex = -1;
         }
 
         [RelayCommand]

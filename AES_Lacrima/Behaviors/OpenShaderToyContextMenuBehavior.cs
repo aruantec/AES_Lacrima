@@ -12,7 +12,7 @@ using System.ComponentModel;
 namespace AES_Lacrima.Behaviors;
 
 /// <summary>
-/// Opens the attached control's context menu on left click and populates it
+/// Opens the attached control's context menu on left or right click and populates it
 /// with ShaderToy entries from <see cref="SettingsViewModel"/>.
 /// </summary>
 public class OpenShaderToyContextMenuBehavior : Behavior<Control>
@@ -29,7 +29,7 @@ public class OpenShaderToyContextMenuBehavior : Behavior<Control>
         base.OnAttached();
         if (AssociatedObject == null) return;
 
-        AssociatedObject.AddHandler(InputElement.PointerPressedEvent, OnPointerPressed, RoutingStrategies.Bubble);
+        AssociatedObject.AddHandler(InputElement.PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
         _contextMenu = AssociatedObject.ContextMenu;
         _contextMenu?.Opening += OnContextMenuOpening;
     }
@@ -46,16 +46,16 @@ public class OpenShaderToyContextMenuBehavior : Behavior<Control>
     }
 
     /// <summary>
-    /// Handler for <see cref="InputElement.PointerPressedEvent"/>.  If the left
-    /// button is pressed the menu is filled and opened manually, and the event is
-    /// marked handled to prevent other controls from acting on the click.
+    /// Handler for <see cref="InputElement.PointerPressedEvent"/>. If the left or
+    /// right button is pressed the menu is filled and opened manually, and the
+    /// event is marked handled to prevent other controls from acting on the click.
     /// </summary>
     private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (AssociatedObject == null) return;
 
         var point = e.GetCurrentPoint(AssociatedObject);
-        if (!point.Properties.IsLeftButtonPressed) return;
+        if (!point.Properties.IsLeftButtonPressed && !point.Properties.IsRightButtonPressed) return;
 
         PopulateContextMenu(AssociatedObject.ContextMenu);
         AssociatedObject.ContextMenu?.Open(AssociatedObject);
