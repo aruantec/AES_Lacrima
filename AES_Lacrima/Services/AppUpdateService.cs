@@ -777,7 +777,8 @@ public partial class AppUpdateService : ObservableObject
 
     private static string CreateWindowsUpdateScript(string sourceDirectory, string targetDirectory, string restartExecutable, string stagingRoot)
     {
-        var scriptPath = Path.Combine(Path.GetTempPath(), $"aes-lacrima-update-{Guid.NewGuid():N}.cmd");
+        Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
+        var scriptPath = Path.Combine(ApplicationPaths.UpdatesDirectory, $"aes-lacrima-update-{Guid.NewGuid():N}.cmd");
         var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
         var helperLogDirectory = ApplicationPaths.UpdaterLogsDirectory;
         var pid = Environment.ProcessId;
@@ -834,7 +835,8 @@ public partial class AppUpdateService : ObservableObject
 
     private static string CreateMacUpdateScript(string sourceAppBundle, string targetAppBundle, string stagingRoot)
     {
-        var scriptPath = Path.Combine(Path.GetTempPath(), $"aes-lacrima-update-{Guid.NewGuid():N}.sh");
+        Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
+        var scriptPath = Path.Combine(ApplicationPaths.UpdatesDirectory, $"aes-lacrima-update-{Guid.NewGuid():N}.sh");
         var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
         var pid = Environment.ProcessId;
         var script = $$"""
@@ -877,7 +879,8 @@ public partial class AppUpdateService : ObservableObject
 
     private static string CreateLinuxUpdateScript(string sourceFile, string targetFile, string stagingRoot)
     {
-        var scriptPath = Path.Combine(Path.GetTempPath(), $"aes-lacrima-update-{Guid.NewGuid():N}.sh");
+        Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
+        var scriptPath = Path.Combine(ApplicationPaths.UpdatesDirectory, $"aes-lacrima-update-{Guid.NewGuid():N}.sh");
         var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
         var pid = Environment.ProcessId;
         var script = $$"""
