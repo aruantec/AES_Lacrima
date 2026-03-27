@@ -174,7 +174,7 @@ jobs:
         if: matrix.package_type == 'macos'
         run: |
           mkdir -p artifacts
-          ditto -c -k --sequesterRsrc --keepParent "output/publish/Release/${{ matrix.publish_dir_name }}/AES_Lacrima.app" "artifacts/${{ matrix.asset_name }}"
+          ditto -c -k --sequesterRsrc --keepParent "output/publish/Release/${{ matrix.publish_dir_name }}/AES Lacrima.app" "artifacts/${{ matrix.asset_name }}"
 
       - name: Download appimagetool
         if: matrix.package_type == 'appimage'

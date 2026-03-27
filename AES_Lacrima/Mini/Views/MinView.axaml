@@ -695,11 +695,11 @@
 
             <Border Grid.Column="0" BorderBrush="DimGray" BorderThickness="0,0.6,0,0" Margin="1,0,1,0" Grid.ColumnSpan="3"/>
 
-            <StackPanel Grid.Column="0" Margin="5,0,0,0" Spacing="5" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left">
+            <StackPanel Grid.Column="0" Margin="5,2,0,2" Spacing="5" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left" Panel.ZIndex="1">
 
                 <!-- Add button (uses same add icon as MusicView context menu) -->
-                <Button Width="20"
-                        Height="20"
+                <Button Width="24"
+                        Height="24"
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         ToolTip.Tip="Add Items">
@@ -726,7 +726,7 @@
                             </Border>
                         </ControlTemplate>
                     </Button.Template>
-                    <Viewbox Stretch="Uniform">
+                    <Viewbox Stretch="Uniform" Width="18" Height="18">
                         <Canvas Width="100" Height="100">
                             <!-- Rounded frame -->
                             <Rectangle Canvas.Left="10" Canvas.Top="10" Width="80" Height="80" RadiusX="22" RadiusY="22" Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" />
@@ -738,8 +738,8 @@
                 </Button>
 
                 <!-- Playlist toggle -->
-                <ToggleButton Height="20"
-                              Width="20"
+                <ToggleButton Height="24"
+                              Width="24"
                               VerticalAlignment="Center"
                               Cursor="Hand"
                               ToolTip.Tip="Playlist"
@@ -755,7 +755,7 @@
                             </Border>
                         </ControlTemplate>
                     </ToggleButton.Template>
-                    <Viewbox Stretch="Uniform">
+                    <Viewbox Stretch="Uniform" Width="18" Height="18">
                         <Canvas Width="100" Height="100">
                             <Rectangle Canvas.Left="6" Canvas.Top="22" Width="24" Height="24" RadiusX="2" RadiusY="2" Fill="{Binding ShowPlaylist, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
                             <Rectangle Canvas.Left="38" Canvas.Top="22" Width="24" Height="24" RadiusX="2" RadiusY="2" Fill="{Binding ShowPlaylist, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}" />
@@ -768,8 +768,8 @@
                 </ToggleButton>
 
                 <!-- Eject button -->
-                <Button Width="24" 
-                        Height="24" 
+                <Button Width="28" 
+                        Height="28" 
                         Cursor="Hand" 
                         ToolTip.Tip="Albums"
                         Command="{Binding ShowAlbumActionsCommand}">
@@ -794,8 +794,8 @@
                             </Border>
                         </ControlTemplate>
                     </Button.Template>
-                    <Viewbox Stretch="Uniform">
-                        <TextBlock Text="⏏️" FontSize="14" Foreground="#BDBDBD" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                    <Viewbox Stretch="Uniform" Width="22" Height="22">
+                        <TextBlock Text="⏏️" FontSize="18" Foreground="#BDBDBD" VerticalAlignment="Center" HorizontalAlignment="Center" />
                     </Viewbox>
                 </Button>
             </StackPanel>
@@ -923,7 +923,7 @@
             </StackPanel>
 
             <!-- count/total info stays centered across first two columns -->
-            <TextBlock Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#BDBDBD" FontSize="12">
+            <TextBlock Grid.ColumnSpan="2" IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#BDBDBD" FontSize="12">
                 <Run Text="{Binding LoadedMediaItem.Index, FallbackValue=0}" />
                 <Run Text=" of " />
                 <Run Text="{Binding VisibleItemCount, FallbackValue=0}" />
