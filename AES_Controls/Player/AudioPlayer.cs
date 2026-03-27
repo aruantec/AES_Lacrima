@@ -31,6 +31,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     private readonly SynchronizationContext? _syncContext;
     private volatile bool _isLoadingMedia, _isSeeking;
     private CancellationTokenSource? _seekRestartCts;
+    private CancellationTokenSource? _seekDispatchCts;
     private volatile bool _isInternalChange; // Guard to prevent playlist skipping
     private volatile bool _disposed; // Flag to skip native calls during shutdown
 
@@ -93,7 +94,9 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
 
     // THROTTLING: Keep track of the last time the spectrum was updated
     private long _lastSpectrumUpdateTicks;
+    private long _lastSeekDispatchTicks;
     private static readonly long SpectrumThrottleIntervalTicks = Stopwatch.Frequency / 60; // Align UI updates to ~60 FPS
+    private static readonly long SeekDispatchThrottleTicks = Stopwatch.Frequency / 15; // ~67 ms between actual seek commands
     private readonly object _spectrumUpdateGate = new();
     private double[] _pendingSpectrumValues = [];
     private int _pendingSpectrumCount;
@@ -980,6 +983,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
 
             SetProperty("keep-open", "always");
             SetProperty("cache", "yes");
+            SetProperty("hr-seek", "yes");
             SetProperty("replaygain", "no"); // Disable internal mpv replaygain as we apply it manually
             SetProperty("demuxer-max-bytes", $"{CacheSize}M");
             SetProperty("demuxer-readahead-secs", "10");
@@ -1461,6 +1465,8 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         _syncContext?.Post(_ => { Waveform.Clear(); Spectrum.Clear(); Position = 0; }, null);
         PostToMpvThread(() =>
         {
+            // Mute the old item immediately on the mpv thread before swapping sources.
+            SetProperty("pause", true);
             SetProperty("vo", video ? "auto" : "null");
             SetProperty("vid", video ? "auto" : "no");
             SetProperty("audio-display", video ? "auto" : "no");
@@ -1474,6 +1480,9 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                 await RunCommandAsync(new[] { "loadfile", mpvLoadTarget }); 
                 // Now load is fully initiated, old track stops playing.
                 _ignoreTimePos = false; // Safe to accept time-pos events again
+
+                // Resume only after the replacement source has been handed to mpv.
+                SetProperty("pause", false);
 
                 if (EnableSpectrum)
                 {
@@ -1494,7 +1503,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         // Re-apply audio filters/volume after load in case mpv reset properties during load
         // Use PostToMpvThread instead of UpdateAf to avoid blocking during Load
         PostToMpvThread(UpdateAf);
-        Play();
+        IsPlaying = true;
     }
 
 
@@ -2011,11 +2020,59 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     /// <param name="pos">Target position in seconds.</param>
     public void SetPosition(double pos)
     {
+        pos = Math.Max(0, pos);
         _isSeeking = true;
         // Don't call Stop() here! Let the analyzer's loop handle fading out via the IsSeeking flag.
 
-        if (!_disposed) InvokeOnMpvThread(() => { SetProperty("time-pos", pos); return true; });
         Position = pos; // Update immediately for UI feedback
+
+        _seekDispatchCts?.Cancel();
+        _seekDispatchCts?.Dispose();
+        _seekDispatchCts = new CancellationTokenSource();
+        var seekDispatchToken = _seekDispatchCts.Token;
+
+        if (!_disposed)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var elapsedTicks = Stopwatch.GetTimestamp() - Interlocked.Read(ref _lastSeekDispatchTicks);
+                    if (elapsedTicks < SeekDispatchThrottleTicks)
+                    {
+                        var delay = TimeSpan.FromSeconds((SeekDispatchThrottleTicks - elapsedTicks) / (double)Stopwatch.Frequency);
+                        await Task.Delay(delay, seekDispatchToken);
+                    }
+
+                    if (seekDispatchToken.IsCancellationRequested || _disposed)
+                        return;
+
+                    var target = pos.ToString(CultureInfo.InvariantCulture);
+                    InvokeOnMpvThread(() =>
+                    {
+                        var wasPlaying = IsPlaying;
+                        try
+                        {
+                            if (wasPlaying)
+                                SetProperty("pause", true);
+
+                            RunCommand("seek", target, "absolute+exact");
+                            Interlocked.Exchange(ref _lastSeekDispatchTicks, Stopwatch.GetTimestamp());
+                        }
+                        finally
+                        {
+                            if (wasPlaying && !_disposed)
+                                SetProperty("pause", false);
+                        }
+
+                        return true;
+                    });
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            });
+        }
 
         // Cancel previous restart attempt to debounce
         _seekRestartCts?.Cancel();

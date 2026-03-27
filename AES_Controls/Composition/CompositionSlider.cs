@@ -6,6 +6,7 @@ using Avalonia.Rendering.Composition;
 using SkiaSharp;
 using System.Windows.Input;
 using System.Numerics;
+using System.Diagnostics;
 
 namespace AES_Controls.Composition
 {
@@ -66,6 +67,8 @@ namespace AES_Controls.Composition
         private bool _didExecuteSeekOnPress;
         // Track whether we executed seek during drag (first move) or continuously
         private bool _didExecuteSeekDuringDrag;
+        private long _lastDragSeekTicks;
+        private static readonly long DragSeekThrottleTicks = Stopwatch.Frequency / 12; // ~83ms
 
         public double Value
         {
@@ -245,7 +248,7 @@ namespace AES_Controls.Composition
                     // If this is a simple click (no drag yet) execute the seek immediately so a single
                     // click updates the player. Mark that we executed so release doesn't double-run.
                     _didExecuteSeekOnPress = false;
-                    if (e.ClickCount == 1 && SetValueCommand != null)
+                    if (!ExecuteDuringDrag && e.ClickCount == 1 && SetValueCommand != null)
                     {
                         var v = Value;
                         if (SetValueCommand.CanExecute(v))
@@ -269,7 +272,7 @@ namespace AES_Controls.Composition
             var pos = e.GetPosition(this);
             UpdateSliderPosition(pos.X);
             // Execute a seek on first drag movement so dragging immediately updates the player
-            if (!_didExecuteSeekDuringDrag && SetValueCommand != null)
+            if (!_didExecuteSeekOnPress && !_didExecuteSeekDuringDrag && SetValueCommand != null)
             {
                 var v = Value;
                 if (SetValueCommand.CanExecute(v))
@@ -281,9 +284,15 @@ namespace AES_Controls.Composition
             }
             else if (ExecuteDuringDrag && SetValueCommand != null)
             {
-                // If continuous seeks during drag are enabled, execute on every move.
+                // If continuous seeks during drag are enabled, throttle rapid pointer moves
+                // so we don't flood the player with seeks during a fast scrub gesture.
                 var v = Value;
-                if (SetValueCommand.CanExecute(v)) SetValueCommand.Execute(v);
+                var now = Stopwatch.GetTimestamp();
+                if (now - _lastDragSeekTicks >= DragSeekThrottleTicks && SetValueCommand.CanExecute(v))
+                {
+                    SetValueCommand.Execute(v);
+                    _lastDragSeekTicks = now;
+                }
             }
             e.Handled = true;
         }

@@ -313,12 +313,20 @@ namespace AES_Controls.Player
         #region Pointer Handling
         private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
         {
+            if (IsDragging)
+                return;
+
+            var point = e.GetCurrentPoint(this);
+            if (!point.Properties.IsLeftButtonPressed)
+                return;
+
             // begin drag and store the starting value so that
             // external changes won't fight the pointer position
             IsDragging = true;
             _dragValue = Value;
             e.Pointer.Capture(this);
             UpdateValueFromPointer(e);
+            e.Handled = true;
         }
 
         private void OnPointerMoved(object? sender, PointerEventArgs e)
@@ -345,6 +353,7 @@ namespace AES_Controls.Player
 
                 IsDragging = false;
                 e.Pointer.Capture(null);
+                e.Handled = true;
             }
         }
 
