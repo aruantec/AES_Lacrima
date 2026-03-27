@@ -83,6 +83,7 @@ public class WidgetControl : ContentControl
     private const double MinH = 20.0;
     private const double SnapDistance = 15.0;
     private const double PinSize = 24.0;
+    private const double SafeEdgeMargin = 12.0;
 
     private DragMode _mode = DragMode.None;
     private Point _startPointer;
@@ -274,6 +275,12 @@ public class WidgetControl : ContentControl
         Left = Math.Clamp(_relLeft * newW, 0, Math.Max(0, newW - Width));
         Top = Math.Clamp(_relTop * newH, 0, Math.Max(0, newH - Height));
 
+        var clamped = ClampToSafeBounds(Left, Top, Width, Height);
+        Width = clamped.width;
+        Height = clamped.height;
+        Left = clamped.left;
+        Top = clamped.top;
+
         ApplyExplicitPosition();
         _lastContainerSize = bounds.Size;
     }
@@ -375,6 +382,55 @@ public class WidgetControl : ContentControl
     // Helper: treat exact 0 as "unset" only for size (Width/Height)
     private static bool IsSizeUnset(double v) => v == 0.0;
 
+    private bool TryGetContainerSize(out double containerWidth, out double containerHeight)
+    {
+        containerWidth = double.NaN;
+        containerHeight = double.NaN;
+
+        var boundingControl = _container as Control ?? Parent as Control;
+        if (boundingControl != null)
+        {
+            containerWidth = boundingControl.Bounds.Width;
+            containerHeight = boundingControl.Bounds.Height;
+        }
+
+        if ((containerWidth <= 0 || containerHeight <= 0) && _lastContainerSize.Width > 0 && _lastContainerSize.Height > 0)
+        {
+            containerWidth = _lastContainerSize.Width;
+            containerHeight = _lastContainerSize.Height;
+        }
+
+        if ((containerWidth <= 0 || containerHeight <= 0) && _rootTopLevel != null)
+        {
+            containerWidth = Math.Max(containerWidth, _rootTopLevel.Bounds.Width);
+            containerHeight = Math.Max(containerHeight, _rootTopLevel.Bounds.Height);
+        }
+
+        return containerWidth > 0 && containerHeight > 0;
+    }
+
+    private (double left, double top, double width, double height) ClampToSafeBounds(double left, double top, double width, double height)
+    {
+        if (!TryGetContainerSize(out var containerWidth, out var containerHeight))
+            return (left, top, width, height);
+
+        var maxWidth = Math.Max(MinW, containerWidth - (SafeEdgeMargin * 2));
+        var maxHeight = Math.Max(MinH, containerHeight - (SafeEdgeMargin * 2));
+
+        width = Math.Clamp(width, MinW, maxWidth);
+        height = Math.Clamp(height, MinH, maxHeight);
+
+        var minLeft = containerWidth > width + (SafeEdgeMargin * 2) ? SafeEdgeMargin : Math.Max(0, (containerWidth - width) / 2);
+        var maxLeft = containerWidth > width + (SafeEdgeMargin * 2) ? containerWidth - SafeEdgeMargin - width : minLeft;
+        var minTop = containerHeight > height + (SafeEdgeMargin * 2) ? SafeEdgeMargin : Math.Max(0, (containerHeight - height) / 2);
+        var maxTop = containerHeight > height + (SafeEdgeMargin * 2) ? containerHeight - SafeEdgeMargin - height : minTop;
+
+        left = Math.Clamp(left, minLeft, maxLeft);
+        top = Math.Clamp(top, minTop, maxTop);
+
+        return (left, top, width, height);
+    }
+
     // Apply initial values only once when control is presented/loaded.
     private void TryApplyInitialPosition()
     {
@@ -419,6 +475,21 @@ public class WidgetControl : ContentControl
         else
             Height = double.NaN;
 
+        var initialWidth = !double.IsNaN(Width) && Width > 0.0 ? Width : Bounds.Width;
+        var initialHeight = !double.IsNaN(Height) && Height > 0.0 ? Height : Bounds.Height;
+        var initialLeft = !double.IsNaN(Left) ? Left : 0.0;
+        var initialTop = !double.IsNaN(Top) ? Top : 0.0;
+        var clampedInitial = ClampToSafeBounds(initialLeft, initialTop, initialWidth, initialHeight);
+
+        if (!double.IsNaN(Left))
+            Left = clampedInitial.left;
+        if (!double.IsNaN(Top))
+            Top = clampedInitial.top;
+        if (!double.IsNaN(Width) && Width > 0.0)
+            Width = clampedInitial.width;
+        if (!double.IsNaN(Height) && Height > 0.0)
+            Height = clampedInitial.height;
+
         // Apply position according to nearest ancestor Canvas/Panel (handles ContentPresenter)
         ApplyExplicitPosition();
 
@@ -446,6 +517,14 @@ public class WidgetControl : ContentControl
 
         double? leftValue = (!double.IsNaN(Left)) ? Left : null;
         double? topValue = (!double.IsNaN(Top)) ? Top : null;
+        var currentWidth = !double.IsNaN(Width) && Width > 0.0 ? Width : Bounds.Width;
+        var currentHeight = !double.IsNaN(Height) && Height > 0.0 ? Height : Bounds.Height;
+        if (leftValue.HasValue || topValue.HasValue)
+        {
+            var clamped = ClampToSafeBounds(leftValue ?? 0.0, topValue ?? 0.0, currentWidth, currentHeight);
+            leftValue = clamped.left;
+            topValue = clamped.top;
+        }
 
         if (ancestor is Canvas canvas)
         {
@@ -638,37 +717,19 @@ public class WidgetControl : ContentControl
         double rawLeft = newLeft;
         double rawTop = newTop;
 
-        // Snapping to parent edges (falling back to responsive container/window sizes)
-        var boundingControl = _container as Control ?? reference as Control;
-        double containerWidth = double.NaN;
-        double containerHeight = double.NaN;
-        if (boundingControl != null)
+        if (TryGetContainerSize(out var containerWidth, out var containerHeight))
         {
-            containerWidth = boundingControl.Bounds.Width;
-            containerHeight = boundingControl.Bounds.Height;
+            if (Math.Abs(newLeft - SafeEdgeMargin) < SnapDistance) newLeft = SafeEdgeMargin;
+            else if (Math.Abs(newLeft + newW - (containerWidth - SafeEdgeMargin)) < SnapDistance) newLeft = containerWidth - SafeEdgeMargin - newW;
+            if (Math.Abs(newTop - SafeEdgeMargin) < SnapDistance) newTop = SafeEdgeMargin;
+            else if (Math.Abs(newTop + newH - (containerHeight - SafeEdgeMargin)) < SnapDistance) newTop = containerHeight - SafeEdgeMargin - newH;
         }
-        if ((containerWidth <= 0 || containerHeight <= 0) && _lastContainerSize.Width > 0 && _lastContainerSize.Height > 0)
-        {
-            containerWidth = _lastContainerSize.Width;
-            containerHeight = _lastContainerSize.Height;
-        }
-        if ((containerWidth <= 0 || containerHeight <= 0) && _rootTopLevel != null)
-        {
-            containerWidth = Math.Max(containerWidth, _rootTopLevel.Bounds.Width);
-            containerHeight = Math.Max(containerHeight, _rootTopLevel.Bounds.Height);
-        }
-        if (containerWidth > 0 && containerHeight > 0)
-        {
-            if (Math.Abs(newLeft) < SnapDistance) newLeft = 0;
-            else if (Math.Abs(newLeft + newW - containerWidth) < SnapDistance) newLeft = containerWidth - newW;
-            if (Math.Abs(newTop) < SnapDistance) newTop = 0;
-            else if (Math.Abs(newTop + newH - containerHeight) < SnapDistance) newTop = containerHeight - newH;
 
-            newW = Math.Clamp(newW, MinW, containerWidth);
-            newH = Math.Clamp(newH, MinH, containerHeight);
-            newLeft = Math.Clamp(newLeft, 0, Math.Max(0, containerWidth - newW));
-            newTop = Math.Clamp(newTop, 0, Math.Max(0, containerHeight - newH));
-        }
+        var clampedBounds = ClampToSafeBounds(newLeft, newTop, newW, newH);
+        newLeft = clampedBounds.left;
+        newTop = clampedBounds.top;
+        newW = clampedBounds.width;
+        newH = clampedBounds.height;
 
         Left = newLeft;
         Top = newTop;
