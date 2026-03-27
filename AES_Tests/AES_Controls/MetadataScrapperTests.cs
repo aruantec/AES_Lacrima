@@ -25,6 +25,34 @@ public sealed class MetadataScrapperTests
     }
 
     [Fact]
+    public void SelectEmbeddedImages_UsesCoverDescription_WhenPictureTypeIsOtherAndOverMaxBytes()
+    {
+        var largeCover = new byte[] { 1, 2, 3, 4, 5, 6 };
+        var pictures = new IPicture[]
+        {
+            new FakePicture(PictureType.Other, "cover (front)", largeCover)
+        };
+
+        var (cover, _) = InvokeSelectEmbeddedImages(pictures, maxBytes: 3, includeCover: true, includeWallpaper: false);
+
+        Assert.Equal(largeCover, cover);
+    }
+
+    [Fact]
+    public void SelectEmbeddedImages_UsesOversizedFallback_WhenNoBetterCandidateExists()
+    {
+        var largeOther = new byte[] { 9, 8, 7, 6, 5, 4 };
+        var pictures = new IPicture[]
+        {
+            new FakePicture(PictureType.Other, string.Empty, largeOther)
+        };
+
+        var (cover, _) = InvokeSelectEmbeddedImages(pictures, maxBytes: 3, includeCover: true, includeWallpaper: false);
+
+        Assert.Equal(largeOther, cover);
+    }
+
+    [Fact]
     public void SelectEmbeddedImages_SkipsWallpaperAndBackCover_WhenChoosingFallbackCover()
     {
         var wallpaperBytes = new byte[] { 7, 7 };

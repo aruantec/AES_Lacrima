@@ -61,7 +61,7 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private bool _isEqualizerVisible;
 
-        // last window handle we added thumbnail buttons to; used to re‑initialize after a mode switch
+        // last window handle we added thumbnail buttons to; used to re-initialize after a mode switch
         private IntPtr _taskbarHwnd = IntPtr.Zero;
         private MprisService? _mprisService;
 
@@ -296,7 +296,7 @@ namespace AES_Lacrima.ViewModels
             if (hwnd == IntPtr.Zero)
                 return;
 
-            // create buttons only once, but always re‑apply them if the window handle has changed
+            // create buttons only once, but always re-apply them if the window handle has changed
             if (_taskbarButtons == null)
             {
                 // Character codes for Segoe MDL2 Assets
@@ -586,7 +586,7 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
-        private void OpenMetadata(object? parameter)
+        private async Task OpenMetadata(object? parameter)
         {
             if (IsEqualizerVisible) IsEqualizerVisible = false;
 
@@ -595,12 +595,12 @@ namespace AES_Lacrima.ViewModels
             else if (parameter is int index && index >= 0 && index < CoverItems.Count) target = CoverItems[index];
             else target = SelectedMediaItem ?? HighlightedItem ?? AudioPlayer?.CurrentMediaItem;
 
-            if (target == null) return;
+            if (target == null || MetadataService == null) return;
 
-            if (MetadataService != null && MetadataService.IsMetadataLoaded)
+            if (MetadataService.IsMetadataLoaded)
                 MetadataService.IsMetadataLoaded = false;
 
-            MetadataService?.LoadMetadataAsync(target);
+            await MetadataService.LoadMetadataAsync(target);
         }
 
         [RelayCommand]
