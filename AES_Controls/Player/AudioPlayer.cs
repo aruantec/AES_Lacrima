@@ -1255,6 +1255,30 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             _syncContext.Post(static state => ((AudioPlayer)state!).ApplyPendingSpectrumUpdate(), this);
     }
 
+    private void ResetSpectrumImmediate()
+    {
+        lock (_spectrumUpdateGate)
+        {
+            if (_pendingSpectrumValues.Length < Spectrum.Count)
+                _pendingSpectrumValues = new double[Spectrum.Count];
+
+            Array.Clear(_pendingSpectrumValues, 0, _pendingSpectrumValues.Length);
+            _pendingSpectrumCount = Spectrum.Count;
+            _pendingSpectrumVersion++;
+        }
+
+        Interlocked.Exchange(ref _lastSpectrumUpdateTicks, Stopwatch.GetTimestamp());
+
+        if (_syncContext == null)
+        {
+            ApplyPendingSpectrumUpdate();
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _spectrumUiDispatchPending, 1, 0) == 0)
+            _syncContext.Post(static state => ((AudioPlayer)state!).ApplyPendingSpectrumUpdate(), this);
+    }
+
     private void ApplyPendingSpectrumUpdate()
     {
         int appliedVersion;
@@ -2191,6 +2215,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         // make sure the spectrum analyzer is halted when playback is stopped so
         // it can later be restarted cleanly.
         _spectrumAnalyzer?.Stop();
+        ResetSpectrumImmediate();
 
         InternalStop();
         Duration = 0;

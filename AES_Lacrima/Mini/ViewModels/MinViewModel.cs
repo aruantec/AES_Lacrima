@@ -396,6 +396,7 @@ namespace AES_Lacrima.Mini.ViewModels
             ShowPlaylist = false;
             SyncSearchTextFromVisibleCollection();
             SubscribeToCurrentPlaylist();
+            EnsureFirstPlaylistItemSelected();
         }
 
         private async Task PlayMediaItemAsync(MediaItem item)
@@ -924,6 +925,29 @@ namespace AES_Lacrima.Mini.ViewModels
             return true;
         }
 
+        private void EnsureFirstPlaylistItemSelected()
+        {
+            if (MusicViewModel == null)
+                return;
+
+            var playlistItems = GetCurrentPlaylistItems();
+            if (playlistItems == null || playlistItems.Count == 0)
+                return;
+
+            if (SelectedMediaItem != null && playlistItems.Contains(SelectedMediaItem))
+                return;
+
+            var firstItem = playlistItems[0];
+            SelectedMediaItem = firstItem;
+            if (SelectedPlaylistIndex != 0)
+                SelectedPlaylistIndex = 0;
+
+            MusicViewModel.SelectedMediaItem = firstItem;
+            MusicViewModel.SelectedIndex = 0;
+            MusicViewModel.PointedIndex = 0;
+            MusicViewModel.HighlightedItem = firstItem;
+        }
+
         private void SubscribeToCurrentPlaylist()
         {
             try
@@ -950,6 +974,7 @@ namespace AES_Lacrima.Mini.ViewModels
                 UpdateItemIndices();
                 UpdateTotalDuration();
                 OnPropertyChanged(nameof(VisibleItemCount));
+                EnsureFirstPlaylistItemSelected();
             }
             catch (Exception ex)
             {
