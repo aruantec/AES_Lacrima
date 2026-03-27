@@ -35,6 +35,7 @@ public sealed record AppReleaseInfo(
 public partial class AppUpdateService : ObservableObject
 {
     private const string Repo = "aruantec/AES_Lacrima";
+    private const string UpdaterLogFileName = "updater.log";
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<AppUpdateService>();
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(10) };
 #if NATIVE_AOT
@@ -152,10 +153,20 @@ public partial class AppUpdateService : ObservableObject
             var installTarget = ResolveInstallTarget();
             CanSelfUpdate = installTarget.CanSelfUpdate;
             Status = "Checking for application updates...";
+            WriteDiagnosticLog(
+                "Starting update check",
+                $"CurrentVersion={CurrentVersionDisplay}",
+                $"PreferAotUpdates={PreferAotUpdates}",
+                $"CanSelfUpdate={installTarget.CanSelfUpdate}",
+                $"TargetKind={installTarget.Kind}",
+                $"TargetPath={installTarget.TargetPath}",
+                $"RestartPath={installTarget.RestartPath}",
+                $"UnsupportedReason={installTarget.UnsupportedReason ?? "<none>"}");
 
             var release = await FetchLatestReleaseAsync().ConfigureAwait(false);
             if (release == null)
             {
+                WriteDiagnosticLog("Update check returned no release metadata.");
                 Status = "Unable to check for application updates.";
                 return null;
             }
@@ -164,6 +175,13 @@ public partial class AppUpdateService : ObservableObject
             LatestReleaseUrl = release.ReleasePageUrl;
 
             var selectedAsset = SelectBestAsset(release.Assets, installTarget.Kind, PreferAotUpdates);
+            WriteDiagnosticLog(
+                "Fetched latest release",
+                $"ReleaseVersion={release.Version}",
+                $"ReleaseTag={release.TagName}",
+                $"PublishedAt={release.PublishedAt?.ToString("O") ?? "<none>"}",
+                $"AssetCount={release.Assets.Count}",
+                $"SelectedAsset={selectedAsset?.Name ?? "<none>"}");
             if (selectedAsset == null)
             {
                 var versionComparison = CompareSemanticVersions(release.Version, CurrentVersion);
@@ -239,26 +257,45 @@ public partial class AppUpdateService : ObservableObject
             IsDownloading = true;
             DownloadProgress = 0;
             Status = $"Downloading {release.SelectedAsset.Name}...";
+            WriteDiagnosticLog(
+                "Starting update download/apply",
+                $"ReleaseVersion={release.Version}",
+                $"AssetName={release.SelectedAsset.Name}",
+                $"AssetUrl={release.SelectedAsset.DownloadUrl}",
+                $"CurrentVersion={CurrentVersionDisplay}",
+                $"TargetKind={installTarget.Kind}",
+                $"TargetPath={installTarget.TargetPath}",
+                $"RestartPath={installTarget.RestartPath}");
 
             var stagingRoot = Path.Combine(ApplicationPaths.UpdatesDirectory, Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(stagingRoot);
 
             var downloadPath = Path.Combine(stagingRoot, release.SelectedAsset.Name);
             await DownloadFileAsync(release.SelectedAsset.DownloadUrl, downloadPath).ConfigureAwait(false);
+            WriteDiagnosticLog(
+                "Download completed",
+                $"DownloadPath={downloadPath}",
+                $"StagingRoot={stagingRoot}");
 
             Status = "Preparing update...";
             var preparedSource = PrepareStagedPayload(downloadPath, stagingRoot, release.SelectedAsset, installTarget);
             var scriptPath = CreateUpdateScript(installTarget, preparedSource, stagingRoot);
+            WriteDiagnosticLog(
+                "Prepared update payload",
+                $"PreparedSource={preparedSource}",
+                $"ScriptPath={scriptPath}");
             LaunchUpdateScript(scriptPath);
 
             DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
             Status = "Restarting to apply update...";
             App.IsSelfUpdating = true;
+            WriteDiagnosticLog("Update helper launched successfully. Requesting app shutdown.");
             ShutdownApplication();
             return true;
         }
         catch (Exception ex)
         {
+            WriteDiagnosticLog($"Update apply failed: {ex}");
             Log.Error("Failed to download or stage application update", ex);
             Status = $"App update failed: {ex.Message}";
             return false;
@@ -740,6 +777,7 @@ public partial class AppUpdateService : ObservableObject
     private static string CreateWindowsUpdateScript(string sourceDirectory, string targetDirectory, string restartExecutable, string stagingRoot)
     {
         var scriptPath = Path.Combine(Path.GetTempPath(), $"aes-lacrima-update-{Guid.NewGuid():N}.cmd");
+        var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
         var pid = Environment.ProcessId;
         var script = $$"""
             @echo off
@@ -749,19 +787,39 @@ public partial class AppUpdateService : ObservableObject
             set "DST={{EscapeBatchValue(targetDirectory)}}"
             set "EXE={{EscapeBatchValue(restartExecutable)}}"
             set "STAGING={{EscapeBatchValue(stagingRoot)}}"
+            set "LOG={{EscapeBatchValue(helperLogPath)}}"
+            set "TASKLIST=%SystemRoot%\System32\tasklist.exe"
+            set "FIND=%SystemRoot%\System32\find.exe"
+            set "TIMEOUT=%SystemRoot%\System32\timeout.exe"
+            set "ROBOCOPY=%SystemRoot%\System32\robocopy.exe"
+            (
+                echo ==== %DATE% %TIME% helper start ====
+                echo PID=%PID%
+                echo SRC=%SRC%
+                echo DST=%DST%
+                echo EXE=%EXE%
+                echo STAGING=%STAGING%
+                echo SystemRoot=%SystemRoot%
+                echo PATH=%PATH%
+            )>>"%LOG%"
             :wait_for_exit
-            tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL
+            "%TASKLIST%" /FI "PID eq %PID%" 2>NUL | "%FIND%" "%PID%" >NUL
             if not errorlevel 1 (
-                timeout /t 1 /nobreak >NUL
+                >>"%LOG%" echo waiting for PID %PID% to exit
+                "%TIMEOUT%" /t 1 /nobreak >NUL
                 goto wait_for_exit
             )
-            robocopy "%SRC%" "%DST%" /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP >NUL
+            >>"%LOG%" echo process exited, starting robocopy
+            "%ROBOCOPY%" "%SRC%" "%DST%" /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP >>"%LOG%" 2>&1
             if errorlevel 8 goto copy_failed
+            >>"%LOG%" echo copy succeeded, restarting app
             start "" /D "%DST%" "%EXE%"
             rmdir /S /Q "%STAGING%" >NUL 2>NUL
+            >>"%LOG%" echo cleanup finished
             del "%~f0"
             exit /b 0
             :copy_failed
+            >>"%LOG%" echo copy failed with errorlevel %errorlevel%
             start "" /D "%DST%" "%EXE%"
             exit /b 1
             """;
@@ -773,6 +831,7 @@ public partial class AppUpdateService : ObservableObject
     private static string CreateMacUpdateScript(string sourceAppBundle, string targetAppBundle, string stagingRoot)
     {
         var scriptPath = Path.Combine(Path.GetTempPath(), $"aes-lacrima-update-{Guid.NewGuid():N}.sh");
+        var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
         var pid = Environment.ProcessId;
         var script = $$"""
             #!/bin/sh
@@ -780,16 +839,29 @@ public partial class AppUpdateService : ObservableObject
             SOURCE_APP='{{EscapeShellValue(sourceAppBundle)}}'
             TARGET_APP='{{EscapeShellValue(targetAppBundle)}}'
             STAGING='{{EscapeShellValue(stagingRoot)}}'
+            LOG='{{EscapeShellValue(helperLogPath)}}'
+            mkdir -p "$(dirname "$LOG")"
+            {
+                echo "==== $(date '+%Y-%m-%dT%H:%M:%S%z') helper start ===="
+                echo "PID=$PID"
+                echo "SOURCE_APP=$SOURCE_APP"
+                echo "TARGET_APP=$TARGET_APP"
+                echo "STAGING=$STAGING"
+            } >>"$LOG"
             while kill -0 "$PID" 2>/dev/null; do
+                echo "waiting for PID $PID to exit" >>"$LOG"
                 sleep 1
             done
+            echo "process exited, replacing app bundle" >>"$LOG"
             TMP_APP="${TARGET_APP}.new"
             rm -rf "$TMP_APP"
             cp -R "$SOURCE_APP" "$TMP_APP"
             rm -rf "$TARGET_APP"
             mv "$TMP_APP" "$TARGET_APP"
+            echo "replacement finished, relaunching app bundle" >>"$LOG"
             open -n "$TARGET_APP" >/dev/null 2>&1 &
             rm -rf "$STAGING"
+            echo "cleanup finished" >>"$LOG"
             rm -- "$0"
             """;
 
@@ -802,6 +874,7 @@ public partial class AppUpdateService : ObservableObject
     private static string CreateLinuxUpdateScript(string sourceFile, string targetFile, string stagingRoot)
     {
         var scriptPath = Path.Combine(Path.GetTempPath(), $"aes-lacrima-update-{Guid.NewGuid():N}.sh");
+        var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
         var pid = Environment.ProcessId;
         var script = $$"""
             #!/bin/sh
@@ -809,15 +882,28 @@ public partial class AppUpdateService : ObservableObject
             SOURCE_FILE='{{EscapeShellValue(sourceFile)}}'
             TARGET_FILE='{{EscapeShellValue(targetFile)}}'
             STAGING='{{EscapeShellValue(stagingRoot)}}'
+            LOG='{{EscapeShellValue(helperLogPath)}}'
+            mkdir -p "$(dirname "$LOG")"
+            {
+                echo "==== $(date '+%Y-%m-%dT%H:%M:%S%z') helper start ===="
+                echo "PID=$PID"
+                echo "SOURCE_FILE=$SOURCE_FILE"
+                echo "TARGET_FILE=$TARGET_FILE"
+                echo "STAGING=$STAGING"
+            } >>"$LOG"
             while kill -0 "$PID" 2>/dev/null; do
+                echo "waiting for PID $PID to exit" >>"$LOG"
                 sleep 1
             done
+            echo "process exited, replacing AppImage" >>"$LOG"
             chmod +x "$SOURCE_FILE"
             cp "$SOURCE_FILE" "${TARGET_FILE}.new"
             chmod +x "${TARGET_FILE}.new"
             mv "${TARGET_FILE}.new" "$TARGET_FILE"
+            echo "replacement finished, relaunching AppImage" >>"$LOG"
             nohup "$TARGET_FILE" >/dev/null 2>&1 &
             rm -rf "$STAGING"
+            echo "cleanup finished" >>"$LOG"
             rm -- "$0"
             """;
 
@@ -832,14 +918,19 @@ public partial class AppUpdateService : ObservableObject
         ProcessStartInfo startInfo;
         if (OperatingSystem.IsWindows())
         {
+            var commandInterpreter = GetWindowsCommandInterpreterPath();
             startInfo = new ProcessStartInfo
             {
-                FileName = "cmd.exe",
+                FileName = commandInterpreter,
                 Arguments = $"/c \"{scriptPath}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = Path.GetDirectoryName(scriptPath)
             };
+            WriteDiagnosticLog(
+                "Launching Windows update helper",
+                $"CommandInterpreter={commandInterpreter}",
+                $"ScriptPath={scriptPath}");
         }
         else
         {
@@ -851,6 +942,10 @@ public partial class AppUpdateService : ObservableObject
                 CreateNoWindow = true,
                 WorkingDirectory = Path.GetDirectoryName(scriptPath)
             };
+            WriteDiagnosticLog(
+                "Launching POSIX update helper",
+                $"Shell=/bin/sh",
+                $"ScriptPath={scriptPath}");
         }
 
         using var process = Process.Start(startInfo);
@@ -882,6 +977,42 @@ public partial class AppUpdateService : ObservableObject
     private static void SetUnixExecutablePermissions(string path)
     {
         File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+
+    private static string GetWindowsCommandInterpreterPath()
+    {
+        var comSpec = Environment.GetEnvironmentVariable("ComSpec");
+        if (!string.IsNullOrWhiteSpace(comSpec) && File.Exists(comSpec))
+            return comSpec;
+
+        var systemDirectory = Environment.SystemDirectory;
+        if (!string.IsNullOrWhiteSpace(systemDirectory))
+        {
+            var cmdPath = Path.Combine(systemDirectory, "cmd.exe");
+            if (File.Exists(cmdPath))
+                return cmdPath;
+        }
+
+        return "cmd.exe";
+    }
+
+    private static void WriteDiagnosticLog(string message, params string[] details)
+    {
+        try
+        {
+            Directory.CreateDirectory(ApplicationPaths.UpdaterLogsDirectory);
+            var logPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, UpdaterLogFileName);
+            using var writer = new StreamWriter(logPath, append: true, Encoding.UTF8);
+            writer.WriteLine($"[{DateTimeOffset.Now:O}] {message}");
+            foreach (var detail in details)
+            {
+                writer.WriteLine($"  {detail}");
+            }
+        }
+        catch
+        {
+            // Diagnostics should never interfere with app behavior.
+        }
     }
 
     private static int CompareSemanticVersions(string left, string right)

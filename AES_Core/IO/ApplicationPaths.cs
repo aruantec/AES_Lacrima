@@ -20,6 +20,11 @@ public static class ApplicationPaths
     public static string LogsDirectory => GetUserLogsDirectory();
 
     /// <summary>
+    /// Directory where updater-specific log files should be written.
+    /// </summary>
+    public static string UpdaterLogsDirectory => Path.Combine(LogsDirectory, "updater");
+
+    /// <summary>
     /// Directory for application settings files.
     /// </summary>
     public static string SettingsDirectory => Path.Combine(DataRootDirectory, "Settings");
