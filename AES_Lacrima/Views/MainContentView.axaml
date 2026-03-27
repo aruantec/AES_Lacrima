@@ -106,6 +106,24 @@
                         </Viewbox>
                     </MenuItem.Icon>
                 </MenuItem>
+                <Separator />
+                <MenuItem Header="Reset Widget Layout"
+                          CornerRadius="8"
+                          Command="{Binding ResetWidgetLayoutCommand}">
+                    <MenuItem.Icon>
+                        <Viewbox Width="32" Height="32" Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <Path Data="M50,18 A32,32 0 1 0 82,50"
+                                      Stroke="#CCFFFFFF"
+                                      StrokeThickness="8"
+                                      StrokeLineCap="Round"
+                                      Fill="Transparent" />
+                                <Path Data="M50,4 L50,28 L68,16 Z"
+                                      Fill="#CCFFFFFF" />
+                            </Canvas>
+                        </Viewbox>
+                    </MenuItem.Icon>
+                </MenuItem>
             </ContextMenu>
         </Grid.ContextMenu>
 

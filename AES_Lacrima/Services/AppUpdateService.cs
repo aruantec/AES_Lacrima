@@ -136,6 +136,8 @@ public partial class AppUpdateService : ObservableObject
 
     public string PreferredUpdateFlavorLabel => PreferAotUpdates ? "AOT" : "Non-AOT";
 
+    public bool IsPreferredBuildFlavorInstalled => PreferAotUpdates == IsCurrentBuildAot;
+
     public async Task<AppReleaseInfo?> CheckForUpdatesAsync()
     {
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -161,16 +163,25 @@ public partial class AppUpdateService : ObservableObject
             LatestVersion = release.Version;
             LatestReleaseUrl = release.ReleasePageUrl;
 
-            if (CompareSemanticVersions(release.Version, CurrentVersion) <= 0)
-            {
-                Status = $"AES Lacrima is up to date ({CurrentVersionDisplay}).";
-                return null;
-            }
-
             var selectedAsset = SelectBestAsset(release.Assets, installTarget.Kind, PreferAotUpdates);
             if (selectedAsset == null)
             {
-                Status = $"Version {release.Version} is available, but there is no compatible {PreferredUpdateFlavorLabel} download for this platform.";
+                var versionComparison = CompareSemanticVersions(release.Version, CurrentVersion);
+                Status = versionComparison > 0
+                    ? $"Version {release.Version} is available, but there is no compatible {PreferredUpdateFlavorLabel} download for this platform."
+                    : $"AES Lacrima is up to date ({CurrentVersionDisplay}).";
+                return null;
+            }
+
+            var isNewerVersionAvailable = CompareSemanticVersions(release.Version, CurrentVersion) > 0;
+            var isPreferredFlavorSwitchAvailable =
+                CompareSemanticVersions(release.Version, CurrentVersion) == 0 &&
+                !IsPreferredBuildFlavorInstalled &&
+                MatchesPreferredBuildFlavor(selectedAsset.Name, PreferAotUpdates);
+
+            if (!isNewerVersionAvailable && !isPreferredFlavorSwitchAvailable)
+            {
+                Status = $"AES Lacrima is up to date ({CurrentVersionDisplay}).";
                 return null;
             }
 
@@ -178,13 +189,17 @@ public partial class AppUpdateService : ObservableObject
             if (!installTarget.CanSelfUpdate)
             {
                 Status = installTarget.UnsupportedReason
-                    ?? $"Version {release.Version} is available, but this installation cannot update itself.";
+                    ?? (isPreferredFlavorSwitchAvailable
+                        ? $"{PreferredUpdateFlavorLabel} build {release.Version} is available, but this installation cannot update itself."
+                        : $"Version {release.Version} is available, but this installation cannot update itself.");
                 return null;
             }
 
             AvailableRelease = release with { SelectedAsset = selectedAsset };
             IsUpdateAvailable = true;
-            Status = $"Version {release.Version} is available.";
+            Status = isPreferredFlavorSwitchAvailable
+                ? $"{PreferredUpdateFlavorLabel} build {release.Version} is available."
+                : $"Version {release.Version} is available.";
             return AvailableRelease;
         }
         catch (Exception ex)
@@ -275,11 +290,13 @@ public partial class AppUpdateService : ObservableObject
     partial void OnCurrentVersionChanged(string value)
     {
         OnPropertyChanged(nameof(CurrentVersionDisplay));
+        OnPropertyChanged(nameof(IsPreferredBuildFlavorInstalled));
     }
 
     partial void OnPreferAotUpdatesChanged(bool value)
     {
         OnPropertyChanged(nameof(PreferredUpdateFlavorLabel));
+        OnPropertyChanged(nameof(IsPreferredBuildFlavorInstalled));
         ReevaluateAvailableReleaseForPreferredFlavor();
     }
 
@@ -561,7 +578,16 @@ public partial class AppUpdateService : ObservableObject
         }
 
         AvailableRelease = AvailableRelease with { SelectedAsset = selectedAsset };
+        Status = CompareSemanticVersions(AvailableRelease.Version, CurrentVersion) == 0 && !IsPreferredBuildFlavorInstalled
+            ? $"{PreferredUpdateFlavorLabel} build {AvailableRelease.Version} is available."
+            : $"Version {AvailableRelease.Version} is available.";
     }
+
+    public bool IsFlavorSwitchRelease(AppReleaseInfo release) =>
+        CompareSemanticVersions(release.Version, CurrentVersion) == 0 &&
+        !IsPreferredBuildFlavorInstalled &&
+        release.SelectedAsset is { } asset &&
+        MatchesPreferredBuildFlavor(asset.Name, PreferAotUpdates);
 
     private static AppReleaseAssetInfo? SelectBestAsset(
         IReadOnlyList<AppReleaseAssetInfo> assets,

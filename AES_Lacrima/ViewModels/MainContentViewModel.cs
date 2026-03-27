@@ -232,5 +232,26 @@ namespace AES_Lacrima.ViewModels
             ShowPlayer = !ShowPlayer;
             SaveSettings();
         }
+
+        [RelayCommand]
+        private void ResetWidgetLayout()
+        {
+            ClockLeft = double.NaN;
+            ClockTop = double.NaN;
+            ClockWidth = 250;
+            ClockHeight = 250;
+
+            PlayerLeft = double.NaN;
+            PlayerTop = double.NaN;
+            PlayerWidth = 250;
+            PlayerHeight = 300;
+
+            PlayerInfoLeft = double.NaN;
+            PlayerInfoTop = double.NaN;
+            PlayerInfoWidth = 300;
+            PlayerInfoHeight = double.NaN;
+
+            SaveSettings();
+        }
     }
 }
