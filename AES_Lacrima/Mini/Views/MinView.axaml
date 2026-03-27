@@ -24,7 +24,7 @@
             <!-- right column is Auto so playback controls keep their natural width; left thumbnail/text
                  will shrink first when window narrows. -->
 			<Grid Grid.Column="0" ColumnDefinitions="Auto,Auto,*" Margin="0,-10,0,0">
-                <Border BorderBrush="DimGray" Background="{Binding ControlsBrush}" BorderThickness="1" Margin="10,0,10,10" Height="80" Width="80" ClipToBounds="True">
+                <Border Background="{Binding ControlsBrush}" BorderThickness="0" Margin="10,0,10,10" Height="80" Width="80" ClipToBounds="True">
 					<Image Source="{Binding LoadedMediaItem.CoverBitmap}"/>
                 </Border>
 				<StackPanel Grid.Column="2" VerticalAlignment="Top" Spacing="5" Margin="0,10,5,0" ClipToBounds="True">
@@ -414,7 +414,7 @@
               RowDefinitions="Auto,*">
             <!-- Selected Album Info -->
             <Grid Grid.Row="0" Margin="10" ColumnDefinitions="Auto,*">
-                <Border Grid.Column="0" Width="60" Height="60" ClipToBounds="True" BorderBrush="DimGray" BorderThickness="1">
+                <Border Grid.Column="0" Width="60" Height="60" ClipToBounds="True" BorderThickness="0">
                     <composition:FolderCompositionControl Items="{Binding SelectedAlbum.Children}"
                                                           FolderCoverItem="{Binding SelectedAlbum}"
                                                           DefaultCover="{Binding MusicViewModel.DefaultFolderCover}"
