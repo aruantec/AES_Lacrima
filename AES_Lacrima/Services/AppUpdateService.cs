@@ -922,10 +922,11 @@ public partial class AppUpdateService : ObservableObject
         if (OperatingSystem.IsWindows())
         {
             var commandInterpreter = GetWindowsCommandInterpreterPath();
+            Directory.CreateDirectory(ApplicationPaths.UpdaterLogsDirectory);
             startInfo = new ProcessStartInfo
             {
                 FileName = commandInterpreter,
-                Arguments = $"/d /c call \"{scriptPath}\"",
+                Arguments = $"/d /s /c \"\"{scriptPath}\"\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = Path.GetDirectoryName(scriptPath)
