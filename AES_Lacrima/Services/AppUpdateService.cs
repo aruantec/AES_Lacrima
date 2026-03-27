@@ -778,58 +778,66 @@ public partial class AppUpdateService : ObservableObject
     private static string CreateWindowsUpdateScript(string sourceDirectory, string targetDirectory, string restartExecutable, string stagingRoot)
     {
         Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
-        var scriptPath = Path.Combine(ApplicationPaths.UpdatesDirectory, $"aes-lacrima-update-{Guid.NewGuid():N}.cmd");
+        var scriptPath = Path.Combine(ApplicationPaths.UpdatesDirectory, $"aes-lacrima-update-{Guid.NewGuid():N}.ps1");
         var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
-        var helperLogDirectory = ApplicationPaths.UpdaterLogsDirectory;
         var pid = Environment.ProcessId;
         var script = $$"""
-            @echo off
-            setlocal
-            set "PID={{pid}}"
-            set "SRC={{EscapeBatchValue(sourceDirectory)}}"
-            set "DST={{EscapeBatchValue(targetDirectory)}}"
-            set "EXE={{EscapeBatchValue(restartExecutable)}}"
-            set "STAGING={{EscapeBatchValue(stagingRoot)}}"
-            set "LOGDIR={{EscapeBatchValue(helperLogDirectory)}}"
-            set "LOG={{EscapeBatchValue(helperLogPath)}}"
-            set "TASKLIST=%SystemRoot%\System32\tasklist.exe"
-            set "FIND=%SystemRoot%\System32\find.exe"
-            set "TIMEOUT=%SystemRoot%\System32\timeout.exe"
-            set "ROBOCOPY=%SystemRoot%\System32\robocopy.exe"
-            if not exist "%LOGDIR%" mkdir "%LOGDIR%" >NUL 2>NUL
-            (
-                echo ==== %DATE% %TIME% helper start ====
-                echo PID=%PID%
-                echo SRC=%SRC%
-                echo DST=%DST%
-                echo EXE=%EXE%
-                echo STAGING=%STAGING%
-                echo SystemRoot=%SystemRoot%
-                echo PATH=%PATH%
-            )>>"%LOG%"
-            :wait_for_exit
-            "%TASKLIST%" /FI "PID eq %PID%" 2>NUL | "%FIND%" "%PID%" >NUL
-            if not errorlevel 1 (
-                >>"%LOG%" echo waiting for PID %PID% to exit
-                "%TIMEOUT%" /t 1 /nobreak >NUL
-                goto wait_for_exit
-            )
-            >>"%LOG%" echo process exited, starting robocopy
-            "%ROBOCOPY%" "%SRC%" "%DST%" /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP >>"%LOG%" 2>&1
-            if errorlevel 8 goto copy_failed
-            >>"%LOG%" echo copy succeeded, restarting app
-            start "" /D "%DST%" "%EXE%"
-            rmdir /S /Q "%STAGING%" >NUL 2>NUL
-            >>"%LOG%" echo cleanup finished
-            del "%~f0"
-            exit /b 0
-            :copy_failed
-            >>"%LOG%" echo copy failed with errorlevel %errorlevel%
-            start "" /D "%DST%" "%EXE%"
-            exit /b 1
+            $ErrorActionPreference = 'Continue'
+            $PidToWaitFor = {{pid}}
+            $SourceDirectory = '{{EscapeShellValue(sourceDirectory)}}'
+            $TargetDirectory = '{{EscapeShellValue(targetDirectory)}}'
+            $RestartExecutable = '{{EscapeShellValue(restartExecutable)}}'
+            $StagingRoot = '{{EscapeShellValue(stagingRoot)}}'
+            $LogPath = '{{EscapeShellValue(helperLogPath)}}'
+            $LogDirectory = [System.IO.Path]::GetDirectoryName($LogPath)
+            [System.IO.Directory]::CreateDirectory($LogDirectory) | Out-Null
+
+            function Write-HelperLog {
+                param([string]$Message)
+                $timestamp = [DateTimeOffset]::Now.ToString('O')
+                Add-Content -LiteralPath $LogPath -Value "[$timestamp] $Message"
+            }
+
+            Write-HelperLog "Helper start"
+            Write-HelperLog "PID=$PidToWaitFor"
+            Write-HelperLog "SRC=$SourceDirectory"
+            Write-HelperLog "DST=$TargetDirectory"
+            Write-HelperLog "EXE=$RestartExecutable"
+            Write-HelperLog "STAGING=$StagingRoot"
+
+            while (Get-Process -Id $PidToWaitFor -ErrorAction SilentlyContinue) {
+                Write-HelperLog "Waiting for PID $PidToWaitFor to exit"
+                Start-Sleep -Seconds 1
+            }
+
+            Write-HelperLog "Process exited, starting robocopy"
+            $robocopyPath = Join-Path $env:SystemRoot 'System32\robocopy.exe'
+            & $robocopyPath $SourceDirectory $TargetDirectory /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP *> $null
+            $robocopyExitCode = $LASTEXITCODE
+            Write-HelperLog "Robocopy exit code: $robocopyExitCode"
+
+            if ($robocopyExitCode -ge 8) {
+                Write-HelperLog "Copy failed"
+                Start-Process -FilePath $RestartExecutable -WorkingDirectory $TargetDirectory | Out-Null
+                exit 1
+            }
+
+            Write-HelperLog "Copy succeeded, restarting app"
+            Start-Process -FilePath $RestartExecutable -WorkingDirectory $TargetDirectory | Out-Null
+
+            try {
+                if (Test-Path -LiteralPath $StagingRoot) {
+                    Remove-Item -LiteralPath $StagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+            catch {
+                Write-HelperLog "Cleanup warning: $($_.Exception.Message)"
+            }
+
+            Write-HelperLog "Cleanup finished"
             """;
 
-        File.WriteAllText(scriptPath, script, Encoding.ASCII);
+        File.WriteAllText(scriptPath, script, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         return scriptPath;
     }
 
@@ -925,19 +933,19 @@ public partial class AppUpdateService : ObservableObject
         ProcessStartInfo startInfo;
         if (OperatingSystem.IsWindows())
         {
-            var commandInterpreter = GetWindowsCommandInterpreterPath();
+            var powerShellPath = GetWindowsPowerShellPath();
             Directory.CreateDirectory(ApplicationPaths.UpdaterLogsDirectory);
             startInfo = new ProcessStartInfo
             {
-                FileName = commandInterpreter,
-                Arguments = $"/d /s /c \"\"{scriptPath}\"\"",
+                FileName = powerShellPath,
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = Path.GetDirectoryName(scriptPath)
             };
             WriteDiagnosticLog(
                 "Launching Windows update helper",
-                $"CommandInterpreter={commandInterpreter}",
+                $"PowerShell={powerShellPath}",
                 $"ScriptPath={scriptPath}");
         }
         else
@@ -995,21 +1003,25 @@ public partial class AppUpdateService : ObservableObject
         File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
     }
 
-    private static string GetWindowsCommandInterpreterPath()
+    private static string GetWindowsPowerShellPath()
     {
-        var comSpec = Environment.GetEnvironmentVariable("ComSpec");
-        if (!string.IsNullOrWhiteSpace(comSpec) && File.Exists(comSpec))
-            return comSpec;
-
         var systemDirectory = Environment.SystemDirectory;
         if (!string.IsNullOrWhiteSpace(systemDirectory))
         {
-            var cmdPath = Path.Combine(systemDirectory, "cmd.exe");
-            if (File.Exists(cmdPath))
-                return cmdPath;
+            var powerShellPath = Path.Combine(systemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+            if (File.Exists(powerShellPath))
+                return powerShellPath;
         }
 
-        return "cmd.exe";
+        var windowsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        if (!string.IsNullOrWhiteSpace(windowsDirectory))
+        {
+            var powerShellPath = Path.Combine(windowsDirectory, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+            if (File.Exists(powerShellPath))
+                return powerShellPath;
+        }
+
+        return "powershell.exe";
     }
 
     private static void WriteDiagnosticLog(string message, params string[] details)
