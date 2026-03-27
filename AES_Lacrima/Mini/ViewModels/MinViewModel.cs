@@ -543,6 +543,7 @@ namespace AES_Lacrima.Mini.ViewModels
             SyncSearchTextFromVisibleCollection();
             SubscribeToCurrentPlaylist();
             SyncPlaybackStateFromMusicViewModel();
+            MusicViewModel?.RefreshLoadedAlbumMetadata();
             if (LoadedMediaItem == null)
                 ResetStoppedDisplay();
             UpdateTotalDuration();

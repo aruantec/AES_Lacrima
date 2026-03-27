@@ -99,9 +99,88 @@ public sealed class MuxedFormat
 
 public static class YtDlpMetadata
 {
+    public static async Task<MediaInfo> GetBasicMetadataAsync(string videoUrl, CancellationToken cancellationToken = default)
+    {
+        var exePath = await RequireYtDlpPathAsync().ConfigureAwait(false);
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = exePath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        try
+        {
+            psi.ArgumentList.Add("--no-playlist");
+            psi.ArgumentList.Add("--output-na-placeholder");
+            psi.ArgumentList.Add(string.Empty);
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("id");
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("title");
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("duration");
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("artist");
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("uploader");
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("channel");
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("album");
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("track");
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("track_number");
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("release_year");
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("genre");
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("thumbnail");
+            psi.ArgumentList.Add(videoUrl);
+        }
+        catch
+        {
+            psi.Arguments =
+                "--no-playlist --output-na-placeholder \"\" " +
+                "--print id --print title --print duration --print artist --print uploader --print channel " +
+                "--print album --print track --print track_number --print release_year --print genre --print thumbnail " +
+                "\"" + videoUrl.Replace("\"", "\\\"") + "\"";
+        }
+
+        var lines = await RunAndCollectOutputLinesAsync(psi, exePath, cancellationToken).ConfigureAwait(false);
+
+        static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+        static int? ParseInt(string? value) => int.TryParse(value, out var parsed) ? parsed : null;
+        static double? ParseDouble(string? value) => double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
+
+        string? line(int index) => index < lines.Count ? Normalize(lines[index]) : null;
+        var artist = line(3) ?? line(4) ?? line(5);
+
+        return new MediaInfo
+        {
+            Id = line(0) ?? string.Empty,
+            Title = line(1) ?? string.Empty,
+            DurationSeconds = ParseDouble(line(2)),
+            Artist = artist,
+            Uploader = line(4),
+            Channel = line(5),
+            Album = line(6),
+            Track = line(7),
+            TrackNumber = ParseInt(line(8)),
+            ReleaseYear = ParseInt(line(9)),
+            Genre = line(10),
+            ThumbnailUrl = line(11)
+        };
+    }
+
     public static async Task<MediaInfo> GetMetaDataAsync(string videoUrl, CancellationToken cancellationToken = default)
     {
-        string? exePath = await ResolveYtDlpPathAsync();
+        var exePath = await RequireYtDlpPathAsync().ConfigureAwait(false);
 
         var psi = new ProcessStartInfo
         {
@@ -124,26 +203,7 @@ public static class YtDlpMetadata
             psi.Arguments = "-J \"" + videoUrl.Replace("\"", "\\\"") + "\"";
         }
 
-        Process? process;
-        try
-        {
-            process = Process.Start(psi);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"Failed to start yt-dlp ('{exePath}'). Make sure yt-dlp is installed and on PATH. Error: {ex.Message}");
-        }
-
-        if (process == null)
-            throw new InvalidOperationException($"Failed to start yt-dlp ('{exePath}').");
-
-        var json = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var error = await process.StandardError.ReadToEndAsync(cancellationToken);
-
-        await process.WaitForExitAsync(cancellationToken);
-
-        if (process.ExitCode != 0)
-            throw new InvalidOperationException($"yt-dlp failed:\n{error}");
+        var json = await RunAndCollectOutputAsync(psi, exePath, cancellationToken).ConfigureAwait(false);
 
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
@@ -237,6 +297,50 @@ public static class YtDlpMetadata
             AudioFormats = audios,
             MuxedFormats = muxed
         };
+    }
+
+    private static async Task<string> RunAndCollectOutputAsync(ProcessStartInfo psi, string exePath, CancellationToken cancellationToken)
+    {
+        Process? process;
+        try
+        {
+            process = Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to start yt-dlp ('{exePath}'). Make sure yt-dlp is installed and on PATH. Error: {ex.Message}");
+        }
+
+        if (process == null)
+            throw new InvalidOperationException($"Failed to start yt-dlp ('{exePath}').");
+
+        var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var error = await process.StandardError.ReadToEndAsync(cancellationToken);
+
+        await process.WaitForExitAsync(cancellationToken);
+
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException($"yt-dlp failed:\n{error}");
+
+        return output;
+    }
+
+    private static async Task<string> RequireYtDlpPathAsync()
+    {
+        var exePath = await ResolveYtDlpPathAsync().ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(exePath))
+            throw new InvalidOperationException("Failed to locate yt-dlp. Make sure yt-dlp is installed and on PATH.");
+        return exePath;
+    }
+
+    private static async Task<IReadOnlyList<string>> RunAndCollectOutputLinesAsync(ProcessStartInfo psi, string exePath, CancellationToken cancellationToken)
+    {
+        var output = await RunAndCollectOutputAsync(psi, exePath, cancellationToken).ConfigureAwait(false);
+        var normalized = output.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var lines = normalized.Split('\n').Select(line => line.TrimEnd('\r')).ToList();
+        if (lines.Count > 0 && lines[^1].Length == 0)
+            lines.RemoveAt(lines.Count - 1);
+        return lines;
     }
 
     // Try to find one of the provided executable names in the system PATH. Returns a full path or null.

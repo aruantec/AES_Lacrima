@@ -116,6 +116,56 @@ public sealed class MetadataScrapperTests
         Assert.Equal(expected, result);
     }
 
+    [Fact]
+    public void FindLocalArtworkPath_PrefersConventionalCoverNames()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var mediaPath = Path.Combine(tempDir, "track.mp3");
+            System.IO.File.WriteAllText(mediaPath, string.Empty);
+            var fallbackArt = Path.Combine(tempDir, "random.png");
+            var preferredArt = Path.Combine(tempDir, "cover.jpg");
+            System.IO.File.WriteAllBytes(fallbackArt, [1, 2, 3]);
+            System.IO.File.WriteAllBytes(preferredArt, [4, 5, 6]);
+
+            var result = InvokeFindLocalArtworkPath(mediaPath);
+
+            Assert.Equal(preferredArt, result);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FindLocalArtworkPath_FallsBackToAlphabeticalImageWhenNoConventionalNameExists()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var mediaPath = Path.Combine(tempDir, "track.flac");
+            System.IO.File.WriteAllText(mediaPath, string.Empty);
+            var firstArt = Path.Combine(tempDir, "a.png");
+            var secondArt = Path.Combine(tempDir, "z.jpg");
+            System.IO.File.WriteAllBytes(secondArt, [1, 2, 3]);
+            System.IO.File.WriteAllBytes(firstArt, [4, 5, 6]);
+
+            var result = InvokeFindLocalArtworkPath(mediaPath);
+
+            Assert.Equal(firstArt, result);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     private static (byte[]? cover, byte[]? wallpaper) InvokeSelectEmbeddedImages(IPicture[] pictures, int maxBytes, bool includeCover, bool includeWallpaper)
     {
         var method = typeof(MetadataScrapper).GetMethod("SelectEmbeddedImages", BindingFlags.Static | BindingFlags.NonPublic);
@@ -125,6 +175,14 @@ public sealed class MetadataScrapperTests
         method!.Invoke(null, args);
 
         return ((byte[]?)args[4], (byte[]?)args[5]);
+    }
+
+    private static string? InvokeFindLocalArtworkPath(string mediaPath)
+    {
+        var method = typeof(MetadataScrapper).GetMethod("FindLocalArtworkPath", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        return method!.Invoke(null, new object[] { mediaPath }) as string;
     }
 
     private sealed class FakePicture : IPicture
