@@ -778,6 +778,7 @@ public partial class AppUpdateService : ObservableObject
     {
         var scriptPath = Path.Combine(Path.GetTempPath(), $"aes-lacrima-update-{Guid.NewGuid():N}.cmd");
         var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
+        var helperLogDirectory = ApplicationPaths.UpdaterLogsDirectory;
         var pid = Environment.ProcessId;
         var script = $$"""
             @echo off
@@ -787,11 +788,13 @@ public partial class AppUpdateService : ObservableObject
             set "DST={{EscapeBatchValue(targetDirectory)}}"
             set "EXE={{EscapeBatchValue(restartExecutable)}}"
             set "STAGING={{EscapeBatchValue(stagingRoot)}}"
+            set "LOGDIR={{EscapeBatchValue(helperLogDirectory)}}"
             set "LOG={{EscapeBatchValue(helperLogPath)}}"
             set "TASKLIST=%SystemRoot%\System32\tasklist.exe"
             set "FIND=%SystemRoot%\System32\find.exe"
             set "TIMEOUT=%SystemRoot%\System32\timeout.exe"
             set "ROBOCOPY=%SystemRoot%\System32\robocopy.exe"
+            if not exist "%LOGDIR%" mkdir "%LOGDIR%" >NUL 2>NUL
             (
                 echo ==== %DATE% %TIME% helper start ====
                 echo PID=%PID%
@@ -922,7 +925,7 @@ public partial class AppUpdateService : ObservableObject
             startInfo = new ProcessStartInfo
             {
                 FileName = commandInterpreter,
-                Arguments = $"/c \"{scriptPath}\"",
+                Arguments = $"/d /c call \"{scriptPath}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = Path.GetDirectoryName(scriptPath)
