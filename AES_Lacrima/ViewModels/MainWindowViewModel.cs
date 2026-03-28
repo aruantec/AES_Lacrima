@@ -192,7 +192,7 @@ namespace AES_Lacrima.ViewModels
             WindowHeight = baseHeight;
 
             // Respect DPI scaling if the user hasn't already configured a scale.
-            if (SettingsViewModel != null && Math.Abs(SettingsViewModel.ScaleFactor - 1.0) < 0.01)
+            if (SettingsViewModel != null && !SettingsViewModel.HasPersistedScaleFactor)
             {
                 SettingsViewModel.ScaleFactor = dpiScale;
             }

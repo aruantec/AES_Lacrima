@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 using Avalonia.Xaml.Interactivity;
+using AES_Lacrima.Mini.ViewModels;
 
 namespace AES_Lacrima.Behaviors
 {
@@ -184,6 +185,50 @@ namespace AES_Lacrima.Behaviors
                 WindowEdge.NorthEast or WindowEdge.SouthWest => new Cursor(StandardCursorType.TopRightCorner),
                 _ => null
             };
+        }
+    }
+
+    /// <summary>
+    /// Initializes the mini window's dedicated scale setting from the current render scaling
+    /// the first time the window is opened, without keeping that logic in code-behind.
+    /// </summary>
+    internal class MiniWindowScaleBehavior : Behavior<Window>
+    {
+        protected override void OnAttached()
+        {
+            base.OnAttached();
+
+            if (AssociatedObject is { } window)
+            {
+                window.Opened += OnOpened;
+            }
+        }
+
+        protected override void OnDetaching()
+        {
+            if (AssociatedObject is { } window)
+            {
+                window.Opened -= OnOpened;
+            }
+
+            base.OnDetaching();
+        }
+
+        private static void OnOpened(object? sender, EventArgs e)
+        {
+            if (sender is not Window { DataContext: MinViewModel { SettingsViewModel: { } settings } } window)
+                return;
+
+            if (!settings.IsPrepared)
+            {
+                settings.Prepare();
+                settings.IsPrepared = true;
+            }
+
+            if (!settings.HasPersistedMiniScaleFactor)
+            {
+                settings.MiniScaleFactor = Math.Clamp(TopLevel.GetTopLevel(window)?.RenderScaling ?? 1.0, 1.0, 2.0);
+            }
         }
     }
 }
