@@ -245,10 +245,11 @@ namespace AES_Controls.Composition
                     UpdateSliderPosition(pos.X);
                     // Reset drag-executed flag for new interaction
                     _didExecuteSeekDuringDrag = false;
-                    // If this is a simple click (no drag yet) execute the seek immediately so a single
-                    // click updates the player. Mark that we executed so release doesn't double-run.
+                    _lastDragSeekTicks = 0;
+                    // Execute the click position immediately so a single press always seeks.
+                    // Drag interactions can continue to refine the value afterwards.
                     _didExecuteSeekOnPress = false;
-                    if (!ExecuteDuringDrag && e.ClickCount == 1 && SetValueCommand != null)
+                    if (SetValueCommand != null)
                     {
                         var v = Value;
                         if (SetValueCommand.CanExecute(v))
@@ -271,18 +272,7 @@ namespace AES_Controls.Composition
             if (!_isSliderPressed) return;
             var pos = e.GetPosition(this);
             UpdateSliderPosition(pos.X);
-            // Execute a seek on first drag movement so dragging immediately updates the player
-            if (!_didExecuteSeekOnPress && !_didExecuteSeekDuringDrag && SetValueCommand != null)
-            {
-                var v = Value;
-                if (SetValueCommand.CanExecute(v))
-                {
-                    SetValueCommand.Execute(v);
-                    _didExecuteSeekDuringDrag = true;
-                    _suppressExternalUpdatesUntil = DateTime.UtcNow.AddMilliseconds(800);
-                }
-            }
-            else if (ExecuteDuringDrag && SetValueCommand != null)
+            if (ExecuteDuringDrag && SetValueCommand != null)
             {
                 // If continuous seeks during drag are enabled, throttle rapid pointer moves
                 // so we don't flood the player with seeks during a fast scrub gesture.
@@ -291,6 +281,7 @@ namespace AES_Controls.Composition
                 if (now - _lastDragSeekTicks >= DragSeekThrottleTicks && SetValueCommand.CanExecute(v))
                 {
                     SetValueCommand.Execute(v);
+                    _didExecuteSeekDuringDrag = true;
                     _lastDragSeekTicks = now;
                 }
             }
@@ -309,7 +300,8 @@ namespace AES_Controls.Composition
                 if (SetValueCommand != null)
                 {
                     var v = Value;
-                    if (!_didExecuteSeekOnPress && !_didExecuteSeekDuringDrag && SetValueCommand.CanExecute(v)) SetValueCommand.Execute(v);
+                    if ((!_didExecuteSeekOnPress || _didExecuteSeekDuringDrag) && SetValueCommand.CanExecute(v))
+                        SetValueCommand.Execute(v);
                 }
                 // Ensure the visual reflects the final position instantly
                 _visual?.SendHandlerMessage(new InstantSliderPositionMessage(NormalizeValue(Value)));
