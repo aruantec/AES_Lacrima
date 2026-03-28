@@ -19,6 +19,7 @@ public unsafe class AesMpvPlayer : IDisposable
     private bool _disposed;
     private long _requestSequence;
     private int _eventPumpQueued;
+    private int _eventPumpPending;
 
     public AesMpvPlayer()
         : this(new AesMpvPlayerOptions())
@@ -243,12 +244,12 @@ public unsafe class AesMpvPlayer : IDisposable
             InternalFormat = internalFormat,
         };
         var flip = flipY;
-        var parameters = new[]
-        {
+        Span<MpvRenderParameter> parameters =
+        [
             new MpvRenderParameter { Type = MpvRenderParameterType.OpenGlFbo, Data = &target },
             new MpvRenderParameter { Type = MpvRenderParameterType.FlipY, Data = &flip },
             new MpvRenderParameter { Type = MpvRenderParameterType.Invalid, Data = null },
-        };
+        ];
 
         fixed (MpvRenderParameter* parameterPtr = parameters)
         {
@@ -349,21 +350,27 @@ public unsafe class AesMpvPlayer : IDisposable
 
     private void OnWakeup(void* context)
     {
-        if (Interlocked.Exchange(ref _eventPumpQueued, 1) != 0)
+        if (_disposed)
+            return;
+
+        Interlocked.Exchange(ref _eventPumpPending, 1);
+        if (Interlocked.CompareExchange(ref _eventPumpQueued, 1, 0) != 0)
             return;
 
         ThreadPool.UnsafeQueueUserWorkItem(static state =>
         {
             var player = (AesMpvPlayer)state!;
-            try
+            while (!player._disposed)
             {
+                Interlocked.Exchange(ref player._eventPumpPending, 0);
                 player.DrainEventQueue();
-            }
-            finally
-            {
+
                 Interlocked.Exchange(ref player._eventPumpQueued, 0);
-                if (!player._disposed)
-                    player.OnWakeup(null);
+                if (player._disposed || Volatile.Read(ref player._eventPumpPending) == 0)
+                    return;
+
+                if (Interlocked.CompareExchange(ref player._eventPumpQueued, 1, 0) != 0)
+                    return;
             }
         }, this);
     }
