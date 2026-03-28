@@ -7,6 +7,7 @@ using AES_Core.IO;
 using AES_Lacrima.Services;
 using Avalonia;
 using Avalonia.Collections;
+using Avalonia.Controls;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -297,10 +298,12 @@ namespace AES_Lacrima.ViewModels
             if (hwnd == IntPtr.Zero)
                 return;
 
-            // create buttons only once, but always re-apply them if the window handle has changed
-            if (_taskbarButtons == null)
+            // if the handle changed (e.g. mode switch) or buttons were never applied, add/rehook
+            if (_taskbarHwnd != hwnd)
             {
-                // Character codes for Segoe MDL2 Assets
+                _taskbarHwnd = hwnd;
+
+                // Re-create icons to ensure handles are fresh for the new window handle.
                 const string prevChar = "\xE892";
                 const string playChar = "\xE768";
                 const string pauseChar = "\xE769";
@@ -312,15 +315,33 @@ namespace AES_Lacrima.ViewModels
                 _taskbarButtons =
                 [
                     new TaskbarButton { Id = TaskbarButtonId.Previous, HIcon = TaskbarProgressHelper.CreateHIconFromCharacter(prevChar, Colors.White), Tooltip = "Previous", Flags = THUMBBUTTONFLAGS.Enabled },
-                    new TaskbarButton { Id = TaskbarButtonId.PlayPause, HIcon = _playIcon, Tooltip = "Play", Flags = THUMBBUTTONFLAGS.Enabled },
+                    new TaskbarButton { Id = TaskbarButtonId.PlayPause, HIcon = AudioPlayer?.IsPlaying == true ? _pauseIcon : _playIcon, Tooltip = AudioPlayer?.IsPlaying == true ? "Pause" : "Play", Flags = THUMBBUTTONFLAGS.Enabled },
                     new TaskbarButton { Id = TaskbarButtonId.Next, HIcon = TaskbarProgressHelper.CreateHIconFromCharacter(nextChar, Colors.White), Tooltip = "Next", Flags = THUMBBUTTONFLAGS.Enabled }
                 ];
-            }
 
-            // if the handle changed (e.g. mode switch) or buttons were never applied, add/rehook
-            if (_taskbarHwnd != hwnd)
-            {
-                _taskbarHwnd = hwnd;
+                if (desktop.MainWindow is Window window && window.SystemDecorations == Avalonia.Controls.SystemDecorations.None)
+                {
+                    // For borderless windows, Windows requires WS_CAPTION or WS_THICKFRAME to show thumbnail toolbar.
+                    const int GWL_STYLE = -16;
+                    const uint WS_CAPTION = 0x00C00000;
+                    const uint WS_THICKFRAME = 0x00040000;
+                    const uint WS_MINIMIZEBOX = 0x00020000;
+                    const uint WS_MAXIMIZEBOX = 0x00010000;
+                    const uint WS_SYSMENU = 0x00080000;
+
+                    var style = (uint)GetWindowLongPtr(hwnd, GWL_STYLE).ToInt64();
+                    // We need a caption and a sysmenu/minimize/maximize for the shell to treat it as a top-level app window
+                    SetWindowLongPtr(hwnd, GWL_STYLE, new IntPtr(style | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME));
+
+                    // Force a frame change update
+                    const uint SWP_FRAMECHANGED = 0x0020;
+                    const uint SWP_NOMOVE = 0x0002;
+                    const uint SWP_NOSIZE = 0x0001;
+                    const uint SWP_NOZORDER = 0x0004;
+                    const uint SWP_NOACTIVATE = 0x0010;
+                    SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                }
+
                 TaskbarProgressHelper.SetThumbnailButtons(_taskbarButtons);
 
                 TaskbarProgressHelper.HookWindow(desktop.MainWindow, (id) =>
@@ -2446,6 +2467,35 @@ namespace AES_Lacrima.ViewModels
             WriteSetting(section, nameof(IsAlbumlistOpen), IsAlbumlistOpen);
             WriteCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
         }
+        #endregion
+
+        #region [Win32 Interop]
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr")]
+        private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowLong")]
+        private static extern int SetWindowLong32(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        private static IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong)
+        {
+            if (IntPtr.Size == 8) return SetWindowLongPtr64(hWnd, nIndex, dwNewLong);
+            else return new IntPtr(SetWindowLong32(hWnd, nIndex, dwNewLong.ToInt32()));
+        }
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]
+        private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLong")]
+        private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
+
+        private static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex)
+        {
+            if (IntPtr.Size == 8) return GetWindowLongPtr64(hWnd, nIndex);
+            else return new IntPtr(GetWindowLong32(hWnd, nIndex));
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
         #endregion
     }
 }

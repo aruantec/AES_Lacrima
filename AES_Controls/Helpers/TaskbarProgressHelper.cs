@@ -4,6 +4,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using log4net;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 
 namespace AES_Controls.Helpers;
 
@@ -24,46 +25,67 @@ public enum TaskbarProgressBarState
     Paused = 8
 }
 
-[ComImport]
+// ReSharper disable once InconsistentNaming
+// SYSLIB1062 is suppressed because it's a false positive in some IDE versions when <AllowUnsafeBlocks> is already enabled in the project file.
+#pragma warning disable SYSLIB1062
 [Guid("ea1afb91-9e28-4b86-90e9-9e9f8a5eefaf")]
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface ITaskbarList3
+[GeneratedComInterface]
+internal partial interface ITaskbarList3
 {
+#pragma warning restore SYSLIB1062
     // ITaskbarList
-    void HrInit();
-    void AddTab(IntPtr hwnd);
-    void DeleteTab(IntPtr hwnd);
-    void ActivateTab(IntPtr hwnd);
-    void SetActiveAlt(IntPtr hwnd);
+    [PreserveSig]
+    int HrInit();
+    [PreserveSig]
+    int AddTab(IntPtr hwnd);
+    [PreserveSig]
+    int DeleteTab(IntPtr hwnd);
+    [PreserveSig]
+    int ActivateTab(IntPtr hwnd);
+    [PreserveSig]
+    int SetActiveAlt(IntPtr hwnd);
 
     // ITaskbarList2
-    void MarkFullscreenWindow(IntPtr hwnd, [MarshalAs(UnmanagedType.Bool)] bool fFullscreen);
+    [PreserveSig]
+    int MarkFullscreenWindow(IntPtr hwnd, [MarshalAs(UnmanagedType.Bool)] bool fFullscreen);
 
     // ITaskbarList3
-    void SetProgressValue(IntPtr hwnd, ulong ullCompleted, ulong ullTotal);
-    void SetProgressState(IntPtr hwnd, TaskbarProgressBarState tbpFlags);
-    void RegisterTab(IntPtr hwndTab, IntPtr hwndMDI);
-    void UnregisterTab(IntPtr hwndTab);
-    void SetTabOrder(IntPtr hwndTab, IntPtr hwndInsertBefore);
-    void SetTabActive(IntPtr hwndTab, IntPtr hwndMDI, uint dwReserved);
-    void ThumbBarAddButtons(IntPtr hwnd, uint cButtons, IntPtr pButtons);
-    void ThumbBarUpdateButtons(IntPtr hwnd, uint cButtons, IntPtr pButtons);
-    void ThumbBarSetImageList(IntPtr hwnd, IntPtr himl);
-    void SetOverlayIcon(IntPtr hwnd, IntPtr hIcon, [MarshalAs(UnmanagedType.LPWStr)] string pszDescription);
-    void SetThumbnailTooltip(IntPtr hwnd, [MarshalAs(UnmanagedType.LPWStr)] string pszTip);
-    void SetThumbnailClip(IntPtr hwnd, IntPtr prcClip);
+    [PreserveSig]
+    int SetProgressValue(IntPtr hwnd, ulong ullCompleted, ulong ullTotal);
+    [PreserveSig]
+    int SetProgressState(IntPtr hwnd, TaskbarProgressBarState tbpFlags);
+    [PreserveSig]
+    int RegisterTab(IntPtr hwndTab, IntPtr hwndMDI);
+    [PreserveSig]
+    int UnregisterTab(IntPtr hwndTab);
+    [PreserveSig]
+    int SetTabOrder(IntPtr hwndTab, IntPtr hwndInsertBefore);
+    [PreserveSig]
+    int SetTabActive(IntPtr hwndTab, IntPtr hwndMDI, uint dwReserved);
+    [PreserveSig]
+    int ThumbBarAddButtons(IntPtr hwnd, uint cButtons, [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 1)] THUMBBUTTON[] pButtons);
+    [PreserveSig]
+    int ThumbBarUpdateButtons(IntPtr hwnd, uint cButtons, [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 1)] THUMBBUTTON[] pButtons);
+    [PreserveSig]
+    int ThumbBarSetImageList(IntPtr hwnd, IntPtr himl);
+    [PreserveSig]
+    int SetOverlayIcon(IntPtr hwnd, IntPtr hIcon, [MarshalAs(UnmanagedType.LPWStr)] string pszDescription);
+    [PreserveSig]
+    int SetThumbnailTooltip(IntPtr hwnd, [MarshalAs(UnmanagedType.LPWStr)] string pszTip);
+    [PreserveSig]
+    int SetThumbnailClip(IntPtr hwnd, IntPtr prcClip);
 }
 
 [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
 internal struct THUMBBUTTON
 {
-    public THUMBBUTTONMASK dwMask;
+    public uint dwMask;
     public uint iId;
     public uint iBitmap;
     public IntPtr hIcon;
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
-    public string szTip;
-    public THUMBBUTTONFLAGS dwFlags;
+    public unsafe fixed char szTip[260];
+    public uint dwFlags;
 }
 
 [Flags]
@@ -120,25 +142,60 @@ internal class TaskbarList { }
 public static class TaskbarProgressHelper
 {
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For(typeof(TaskbarProgressHelper));
-    private static readonly ITaskbarList3? _taskbarList;
-    private static readonly bool _isSupported = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+    private static ITaskbarList3? _taskbarList;
+    private static bool _isSupported = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
 
-    static TaskbarProgressHelper()
+    private static void EnsureInitialized()
     {
-        if (_isSupported)
+        if (!_isSupported || _taskbarList != null) return;
+
+        try
         {
-            try
+            var guid = new Guid("56FDF344-FD6D-11d0-958A-006097C9A090");
+            
+            // In .NET 10 with AOT/Trimming, Type.GetTypeFromCLSID often fails with System.NotSupportedException.
+            // We use CoCreateInstance directly to bypass the built-in COM requirement.
+            int hr = CoCreateInstance(ref guid, IntPtr.Zero, 1, ref _taskbarListIid, out var taskbarListPtr);
+            Log.Debug($"CoCreateInstance for ITaskbarList3 returned HRESULT: 0x{hr:X8}");
+
+            if (hr >= 0 && taskbarListPtr != IntPtr.Zero)
             {
-                _taskbarList = (ITaskbarList3)new TaskbarList();
-                _taskbarList.HrInit();
+                var cw = new StrategyBasedComWrappers();
+                _taskbarList = (ITaskbarList3)cw.GetOrCreateObjectForComInstance(taskbarListPtr, CreateObjectFlags.None);
+                
+                // We keep one reference in _taskbarList, so we can release the local pointer
+                Marshal.Release(taskbarListPtr);
+
+                if (_taskbarList != null)
+                {
+                    hr = _taskbarList.HrInit();
+                    Log.Debug($"ITaskbarList3.HrInit returned HRESULT: 0x{hr:X8}");
+                    if (hr < 0)
+                    {
+                        Log.Warn($"ITaskbarList3.HrInit failed with HRESULT: 0x{hr:X8}");
+                        _taskbarList = null;
+                        _isSupported = false;
+                    }
+                }
             }
-            catch (Exception ex)
+            else
             {
-                Log.Warn("Failed to initialize ITaskbarList3. Taskbar progress will be disabled.", ex);
+                Log.Warn($"CoCreateInstance for ITaskbarList3 failed with HRESULT: 0x{hr:X8}");
                 _isSupported = false;
             }
         }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to initialize ITaskbarList3 via CoCreateInstance. Taskbar progress will be disabled.", ex);
+            _taskbarList = null;
+            _isSupported = false;
+        }
     }
+
+    [DllImport("ole32.dll")]
+    private static extern int CoCreateInstance(ref Guid rclsid, IntPtr pUnkOuter, uint dwClsContext, ref Guid riid, out IntPtr ppv);
+
+    private static Guid _taskbarListIid = new Guid("EA1AFB91-9E28-4B86-90E9-9E9F8A5EEFAF");
 
     private static IntPtr GetHwnd()
     {
@@ -157,7 +214,10 @@ public static class TaskbarProgressHelper
     /// <param name="total">The total progress value (e.g., duration).</param>
     public static void SetProgressValue(double current, double total)
     {
-        if (!_isSupported || _taskbarList == null) return;
+        if (!_isSupported) return;
+        EnsureInitialized();
+        if (_taskbarList == null) return;
+
         var hwnd = GetHwnd();
         if (hwnd == IntPtr.Zero) return;
 
@@ -177,7 +237,10 @@ public static class TaskbarProgressHelper
     /// <param name="state">The new state of the progress bar.</param>
     public static void SetProgressState(TaskbarProgressBarState state)
     {
-        if (!_isSupported || _taskbarList == null) return;
+        if (!_isSupported) return;
+        EnsureInitialized();
+        if (_taskbarList == null) return;
+
         var hwnd = GetHwnd();
         if (hwnd == IntPtr.Zero) return;
 
@@ -198,28 +261,29 @@ public static class TaskbarProgressHelper
     /// <param name="buttons">The buttons to add.</param>
     public static void SetThumbnailButtons(TaskbarButton[] buttons)
     {
-        if (!_isSupported || _taskbarList == null || buttons == null || buttons.Length == 0) return;
+        if (!_isSupported || buttons == null || buttons.Length == 0) return;
+        EnsureInitialized();
+        if (_taskbarList == null) return;
+
         var hwnd = GetHwnd();
         if (hwnd == IntPtr.Zero) return;
 
         try
         {
-            var nativeButtons = CreateNativeButtons(buttons);
-            var size = Marshal.SizeOf<THUMBBUTTON>();
-            var pButtons = Marshal.AllocHGlobal(size * buttons.Length);
-
-            try
+            int hr = _taskbarList.HrInit();
+            if (hr < 0)
             {
-                for (int i = 0; i < buttons.Length; i++)
-                {
-                    Marshal.StructureToPtr(nativeButtons[i], pButtons + (i * size), false);
-                }
-
-                _taskbarList.ThumbBarAddButtons(hwnd, (uint)buttons.Length, pButtons);
+                Log.Debug($"ITaskbarList3.HrInit already initialized or returned: 0x{hr:X}");
             }
-            finally
+            
+            var nativeButtons = CreateNativeButtons(buttons);
+            
+            Log.Debug($"Calling ThumbBarAddButtons for HWND 0x{hwnd:X16}");
+            hr = _taskbarList.ThumbBarAddButtons(hwnd, (uint)buttons.Length, nativeButtons);
+            Log.Info($"ThumbBarAddButtons result: 0x{hr:X8} for HWND 0x{hwnd:X16}");
+            if (hr < 0)
             {
-                Marshal.FreeHGlobal(pButtons);
+                Log.Warn($"ThumbBarAddButtons failed with HRESULT: 0x{hr:X} for HWND 0x{hwnd:X16}");
             }
         }
         catch (Exception ex)
@@ -234,28 +298,20 @@ public static class TaskbarProgressHelper
     /// <param name="buttons">The updated button definitions.</param>
     public static void UpdateThumbnailButtons(TaskbarButton[] buttons)
     {
-        if (!_isSupported || _taskbarList == null || buttons == null || buttons.Length == 0) return;
+        if (!_isSupported || buttons == null || buttons.Length == 0) return;
+        EnsureInitialized();
+        if (_taskbarList == null) return;
+
         var hwnd = GetHwnd();
         if (hwnd == IntPtr.Zero) return;
 
         try
         {
             var nativeButtons = CreateNativeButtons(buttons);
-            var size = Marshal.SizeOf<THUMBBUTTON>();
-            var pButtons = Marshal.AllocHGlobal(size * buttons.Length);
-
-            try
+            int hr = _taskbarList.ThumbBarUpdateButtons(hwnd, (uint)buttons.Length, nativeButtons);
+            if (hr < 0)
             {
-                for (int i = 0; i < buttons.Length; i++)
-                {
-                    Marshal.StructureToPtr(nativeButtons[i], pButtons + (i * size), false);
-                }
-
-                _taskbarList.ThumbBarUpdateButtons(hwnd, (uint)buttons.Length, pButtons);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(pButtons);
+                Log.Debug($"ThumbBarUpdateButtons failed with HRESULT: 0x{hr:X8} for HWND 0x{hwnd:X16}");
             }
         }
         catch (Exception ex)
@@ -269,14 +325,25 @@ public static class TaskbarProgressHelper
         var nativeButtons = new THUMBBUTTON[buttons.Length];
         for (int i = 0; i < buttons.Length; i++)
         {
-            nativeButtons[i] = new THUMBBUTTON
+            var btn = new THUMBBUTTON
             {
-                dwMask = THUMBBUTTONMASK.Icon | THUMBBUTTONMASK.Tooltip | THUMBBUTTONMASK.Flags,
+                dwMask = (uint)(THUMBBUTTONMASK.Icon | THUMBBUTTONMASK.Tooltip | THUMBBUTTONMASK.Flags),
                 iId = (uint)buttons[i].Id,
                 hIcon = buttons[i].HIcon,
-                szTip = buttons[i].Tooltip,
-                dwFlags = buttons[i].Flags
+                dwFlags = (uint)buttons[i].Flags
             };
+
+            unsafe
+            {
+                string tooltip = buttons[i].Tooltip ?? string.Empty;
+                int length = Math.Min(tooltip.Length, 259);
+                for (int j = 0; j < length; j++)
+                {
+                    btn.szTip[j] = tooltip[j];
+                }
+                btn.szTip[length] = '\0';
+            }
+            nativeButtons[i] = btn;
         }
         return nativeButtons;
     }
