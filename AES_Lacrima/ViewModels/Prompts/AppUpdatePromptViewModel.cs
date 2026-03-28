@@ -36,8 +36,8 @@ public partial class AppUpdatePromptViewModel : ViewModelBase
 
     public string Message =>
         UpdateService.IsFlavorSwitchRelease(Release)
-            ? $"AES Lacrima {Release.Version} is available as a {UpdateService.PreferredUpdateFlavorLabel} build. You are currently running {UpdateService.CurrentVersionDisplay}."
-            : $"AES Lacrima {Release.Version} is available. You are currently running {UpdateService.CurrentVersionDisplay}.";
+            ? $"AES - Lacrima {Release.Version} is available as a {UpdateService.PreferredUpdateFlavorLabel} build. You are currently running {UpdateService.CurrentVersionDisplay}."
+            : $"AES - Lacrima {Release.Version} is available. You are currently running {UpdateService.CurrentVersionDisplay}.";
 
     public string SecondaryMessage =>
         UpdateService.IsFlavorSwitchRelease(Release)

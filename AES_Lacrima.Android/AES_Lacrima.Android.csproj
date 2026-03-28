@@ -7,7 +7,7 @@
     <SupportedOSPlatformVersion>21</SupportedOSPlatformVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <ApplicationId>com.aruantec.aeslacrima</ApplicationId>
-    <ApplicationTitle>AES Lacrima</ApplicationTitle>
+    <ApplicationTitle>AES - Lacrima</ApplicationTitle>
     <ApplicationVersion>1</ApplicationVersion>
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
   </PropertyGroup>

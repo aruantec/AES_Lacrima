@@ -1,6 +1,6 @@
-# Building AES Lacrima
+# Building AES - Lacrima
 
-AES Lacrima uses [NUKE](https://nuke.build/) to drive local builds, tests, publishing, and CI automation.
+AES - Lacrima uses [NUKE](https://nuke.build/) to drive local builds, tests, publishing, and CI automation.
 
 ## Prerequisites
 
@@ -69,7 +69,7 @@ Use `Release` for distributable builds.
 ./build.sh Publish --configuration Release --runtime osx-arm64
 ```
 
-On macOS, `AES_Lacrima/Mac/publish-macos.sh` runs automatically after publish and converts the publish output into `AES_Lacrima.app`.
+On macOS, `AES_Lacrima/Mac/publish-macos.sh` runs automatically after publish and converts the publish output into `AES - Lacrima.app`.
 
 ### Linux x64
 

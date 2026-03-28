@@ -14,7 +14,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_NAME="AES Lacrima"
+APP_NAME="AES - Lacrima"
 EXECUTABLE_NAME="AES_Lacrima"
 BUNDLE_ID="com.aruantec.aes-lacrima"
 MIN_SYS_VER="10.12"

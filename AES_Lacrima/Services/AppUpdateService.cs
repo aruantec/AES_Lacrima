@@ -188,7 +188,7 @@ public partial class AppUpdateService : ObservableObject
                 var versionComparison = CompareSemanticVersions(release.Version, CurrentVersion);
                 Status = versionComparison > 0
                     ? $"Version {release.Version} is available, but there is no compatible {PreferredUpdateFlavorLabel} download for this platform."
-                    : $"AES Lacrima is up to date ({CurrentVersionDisplay}).";
+                    : $"AES - Lacrima is up to date ({CurrentVersionDisplay}).";
                 return null;
             }
 
@@ -200,7 +200,7 @@ public partial class AppUpdateService : ObservableObject
 
             if (!isNewerVersionAvailable && !isPreferredFlavorSwitchAvailable)
             {
-                Status = $"AES Lacrima is up to date ({CurrentVersionDisplay}).";
+                Status = $"AES - Lacrima is up to date ({CurrentVersionDisplay}).";
                 return null;
             }
 

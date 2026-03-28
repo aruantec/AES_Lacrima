@@ -9,7 +9,7 @@ using System.IO;
 namespace AES_Lacrima.Android;
 
 [Activity(
-    Label = "AES Lacrima",
+    Label = "AES - Lacrima",
     Theme = "@style/Theme.AppCompat.NoActionBar",
     MainLauncher = true,
     LaunchMode = LaunchMode.SingleTop,
