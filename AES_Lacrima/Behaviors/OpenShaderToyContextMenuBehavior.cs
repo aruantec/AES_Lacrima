@@ -8,6 +8,7 @@ using Avalonia.Xaml.Interactivity;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 
 namespace AES_Lacrima.Behaviors;
 
@@ -86,21 +87,33 @@ public class OpenShaderToyContextMenuBehavior : Behavior<Control>
             return;
         }
 
-        var selected = viewModel.SettingsViewModel?.MiniSelectedShadertoy;
-        var isDefaultSelected = !viewModel.IsShaderToySelected;
+        var settingsViewModel = viewModel.SettingsViewModel;
+        var shaders = settingsViewModel?.ShaderToys;
+
+        if (settingsViewModel != null &&
+            settingsViewModel.MiniSelectedShadertoy == null &&
+            shaders != null &&
+            shaders.Count > 0)
+        {
+            settingsViewModel.MiniSelectedShadertoy =
+                shaders.FirstOrDefault(shader => string.Equals(shader.Name, "AnimatedBackground", StringComparison.Ordinal))
+                ?? shaders[0];
+        }
+
+        var selected = settingsViewModel?.MiniSelectedShadertoy;
+        var isDefaultSelected = settingsViewModel == null || !settingsViewModel.MiniShowShaderToy || selected == null;
 
         var items = new List<object>
         {
             CreateShaderMenuItem("Default Spectrum", null, viewModel, isDefaultSelected)
         };
 
-        var shaders = viewModel.SettingsViewModel?.ShaderToys;
         if (shaders != null && shaders.Count > 0)
         {
             items.Add(new Separator());
             foreach (var shader in shaders)
             {
-                var isSelected = viewModel.IsShaderToySelected && IsSameShader(selected, shader);
+                var isSelected = !isDefaultSelected && IsSameShader(selected, shader);
                 items.Add(CreateShaderMenuItem(shader.Name, shader, viewModel, isSelected));
             }
         }
