@@ -51,6 +51,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
     private string _shaderToysDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "Shadertoys");
     private string _shadersDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "glsl");
+    private bool _hasPersistedScaleFactor;
+    private bool _hasPersistedMiniScaleFactor;
 
     /// <summary>
     /// Gets or sets the collection of dummy media items used for the carousel preview.
@@ -80,6 +82,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// </summary>
     [ObservableProperty]
     private double _scaleFactor = 1.0;
+
+    public bool HasPersistedScaleFactor => _hasPersistedScaleFactor;
+
+    [ObservableProperty]
+    private double _miniScaleFactor = 1.0;
+
+    public bool HasPersistedMiniScaleFactor => _hasPersistedMiniScaleFactor;
 
     /// <summary>
     /// Backing field for the <c>ParticleCount</c> observable property.
@@ -1097,7 +1106,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
     protected override void OnLoadSettings(JsonObject section)
     {
+        _hasPersistedScaleFactor = section.TryGetPropertyValue(nameof(ScaleFactor), out var scaleNode) && scaleNode != null;
         ScaleFactor = ReadDoubleSetting(section, nameof(ScaleFactor), 1.0);
+        _hasPersistedMiniScaleFactor = section.TryGetPropertyValue(nameof(MiniScaleFactor), out var miniScaleNode) && miniScaleNode != null;
+        MiniScaleFactor = ReadDoubleSetting(section, nameof(MiniScaleFactor), 1.0);
         ParticleCount = ReadDoubleSetting(section, nameof(ParticleCount), 10);
         ShowShaderToy = ReadBoolSetting(section, nameof(ShowShaderToy), true);
         ShowBackground = ReadBoolSetting(section, nameof(ShowBackground));
@@ -1164,6 +1176,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     protected override void OnSaveSettings(JsonObject section)
     {
         WriteSetting(section, nameof(ScaleFactor), ScaleFactor);
+        WriteSetting(section, nameof(MiniScaleFactor), MiniScaleFactor);
         WriteSetting(section, nameof(ParticleCount), ParticleCount);
         WriteSetting(section, nameof(ShowShaderToy), ShowShaderToy);
         WriteSetting(section, nameof(MiniShowShaderToy), MiniShowShaderToy);
@@ -1212,6 +1225,16 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ReplayGainTagsPreampDb), ReplayGainTagsPreampDb);
         WriteSetting(section, nameof(ReplayGainTagSource), ReplayGainTagSource);
         WriteSetting(section, nameof(SilenceAdvanceDelayMs), SilenceAdvanceDelayMs);
+    }
+
+    partial void OnScaleFactorChanged(double value)
+    {
+        _hasPersistedScaleFactor = true;
+    }
+
+    partial void OnMiniScaleFactorChanged(double value)
+    {
+        _hasPersistedMiniScaleFactor = true;
     }
 
     /// <summary>

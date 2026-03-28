@@ -17,20 +17,13 @@
                             <StackPanel Spacing="10">
                                 <TextBlock Text="Scale" FontSize="14" Foreground="WhiteSmoke"/>
                                 <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <Slider Width="220" Minimum="1" Maximum="2" Value="{Binding ScaleFactor, Mode=TwoWay}"/>
-                                    <TextBlock Text="{Binding ScaleFactor, StringFormat='{}{0:0.00}x'}"
+                                    <Slider Width="220" Minimum="1" Maximum="2" Value="{Binding MiniScaleFactor, Mode=TwoWay}"/>
+                                    <TextBlock Text="{Binding MiniScaleFactor, StringFormat='{}{0:0.00}x'}"
                                                VerticalAlignment="Center"
                                                Foreground="WhiteSmoke"
                                                Margin="10,0,0,0"/>
                                 </WrapPanel>
 
-                                <CheckBox IsChecked="{Binding MiniShowShaderToy, Mode=TwoWay}">
-                                    <TextBlock Text="Show shader background" Foreground="WhiteSmoke"/>
-                                </CheckBox>
-
-                                <CheckBox IsChecked="{Binding ShowParticles, Mode=TwoWay}">
-                                    <TextBlock Text="Show particles" Foreground="WhiteSmoke"/>
-                                </CheckBox>
                             </StackPanel>
                         </Border>
 

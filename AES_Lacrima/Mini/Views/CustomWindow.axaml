@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:local="using:AES_Lacrima.Mini.Views"
         xmlns:locators="using:AES_Lacrima.Helpers"
+        xmlns:controls="using:AES_Controls"
         xmlns:composition="using:AES_Controls.Composition"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="using:AES_Lacrima.Mini.ViewModels"
@@ -29,13 +30,15 @@
     </Window.DataContext>
     <Interaction.Behaviors>
         <behaviors:WindowResizeBehavior ResizeBorderThickness="8"/>
+        <behaviors:MiniWindowScaleBehavior/>
     </Interaction.Behaviors>
 
 	<!-- Content -->
 	<Grid x:DataType="vm:MinViewModel" ClipToBounds="False">
         <composition:TransparentComposition/>
-        <Border x:Name="MainBorder" ClipToBounds="True" CornerRadius="10" BorderBrush="DimGray" BorderThickness="0.5" Background="#0F0F0F">
-	    <Grid RowDefinitions="Auto,*">
+        <controls:ScalableDecorator Scale="{Binding SettingsViewModel.MiniScaleFactor}">
+            <Border x:Name="MainBorder" ClipToBounds="True" CornerRadius="10" BorderBrush="DimGray" BorderThickness="0.5" Background="#0F0F0F">
+	        <Grid RowDefinitions="Auto,*">
 
         <!-- Gradient -->
 		<Border Grid.RowSpan="2" Height="180" VerticalAlignment="Top" IsHitTestVisible="False" Opacity="0.6">
@@ -81,7 +84,8 @@
         <Border Grid.Row="1" IsVisible="{Binding SettingsVisible}" Background="#F2000000" Margin="0,0,0,28">
             <local:MiniSettings DataContext="{Binding SettingsViewModel}"/>
         </Border>
-        </Grid>
-        </Border>
+            </Grid>
+            </Border>
+        </controls:ScalableDecorator>
     </Grid>
 </Window>

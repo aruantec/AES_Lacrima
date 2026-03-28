@@ -37,7 +37,7 @@ namespace AES_Lacrima.Views
 
             var renderScale = VisualRoot?.RenderScaling ?? 1.0;
             _lastRenderScale = renderScale;
-            if (Math.Abs(vm.SettingsViewModel.ScaleFactor - 1.0) < 0.01)
+            if (!vm.SettingsViewModel.HasPersistedScaleFactor)
             {
                 vm.SettingsViewModel.ScaleFactor = Math.Clamp(renderScale, 1.0, 2.0);
             }
