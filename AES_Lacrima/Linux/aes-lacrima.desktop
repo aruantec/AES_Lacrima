@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=AES Lacrima
-Comment=AES Lacrima media player
+Name=AES - Lacrima
+Comment=AES - Lacrima media player
 Exec=__EXEC__
 Icon=__ICON__
 Terminal=false

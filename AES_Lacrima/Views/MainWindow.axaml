@@ -15,7 +15,7 @@
         x:Class="AES_Lacrima.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Icon="/Assets/AES.ico"
-        Title="AES Lacrima"
+        Title="AES - Lacrima"
         Width="{Binding WindowWidth, Mode=TwoWay}"
         Height="{Binding WindowHeight, Mode=TwoWay}"
         WindowStartupLocation="Manual"
