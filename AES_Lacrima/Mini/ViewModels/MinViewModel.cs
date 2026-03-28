@@ -52,6 +52,14 @@ namespace AES_Lacrima.Mini.ViewModels
         private MusicViewModel? _musicViewModelSubscribed;
         private bool _isSwitchingExtension;
         private bool _isSyncingSearchText;
+        private bool _isRestoringPersistedMiniState;
+        private bool _isWaitingForPendingMiniStateRestore;
+        private bool _hasPendingMiniStateRestore;
+        private string? _pendingOpenedAlbumFileName;
+        private string? _pendingOpenedAlbumTitle;
+        private string? _pendingSelectedItemFileName;
+        private int _pendingSelectedItemIndex = -1;
+        private string? _pendingLastPlayedFileName;
         private BitmapColorHelper _colorHelper = new();
 
         #endregion
@@ -540,6 +548,7 @@ namespace AES_Lacrima.Mini.ViewModels
             MusicViewModel?.AudioPlayer?.EnableWaveform = true;
             MusicViewModel?.AudioPlayer?.AutoSkipTrailingSilence = true;
             LoadSettings();
+            SchedulePendingMiniStateRestore();
             ShowPlaylist = MusicViewModel?.LoadedAlbum == null;
             SyncSearchTextFromVisibleCollection();
             SubscribeToCurrentPlaylist();
@@ -658,6 +667,8 @@ namespace AES_Lacrima.Mini.ViewModels
                 SubscribeToCurrentPlaylist();
                 SyncSelectedAlbumFromMusicViewModel();
                 SyncPlaybackStateFromMusicViewModel();
+                TryRestorePendingMiniState();
+                SchedulePendingMiniStateRestore();
             }
             catch (Exception ex) { Log.Warn("OnMusicViewModelChanged failed to attach audio handlers", ex); }
         }
@@ -893,6 +904,184 @@ namespace AES_Lacrima.Mini.ViewModels
                 SelectedAlbum = album;
         }
 
+        private FolderMediaItem? FindPersistedAlbum(string? albumFileName, string? albumTitle)
+        {
+            var albums = MusicViewModel?.AlbumList;
+            if (albums == null || albums.Count == 0)
+                return null;
+
+            if (!string.IsNullOrWhiteSpace(albumFileName))
+            {
+                var byFileName = albums.FirstOrDefault(album =>
+                    string.Equals(album.FileName, albumFileName, StringComparison.OrdinalIgnoreCase));
+                if (byFileName != null)
+                    return byFileName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(albumTitle))
+            {
+                return albums.FirstOrDefault(album =>
+                    string.Equals(album.Title, albumTitle, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return null;
+        }
+
+        private MediaItem? FindPersistedPlaylistItem(AvaloniaList<MediaItem>? playlistItems, string? itemFileName, int selectedIndex)
+        {
+            if (playlistItems == null || playlistItems.Count == 0)
+                return null;
+
+            if (!string.IsNullOrWhiteSpace(itemFileName))
+            {
+                var byFileName = playlistItems.FirstOrDefault(item =>
+                    string.Equals(item.FileName, itemFileName, StringComparison.OrdinalIgnoreCase));
+                if (byFileName != null)
+                    return byFileName;
+            }
+
+            if (selectedIndex >= 0 && selectedIndex < playlistItems.Count)
+                return playlistItems[selectedIndex];
+
+            return null;
+        }
+
+        private MediaItem? FindMediaItemByFileName(IEnumerable<MediaItem>? items, string? fileName)
+        {
+            if (items == null || string.IsNullOrWhiteSpace(fileName))
+                return null;
+
+            return items.FirstOrDefault(item =>
+                string.Equals(item.FileName, fileName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private void ApplySelectedPlaylistItem(MediaItem item)
+        {
+            if (MusicViewModel == null)
+                return;
+
+            var playlistItems = GetCurrentPlaylistItems();
+            if (playlistItems == null)
+                return;
+
+            var index = playlistItems.IndexOf(item);
+            if (index < 0)
+                return;
+
+            SelectedMediaItem = item;
+            if (SelectedPlaylistIndex != index)
+                SelectedPlaylistIndex = index;
+
+            MusicViewModel.SelectedMediaItem = item;
+            MusicViewModel.SelectedIndex = index;
+            MusicViewModel.PointedIndex = index;
+            MusicViewModel.HighlightedItem = item;
+        }
+
+        private void RestoreOpenedAlbumAndSelection(System.Text.Json.Nodes.JsonObject section)
+        {
+            _pendingOpenedAlbumFileName = ReadStringSetting(section, "OpenedAlbumFileName", null);
+            _pendingOpenedAlbumTitle = ReadStringSetting(section, "OpenedAlbumTitle", null);
+            _pendingSelectedItemFileName = ReadStringSetting(section, "SelectedItemFileName", null);
+            _pendingSelectedItemIndex = ReadIntSetting(section, "SelectedItemIndex", -1);
+            _pendingLastPlayedFileName = ReadStringSetting(section, "LastPlayedFile", null);
+
+            _hasPendingMiniStateRestore =
+                !string.IsNullOrWhiteSpace(_pendingOpenedAlbumFileName) ||
+                !string.IsNullOrWhiteSpace(_pendingOpenedAlbumTitle) ||
+                !string.IsNullOrWhiteSpace(_pendingSelectedItemFileName) ||
+                _pendingSelectedItemIndex >= 0 ||
+                !string.IsNullOrWhiteSpace(_pendingLastPlayedFileName);
+
+            TryRestorePendingMiniState();
+            SchedulePendingMiniStateRestore();
+        }
+
+        private void TryRestorePendingMiniState()
+        {
+            if (!_hasPendingMiniStateRestore || _isRestoringPersistedMiniState || MusicViewModel == null)
+                return;
+
+            var hasPersistedAlbum = !string.IsNullOrWhiteSpace(_pendingOpenedAlbumFileName) || !string.IsNullOrWhiteSpace(_pendingOpenedAlbumTitle);
+            if (hasPersistedAlbum && MusicViewModel.AlbumList.Count == 0)
+                return;
+
+            _isRestoringPersistedMiniState = true;
+            try
+            {
+                var album = FindPersistedAlbum(_pendingOpenedAlbumFileName, _pendingOpenedAlbumTitle);
+                if (album != null)
+                {
+                    MusicViewModel.SelectedAlbum = album;
+                    SelectedAlbum = album;
+                    MusicViewModel.OpenSelectedFolderCommand.Execute(null);
+                    ShowPlaylist = false;
+                    SyncSearchTextFromVisibleCollection();
+                    SubscribeToCurrentPlaylist();
+
+                    var playlistItems = GetCurrentPlaylistItems();
+                    var selectedItem = FindPersistedPlaylistItem(playlistItems, _pendingSelectedItemFileName, _pendingSelectedItemIndex);
+                    if (selectedItem != null)
+                        ApplySelectedPlaylistItem(selectedItem);
+
+                    var loadedItem = FindMediaItemByFileName(playlistItems, _pendingLastPlayedFileName)
+                        ?? FindMediaItemByFileName(MediaItems, _pendingLastPlayedFileName);
+                    if (loadedItem != null)
+                        LoadedMediaItem = loadedItem;
+
+                    _hasPendingMiniStateRestore = false;
+                    return;
+                }
+
+                if (!hasPersistedAlbum && !string.IsNullOrWhiteSpace(_pendingLastPlayedFileName) && MediaItems != null)
+                {
+                    var found = MediaItems.FirstOrDefault(m => string.Equals(m.FileName, _pendingLastPlayedFileName, StringComparison.OrdinalIgnoreCase));
+                    if (found != null)
+                    {
+                        SelectedMediaItem = found;
+                        LoadedMediaItem = found;
+                    }
+
+                    _hasPendingMiniStateRestore = false;
+                }
+            }
+            finally
+            {
+                _isRestoringPersistedMiniState = false;
+            }
+        }
+
+        private void SchedulePendingMiniStateRestore()
+        {
+            if (!_hasPendingMiniStateRestore || _isWaitingForPendingMiniStateRestore)
+                return;
+
+            _isWaitingForPendingMiniStateRestore = true;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    for (var attempt = 0; attempt < 120; attempt++)
+                    {
+                        var restoreComplete = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                        {
+                            TryRestorePendingMiniState();
+                            return !_hasPendingMiniStateRestore;
+                        });
+
+                        if (restoreComplete)
+                            return;
+
+                        await Task.Delay(100);
+                    }
+                }
+                finally
+                {
+                    _isWaitingForPendingMiniStateRestore = false;
+                }
+            });
+        }
+
         private void ResetStoppedDisplay()
         {
             LoadedMediaItem = CreateStoppedPlaceholder();
@@ -988,10 +1177,17 @@ namespace AES_Lacrima.Mini.ViewModels
             {
                 SyncPlaybackStateFromMusicViewModel();
             }
+            else if (e.PropertyName == nameof(MusicViewModel.AlbumList) ||
+                     e.PropertyName == nameof(MusicViewModel.IsPrepared))
+            {
+                TryRestorePendingMiniState();
+                SchedulePendingMiniStateRestore();
+            }
             else if (e.PropertyName == nameof(MusicViewModel.CoverItems))
             {
                 SubscribeToCurrentPlaylist();
                 SyncPlaybackStateFromMusicViewModel();
+                TryRestorePendingMiniState();
             }
             else if (e.PropertyName == nameof(MusicViewModel.SearchText) && !ShowPlaylist)
             {
@@ -1012,11 +1208,14 @@ namespace AES_Lacrima.Mini.ViewModels
                 SyncSelectedAlbumFromMusicViewModel();
                 SubscribeToCurrentPlaylist();
                 OnPropertyChanged(nameof(VisibleItemCount));
+                TryRestorePendingMiniState();
             }
             else if (e.PropertyName == nameof(MusicViewModel.FilteredAlbumList))
             {
                 SyncSelectedAlbumFromMusicViewModel();
                 OnPropertyChanged(nameof(VisibleItemCount));
+                TryRestorePendingMiniState();
+                SchedulePendingMiniStateRestore();
             }
         }
 
@@ -1031,6 +1230,23 @@ namespace AES_Lacrima.Mini.ViewModels
             WriteSetting(section, "RepeatMode", (int)(MusicViewModel?.AudioPlayer?.RepeatMode ?? RepeatMode.Off));
             // Persist visualizer toggle so the mini player restores it on next run
             WriteSetting(section, "IsVisualizerActive", IsVisualizerActive);
+            var openedAlbum = MusicViewModel?.LoadedAlbum ?? SelectedAlbum;
+            if (openedAlbum != null)
+            {
+                if (!string.IsNullOrWhiteSpace(openedAlbum.FileName))
+                    WriteSetting(section, "OpenedAlbumFileName", openedAlbum.FileName);
+                if (!string.IsNullOrWhiteSpace(openedAlbum.Title))
+                    WriteSetting(section, "OpenedAlbumTitle", openedAlbum.Title);
+            }
+
+            var selectedItem = SelectedMediaItem;
+            if (selectedItem != null)
+            {
+                if (!string.IsNullOrWhiteSpace(selectedItem.FileName))
+                    WriteSetting(section, "SelectedItemFileName", selectedItem.FileName);
+                WriteSetting(section, "SelectedItemIndex", SelectedPlaylistIndex);
+            }
+
             var last = LoadedMediaItem?.FileName ?? SelectedMediaItem?.FileName;
             if (!string.IsNullOrEmpty(last)) WriteSetting(section, "LastPlayedFile", last);
         }
@@ -1048,12 +1264,8 @@ namespace AES_Lacrima.Mini.ViewModels
                 case 2: if (MusicViewModel?.AudioPlayer != null) MusicViewModel.AudioPlayer.RepeatMode = RepeatMode.All; break;
                 case 3: if (MusicViewModel?.AudioPlayer != null) MusicViewModel.AudioPlayer.RepeatMode = RepeatMode.Shuffle; break;
             }
-            var last = ReadStringSetting(section, "LastPlayedFile", null);
-            if (!string.IsNullOrEmpty(last) && MediaItems != null)
-            {
-                var found = MediaItems.FirstOrDefault(m => string.Equals(m.FileName, last, StringComparison.OrdinalIgnoreCase));
-                if (found != null) { SelectedMediaItem = found; LoadedMediaItem = found; }
-            }
+            RestoreOpenedAlbumAndSelection(section);
+            TryRestorePendingMiniState();
             // Restore visualizer state if previously active
             var visActive = ReadBoolSetting(section, "IsVisualizerActive", false);
             if (visActive)
