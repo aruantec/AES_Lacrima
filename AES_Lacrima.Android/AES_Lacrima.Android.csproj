@@ -26,7 +26,8 @@
          armeabi-v7a/libmpv.so
          x86_64/libmpv.so
          x86/libmpv.so -->
-    <RequireBundledAndroidMpv Condition="'$(RequireBundledAndroidMpv)' == ''">true</RequireBundledAndroidMpv>
+    <RequireBundledAndroidMpv Condition="'$(RequireBundledAndroidMpv)' == '' and '$(Configuration)' == 'Release'">true</RequireBundledAndroidMpv>
+    <RequireBundledAndroidMpv Condition="'$(RequireBundledAndroidMpv)' == ''">false</RequireBundledAndroidMpv>
     <AndroidMpvSourceRoot Condition="'$(AndroidMpvSourceRoot)' == '' and '$(MPV_ANDROID_LIBS_DIR)' != ''">$(MPV_ANDROID_LIBS_DIR)</AndroidMpvSourceRoot>
     <AndroidMpvSourceRoot Condition="'$(AndroidMpvSourceRoot)' == ''">$(HOME)/.local/share/AES_Lacrima/Tools/android-libmpv</AndroidMpvSourceRoot>
     <AndroidMpvLibArm64 Condition="'$(AndroidMpvLibArm64)' == ''">$(AndroidMpvSourceRoot)/arm64-v8a/libmpv.so</AndroidMpvLibArm64>
@@ -88,5 +89,12 @@
           Condition="'$(TargetFramework)' == 'net10.0-android' and '$(RequireBundledAndroidMpv)' == 'true'">
     <Error Condition="'@(_BundledMpvNativeLib)' == ''"
            Text="No Android libmpv.so was found for APK bundling. Provide Android ABI-specific libmpv files under '$(AndroidMpvSourceRoot)' or set one or more of: AndroidMpvLibArm64, AndroidMpvLibArmV7a, AndroidMpvLibX86_64, AndroidMpvLibX86. The Linux desktop libmpv.so is not compatible with Android." />
+  </Target>
+
+  <Target Name="WarnAboutMissingBundledAndroidMpv"
+          BeforeTargets="Build"
+          Condition="'$(TargetFramework)' == 'net10.0-android' and '$(RequireBundledAndroidMpv)' != 'true'">
+    <Warning Condition="'@(_BundledMpvNativeLib)' == ''"
+             Text="No Android libmpv.so was found for APK bundling, so the Android build will continue without bundled mpv playback libraries. Provide Android ABI-specific libmpv files under '$(AndroidMpvSourceRoot)' or set AndroidMpvLibArm64, AndroidMpvLibArmV7a, AndroidMpvLibX86_64, and/or AndroidMpvLibX86 to enable playback on device." />
   </Target>
 </Project>
