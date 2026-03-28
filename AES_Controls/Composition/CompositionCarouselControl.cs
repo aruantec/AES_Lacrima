@@ -41,6 +41,7 @@ namespace AES_Controls.Composition
 
         private static readonly ILog Log = AES_Core.Logging.LogHelper.For<CompositionCarouselControl>();
         private const int CachedCarouselImageSize = 384;
+        private const int AnimationHeartbeatMs = 4;
 
         private CompositionCustomVisual? _visual;
         private List<SKImage> _images = new();
@@ -66,6 +67,7 @@ namespace AES_Controls.Composition
         private double _velocity;
         private bool _isPressed;
         private double _pressIndex;
+        private double _uiTargetIndex;
         private double _uiCurrentIndex;
         private double _uiVelocity;
         private long _uiLastTicks;
@@ -78,6 +80,7 @@ namespace AES_Controls.Composition
         private DispatcherTimer? _longPressTimer;
         private bool _isDragging;
         private bool _isSliderPressed;
+        private DispatcherTimer? _wheelCommitTimer;
         private int _lastHoveredItem = -1, _lastHoveredButton = 0;
         private int _lastPressedItem = -1, _lastPressedButton = 0;
         private int _draggingIndex = -1;
@@ -89,6 +92,8 @@ namespace AES_Controls.Composition
         private Vector2 _projCacheSize = new Vector2(0,0);
         private double _projCacheForIndex = double.NaN;
         private int _projCacheCenterIdx = -1;
+        private const double WheelScrollSensitivity = 1.0;
+        private const int WheelCommitDelayMs = 90;
 
         #endregion
 
@@ -346,14 +351,19 @@ namespace AES_Controls.Composition
             Background = Brushes.Transparent;
             // keep GlobalOpacity in sync with local Opacity initially
             GlobalOpacity = Opacity;
+            _uiTargetIndex = SelectedIndex;
             
             _longPressTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             _longPressTimer.Tick += LongPressTimer_Tick;
 
-            _autoScrollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+            // Keep drag edge auto-scroll responsive on high-refresh displays instead of
+            // effectively quantizing it to ~60 Hz.
+            _autoScrollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(AnimationHeartbeatMs) };
             _autoScrollTimer.Tick += AutoScrollTimer_Tick;
 
-            _uiSyncTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, (_, _) =>
+            // Mirror the composition-side carousel animation for hit testing and input with
+            // a high-frequency UI heartbeat so pointer interaction tracks the visual more closely.
+            _uiSyncTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(AnimationHeartbeatMs), DispatcherPriority.Render, (_, _) =>
             {
                 long currentTicks = Stopwatch.GetTimestamp();
                 if (_uiLastTicks == 0) _uiLastTicks = currentTicks;
@@ -366,19 +376,22 @@ namespace AES_Controls.Composition
                 double uiStiffness = 45.0; 
                 double uiDamping = 2.0 * Math.Sqrt(uiStiffness) * 1.15; // slightly overdamped for clean landing
 
-                double distance = SelectedIndex - _uiCurrentIndex;
+                double distance = _uiTargetIndex - _uiCurrentIndex;
                 double force = distance * uiStiffness;
                 _uiVelocity += (force - _uiVelocity * uiDamping) * dt;
                 _uiCurrentIndex += _uiVelocity * dt;
 
                 if (Math.Abs(distance) < 0.001 && Math.Abs(_uiVelocity) < 0.01)
                 {
-                    _uiCurrentIndex = SelectedIndex;
+                    _uiCurrentIndex = _uiTargetIndex;
                     _uiVelocity = 0;
                     _uiLastTicks = 0;
                     _uiSyncTimer?.Stop();
                 }
             });
+
+            _wheelCommitTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(WheelCommitDelayMs) };
+            _wheelCommitTimer.Tick += WheelCommitTimer_Tick;
         }
 
         #endregion
@@ -477,6 +490,11 @@ namespace AES_Controls.Composition
 
         private object? GetSnapshotItem(int index) =>
             index >= 0 && index < _itemsSnapshot.Length ? _itemsSnapshot[index] : null;
+
+        private bool IsCurrentSnapshotItem(object? item, int index) =>
+            index >= 0 &&
+            index < _itemsSnapshot.Length &&
+            ReferenceEquals(_itemsSnapshot[index], item);
 
         private void UpdateItemsSnapshot(IReadOnlyList<object?> items)
         {
@@ -837,6 +855,7 @@ namespace AES_Controls.Composition
             base.OnPropertyChanged(change);
             if (change.Property == SelectedIndexProperty)
             {
+                _uiTargetIndex = change.GetNewValue<double>();
                 _visual?.SendHandlerMessage(change.GetNewValue<double>());
                 UpdateVirtualization();
                 ClearProjectionCache();
@@ -910,6 +929,8 @@ namespace AES_Controls.Composition
 
             var items = ItemsSource.Cast<object?>().ToArray();
             UpdateItemsSnapshot(items);
+            string? bitmapProp = ImageBitmapProperty;
+            string? fileProp = ImageFileNameProperty;
             
             // Re-sync _images list and reuse cached images if available
             _images.Clear();
@@ -919,8 +940,19 @@ namespace AES_Controls.Composition
                 var item = items[i];
                 if (item != null && _imageCache.TryGetValue(item, out var cached))
                 {
-                    _images.Add(cached);
-                    TouchCacheItem(item);
+                    var currentSourceKey = GetImageSourceKey(GetBitmapValue(item, bitmapProp), GetFileNameValue(item, fileProp));
+                    bool hasMatchingSource = _itemImageSourceKeys.TryGetValue(item, out var cachedSourceKey) && Equals(cachedSourceKey, currentSourceKey);
+
+                    if (hasMatchingSource)
+                    {
+                        _images.Add(cached);
+                        TouchCacheItem(item);
+                    }
+                    else
+                    {
+                        ReleaseItemImage(item);
+                        _images.Add(placeholder);
+                    }
                 }
                 else
                 {
@@ -997,6 +1029,7 @@ namespace AES_Controls.Composition
 
             // Smaller window for fluidity, faster response
             const int loadWindow = 20;
+            const int retainWindow = loadWindow + 8;
 
             // Build lookup dictionary for O(1) index check
             var itemToIndex = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
@@ -1006,12 +1039,23 @@ namespace AES_Controls.Composition
                 if (val != null) itemToIndex[val] = k;
             }
 
-            // Prune distant items
+            // Prune items that are far away from the active viewport. The previous
+            // logic only removed images when their backing item disappeared from the
+            // list entirely, which let SKImage/native texture resources accumulate
+            // as the user scrolled through more of the carousel.
+            var placeholder = GetPlaceholder();
             foreach (var key in _imageCache.Keys.ToList())
             {
                 if (ct.IsCancellationRequested) return;
-                if (!itemToIndex.ContainsKey(key))
+                if (!itemToIndex.TryGetValue(key, out var cachedIndex) ||
+                    Math.Abs(cachedIndex - centerIdx) > retainWindow)
                 {
+                    if (cachedIndex >= 0 && cachedIndex < _images.Count && IsCurrentSnapshotItem(key, cachedIndex))
+                    {
+                        _images[cachedIndex] = placeholder;
+                        _visual?.SendHandlerMessage(new UpdateImageMessage(cachedIndex, placeholder));
+                    }
+
                     ReleaseItemImage(key);
                 }
             }
@@ -1041,10 +1085,8 @@ namespace AES_Controls.Composition
                 return false;
 
             var item = items[index];
-            if (item == null || _imageCache.ContainsKey(item))
+            if (item == null)
                 return false;
-
-            SetLoading(index, true);
 
             Bitmap? bitmapValue = null;
             string? fileName = null;
@@ -1060,11 +1102,37 @@ namespace AES_Controls.Composition
             }
 
             object? sourceKey = GetImageSourceKey(bitmapValue, fileName);
+            if (_imageCache.TryGetValue(item, out _))
+            {
+                bool hasMatchingSource = _itemImageSourceKeys.TryGetValue(item, out var existingSourceKey) &&
+                                         Equals(existingSourceKey, sourceKey);
+                if (hasMatchingSource)
+                    return false;
+
+                ReleaseItemImage(item);
+            }
+
+            SetLoading(index, true);
+
             if (TryAcquireSharedImage(sourceKey, out var sharedImage))
             {
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     if (ct.IsCancellationRequested)
+                    {
+                        if (sourceKey != null && _sharedImageCache.TryGetValue(sourceKey, out var sharedEntry))
+                        {
+                            sharedEntry.RefCount--;
+                            if (sharedEntry.RefCount <= 0)
+                            {
+                                _sharedImageCache.Remove(sourceKey);
+                                DisposeImage(sharedImage!);
+                            }
+                        }
+                        return;
+                    }
+
+                    if (!IsCurrentSnapshotItem(item, index))
                     {
                         if (sourceKey != null && _sharedImageCache.TryGetValue(sourceKey, out var sharedEntry))
                         {
@@ -1108,6 +1176,12 @@ namespace AES_Controls.Composition
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     if (ct.IsCancellationRequested)
+                    {
+                        realImage.Dispose();
+                        return;
+                    }
+
+                    if (!IsCurrentSnapshotItem(item, index))
                     {
                         realImage.Dispose();
                         return;
@@ -1489,6 +1563,15 @@ namespace AES_Controls.Composition
             }
         }
 
+        private void WheelCommitTimer_Tick(object? sender, EventArgs e)
+        {
+            _wheelCommitTimer?.Stop();
+            int committedIndex = (int)Math.Clamp(Math.Round(_uiTargetIndex), 0, Math.Max(0, _images.Count - 1));
+            if (!double.Equals(SelectedIndex, committedIndex))
+                SelectedIndex = committedIndex;
+            ItemSelectedCommand?.Execute(committedIndex);
+        }
+
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
             var pos = e.GetPosition(this);
@@ -1705,12 +1788,21 @@ namespace AES_Controls.Composition
         protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
         {
             base.OnPointerWheelChanged(e);
-            var newIndex = Math.Clamp(Math.Round(SelectedIndex - e.Delta.Y), 0, Math.Max(0, _images.Count - 1));
-            if (newIndex != SelectedIndex)
+
+            double maxIndex = Math.Max(0, _images.Count - 1);
+            double nextTargetIndex = Math.Clamp(_uiTargetIndex - (e.Delta.Y * WheelScrollSensitivity), 0, maxIndex);
+            if (Math.Abs(nextTargetIndex - _uiTargetIndex) > 0.0001)
             {
-                SelectedIndex = newIndex;
-                ItemSelectedCommand?.Execute((int)newIndex);
+                _uiTargetIndex = nextTargetIndex;
+                _visual?.SendHandlerMessage(_uiTargetIndex);
+                ClearProjectionCache();
+                if (_uiSyncTimer != null && !_uiSyncTimer.IsEnabled)
+                    _uiSyncTimer.Start();
+
+                _wheelCommitTimer?.Stop();
+                _wheelCommitTimer?.Start();
             }
+
             e.Handled = true;
         }
 
@@ -1854,4 +1946,3 @@ namespace AES_Controls.Composition
         #endregion
     }
 }
-

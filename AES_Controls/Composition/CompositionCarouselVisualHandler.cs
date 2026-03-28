@@ -5,6 +5,7 @@ using Avalonia.Rendering.Composition;
 using Avalonia.Skia;
 using SkiaSharp;
 using System.Numerics;
+using System.Collections.Generic;
 using log4net;
 
 namespace AES_Controls.Composition
@@ -83,7 +84,7 @@ namespace AES_Controls.Composition
         private float _fullCoverSizeFactor;
         private float _fullCoverSizeVelocity;
 
-        private readonly SKPaint _quadPaint = new() { IsAntialias = true, FilterQuality = SKFilterQuality.High };
+        private readonly SKPaint _quadPaint = new() { IsAntialias = true, FilterQuality = SKFilterQuality.Medium };
         // Projection / depth tuning to reduce perspective distortion on side items
         private readonly float _projectionDistance = 2500f; // larger => weaker perspective
         private readonly SKPaint _spinnerPaint = new() { IsAntialias = true, StrokeCap = SKStrokeCap.Round, StrokeWidth = 4, Style = SKPaintStyle.Stroke };
@@ -100,6 +101,7 @@ namespace AES_Controls.Composition
         private SKPoint[] _meshTBuffer = Array.Empty<SKPoint>();
         private readonly SKPoint[] _overlayTextPointBuffer = new SKPoint[1];
         private readonly SKPoint[] _overlayRectBuffer = new SKPoint[4];
+        private readonly List<int> _renderOrderBuffer = new();
 
         private SKShader? _trackShader;
         private SKShader? _thumbShader;
@@ -357,8 +359,9 @@ namespace AES_Controls.Composition
 
             if (_visibleRangeDirty)
             {
-                // Items beyond absDiff 5 are invisible. We use a safe range of 7.
-                _visibleRange = 7.0f;
+                // Keep the active render window tighter so we do not spend time
+                // animating cards that are effectively peripheral.
+                _visibleRange = 5.0f;
                 _visibleRangeDirty = false;
             }
             
@@ -370,10 +373,35 @@ namespace AES_Controls.Composition
 
             // Apply global opacity multiplier from composition-level fade
             canvas.Save();
-            for (int i = start; i < centerIdx; i++) RenderItem(canvas, i, center, baseW, baseH);
-            for (int i = end; i > centerIdx; i--) RenderItem(canvas, i, center, baseW, baseH);
-            if (centerIdx >= 0 && centerIdx < total) RenderItem(canvas, centerIdx, center, baseW, baseH);
-            if (_draggingIndex != -1 && _draggingIndex < total) RenderItem(canvas, _draggingIndex, center, baseW, baseH);
+            _renderOrderBuffer.Clear();
+            for (int i = start; i <= end; i++)
+            {
+                if (i == _draggingIndex)
+                    continue;
+
+                _renderOrderBuffer.Add(i);
+            }
+
+            // Draw farthest items first and nearest items last so z-order changes
+            // continuously with animation progress instead of snapping when the
+            // rounded center index flips at the halfway point.
+            _renderOrderBuffer.Sort((a, b) =>
+            {
+                float aDiff = Math.Abs(a - (float)_currentIndex);
+                float bDiff = Math.Abs(b - (float)_currentIndex);
+                int depthOrder = bDiff.CompareTo(aDiff);
+                if (depthOrder != 0)
+                    return depthOrder;
+
+                return a.CompareTo(b);
+            });
+
+            foreach (int i in _renderOrderBuffer)
+                RenderItem(canvas, i, center, baseW, baseH);
+
+            if (_draggingIndex != -1 && _draggingIndex < total)
+                RenderItem(canvas, _draggingIndex, center, baseW, baseH);
+
             canvas.Restore();
             DrawSlider(canvas);
         }
@@ -566,8 +594,11 @@ namespace AES_Controls.Composition
                 DrawCoverFoundOverlay(canvas, i, matrix, center, itemW, itemH);
 
             if (isLoading) DrawSpinner(canvas, center, matrix);
-            var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
-            DrawQuad(canvas, itemW, itemH, refMat, img, baseOpacity * 0.08f, center, Math.Abs(rotationY));
+            if (absDiff < 2.5f)
+            {
+                var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
+                DrawQuad(canvas, itemW, itemH, refMat, img, baseOpacity * 0.08f, center, Math.Abs(rotationY));
+            }
         }
 
         private void DisposeShaderOnly(SKImage? img) { if (img != null && _shaderCache.Remove(img, out var shader)) shader.Dispose(); }
@@ -606,11 +637,12 @@ namespace AES_Controls.Composition
             float wR = w / sc; float hR = h / sc;
             float xO = (dims.Width - wR) / 2f; float yO = (dims.Height - hR) / 2f;
 
-            // Subdivide the quad and render as one shared-vertex strip to reduce affine texture warp on side cards.
+            // Subdivide the quad just enough to keep side cards believable without
+            // overloading the render loop during fast carousel motion.
             float aspect = w / Math.Max(1f, h);
-            int horizontalSegments = 1 + (int)Math.Ceiling(Math.Max(0f, aspect - 1.0f) * 2.2f + rotationYAbs * 5.0f);
+            int horizontalSegments = 1 + (int)Math.Ceiling(Math.Max(0f, aspect - 1.0f) * 1.6f + rotationYAbs * 3.0f);
             if (horizontalSegments < 1) horizontalSegments = 1;
-            if (horizontalSegments > 10) horizontalSegments = 10;
+            if (horizontalSegments > 5) horizontalSegments = 5;
 
             int vertCount = 2 * (horizontalSegments + 1);
             if (_meshVBuffer.Length != vertCount) _meshVBuffer = new SKPoint[vertCount];
