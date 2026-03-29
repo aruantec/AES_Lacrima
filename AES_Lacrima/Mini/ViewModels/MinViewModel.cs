@@ -12,6 +12,7 @@ using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using log4net;
@@ -174,8 +175,12 @@ namespace AES_Lacrima.Mini.ViewModels
         [ObservableProperty]
         private bool _isEqualizerActive;
 
+        [ObservableProperty]
+        private bool _isTrackLoadPending;
+
         // supported types
         private readonly string[] _supportedTypes = ["*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4"];
+        private MediaItem? _pendingTrackLoadItem;
 
         #endregion
 
@@ -416,6 +421,11 @@ namespace AES_Lacrima.Mini.ViewModels
         private async Task PlayMediaItemAsync(MediaItem item)
         {
             if (MusicViewModel?.AudioPlayer == null || string.IsNullOrWhiteSpace(item.FileName)) return;
+
+            _pendingTrackLoadItem = item;
+            IsTrackLoadPending = true;
+            MusicViewModel.AudioPlayer.IsLoadingMedia = true;
+            await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Render);
 
             if (item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase) ||
                 item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase))
@@ -828,13 +838,44 @@ namespace AES_Lacrima.Mini.ViewModels
                 _ = Task.Run(() => Avalonia.Threading.Dispatcher.UIThread.Post(() => IsMuted = MusicViewModel?.AudioPlayer?.Volume == 0));
             }
             else if (e.PropertyName == nameof(AudioPlayer.IsPlaying) ||
-                     e.PropertyName == nameof(AudioPlayer.IsLoadingMedia))
+                     e.PropertyName == nameof(AudioPlayer.IsLoadingMedia) ||
+                     e.PropertyName == nameof(AudioPlayer.CurrentMediaItem))
             {
+                UpdateTrackLoadPendingState();
                 SyncPlaybackStateFromMusicViewModel();
             }
             else if (e.PropertyName == nameof(AudioPlayer.RepeatMode))
             {
                 OnPropertyChanged(nameof(ShuffleMode));
+            }
+        }
+
+        private void UpdateTrackLoadPendingState()
+        {
+            var player = MusicViewModel?.AudioPlayer;
+            if (player == null)
+            {
+                _pendingTrackLoadItem = null;
+                IsTrackLoadPending = false;
+                return;
+            }
+
+            if (!IsTrackLoadPending)
+                return;
+
+            if (_pendingTrackLoadItem == null)
+            {
+                IsTrackLoadPending = player.IsLoadingMedia || player.IsBuffering;
+                return;
+            }
+
+            var requestedTrackIsCurrent = ReferenceEquals(player.CurrentMediaItem, _pendingTrackLoadItem) ||
+                                          string.Equals(player.CurrentMediaItem?.FileName, _pendingTrackLoadItem.FileName, StringComparison.Ordinal);
+
+            if (requestedTrackIsCurrent && !player.IsLoadingMedia && !player.IsBuffering)
+            {
+                _pendingTrackLoadItem = null;
+                IsTrackLoadPending = false;
             }
         }
 
@@ -844,6 +885,8 @@ namespace AES_Lacrima.Mini.ViewModels
             {
                 try
                 {
+                    _pendingTrackLoadItem = null;
+                    IsTrackLoadPending = false;
                     ResetStoppedDisplay();
                 }
                 catch (Exception ex) { Log.Warn("OnAudioPlayerStopped failed", ex); }

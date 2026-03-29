@@ -395,6 +395,7 @@
                     IsHitTestVisible="False">
             <StackPanel.IsVisible>
                 <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                    <Binding Path="IsTrackLoadPending"/>
                     <Binding Path="AudioPlayer.IsLoadingMedia"/>
                     <Binding Path="AudioPlayer.IsBuffering"/>
                 </MultiBinding>

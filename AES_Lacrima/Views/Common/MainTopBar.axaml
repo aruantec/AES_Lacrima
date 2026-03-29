@@ -41,6 +41,9 @@
                         Height="30"
                         Width="35"
                         Background="Transparent"
+                        BorderBrush="Transparent"
+                        BorderThickness="0"
+                        Padding="0"
                         Margin="15,0,0,0"
                         IsVisible="{Binding NavigationService.IsBackEnabled}"
                         Command="{Binding NavigationService.NavigateBackCommand}"
@@ -52,7 +55,7 @@
                     </ToolTip.Tip>
                     <Button.Template>
                         <ControlTemplate>
-                            <Grid Background="Transparent">
+                            <Border Background="#01000000">
                                 <Path Data="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z"
                                       Fill="White"
                                       Stretch="Uniform"
@@ -60,7 +63,7 @@
                                       Height="24"
                                       VerticalAlignment="Center"
                                       HorizontalAlignment="Center"/>
-                            </Grid>
+                            </Border>
                         </ControlTemplate>
                     </Button.Template>
                 </Button>

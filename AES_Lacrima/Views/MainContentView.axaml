@@ -161,7 +161,7 @@
                 <Interaction.Behaviors>
                     <behaviors:PreventFocusOnRightClickBehavior />
                 </Interaction.Behaviors>
-                <composition:PlayerCompositionControl CircleBackgroundBitmap="{Binding MusicViewModel.SelectedMediaItem.CoverBitmap}"
+                <composition:PlayerCompositionControl CircleBackgroundBitmap="{Binding MusicViewModel.AudioPlayer.CurrentMediaItem.CoverBitmap}"
                                                       CircleBackgroundOpacity="0.9"
                                                       Position="{Binding MusicViewModel.AudioPlayer.Position, Mode=TwoWay}"
                                                       Duration="{Binding MusicViewModel.AudioPlayer.Duration}"

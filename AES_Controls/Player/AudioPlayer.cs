@@ -1483,6 +1483,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
 
         //Set the current media item
         _currentMediaItem = item;
+        OnPropertyChanged(nameof(CurrentMediaItem));
 
         _waveformCts?.Cancel();
 
@@ -2228,6 +2229,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     public void ClearMedia()
     {
         _currentMediaItem = null;
+        OnPropertyChanged(nameof(CurrentMediaItem));
     }
 
     private void InternalStop()
