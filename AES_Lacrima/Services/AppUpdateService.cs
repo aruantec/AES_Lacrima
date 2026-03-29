@@ -1040,20 +1040,32 @@ public partial class AppUpdateService : ObservableObject
 
     private static string CreateUpdateScript(InstallTarget installTarget, string preparedSource, string stagingRoot)
     {
-        return installTarget.Kind switch
+        if (installTarget.Kind == UpdateTargetKind.DirectoryContents)
         {
-            UpdateTargetKind.DirectoryContents => CreateWindowsUpdateScript(preparedSource, installTarget.TargetPath, installTarget.RestartPath, stagingRoot),
-            UpdateTargetKind.MacBundle => CreateMacUpdateScript(preparedSource, installTarget.TargetPath, stagingRoot),
-            UpdateTargetKind.LinuxAppImage => CreateLinuxUpdateScript(preparedSource, installTarget.TargetPath, stagingRoot),
-            _ => throw new InvalidOperationException("This installation does not support self-update.")
-        };
+            if (!OperatingSystem.IsWindows())
+                throw new InvalidOperationException("Directory-content self-update is only supported on Windows.");
+
+            return CreateWindowsUpdateScript(preparedSource, installTarget.TargetPath, installTarget.RestartPath, stagingRoot);
+        }
+
+        if (installTarget.Kind == UpdateTargetKind.MacBundle)
+            return CreateMacUpdateScript(preparedSource, installTarget.TargetPath, stagingRoot);
+
+        if (installTarget.Kind == UpdateTargetKind.LinuxAppImage)
+            return CreateLinuxUpdateScript(preparedSource, installTarget.TargetPath, stagingRoot);
+
+        throw new InvalidOperationException("This installation does not support self-update.");
     }
 
+    [SupportedOSPlatform("windows")]
     private static string CreateWindowsUpdateScript(string sourceDirectory, string targetDirectory, string restartExecutable, string stagingRoot)
     {
         Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
         var scriptPath = Path.Combine(ApplicationPaths.UpdatesDirectory, $"aes-lacrima-update-{Guid.NewGuid():N}.ps1");
         var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
+        var sourceDirectoryShort = TryGetWindowsShortPath(sourceDirectory) ?? sourceDirectory;
+        var targetDirectoryShort = TryGetWindowsShortPath(targetDirectory) ?? targetDirectory;
+        var restartExecutableShort = TryGetWindowsShortPath(restartExecutable) ?? restartExecutable;
         var pid = Environment.ProcessId;
         var script = $$"""
             $ErrorActionPreference = 'Continue'
@@ -1061,10 +1073,15 @@ public partial class AppUpdateService : ObservableObject
             $SourceDirectory = '{{EscapeShellValue(sourceDirectory)}}'
             $TargetDirectory = '{{EscapeShellValue(targetDirectory)}}'
             $RestartExecutable = '{{EscapeShellValue(restartExecutable)}}'
+            $SourceDirectoryShort = '{{EscapeShellValue(sourceDirectoryShort)}}'
+            $TargetDirectoryShort = '{{EscapeShellValue(targetDirectoryShort)}}'
+            $RestartExecutableShort = '{{EscapeShellValue(restartExecutableShort)}}'
             $StagingRoot = '{{EscapeShellValue(stagingRoot)}}'
             $LogPath = '{{EscapeShellValue(helperLogPath)}}'
             $LogDirectory = [System.IO.Path]::GetDirectoryName($LogPath)
+            $AliasRoot = Join-Path $env:TEMP ('AESLacrimaUpdate-' + $PidToWaitFor)
             [System.IO.Directory]::CreateDirectory($LogDirectory) | Out-Null
+            [System.IO.Directory]::CreateDirectory($AliasRoot) | Out-Null
 
             function Write-HelperLog {
                 param([string]$Message)
@@ -1072,11 +1089,37 @@ public partial class AppUpdateService : ObservableObject
                 Add-Content -LiteralPath $LogPath -Value "[$timestamp] $Message"
             }
 
+            function Resolve-PreferredDirectoryPath {
+                param(
+                    [string]$LongPath,
+                    [string]$ShortPath,
+                    [string]$AliasName)
+
+                if (-not [string]::IsNullOrWhiteSpace($ShortPath) -and $ShortPath -notmatch ' ') {
+                    return $ShortPath
+                }
+
+                if ($LongPath -notmatch ' ') {
+                    return $LongPath
+                }
+
+                $aliasPath = Join-Path $AliasRoot $AliasName
+                if (Test-Path -LiteralPath $aliasPath) {
+                    Remove-Item -LiteralPath $aliasPath -Recurse -Force -ErrorAction SilentlyContinue
+                }
+
+                New-Item -ItemType Junction -Path $aliasPath -Target $LongPath | Out-Null
+                return $aliasPath
+            }
+
             Write-HelperLog "Helper start"
             Write-HelperLog "PID=$PidToWaitFor"
             Write-HelperLog "SRC=$SourceDirectory"
             Write-HelperLog "DST=$TargetDirectory"
             Write-HelperLog "EXE=$RestartExecutable"
+            Write-HelperLog "SRC_SHORT=$SourceDirectoryShort"
+            Write-HelperLog "DST_SHORT=$TargetDirectoryShort"
+            Write-HelperLog "EXE_SHORT=$RestartExecutableShort"
             Write-HelperLog "STAGING=$StagingRoot"
 
             while (Get-Process -Id $PidToWaitFor -ErrorAction SilentlyContinue) {
@@ -1084,10 +1127,19 @@ public partial class AppUpdateService : ObservableObject
                 Start-Sleep -Seconds 1
             }
 
+            $EffectiveSourceDirectory = Resolve-PreferredDirectoryPath -LongPath $SourceDirectory -ShortPath $SourceDirectoryShort -AliasName 'src'
+            $EffectiveTargetDirectory = Resolve-PreferredDirectoryPath -LongPath $TargetDirectory -ShortPath $TargetDirectoryShort -AliasName 'dst'
+            Write-HelperLog "SRC_EFFECTIVE=$EffectiveSourceDirectory"
+            Write-HelperLog "DST_EFFECTIVE=$EffectiveTargetDirectory"
+            Write-HelperLog "EXE_EFFECTIVE=$RestartExecutable"
             Write-HelperLog "Process exited, starting robocopy"
             $robocopyPath = Join-Path $env:SystemRoot 'System32\robocopy.exe'
-            & $robocopyPath $SourceDirectory $TargetDirectory /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP *> $null
-            $robocopyExitCode = $LASTEXITCODE
+            $robocopyProcess = Start-Process -FilePath $robocopyPath `
+                                             -ArgumentList @($EffectiveSourceDirectory, $EffectiveTargetDirectory, '/E', '/R:10', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NP') `
+                                             -Wait `
+                                             -PassThru `
+                                             -NoNewWindow
+            $robocopyExitCode = $robocopyProcess.ExitCode
             Write-HelperLog "Robocopy exit code: $robocopyExitCode"
 
             if ($robocopyExitCode -ge 8) {
@@ -1102,6 +1154,9 @@ public partial class AppUpdateService : ObservableObject
             try {
                 if (Test-Path -LiteralPath $StagingRoot) {
                     Remove-Item -LiteralPath $StagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+                }
+                if (Test-Path -LiteralPath $AliasRoot) {
+                    Remove-Item -LiteralPath $AliasRoot -Recurse -Force -ErrorAction SilentlyContinue
                 }
             }
             catch {
@@ -1212,11 +1267,15 @@ public partial class AppUpdateService : ObservableObject
             startInfo = new ProcessStartInfo
             {
                 FileName = powerShellPath,
-                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = Path.GetDirectoryName(scriptPath)
             };
+            startInfo.ArgumentList.Add("-NoProfile");
+            startInfo.ArgumentList.Add("-ExecutionPolicy");
+            startInfo.ArgumentList.Add("Bypass");
+            startInfo.ArgumentList.Add("-File");
+            startInfo.ArgumentList.Add(scriptPath);
             WriteDiagnosticLog(
                 "Launching Windows update helper",
                 $"PowerShell={powerShellPath}",
@@ -1227,11 +1286,11 @@ public partial class AppUpdateService : ObservableObject
             startInfo = new ProcessStartInfo
             {
                 FileName = "/bin/sh",
-                Arguments = $"\"{scriptPath}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = Path.GetDirectoryName(scriptPath)
             };
+            startInfo.ArgumentList.Add(scriptPath);
             WriteDiagnosticLog(
                 "Launching POSIX update helper",
                 $"Shell=/bin/sh",
@@ -1269,6 +1328,39 @@ public partial class AppUpdateService : ObservableObject
 
     private static string EscapeShellValue(string value)
         => value.Replace("'", "'\"'\"'", StringComparison.Ordinal);
+
+    [SupportedOSPlatform("windows")]
+    private static string? TryGetWindowsShortPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            var buffer = new StringBuilder(260);
+            var result = GetShortPathName(fullPath, buffer, buffer.Capacity);
+            if (result == 0)
+                return fullPath;
+
+            if (result > buffer.Capacity)
+            {
+                buffer.EnsureCapacity((int)result);
+                result = GetShortPathName(fullPath, buffer, buffer.Capacity);
+                if (result == 0)
+                    return fullPath;
+            }
+
+            return buffer.ToString();
+        }
+        catch
+        {
+            return path;
+        }
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "GetShortPathNameW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetShortPathName(string lpszLongPath, StringBuilder lpszShortPath, int cchBuffer);
 
     [SupportedOSPlatform("linux")]
     [SupportedOSPlatform("macos")]
