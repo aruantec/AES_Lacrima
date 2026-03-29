@@ -976,6 +976,24 @@ namespace AES_Lacrima.ViewModels
             });
         }
 
+        public override void OnViewFullyVisible()
+        {
+            base.OnViewFullyVisible();
+            if (_mainWindowViewModel != null)
+            {
+                _mainWindowViewModel.IsShaderToyRenderingPaused = true;
+            }
+        }
+
+        public override void OnLeaveViewModel()
+        {
+            base.OnLeaveViewModel();
+            if (_mainWindowViewModel != null)
+            {
+                _mainWindowViewModel.IsShaderToyRenderingPaused = false;
+            }
+        }
+
         private void InitializeAudioPlayer()
         {
             // Dispose any existing instance to ensure native handles are released
