@@ -109,5 +109,19 @@
                                                         IsVisible="{Binding SettingsViewModel.ShowParticles}"/>
             </Grid>
         </Border>
+        <composition:EdgeBorderCompositionControl IsHitTestVisible="False"
+                                                 IsVisible="{Binding SettingsViewModel.ShowEdgeBorder}"
+                                                 Margin="-2"
+                                                 BorderThickness="0.9"
+                                                 CornerRadius="10"
+                                                 GlowSize="14"
+                                                 Speed="0.075"
+                                                 HighlightLength="0.96"
+                                                 OutsideOffset="0"
+                                                 BaseOpacity="0.4"
+                                                 BaseStartColor="#19CFFF"
+                                                 BaseEndColor="#6E3EFF"
+                                                 HighlightLeadColor="#1EF2FF"
+                                                 HighlightTailColor="#9A56FF"/>
     </Grid>
 </Window>
