@@ -41,7 +41,9 @@ namespace AES_Controls.Composition
 
         private static readonly ILog Log = AES_Core.Logging.LogHelper.For<CompositionCarouselControl>();
         private const int CachedCarouselImageSize = 384;
-        private const int AnimationHeartbeatMs = 4;
+        private const int AnimationHeartbeatMs = 16;
+        private const int ActiveScrollVirtualizationDebounceMs = 120;
+        private const int IdleVirtualizationDebounceMs = 32;
 
         private CompositionCustomVisual? _visual;
         private List<SKImage> _images = new();
@@ -842,7 +844,7 @@ namespace AES_Controls.Composition
 
             if (_virtualizeDebounceTimer == null)
             {
-                _virtualizeDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(32) };
+                _virtualizeDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(IdleVirtualizationDebounceMs) };
                 _virtualizeDebounceTimer.Tick += (s, e) =>
                 {
                     _virtualizeDebounceTimer.Stop();
@@ -851,8 +853,23 @@ namespace AES_Controls.Composition
                     _ = VirtualizeAsync(_lastVirtualizationIndex, _loadCts.Token);
                 };
             }
+
+            _virtualizeDebounceTimer.Interval = TimeSpan.FromMilliseconds(IsSelectionInMotion()
+                ? ActiveScrollVirtualizationDebounceMs
+                : IdleVirtualizationDebounceMs);
             _virtualizeDebounceTimer.Stop();
             _virtualizeDebounceTimer.Start();
+        }
+
+        private bool IsSelectionInMotion()
+        {
+            if (_isPressed || _isDragging || _isSliderPressed)
+                return true;
+
+            if (_uiSyncTimer?.IsEnabled == true)
+                return true;
+
+            return Math.Abs(_uiVelocity) > 0.05 || Math.Abs(_uiTargetIndex - _uiCurrentIndex) > 0.02;
         }
 
         protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
