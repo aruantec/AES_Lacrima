@@ -1,4 +1,5 @@
 <UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:controls="using:AES_Controls"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:behaviors="clr-namespace:AES_Lacrima.Behaviors"
@@ -33,5 +34,23 @@
                                Spectrum="{Binding SpectrumSource}"
                                CoverBitmap="{Binding MinViewModel.LoadedMediaItem.CoverBitmap}"
                                SpectrumGradient="{Binding MinViewModel.ColorGradientBrush}"/>
+
+        <StackPanel HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="5"
+                    IsHitTestVisible="False">
+            <StackPanel.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                    <Binding Path="MinViewModel.IsTrackLoadPending"/>
+                    <Binding Path="MusicViewModel.AudioPlayer.IsLoadingMedia"/>
+                    <Binding Path="MusicViewModel.AudioPlayer.IsBuffering"/>
+                </MultiBinding>
+            </StackPanel.IsVisible>
+            <controls:LoadingControl Width="48"
+                                     Height="48"/>
+            <Label Content="Loading..."
+                   FontSize="18"
+                   Foreground="White"/>
+        </StackPanel>
     </Grid>
 </UserControl>

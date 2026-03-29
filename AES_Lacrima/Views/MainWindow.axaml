@@ -67,7 +67,7 @@
                                     IsRenderingPaused="{Binding IsShaderToyRenderingPaused}"
                                     IsVisible="{Binding IsShaderToyVisible}"
                                     Spectrum="{Binding Spectrum}"
-                                    CoverBitmap="{Binding MusicViewModel.SelectedMediaItem.CoverBitmap}"
+                                    CoverBitmap="{Binding MusicViewModel.AudioPlayer.CurrentMediaItem.CoverBitmap}"
                                     SpectrumGradient="{Binding SettingsViewModel.SpectrumGradient}">
                 </gl:GlShaderToyControl>
                 

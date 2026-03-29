@@ -46,11 +46,22 @@ namespace AES_Lacrima.Behaviors
             if (!e.GetCurrentPoint(dragArea).Properties.IsLeftButtonPressed)
                 return;
 
-            if (e.Source is Control sourceControl && sourceControl.GetSelfAndVisualAncestors().OfType<Button>().Any())
+            if (e.Source is Control sourceControl &&
+                sourceControl.GetSelfAndVisualAncestors().OfType<Control>().Any(IsInteractiveElement))
                 return;
 
             if (TopLevel.GetTopLevel(dragArea) is Window window && window.WindowState != WindowState.FullScreen)
                 window.BeginMoveDrag(e);
+        }
+
+        private static bool IsInteractiveElement(Control element)
+        {
+            return element is Button ||
+                   element is TextBox ||
+                   element is ComboBox ||
+                   element is Slider ||
+                   element is ListBox ||
+                   element is NumericUpDown;
         }
     }
 

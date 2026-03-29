@@ -71,6 +71,9 @@ namespace AES_Lacrima.ViewModels
         private bool _isAlbumlistOpen;
 
         [ObservableProperty]
+        private bool _isTrackLoadPending;
+
+        [ObservableProperty]
         private Bitmap? _defaultFolderCover;
 
         [ObservableProperty]
@@ -145,6 +148,8 @@ namespace AES_Lacrima.ViewModels
         private readonly Dictionary<FolderMediaItem, AvaloniaList<MediaItem>> _folderChildrenCollections = [];
         private bool _isSyncingAlbumSelection;
         private bool _scanMissingStreamDurationsOnLoadedAlbum;
+        private CancellationTokenSource? _loadedAlbumCoverCts;
+        private MediaItem? _pendingTrackLoadItem;
 
         [ObservableProperty]
         private AudioPlayer? _audioPlayer;
@@ -249,6 +254,17 @@ namespace AES_Lacrima.ViewModels
                 OnPropertyChanged(nameof(ShuffleMode));
                 OnPropertyChanged(nameof(NextRepeatToolTip));
             }
+            else if (e.PropertyName == nameof(AudioPlayer.CurrentMediaItem))
+            {
+                UpdateTrackLoadPendingState();
+                EnsureCurrentMediaCoverIsLoaded();
+            }
+            else if (e.PropertyName == nameof(AudioPlayer.IsLoadingMedia) ||
+                     e.PropertyName == nameof(AudioPlayer.IsBuffering) ||
+                     e.PropertyName == nameof(AudioPlayer.IsPlaying))
+            {
+                UpdateTrackLoadPendingState();
+            }
 
             // Sync taskbar progress indicator on Windows
             if (AudioPlayer != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -286,6 +302,34 @@ namespace AES_Lacrima.ViewModels
             if (AudioPlayer != null && RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
                 _mprisService?.NotifyStateChanged(e.PropertyName);
+            }
+        }
+
+        private void UpdateTrackLoadPendingState()
+        {
+            if (AudioPlayer == null)
+            {
+                _pendingTrackLoadItem = null;
+                IsTrackLoadPending = false;
+                return;
+            }
+
+            if (!IsTrackLoadPending)
+                return;
+
+            if (_pendingTrackLoadItem == null)
+            {
+                IsTrackLoadPending = AudioPlayer.IsLoadingMedia || AudioPlayer.IsBuffering;
+                return;
+            }
+
+            var requestedTrackIsCurrent = ReferenceEquals(AudioPlayer.CurrentMediaItem, _pendingTrackLoadItem) ||
+                                          string.Equals(AudioPlayer.CurrentMediaItem?.FileName, _pendingTrackLoadItem.FileName, StringComparison.Ordinal);
+
+            if (requestedTrackIsCurrent && !AudioPlayer.IsLoadingMedia && !AudioPlayer.IsBuffering)
+            {
+                _pendingTrackLoadItem = null;
+                IsTrackLoadPending = false;
             }
         }
 
@@ -702,11 +746,10 @@ namespace AES_Lacrima.ViewModels
             IsNoAlbumLoadedVisible = false;
             if (AudioPlayer != null)
                 AudioPlayer.RepeatMode = RepeatMode.Off;
-            ApplyFilter();
 
             if (isSameAlbum && selectedAlbum != null)
             {
-                QueueAlbumCoverLoad(selectedAlbum);
+                QueueLoadedAlbumCoverLoad(selectedAlbum);
                 QueueOpenedAlbumStreamDurationScan(selectedAlbum);
                 _scanMissingStreamDurationsOnLoadedAlbum = false;
             }
@@ -716,6 +759,8 @@ namespace AES_Lacrima.ViewModels
         {
             AudioPlayer?.Stop();
             AudioPlayer?.ClearMedia();
+            _pendingTrackLoadItem = null;
+            IsTrackLoadPending = false;
             SelectedMediaItem = null;
             PlaybackQueue = new AvaloniaList<MediaItem>();
             PointedIndex = -1;
@@ -1294,7 +1339,7 @@ namespace AES_Lacrima.ViewModels
 
             if (value != null && IsPrepared)
             {
-                QueueAlbumCoverLoad(value);
+                QueueLoadedAlbumCoverLoad(value);
                 if (_scanMissingStreamDurationsOnLoadedAlbum)
                     QueueOpenedAlbumStreamDurationScan(value);
             }
@@ -1852,12 +1897,57 @@ namespace AES_Lacrima.ViewModels
             _ = Task.Run(async () => await LoadAlbumCoversAsync(folder, agentInfo, forceUpdate, maxItemsToLoad));
         }
 
+        private void QueueLoadedAlbumCoverLoad(FolderMediaItem folder, bool forceUpdate = false)
+        {
+            if (AudioPlayer == null || folder.Children.Count == 0)
+                return;
+
+            try
+            {
+                _loadedAlbumCoverCts?.Cancel();
+                _loadedAlbumCoverCts?.Dispose();
+            }
+            catch
+            {
+                // Ignore cancellation cleanup races.
+            }
+
+            _loadedAlbumCoverCts = new CancellationTokenSource();
+            var ct = _loadedAlbumCoverCts.Token;
+            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+
+            _ = Task.Run(async () =>
+            {
+                await LoadPriorityAlbumCoversAsync(folder, agentInfo, forceUpdate, ct);
+
+                while (!ct.IsCancellationRequested)
+                {
+                    var hasMoreToLoad = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                        folder.Children.Any(NeedsCoverLoad));
+
+                    if (!hasMoreToLoad)
+                        break;
+
+                    await LoadAlbumCoversAsync(folder, agentInfo, forceUpdate, maxItemsToLoad: 24);
+
+                    try
+                    {
+                        await Task.Delay(75, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                }
+            }, ct);
+        }
+
         public void RefreshLoadedAlbumMetadata()
         {
             if (LoadedAlbum == null || AudioPlayer == null)
                 return;
 
-            QueueAlbumCoverLoad(LoadedAlbum);
+            QueueLoadedAlbumCoverLoad(LoadedAlbum, forceUpdate: true);
             QueueOpenedAlbumStreamDurationScan(LoadedAlbum);
         }
 
@@ -1870,6 +1960,7 @@ namespace AES_Lacrima.ViewModels
             var protectedSelected = SelectedMediaItem;
             var protectedHighlighted = HighlightedItem;
             var protectedPlaying = AudioPlayer?.CurrentMediaItem;
+            var protectedPlaybackItems = GetPlaybackItemsToKeepResident();
 
             foreach (var folder in AlbumList)
             {
@@ -1883,7 +1974,8 @@ namespace AES_Lacrima.ViewModels
                         || i >= previewStart
                         || ReferenceEquals(child, protectedSelected)
                         || ReferenceEquals(child, protectedHighlighted)
-                        || ReferenceEquals(child, protectedPlaying))
+                        || ReferenceEquals(child, protectedPlaying)
+                        || protectedPlaybackItems.Contains(child))
                     {
                         continue;
                     }
@@ -1897,6 +1989,45 @@ namespace AES_Lacrima.ViewModels
                 if (!keepAllCovers)
                     folder.IsLoadingCover = false;
             }
+        }
+
+        private HashSet<MediaItem> GetPlaybackItemsToKeepResident()
+        {
+            var keep = new HashSet<MediaItem>(ReferenceEqualityComparer.Instance);
+            if (PlaybackQueue.Count == 0)
+                return keep;
+
+            var currentItem = AudioPlayer?.CurrentMediaItem ?? SelectedMediaItem;
+            var currentIndex = currentItem != null ? PlaybackQueue.IndexOf(currentItem) : -1;
+            if (currentIndex < 0)
+                currentIndex = SelectedMediaItem != null ? PlaybackQueue.IndexOf(SelectedMediaItem) : -1;
+
+            if (currentIndex < 0)
+                currentIndex = 0;
+
+            int start = Math.Max(0, currentIndex - 1);
+            int end = Math.Min(PlaybackQueue.Count - 1, currentIndex + 2);
+            for (int i = start; i <= end; i++)
+            {
+                keep.Add(PlaybackQueue[i]);
+            }
+
+            return keep;
+        }
+
+        private void EnsureCurrentMediaCoverIsLoaded()
+        {
+            EnsureMediaItemCoverIsLoaded(AudioPlayer?.CurrentMediaItem);
+        }
+
+        private void EnsureMediaItemCoverIsLoaded(MediaItem? item)
+        {
+            if (item == null || !NeedsCoverLoad(item))
+                return;
+
+            var containingAlbum = AlbumList.FirstOrDefault(folder => folder.Children.Contains(item));
+            if (containingAlbum != null)
+                QueueAlbumCoverLoad(containingAlbum);
         }
 
         private bool NeedsCoverLoad(MediaItem item)
@@ -2000,6 +2131,72 @@ namespace AES_Lacrima.ViewModels
             {
                 folder.IsLoadingCover = false;
             });
+        }
+
+        private async Task LoadPriorityAlbumCoversAsync(FolderMediaItem folder, string agentInfo, bool forceUpdate, CancellationToken ct)
+        {
+            if (AudioPlayer == null || ct.IsCancellationRequested)
+                return;
+
+            var priorityItems = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var snapshot = folder.Children.ToList();
+                if (snapshot.Count == 0)
+                    return new List<MediaItem>();
+
+                var preferred = new List<MediaItem>();
+
+                if (ReferenceEquals(folder, LoadedAlbum))
+                {
+                    var selectedIndex = Math.Clamp(GetRoundedSelectedIndex(SelectedIndex), 0, Math.Max(0, snapshot.Count - 1));
+                    for (int i = selectedIndex; i < Math.Min(snapshot.Count, selectedIndex + 8); i++)
+                        preferred.Add(snapshot[i]);
+                }
+
+                for (int i = 0; i < Math.Min(snapshot.Count, 8); i++)
+                {
+                    var item = snapshot[i];
+                    if (!preferred.Contains(item))
+                        preferred.Add(item);
+                }
+
+                var currentItem = AudioPlayer?.CurrentMediaItem;
+                if (currentItem != null && folder.Children.Contains(currentItem) && !preferred.Contains(currentItem))
+                    preferred.Insert(0, currentItem);
+
+                return preferred.Where(NeedsCoverLoad).ToList();
+            });
+
+            if (priorityItems.Count == 0 || ct.IsCancellationRequested)
+                return;
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                DefaultFolderCover ??= GenerateDefaultFolderCover();
+                foreach (var child in priorityItems)
+                {
+                    if (NeedsCoverLoad(child))
+                    {
+                        if (child.CoverBitmap == null)
+                            child.CoverBitmap = DefaultFolderCover;
+                        child.IsLoadingCover = true;
+                    }
+                }
+
+                folder.IsLoadingCover = true;
+            });
+
+            var orderedItems = new AvaloniaList<MediaItem>(priorityItems);
+            _ = new MetadataScrapper(
+                orderedItems,
+                AudioPlayer!,
+                DefaultFolderCover,
+                agentInfo,
+                maxThumbnailWidth: 512,
+                maxCacheEntries: MetadataScrapperCacheEntries,
+                forceUpdate: forceUpdate);
+
+            await WaitForAlbumCoversAsync(priorityItems);
         }
 
         private static async Task WaitForAlbumCoversAsync(IReadOnlyList<MediaItem> items)
@@ -2260,6 +2457,11 @@ namespace AES_Lacrima.ViewModels
         {
             // 'item' is non-nullable; only check other nullable dependencies and the file name
             if (AudioPlayer == null || item.FileName == null) return;
+
+            _pendingTrackLoadItem = item;
+            IsTrackLoadPending = true;
+            EnsureMediaItemCoverIsLoaded(item);
+
             // Check if the item is a URL and resolve it if necessary
             if (item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase) || item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             {
