@@ -48,6 +48,11 @@ internal record ClockCircleBackgroundBitmapMessage(SKBitmap? Bitmap);
 internal record ClockCircleBackgroundOpacityMessage(float Opacity);
 
 /// <summary>
+/// Message to show or hide the animated seconds ring.
+/// </summary>
+internal record ClockShowSecondCircleAnimationMessage(bool Show);
+
+/// <summary>
 /// Composition visual handler that renders a circular clock with time, date, and weekday.
 /// </summary>
 public class ClockCompositionVisualHandler : CompositionCustomVisualHandler
@@ -61,6 +66,7 @@ public class ClockCompositionVisualHandler : CompositionCustomVisualHandler
     private SKColor _circleBackgroundColor = SKColors.Transparent;
     private SKBitmap? _circleBackgroundBitmap;
     private float _circleBackgroundOpacity = 1.0f;
+    private bool _showSecondCircleAnimation = true;
 
     // Paints
     private SKPaint? _ringPaint = new()
@@ -156,13 +162,19 @@ public class ClockCompositionVisualHandler : CompositionCustomVisualHandler
                 _circleBackgroundOpacity = opacity.Opacity;
                 Invalidate();
                 return;
+            case ClockShowSecondCircleAnimationMessage showSecondCircleAnimation:
+                _showSecondCircleAnimation = showSecondCircleAnimation.Show;
+                Invalidate();
+                return;
         }
     }
 
     public override void OnAnimationFrameUpdate()
     {
-        // Update to get smooth second progression
-        Invalidate();
+        if (_showSecondCircleAnimation)
+        {
+            Invalidate();
+        }
     }
 
     public override void OnRender(ImmediateDrawingContext context)
@@ -188,8 +200,10 @@ public class ClockCompositionVisualHandler : CompositionCustomVisualHandler
         // Draw circle background (color or bitmap)
         DrawCircleBackground(canvas, centerX, centerY, ringRadius);
 
-        // Draw the circular ring with smooth second progression
-        DrawRing(canvas, centerX, centerY, ringRadius, now);
+        if (_showSecondCircleAnimation)
+        {
+            DrawRing(canvas, centerX, centerY, ringRadius, now);
+        }
 
         // Draw time (HH : MM)
         var timeText = now.ToString("HH : mm");
@@ -238,7 +252,10 @@ public class ClockCompositionVisualHandler : CompositionCustomVisualHandler
             canvas.DrawText(dateText, centerX, dateY, _datePaint);
         }
 
-        RegisterForNextAnimationFrameUpdate();
+        if (_showSecondCircleAnimation)
+        {
+            RegisterForNextAnimationFrameUpdate();
+        }
     }
 
     private void DrawCircleBackground(SKCanvas canvas, float centerX, float centerY, float radius)

@@ -90,6 +90,15 @@ public class ClockCompositionControl : Control
         set => SetValue(CircleBackgroundOpacityProperty, value);
     }
 
+    public static readonly StyledProperty<bool> ShowSecondCircleAnimationProperty =
+        AvaloniaProperty.Register<ClockCompositionControl, bool>(nameof(ShowSecondCircleAnimation), true);
+
+    public bool ShowSecondCircleAnimation
+    {
+        get => GetValue(ShowSecondCircleAnimationProperty);
+        set => SetValue(ShowSecondCircleAnimationProperty, value);
+    }
+
     static ClockCompositionControl()
     {
         AffectsRender<ClockCompositionControl>(
@@ -100,7 +109,8 @@ public class ClockCompositionControl : Control
             RingGapAngleProperty,
             CircleBackgroundColorProperty,
             CircleBackgroundBitmapProperty,
-            CircleBackgroundOpacityProperty);
+            CircleBackgroundOpacityProperty,
+            ShowSecondCircleAnimationProperty);
     }
 
     public ClockCompositionControl()
@@ -173,6 +183,10 @@ public class ClockCompositionControl : Control
         {
             _visual.SendHandlerMessage(new ClockCircleBackgroundOpacityMessage((float)opacity));
         }
+        else if (change.Property == ShowSecondCircleAnimationProperty && change.NewValue is bool showSecondCircleAnimation)
+        {
+            _visual.SendHandlerMessage(new ClockShowSecondCircleAnimationMessage(showSecondCircleAnimation));
+        }
     }
 
     protected override void OnSizeChanged(SizeChangedEventArgs e)
@@ -201,6 +215,7 @@ public class ClockCompositionControl : Control
         _visual.SendHandlerMessage(new ClockRingGapAngleMessage((float)RingGapAngle));
         _visual.SendHandlerMessage(new ClockCircleBackgroundColorMessage(GetSKColor(CircleBackgroundColor)));
         _visual.SendHandlerMessage(new ClockCircleBackgroundOpacityMessage((float)CircleBackgroundOpacity));
+        _visual.SendHandlerMessage(new ClockShowSecondCircleAnimationMessage(ShowSecondCircleAnimation));
         if (CircleBackgroundBitmap != null)
         {
             _visual.SendHandlerMessage(new ClockCircleBackgroundBitmapMessage(ConvertToSKBitmap(CircleBackgroundBitmap)));

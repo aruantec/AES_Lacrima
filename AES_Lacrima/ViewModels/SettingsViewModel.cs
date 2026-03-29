@@ -104,6 +104,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private bool _showParticles = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the clock's animated seconds ring is displayed.
+    /// </summary>
+    [ObservableProperty]
+    private bool _showSecondCircleAnimation = false;
+
+    /// <summary>
     /// Backing field for the <c>ShowShaderToy</c> observable property.
     /// When true the ShaderToy view will be visible in the UI.
     /// </summary>
@@ -792,7 +798,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (_isLoadingSettings)
             return;
 
-        if (e.PropertyName == nameof(CheckForAppUpdatesOnStartup) || e.PropertyName == nameof(PreferAotAppUpdates))
+        if (e.PropertyName == nameof(CheckForAppUpdatesOnStartup) ||
+            e.PropertyName == nameof(PreferAotAppUpdates) ||
+            e.PropertyName == nameof(ShowSecondCircleAnimation))
         {
             try
             {
@@ -1115,6 +1123,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ShowBackground = ReadBoolSetting(section, nameof(ShowBackground));
         BackgroundImagePath = ReadStringSetting(section, nameof(BackgroundImagePath), Path.Combine("Assets", "background.jpg"))!;
         ShowParticles = ReadBoolSetting(section, nameof(ShowParticles), true);
+        ShowSecondCircleAnimation = ReadBoolSetting(section, nameof(ShowSecondCircleAnimation), ShowSecondCircleAnimation);
         // Spectrum settings
         SpectrumHeight = ReadDoubleSetting(section, nameof(SpectrumHeight), SpectrumHeight);
         BarWidth = ReadDoubleSetting(section, nameof(BarWidth), BarWidth);
@@ -1183,6 +1192,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ShowBackground), ShowBackground);
         WriteSetting(section, nameof(BackgroundImagePath), BackgroundImagePath);
         WriteSetting(section, nameof(ShowParticles), ShowParticles);
+        WriteSetting(section, nameof(ShowSecondCircleAnimation), ShowSecondCircleAnimation);
         WriteSetting(section, nameof(WaveformPlayedColor), WaveformPlayedColor.ToString());
         WriteSetting(section, nameof(SelectedShadertoy), SelectedShadertoy?.Name ?? string.Empty);
         WriteSetting(section, nameof(MiniSelectedShadertoy), MiniSelectedShadertoy?.Name ?? string.Empty);

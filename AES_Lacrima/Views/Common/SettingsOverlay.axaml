@@ -64,6 +64,10 @@
                             <TextBlock Text="Show Particles" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
                             <ToggleSwitch FontSize="20" IsChecked="{Binding ShowParticles, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,15">
+                            <TextBlock Text="Clock second circle animation" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
+                            <ToggleSwitch FontSize="20" IsChecked="{Binding ShowSecondCircleAnimation, Mode=TwoWay}" Margin="8,0"/>
+                        </StackPanel>
                         <TextBlock Margin="0,15,0,15" Text="ShaderToy" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="30"/>
                         <Separator Margin="0,0,0,15"/>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
