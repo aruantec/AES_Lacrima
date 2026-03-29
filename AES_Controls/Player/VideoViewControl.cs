@@ -17,7 +17,7 @@ public enum VideoFlip
     Both
 }
 
-public class VideoView : OpenGlControlBase
+public class VideoViewControl : OpenGlControlBase
 {
     private bool _initialized;
     private bool _hasRenderedOnceSincePause;
@@ -25,7 +25,7 @@ public class VideoView : OpenGlControlBase
     private DispatcherTimer? _uiHeartbeat;
 
     public static readonly StyledProperty<AesMpvPlayer?> PlayerProperty =
-        AvaloniaProperty.Register<VideoView, AesMpvPlayer?>(nameof(Player));
+        AvaloniaProperty.Register<VideoViewControl, AesMpvPlayer?>(nameof(Player));
 
     public AesMpvPlayer? Player
     {
@@ -34,7 +34,7 @@ public class VideoView : OpenGlControlBase
     }
 
     public static readonly StyledProperty<bool> IsRenderingPausedProperty =
-        AvaloniaProperty.Register<VideoView, bool>(nameof(IsRenderingPaused));
+        AvaloniaProperty.Register<VideoViewControl, bool>(nameof(IsRenderingPaused));
 
     public bool IsRenderingPaused
     {
@@ -43,7 +43,7 @@ public class VideoView : OpenGlControlBase
     }
 
     public static readonly StyledProperty<Stretch> StretchProperty =
-        AvaloniaProperty.Register<VideoView, Stretch>(nameof(Stretch), Stretch.Uniform);
+        AvaloniaProperty.Register<VideoViewControl, Stretch>(nameof(Stretch), Stretch.Uniform);
 
     public Stretch Stretch
     {
@@ -52,7 +52,7 @@ public class VideoView : OpenGlControlBase
     }
 
     public static readonly StyledProperty<int> RotationProperty =
-        AvaloniaProperty.Register<VideoView, int>(nameof(Rotation));
+        AvaloniaProperty.Register<VideoViewControl, int>(nameof(Rotation));
 
     public int Rotation
     {
@@ -61,7 +61,7 @@ public class VideoView : OpenGlControlBase
     }
 
     public static readonly StyledProperty<VideoFlip> FlipProperty =
-        AvaloniaProperty.Register<VideoView, VideoFlip>(nameof(Flip));
+        AvaloniaProperty.Register<VideoViewControl, VideoFlip>(nameof(Flip));
 
     public VideoFlip Flip
     {
@@ -70,7 +70,7 @@ public class VideoView : OpenGlControlBase
     }
 
     public static readonly StyledProperty<double> HeartbeatFpsProperty =
-        AvaloniaProperty.Register<VideoView, double>(nameof(HeartbeatFps), 60.0);
+        AvaloniaProperty.Register<VideoViewControl, double>(nameof(HeartbeatFps), 60.0);
 
     public double HeartbeatFps
     {
@@ -79,7 +79,7 @@ public class VideoView : OpenGlControlBase
     }
 
     public static readonly StyledProperty<bool> UseCustomHeartbeatProperty =
-        AvaloniaProperty.Register<VideoView, bool>(nameof(UseCustomHeartbeat));
+        AvaloniaProperty.Register<VideoViewControl, bool>(nameof(UseCustomHeartbeat));
 
     public bool UseCustomHeartbeat
     {
@@ -88,7 +88,7 @@ public class VideoView : OpenGlControlBase
     }
 
     public static readonly StyledProperty<double> AudioSyncOffsetProperty =
-        AvaloniaProperty.Register<VideoView, double>(nameof(AudioSyncOffset));
+        AvaloniaProperty.Register<VideoViewControl, double>(nameof(AudioSyncOffset));
 
     public double AudioSyncOffset
     {
@@ -96,7 +96,7 @@ public class VideoView : OpenGlControlBase
         set => SetValue(AudioSyncOffsetProperty, value);
     }
 
-    public VideoView()
+    public VideoViewControl()
     {
         _uiHeartbeat = new DispatcherTimer(
             CalculateInterval(HeartbeatFps),
@@ -171,7 +171,7 @@ public class VideoView : OpenGlControlBase
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"VideoView Init Error: {ex.Message}");
+            Debug.WriteLine($"VideoViewControl Init Error: {ex.Message}");
         }
     }
 
