@@ -109,6 +109,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private bool _showSecondCircleAnimation = false;
 
+    [ObservableProperty]
+    private bool _showEdgeBorder = true;
+
     /// <summary>
     /// Backing field for the <c>ShowShaderToy</c> observable property.
     /// When true the ShaderToy view will be visible in the UI.
@@ -867,7 +870,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         if (e.PropertyName == nameof(CheckForAppUpdatesOnStartup) ||
             e.PropertyName == nameof(PreferAotAppUpdates) ||
-            e.PropertyName == nameof(ShowSecondCircleAnimation))
+            e.PropertyName == nameof(ShowSecondCircleAnimation) ||
+            e.PropertyName == nameof(ShowEdgeBorder))
         {
             try
             {
@@ -1282,6 +1286,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ShowBackground = ReadBoolSetting(section, nameof(ShowBackground));
         BackgroundImagePath = ReadStringSetting(section, nameof(BackgroundImagePath), Path.Combine("Assets", "background.jpg"))!;
         ShowParticles = ReadBoolSetting(section, nameof(ShowParticles), true);
+        ShowEdgeBorder = ReadBoolSetting(section, nameof(ShowEdgeBorder), true);
         ShowSecondCircleAnimation = ReadBoolSetting(section, nameof(ShowSecondCircleAnimation), ShowSecondCircleAnimation);
         // Spectrum settings
         SpectrumHeight = ReadDoubleSetting(section, nameof(SpectrumHeight), SpectrumHeight);
@@ -1351,6 +1356,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ShowBackground), ShowBackground);
         WriteSetting(section, nameof(BackgroundImagePath), BackgroundImagePath);
         WriteSetting(section, nameof(ShowParticles), ShowParticles);
+        WriteSetting(section, nameof(ShowEdgeBorder), ShowEdgeBorder);
         WriteSetting(section, nameof(ShowSecondCircleAnimation), ShowSecondCircleAnimation);
         WriteSetting(section, nameof(WaveformPlayedColor), WaveformPlayedColor.ToString());
         WriteSetting(section, nameof(SelectedShadertoy), SelectedShadertoy?.Name ?? string.Empty);

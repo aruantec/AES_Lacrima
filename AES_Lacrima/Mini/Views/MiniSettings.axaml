@@ -23,6 +23,22 @@
                                                Foreground="WhiteSmoke"
                                                Margin="10,0,0,0"/>
                                 </WrapPanel>
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                    <TextBlock Text="Show edge border"
+                                               VerticalAlignment="Center"
+                                               Foreground="WhiteSmoke"/>
+                                    <ToggleSwitch Grid.Column="1"
+                                                  IsChecked="{Binding ShowEdgeBorder, Mode=TwoWay}"/>
+                                </Grid>
+
+                                <Button Content="Open Library Directory"
+                                        Command="{Binding OpenLibraryDirectoryCommand}"
+                                        Padding="14,8"
+                                        HorizontalAlignment="Left"
+                                        Background="#2B2B2B"
+                                        Foreground="WhiteSmoke"
+                                        BorderBrush="DimGray"
+                                        BorderThickness="1"/>
 
                             </StackPanel>
                         </Border>

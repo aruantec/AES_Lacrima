@@ -87,5 +87,19 @@
             </Grid>
             </Border>
         </controls:ScalableDecorator>
+        <composition:EdgeBorderCompositionControl IsHitTestVisible="False"
+                                                 IsVisible="{Binding SettingsViewModel.ShowEdgeBorder}"
+                                                 Margin="-2"
+                                                 BorderThickness="0.9"
+                                                 CornerRadius="10"
+                                                 GlowSize="14.5"
+                                                 Speed="0.09"
+                                                 HighlightLength="0.96"
+                                                 OutsideOffset="0"
+                                                 BaseOpacity="0.42"
+                                                 BaseStartColor="#17CBFF"
+                                                 BaseEndColor="#5E34FF"
+                                                 HighlightLeadColor="#18EEFF"
+                                                 HighlightTailColor="#A44BFF"/>
     </Grid>
 </Window>
