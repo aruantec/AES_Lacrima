@@ -143,7 +143,8 @@
                 <Interaction.Behaviors>
                     <behaviors:PreventFocusOnRightClickBehavior />
                 </Interaction.Behaviors>
-                <composition:ClockCompositionControl CircleBackgroundColor="Transparent"/>
+                <composition:ClockCompositionControl CircleBackgroundColor="Transparent"
+                                                     ShowSecondCircleAnimation="{Binding SettingsViewModel.ShowSecondCircleAnimation}"/>
             </widgets:WidgetControl>
 
             <!-- Player control -->
