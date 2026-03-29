@@ -193,8 +193,47 @@
                                         <Button Content="Check for App Update"
                                                 Command="{Binding CheckForAppUpdateCommand}"
                                                 IsEnabled="{Binding !AppUpdateService.IsBusy}"/>
+                                        <Button Content="Refresh Release History"
+                                                Command="{Binding RefreshAppReleaseHistoryCommand}"
+                                                IsEnabled="{Binding !AppUpdateService.IsBusy}"/>
                                     </WrapPanel>
                                 </StackPanel>
+
+                                <Border Background="#101010"
+                                        BorderBrush="#303030"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="12">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock Text="Install Specific Version"
+                                                   Foreground="WhiteSmoke"
+                                                   FontSize="16"/>
+                                        <TextBlock Text="{Binding SelectedAppReleaseStatus}"
+                                                   Foreground="#B8B8B8"
+                                                   TextWrapping="Wrap"/>
+
+                                        <TextBlock Text="Version"
+                                                   Foreground="#A8A8A8"/>
+                                        <ComboBox ItemsSource="{Binding AvailableAppReleases}"
+                                                  SelectedItem="{Binding SelectedAppRelease, Mode=TwoWay}"
+                                                  DisplayMemberBinding="{Binding DisplayLabel}"
+                                                  IsEnabled="{Binding HasAvailableAppReleases}"/>
+
+                                        <TextBlock Text="Package"
+                                                   Foreground="#A8A8A8"/>
+                                        <TextBlock Text="{Binding SelectedAppReleaseAssetName, FallbackValue='No compatible package selected'}"
+                                                   Foreground="WhiteSmoke"
+                                                   TextWrapping="Wrap"/>
+
+                                        <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                                            <Button Content="{Binding SelectedAppReleaseActionLabel}"
+                                                    Command="{Binding InstallSelectedAppReleaseCommand}"
+                                                    IsEnabled="{Binding CanInstallSelectedAppRelease}"
+                                                    Background="Gold"
+                                                    Foreground="Black"/>
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                         </Border>
                     </StackPanel>

@@ -150,6 +150,10 @@
                                     Command="{Binding CheckForAppUpdateCommand}"
                                     IsEnabled="{Binding !AppUpdateService.IsBusy}"
                                     Padding="15,8"/>
+                            <Button Content="Refresh Release History"
+                                    Command="{Binding RefreshAppReleaseHistoryCommand}"
+                                    IsEnabled="{Binding !AppUpdateService.IsBusy}"
+                                    Padding="15,8"/>
                         </StackPanel>
                         <ProgressBar IsIndeterminate="True"
                                      IsVisible="{Binding AppUpdateService.IsChecking}"
@@ -158,6 +162,56 @@
                                      Width="400"
                                      HorizontalAlignment="Left"
                                      VerticalAlignment="Top"/>
+                        <Border Background="#111111"
+                                BorderBrush="#343434"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="14"
+                                MaxWidth="760">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Install Specific Version"
+                                           FontSize="20"
+                                           Foreground="WhiteSmoke"/>
+                                <TextBlock Text="{Binding SelectedAppReleaseStatus}"
+                                           FontSize="15"
+                                           Foreground="DarkGray"
+                                           TextWrapping="Wrap"/>
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                    <TextBlock Text="Version"
+                                               VerticalAlignment="Center"
+                                               Foreground="WhiteSmoke"
+                                               FontSize="16"/>
+                                    <ComboBox Grid.Column="1"
+                                              ItemsSource="{Binding AvailableAppReleases}"
+                                              SelectedItem="{Binding SelectedAppRelease, Mode=TwoWay}"
+                                              DisplayMemberBinding="{Binding DisplayLabel}"
+                                              IsEnabled="{Binding HasAvailableAppReleases}">
+                                        <Interaction.Behaviors>
+                                            <behavors:ComboBoxPopupScaler/>
+                                        </Interaction.Behaviors>
+                                    </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                    <TextBlock Text="Package"
+                                               VerticalAlignment="Center"
+                                               Foreground="WhiteSmoke"
+                                               FontSize="16"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding SelectedAppReleaseAssetName, FallbackValue='No compatible package selected'}"
+                                               VerticalAlignment="Center"
+                                               Foreground="#C6C6C6"
+                                               TextWrapping="Wrap"/>
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <Button Content="{Binding SelectedAppReleaseActionLabel}"
+                                            Command="{Binding InstallSelectedAppReleaseCommand}"
+                                            IsEnabled="{Binding CanInstallSelectedAppRelease}"
+                                            Padding="15,8"
+                                            Background="Gold"
+                                            Foreground="Black"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
