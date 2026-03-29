@@ -200,6 +200,7 @@
         <spectrum:GlSpectrumControl Spectrum="{Binding AudioPlayer.Spectrum}"
                                     Grid.Row="0"
                                     Height="{Binding SettingsViewModel.SpectrumHeight}"
+                                    Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
                                     VerticalAlignment="Bottom"
                                     BarWidth="{Binding SettingsViewModel.BarWidth}"
                                     BarSpacing="{Binding SettingsViewModel.BarSpacing}"
@@ -207,7 +208,13 @@
                                     UseDeltaTime="True"
                                     IsHitTestVisible="False"
                                     BarGradient="{Binding SettingsViewModel.SpectrumGradient}"
-                                    IsVisible="{Binding SettingsViewModel.ShowMusicSpectrum}"/>
+                                    IsVisible="{Binding SettingsViewModel.ShowMusicSpectrum}">
+            <spectrum:GlSpectrumControl.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.500" Easing="SineEaseInOut"/>
+                </Transitions>
+            </spectrum:GlSpectrumControl.Transitions>
+        </spectrum:GlSpectrumControl>
 
         <!-- Search Bar (on top) -->
         <TextBox HorizontalAlignment="Right"
