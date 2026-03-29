@@ -181,11 +181,10 @@ public class GlShaderToyControl : OpenGlControlBase
                 if (paused)
                 {
                     _actuallyAllowedToRender = false;
-                    _fadeAlpha = 0f;
                 }
                 else
                 {
-                    _ = ResumeRenderingWithDelay();
+                    ResumeRendering();
                 }
             })));
 
@@ -222,13 +221,16 @@ public class GlShaderToyControl : OpenGlControlBase
             RequestNextFrameRendering();
     }
 
-    private async Task ResumeRenderingWithDelay()
+    private void ResumeRendering()
     {
-        await Task.Delay(100);
-        await Dispatcher.UIThread.InvokeAsync(() =>
+        Dispatcher.UIThread.Post(() =>
         {
             _actuallyAllowedToRender = true;
             _isDirty = true;
+            if (IsVisible)
+            {
+                RequestNextFrameRendering();
+            }
         }, DispatcherPriority.Background);
     }
 
@@ -1046,4 +1048,3 @@ public class GlShaderToyControl : OpenGlControlBase
 
     }
 }
-

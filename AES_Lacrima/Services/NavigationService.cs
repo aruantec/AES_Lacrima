@@ -119,6 +119,9 @@ namespace AES_Lacrima.Services
 
                 musicViewModel.IsActive = false;
             }
+
+            ResumeShaderToyIfLeavingMusicView();
+
             // Set the main content view to active
             if (_previousViewModel is MainContentViewModel mainContentViewModel)
             {
@@ -171,12 +174,22 @@ namespace AES_Lacrima.Services
                 }
             }
 
+            ResumeShaderToyIfLeavingMusicView();
+
             //Set previous view
             _previousViewModel = View;
             //Set current view
             View = DiLocator.ResolveViewModel<T>() as ViewModelBase;
             //Set back naviation
             IsBackEnabled = View is not MainContentViewModel;
+        }
+
+        private void ResumeShaderToyIfLeavingMusicView()
+        {
+            if (View is MusicViewModel)
+            {
+                DiLocator.ResolveViewModel<MainWindowViewModel>()!.IsShaderToyRenderingPaused = false;
+            }
         }
 
         /// <summary>

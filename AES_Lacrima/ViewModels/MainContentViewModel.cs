@@ -101,6 +101,9 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private SettingsViewModel? _settingsViewModel;
 
+        [AutoResolve]
+        private MainWindowViewModel? _mainWindowViewModel;
+
         public MainContentViewModel()
         {
             PropertyChanged += OnPropertyChanged;
@@ -158,6 +161,15 @@ namespace AES_Lacrima.ViewModels
                 IsActive = SettingsViewModel.ShowShaderToy;
             //Load settings
             LoadSettings();
+        }
+
+        public override void OnViewFullyVisible()
+        {
+            base.OnViewFullyVisible();
+            if (_mainWindowViewModel != null)
+            {
+                _mainWindowViewModel.IsShaderToyRenderingPaused = false;
+            }
         }
 
         protected override void OnLoadSettings(JsonObject section)

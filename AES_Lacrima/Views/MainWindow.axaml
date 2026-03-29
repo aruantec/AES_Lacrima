@@ -64,7 +64,8 @@
                     Stretch="UniformToFill"/>
                 <!--Shadertoy-->
                 <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
-                                    IsVisible="{Binding SettingsViewModel.ShowShaderToy}"
+                                    IsRenderingPaused="{Binding IsShaderToyRenderingPaused}"
+                                    IsVisible="{Binding IsShaderToyVisible}"
                                     Spectrum="{Binding Spectrum}"
                                     CoverBitmap="{Binding MusicViewModel.SelectedMediaItem.CoverBitmap}"
                                     SpectrumGradient="{Binding SettingsViewModel.SpectrumGradient}">

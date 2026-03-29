@@ -68,6 +68,8 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private SettingsViewModel? _settingsViewModel;
 
+        public bool IsShaderToyVisible => SettingsViewModel?.ShowShaderToy == true && !IsShaderToyRenderingPaused;
+
         partial void OnSettingsViewModelChanged(SettingsViewModel? value)
         {
             if (value != null)
@@ -75,6 +77,8 @@ namespace AES_Lacrima.ViewModels
                 value.PropertyChanged += OnSettingsViewModelPropertyChanged;
                 SubscribeToMpvManager(value.MpvManager);
             }
+
+            OnPropertyChanged(nameof(IsShaderToyVisible));
         }
 
         private void OnSettingsViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -82,6 +86,11 @@ namespace AES_Lacrima.ViewModels
             if (e.PropertyName == nameof(SettingsViewModel.MpvManager))
             {
                 SubscribeToMpvManager(SettingsViewModel?.MpvManager);
+            }
+
+            if (e.PropertyName == nameof(SettingsViewModel.ShowShaderToy))
+            {
+                OnPropertyChanged(nameof(IsShaderToyVisible));
             }
         }
 
@@ -115,6 +124,17 @@ namespace AES_Lacrima.ViewModels
         /// </summary>
         [ObservableProperty]
         private AvaloniaList<double>? _spectrum;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the background ShaderToy renderer is paused.
+        /// </summary>
+        [ObservableProperty]
+        private bool _isShaderToyRenderingPaused;
+
+        partial void OnIsShaderToyRenderingPausedChanged(bool value)
+        {
+            OnPropertyChanged(nameof(IsShaderToyVisible));
+        }
 
         /// <summary>
         /// Gets or sets the prompt view model associated with the current context.
