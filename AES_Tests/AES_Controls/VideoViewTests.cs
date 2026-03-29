@@ -10,7 +10,7 @@ public sealed class VideoViewTests
     [AvaloniaFact]
     public void Constructor_SetsExpectedDefaults()
     {
-        var view = new VideoView();
+        var view = new VideoViewControl();
 
         Assert.Null(view.Player);
         Assert.False(view.IsRenderingPaused);
@@ -25,7 +25,7 @@ public sealed class VideoViewTests
     [AvaloniaFact]
     public void PropertyUpdates_WithNullPlayer_DoNotThrow()
     {
-        var view = new VideoView();
+        var view = new VideoViewControl();
 
         var ex = Record.Exception(() =>
         {
@@ -45,8 +45,8 @@ public sealed class VideoViewTests
     [AvaloniaFact]
     public void CalculateInterval_UsesFallbackForNonPositiveValues()
     {
-        var view = new VideoView();
-        var method = typeof(VideoView).GetMethod("CalculateInterval", BindingFlags.Instance | BindingFlags.NonPublic);
+        var view = new VideoViewControl();
+        var method = typeof(VideoViewControl).GetMethod("CalculateInterval", BindingFlags.Instance | BindingFlags.NonPublic);
 
         Assert.NotNull(method);
 
