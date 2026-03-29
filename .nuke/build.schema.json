@@ -111,10 +111,6 @@
         "Configuration": {
           "type": "string"
         },
-        "PublishAot": {
-          "type": "boolean",
-          "description": "Publish with Native AOT enabled"
-        },
         "Runtime": {
           "type": "string",
           "description": "Optional runtime identifier for dotnet publish"
