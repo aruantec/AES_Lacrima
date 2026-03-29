@@ -744,8 +744,6 @@ namespace AES_Lacrima.ViewModels
             _scanMissingStreamDurationsOnLoadedAlbum = true;
             LoadedAlbum = selectedAlbum;
             IsNoAlbumLoadedVisible = false;
-            if (AudioPlayer != null)
-                AudioPlayer.RepeatMode = RepeatMode.Off;
 
             if (isSameAlbum && selectedAlbum != null)
             {
