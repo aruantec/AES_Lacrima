@@ -28,6 +28,7 @@ public unsafe class GlSpectrumControl : OpenGlControlBase, IDisposable
     private const double MinAdaptiveFrameIntervalMs = 1000.0 / 120.0;
     private const double MaxAdaptiveFrameIntervalMs = 1000.0 / 30.0;
     private const double AdaptiveIntervalToleranceMs = 0.25;
+    private const double SpectrumDensityFloor = 0.72;
 
     #region Styled Properties
     public static readonly StyledProperty<AvaloniaList<double>?> SpectrumProperty =
@@ -372,7 +373,7 @@ public unsafe class GlSpectrumControl : OpenGlControlBase, IDisposable
         float logicalWidth = (float)Bounds.Width;
         float physicalWidth = logicalWidth * (float)scaling;
         float physicalHeight = (float)(Bounds.Height * scaling);
-        int targetCount = Math.Max(1, (int)(logicalWidth / (BarWidth + BarSpacing)));
+        int targetCount = GetTargetBarCount(logicalWidth);
 
         SnapshotSpectrum();
         _isAnimating = UpdatePhysics(targetCount, delta);
@@ -532,6 +533,23 @@ public unsafe class GlSpectrumControl : OpenGlControlBase, IDisposable
 
         if (_globalMax < 0.05) _globalMax = 0.05;
         return hasVisibleActivity || observedMax > 0.001 || _globalMax > 0.051;
+    }
+
+    private int GetTargetBarCount(float logicalWidth)
+    {
+        double step = Math.Max(1.0, BarWidth + BarSpacing);
+        int rawCount = Math.Max(1, (int)(logicalWidth / step));
+
+        double normalizedLoad = Math.Clamp(
+            (MaxAdaptiveFrameIntervalMs - _targetFrameIntervalMs) / (MaxAdaptiveFrameIntervalMs - MinAdaptiveFrameIntervalMs),
+            0.0,
+            1.0);
+        double densityScale = SpectrumDensityFloor + ((1.0 - SpectrumDensityFloor) * normalizedLoad);
+
+        if (OperatingSystem.IsMacOS())
+            densityScale = Math.Min(densityScale, 0.88);
+
+        return Math.Max(1, (int)Math.Round(rawCount * densityScale));
     }
 
     private void PrepareVertices(float w, float h, int n)

@@ -74,13 +74,13 @@ namespace AES_Controls.Composition
         private CancellationTokenSource? _loadCts;
         private DispatcherTimer? _virtualizeDebounceTimer;
         private DispatcherTimer? _uiSyncTimer;
+        private DispatcherTimer? _settleCommitTimer;
         private IEnumerable? _subscribedItemsSource;
         private bool _isInternalMove;
 
         private DispatcherTimer? _longPressTimer;
         private bool _isDragging;
         private bool _isSliderPressed;
-        private DispatcherTimer? _wheelCommitTimer;
         private int _lastHoveredItem = -1, _lastHoveredButton = 0;
         private int _lastPressedItem = -1, _lastPressedButton = 0;
         private int _draggingIndex = -1;
@@ -93,7 +93,7 @@ namespace AES_Controls.Composition
         private double _projCacheForIndex = double.NaN;
         private int _projCacheCenterIdx = -1;
         private const double WheelScrollSensitivity = 1.0;
-        private const int WheelCommitDelayMs = 90;
+        private const int SettleCommitDelayMs = 120;
 
         #endregion
 
@@ -372,9 +372,9 @@ namespace AES_Controls.Composition
 
                 if (dt > 0.1) dt = 0.1;
 
-                // tuned spring parameters: smoother glide logic
-                double uiStiffness = 45.0; 
-                double uiDamping = 2.0 * Math.Sqrt(uiStiffness) * 1.15; // slightly overdamped for clean landing
+                // Keep hit testing close to the visual without feeling delayed.
+                double uiStiffness = 78.0;
+                double uiDamping = 2.0 * Math.Sqrt(uiStiffness) * 0.98;
 
                 double distance = _uiTargetIndex - _uiCurrentIndex;
                 double force = distance * uiStiffness;
@@ -390,8 +390,13 @@ namespace AES_Controls.Composition
                 }
             });
 
-            _wheelCommitTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(WheelCommitDelayMs) };
-            _wheelCommitTimer.Tick += WheelCommitTimer_Tick;
+            _settleCommitTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(SettleCommitDelayMs) };
+            _settleCommitTimer.Tick += (_, _) =>
+            {
+                _settleCommitTimer?.Stop();
+                CommitSelectionToNearestItem();
+            };
+
         }
 
         #endregion
@@ -969,6 +974,12 @@ namespace AES_Controls.Composition
 
             // Initial CoverFound sync
             _visual?.SendHandlerMessage(new ResetCoverFoundMessage(BuildCoverFoundSet(items)));
+
+            if (items.Length > 0)
+            {
+                int initialCenterIndex = (int)Math.Clamp(Math.Round(SelectedIndex), 0, items.Length - 1);
+                _ = VirtualizeAsync(initialCenterIndex, CancellationToken.None);
+            }
 
             ClearProjectionCache();
             UpdateVirtualization();
@@ -1563,13 +1574,20 @@ namespace AES_Controls.Composition
             }
         }
 
-        private void WheelCommitTimer_Tick(object? sender, EventArgs e)
+        private void QueueSettleCommit()
         {
-            _wheelCommitTimer?.Stop();
-            int committedIndex = (int)Math.Clamp(Math.Round(_uiTargetIndex), 0, Math.Max(0, _images.Count - 1));
-            if (!double.Equals(SelectedIndex, committedIndex))
+            _settleCommitTimer?.Stop();
+            _settleCommitTimer?.Start();
+        }
+
+        private void CommitSelectionToNearestItem()
+        {
+            if (_images.Count == 0)
+                return;
+
+            double committedIndex = Math.Clamp(Math.Round(SelectedIndex), 0, Math.Max(0, _images.Count - 1));
+            if (Math.Abs(committedIndex - SelectedIndex) > 0.0001)
                 SelectedIndex = committedIndex;
-            ItemSelectedCommand?.Execute(committedIndex);
         }
 
         protected override void OnPointerPressed(PointerPressedEventArgs e)
@@ -1585,6 +1603,7 @@ namespace AES_Controls.Composition
             }
 
             base.OnPointerPressed(e);
+            _settleCommitTimer?.Stop();
             Focus();
             _isPressed = true;
             _startPoint = _prevPoint = pos;
@@ -1710,6 +1729,7 @@ namespace AES_Controls.Composition
             {
                 _isSliderPressed = false;
                 _visual?.SendHandlerMessage(new SliderPressedMessage(false));
+                QueueSettleCommit();
             }
 
             if (_isDragging)
@@ -1782,6 +1802,10 @@ namespace AES_Controls.Composition
                         ItemSelectedCommand?.Execute(hitIndex);
                     }
                 }
+                else
+                {
+                    QueueSettleCommit();
+                }
             }
         }
 
@@ -1790,17 +1814,11 @@ namespace AES_Controls.Composition
             base.OnPointerWheelChanged(e);
 
             double maxIndex = Math.Max(0, _images.Count - 1);
-            double nextTargetIndex = Math.Clamp(_uiTargetIndex - (e.Delta.Y * WheelScrollSensitivity), 0, maxIndex);
-            if (Math.Abs(nextTargetIndex - _uiTargetIndex) > 0.0001)
+            double nextTargetIndex = Math.Clamp(SelectedIndex - (e.Delta.Y * WheelScrollSensitivity), 0, maxIndex);
+            if (Math.Abs(nextTargetIndex - SelectedIndex) > 0.0001)
             {
-                _uiTargetIndex = nextTargetIndex;
-                _visual?.SendHandlerMessage(_uiTargetIndex);
-                ClearProjectionCache();
-                if (_uiSyncTimer != null && !_uiSyncTimer.IsEnabled)
-                    _uiSyncTimer.Start();
-
-                _wheelCommitTimer?.Stop();
-                _wheelCommitTimer?.Start();
+                SelectedIndex = nextTargetIndex;
+                QueueSettleCommit();
             }
 
             e.Handled = true;

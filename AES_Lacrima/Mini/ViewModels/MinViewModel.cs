@@ -182,6 +182,8 @@ namespace AES_Lacrima.Mini.ViewModels
         #region Public properties
         public double DisplayDuration => LoadedMediaItem?.Duration ?? SelectedMediaItem?.Duration ?? 0.0;
 
+        public Bitmap LoadedCoverBitmap => LoadedMediaItem?.CoverBitmap ?? _defaultCover;
+
         public bool ShuffleMode
         {
             get => MusicViewModel?.AudioPlayer?.RepeatMode == RepeatMode.Shuffle;
@@ -225,6 +227,9 @@ namespace AES_Lacrima.Mini.ViewModels
         {
             if (AppLifetime == null)
                 return;
+
+            if (MusicViewModel != null)
+                MusicViewModel.ResetPlaybackOnAlbumSwitch = false;
 
             AES_Lacrima.App.IsSwitchingMode = true;
 
@@ -399,6 +404,7 @@ namespace AES_Lacrima.Mini.ViewModels
             if (MusicViewModel == null || SelectedAlbum == null)
                 return;
 
+            MusicViewModel.ResetPlaybackOnAlbumSwitch = true;
             MusicViewModel.SelectedAlbum = SelectedAlbum;
             MusicViewModel.OpenSelectedFolderCommand.Execute(null);
             ShowPlaylist = false;
@@ -583,6 +589,7 @@ namespace AES_Lacrima.Mini.ViewModels
         {
             UpdateLoadedBrush(value);
             OnPropertyChanged(nameof(DisplayDuration));
+            OnPropertyChanged(nameof(LoadedCoverBitmap));
         }
 
         partial void OnSelectedMediaItemChanged(MediaItem? value)
@@ -653,12 +660,18 @@ namespace AES_Lacrima.Mini.ViewModels
             try
             {
                 if (_musicViewModelSubscribed != null)
+                {
                     _musicViewModelSubscribed.PropertyChanged -= MusicViewModel_PropertyChanged;
+                    _musicViewModelSubscribed.ResetPlaybackOnAlbumSwitch = false;
+                }
 
                 _musicViewModelSubscribed = value;
 
                 if (_musicViewModelSubscribed != null)
+                {
                     _musicViewModelSubscribed.PropertyChanged += MusicViewModel_PropertyChanged;
+                    _musicViewModelSubscribed.ResetPlaybackOnAlbumSwitch = true;
+                }
 
                 if (value?.AudioPlayer != null)
                     AttachAudioPlayerHandlers(value.AudioPlayer);
@@ -779,6 +792,7 @@ namespace AES_Lacrima.Mini.ViewModels
                 && e.PropertyName == nameof(MediaItem.CoverBitmap))
             {
                 UpdateLoadedBrush(item);
+                OnPropertyChanged(nameof(LoadedCoverBitmap));
             }
         }
 
@@ -1012,6 +1026,7 @@ namespace AES_Lacrima.Mini.ViewModels
                 var album = FindPersistedAlbum(_pendingOpenedAlbumFileName, _pendingOpenedAlbumTitle);
                 if (album != null)
                 {
+                    MusicViewModel.ResetPlaybackOnAlbumSwitch = true;
                     MusicViewModel.SelectedAlbum = album;
                     SelectedAlbum = album;
                     MusicViewModel.OpenSelectedFolderCommand.Execute(null);

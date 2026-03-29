@@ -117,6 +117,12 @@ namespace AES_Controls.Composition
         private readonly SKColor _cancelButtonHoverColor = SKColor.Parse("#EF5350");
         private readonly SKColor _cancelButtonPressedColor = SKColor.Parse("#D32F2F");
 
+        private bool UseReducedMotionQuality =>
+            _draggingIndex != -1 ||
+            _isDropping ||
+            Math.Abs(_targetIndex - _currentIndex) > 0.02 ||
+            Math.Abs(_currentVelocity) > 0.35;
+
         public override void OnMessage(object message)
         {
             if (message is double index) 
@@ -128,7 +134,9 @@ namespace AES_Controls.Composition
             else if (message is Vector2 size) { _visualSize = size; _visibleRangeDirty = true; Invalidate(); }
             else if (message is IEnumerable<SKImage> enumerableImgs && message is not string) 
             { 
-                var imgs = enumerableImgs as List<SKImage> ?? enumerableImgs.ToList();
+                // Always snapshot the incoming sequence because the sender may mutate
+                // its backing list while the composition server is processing messages.
+                var imgs = enumerableImgs.ToArray();
                 var newImgs = new HashSet<SKImage>(imgs.Where(i => i != null));
                 var previousImages = _images.ToArray();
                 foreach (var img in previousImages) 
@@ -142,7 +150,19 @@ namespace AES_Controls.Composition
                         }
                     }
                 }
-                _images = imgs; 
+                _images = imgs.ToList();
+                double maxIndex = Math.Max(0, _images.Count - 1);
+                if (_images.Count == 0)
+                {
+                    _targetIndex = 0;
+                    _currentIndex = 0;
+                    _currentVelocity = 0;
+                }
+                else
+                {
+                    _targetIndex = Math.Clamp(_targetIndex, 0, maxIndex);
+                    _currentIndex = Math.Clamp(_currentIndex, 0, maxIndex);
+                }
                 RegisterForNextAnimationFrameUpdate(); 
             }
             else if (message is UpdateImageMessage update)
@@ -258,12 +278,24 @@ namespace AES_Controls.Composition
             if (dt > 0.1) dt = 0.1;
 
             double distance = _targetIndex - _currentIndex;
-            // tuned spring parameters for a smooth buttery glide
-            double animStiffness = 45.0;
-            double animDamping = 2.0 * Math.Sqrt(animStiffness) * 1.15;
+            // Favor responsive tracking over a slower, floaty feel.
+            double animStiffness = 78.0;
+            double animDamping = 2.0 * Math.Sqrt(animStiffness) * 0.98;
             _currentVelocity += (distance * animStiffness - _currentVelocity * animDamping) * dt;
             _currentIndex += _currentVelocity * dt;
             _spinnerRotation = (_spinnerRotation + 8f) % 360f;
+
+            if (!_isSliderPressed && _draggingIndex == -1 && !_isDropping)
+            {
+                double nearestIndex = Math.Round(_targetIndex);
+                bool targetIsFractional = Math.Abs(_targetIndex - nearestIndex) > 0.0001;
+                bool nearlySettled = Math.Abs(distance) < 0.08 && Math.Abs(_currentVelocity) < 0.18;
+                if (targetIsFractional && nearlySettled)
+                {
+                    _targetIndex = nearestIndex;
+                    distance = _targetIndex - _currentIndex;
+                }
+            }
             
             // Snap to target when very close to ensure zero jitter or micro-vibrations
             if (Math.Abs(distance) < 0.0005 && Math.Abs(_currentVelocity) < 0.005)
@@ -594,10 +626,21 @@ namespace AES_Controls.Composition
                 DrawCoverFoundOverlay(canvas, i, matrix, center, itemW, itemH);
 
             if (isLoading) DrawSpinner(canvas, center, matrix);
-            if (absDiff < 2.5f)
+
+            // Keep reflection visibility continuous so it does not pop when motion quality
+            // mode changes or when an item crosses a hard distance threshold.
+            float reflectionRange = 4.8f;
+            float reflectionStrength = 0.072f;
+            float normalizedReflectionDistance = absDiff / reflectionRange;
+            float reflectionFalloff = normalizedReflectionDistance >= 1.0f
+                ? 0.0f
+                : (float)Math.Pow(1.0f - normalizedReflectionDistance, 1.2f);
+            float reflectionBaseOpacity = ((baseOpacity * 0.45f) + 0.55f) * _globalTransitionAlpha * _currentGlobalOpacity;
+            float reflectionAlpha = reflectionBaseOpacity * reflectionStrength * reflectionFalloff;
+            if (reflectionAlpha > 0.0015f)
             {
                 var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
-                DrawQuad(canvas, itemW, itemH, refMat, img, baseOpacity * 0.08f, center, Math.Abs(rotationY));
+                DrawQuad(canvas, itemW, itemH, refMat, img, reflectionAlpha, center, 0f, true);
             }
         }
 
@@ -617,7 +660,7 @@ namespace AES_Controls.Composition
             } 
         }
 
-        private void DrawQuad(SKCanvas canvas, float w, float h, Matrix4x4 model, SKImage? image, float opacity, Vector2 center, float rotationYAbs)
+        private void DrawQuad(SKCanvas canvas, float w, float h, Matrix4x4 model, SKImage? image, float opacity, Vector2 center, float rotationYAbs, bool isReflection = false)
         {
             if (opacity < 0.01f || image == null) return;
 
@@ -627,6 +670,9 @@ namespace AES_Controls.Composition
             if (dims.Width <= 0 || dims.Height <= 0) return;
 
             _quadPaint.Color = SKColors.White.WithAlpha((byte)(255 * opacity));
+            _quadPaint.FilterQuality = isReflection
+                ? SKFilterQuality.Low
+                : (UseReducedMotionQuality ? SKFilterQuality.Low : SKFilterQuality.Medium);
             if (!_shaderCache.TryGetValue(image, out var shader)) { 
                 try { _shaderCache[image] = shader = image.ToShader(); } catch { return; }
             }
@@ -640,9 +686,10 @@ namespace AES_Controls.Composition
             // Subdivide the quad just enough to keep side cards believable without
             // overloading the render loop during fast carousel motion.
             float aspect = w / Math.Max(1f, h);
-            int horizontalSegments = 1 + (int)Math.Ceiling(Math.Max(0f, aspect - 1.0f) * 1.6f + rotationYAbs * 3.0f);
+            int horizontalSegments = 1 + (int)Math.Ceiling(Math.Max(0f, aspect - 1.0f) * (isReflection ? 0.25f : 1.4f) + rotationYAbs * (UseReducedMotionQuality ? 1.6f : 3.0f));
             if (horizontalSegments < 1) horizontalSegments = 1;
-            if (horizontalSegments > 5) horizontalSegments = 5;
+            int maxSegments = isReflection ? 1 : (UseReducedMotionQuality ? 2 : 5);
+            if (horizontalSegments > maxSegments) horizontalSegments = maxSegments;
 
             int vertCount = 2 * (horizontalSegments + 1);
             if (_meshVBuffer.Length != vertCount) _meshVBuffer = new SKPoint[vertCount];

@@ -74,7 +74,7 @@ namespace AES_Lacrima.ViewModels
         private Bitmap? _defaultFolderCover;
 
         [ObservableProperty]
-        private int _selectedIndex;
+        private double _selectedIndex = -1;
 
         [ObservableProperty]
         private int _selectedAlbumIndex = -1;
@@ -149,6 +149,8 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private AudioPlayer? _audioPlayer;
         private AudioPlayer? _subscribedAudioPlayer;
+
+        public bool ResetPlaybackOnAlbumSwitch { get; set; }
 
         public bool ShuffleMode
         {
@@ -692,7 +694,7 @@ namespace AES_Lacrima.ViewModels
         {
             var selectedAlbum = SelectedAlbum;
             var isSameAlbum = selectedAlbum != null && ReferenceEquals(LoadedAlbum, selectedAlbum);
-            if (!isSameAlbum)
+            if (!isSameAlbum && ResetPlaybackOnAlbumSwitch)
                 ResetPlaybackStateForAlbumSwitch();
 
             _scanMissingStreamDurationsOnLoadedAlbum = true;
@@ -1453,10 +1455,10 @@ namespace AES_Lacrima.ViewModels
                 }
             }
         }
-        partial void OnSelectedIndexChanged(int value)
+        partial void OnSelectedIndexChanged(double value)
         {
-            // Use the incoming value (new SelectedIndex) to avoid referencing the property which may have changed
-            if (value >= 0 && value < CoverItems.Count && CoverItems[value] is { } highlighted)
+            int roundedIndex = GetRoundedSelectedIndex(value);
+            if (roundedIndex >= 0 && roundedIndex < CoverItems.Count && CoverItems[roundedIndex] is { } highlighted)
             {
                 HighlightedItem = highlighted;
             }
@@ -2271,8 +2273,9 @@ namespace AES_Lacrima.ViewModels
 
             var query = SearchText?.Trim();
             MediaItem? preferredItem = null;
-            if (SelectedIndex >= 0 && SelectedIndex < CoverItems.Count)
-                preferredItem = CoverItems[SelectedIndex];
+            int currentSelectedIndex = GetRoundedSelectedIndex(SelectedIndex);
+            if (currentSelectedIndex >= 0 && currentSelectedIndex < CoverItems.Count)
+                preferredItem = CoverItems[currentSelectedIndex];
             preferredItem ??= HighlightedItem;
             preferredItem ??= SelectedMediaItem;
 
@@ -2306,6 +2309,14 @@ namespace AES_Lacrima.ViewModels
                 PointedIndex = -1;
 
             HighlightedItem = CoverItems[nextIndex];
+        }
+
+        private static int GetRoundedSelectedIndex(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                return -1;
+
+            return (int)Math.Round(value, MidpointRounding.AwayFromZero);
         }
 
         private string GetUniqueAlbumName(string baseName)
