@@ -110,7 +110,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private bool _showSecondCircleAnimation = false;
 
     [ObservableProperty]
-    private bool _showEdgeBorder = true;
+    private bool _showEdgeBorder = false;
 
     /// <summary>
     /// Backing field for the <c>ShowShaderToy</c> observable property.
@@ -1286,7 +1286,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ShowBackground = ReadBoolSetting(section, nameof(ShowBackground));
         BackgroundImagePath = ReadStringSetting(section, nameof(BackgroundImagePath), Path.Combine("Assets", "background.jpg"))!;
         ShowParticles = ReadBoolSetting(section, nameof(ShowParticles), true);
-        ShowEdgeBorder = ReadBoolSetting(section, nameof(ShowEdgeBorder), true);
+        ShowEdgeBorder = ReadBoolSetting(section, nameof(ShowEdgeBorder), false);
         ShowSecondCircleAnimation = ReadBoolSetting(section, nameof(ShowSecondCircleAnimation), ShowSecondCircleAnimation);
         // Spectrum settings
         SpectrumHeight = ReadDoubleSetting(section, nameof(SpectrumHeight), SpectrumHeight);
