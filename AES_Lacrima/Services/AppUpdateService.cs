@@ -1,6 +1,7 @@
 using AES_Core.DI;
 using AES_Core.IO;
 using AES_Core.Services;
+using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -29,14 +30,35 @@ public sealed record AppReleaseInfo(
     string Version,
     string ReleasePageUrl,
     DateTimeOffset? PublishedAt,
+    bool IsPrerelease,
     IReadOnlyList<AppReleaseAssetInfo> Assets,
-    AppReleaseAssetInfo? SelectedAsset = null);
+    AppReleaseAssetInfo? SelectedAsset = null)
+{
+    public string DisplayLabel
+    {
+        get
+        {
+            var suffix = IsPrerelease ? " (Pre-release)" : string.Empty;
+            return $"{Version}{suffix}";
+        }
+    }
+}
+
+internal sealed record AppUpdateCheckCache(
+    DateTimeOffset CheckedAtUtc,
+    AppReleaseInfo Release);
+
+internal sealed record AppUpdateReleaseListCache(
+    DateTimeOffset CheckedAtUtc,
+    IReadOnlyList<AppReleaseInfo> Releases);
 
 [AutoRegister]
 public partial class AppUpdateService : ObservableObject
 {
     private const string Repo = "aruantec/AES_Lacrima";
     private const string UpdaterLogFileName = "updater.log";
+    private const string UpdateCheckCacheFileName = "app-update-check.json";
+    private const string ReleaseListCacheFileName = "app-update-release-list.json";
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<AppUpdateService>();
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(10) };
 #if NATIVE_AOT
@@ -120,6 +142,9 @@ public partial class AppUpdateService : ObservableObject
     [ObservableProperty]
     private bool _preferAotUpdates = DefaultPreferAotUpdates;
 
+    [ObservableProperty]
+    private AvaloniaList<AppReleaseInfo> _availableReleases = [];
+
     public bool IsCurrentBuildAot
     {
         get
@@ -140,7 +165,7 @@ public partial class AppUpdateService : ObservableObject
 
     public bool IsPreferredBuildFlavorInstalled => PreferAotUpdates == IsCurrentBuildAot;
 
-    public async Task<AppReleaseInfo?> CheckForUpdatesAsync()
+    public async Task<AppReleaseInfo?> CheckForUpdatesAsync(bool forceRefresh = false)
     {
         await _gate.WaitAsync().ConfigureAwait(false);
         try
@@ -156,6 +181,7 @@ public partial class AppUpdateService : ObservableObject
             Status = "Checking for application updates...";
             WriteDiagnosticLog(
                 "Starting update check",
+                $"ForceRefresh={forceRefresh}",
                 $"CurrentVersion={CurrentVersionDisplay}",
                 $"PreferAotUpdates={PreferAotUpdates}",
                 $"CanSelfUpdate={installTarget.CanSelfUpdate}",
@@ -164,7 +190,7 @@ public partial class AppUpdateService : ObservableObject
                 $"RestartPath={installTarget.RestartPath}",
                 $"UnsupportedReason={installTarget.UnsupportedReason ?? "<none>"}");
 
-            var release = await FetchLatestReleaseAsync().ConfigureAwait(false);
+            var release = await FetchLatestReleaseAsync(forceRefresh).ConfigureAwait(false);
             if (release == null)
             {
                 WriteDiagnosticLog("Update check returned no release metadata.");
@@ -551,21 +577,182 @@ public partial class AppUpdateService : ObservableObject
         }
     }
 
-    private static async Task<AppReleaseInfo?> FetchLatestReleaseAsync()
+    private static async Task<AppReleaseInfo?> FetchLatestReleaseAsync(bool forceRefresh)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Repo}/releases/latest");
-        request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; AES-Lacrima-Updater)");
-        request.Headers.Accept.ParseAdd("application/vnd.github+json");
+        if (!forceRefresh && TryReadCachedUpdateCheck(out var cachedRelease, out var checkedAtUtc))
+        {
+            var cacheLifetime = GetUpdateCheckCacheLifetime();
+            var cacheAge = DateTimeOffset.UtcNow - checkedAtUtc;
+            if (cacheAge <= cacheLifetime)
+            {
+                WriteDiagnosticLog(
+                    "Using cached update metadata",
+                    $"CheckedAtUtc={checkedAtUtc:O}",
+                    $"CacheAge={cacheAge}",
+                    $"CacheLifetime={cacheLifetime}");
+                return cachedRelease;
+            }
+        }
 
-        using var response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Repo}/releases/latest");
+            request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; AES-Lacrima-Updater)");
+            request.Headers.Accept.ParseAdd("application/vnd.github+json");
 
-        await using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-        using var document = await JsonDocument.ParseAsync(stream).ConfigureAwait(false);
-        var root = document.RootElement;
+            using var response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            using var document = await JsonDocument.ParseAsync(stream).ConfigureAwait(false);
+            var root = document.RootElement;
+
+            var release = ParseRelease(root);
+            if (release == null)
+                return null;
+
+            TryWriteCachedUpdateCheck(release);
+            return release;
+        }
+        catch when (!forceRefresh && TryReadCachedUpdateCheck(out var fallbackRelease, out var fallbackCheckedAtUtc))
+        {
+            WriteDiagnosticLog(
+                "Update fetch failed; falling back to cached metadata",
+                $"CheckedAtUtc={fallbackCheckedAtUtc:O}",
+                $"CacheAge={DateTimeOffset.UtcNow - fallbackCheckedAtUtc}");
+            return fallbackRelease;
+        }
+    }
+
+    private static async Task<IReadOnlyList<AppReleaseInfo>> FetchReleaseListAsync(bool forceRefresh)
+    {
+        if (!forceRefresh && TryReadCachedReleaseList(out var cachedReleases, out var checkedAtUtc))
+        {
+            var cacheLifetime = GetUpdateCheckCacheLifetime();
+            var cacheAge = DateTimeOffset.UtcNow - checkedAtUtc;
+            if (cacheAge <= cacheLifetime)
+            {
+                WriteDiagnosticLog(
+                    "Using cached release list metadata",
+                    $"CheckedAtUtc={checkedAtUtc:O}",
+                    $"CacheAge={cacheAge}",
+                    $"CacheLifetime={cacheLifetime}",
+                    $"ReleaseCount={cachedReleases.Count}");
+                return cachedReleases;
+            }
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Repo}/releases");
+            request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Compatible; AES-Lacrima-Updater)");
+            request.Headers.Accept.ParseAdd("application/vnd.github+json");
+
+            using var response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            using var document = await JsonDocument.ParseAsync(stream).ConfigureAwait(false);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Array)
+                return Array.Empty<AppReleaseInfo>();
+
+            var releases = new List<AppReleaseInfo>();
+            foreach (var releaseNode in root.EnumerateArray())
+            {
+                var release = ParseRelease(releaseNode);
+                if (release != null)
+                    releases.Add(release);
+            }
+
+            var orderedReleases = releases
+                .OrderByDescending(r => SemanticVersion.Parse(r.Version))
+                .ThenByDescending(r => r.PublishedAt ?? DateTimeOffset.MinValue)
+                .ToList();
+
+            TryWriteCachedReleaseList(orderedReleases);
+            return orderedReleases;
+        }
+        catch when (!forceRefresh && TryReadCachedReleaseList(out var fallbackReleases, out var fallbackCheckedAtUtc))
+        {
+            WriteDiagnosticLog(
+                "Release list fetch failed; falling back to cached metadata",
+                $"CheckedAtUtc={fallbackCheckedAtUtc:O}",
+                $"CacheAge={DateTimeOffset.UtcNow - fallbackCheckedAtUtc}",
+                $"ReleaseCount={fallbackReleases.Count}");
+            return fallbackReleases;
+        }
+    }
+
+    public async Task<IReadOnlyList<AppReleaseInfo>> GetAvailableReleasesAsync(bool forceRefresh = false)
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            IsBusy = true;
+            IsChecking = true;
+
+            var releases = await FetchReleaseListAsync(forceRefresh).ConfigureAwait(false);
+            AvailableReleases = [.. releases];
+            return AvailableReleases;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Failed to fetch available application releases", ex);
+            Status = $"Release list check failed: {ex.Message}";
+            return Array.Empty<AppReleaseInfo>();
+        }
+        finally
+        {
+            IsChecking = false;
+            IsBusy = false;
+            _gate.Release();
+        }
+    }
+
+    public AppReleaseInfo? PrepareReleaseForInstall(AppReleaseInfo release)
+    {
+        var installTarget = ResolveInstallTarget();
+        var selectedAsset = SelectBestAsset(release.Assets, installTarget.Kind, PreferAotUpdates);
+        return selectedAsset == null ? null : release with { SelectedAsset = selectedAsset };
+    }
+
+    public bool IsSameVersion(AppReleaseInfo release) =>
+        CompareSemanticVersions(release.Version, CurrentVersion) == 0;
+
+    public bool IsNewerVersion(AppReleaseInfo release) =>
+        CompareSemanticVersions(release.Version, CurrentVersion) > 0;
+
+    private static TimeSpan GetUpdateCheckCacheLifetime()
+    {
+#if DEBUG
+        return TimeSpan.FromMinutes(15);
+#else
+        return TimeSpan.FromHours(1);
+#endif
+    }
+
+    private static AppReleaseInfo? ParseRelease(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            return null;
+
+        var isDraft = root.TryGetProperty("draft", out var draftNode) && draftNode.ValueKind == JsonValueKind.True;
+        if (isDraft)
+            return null;
 
         var tagName = root.TryGetProperty("tag_name", out var tagNode) ? tagNode.GetString() ?? string.Empty : string.Empty;
-        var htmlUrl = root.TryGetProperty("html_url", out var htmlNode) ? htmlNode.GetString() ?? string.Empty : string.Empty;
+        var version = NormalizeVersionString(tagName) ?? tagName;
+        if (string.IsNullOrWhiteSpace(version))
+            return null;
+
+        var htmlUrl = root.TryGetProperty("html_url", out var htmlNode)
+            ? htmlNode.GetString() ?? $"https://github.com/{Repo}/releases/tag/{tagName}"
+            : $"https://github.com/{Repo}/releases/tag/{tagName}";
+
+        var isPrerelease = root.TryGetProperty("prerelease", out var prereleaseNode)
+            && prereleaseNode.ValueKind == JsonValueKind.True;
+
         DateTimeOffset? publishedAt = null;
         if (root.TryGetProperty("published_at", out var publishedNode)
             && DateTimeOffset.TryParse(publishedNode.GetString(), out var parsedPublished))
@@ -591,10 +778,97 @@ public partial class AppUpdateService : ObservableObject
 
         return new AppReleaseInfo(
             TagName: tagName,
-            Version: NormalizeVersionString(tagName) ?? tagName,
+            Version: version,
             ReleasePageUrl: htmlUrl,
             PublishedAt: publishedAt,
+            IsPrerelease: isPrerelease,
             Assets: assets);
+    }
+
+    private static bool TryReadCachedUpdateCheck(out AppReleaseInfo? release, out DateTimeOffset checkedAtUtc)
+    {
+        release = null;
+        checkedAtUtc = default;
+
+        try
+        {
+            var cachePath = ApplicationPaths.GetCacheFile(UpdateCheckCacheFileName);
+            if (!File.Exists(cachePath))
+                return false;
+
+            var json = File.ReadAllText(cachePath);
+            var cache = JsonSerializer.Deserialize<AppUpdateCheckCache>(json);
+            if (cache?.Release == null)
+                return false;
+
+            checkedAtUtc = cache.CheckedAtUtc;
+            release = cache.Release;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to read the cached app update metadata", ex);
+            return false;
+        }
+    }
+
+    private static bool TryReadCachedReleaseList(out IReadOnlyList<AppReleaseInfo> releases, out DateTimeOffset checkedAtUtc)
+    {
+        releases = Array.Empty<AppReleaseInfo>();
+        checkedAtUtc = default;
+
+        try
+        {
+            var cachePath = ApplicationPaths.GetCacheFile(ReleaseListCacheFileName);
+            if (!File.Exists(cachePath))
+                return false;
+
+            var json = File.ReadAllText(cachePath);
+            var cache = JsonSerializer.Deserialize<AppUpdateReleaseListCache>(json);
+            if (cache?.Releases == null)
+                return false;
+
+            checkedAtUtc = cache.CheckedAtUtc;
+            releases = cache.Releases;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to read the cached app release list metadata", ex);
+            return false;
+        }
+    }
+
+    private static void TryWriteCachedUpdateCheck(AppReleaseInfo release)
+    {
+        try
+        {
+            Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
+            var cachePath = ApplicationPaths.GetCacheFile(UpdateCheckCacheFileName);
+            var cache = new AppUpdateCheckCache(DateTimeOffset.UtcNow, release);
+            var json = JsonSerializer.Serialize(cache);
+            File.WriteAllText(cachePath, json, Encoding.UTF8);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to persist cached app update metadata", ex);
+        }
+    }
+
+    private static void TryWriteCachedReleaseList(IReadOnlyList<AppReleaseInfo> releases)
+    {
+        try
+        {
+            Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
+            var cachePath = ApplicationPaths.GetCacheFile(ReleaseListCacheFileName);
+            var cache = new AppUpdateReleaseListCache(DateTimeOffset.UtcNow, releases);
+            var json = JsonSerializer.Serialize(cache);
+            File.WriteAllText(cachePath, json, Encoding.UTF8);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to persist cached app release list metadata", ex);
+        }
     }
 
     private void ReevaluateAvailableReleaseForPreferredFlavor()

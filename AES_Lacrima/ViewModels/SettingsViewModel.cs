@@ -472,6 +472,18 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private bool _preferAotAppUpdates = DefaultPreferAotAppUpdates;
 
+    [ObservableProperty]
+    private AvaloniaList<AppReleaseInfo> _availableAppReleases = new();
+
+    [ObservableProperty]
+    private AppReleaseInfo? _selectedAppRelease;
+
+    [ObservableProperty]
+    private string? _selectedAppReleaseAssetName;
+
+    [ObservableProperty]
+    private string _selectedAppReleaseStatus = "Release history has not been loaded yet.";
+
     /// <summary>
     /// Gets or sets the path to the current background image.
     /// </summary>
@@ -729,7 +741,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (AppUpdateService == null)
             return;
 
-        var release = await AppUpdateService.CheckForUpdatesAsync();
+        var release = await AppUpdateService.CheckForUpdatesAsync(forceRefresh: true);
+        await RefreshAppReleaseHistory(forceRefresh: true);
         if (release != null)
         {
             if (AppMode == 1)
@@ -741,6 +754,60 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 DiLocator.ResolveViewModel<MainWindowViewModel>()?.ShowAppUpdatePrompt(release);
             }
         }
+    }
+
+    [RelayCommand]
+    private async Task RefreshAppReleaseHistory(bool forceRefresh = true)
+    {
+        if (AppUpdateService == null)
+            return;
+
+        var releases = await AppUpdateService.GetAvailableReleasesAsync(forceRefresh);
+
+        AvailableAppReleases.Clear();
+        foreach (var release in releases)
+        {
+            if (AppUpdateService.PrepareReleaseForInstall(release) != null)
+                AvailableAppReleases.Add(release);
+        }
+        OnPropertyChanged(nameof(HasAvailableAppReleases));
+
+        if (AvailableAppReleases.Count == 0)
+        {
+            SelectedAppRelease = null;
+            SelectedAppReleaseStatus = "No compatible application versions were found for this platform/build preference.";
+            return;
+        }
+
+        if (SelectedAppRelease != null)
+        {
+            var matchingRelease = AvailableAppReleases.FirstOrDefault(r =>
+                string.Equals(r.TagName, SelectedAppRelease.TagName, StringComparison.OrdinalIgnoreCase));
+            SelectedAppRelease = matchingRelease ?? AvailableAppReleases[0];
+        }
+        else
+        {
+            SelectedAppRelease = AvailableAppReleases[0];
+        }
+
+        SyncSelectedAppReleaseState();
+    }
+
+    [RelayCommand]
+    private async Task InstallSelectedAppRelease()
+    {
+        if (AppUpdateService == null || SelectedAppRelease == null)
+            return;
+
+        var preparedRelease = AppUpdateService.PrepareReleaseForInstall(SelectedAppRelease);
+        if (preparedRelease == null)
+        {
+            SelectedAppReleaseStatus = $"Version {SelectedAppRelease.DisplayLabel} does not have a compatible {PreferredAppUpdateFlavorLabel} package for this platform.";
+            return;
+        }
+
+        await AppUpdateService.DownloadAndRestartToApplyUpdateAsync(preparedRelease);
+        SyncSelectedAppReleaseState();
     }
 
     [RelayCommand]
@@ -1016,6 +1083,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             newValue.PreferAotUpdates = PreferAotAppUpdates;
             newValue.PropertyChanged += OnAppUpdateServicePropertyChanged;
+            _ = RefreshAppReleaseHistory(forceRefresh: false);
         }
     }
 
@@ -1025,18 +1093,58 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         if (AppUpdateService != null)
             AppUpdateService.PreferAotUpdates = value;
+
+        _ = RefreshAppReleaseHistory(forceRefresh: false);
     }
 
     public string PreferredAppUpdateFlavorLabel => PreferAotAppUpdates ? "AOT" : "Non-AOT";
 
+    public bool HasAvailableAppReleases => AvailableAppReleases.Count > 0;
+
+    public bool CanInstallSelectedAppRelease =>
+        SelectedAppRelease != null &&
+        !string.IsNullOrWhiteSpace(SelectedAppReleaseAssetName) &&
+        (AppUpdateService?.CanSelfUpdate ?? false) &&
+        !(AppUpdateService?.IsBusy ?? false);
+
+    public string SelectedAppReleaseActionLabel
+    {
+        get
+        {
+            if (SelectedAppRelease == null || AppUpdateService == null)
+                return "Install Selected Version";
+
+            if (AppUpdateService.IsSameVersion(SelectedAppRelease))
+                return "Reinstall Selected Version";
+
+            return AppUpdateService.IsNewerVersion(SelectedAppRelease)
+                ? "Update to Selected Version"
+                : "Revert to Selected Version";
+        }
+    }
+
+    partial void OnSelectedAppReleaseChanged(AppReleaseInfo? value)
+    {
+        SyncSelectedAppReleaseState();
+    }
+
     private void OnAppUpdateServicePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (AppMode != 1 || AppUpdateService == null)
+        if (AppUpdateService == null)
             return;
 
         if (e.PropertyName == nameof(AppUpdateService.IsUpdateAvailable) && AppUpdateService.IsUpdateAvailable)
         {
-            MiniSettingsSelectedTab = 2;
+            if (AppMode == 1)
+                MiniSettingsSelectedTab = 2;
+        }
+
+        if (e.PropertyName == nameof(AppUpdateService.CanSelfUpdate) ||
+            e.PropertyName == nameof(AppUpdateService.IsBusy) ||
+            e.PropertyName == nameof(AppUpdateService.CurrentVersion) ||
+            e.PropertyName == nameof(AppUpdateService.PreferAotUpdates))
+        {
+            SyncSelectedAppReleaseState();
         }
     }
 
@@ -1090,6 +1198,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         _ = RefreshFFmpegInfo();
         _ = RefreshMpvInfo();
         _ = RefreshYtDlpInfo();
+        _ = RefreshAppReleaseHistory(forceRefresh: false);
 
         // Generate dummy preview items
         var defaultCover = PlaceholderGenerator.GenerateMusicPlaceholder();
@@ -1105,6 +1214,56 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             });
         }
         PreviewItems = [.. items];
+    }
+
+    private void SyncSelectedAppReleaseState()
+    {
+        OnPropertyChanged(nameof(HasAvailableAppReleases));
+        OnPropertyChanged(nameof(CanInstallSelectedAppRelease));
+        OnPropertyChanged(nameof(SelectedAppReleaseActionLabel));
+
+        if (AppUpdateService == null)
+        {
+            SelectedAppReleaseAssetName = null;
+            SelectedAppReleaseStatus = "Application updater is not available.";
+            return;
+        }
+
+        if (SelectedAppRelease == null)
+        {
+            SelectedAppReleaseAssetName = null;
+            SelectedAppReleaseStatus = AvailableAppReleases.Count == 0
+                ? "Release history has not been loaded yet."
+                : "Select a version to install.";
+            return;
+        }
+
+        var preparedRelease = AppUpdateService.PrepareReleaseForInstall(SelectedAppRelease);
+        SelectedAppReleaseAssetName = preparedRelease?.SelectedAsset?.Name;
+
+        if (preparedRelease == null)
+        {
+            SelectedAppReleaseStatus = $"Version {SelectedAppRelease.DisplayLabel} does not have a compatible {PreferredAppUpdateFlavorLabel} package for this platform.";
+            return;
+        }
+
+        if (!AppUpdateService.CanSelfUpdate)
+        {
+            SelectedAppReleaseStatus = "This installation cannot self-update from the selected version.";
+            return;
+        }
+
+        if (AppUpdateService.IsSameVersion(SelectedAppRelease))
+        {
+            SelectedAppReleaseStatus = SelectedAppRelease.IsPrerelease
+                ? $"Selected version {SelectedAppRelease.DisplayLabel} matches the installed version. You can reinstall it or switch build flavor."
+                : $"Selected version {SelectedAppRelease.DisplayLabel} matches the installed version. You can reinstall it if needed.";
+            return;
+        }
+
+        SelectedAppReleaseStatus = AppUpdateService.IsNewerVersion(SelectedAppRelease)
+            ? $"Selected version {SelectedAppRelease.DisplayLabel} is newer than the installed build."
+            : $"Selected version {SelectedAppRelease.DisplayLabel} is older than the installed build and can be used to roll back.";
     }
 
     /// <summary>
