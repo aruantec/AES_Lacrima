@@ -537,6 +537,15 @@ namespace AES_Lacrima.ViewModels
             IsVideoViewportDismissed = true;
         }
 
+        [RelayCommand]
+        private void ToggleVideoViewport()
+        {
+            if (!IsVideoMode || AudioPlayer?.CurrentMediaItem == null)
+                return;
+
+            IsVideoViewportDismissed = !IsVideoViewportDismissed;
+        }
+
         [RelayCommand(CanExecute = nameof(CanAddItems))]
         private async Task AddItems()
         {
