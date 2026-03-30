@@ -103,13 +103,13 @@
                      and '$(CI)' != 'true'
                      and Exists('$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh')">
     <Message Importance="high" Text="Installing Linux desktop entry for publish output at '$(PublishDir)'" />
-    <Exec Command="bash &amp;quot;$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh&amp;quot; &amp;quot;$(PublishDir)&amp;quot;" />
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh&quot; &quot;$(PublishDir)&quot;" />
   </Target>
   <!-- macOS packaging target: creates a .app bundle using the publish directory -->
   <Target Name="CreateMacAppBundleOnPublish" AfterTargets="Publish" Condition="('$(RuntimeIdentifier)' == 'osx-x64' or '$(RuntimeIdentifier)' == 'osx-arm64')
                      and Exists('$(MSBuildProjectDirectory)/Mac/publish-macos.sh')">
     <Message Importance="high" Text="Creating macOS application bundle for publish output at '$(PublishDir)'" />
-    <Exec Command="bash &amp;quot;$(MSBuildProjectDirectory)/Mac/publish-macos.sh&amp;quot; &amp;quot;$(PublishDir)&amp;quot;" EnvironmentVariables="APP_VERSION=$(Version)" />
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Mac/publish-macos.sh&quot; &quot;$(PublishDir)&quot;" EnvironmentVariables="APP_VERSION=$(Version)" />
   </Target>
   <Target Name="BuildAesDiGeneratorForAot" BeforeTargets="CoreCompile" Condition="'$(PublishAot)' == 'true'">
     <MSBuild Projects="..\AES_Di.Generator\AES_Di.Generator.csproj" Targets="Build" Properties="Configuration=$(Configuration)" RemoveProperties="PublishAot;PublishTrimmed;RuntimeIdentifier;SelfContained" />
