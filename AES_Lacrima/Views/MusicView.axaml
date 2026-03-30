@@ -225,26 +225,6 @@
             <player:VideoViewControl Player="{Binding AudioPlayer}"
                                      Stretch="Uniform"
                                      IsRenderingPaused="{Binding !IsVideoViewportVisible}" />
-
-            <Button HorizontalAlignment="Right"
-                    VerticalAlignment="Top"
-                    Margin="0,14,14,0"
-                    Width="34"
-                    Height="34"
-                    CornerRadius="17"
-                    Background="#AA000000"
-                    BorderBrush="#55FFFFFF"
-                    BorderThickness="1"
-                    Command="{Binding CloseVideoViewportCommand}"
-                    ToolTip.Tip="Close video">
-                <Path Data="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
-                      Fill="#EEFFFFFF"
-                      Width="12"
-                      Height="12"
-                      Stretch="Uniform"
-                      HorizontalAlignment="Center"
-                      VerticalAlignment="Center"/>
-            </Button>
         </Grid>
 
         <!-- Search Bar (on top) -->
@@ -456,13 +436,97 @@
             <!-- Left buttons -->
             <StackPanel Orientation="Horizontal" Spacing="50" HorizontalAlignment="Left">
 
-                <!--- Carousel icon -->
+                <!-- Music view: carousel icon -->
                 <Button Height="60"
                         Cursor="Hand"
                         VerticalAlignment="Center"
                         Command="{Binding ToggleAlbumlistCommand}"
                         Margin="50,0,0,0"
-                        ToolTip.Tip="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Show Albums, Show Carousel'}">
+                        IsVisible="{Binding !IsVideoMode}"
+                        ToolTip.Tip="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Show Albums, Hide Albums'}">
+					<Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <Rectangle Canvas.Left="18" Canvas.Top="15" Width="64" Height="8" RadiusX="4" RadiusY="4"
+                                       Fill="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
+                                <Rectangle.Transitions>
+                                    <Transitions>
+                                        <BrushTransition Property="Fill" Duration="0:0:0.32" />
+                                    </Transitions>
+                                </Rectangle.Transitions>
+                            </Rectangle>
+                            <Rectangle Canvas.Left="10" Canvas.Top="30" Width="80" Height="58" RadiusX="12" RadiusY="12"
+                                       StrokeThickness="6"
+                                       Stroke="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                       Fill="Transparent">
+                                <Rectangle.Transitions>
+                                    <Transitions>
+                                        <BrushTransition Property="Stroke" Duration="0:0:0.32" />
+                                    </Transitions>
+                                </Rectangle.Transitions>
+                            </Rectangle>
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+
+                <!-- Video view: list icon first, toggles album list -->
+                <Button Height="60"
+                        Cursor="Hand"
+                        VerticalAlignment="Center"
+                        Command="{Binding ToggleAlbumlistCommand}"
+                        IsVisible="{Binding IsVideoMode}"
+                        Margin="50,0,0,0"
+                        ToolTip.Tip="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Show Albums, Hide Albums'}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <Rectangle Canvas.Left="18" Canvas.Top="15" Width="64" Height="8" RadiusX="4" RadiusY="4"
+                                       Fill="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
+                                <Rectangle.Transitions>
+                                    <Transitions>
+                                        <BrushTransition Property="Fill" Duration="0:0:0.32" />
+                                    </Transitions>
+                                </Rectangle.Transitions>
+                            </Rectangle>
+                            <Rectangle Canvas.Left="10" Canvas.Top="30" Width="80" Height="58" RadiusX="12" RadiusY="12"
+                                       StrokeThickness="6"
+                                       Stroke="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                       Fill="Transparent">
+                                <Rectangle.Transitions>
+                                    <Transitions>
+                                        <BrushTransition Property="Stroke" Duration="0:0:0.32" />
+                                    </Transitions>
+                                </Rectangle.Transitions>
+                            </Rectangle>
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+
+                <!-- Video view: carousel icon second, toggles video viewport -->
+                <Button Height="60"
+                        Cursor="Hand"
+                        VerticalAlignment="Center"
+                        Command="{Binding ToggleVideoViewportCommand}"
+                        IsVisible="{Binding IsVideoMode}"
+                        ToolTip.Tip="{Binding IsVideoViewportVisible, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Show Carousel, Show Video'}">
 					<Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">
@@ -475,24 +539,21 @@
                     </Button.Template>
                     <Viewbox Stretch="Uniform">
                         <StackPanel Height="100" Orientation="Horizontal" Spacing="15">
-                            <!-- Left vertical bar -->
-                            <Rectangle x:Name="LeftBar" Width="8" Height="76" Fill="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
+                            <Rectangle Width="8" Height="76" Fill="{Binding IsVideoViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
                                 <Rectangle.Transitions>
                                     <Transitions>
                                         <BrushTransition Property="Fill" Duration="0:0:0.32" />
                                     </Transitions>
                                 </Rectangle.Transitions>
                             </Rectangle>
-                            <!-- Central frame -->
-                            <Rectangle x:Name="CenterFrame" Width="90" Height="80" RadiusX="16" RadiusY="16" StrokeThickness="10" Stroke="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}" Fill="Transparent">
+                            <Rectangle Width="90" Height="80" RadiusX="16" RadiusY="16" StrokeThickness="10" Stroke="{Binding IsVideoViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}" Fill="Transparent">
                                 <Rectangle.Transitions>
                                     <Transitions>
                                         <BrushTransition Property="Stroke" Duration="0:0:0.32" />
                                     </Transitions>
                                 </Rectangle.Transitions>
                             </Rectangle>
-                            <!-- Right vertical bar -->
-                            <Rectangle x:Name="RightBar" Width="8" Height="76" Fill="{Binding IsAlbumlistOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
+                            <Rectangle Width="8" Height="76" Fill="{Binding IsVideoViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
                                 <Rectangle.Transitions>
                                     <Transitions>
                                         <BrushTransition Property="Fill" Duration="0:0:0.32" />
