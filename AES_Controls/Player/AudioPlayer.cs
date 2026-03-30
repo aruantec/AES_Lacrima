@@ -34,6 +34,8 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     private CancellationTokenSource? _seekDispatchCts;
     private volatile bool _isInternalChange; // Guard to prevent playlist skipping
     private volatile bool _disposed; // Flag to skip native calls during shutdown
+    private CancellationTokenSource? _loadCts;
+    private int _playbackLoadVersion;
 
     /// <summary>
     /// Holds a reference to the current media item being processed or played.
@@ -436,6 +438,52 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             throw new ObjectDisposedException(nameof(AudioPlayer));
 
         _mpvQueue.Add(action);
+    }
+
+    private (int Version, CancellationToken Token) BeginPlaybackLoad()
+    {
+        var nextLoadCts = new CancellationTokenSource();
+        var previousLoadCts = Interlocked.Exchange(ref _loadCts, nextLoadCts);
+
+        if (previousLoadCts != null)
+        {
+            try { previousLoadCts.Cancel(); }
+            catch (Exception ex) { Log.Warn("Failed to cancel previous playback load", ex); }
+
+            try { previousLoadCts.Dispose(); }
+            catch (Exception ex) { Log.Warn("Failed to dispose previous playback load CTS", ex); }
+        }
+
+        var version = Interlocked.Increment(ref _playbackLoadVersion);
+        return (version, nextLoadCts.Token);
+    }
+
+    private void CancelPendingPlaybackLoad()
+    {
+        Interlocked.Increment(ref _playbackLoadVersion);
+
+        var previousLoadCts = Interlocked.Exchange(ref _loadCts, null);
+        if (previousLoadCts == null) return;
+
+        try { previousLoadCts.Cancel(); }
+        catch (Exception ex) { Log.Warn("Failed to cancel pending playback load", ex); }
+
+        try { previousLoadCts.Dispose(); }
+        catch (Exception ex) { Log.Warn("Failed to dispose pending playback load CTS", ex); }
+    }
+
+    private bool IsPlaybackLoadCurrent(int version, CancellationToken token)
+        => !token.IsCancellationRequested
+           && !_disposed
+           && version == Volatile.Read(ref _playbackLoadVersion);
+
+    private void ApplyNetworkPlaybackProfile(bool isRemote)
+    {
+        var demuxerMaxBytes = isRemote ? Math.Max(CacheSize, 128) : CacheSize;
+        SetProperty("cache", "yes");
+        SetProperty("demuxer-max-bytes", $"{demuxerMaxBytes}M");
+        SetProperty("demuxer-readahead-secs", isRemote ? "20" : "10");
+        SetProperty("hr-seek", isRemote ? "no" : "yes");
     }
 
     private sealed class WaveformCacheEntry
@@ -1320,6 +1368,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     public void PrepareLoad()
     {
         if (_disposed) return;
+        CancelPendingPlaybackLoad();
         _isInternalChange = true;
         IsLoadingMedia = true;
         InternalStop();
@@ -1466,6 +1515,8 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         }
 
         var fileToPlay = !string.IsNullOrWhiteSpace(resolvedUrl) ? resolvedUrl : item.FileName;
+        var isRemotePlayback = IsRemoteUri(fileToPlay) || (!string.IsNullOrWhiteSpace(externalAudioUrl) && IsRemoteUri(externalAudioUrl));
+        var (loadVersion, loadToken) = BeginPlaybackLoad();
 
         // Prepare for loading the new file
         _ignoreTimePos = true;
@@ -1513,19 +1564,20 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         {
             // Mute the old item immediately on the mpv thread before swapping sources.
             SetProperty("pause", true);
+            ApplyNetworkPlaybackProfile(isRemotePlayback);
             // IMPORTANT: when rendering through VideoViewControl/OpenGL, mpv must stay on "libmpv".
             // Using "auto" creates a standalone VO path and results in audio-only + black render target.
             SetProperty("vo", video ? "libmpv" : "null");
             SetProperty("vid", video ? "auto" : "no");
             SetProperty("audio-display", video ? "auto" : "no");
         });
-        // queue the load command but do not block the mpv thread waiting for
-        // its completion. ``RunCommandAsync`` completes on the MPV
-        // thread, so waiting there would deadlock (see comments above).
-        PostToMpvThread(async () => { 
-            try 
-            { 
-                await RunCommandAsync(new[] { "loadfile", mpvLoadTarget }); 
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await RunCommandAsync(["loadfile", mpvLoadTarget], loadToken).ConfigureAwait(false);
+                if (!IsPlaybackLoadCurrent(loadVersion, loadToken))
+                    return;
 
                 if (video && !string.IsNullOrWhiteSpace(externalAudioUrl))
                 {
@@ -1533,13 +1585,17 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                     var attached = false;
 
                     // Some source switches (e.g. local file -> DASH stream) can race with demuxer setup.
-                    // Retry a few times so external audio reliably attaches.
-                    for (int attempt = 1; attempt <= 5 && !attached; attempt++)
+                    // Retry a few times so external audio reliably attaches, but only for the active load.
+                    for (int attempt = 1; attempt <= 5 && !attached && IsPlaybackLoadCurrent(loadVersion, loadToken); attempt++)
                     {
                         try
                         {
-                            await RunCommandAsync(new[] { "audio-add", audioTarget, "select" });
+                            await RunCommandAsync(["audio-add", audioTarget, "select"], loadToken).ConfigureAwait(false);
                             attached = true;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return;
                         }
                         catch (Exception audioEx)
                         {
@@ -1550,35 +1606,45 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                             }
                             else
                             {
-                                await Task.Delay(150).ConfigureAwait(false);
+                                await Task.Delay(150, loadToken).ConfigureAwait(false);
                             }
                         }
                     }
 
-                    // Ensure mpv switches to an available audio track after external attach.
-                    SetProperty("aid", "auto");
+                    if (IsPlaybackLoadCurrent(loadVersion, loadToken))
+                        InvokeOnMpvThread(() => { SetProperty("aid", "auto"); return true; });
                 }
+
+                if (!IsPlaybackLoadCurrent(loadVersion, loadToken))
+                    return;
 
                 // Now load is fully initiated, old track stops playing.
                 _ignoreTimePos = false; // Safe to accept time-pos events again
 
                 // Resume only after the replacement source has been handed to mpv.
-                SetProperty("pause", false);
+                InvokeOnMpvThread(() => { SetProperty("pause", false); return true; });
 
                 if (EnableSpectrum)
                 {
                     _spectrumAnalyzer.SetPath(fileToPlay);
                     _spectrumAnalyzer.Start();
                 }
-            } 
-            catch(Exception ex) 
-            { 
-                Console.WriteLine($"[AudioPlayer Error]: {ex}"); 
-                Debug.WriteLine($"[AudioPlayer Error]: {ex}"); 
-                Log.Error("loadfile error", ex); 
-                _ignoreTimePos = false;
-                _syncContext?.Post(_ => IsLoadingMedia = false, null); 
-            } 
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AudioPlayer Error]: {ex}");
+                Debug.WriteLine($"[AudioPlayer Error]: {ex}");
+                Log.Error("loadfile error", ex);
+
+                if (IsPlaybackLoadCurrent(loadVersion, loadToken))
+                {
+                    _ignoreTimePos = false;
+                    _syncContext?.Post(_ => IsLoadingMedia = false, null);
+                }
+            }
         });
 
         // Re-apply audio filters/volume after load in case mpv reset properties during load
@@ -2129,6 +2195,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                         return;
 
                     var target = pos.ToString(CultureInfo.InvariantCulture);
+                    var seekMode = IsRemoteUri(_loadedFile) ? "absolute" : "absolute+exact";
                     InvokeOnMpvThread(() =>
                     {
                         var wasPlaying = IsPlaying;
@@ -2137,7 +2204,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                             if (wasPlaying)
                                 SetProperty("pause", true);
 
-                            RunCommand("seek", target, "absolute+exact");
+                            RunCommand("seek", target, seekMode);
                             Interlocked.Exchange(ref _lastSeekDispatchTicks, Stopwatch.GetTimestamp());
                         }
                         finally
@@ -2264,6 +2331,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     /// </summary>
     public void Stop()
     {
+        CancelPendingPlaybackLoad();
         if (!_disposed)
         {
             PostToMpvThread(() => _ = RunCommandAsync(new[] { "stop" }));
@@ -2315,6 +2383,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     /// </summary>
     public new void Dispose()
     {
+        CancelPendingPlaybackLoad();
         if (_disposed) return;
         _disposed = true;
 
