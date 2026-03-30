@@ -34,7 +34,7 @@ namespace AES_Lacrima.Services
             audioPlayer.IsLoadingMedia = true;
 
             // Load online urls
-            item.OnlineUrls = await HandleStreamFile(item.FileName).ConfigureAwait(false);
+            item.OnlineUrls = await HandleStreamFile(item.FileName, preferVideo).ConfigureAwait(false);
             // Play media (audio by default, video when requested)
             await audioPlayer.PlayFile(item, preferVideo).ConfigureAwait(false);
         }
@@ -44,7 +44,7 @@ namespace AES_Lacrima.Services
         /// </summary>
         /// <param name="url">The source URL to process.</param>
         /// <returns>A tuple containing the video URL and audio URL.</returns>
-        private async Task<(string, string)> HandleStreamFile(string url)
+        private async Task<(string, string)> HandleStreamFile(string url, bool preferVideo)
         {
             try
             {
@@ -82,17 +82,27 @@ namespace AES_Lacrima.Services
                     .OrderByDescending(a => a.Bitrate ?? 0)
                     .FirstOrDefault();
 
-                // Prefer separate video stream selection for visual quality.
-                // If no separate video exists, fall back to muxed.
+                // Prefer separate video stream selection for audio-only playback metadata/fallback.
+                // For actual video playback we strongly prefer a single muxed stream because it is
+                // much more stable than attaching a second remote audio stream after load.
                 string videoUrl = bestVideo?.Url ?? bestMuxed?.Url ?? string.Empty;
 
                 // For separate video streams, use the best audio stream.
                 // If no separate audio exists, fall back to muxed URL.
                 string audioUrl = bestAudio?.Url ?? bestMuxed?.Url ?? string.Empty;
 
-                // If only muxed stream is available, use it for both entries.
-                if (string.IsNullOrWhiteSpace(bestVideo?.Url) && !string.IsNullOrWhiteSpace(bestMuxed?.Url))
-                    audioUrl = bestMuxed!.Url;
+                if (preferVideo && !string.IsNullOrWhiteSpace(bestMuxed?.Url))
+                {
+                    // Use the same muxed URL for both slots so the player does not try to attach
+                    // a separate external audio stream for video playback.
+                    videoUrl = bestMuxed.Url;
+                    audioUrl = bestMuxed.Url;
+                }
+                else if (string.IsNullOrWhiteSpace(bestVideo?.Url) && !string.IsNullOrWhiteSpace(bestMuxed?.Url))
+                {
+                    // If only muxed stream is available, use it for both entries.
+                    audioUrl = bestMuxed.Url;
+                }
 
                 return (videoUrl, audioUrl);
             }

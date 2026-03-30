@@ -48,11 +48,12 @@ namespace AES_Lacrima.ViewModels
         protected static readonly string[] MusicSupportedTypes = ["*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4"];
         protected static readonly string[] VideoSupportedTypes = ["*.mp4", "*.m4v", "*.mkv", "*.avi", "*.mov", "*.webm", "*.wmv"];
         private static readonly HttpClient FastThumbnailClient = new() { Timeout = TimeSpan.FromSeconds(10) };
-        private static readonly SemaphoreSlim FastThumbnailThrottle = new(4);
+        private static readonly SemaphoreSlim FastThumbnailThrottle = new(OperatingSystem.IsMacOS() ? 2 : 4);
         private const int FastThumbnailDecodeWidth = 512;
         private const int FolderPreviewCoverCount = 4;
         private const int MetadataScrapperCacheEntries = 80;
         private const int MetadataStaggerDelayMs = 120;
+        private const int PlaylistUiAddBatchSize = 12;
 
         private TaskbarButton[]? _taskbarButtons;
         private IntPtr _playIcon;
@@ -1510,9 +1511,28 @@ namespace AES_Lacrima.ViewModels
                                 });
                             }
 
-                            bool firstItem = true;
                             var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
                             var addedItems = new List<MediaItem>();
+                            var existingMediaSnapshot = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                            {
+                                var source = LoadedAlbum?.Children?.ToList() ?? CoverItems.ToList();
+                                var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                                var youtubeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                                foreach (var media in source)
+                                {
+                                    if (string.IsNullOrWhiteSpace(media.FileName))
+                                        continue;
+
+                                    paths.Add(media.FileName);
+                                    var existingVideoId = TryExtractYouTubeVideoId(media.FileName);
+                                    if (!string.IsNullOrWhiteSpace(existingVideoId))
+                                        youtubeIds.Add(existingVideoId);
+                                }
+
+                                return (Paths: paths, YoutubeIds: youtubeIds, InitialCoverCount: CoverItems.Count);
+                            });
+                            var isFirstPlaylistItem = existingMediaSnapshot.InitialCoverCount == 0;
 
                             foreach (var url in urls)
                             {
@@ -1521,13 +1541,12 @@ namespace AES_Lacrima.ViewModels
                                 // Skip YouTube Shorts
                                 if (url.Contains("/shorts/") || url.Contains("shorts/")) continue;
 
-                                bool isDuplicate = false;
-                                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                                {
-                                    isDuplicate = IsMediaDuplicate(url, out _);
-                                });
+                                if (existingMediaSnapshot.Paths.Contains(url))
+                                    continue;
 
-                                if (isDuplicate) continue;
+                                var youtubeId = TryExtractYouTubeVideoId(url);
+                                if (!string.IsNullOrWhiteSpace(youtubeId) && existingMediaSnapshot.YoutubeIds.Contains(youtubeId))
+                                    continue;
 
                                 var item = new MediaItem
                                 {
@@ -1536,34 +1555,56 @@ namespace AES_Lacrima.ViewModels
                                     CoverBitmap = DefaultFolderCover
                                 };
 
-                                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                                {
-                                    CoverItems.Add(item);
-
-                                    if (LoadedAlbum?.Children != null && !ReferenceEquals(CoverItems, LoadedAlbum.Children))
-                                    {
-                                        if (!LoadedAlbum.Children.Any(c => c.FileName == item.FileName))
-                                            LoadedAlbum.Children.Add(item);
-                                    }
-
-                                    if (firstItem && CoverItems.Count == 1)
-                                    {
-                                        SelectedIndex = 0;
-                                        HighlightedItem = item;
-                                        IsNoAlbumLoadedVisible = false;
-                                        SearchText = string.Empty;
-                                    }
-                                    firstItem = false;
-                                });
-
+                                existingMediaSnapshot.Paths.Add(url);
+                                if (!string.IsNullOrWhiteSpace(youtubeId))
+                                    existingMediaSnapshot.YoutubeIds.Add(youtubeId);
                                 addedItems.Add(item);
-                                if (AllowOnlineCoverLookup)
-                                    _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
-                                _ = Task.Run(() => TryPopulateStreamMetadataAsync(item));
                             }
 
                             if (addedItems.Count > 0)
                             {
+                                for (int start = 0; start < addedItems.Count; start += PlaylistUiAddBatchSize)
+                                {
+                                    var batch = addedItems.Skip(start).Take(PlaylistUiAddBatchSize).ToList();
+                                    var selectFirstFromBatch = isFirstPlaylistItem && start == 0 ? batch.FirstOrDefault() : null;
+
+                                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                                    {
+                                        CoverItems.AddRange(batch);
+
+                                        if (LoadedAlbum?.Children != null && !ReferenceEquals(CoverItems, LoadedAlbum.Children))
+                                            LoadedAlbum.Children.AddRange(batch.Where(item => !LoadedAlbum.Children.Any(c => c.FileName == item.FileName)));
+
+                                        if (selectFirstFromBatch != null)
+                                        {
+                                            SelectedIndex = 0;
+                                            HighlightedItem = selectFirstFromBatch;
+                                            IsNoAlbumLoadedVisible = false;
+                                            SearchText = string.Empty;
+                                        }
+                                    });
+
+                                    if (OperatingSystem.IsMacOS())
+                                        await Task.Delay(16);
+                                }
+
+                                if (AllowOnlineCoverLookup)
+                                {
+                                    for (int i = 0; i < addedItems.Count; i++)
+                                    {
+                                        var item = addedItems[i];
+                                        var delayMs = OperatingSystem.IsMacOS() ? i * 90 : i * 30;
+                                        _ = Task.Run(async () =>
+                                        {
+                                            if (delayMs > 0)
+                                                await Task.Delay(delayMs).ConfigureAwait(false);
+                                            await TryLoadYouTubeThumbnailFastAsync(item).ConfigureAwait(false);
+                                        });
+                                    }
+                                }
+
+                                _ = Task.Run(async () => await PopulateMissingStreamMetadataAsync(addedItems).ConfigureAwait(false));
+
                                 var scanList = new AvaloniaList<MediaItem>(addedItems.Where(ShouldScanMetadataForItem));
                                 var allowOnlineForScan = scanList.Any(IsOnlineMediaItem) || AllowOnlineCoverLookup;
                                 var scrapper = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512, allowOnlineLookup: allowOnlineForScan);
@@ -1593,6 +1634,17 @@ namespace AES_Lacrima.ViewModels
                     AddPlaylistText = string.Empty;
                 }
             }
+        }
+
+        private static string? TryExtractYouTubeVideoId(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
+
+            return (path.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) ||
+                    path.Contains("youtu.be", StringComparison.OrdinalIgnoreCase))
+                ? YouTubeThumbnail.ExtractVideoId(path)
+                : null;
         }
         partial void OnSelectedIndexChanged(double value)
         {
@@ -2010,26 +2062,43 @@ namespace AES_Lacrima.ViewModels
 
             _ = Task.Run(async () =>
             {
-                await LoadPriorityAlbumCoversAsync(folder, agentInfo, forceUpdate, ct);
-
-                while (!ct.IsCancellationRequested)
+                try
                 {
-                    var hasMoreToLoad = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                        folder.Children.Any(NeedsCoverLoad));
+                    await LoadPriorityAlbumCoversAsync(folder, agentInfo, forceUpdate, ct);
 
-                    if (!hasMoreToLoad)
-                        break;
-
-                    await LoadAlbumCoversAsync(folder, agentInfo, forceUpdate, maxItemsToLoad: 24);
-
-                    try
+                    while (!ct.IsCancellationRequested)
                     {
-                        await Task.Delay(75, ct);
+                        var hasMoreToLoad = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                            folder.Children.Any(NeedsCoverLoad));
+
+                        if (!hasMoreToLoad)
+                            break;
+
+                        await LoadAlbumCoversAsync(folder, agentInfo, forceUpdate, maxItemsToLoad: 24);
+
+                        try
+                        {
+                            await Task.Delay(75, ct);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
                     }
-                    catch (OperationCanceledException)
+                }
+                finally
+                {
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                     {
-                        break;
-                    }
+                        foreach (var child in folder.Children)
+                        {
+                            if (!NeedsVisibleCoverLoad(child))
+                                child.IsLoadingCover = false;
+                        }
+
+                        folder.IsLoadingCover = folder.Children.Any(child =>
+                            NeedsVisibleCoverLoad(child) && child.IsLoadingCover);
+                    });
                 }
             }, ct);
         }
@@ -2131,6 +2200,13 @@ namespace AES_Lacrima.ViewModels
                 || item.Duration <= 0;
         }
 
+        private bool NeedsVisibleCoverLoad(MediaItem item)
+        {
+            if (item.CoverBitmap == null) return true;
+            if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
+            return item.CoverBitmap == DefaultFolderCover;
+        }
+
         private List<MediaItem> GetAlbumCoverLoadBatch(IReadOnlyList<MediaItem> items, int maxItemsToLoad)
         {
             var candidates = items.Where(NeedsCoverLoad).ToList();
@@ -2152,7 +2228,7 @@ namespace AES_Lacrima.ViewModels
 
                 foreach (var child in itemsToLoad)
                 {
-                    if (NeedsCoverLoad(child))
+                    if (NeedsVisibleCoverLoad(child))
                     {
                         if (child.CoverBitmap == null)
                         {
@@ -2161,9 +2237,13 @@ namespace AES_Lacrima.ViewModels
                         }
                         child.IsLoadingCover = true;
                     }
+                    else
+                    {
+                        child.IsLoadingCover = false;
+                    }
                 }
 
-                folder.IsLoadingCover = itemsToLoad.Count > 0;
+                folder.IsLoadingCover = itemsToLoad.Any(NeedsVisibleCoverLoad);
                 return (Snapshot: snapshot, ItemsToLoad: itemsToLoad);
             });
 
@@ -2275,15 +2355,19 @@ namespace AES_Lacrima.ViewModels
                 DefaultFolderCover ??= GenerateDefaultFolderCover();
                 foreach (var child in priorityItems)
                 {
-                    if (NeedsCoverLoad(child))
+                    if (NeedsVisibleCoverLoad(child))
                     {
                         if (child.CoverBitmap == null)
                             child.CoverBitmap = DefaultFolderCover;
                         child.IsLoadingCover = true;
                     }
+                    else
+                    {
+                        child.IsLoadingCover = false;
+                    }
                 }
 
-                folder.IsLoadingCover = true;
+                folder.IsLoadingCover = priorityItems.Any(NeedsVisibleCoverLoad);
             });
 
             var orderedItems = new AvaloniaList<MediaItem>(priorityItems);
@@ -2299,16 +2383,23 @@ namespace AES_Lacrima.ViewModels
                 allowOnlineLookup: allowOnlineForBatch);
 
             await WaitForAlbumCoversAsync(orderedItems);
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                folder.IsLoadingCover = priorityItems.Any(child =>
+                    NeedsVisibleCoverLoad(child) && child.IsLoadingCover);
+            });
         }
 
-        private static async Task WaitForAlbumCoversAsync(IReadOnlyList<MediaItem> items)
+        private async Task WaitForAlbumCoversAsync(IReadOnlyList<MediaItem> items)
         {
             if (items.Count == 0) return;
 
             // Allow the scrapper to flip IsLoadingCover before we start polling.
             await Task.Delay(50);
 
-            while (items.Any(i => i.IsLoadingCover))
+            while (await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                       items.Any(i => NeedsVisibleCoverLoad(i) && i.IsLoadingCover)))
             {
                 await Task.Delay(150);
             }

@@ -184,7 +184,8 @@ namespace AES_Controls.Composition
                 _paint.Color = SKColors.White.WithAlpha(120);
                 _paint.MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 5);
                 var glow = thumbRect; glow.Inflate(4, 4);
-                canvas.DrawRoundRect(glow, 10, 10, _paint);
+                var glowRadius = (thumbH * 0.5f) + 4f;
+                canvas.DrawRoundRect(glow, glowRadius, glowRadius, _paint);
                 _paint.MaskFilter = null;
             }
 
@@ -222,14 +223,21 @@ namespace AES_Controls.Composition
             _paint.Color = SKColors.Black.WithAlpha(0x66);
             canvas.DrawRoundRect(trackRect, trackH / 2f, trackH / 2f, _paint);
 
-            // Thumb fill (solid white)
+            // Thumb fill. Use a clean vertical gradient like the carousel slider and
+            // avoid the extra glossy cap, which can create visible corner artifacts
+            // on shallow thumbs.
             _paint.Style = SKPaintStyle.Fill;
-            _paint.Shader = null;
+            _thumbShader?.Dispose();
+            _thumbShader = SKShader.CreateLinearGradient(
+                new SKPoint(thumbRect.Left, thumbRect.Top),
+                new SKPoint(thumbRect.Left, thumbRect.Bottom),
+                new[] { _thumbTop, _thumbBottom },
+                null,
+                SKShaderTileMode.Clamp);
+            _paint.Shader = _thumbShader;
             _paint.Color = SKColors.White;
             canvas.DrawRoundRect(thumbRect, thumbH * 0.5f, thumbH * 0.5f, _paint);
-
-            // Gloss cap (subtle)
-            _paint.Style = SKPaintStyle.Fill; _paint.Color = SKColors.White.WithAlpha(0xE6); var hl = new SKRect(thumbRect.Left + 2, thumbRect.Top + 2, thumbRect.Right - 2, thumbRect.Top + thumbH * 0.42f); canvas.DrawRoundRect(hl, thumbH * 0.42f, thumbH * 0.42f, _paint);
+            _paint.Shader = null;
 
             // Outline
             _paint.Style = SKPaintStyle.Stroke; _paint.StrokeWidth = Math.Max(1f, thumbH * 0.06f); _paint.Color = SKColors.Black.WithAlpha(0x88); canvas.DrawRoundRect(thumbRect, thumbH * 0.5f, thumbH * 0.5f, _paint);
