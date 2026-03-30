@@ -62,6 +62,7 @@ namespace AES_Lacrima.Mini.ViewModels
         private int _pendingSelectedItemIndex = -1;
         private string? _pendingLastPlayedFileName;
         private BitmapColorHelper _colorHelper = new();
+        private MediaItem? _coverDisplayOverrideItem;
 
         #endregion
 
@@ -187,7 +188,7 @@ namespace AES_Lacrima.Mini.ViewModels
         #region Public properties
         public double DisplayDuration => LoadedMediaItem?.Duration ?? SelectedMediaItem?.Duration ?? 0.0;
 
-        public Bitmap LoadedCoverBitmap => LoadedMediaItem?.CoverBitmap ?? _defaultCover;
+        public Bitmap LoadedCoverBitmap => _coverDisplayOverrideItem?.CoverBitmap ?? LoadedMediaItem?.CoverBitmap ?? _defaultCover;
 
         public bool ShuffleMode
         {
@@ -597,9 +598,8 @@ namespace AES_Lacrima.Mini.ViewModels
 
         partial void OnLoadedMediaItemChanged(MediaItem? value)
         {
-            UpdateLoadedBrush(value);
+            RefreshCoverPresentation();
             OnPropertyChanged(nameof(DisplayDuration));
-            OnPropertyChanged(nameof(LoadedCoverBitmap));
         }
 
         partial void OnSelectedMediaItemChanged(MediaItem? value)
@@ -752,6 +752,7 @@ namespace AES_Lacrima.Mini.ViewModels
 
             var coverBitmap = item?.CoverBitmap;
             var hasCustomCover = coverBitmap != null && coverBitmap != _defaultCover;
+            var accentColor = ResolveSelectionColor(hasCustomCover ? coverBitmap : null);
 
             if (hasCustomCover)
             {
@@ -759,9 +760,68 @@ namespace AES_Lacrima.Mini.ViewModels
                 IsCoverPlaceholder = false;
             }
 
-            SelectionBrush = new SolidColorBrush(Color.Parse("#005CFE"));
+            SelectionBrush = new SolidColorBrush(accentColor);
             ControlsBrush = LoadedBrush;
             ColorGradientBrush = _colorHelper.GetColorGradient(hasCustomCover ? coverBitmap : null);
+        }
+
+        private Color ResolveSelectionColor(Bitmap? bitmap)
+        {
+            var fallback = Color.Parse("#005CFE");
+            if (bitmap == null)
+                return fallback;
+
+            try
+            {
+                var gradient = _colorHelper.GetColorGradient(bitmap);
+                var gradientColor = gradient?.GradientStops?
+                    .Select(stop => stop.Color)
+                    .FirstOrDefault(IsUsableSelectionColor);
+
+                if (gradientColor is Color usableGradientColor)
+                    return usableGradientColor;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("ResolveSelectionColor: failed to derive gradient accent", ex);
+            }
+
+            try
+            {
+                var dominant = BitmapColorHelper.GetDominantColor(bitmap);
+                if (IsUsableSelectionColor(dominant))
+                    return dominant;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("ResolveSelectionColor: failed to derive dominant accent", ex);
+            }
+
+            return fallback;
+        }
+
+        private static bool IsUsableSelectionColor(Color color)
+        {
+            if (color.A < 200)
+                return false;
+
+            // Reject colors that are effectively black/transparent-looking in the selection fill.
+            return color.R > 24 || color.G > 24 || color.B > 24;
+        }
+
+        private void RefreshCoverPresentation()
+        {
+            UpdateLoadedBrush(_coverDisplayOverrideItem ?? LoadedMediaItem);
+            OnPropertyChanged(nameof(LoadedCoverBitmap));
+        }
+
+        private void SetCoverDisplayOverride(MediaItem? item)
+        {
+            if (ReferenceEquals(_coverDisplayOverrideItem, item))
+                return;
+
+            _coverDisplayOverrideItem = item;
+            RefreshCoverPresentation();
         }
 
         private void SubscribeToCollection(AvaloniaList<MediaItem>? list)
@@ -798,11 +858,10 @@ namespace AES_Lacrima.Mini.ViewModels
                 OnPropertyChanged(nameof(DisplayDuration));
             }
             else if (sender is MediaItem item
-                && ReferenceEquals(item, LoadedMediaItem)
+                && (ReferenceEquals(item, LoadedMediaItem) || ReferenceEquals(item, _coverDisplayOverrideItem))
                 && e.PropertyName == nameof(MediaItem.CoverBitmap))
             {
-                UpdateLoadedBrush(item);
-                OnPropertyChanged(nameof(LoadedCoverBitmap));
+                RefreshCoverPresentation();
             }
         }
 
@@ -887,7 +946,16 @@ namespace AES_Lacrima.Mini.ViewModels
                 {
                     _pendingTrackLoadItem = null;
                     IsTrackLoadPending = false;
-                    ResetStoppedDisplay();
+                    var nextItem = GetUpcomingPlaybackItem();
+                    if (nextItem != null)
+                    {
+                        SetCoverDisplayOverride(nextItem);
+                    }
+                    else
+                    {
+                        SetCoverDisplayOverride(null);
+                        ResetStoppedDisplay();
+                    }
                 }
                 catch (Exception ex) { Log.Warn("OnAudioPlayerStopped failed", ex); }
             });
@@ -928,6 +996,13 @@ namespace AES_Lacrima.Mini.ViewModels
             if (activeItem == null)
                 return;
 
+            if (_coverDisplayOverrideItem != null &&
+                (ReferenceEquals(_coverDisplayOverrideItem, activeItem) ||
+                 string.Equals(_coverDisplayOverrideItem.FileName, activeItem.FileName, StringComparison.Ordinal)))
+            {
+                SetCoverDisplayOverride(null);
+            }
+
             var activeItemIndex = MusicViewModel.CoverItems.IndexOf(activeItem);
             var activeItemIsInCurrentPlaylist = activeItemIndex >= 0;
 
@@ -949,6 +1024,42 @@ namespace AES_Lacrima.Mini.ViewModels
                 if (SelectedPlaylistIndex != activeItemIndex)
                     SelectedPlaylistIndex = activeItemIndex;
             }
+        }
+
+        private MediaItem? GetUpcomingPlaybackItem()
+        {
+            if (MusicViewModel == null)
+                return null;
+
+            var queue = MusicViewModel.PlaybackQueue;
+            if (queue == null || queue.Count == 0)
+                return null;
+
+            var currentItem = MusicViewModel.AudioPlayer?.CurrentMediaItem ?? MusicViewModel.SelectedMediaItem ?? LoadedMediaItem;
+            if (currentItem == null)
+                return null;
+
+            var currentIndex = queue.IndexOf(currentItem);
+            if (currentIndex < 0 && !string.IsNullOrWhiteSpace(currentItem.FileName))
+            {
+                currentIndex = queue
+                    .Select((item, index) => new { item, index })
+                    .FirstOrDefault(x => string.Equals(x.item.FileName, currentItem.FileName, StringComparison.Ordinal))?.index ?? -1;
+            }
+
+            if (currentIndex < 0)
+                return null;
+
+            var nextIndex = currentIndex + 1;
+            if (nextIndex >= queue.Count)
+            {
+                if (MusicViewModel.AudioPlayer?.RepeatMode == RepeatMode.All)
+                    nextIndex = 0;
+                else
+                    return null;
+            }
+
+            return nextIndex >= 0 && nextIndex < queue.Count ? queue[nextIndex] : null;
         }
 
         private void SyncSelectedAlbumFromMusicViewModel()
