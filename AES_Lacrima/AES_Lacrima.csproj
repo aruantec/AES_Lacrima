@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType Condition="'$(BuildingForAndroid)' == 'true'">Library</OutputType>
     <OutputType Condition="'$(BuildingForAndroid)' != 'true'">WinExe</OutputType>
@@ -15,38 +15,30 @@
     <Version Condition="'$(Version)' == '' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(GITHUB_REF_NAME)', '^[vV]?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$'))">$([System.Text.RegularExpressions.Regex]::Replace('$(GITHUB_REF_NAME)', '^[vV]', ''))</Version>
     <Version Condition="'$(Version)' == ''">0.0.0-local</Version>
   </PropertyGroup>
-
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <!-- Single EXE settings -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <!-- Runtime is provided by the CLI (dotnet publish -r) so builds are portable across runners. -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-
     <!-- Exclude PDB files -->
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
     <AllowedReferenceRelatedFileExtensions>none</AllowedReferenceRelatedFileExtensions>
     <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
   </PropertyGroup>
-
   <PropertyGroup Condition="'$(PublishAot)' == 'true'">
     <NoWarn>$(NoWarn);IL2104;IL3000;IL3053</NoWarn>
     <DefineConstants>$(DefineConstants);NATIVE_AOT</DefineConstants>
   </PropertyGroup>
-
   <ItemGroup Condition="'$(PublishAot)' == 'true'">
     <TrimmerRootAssembly Include="AES_Mpv" />
     <TrimmerRootAssembly Include="log4net" />
     <TrimmerRootAssembly Include="TagLibSharp" />
   </ItemGroup>
-
   <ItemGroup>
-	<AvaloniaResource Include="Assets\**" />
+    <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
-
-
-
   <ItemGroup>
     <PackageReference Include="AsyncImageLoader.Avalonia" Version="3.6.0" />
     <PackageReference Include="Avalonia" Version="11.3.11" />
@@ -63,28 +55,18 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Svg.Controls.Skia.Avalonia" Version="11.3.9.2" />
     <PackageReference Include="log4net" Version="3.2.0" />
-    <PackageReference Include="HotAvalonia"
-                      Version="3.*"
-                      PrivateAssets="All"
-                      Publish="True"
-                      Condition="'$(PublishAot)' != 'true'" />
+    <PackageReference Include="HotAvalonia" Version="3.*" PrivateAssets="All" Publish="True" Condition="'$(PublishAot)' != 'true'" />
   </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\AES_Controls\AES_Controls.csproj" />
     <ProjectReference Include="..\AES_Core\AES_Core.csproj" />
   </ItemGroup>
-
   <ItemGroup Condition="'$(PublishAot)' != 'true'">
-    <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj"
-                      OutputItemType="Analyzer"
-                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
-
   <ItemGroup Condition="'$(PublishAot)' == 'true'">
     <Analyzer Include="..\AES_Di.Generator\bin\$(Configuration)\netstandard2.0\AES_Di.Generator.dll" />
   </ItemGroup>
-
   <ItemGroup>
     <None Update="Assets\AES.ico">
       <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
@@ -94,23 +76,19 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>Never</CopyToPublishDirectory>
     </None>
-
     <None Update="Assets\background.jpg">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>Never</CopyToPublishDirectory>
     </None>
-
     <None Update="Shaders\Shadertoys\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
-
     <None Update="Linux\aes-lacrima.desktop">
       <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </None>
     <None Update="Linux\install-desktop-entry.sh" />
   </ItemGroup>
-
   <ItemGroup>
     <Compile Update="Views\Common\MainTopBar.axaml.cs">
       <DependentUpon>MainTopBar.axaml</DependentUpon>
@@ -120,35 +98,20 @@
       <DependentUpon>MusicListView.axaml</DependentUpon>
     </Compile>
   </ItemGroup>
-
-  <Target Name="InstallLinuxDesktopEntryOnPublish"
-          AfterTargets="Publish"
-          Condition="'$(AutoInstallLinuxDesktopEntry)' == 'true'
+  <Target Name="InstallLinuxDesktopEntryOnPublish" AfterTargets="Publish" Condition="'$(AutoInstallLinuxDesktopEntry)' == 'true'
                      and ('$(RuntimeIdentifier)' == 'linux-x64' or '$(RuntimeIdentifier)' == 'linux-arm64')
                      and '$(CI)' != 'true'
                      and Exists('$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh')">
-    <Message Importance="high"
-             Text="Installing Linux desktop entry for publish output at '$(PublishDir)'" />
-    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh&quot; &quot;$(PublishDir)&quot;" />
+    <Message Importance="high" Text="Installing Linux desktop entry for publish output at '$(PublishDir)'" />
+    <Exec Command="bash &amp;quot;$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh&amp;quot; &amp;quot;$(PublishDir)&amp;quot;" />
   </Target>
-
   <!-- macOS packaging target: creates a .app bundle using the publish directory -->
-  <Target Name="CreateMacAppBundleOnPublish"
-          AfterTargets="Publish"
-          Condition="('$(RuntimeIdentifier)' == 'osx-x64' or '$(RuntimeIdentifier)' == 'osx-arm64')
+  <Target Name="CreateMacAppBundleOnPublish" AfterTargets="Publish" Condition="('$(RuntimeIdentifier)' == 'osx-x64' or '$(RuntimeIdentifier)' == 'osx-arm64')
                      and Exists('$(MSBuildProjectDirectory)/Mac/publish-macos.sh')">
-    <Message Importance="high"
-             Text="Creating macOS application bundle for publish output at '$(PublishDir)'" />
-    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Mac/publish-macos.sh&quot; &quot;$(PublishDir)&quot;"
-          EnvironmentVariables="APP_VERSION=$(Version)" />
+    <Message Importance="high" Text="Creating macOS application bundle for publish output at '$(PublishDir)'" />
+    <Exec Command="bash &amp;quot;$(MSBuildProjectDirectory)/Mac/publish-macos.sh&amp;quot; &amp;quot;$(PublishDir)&amp;quot;" EnvironmentVariables="APP_VERSION=$(Version)" />
   </Target>
-
-  <Target Name="BuildAesDiGeneratorForAot"
-          BeforeTargets="CoreCompile"
-          Condition="'$(PublishAot)' == 'true'">
-    <MSBuild Projects="..\AES_Di.Generator\AES_Di.Generator.csproj"
-             Targets="Build"
-             Properties="Configuration=$(Configuration)"
-             RemoveProperties="PublishAot;PublishTrimmed;RuntimeIdentifier;SelfContained" />
+  <Target Name="BuildAesDiGeneratorForAot" BeforeTargets="CoreCompile" Condition="'$(PublishAot)' == 'true'">
+    <MSBuild Projects="..\AES_Di.Generator\AES_Di.Generator.csproj" Targets="Build" Properties="Configuration=$(Configuration)" RemoveProperties="PublishAot;PublishTrimmed;RuntimeIdentifier;SelfContained" />
   </Target>
 </Project>

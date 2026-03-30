@@ -155,6 +155,9 @@ namespace AES_Controls.Composition
         public static readonly StyledProperty<bool> UseFullCoverSizeProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, bool>(nameof(UseFullCoverSize), false);
 
+        public static readonly StyledProperty<bool> ShowCoverFoundOverlayProperty =
+            AvaloniaProperty.Register<CompositionCarouselControl, bool>(nameof(ShowCoverFoundOverlay), true);
+
         #endregion
 
         #region Public Properties
@@ -248,6 +251,12 @@ namespace AES_Controls.Composition
         {
             get => GetValue(ItemHeightProperty);
             set => SetValue(ItemHeightProperty, value);
+        }
+
+        public bool ShowCoverFoundOverlay
+        {
+            get => GetValue(ShowCoverFoundOverlayProperty);
+            set => SetValue(ShowCoverFoundOverlayProperty, value);
         }
 
         /// <summary>
@@ -477,7 +486,7 @@ namespace AES_Controls.Composition
             switch (item)
             {
                 case MediaItem mediaItem when string.Equals(propertyName, nameof(MediaItem.CoverFound), StringComparison.Ordinal):
-                    value = mediaItem.CoverFound;
+                    value = ShowCoverFoundOverlay && mediaItem.CoverFound;
                     return true;
                 default:
                     value = false;
@@ -917,6 +926,8 @@ namespace AES_Controls.Composition
             }
             else if (change.Property == ImageCacheSizeProperty)
                 UpdateImageCacheSize(change.GetNewValue<int>());
+            else if (change.Property == ShowCoverFoundOverlayProperty)
+                _visual?.SendHandlerMessage(new ResetCoverFoundMessage(BuildCoverFoundSet(_itemsSnapshot)));
             else if (change.Property == ItemsSourceProperty || 
                      change.Property == ImageFileNamePropertyProperty || 
                      change.Property == ImageBitmapPropertyProperty)
