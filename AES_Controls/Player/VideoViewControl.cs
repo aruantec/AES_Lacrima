@@ -114,6 +114,8 @@ public class VideoViewControl : OpenGlControlBase
     {
         base.OnAttachedToVisualTree(e);
         _hasRenderedOnceSincePause = false;
+        if (!IsRenderingPaused)
+            RequestNextFrameRendering();
         if (UseCustomHeartbeat && !IsRenderingPaused) _uiHeartbeat?.Start();
     }
 
@@ -254,7 +256,16 @@ public class VideoViewControl : OpenGlControlBase
     {
         base.OnPropertyChanged(change);
 
-        if (change.Property == IsRenderingPausedProperty)
+        if (change.Property == IsVisibleProperty)
+        {
+            if (change.GetNewValue<bool>())
+            {
+                _hasRenderedOnceSincePause = false;
+                if (!IsRenderingPaused)
+                    RequestNextFrameRendering();
+            }
+        }
+        else if (change.Property == IsRenderingPausedProperty)
         {
             bool paused = change.GetNewValue<bool>();
             if (paused)

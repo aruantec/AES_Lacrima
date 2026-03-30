@@ -1438,12 +1438,33 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             return;
         }
 
-        // Check if the file is a URL and if OnlineUrls are available for selection
+        // Check if the file is a URL and if OnlineUrls are available for selection.
+        // For video playback we may use separate video/audio DASH streams.
         string? resolvedUrl = null;
+        string? externalAudioUrl = null;
+
         if (item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase) && item.OnlineUrls != null && item.OnlineUrls.HasValue)
         {
-            resolvedUrl = video ? item.OnlineUrls.Value.Item1 : item.OnlineUrls.Value.Item2;
+            var streamVideoUrl = item.OnlineUrls.Value.Item1;
+            var streamAudioUrl = item.OnlineUrls.Value.Item2;
+
+            if (video)
+            {
+                resolvedUrl = !string.IsNullOrWhiteSpace(streamVideoUrl) ? streamVideoUrl : streamAudioUrl;
+
+                if (!string.IsNullOrWhiteSpace(streamVideoUrl)
+                    && !string.IsNullOrWhiteSpace(streamAudioUrl)
+                    && !string.Equals(streamVideoUrl, streamAudioUrl, StringComparison.Ordinal))
+                {
+                    externalAudioUrl = streamAudioUrl;
+                }
+            }
+            else
+            {
+                resolvedUrl = streamAudioUrl;
+            }
         }
+
         var fileToPlay = !string.IsNullOrWhiteSpace(resolvedUrl) ? resolvedUrl : item.FileName;
 
         // Prepare for loading the new file
@@ -1492,7 +1513,9 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         {
             // Mute the old item immediately on the mpv thread before swapping sources.
             SetProperty("pause", true);
-            SetProperty("vo", video ? "auto" : "null");
+            // IMPORTANT: when rendering through VideoViewControl/OpenGL, mpv must stay on "libmpv".
+            // Using "auto" creates a standalone VO path and results in audio-only + black render target.
+            SetProperty("vo", video ? "libmpv" : "null");
             SetProperty("vid", video ? "auto" : "no");
             SetProperty("audio-display", video ? "auto" : "no");
         });
@@ -1503,6 +1526,39 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             try 
             { 
                 await RunCommandAsync(new[] { "loadfile", mpvLoadTarget }); 
+
+                if (video && !string.IsNullOrWhiteSpace(externalAudioUrl))
+                {
+                    var audioTarget = ToMpvLoadTarget(externalAudioUrl);
+                    var attached = false;
+
+                    // Some source switches (e.g. local file -> DASH stream) can race with demuxer setup.
+                    // Retry a few times so external audio reliably attaches.
+                    for (int attempt = 1; attempt <= 5 && !attached; attempt++)
+                    {
+                        try
+                        {
+                            await RunCommandAsync(new[] { "audio-add", audioTarget, "select" });
+                            attached = true;
+                        }
+                        catch (Exception audioEx)
+                        {
+                            if (attempt == 5)
+                            {
+                                // Non-fatal: log and continue — video will still play (without separate audio track).
+                                Log.Warn("audio-add failed for external audio stream", audioEx);
+                            }
+                            else
+                            {
+                                await Task.Delay(150).ConfigureAwait(false);
+                            }
+                        }
+                    }
+
+                    // Ensure mpv switches to an available audio track after external attach.
+                    SetProperty("aid", "auto");
+                }
+
                 // Now load is fully initiated, old track stops playing.
                 _ignoreTimePos = false; // Safe to accept time-pos events again
 

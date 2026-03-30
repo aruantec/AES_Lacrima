@@ -45,7 +45,8 @@ namespace AES_Lacrima.ViewModels
     {
         #region Private fields
         // Private fields
-        private readonly string[] _supportedTypes = new[] { "*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4" };
+        protected static readonly string[] MusicSupportedTypes = ["*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4"];
+        protected static readonly string[] VideoSupportedTypes = ["*.mp4", "*.m4v", "*.mkv", "*.avi", "*.mov", "*.webm", "*.wmv"];
         private static readonly HttpClient FastThumbnailClient = new() { Timeout = TimeSpan.FromSeconds(10) };
         private static readonly SemaphoreSlim FastThumbnailThrottle = new(4);
         private const int FastThumbnailDecodeWidth = 512;
@@ -85,6 +86,7 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(DeletePointedItemCommand))]
         [NotifyPropertyChangedFor(nameof(IsItemPointed))]
+        [NotifyPropertyChangedFor(nameof(IsMetadataEditorVisible))]
         private int _pointedIndex = -1;
 
         [ObservableProperty]
@@ -152,8 +154,13 @@ namespace AES_Lacrima.ViewModels
         private MediaItem? _pendingTrackLoadItem;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsVideoViewportVisible))]
         private AudioPlayer? _audioPlayer;
         private AudioPlayer? _subscribedAudioPlayer;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsVideoViewportVisible))]
+        private bool _isVideoViewportDismissed;
 
         public bool ResetPlaybackOnAlbumSwitch { get; set; }
 
@@ -175,6 +182,22 @@ namespace AES_Lacrima.ViewModels
         public bool IsItemPointed => PointedIndex != -1 && PointedIndex < CoverItems.Count;
 
         public bool IsFolderPointed => PointedFolder != null;
+
+        public virtual bool IsVideoMode => false;
+
+        public virtual bool IsMetadataEditorVisible => IsItemPointed;
+
+        public bool IsVideoViewportVisible => IsVideoMode && !IsVideoViewportDismissed && AudioPlayer?.CurrentMediaItem != null;
+
+        protected virtual bool AllowOnlineCoverLookup => true;
+
+        protected virtual bool ShouldScanLocalMediaMetadata => true;
+
+        protected virtual string FilePickerTitle => "Add Audio Files";
+
+        protected virtual string FilePickerTypeName => "Audio Files";
+
+        protected virtual IReadOnlyList<string> SupportedTypes => MusicSupportedTypes;
 
         public string NextRepeatToolTip
         {
@@ -256,8 +279,12 @@ namespace AES_Lacrima.ViewModels
             }
             else if (e.PropertyName == nameof(AudioPlayer.CurrentMediaItem))
             {
+                if (IsVideoMode && AudioPlayer?.CurrentMediaItem != null)
+                    IsVideoViewportDismissed = false;
+
                 UpdateTrackLoadPendingState();
                 EnsureCurrentMediaCoverIsLoaded();
+                OnPropertyChanged(nameof(IsVideoViewportVisible));
             }
             else if (e.PropertyName == nameof(AudioPlayer.IsLoadingMedia) ||
                      e.PropertyName == nameof(AudioPlayer.IsBuffering) ||
@@ -500,6 +527,15 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
+        [RelayCommand]
+        private void CloseVideoViewport()
+        {
+            if (!IsVideoMode)
+                return;
+
+            IsVideoViewportDismissed = true;
+        }
+
         [RelayCommand(CanExecute = nameof(CanAddItems))]
         private async Task AddItems()
         {
@@ -510,15 +546,16 @@ namespace AES_Lacrima.ViewModels
 
             if (storageProvider != null)
             {
+                var supportedTypes = SupportedTypes.ToArray();
                 var files = await storageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
                 {
-                    Title = "Add Audio Files",
+                    Title = FilePickerTitle,
                     AllowMultiple = true,
                     FileTypeFilter = new[] 
                     {
-                        new Avalonia.Platform.Storage.FilePickerFileType("Audio Files")
+                        new Avalonia.Platform.Storage.FilePickerFileType(FilePickerTypeName)
                         {
-                            Patterns = _supportedTypes
+                            Patterns = supportedTypes
                         }
                     }
                 });
@@ -548,7 +585,14 @@ namespace AES_Lacrima.ViewModels
                     }
 
                     if (newMediaItems.Count > 0)
-                        _ = new MetadataScrapper(newMediaItems, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+                    {
+                        var scanCandidates = new AvaloniaList<MediaItem>(newMediaItems.Where(ShouldScanMetadataForItem));
+                        if (scanCandidates.Count > 0)
+                        {
+                            var allowOnlineForBatch = scanCandidates.Any(IsOnlineMediaItem) || AllowOnlineCoverLookup;
+                            _ = new MetadataScrapper(scanCandidates, AudioPlayer!, DefaultFolderCover, agentInfo, 512, allowOnlineLookup: allowOnlineForBatch);
+                        }
+                    }
                 }
             }
         }
@@ -681,11 +725,15 @@ namespace AES_Lacrima.ViewModels
 
             if (target == null || AudioPlayer == null) return;
 
+            if (!ShouldScanMetadataForItem(target))
+                return;
+
             var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
             if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
 
             // Use the scrapper to force a reload, which will bypass the cache and update the item
-            var scrapper = new MetadataScrapper(new AvaloniaList<MediaItem>(), AudioPlayer, DefaultFolderCover, agentInfo, 512);
+            var allowOnlineForTarget = IsOnlineMediaItem(target) || AllowOnlineCoverLookup;
+            var scrapper = new MetadataScrapper(new AvaloniaList<MediaItem>(), AudioPlayer, DefaultFolderCover, agentInfo, 512, allowOnlineLookup: allowOnlineForTarget);
             await scrapper.EnqueueLoadForPublic(target);
         }
 
@@ -736,6 +784,9 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void OpenSelectedFolder()
         {
+            if (IsVideoMode)
+                IsVideoViewportDismissed = true;
+
             var selectedAlbum = SelectedAlbum;
             var isSameAlbum = selectedAlbum != null && ReferenceEquals(LoadedAlbum, selectedAlbum);
             if (!isSameAlbum && ResetPlaybackOnAlbumSwitch)
@@ -916,6 +967,7 @@ namespace AES_Lacrima.ViewModels
                     var rootPath = folders[0].Path.LocalPath;
                     if (Directory.Exists(rootPath))
                     {
+                        var supportedTypes = SupportedTypes.ToArray();
                         await Task.Run(() => 
                         {
                             var directories = Directory.GetDirectories(rootPath, "*", SearchOption.AllDirectories).ToList();
@@ -923,7 +975,7 @@ namespace AES_Lacrima.ViewModels
 
                             foreach (var dir in directories)
                             {
-                                var mediaFiles = _supportedTypes
+                                var mediaFiles = supportedTypes
                                     .SelectMany(pattern => Directory.EnumerateFiles(dir, pattern))
                                     .Where(file => 
                                     {
@@ -992,6 +1044,15 @@ namespace AES_Lacrima.ViewModels
 
         public override void Prepare()
         {
+            // Ensure inherited [AutoResolve] dependencies are resolved even for derived types
+            // (e.g. VideoViewModel). The DI generator only walks directly-declared members on
+            // the activated type, so inherited fields/properties can remain null.
+            SettingsViewModel ??= DiLocator.ResolveViewModel<SettingsViewModel>();
+            _mainWindowViewModel ??= DiLocator.ResolveViewModel<MainWindowViewModel>();
+            EqualizerService ??= DiLocator.ResolveViewModel<EqualizerService>();
+            MetadataService ??= DiLocator.ResolveViewModel<MetadataService>();
+            _mediaUrlService ??= DiLocator.ResolveViewModel<MediaUrlService>();
+
             // Manual initialization of the AudioPlayer to control its lifecycle and avoid early DLL locking
             InitializeAudioPlayer();
 
@@ -1065,6 +1126,19 @@ namespace AES_Lacrima.ViewModels
                 {
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () => 
                     {
+                        if (GetCurrentIndex(out var currentIndex))
+                        {
+                            var hasNext = currentIndex < PlaybackQueue.Count - 1;
+                            var willRepeatAll = AudioPlayer?.RepeatMode == RepeatMode.All;
+
+                            if (!hasNext && !willRepeatAll)
+                            {
+                                if (IsVideoMode)
+                                    IsVideoViewportDismissed = true;
+                                return;
+                            }
+                        }
+
                         await PlayNext();
                     });
                 }
@@ -1391,8 +1465,10 @@ namespace AES_Lacrima.ViewModels
                     }
                     var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
                     var scanList = new AvaloniaList<MediaItem> { item };
-                    var scrapper = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
-                    _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
+                    var allowOnlineForScan = IsOnlineMediaItem(item) || AllowOnlineCoverLookup;
+                    var scrapper = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512, allowOnlineLookup: allowOnlineForScan);
+                    if (AllowOnlineCoverLookup)
+                        _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
                     _ = Task.Run(async () =>
                     {
                         await Task.Delay(MetadataStaggerDelayMs);
@@ -1481,14 +1557,16 @@ namespace AES_Lacrima.ViewModels
                                 });
 
                                 addedItems.Add(item);
-                                _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
+                                if (AllowOnlineCoverLookup)
+                                    _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
                                 _ = Task.Run(() => TryPopulateStreamMetadataAsync(item));
                             }
 
                             if (addedItems.Count > 0)
                             {
-                                var scanList = new AvaloniaList<MediaItem>(addedItems);
-                                var scrapper = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512);
+                                var scanList = new AvaloniaList<MediaItem>(addedItems.Where(ShouldScanMetadataForItem));
+                                var allowOnlineForScan = scanList.Any(IsOnlineMediaItem) || AllowOnlineCoverLookup;
+                                var scrapper = new MetadataScrapper(scanList, AudioPlayer!, DefaultFolderCover, agentInfo, 512, allowOnlineLookup: allowOnlineForScan);
                                 for (int i = 0; i < addedItems.Count; i++)
                                 {
                                     var queuedItem = addedItems[i];
@@ -1848,6 +1926,22 @@ namespace AES_Lacrima.ViewModels
             return existing != null;
         }
 
+        private static bool IsOnlineMediaItem(MediaItem item)
+        {
+            var fileName = item.FileName;
+            return !string.IsNullOrWhiteSpace(fileName) &&
+                   (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                    || fileName.Contains("http", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private bool ShouldScanMetadataForItem(MediaItem item)
+        {
+            if (IsOnlineMediaItem(item))
+                return true;
+
+            return ShouldScanLocalMediaMetadata;
+        }
+
         private void MetadataService_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(MetadataService.IsMetadataLoaded))
@@ -2092,12 +2186,16 @@ namespace AES_Lacrima.ViewModels
                                && !string.IsNullOrWhiteSpace(YouTubeThumbnail.ExtractVideoId(item.FileName)))
                 .ToList();
 
-            foreach (var item in fastThumbCandidates)
+            if (AllowOnlineCoverLookup)
             {
-                _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
+                foreach (var item in fastThumbCandidates)
+                {
+                    _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
+                }
             }
 
             var orderedItems = new AvaloniaList<MediaItem>(itemsToLoad);
+            var allowOnlineForBatch = orderedItems.Any(IsOnlineMediaItem) || AllowOnlineCoverLookup;
             _ = new MetadataScrapper(
                 orderedItems,
                 AudioPlayer!,
@@ -2105,9 +2203,10 @@ namespace AES_Lacrima.ViewModels
                 agentInfo,
                 maxThumbnailWidth: 512,
                 maxCacheEntries: MetadataScrapperCacheEntries,
-                forceUpdate: forceUpdate);
+                forceUpdate: forceUpdate,
+                allowOnlineLookup: allowOnlineForBatch);
 
-            await WaitForAlbumCoversAsync(itemsToLoad);
+            await WaitForAlbumCoversAsync(orderedItems);
 
             var unresolvedFastThumbCandidates = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 itemsToLoad
@@ -2116,9 +2215,12 @@ namespace AES_Lacrima.ViewModels
                                    && (item.CoverBitmap == null || item.CoverBitmap == DefaultFolderCover))
                     .ToList());
 
-            foreach (var item in unresolvedFastThumbCandidates)
+            if (AllowOnlineCoverLookup)
             {
-                _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
+                foreach (var item in unresolvedFastThumbCandidates)
+                {
+                    _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
+                }
             }
 
             // Re-evaluate stream durations after the album metadata/cover pass settles so
@@ -2185,6 +2287,7 @@ namespace AES_Lacrima.ViewModels
             });
 
             var orderedItems = new AvaloniaList<MediaItem>(priorityItems);
+            var allowOnlineForBatch = orderedItems.Any(IsOnlineMediaItem) || AllowOnlineCoverLookup;
             _ = new MetadataScrapper(
                 orderedItems,
                 AudioPlayer!,
@@ -2192,9 +2295,10 @@ namespace AES_Lacrima.ViewModels
                 agentInfo,
                 maxThumbnailWidth: 512,
                 maxCacheEntries: MetadataScrapperCacheEntries,
-                forceUpdate: forceUpdate);
+                forceUpdate: forceUpdate,
+                allowOnlineLookup: allowOnlineForBatch);
 
-            await WaitForAlbumCoversAsync(priorityItems);
+            await WaitForAlbumCoversAsync(orderedItems);
         }
 
         private static async Task WaitForAlbumCoversAsync(IReadOnlyList<MediaItem> items)
@@ -2388,7 +2492,7 @@ namespace AES_Lacrima.ViewModels
 
         private IEnumerable<MediaItem> LoadMediaItemsWithTrackOrder(string path)
         {
-            var files = _supportedTypes
+            var files = SupportedTypes
                 .SelectMany(pattern => Directory.EnumerateFiles(path, pattern))
                 .Where(file =>
                 {
@@ -2456,6 +2560,23 @@ namespace AES_Lacrima.ViewModels
             // 'item' is non-nullable; only check other nullable dependencies and the file name
             if (AudioPlayer == null || item.FileName == null) return;
 
+            var currentItem = AudioPlayer.CurrentMediaItem;
+            var isRequestedTrackCurrent = currentItem != null &&
+                                          (ReferenceEquals(currentItem, item) ||
+                                           string.Equals(currentItem.FileName, item.FileName, StringComparison.Ordinal));
+
+            if (IsVideoMode && isRequestedTrackCurrent)
+            {
+                // Do not reload the same playing video; just bring the viewport back.
+                IsVideoViewportDismissed = false;
+                _pendingTrackLoadItem = null;
+                IsTrackLoadPending = false;
+                return;
+            }
+
+            if (IsVideoMode)
+                IsVideoViewportDismissed = true;
+
             _pendingTrackLoadItem = item;
             IsTrackLoadPending = true;
             EnsureMediaItemCoverIsLoaded(item);
@@ -2464,10 +2585,10 @@ namespace AES_Lacrima.ViewModels
             if (item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase) || item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             {
                 if (_mediaUrlService == null) return;
-                await _mediaUrlService.OpenMediaItemAsync(AudioPlayer, item);
+                await _mediaUrlService.OpenMediaItemAsync(AudioPlayer, item, IsVideoMode);
             }
             else
-                await AudioPlayer.PlayFile(item);
+                await AudioPlayer.PlayFile(item, IsVideoMode);
         }
 
         private bool GetCurrentIndex(out int currentIndex)

@@ -3,10 +3,13 @@ using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using Avalonia.Collections;
 using AES_Core.IO;
+using Avalonia;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using log4net;
+using System.Diagnostics;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using TagLib;
@@ -41,6 +44,16 @@ namespace AES_Controls.Helpers
             ".bmp",
             ".gif"
         ];
+        private static readonly HashSet<string> VideoFileExtensions =
+        [
+            ".mp4",
+            ".m4v",
+            ".mkv",
+            ".avi",
+            ".mov",
+            ".webm",
+            ".wmv"
+        ];
 
         /// <summary>The default limit for embedded image extraction (32MB).</summary>
         internal const int DefaultMaxEmbeddedImageBytes = 32 * 1024 * 1024;
@@ -62,6 +75,7 @@ namespace AES_Controls.Helpers
         private readonly int _maxCacheEntries;
         private readonly int _maxEmbeddedImageBytes;
         private readonly AudioPlayer? _player;
+        private readonly bool _allowOnlineLookup;
         private bool _disposed;
 
         /// <summary>
@@ -75,6 +89,7 @@ namespace AES_Controls.Helpers
         /// <param name="maxCacheEntries">Maximum number of bitmaps to keep in the memory cache.</param>
         /// <param name="maxEmbeddedImageBytes">Maximum byte size for embedded images to be processed.</param>
         /// <param name="forceUpdate">Whether to bypass local metadata caches and force a fresh scan.</param>
+        /// <param name="allowOnlineLookup">Whether remote metadata/thumbnail providers may be used.</param>
         public MetadataScrapper(AvaloniaList<MediaItem> playlist,
                                 AudioPlayer player,
                                 Bitmap? defaultCover,
@@ -82,7 +97,8 @@ namespace AES_Controls.Helpers
                                 int? maxThumbnailWidth = null,
                                 int maxCacheEntries = 80,
                                 int maxEmbeddedImageBytes = DefaultMaxEmbeddedImageBytes,
-                                bool forceUpdate = false)
+                    bool forceUpdate = false,
+                    bool allowOnlineLookup = true)
         {
             //Initializers
             _playlist = playlist;
@@ -91,6 +107,7 @@ namespace AES_Controls.Helpers
             _maxThumbnailWidth = maxThumbnailWidth;
             _maxCacheEntries = Math.Max(1, maxCacheEntries);
             _maxEmbeddedImageBytes = maxEmbeddedImageBytes;
+            _allowOnlineLookup = allowOnlineLookup;
 
             _defaultCover = defaultCover ?? PlaceholderGenerator.GenerateMusicPlaceholder(480, 400);
 
@@ -229,6 +246,9 @@ namespace AES_Controls.Helpers
 
                 if (!isLocalFile)
                 {
+                    if (!_allowOnlineLookup)
+                        return false;
+
                     await SetupOnlineMetadata(mi, force).ConfigureAwait(false);
                     return true;
                 }
@@ -336,6 +356,19 @@ namespace AES_Controls.Helpers
                     return false;
                 }
 
+                if (await TryProcessLocalVideoThumbnailAsync(mi, key, token).ConfigureAwait(false) is { } videoThumbBytes)
+                {
+                    Log.Debug($"MetadataScrapper: {key} - using local video thumbnail; skipping online lookups");
+                    await UpdateLocalMetadataAsync(mi, videoThumbBytes, null).ConfigureAwait(false);
+                    return false;
+                }
+
+                if (!_allowOnlineLookup)
+                {
+                    await UpdateLocalMetadataAsync(mi, tagResult.pic, tagResult.wall).ConfigureAwait(false);
+                    return false;
+                }
+
                 // No usable embedded pictures - fall back to online services
                 Log.Debug($"MetadataScrapper: {key} - no usable embedded images, performing online lookup");
                 bool didNetwork = false;
@@ -435,6 +468,183 @@ namespace AES_Controls.Helpers
                 Log.Warn($"MetadataScrapper: failed to process local artwork for {key}", ex);
                 return (false, null, null);
             }
+        }
+
+        private async Task<byte[]?> TryProcessLocalVideoThumbnailAsync(MediaItem mi, string key, CancellationToken token)
+        {
+            try
+            {
+                if (!IsLocalVideoFile(key))
+                    return null;
+
+                var ffmpegPath = FFmpegLocator.FindFFmpegPath();
+                if (string.IsNullOrWhiteSpace(ffmpegPath))
+                    return null;
+
+                var outputFile = await Task.Run(() =>
+                {
+                    static bool RunFfmpeg(string ffmpegExe, string args)
+                    {
+                        var psi = new ProcessStartInfo(ffmpegExe, args)
+                        {
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+
+                        using var process = Process.Start(psi);
+                        process?.WaitForExit();
+                        return process != null && process.ExitCode == 0;
+                    }
+
+                    // 1) Representative thumbnail over the stream (usually avoids blank intro frames).
+                    var candidates = new List<string>();
+                    candidates.Add($"-hide_banner -loglevel error -y -i \"{key}\" -vf \"thumbnail=180,scale=-2:720\" -frames:v 1 \"{{0}}\"");
+
+                    // 2) Fallback explicit seek points.
+                    string[] seekPoints = ["00:00:03", "00:00:08", "00:00:15", "00:00:30"];
+                    foreach (var seek in seekPoints)
+                        candidates.Add($"-hide_banner -loglevel error -y -ss {seek} -i \"{key}\" -frames:v 1 -q:v 2 \"{{0}}\"");
+
+                    foreach (var template in candidates)
+                    {
+                        var tempImagePath = Path.GetTempFileName() + ".jpg";
+                        var args = string.Format(template, tempImagePath);
+
+                        if (!RunFfmpeg(ffmpegPath, args) || !File.Exists(tempImagePath))
+                        {
+                            try { if (File.Exists(tempImagePath)) File.Delete(tempImagePath); } catch { }
+                            continue;
+                        }
+
+                        try
+                        {
+                            using var validationBitmap = new Bitmap(tempImagePath);
+                            if (IsLikelyBlackFrame(validationBitmap))
+                            {
+                                try { File.Delete(tempImagePath); } catch { }
+                                continue;
+                            }
+                        }
+                        catch
+                        {
+                            try { File.Delete(tempImagePath); } catch { }
+                            continue;
+                        }
+
+                        return tempImagePath;
+                    }
+
+                    return null;
+                }, token).ConfigureAwait(false);
+
+                if (string.IsNullOrWhiteSpace(outputFile) || !File.Exists(outputFile))
+                    return null;
+
+                byte[]? bytes = null;
+                Bitmap? bmp = null;
+                try
+                {
+                    bytes = await Task.Run(() => File.ReadAllBytes(outputFile), token).ConfigureAwait(false);
+                    if (bytes.Length == 0)
+                        return null;
+
+                    bmp = await Task.Run(() =>
+                    {
+                        using var ms = new MemoryStream(bytes);
+                        return _maxThumbnailWidth.HasValue
+                            ? Bitmap.DecodeToWidth(ms, _maxThumbnailWidth.Value)
+                            : new Bitmap(ms);
+                    }, token).ConfigureAwait(false);
+
+                    AddToCoverCache(key, bmp);
+
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        mi.CoverBitmap = bmp;
+                    });
+
+                    return bytes;
+                }
+                finally
+                {
+                    try { File.Delete(outputFile); } catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"MetadataScrapper: failed to extract local video thumbnail for {key}", ex);
+                return null;
+            }
+        }
+
+        private static bool IsLikelyBlackFrame(Bitmap bitmap)
+        {
+            try
+            {
+                var sourceSize = bitmap.Size;
+                if (sourceSize.Width <= 0 || sourceSize.Height <= 0)
+                    return true;
+
+                var sampleSize = new PixelSize(96, 54);
+                using var small = new RenderTargetBitmap(sampleSize);
+                using (var ctx = small.CreateDrawingContext())
+                {
+                    ctx.DrawImage(bitmap,
+                        new Rect(0, 0, sourceSize.Width, sourceSize.Height),
+                        new Rect(0, 0, sampleSize.Width, sampleSize.Height));
+                }
+
+                var stride = sampleSize.Width * 4;
+                var pixelBytes = new byte[sampleSize.Height * stride];
+                var handle = GCHandle.Alloc(pixelBytes, GCHandleType.Pinned);
+                try
+                {
+                    small.CopyPixels(new PixelRect(0, 0, sampleSize.Width, sampleSize.Height), handle.AddrOfPinnedObject(), pixelBytes.Length, stride);
+                }
+                finally
+                {
+                    handle.Free();
+                }
+
+                int total = sampleSize.Width * sampleSize.Height;
+                int darkPixels = 0;
+                long lumaSum = 0;
+
+                for (int i = 0; i < pixelBytes.Length; i += 4)
+                {
+                    byte b = pixelBytes[i];
+                    byte g = pixelBytes[i + 1];
+                    byte r = pixelBytes[i + 2];
+                    byte a = pixelBytes[i + 3];
+
+                    if (a < 16)
+                    {
+                        darkPixels++;
+                        continue;
+                    }
+
+                    int luma = (r * 2126 + g * 7152 + b * 722) / 10000;
+                    lumaSum += luma;
+                    if (luma < 22)
+                        darkPixels++;
+                }
+
+                var avgLuma = (double)lumaSum / Math.Max(1, total);
+                var darkRatio = (double)darkPixels / Math.Max(1, total);
+                return darkRatio > 0.94 || avgLuma < 24.0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsLocalVideoFile(string path)
+        {
+            var ext = Path.GetExtension(path);
+            return !string.IsNullOrWhiteSpace(ext) && VideoFileExtensions.Contains(ext);
         }
 
         private async Task ApplyMetadataToItem(MediaItem mi, CustomMetadata meta, string key)

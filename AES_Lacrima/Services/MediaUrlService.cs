@@ -26,7 +26,8 @@ namespace AES_Lacrima.Services
         /// </summary>
         /// <param name="audioPlayer">The audio player instance to use for playback.</param>
         /// <param name="item">The media item to open and play.</param>
-        public async Task OpenMediaItemAsync(AudioPlayer audioPlayer, MediaItem item)
+        /// <param name="preferVideo">When true, uses the resolved video stream for playback.</param>
+        public async Task OpenMediaItemAsync(AudioPlayer audioPlayer, MediaItem item, bool preferVideo = false)
         {
             if (item.FileName == null) return;
             // Notify the UI instantly that media loading has started
@@ -34,8 +35,8 @@ namespace AES_Lacrima.Services
 
             // Load online urls
             item.OnlineUrls = await HandleStreamFile(item.FileName).ConfigureAwait(false);
-            // Play audio
-            await audioPlayer.PlayFile(item).ConfigureAwait(false);
+            // Play media (audio by default, video when requested)
+            await audioPlayer.PlayFile(item, preferVideo).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -47,25 +48,51 @@ namespace AES_Lacrima.Services
         {
             try
             {
+                const int targetHeight = 1080;
+
                 // Remove query parameters for better compatibility with yt-dlp
                 var currentUrl = YouTubeThumbnail.GetCleanVideoLink(url);
                 // fetch data
                 var info = await YtDlpMetadata.GetMetaDataAsync(currentUrl).ConfigureAwait(false);
 
-                // best 1080p video
+                // Score order for video quality target:
+                // 1) exact 1080p, 2) nearest >=1080p (prefer higher quality), 3) nearest below 1080p.
+                // This avoids selecting low-quality muxed streams when better separate video exists.
+                var bestMuxed = info.MuxedFormats
+                    .Where(m => !string.IsNullOrWhiteSpace(m.Url) && (m.Height ?? 0) > 0)
+                    .OrderBy(m => m.Height == targetHeight ? 0 : 1)
+                    .ThenBy(m => (m.Height ?? 0) < targetHeight ? 1 : 0)
+                    .ThenBy(m => Math.Abs((m.Height ?? targetHeight) - targetHeight))
+                    .ThenByDescending(m => m.Height ?? 0)
+                    .ThenByDescending(m => m.Fps ?? 0)
+                    .FirstOrDefault();
+
                 var bestVideo = info.VideoFormats
-                    .Where(v => v.Height <= 1080)
-                    .OrderByDescending(v => v.Height)
-                    .ThenByDescending(v => v.Fps)
+                    .Where(v => !string.IsNullOrWhiteSpace(v.Url) && (v.Height ?? 0) > 0)
+                    .OrderBy(v => v.Height == targetHeight ? 0 : 1)
+                    .ThenBy(v => (v.Height ?? 0) < targetHeight ? 1 : 0)
+                    .ThenBy(v => Math.Abs((v.Height ?? targetHeight) - targetHeight))
+                    .ThenByDescending(v => v.Height ?? 0)
+                    .ThenByDescending(v => v.Fps ?? 0)
                     .FirstOrDefault();
 
-                // best audio
+                // Best separate audio stream.
                 var bestAudio = info.AudioFormats
-                    .OrderByDescending(a => a.Bitrate)
+                    .Where(a => !string.IsNullOrWhiteSpace(a.Url))
+                    .OrderByDescending(a => a.Bitrate ?? 0)
                     .FirstOrDefault();
 
-                string videoUrl = bestVideo?.Url ?? string.Empty;
-                string audioUrl = bestAudio?.Url ?? string.Empty;
+                // Prefer separate video stream selection for visual quality.
+                // If no separate video exists, fall back to muxed.
+                string videoUrl = bestVideo?.Url ?? bestMuxed?.Url ?? string.Empty;
+
+                // For separate video streams, use the best audio stream.
+                // If no separate audio exists, fall back to muxed URL.
+                string audioUrl = bestAudio?.Url ?? bestMuxed?.Url ?? string.Empty;
+
+                // If only muxed stream is available, use it for both entries.
+                if (string.IsNullOrWhiteSpace(bestVideo?.Url) && !string.IsNullOrWhiteSpace(bestMuxed?.Url))
+                    audioUrl = bestMuxed!.Url;
 
                 return (videoUrl, audioUrl);
             }

@@ -1,9 +1,11 @@
 <UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:views="using:AES_Lacrima.Views"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:DataType="vm:VideoViewModel"
              x:Class="AES_Lacrima.Views.VideoView">
 
     <!-- Sets the DataContext for the previewer -->
@@ -11,9 +13,5 @@
         <vm:VideoViewModel/>
     </Design.DataContext>
 
-    <Grid Grid.RowDefinitions="*,Auto" Background="Blue">
-        <!-- Main content area -->
-
-        <!-- Menu -->
-    </Grid>
+    <views:MusicView />
 </UserControl>
