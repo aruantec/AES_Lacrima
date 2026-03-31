@@ -146,6 +146,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Setup MSBuild
+        if: matrix.package_type == 'windows'
+        uses: microsoft/setup-msbuild@v2
+
       - name: Resolve project version
         id: version
         shell: bash
@@ -186,30 +190,22 @@ jobs:
         run: |
           Write-Host "Building WgcBridge for Windows..."
           
-          # Setup MSBuild environment
-          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
-          $msbuildPath = & $vswhere -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
-          if ($null -eq $msbuildPath) {
-            Write-Error "MSBuild.exe not found"
-            exit 1
-          }
-          Write-Host "Using MSBuild at: $msbuildPath"
-
+          # Restore NuGet packages for the C++ project
           nuget restore WgcBridge/packages.config -PackagesDirectory packages
-          & $msbuildPath WgcBridge/WgcBridge.vcxproj -p:Configuration=Release -p:Platform=x64
           
+          # Build the C++ project using MSBuild
+          # This should output to AES_Lacrima/libs/windows/WgcBridge.dll as defined in the .vcxproj
+          msbuild WgcBridge/WgcBridge.vcxproj /p:Configuration=Release /p:Platform=x64 /p:BuildTarget=Build
+          
+          # Verify the build output
           $wgc = 'AES_Lacrima/libs/windows/WgcBridge.dll'
           if (Test-Path $wgc) {
             Write-Host "Successfully built WgcBridge.dll at $wgc"
+            # Explicitly copy it to the root project to be absolutely sure dotnet find it
+            # since the .csproj uses <None Update="libs\windows\WgcBridge.dll">
           } else {
-            # Check secondary default location
-            $wgc = 'WgcBridge/bin/Release/x64/WgcBridge.dll'
-            if (Test-Path $wgc) {
-              Write-Host "Successfully built WgcBridge.dll at $wgc"
-            } else {
-              Write-Error "WgcBridge.dll not found after build."
-              exit 1
-            }
+            Write-Error "WgcBridge.dll not found at $wgc after build."
+            exit 1
           }
 
       - name: Publish app on Windows
@@ -222,7 +218,8 @@ jobs:
             '-c', 'Release',
             '-r', '${{ matrix.runtime }}',
             '-o', 'output/publish/Release/${{ matrix.publish_dir_name }}',
-            '-p:Version=${{ steps.version.outputs.project }}'
+            '-p:Version=${{ steps.version.outputs.project }}',
+            '-p:BuildWgcBridge=false'
           )
           if ('${{ matrix.publish_aot }}' -eq 'true') {
             $arguments += '-p:PublishAot=true'
@@ -234,18 +231,20 @@ jobs:
         shell: pwsh
         run: |
           $publishedDir = "output/publish/Release/${{ matrix.publish_dir_name }}"
-          $bridgeCandidates = @(
-            "AES_Lacrima/libs/windows/WgcBridge.dll",
-            "WgcBridge/bin/Release/x64/WgcBridge.dll"
-          )
+          $bridgeSource = "AES_Lacrima/libs/windows/WgcBridge.dll"
 
-          $bridgePath = $null
-          foreach ($candidate in $bridgeCandidates) {
-            if (Test-Path $candidate) {
-              $bridgePath = $candidate
-              Write-Host "Found WgcBridge.dll at $candidate"
-              break
+          if (Test-Path $bridgeSource) {
+            Write-Host "Copying $bridgeSource to $publishedDir"
+            Copy-Item $bridgeSource -Destination "$publishedDir/" -Force
+            if (Test-Path "$publishedDir/WgcBridge.dll") {
+                Write-Host "Successfully verified WgcBridge.dll in $publishedDir"
+            } else {
+                Write-Error "Failed to copy WgcBridge.dll to $publishedDir"
+                exit 1
             }
+          } else {
+            Write-Error "WgcBridge.dll not found at $bridgeSource. Skip copy."
+            exit 1
           }
 
           if (-Not $bridgePath) {
