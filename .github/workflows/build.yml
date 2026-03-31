@@ -117,6 +117,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Setup MSBuild
+        if: matrix.package_type == 'windows'
+        uses: microsoft/setup-msbuild@v2
+
       - name: Ensure scripts are executable
         if: runner.os != 'Windows'
         run: chmod +x ./build.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh
@@ -130,6 +134,21 @@ jobs:
       - name: Restore generator
         run: dotnet restore AES_Di.Generator/AES_Di.Generator.csproj
 
+      - name: Build WgcBridge (Windows)
+        if: matrix.package_type == 'windows'
+        shell: pwsh
+        run: |
+          Write-Host "Building WgcBridge for Windows..."
+          nuget restore WgcBridge/packages.config -PackagesDirectory packages
+          msbuild WgcBridge/WgcBridge.vcxproj /p:Configuration=Release /p:Platform=x64 /p:BuildTarget=Build /p:PlatformToolset=v143
+          $wgc = "AES_Lacrima/libs/windows/WgcBridge.dll"
+          if (Test-Path $wgc) {
+            Write-Host "Successfully built WgcBridge.dll at $wgc"
+          } else {
+            Write-Error "::error::WgcBridge.dll not found at $wgc after build."
+            exit 1
+          }
+
       - name: Publish app on Windows
         if: matrix.package_type == 'windows'
         shell: pwsh
@@ -140,12 +159,33 @@ jobs:
             '-c', 'Release',
             '-r', '${{ matrix.runtime }}',
             '-o', 'output/publish/Release/${{ matrix.publish_dir_name }}',
-            '-p:Version=0.0.0-local'
+            '-p:Version=0.0.0-local',
+            '-p:BuildWgcBridge=false'
           )
           if ('${{ matrix.publish_aot }}' -eq 'true') {
             $arguments += '-p:PublishAot=true'
           }
           dotnet @arguments
+
+      - name: Copy WgcBridge.dll to publish output (Windows)
+        if: matrix.package_type == 'windows'
+        shell: pwsh
+        run: |
+          $publishedDir = "output/publish/Release/${{ matrix.publish_dir_name }}"
+          $bridgeSource = "AES_Lacrima/libs/windows/WgcBridge.dll"
+          if (Test-Path $bridgeSource) {
+            Write-Host "Copying $bridgeSource to $publishedDir"
+            Copy-Item $bridgeSource -Destination "$publishedDir/" -Force
+            if (Test-Path "$publishedDir/WgcBridge.dll") {
+                Write-Host "Successfully verified WgcBridge.dll in $publishedDir"
+            } else {
+                Write-Error "::error::Failed to copy WgcBridge.dll to $publishedDir"
+                exit 1
+            }
+          } else {
+            Write-Error "::error::WgcBridge.dll not found at $bridgeSource."
+            exit 1
+          }
 
       - name: Publish app on Unix
         if: matrix.package_type != 'windows'
