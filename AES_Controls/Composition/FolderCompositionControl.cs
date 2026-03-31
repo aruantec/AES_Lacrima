@@ -133,6 +133,21 @@ public class FolderCompositionControl : Control
     }
 
     /// <summary>
+    /// Defines the <see cref="CoverStretch"/> property.
+    /// </summary>
+    public static readonly StyledProperty<Stretch> CoverStretchProperty =
+        AvaloniaProperty.Register<FolderCompositionControl, Stretch>(nameof(CoverStretch), Stretch.UniformToFill);
+
+    /// <summary>
+    /// Gets or sets how covers are fitted into the square tile.
+    /// </summary>
+    public Stretch CoverStretch
+    {
+        get => GetValue(CoverStretchProperty);
+        set => SetValue(CoverStretchProperty, value);
+    }
+
+    /// <summary>
     /// Defines the <see cref="Command"/> property.
     /// </summary>
     public static readonly StyledProperty<ICommand?> CommandProperty =
@@ -317,6 +332,20 @@ public class FolderCompositionControl : Control
         return new Rect(srcX, srcY, srcW, srcH);
     }
 
+    private static Rect CalculateUniformRect(Size srcSize, Rect destRect)
+    {
+        if (srcSize.Width <= 0 || srcSize.Height <= 0 || destRect.Width <= 0 || destRect.Height <= 0)
+            return new Rect(destRect.X, destRect.Y, 0, 0);
+
+        double scale = Math.Min(destRect.Width / srcSize.Width, destRect.Height / srcSize.Height);
+        double drawWidth = srcSize.Width * scale;
+        double drawHeight = srcSize.Height * scale;
+        double drawX = destRect.X + (destRect.Width - drawWidth) / 2.0;
+        double drawY = destRect.Y + (destRect.Height - drawHeight) / 2.0;
+
+        return new Rect(drawX, drawY, drawWidth, drawHeight);
+    }
+
     private void OnItemPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MediaItem.CoverBitmap))
@@ -472,6 +501,7 @@ public class FolderCompositionControl : Control
             UpdateTargets(_isPointerOver);
         }
         else if (change.Property == MaxVisibleCoversProperty || change.Property == BoundsProperty || 
+                 change.Property == CoverStretchProperty ||
                  change.Property == DefaultCoverProperty || change.Property == FolderCoverItemProperty)
         {
             UpdateTargets(_isPointerOver);
@@ -496,6 +526,7 @@ public class FolderCompositionControl : Control
             var contentRect = new Rect(0, 0, bounds.Width, bounds.Height);
             double itemSize = Math.Max(contentRect.Width, contentRect.Height);
             var defaultCover = DefaultCover;
+            bool useUniform = CoverStretch == Stretch.Uniform;
 
             // Draw stack from back to front based on ZIndex
             var sorted = _activeStates.OrderBy(s => s.ZIndex).ToList();
@@ -521,8 +552,16 @@ public class FolderCompositionControl : Control
                                 var defSize = defaultCover.Size;
                                 if (defSize.Width > 0 && defSize.Height > 0)
                                 {
-                                    var defSrc = CalculateUniformToFillRect(defSize, dest);
-                                    context.DrawImage(defaultCover, defSrc, dest);
+                                    if (useUniform)
+                                    {
+                                        var uniformDest = CalculateUniformRect(defSize, dest);
+                                        context.DrawImage(defaultCover, new Rect(0, 0, defSize.Width, defSize.Height), uniformDest);
+                                    }
+                                    else
+                                    {
+                                        var defSrc = CalculateUniformToFillRect(defSize, dest);
+                                        context.DrawImage(defaultCover, defSrc, dest);
+                                    }
                                 }
                             }
                             catch (Exception ex)
@@ -540,10 +579,18 @@ public class FolderCompositionControl : Control
                                 var coverSize = cover.Size;
                                 if (coverSize.Width > 0 && coverSize.Height > 0)
                                 {
-                                    var src = CalculateUniformToFillRect(coverSize, dest);
                                     using (context.PushOpacity(state.CoverFade))
                                     {
-                                        context.DrawImage(cover, src, dest);
+                                        if (useUniform)
+                                        {
+                                            var uniformDest = CalculateUniformRect(coverSize, dest);
+                                            context.DrawImage(cover, new Rect(0, 0, coverSize.Width, coverSize.Height), uniformDest);
+                                        }
+                                        else
+                                        {
+                                            var src = CalculateUniformToFillRect(coverSize, dest);
+                                            context.DrawImage(cover, src, dest);
+                                        }
                                     }
                                 }
                             }

@@ -43,5 +43,9 @@ Video:
 ![MacOSBuild](AES_Lacrima/Assets/VideoView.png)
 ![MacOSBuild](AES_Lacrima/Assets/VideoView-2.png)
 
+Emulation:
+![MacOSBuild](AES_Lacrima/Assets/EmulationView.png)
+![MacOSBuild](AES_Lacrima/Assets/EmulationView-2.png)
+
 Mini Mode:
 ![MiniMode](AES_Lacrima/Assets/MiniMode.png)
