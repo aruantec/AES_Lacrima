@@ -31,7 +31,7 @@ namespace AES_Lacrima.ViewModels
     }
 
     [AutoRegister]
-    internal partial class EmulationViewModel : ViewModelBase, IEmulationViewModel
+    public partial class EmulationViewModel : ViewModelBase, IEmulationViewModel
     {
         private static readonly ILog SLog = AES_Core.Logging.LogHelper.For<EmulationViewModel>();
         private static readonly Regex RomBracketTokenRegex = new(@"[\(\[\{][^\)\]\}]*[\)\]\}]", RegexOptions.Compiled);
@@ -461,6 +461,23 @@ namespace AES_Lacrima.ViewModels
             SaveSettings();
         }
 
+        private static bool IsWiiUPackageFolder(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+
+            try
+            {
+                return Directory.Exists(Path.Combine(path, "code")) &&
+                       Directory.Exists(Path.Combine(path, "content")) &&
+                       Directory.Exists(Path.Combine(path, "meta"));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static IReadOnlyList<string> ScanFolderForRomPaths(string rootPath, IReadOnlyList<string> patterns)
         {
             var results = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -470,6 +487,12 @@ namespace AES_Lacrima.ViewModels
             while (directories.Count > 0)
             {
                 var currentDirectory = directories.Pop();
+
+                if (IsWiiUPackageFolder(currentDirectory))
+                {
+                    results.Add(currentDirectory);
+                    continue;
+                }
 
                 try
                 {
