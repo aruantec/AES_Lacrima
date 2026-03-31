@@ -208,16 +208,49 @@ jobs:
         if: matrix.package_type == 'windows'
         shell: pwsh
         run: |
-          $bridgePath = 'WgcBridge\bin\Release\x64\WgcBridge.dll'
-          if (-Not (Test-Path $bridgePath)) {
-            Write-Host "WgcBridge.dll not found at $bridgePath; trying libs/windows path"
-            $bridgePath = 'AES_Lacrima\libs\windows\WgcBridge.dll'
+          $publishedDir = "output/publish/Release/${{ matrix.publish_dir_name }}"
+          $bridgeCandidates = @(
+            'WgcBridge\bin\Release\x64\WgcBridge.dll',
+            'AES_Lacrima\libs\windows\WgcBridge.dll'
+          )
+
+          $bridgePath = $null
+          foreach ($candidate in $bridgeCandidates) {
+            if (Test-Path $candidate) {
+              $bridgePath = $candidate
+              break
+            }
           }
-          if (Test-Path $bridgePath) {
-            Copy-Item -Path $bridgePath -Destination "output/publish/Release/${{ matrix.publish_dir_name }}" -Force
-            Write-Host "Copied WgcBridge.dll to publish output"
-          } else {
-            Write-Host "WgcBridge.dll still not found; release artifacts may be missing it"
+
+          if (-Not $bridgePath) {
+            # also check the AES_Lacrima build output folder as seen on local systems
+            $buildOutputCandidate = 'AES_Lacrima\bin\Release\net10.0\win-x64\WgcBridge.dll'
+            if (Test-Path $buildOutputCandidate) {
+              $bridgePath = $buildOutputCandidate
+              Write-Host "Found WgcBridge.dll in AES_Lacrima build output at $bridgePath"
+            }
+          }
+
+          if (-Not $bridgePath) {
+            # if published app has WgcBridge in a child folder, find it
+            $found = Get-ChildItem -Path $publishedDir -Filter 'WgcBridge.dll' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) {
+              $bridgePath = $found.FullName
+              Write-Host "Found WgcBridge.dll in published output at $bridgePath"
+            }
+          }
+
+          if (-Not $bridgePath) {
+            Write-Error "WgcBridge.dll not found in expected source locations or publish output"
+            exit 1
+          }
+
+          $dest = Join-Path $publishedDir 'WgcBridge.dll'
+          Copy-Item -Path $bridgePath -Destination $dest -Force
+          Write-Host "Copied WgcBridge.dll to publish output: $dest"
+
+          if (-Not (Test-Path $dest)) {
+            Write-Error "Failed to copy WgcBridge.dll into publish output"
             exit 1
           }
 
