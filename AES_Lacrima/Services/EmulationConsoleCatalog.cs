@@ -30,18 +30,18 @@ namespace AES_Lacrima.Services
         [
             new(
                 "SNES",
-                "SNES",
-                ["Super Nintendo", "Super Nintendo Entertainment System"],
+                "Super Nintendo",
+                ["Super Nintendo", "Super Nintendo Entertainment System", "SNES"],
                 ["*.sfc", "*.smc", "*.fig", "*.swc"]),
             new(
                 "NES",
-                "NES",
-                ["Nintendo Entertainment System"],
+                "Nintendo Entertainment System",
+                ["Nintendo Entertainment System", "NES"],
                 ["*.nes", "*.fds", "*.unf", "*.unif"]),
             new(
                 "N64",
-                "N64",
-                ["Nintendo 64"],
+                "Nintendo 64",
+                ["Nintendo 64", "N64"],
                 ["*.n64", "*.z64", "*.v64"]),
             new(
                 "DC",
@@ -51,24 +51,41 @@ namespace AES_Lacrima.Services
                 "DREAMCAST"),
             new(
                 "GCN",
-                "GameCube",
-                ["Nintendo GameCube", "GameCube"],
-                ["*.iso", "*.gcm", "*.ciso", "*.gcz", "*.rvz", "*.wia"]),
+                "Nintendo GameCube",
+                ["Nintendo GameCube", "GameCube", "GCN", "GC"],
+                ["*.iso", "*.gcm", "*.ciso", "*.gcz", "*.rvz", "*.wia", "*.dol", "*.elf", "*.tgc"],
+                "GC"),
             new(
                 "GBA",
-                "GBA",
-                ["Game Boy Advance"],
+                "Game Boy Advance",
+                ["Game Boy Advance", "GBA"],
                 ["*.gba"]),
             new(
                 "NDS",
-                "NDS",
-                ["Nintendo DS"],
+                "Nintendo DS",
+                ["Nintendo DS", "NDS", "DS"],
                 ["*.nds", "*.srl"]),
             new(
                 "3DS",
-                "3DS",
-                ["Nintendo 3DS"],
+                "Nintendo 3DS",
+                ["Nintendo 3DS", "3DS"],
                 ["*.3ds", "*.3dsx", "*.cci", "*.cxi", "*.cia"]),
+            new(
+                "WII",
+                "Nintendo Wii",
+                ["Nintendo Wii", "Wii"],
+                ["*.iso", "*.wbfs", "*.wad"]),
+            new(
+                "WIIU",
+                "Nintendo Wii U",
+                ["Nintendo Wii U", "Wii U", "WiiU"],
+                ["*.wud", "*.wux", "*.wua", "*.rpx"],
+                "WII U"),
+            new(
+                "SWITCH",
+                "Nintendo Switch",
+                ["Nintendo Switch", "Switch"],
+                ["*.xci", "*.nsp", "*.nsz", "*.nca"]),
             new(
                 "PSX",
                 "PlayStation",
@@ -103,7 +120,8 @@ namespace AES_Lacrima.Services
                 "Xbox 360",
                 ["Xbox 360"],
                 ["*.iso", "*.xex"],
-                "XBOX 360")
+                "XBOX 360",
+                "X360")
         ];
 
         private static readonly Dictionary<string, EmulationConsoleDefinition> DefinitionsByLookupKey = BuildDefinitionsByLookupKey();
@@ -179,6 +197,14 @@ namespace AES_Lacrima.Services
             return string.IsNullOrWhiteSpace(consoleName)
                 ? string.Empty
                 : consoleName;
+        }
+
+        public static bool IsArcadeConsole(string? consoleName)
+        {
+            if (!TryGetDefinition(consoleName, out var definition))
+                return false;
+
+            return string.Equals(definition.Key, "ARCADE", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool TryGetDefinition(string? consoleName, out EmulationConsoleDefinition definition)
