@@ -181,14 +181,15 @@ jobs:
         run: dotnet restore AES_Di.Generator/AES_Di.Generator.csproj
 
       - name: Restore and Build WgcBridge (Windows)
-        if: matrix.package_type == 'windows'
+        if: startsWith(matrix.runtime, 'win-')
         shell: pwsh
         run: |
+          Write-Host "Matrix runtime=${{ matrix.runtime }} package_type=${{ matrix.package_type }}"
           nuget restore WgcBridge/packages.config -PackagesDirectory packages
           dotnet msbuild WgcBridge/WgcBridge.vcxproj -p:Configuration=Release -p:Platform=x64
 
       - name: Publish app on Windows
-        if: matrix.package_type == 'windows'
+        if: startsWith(matrix.runtime, 'win-')
         shell: pwsh
         run: |
           $arguments = @(
@@ -205,7 +206,7 @@ jobs:
           dotnet @arguments
 
       - name: Copy WgcBridge.dll to publish output (Windows)
-        if: matrix.package_type == 'windows'
+        if: startsWith(matrix.runtime, 'win-')
         shell: pwsh
         run: |
           $publishedDir = "output/publish/Release/${{ matrix.publish_dir_name }}"
