@@ -185,7 +185,7 @@ jobs:
         shell: pwsh
         run: |
           nuget restore WgcBridge/packages.config -PackagesDirectory packages
-          msbuild WgcBridge/WgcBridge.vcxproj -p:Configuration=Release -p:Platform=x64
+          dotnet msbuild WgcBridge/WgcBridge.vcxproj -p:Configuration=Release -p:Platform=x64
 
       - name: Publish app on Windows
         if: matrix.package_type == 'windows'
