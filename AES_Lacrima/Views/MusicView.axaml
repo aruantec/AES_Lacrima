@@ -141,6 +141,15 @@
                               Stretch="Uniform"/>
                     </MenuItem.Icon>
                 </MenuItem>
+                <MenuItem Header="Clear Album" CornerRadius="8" Command="{Binding ClearAlbumCommand}">
+                    <MenuItem.Icon>
+                        <Path Data="M6,19A2,2 0 0,0 8,21h8a2,2 0 0,0 2-2V7H6v12zM19,4h-3.5l-1-1h-5l-1,1H5v2h14V4z"
+                              Fill="#CCFFFFFF"
+                              Width="32"
+                              Height="32"
+                              Stretch="Uniform"/>
+                    </MenuItem.Icon>
+                </MenuItem>
             </ContextMenu>
         </composition:CompositionCarouselControl.ContextMenu>
         </composition:CompositionCarouselControl>

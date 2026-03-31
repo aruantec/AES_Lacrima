@@ -116,6 +116,7 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(AddItemsCommand))]
         [NotifyCanExecuteChangedFor(nameof(AddUrlCommand))]
+        [NotifyCanExecuteChangedFor(nameof(ClearAlbumCommand))]
         private FolderMediaItem? _loadedAlbum;
 
         [ObservableProperty]
@@ -526,6 +527,28 @@ namespace AES_Lacrima.ViewModels
                 HighlightedItem = new MediaItem { Title = string.Empty, Artist = string.Empty, Album = string.Empty };
                 SelectedIndex = -1;
             }
+        }
+
+        [RelayCommand(CanExecute = nameof(CanAddItems))]
+        private void ClearAlbum()
+        {
+            if (LoadedAlbum == null)
+                return;
+
+            if (SelectedMediaItem != null && LoadedAlbum.Children.Contains(SelectedMediaItem))
+            {
+                AudioPlayer?.Stop();
+                AudioPlayer?.ClearMedia();
+                SelectedMediaItem = null;
+                PlaybackQueue = new AvaloniaList<MediaItem>();
+            }
+
+            LoadedAlbum.Children.Clear();
+            PointedIndex = -1;
+            SelectedIndex = -1;
+            HighlightedItem = new MediaItem { Title = string.Empty, Artist = string.Empty, Album = string.Empty };
+            ApplyFilter();
+            SaveSettings();
         }
 
         [RelayCommand]

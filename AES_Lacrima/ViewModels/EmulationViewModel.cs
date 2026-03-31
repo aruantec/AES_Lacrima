@@ -35,7 +35,19 @@ namespace AES_Lacrima.ViewModels
     {
         private static readonly ILog SLog = AES_Core.Logging.LogHelper.For<EmulationViewModel>();
         private static readonly Regex RomBracketTokenRegex = new(@"[\(\[\{][^\)\]\}]*[\)\]\}]", RegexOptions.Compiled);
+        private static readonly Regex RomMediaLabelRegex = new(
+            @"[\(\[\{]\s*((?:disc|disk|cd|dvd|gd|side)\s*(?:\d+|[ivx]+|[a-z]))\s*[\)\]\}]",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex RomMediaLabelPartsRegex = new(
+            @"^(disc|disk|cd|dvd|gd|side)\s*(\d+|[ivx]+|[a-z])$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex RomWhitespaceRegex = new(@"\s{2,}", RegexOptions.Compiled);
+        private static readonly string[] DiscDescriptorExtensions =
+        [
+            ".m3u",
+            ".cue",
+            ".gdi"
+        ];
         private static readonly string[] SupportedConsoleImageExtensions =
         [
             ".png",
@@ -69,7 +81,12 @@ namespace AES_Lacrima.ViewModels
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(AddRomsCommand))]
+        [NotifyCanExecuteChangedFor(nameof(ScanFolderCommand))]
+        [NotifyCanExecuteChangedFor(nameof(ClearAlbumCommand))]
         private FolderMediaItem? _selectedAlbum;
+
+        [ObservableProperty]
+        private FolderMediaItem? _loadedAlbum;
 
         [ObservableProperty]
         private int _selectedAlbumIndex = -1;
@@ -105,8 +122,7 @@ namespace AES_Lacrima.ViewModels
             LoadSettings();
             LoadConsoleAlbums();
             SelectedAlbum = AlbumList.FirstOrDefault();
-
-            ApplyFilter();
+            LoadedAlbum = SelectedAlbum;
             IsPrepared = true;
         }
 
@@ -121,11 +137,15 @@ namespace AES_Lacrima.ViewModels
         partial void OnSelectedAlbumChanged(FolderMediaItem? value)
         {
             SyncSelectedAlbumIndexFromAlbum(value);
-            ApplyFilter();
-            QueueSelectedAlbumCoverScan(value);
 
             if (IsPrepared)
                 SaveSettings();
+        }
+
+        partial void OnLoadedAlbumChanged(FolderMediaItem? value)
+        {
+            ApplyFilter();
+            QueueSelectedAlbumCoverScan(value);
         }
 
         partial void OnSelectedAlbumIndexChanged(int value)
@@ -156,6 +176,15 @@ namespace AES_Lacrima.ViewModels
 
         [RelayCommand]
         private void ClearSearch() => SearchText = string.Empty;
+
+        [RelayCommand]
+        private void OpenSelectedAlbum()
+        {
+            if (SelectedAlbum == null)
+                return;
+
+            LoadedAlbum = SelectedAlbum;
+        }
 
         protected override void OnLoadSettings(JsonObject section)
         {
@@ -207,7 +236,8 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand(CanExecute = nameof(CanAddRoms))]
         private async Task AddRoms()
         {
-            if (SelectedAlbum == null)
+            var album = SelectedAlbum;
+            if (album == null)
                 return;
 
             if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop ||
@@ -218,35 +248,87 @@ namespace AES_Lacrima.ViewModels
 
             var files = await storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
-                Title = $"Add Roms to {SelectedAlbum.Title}",
+                Title = $"Add Roms to {album.Title}",
                 AllowMultiple = true
+                ,
+                FileTypeFilter = EmulationConsoleCatalog.BuildFilePickerFilters(album.Title)
             });
 
             if (files.Count == 0)
                 return;
 
-            bool addedAny = false;
-            foreach (var file in files)
-            {
-                var path = file.TryGetLocalPath();
-                if (string.IsNullOrWhiteSpace(path))
-                    continue;
+            var paths = files
+                .Select(file => file.TryGetLocalPath())
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Cast<string>();
 
-                if (SelectedAlbum.Children.Any(existing =>
-                        string.Equals(existing.FileName, path, StringComparison.OrdinalIgnoreCase)))
-                {
-                    continue;
-                }
-
-                SelectedAlbum.Children.Add(CreateRomItem(path, SelectedAlbum));
-                addedAny = true;
-            }
+            bool addedAny = ImportRomPaths(album, paths);
 
             if (!addedAny)
                 return;
 
+            FinalizeRomImport(album);
+        }
+
+        [RelayCommand(CanExecute = nameof(CanAddRoms))]
+        private async Task ScanFolder()
+        {
+            var album = SelectedAlbum;
+            if (album == null)
+                return;
+
+            if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop ||
+                desktop.MainWindow?.StorageProvider is not { } storageProvider)
+            {
+                return;
+            }
+
+            var folders = await storageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = $"Scan Folder for {album.Title} Roms",
+                AllowMultiple = false
+            });
+
+            if (folders.Count == 0)
+                return;
+
+            var rootPath = folders[0].TryGetLocalPath();
+            if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
+                return;
+
+            var scanPatterns = EmulationConsoleCatalog.GetScanPatterns(album.Title);
+            var paths = await Task.Run(() => ScanFolderForRomPaths(rootPath, scanPatterns));
+            bool addedAny = ImportRomPaths(album, paths);
+
+            if (!addedAny)
+                return;
+
+            FinalizeRomImport(album);
+        }
+
+        [RelayCommand(CanExecute = nameof(CanAddRoms))]
+        private void ClearAlbum()
+        {
+            var album = SelectedAlbum;
+            if (album == null)
+                return;
+
+            try
+            {
+                _albumCoverScanCts?.Cancel();
+                _albumCoverScanCts?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed to cancel emulation album cover scan while clearing album.", ex);
+            }
+            finally
+            {
+                _albumCoverScanCts = null;
+            }
+
+            album.Children.Clear();
             ApplyFilter();
-            QueueSelectedAlbumCoverScan(SelectedAlbum);
             SaveSettings();
         }
 
@@ -303,7 +385,8 @@ namespace AES_Lacrima.ViewModels
         private static string GetConsoleTitle(string imagePath)
         {
             var fileName = Path.GetFileNameWithoutExtension(imagePath);
-            return fileName.Replace('_', ' ').Replace('-', ' ').Trim();
+            var normalizedName = fileName.Replace('_', ' ').Replace('-', ' ').Trim();
+            return EmulationConsoleCatalog.GetDisplayName(normalizedName);
         }
 
         private static string GetAlbumOrderKey(FolderMediaItem album)
@@ -312,6 +395,223 @@ namespace AES_Lacrima.ViewModels
                 : Path.GetFileName(album.FileName);
 
         private bool CanAddRoms() => SelectedAlbum != null;
+
+        private bool ImportRomPaths(FolderMediaItem album, IEnumerable<string> paths)
+        {
+            bool addedAny = false;
+
+            foreach (var path in paths
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (album.Children.Any(existing =>
+                        string.Equals(existing.FileName, path, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                album.Children.Add(CreateRomItem(path, album));
+                addedAny = true;
+            }
+
+            return addedAny;
+        }
+
+        private void FinalizeRomImport(FolderMediaItem album)
+        {
+            if (ReferenceEquals(LoadedAlbum, album))
+                ApplyFilter();
+
+            QueueSelectedAlbumCoverScan(album);
+            SaveSettings();
+        }
+
+        private static IReadOnlyList<string> ScanFolderForRomPaths(string rootPath, IReadOnlyList<string> patterns)
+        {
+            var results = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var directories = new Stack<string>();
+            directories.Push(rootPath);
+
+            while (directories.Count > 0)
+            {
+                var currentDirectory = directories.Pop();
+
+                try
+                {
+                    foreach (var directory in Directory.EnumerateDirectories(currentDirectory))
+                    {
+                        if (ShouldSkipFilesystemEntry(directory))
+                            continue;
+
+                        directories.Push(directory);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn($"Failed to enumerate subdirectories in '{currentDirectory}'.", ex);
+                }
+
+                foreach (var pattern in patterns)
+                {
+                    try
+                    {
+                        foreach (var file in Directory.EnumerateFiles(currentDirectory, pattern))
+                        {
+                            if (ShouldSkipFilesystemEntry(file))
+                                continue;
+
+                            results.Add(file);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        SLog.Warn($"Failed to scan '{currentDirectory}' for pattern '{pattern}'.", ex);
+                    }
+                }
+            }
+
+            return CollapseDiscImageArtifacts(results)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        private static IReadOnlyCollection<string> CollapseDiscImageArtifacts(IEnumerable<string> paths)
+        {
+            var distinctPaths = paths
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            var pathSet = new HashSet<string>(distinctPaths, StringComparer.OrdinalIgnoreCase);
+            var referencedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var path in distinctPaths)
+            {
+                if (!IsDiscDescriptorFile(path))
+                    continue;
+
+                foreach (var referencedPath in GetReferencedDiscPaths(path))
+                    referencedPaths.Add(referencedPath);
+            }
+
+            return distinctPaths
+                .Where(path => !referencedPaths.Contains(path) || IsDiscDescriptorFile(path))
+                .ToArray();
+        }
+
+        private static bool IsDiscDescriptorFile(string path)
+            => DiscDescriptorExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+
+        private static IEnumerable<string> GetReferencedDiscPaths(string descriptorPath)
+        {
+            string[] lines;
+            try
+            {
+                lines = File.ReadAllLines(descriptorPath);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to read disc descriptor '{descriptorPath}'.", ex);
+                yield break;
+            }
+
+            var descriptorDirectory = Path.GetDirectoryName(descriptorPath);
+            if (string.IsNullOrWhiteSpace(descriptorDirectory))
+                yield break;
+
+            var extension = Path.GetExtension(descriptorPath);
+            if (extension.Equals(".cue", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var line in lines)
+                {
+                    var referencedName = TryExtractCueReferencedFile(line);
+                    if (string.IsNullOrWhiteSpace(referencedName))
+                        continue;
+
+                    var referencedPath = ResolveReferencedDiscPath(descriptorDirectory, referencedName);
+                    if (!string.IsNullOrWhiteSpace(referencedPath))
+                        yield return referencedPath;
+                }
+
+                yield break;
+            }
+
+            if (extension.Equals(".gdi", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var line in lines)
+                {
+                    var referencedName = TryExtractGdiReferencedFile(line);
+                    if (string.IsNullOrWhiteSpace(referencedName))
+                        continue;
+
+                    var referencedPath = ResolveReferencedDiscPath(descriptorDirectory, referencedName);
+                    if (!string.IsNullOrWhiteSpace(referencedPath))
+                        yield return referencedPath;
+                }
+
+                yield break;
+            }
+
+            if (extension.Equals(".m3u", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var line in lines)
+                {
+                    var referencedName = line.Trim();
+                    if (string.IsNullOrWhiteSpace(referencedName) || referencedName.StartsWith("#", StringComparison.Ordinal))
+                        continue;
+
+                    var referencedPath = ResolveReferencedDiscPath(descriptorDirectory, referencedName);
+                    if (!string.IsNullOrWhiteSpace(referencedPath))
+                        yield return referencedPath;
+                }
+            }
+        }
+
+        private static string? TryExtractCueReferencedFile(string line)
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith("FILE", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var firstQuote = trimmed.IndexOf('"');
+            var lastQuote = trimmed.LastIndexOf('"');
+            if (firstQuote >= 0 && lastQuote > firstQuote)
+                return trimmed[(firstQuote + 1)..lastQuote].Trim();
+
+            var parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length >= 2 ? parts[1].Trim() : null;
+        }
+
+        private static string? TryExtractGdiReferencedFile(string line)
+        {
+            var trimmed = line.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed) || !char.IsDigit(trimmed[0]))
+                return null;
+
+            var parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length >= 5 ? parts[4].Trim().Trim('"') : null;
+        }
+
+        private static string? ResolveReferencedDiscPath(string directory, string referencedName)
+        {
+            if (string.IsNullOrWhiteSpace(referencedName))
+                return null;
+
+            var sanitized = referencedName.Trim().Trim('"');
+            if (string.IsNullOrWhiteSpace(sanitized))
+                return null;
+
+            var combinedPath = Path.GetFullPath(Path.Combine(directory, sanitized));
+            return File.Exists(combinedPath) ? combinedPath : null;
+        }
+
+        private static bool ShouldSkipFilesystemEntry(string path)
+        {
+            var name = Path.GetFileName(path);
+            return string.IsNullOrWhiteSpace(name) ||
+                   name.StartsWith(".", StringComparison.Ordinal) ||
+                   name.StartsWith("._", StringComparison.Ordinal);
+        }
 
         private void QueueSelectedAlbumCoverScan(FolderMediaItem? album)
         {
@@ -376,7 +676,7 @@ namespace AES_Lacrima.ViewModels
                             ? $"Auto cover resolved for rom '{item.Title}' in album '{album.Title}'."
                             : $"Auto cover not found for rom '{item.Title}' in album '{album.Title}'.");
 
-                    if (!ReferenceEquals(SelectedAlbum, album))
+                    if (!ReferenceEquals(LoadedAlbum, album))
                         continue;
 
                     await Dispatcher.UIThread.InvokeAsync(() =>
@@ -461,10 +761,51 @@ namespace AES_Lacrima.ViewModels
                 return string.Empty;
 
             var normalized = rawTitle.Replace('_', ' ').Replace('.', ' ').Trim();
+            var preservedMediaLabels = RomMediaLabelRegex
+                .Matches(normalized)
+                .Select(match => NormalizeRomMediaLabel(match.Groups[1].Value))
+                .Where(label => !string.IsNullOrWhiteSpace(label))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
             normalized = RomBracketTokenRegex.Replace(normalized, " ");
             normalized = normalized.Replace("!", " ");
             normalized = RomWhitespaceRegex.Replace(normalized, " ").Trim();
+
+            if (preservedMediaLabels.Length > 0)
+            {
+                var suffix = string.Join(" ", preservedMediaLabels.Select(label => $"({label})"));
+                normalized = string.IsNullOrWhiteSpace(normalized)
+                    ? suffix
+                    : $"{normalized} {suffix}";
+            }
+
             return normalized;
+        }
+
+        private static string NormalizeRomMediaLabel(string rawLabel)
+        {
+            if (string.IsNullOrWhiteSpace(rawLabel))
+                return string.Empty;
+
+            var compact = RomWhitespaceRegex.Replace(rawLabel, " ").Trim();
+            var match = RomMediaLabelPartsRegex.Match(compact);
+            if (!match.Success)
+                return compact;
+
+            var prefix = match.Groups[1].Value.ToLowerInvariant() switch
+            {
+                "disc" => "Disc",
+                "disk" => "Disk",
+                "cd" => "CD",
+                "dvd" => "DVD",
+                "gd" => "GD",
+                "side" => "Side",
+                _ => match.Groups[1].Value
+            };
+
+            var value = match.Groups[2].Value;
+            return $"{prefix} {value.ToUpperInvariant()}";
         }
 
         private static bool NeedsCoverLookup(MediaItem item, FolderMediaItem album)
@@ -477,7 +818,7 @@ namespace AES_Lacrima.ViewModels
 
         private void ApplyFilter()
         {
-            var source = SelectedAlbum?.Children;
+            var source = LoadedAlbum?.Children;
             if (source == null || source.Count == 0)
             {
                 CoverItems = [];

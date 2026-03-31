@@ -48,6 +48,8 @@ namespace AES_Lacrima.Services
     {
         private static readonly ILog SLog = AES_Core.Logging.LogHelper.For<MetadataService>();
         private const int MaxImageSearchResults = 24;
+        private const int MaxAutoCoverQueries = 8;
+        private const int MaxAutoCoverCandidatesPerQuery = 8;
         private static readonly HttpClient ImageHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
         private static readonly Regex BracketCleanupRegex = new(@"[\(\[\{].*?[\)\]\}]", RegexOptions.Compiled);
         private static readonly Regex MultiSpaceRegex = new(@"\s{2,}", RegexOptions.Compiled);
@@ -60,27 +62,10 @@ namespace AES_Lacrima.Services
         private static readonly Regex BingHtmlEncodedImageUrlRegex = new(@"(?:murl|imgurl|turl|thumb|thumbnailUrl)&quot;:&quot;(?<url>https?:[^""'<>]+?)&quot;", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex DirectImageUrlRegex = new(@"https?://[^""'\s<>\\]+?\.(?:jpg|jpeg|png|webp|gif|bmp|avif)(?:\?[^""'\s<>\\]*)?", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex RomDumpTokenRegex = new(@"\b(?:rev\s*\d+|beta|proto|prototype|demo|sample|unl|hack|translated?|translation|usa|europe|japan|world)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex RomReleaseTokenRegex = new(@"\b(?:complete|fixed|fix|patched?|update(?:d)?|release|final)\b|\bv(?:ersion)?\s*\d+(?:[._-]\d+)*(?:\s+\d+)*\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex CoverSearchTokenRegex = new(@"\b(?:cover(?:\s+art)?|album\s+cover|box\s*art)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly SemaphoreSlim AutoCoverLookupThrottle = new(2, 2);
         private const string GoogleConsentCookie = "CONSENT=YES+cb.20210328-17-p0.en+FX+471";
-        private static readonly Dictionary<string, string[]> ConsoleSearchAliases = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["SNES"] = ["Super Nintendo", "Super Nintendo Entertainment System"],
-            ["NES"] = ["Nintendo Entertainment System"],
-            ["N64"] = ["Nintendo 64"],
-            ["GCN"] = ["Nintendo GameCube", "GameCube"],
-            ["GBA"] = ["Game Boy Advance"],
-            ["NDS"] = ["Nintendo DS"],
-            ["3DS"] = ["Nintendo 3DS"],
-            ["PSX"] = ["PlayStation"],
-            ["PS1"] = ["PlayStation"],
-            ["PS2"] = ["PlayStation 2"],
-            ["PS3"] = ["PlayStation 3"],
-            ["PS4"] = ["PlayStation 4"],
-            ["PS5"] = ["PlayStation 5"],
-            ["XBOX360"] = ["Xbox 360"],
-            ["XBOX 360"] = ["Xbox 360"]
-        };
         private static readonly string[] NoiseTokens =
         [
             "lyrics", "lyric", "official video", "official audio", "official",
@@ -653,7 +638,9 @@ namespace AES_Lacrima.Services
                 if (await TryApplyCoverFromLocalMetadataAsync(item, cancellationToken).ConfigureAwait(false))
                     return true;
 
-                var searchQueries = BuildAutoCoverQueries(item, albumName);
+                var searchQueries = BuildAutoCoverQueries(item, albumName)
+                    .Take(MaxAutoCoverQueries)
+                    .ToList();
                 if (searchQueries.Count == 0)
                     return false;
 
@@ -663,16 +650,16 @@ namespace AES_Lacrima.Services
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var googleResults = await FindWebImageResultsAsync(searchQuery, cancellationToken).ConfigureAwait(false);
-                    if (googleResults.Count == 0)
+                    var bingResults = await FindBingImageResultsForAutoCoverAsync(searchQuery, cancellationToken).ConfigureAwait(false);
+                    if (bingResults.Count == 0)
                     {
-                        SLog.Debug($"Auto cover lookup returned no Google candidates for query '{searchQuery}'.");
+                        SLog.Debug($"Auto cover lookup returned no Bing candidates for query '{searchQuery}'.");
                         continue;
                     }
 
-                    SLog.Debug($"Auto cover lookup returned {googleResults.Count} Google candidates for query '{searchQuery}'.");
+                    SLog.Debug($"Auto cover lookup returned {bingResults.Count} Bing candidates for query '{searchQuery}'.");
 
-                    foreach (var candidate in googleResults)
+                    foreach (var candidate in bingResults)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
@@ -681,7 +668,7 @@ namespace AES_Lacrima.Services
                             var download = await TryDownloadImageBytesAsync(candidate.FullImageUrl, cancellationToken).ConfigureAwait(false);
                             if (download.Bytes == null || string.IsNullOrWhiteSpace(download.MimeType))
                             {
-                                SLog.Debug($"Skipping Google candidate that could not be downloaded as an image: {candidate.FullImageUrl}");
+                                SLog.Debug($"Skipping Bing candidate that could not be downloaded as an image: {candidate.FullImageUrl}");
                                 continue;
                             }
 
@@ -701,7 +688,7 @@ namespace AES_Lacrima.Services
                     }
                 }
 
-                SLog.Warn($"Auto cover lookup found no usable Google candidates for '{item.FileName}'.");
+                SLog.Warn($"Auto cover lookup found no usable Bing candidates for '{item.FileName}'.");
                 return false;
             }
             catch (OperationCanceledException)
@@ -947,7 +934,7 @@ namespace AES_Lacrima.Services
             if (string.IsNullOrWhiteSpace(query))
                 yield break;
 
-            foreach (var pair in ConsoleSearchAliases)
+            foreach (var pair in EmulationConsoleCatalog.SearchAliases)
             {
                 if (!query.Contains(pair.Key, StringComparison.OrdinalIgnoreCase))
                     continue;
@@ -1354,28 +1341,75 @@ namespace AES_Lacrima.Services
 
         private static List<string> BuildAutoCoverQueries(MediaItem item, string? albumName)
         {
+            var rawTitle = NormalizeSearchTitle(item.Title);
+            if (string.IsNullOrWhiteSpace(rawTitle))
+                rawTitle = NormalizeSearchTitle(ExtractFilenameForSearch(item.FileName));
+
             var title = NormalizeRomSearchTitle(item.Title);
             if (string.IsNullOrWhiteSpace(title))
                 title = NormalizeRomSearchTitle(ExtractFilenameForSearch(item.FileName));
 
             var normalizedAlbum = NormalizeSearchTitle(albumName ?? item.Album);
             var queries = new List<string>();
+            var strippedTitle = StripRomReleaseTokens(title);
+            var consoleTerms = EmulationConsoleCatalog.GetSearchQueryTerms(normalizedAlbum);
 
             if (!string.IsNullOrWhiteSpace(normalizedAlbum))
             {
-                AddDistinctQuery(queries, title, normalizedAlbum, "cover");
-
-                foreach (var alias in ExpandConsoleAlbumAliases(normalizedAlbum))
+                if (!string.IsNullOrWhiteSpace(rawTitle))
                 {
-                    AddDistinctQuery(queries, title, alias, "cover");
-                    AddDistinctQuery(queries, title, alias);
+                    AddDistinctQuery(queries, rawTitle, normalizedAlbum, "cover");
+                    AddDistinctQuery(queries, rawTitle, normalizedAlbum, "box art");
+                }
+
+                AddDistinctQuery(queries, title, normalizedAlbum, "cover");
+                AddDistinctQuery(queries, title, normalizedAlbum, "box art");
+
+                foreach (var term in consoleTerms)
+                {
+                    if (!string.IsNullOrWhiteSpace(rawTitle))
+                    {
+                        AddDistinctQuery(queries, rawTitle, term, "cover");
+                        AddDistinctQuery(queries, rawTitle, term, "box art");
+                        AddDistinctQuery(queries, rawTitle, term);
+                    }
+
+                    AddDistinctQuery(queries, title, term, "cover");
+                    AddDistinctQuery(queries, title, term, "box art");
+                    AddDistinctQuery(queries, title, term);
+
+                    if (!string.IsNullOrWhiteSpace(strippedTitle) &&
+                        !string.Equals(strippedTitle, title, StringComparison.OrdinalIgnoreCase))
+                    {
+                        AddDistinctQuery(queries, strippedTitle, term, "cover");
+                        AddDistinctQuery(queries, strippedTitle, term, "box art");
+                        AddDistinctQuery(queries, strippedTitle, term);
+                    }
                 }
 
                 AddDistinctQuery(queries, title, normalizedAlbum);
+
+                if (!string.IsNullOrWhiteSpace(strippedTitle) &&
+                    !string.Equals(strippedTitle, title, StringComparison.OrdinalIgnoreCase))
+                {
+                    AddDistinctQuery(queries, strippedTitle, normalizedAlbum, "cover");
+                    AddDistinctQuery(queries, strippedTitle, normalizedAlbum, "box art");
+                    AddDistinctQuery(queries, strippedTitle, normalizedAlbum);
+                }
             }
 
             AddDistinctQuery(queries, title, "cover");
+            AddDistinctQuery(queries, title, "box art");
             AddDistinctQuery(queries, title);
+
+            if (!string.IsNullOrWhiteSpace(strippedTitle) &&
+                !string.Equals(strippedTitle, title, StringComparison.OrdinalIgnoreCase))
+            {
+                AddDistinctQuery(queries, strippedTitle, "cover");
+                AddDistinctQuery(queries, strippedTitle, "box art");
+                AddDistinctQuery(queries, strippedTitle);
+            }
+
             return queries;
         }
 
@@ -1386,18 +1420,27 @@ namespace AES_Lacrima.Services
 
             var compact = albumName.Replace(" ", string.Empty);
 
-            if (ConsoleSearchAliases.TryGetValue(albumName, out var directAliases))
+            foreach (var alias in EmulationConsoleCatalog.GetSearchAliases(albumName))
             {
-                foreach (var alias in directAliases)
-                    yield return alias;
+                yield return alias;
             }
 
-            if (!string.Equals(compact, albumName, StringComparison.OrdinalIgnoreCase)
-                && ConsoleSearchAliases.TryGetValue(compact, out var compactAliases))
+            if (!string.Equals(compact, albumName, StringComparison.OrdinalIgnoreCase))
             {
-                foreach (var alias in compactAliases)
+                foreach (var alias in EmulationConsoleCatalog.GetSearchAliases(compact))
                     yield return alias;
             }
+        }
+
+        private async Task<IReadOnlyList<WebImageSearchResult>> FindBingImageResultsForAutoCoverAsync(string query, CancellationToken cancellationToken)
+        {
+            var results = new List<WebImageSearchResult>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            cancellationToken.ThrowIfCancellationRequested();
+            await LoadBingImageResultsForExactQuery(query, seen, results, cancellationToken).ConfigureAwait(false);
+            return results
+                .Take(MaxAutoCoverCandidatesPerQuery)
+                .ToList();
         }
 
         private async Task<bool> TryApplyCoverFromLocalMetadataAsync(MediaItem item, CancellationToken cancellationToken)
@@ -1647,12 +1690,22 @@ namespace AES_Lacrima.Services
                 return string.Empty;
 
             normalized = RomDumpTokenRegex.Replace(normalized, " ");
+            normalized = RomReleaseTokenRegex.Replace(normalized, " ");
             normalized = normalized.Replace('!', ' ')
                 .Replace(',', ' ')
                 .Replace('.', ' ')
                 .Replace("  ", " ");
 
             return MultiSpaceRegex.Replace(normalized, " ").Trim();
+        }
+
+        private static string StripRomReleaseTokens(string? title)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+                return string.Empty;
+
+            var stripped = RomReleaseTokenRegex.Replace(title, " ");
+            return MultiSpaceRegex.Replace(stripped, " ").Trim();
         }
     }
 }
