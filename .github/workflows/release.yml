@@ -5,6 +5,8 @@ on:
     # Trigger when a release is created/published (including prereleases)
     types: [created, published, prereleased]
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   # Allow manual reruns from the Actions UI
@@ -186,8 +188,9 @@ jobs:
 
       - name: Build WgcBridge (Windows)
         if: matrix.package_type == 'windows'
+        shell: pwsh
         run: |
-          echo "Building WgcBridge for Windows..."
+          Write-Host "Building WgcBridge for Windows..."
           
           # Restore NuGet packages for the C++ project
           nuget restore WgcBridge/packages.config -PackagesDirectory packages
@@ -197,12 +200,13 @@ jobs:
           msbuild WgcBridge/WgcBridge.vcxproj /p:Configuration=Release /p:Platform=x64 /p:BuildTarget=Build
           
           # Verify the build output
-          if [ -f "AES_Lacrima/libs/windows/WgcBridge.dll" ]; then
-            echo "Successfully built WgcBridge.dll at AES_Lacrima/libs/windows/WgcBridge.dll"
-          else
-            echo "::error::WgcBridge.dll not found at AES_Lacrima/libs/windows/WgcBridge.dll after build."
+          $wgc = "AES_Lacrima/libs/windows/WgcBridge.dll"
+          if (Test-Path $wgc) {
+            Write-Host "Successfully built WgcBridge.dll at $wgc"
+          } else {
+            Write-Error "::error::WgcBridge.dll not found at $wgc after build."
             exit 1
-          fi
+          }
 
       - name: Publish app on Windows
         if: matrix.package_type == 'windows'
@@ -224,23 +228,24 @@ jobs:
 
       - name: Copy WgcBridge.dll to publish output (Windows)
         if: matrix.package_type == 'windows'
+        shell: pwsh
         run: |
-          PUBLISHED_DIR="output/publish/Release/${{ matrix.publish_dir_name }}"
-          BRIDGE_SOURCE="AES_Lacrima/libs/windows/WgcBridge.dll"
+          $publishedDir = "output/publish/Release/${{ matrix.publish_dir_name }}"
+          $bridgeSource = "AES_Lacrima/libs/windows/WgcBridge.dll"
 
-          if [ -f "$BRIDGE_SOURCE" ]; then
-            echo "Copying $BRIDGE_SOURCE to $PUBLISHED_DIR"
-            cp "$BRIDGE_SOURCE" "$PUBLISHED_DIR/"
-            if [ -f "$PUBLISHED_DIR/WgcBridge.dll" ]; then
-                echo "Successfully verified WgcBridge.dll in $PUBLISHED_DIR"
-            else
-                echo "::error::Failed to copy WgcBridge.dll to $PUBLISHED_DIR"
+          if (Test-Path $bridgeSource) {
+            Write-Host "Copying $bridgeSource to $publishedDir"
+            Copy-Item $bridgeSource -Destination "$publishedDir/" -Force
+            if (Test-Path "$publishedDir/WgcBridge.dll") {
+                Write-Host "Successfully verified WgcBridge.dll in $publishedDir"
+            } else {
+                Write-Error "::error::Failed to copy WgcBridge.dll to $publishedDir"
                 exit 1
-            fi
-          else
-            echo "::error::WgcBridge.dll not found at $BRIDGE_SOURCE. Skip copy."
+            }
+          } else {
+            Write-Error "::error::WgcBridge.dll not found at $bridgeSource. Skip copy."
             exit 1
-          fi
+          }
 
           if (-Not $bridgePath) {
             # also check the AES_Lacrima build output folder as seen on local systems
