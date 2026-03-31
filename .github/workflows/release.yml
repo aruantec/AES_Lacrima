@@ -196,8 +196,8 @@ jobs:
           nuget restore WgcBridge/packages.config -PackagesDirectory packages
           
           # Build the C++ project using MSBuild
-          # This should output to AES_Lacrima/libs/windows/WgcBridge.dll as defined in the .vcxproj
-          msbuild WgcBridge/WgcBridge.vcxproj /p:Configuration=Release /p:Platform=x64 /p:BuildTarget=Build
+          # Overriding PlatformToolset to v143 as GitHub runners currently use VS 2022
+          msbuild WgcBridge/WgcBridge.vcxproj /p:Configuration=Release /p:Platform=x64 /p:BuildTarget=Build /p:PlatformToolset=v143
           
           # Verify the build output
           $wgc = "AES_Lacrima/libs/windows/WgcBridge.dll"
