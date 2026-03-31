@@ -104,10 +104,12 @@
     </None>
     <None Update="Linux\install-desktop-entry.sh" />
   </ItemGroup>
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and Exists('libs\\windows\\WgcBridge.dll')">
-    <None Include="libs\windows\WgcBridge.dll">
+  <ItemGroup>
+    <None Update="libs\windows\WgcBridge.dll" Condition="Exists('libs\\windows\\WgcBridge.dll')">
       <Link>WgcBridge.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>false</ExcludeFromSingleFile>
     </None>
   </ItemGroup>
   <ItemGroup>
