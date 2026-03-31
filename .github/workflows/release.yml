@@ -204,6 +204,23 @@ jobs:
           }
           dotnet @arguments
 
+      - name: Copy WgcBridge.dll to publish output (Windows)
+        if: matrix.package_type == 'windows'
+        shell: pwsh
+        run: |
+          $bridgePath = 'WgcBridge\bin\Release\x64\WgcBridge.dll'
+          if (-Not (Test-Path $bridgePath)) {
+            Write-Host "WgcBridge.dll not found at $bridgePath; trying libs/windows path"
+            $bridgePath = 'AES_Lacrima\libs\windows\WgcBridge.dll'
+          }
+          if (Test-Path $bridgePath) {
+            Copy-Item -Path $bridgePath -Destination "output/publish/Release/${{ matrix.publish_dir_name }}" -Force
+            Write-Host "Copied WgcBridge.dll to publish output"
+          } else {
+            Write-Host "WgcBridge.dll still not found; release artifacts may be missing it"
+            exit 1
+          }
+
       - name: Publish app on Unix
         if: matrix.package_type != 'windows'
         run: |
