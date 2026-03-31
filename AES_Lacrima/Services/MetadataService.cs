@@ -50,6 +50,7 @@ namespace AES_Lacrima.Services
         private const int MaxImageSearchResults = 24;
         private const int MaxAutoCoverQueries = 8;
         private const int MaxAutoCoverCandidatesPerQuery = 8;
+        private const int NormalizedCoverMaxDimension = 384;
         private static readonly HttpClient ImageHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
         private static readonly Regex BracketCleanupRegex = new(@"[\(\[\{].*?[\)\]\}]", RegexOptions.Compiled);
         private static readonly Regex MultiSpaceRegex = new(@"\s{2,}", RegexOptions.Compiled);
@@ -1475,6 +1476,32 @@ namespace AES_Lacrima.Services
             return ApplicationPaths.GetCacheFile(cacheId + ".meta");
         }
 
+        public async Task ClearCacheForItemsAsync(IEnumerable<MediaItem> items)
+        {
+            if (items == null)
+                return;
+
+            await Task.Run(() =>
+            {
+                foreach (var item in items)
+                {
+                    try
+                    {
+                        if (string.IsNullOrWhiteSpace(item?.FileName))
+                            continue;
+
+                        var cachePath = GetMetadataCachePath(item.FileName);
+                        if (File.Exists(cachePath))
+                            File.Delete(cachePath);
+                    }
+                    catch
+                    {
+                        // Ignore cache removal errors for now.
+                    }
+                }
+            }).ConfigureAwait(false);
+        }
+
         private async Task<IReadOnlyList<WebImageSearchResult>> FindWebImageResultsAsync(string query, CancellationToken cancellationToken)
         {
             var results = new List<WebImageSearchResult>();
@@ -1637,7 +1664,15 @@ namespace AES_Lacrima.Services
             Bitmap bitmap;
             using (var stream = new MemoryStream(bytes, writable: false))
             {
-                bitmap = new Bitmap(stream);
+                try
+                {
+                    bitmap = Bitmap.DecodeToWidth(stream, NormalizedCoverMaxDimension);
+                }
+                catch
+                {
+                    stream.Position = 0;
+                    bitmap = new Bitmap(stream);
+                }
             }
 
             var resolvedCachePath = cachePath ?? GetMetadataCachePath(item.FileName);

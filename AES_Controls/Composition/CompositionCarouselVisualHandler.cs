@@ -37,6 +37,7 @@ namespace AES_Controls.Composition
 
     public class CompositionCarouselVisualHandler : CompositionCustomVisualHandler
     {
+        private const float MaxFullCoverAspectRatio = 1.35f;
         private static readonly ILog Log = AES_Core.Logging.LogHelper.For<CompositionCarouselVisualHandler>();
 
         private float _visibleRange = 10;
@@ -83,6 +84,9 @@ namespace AES_Controls.Composition
         private bool _fullCoverSizeInitialized;
         private float _fullCoverSizeFactor;
         private float _fullCoverSizeVelocity;
+
+        private static float ClampFullCoverAspectRatio(float aspect)
+            => Math.Clamp(aspect, 0.01f, MaxFullCoverAspectRatio);
 
         private readonly SKPaint _quadPaint = new() { IsAntialias = true, FilterQuality = SKFilterQuality.Medium };
         // Projection / depth tuning to reduce perspective distortion on side items
@@ -552,7 +556,7 @@ namespace AES_Controls.Composition
                 if (!_dimCache.TryGetValue(img, out var dims)) { try { dims = _dimCache[img] = (img.Width, img.Height); } catch { dims = (0, 0); } }
                 if (dims.Width > 0 && dims.Height > 0)
                 {
-                    float aspect = (float)dims.Width / dims.Height;
+                    float aspect = ClampFullCoverAspectRatio((float)dims.Width / dims.Height);
                     // Off => regular cover dimensions (fill-crop), On => full cover aspect.
                     float targetW = baseHeight * aspect;
                     itemW = baseWidth + (targetW - baseWidth) * _fullCoverSizeFactor;

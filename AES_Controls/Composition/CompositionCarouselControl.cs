@@ -44,6 +44,7 @@ namespace AES_Controls.Composition
         private const int AnimationHeartbeatMs = 16;
         private const int ActiveScrollVirtualizationDebounceMs = 120;
         private const int IdleVirtualizationDebounceMs = 32;
+        private const float MaxFullCoverAspectRatio = 1.35f;
 
         private CompositionCustomVisual? _visual;
         private List<SKImage> _images = new();
@@ -312,6 +313,9 @@ namespace AES_Controls.Composition
             get => GetValue(UseFullCoverSizeProperty);
             set => SetValue(UseFullCoverSizeProperty, value);
         }
+
+        private static float ClampFullCoverAspectRatio(float aspect)
+            => Math.Clamp(aspect, 0.01f, MaxFullCoverAspectRatio);
 
         private Rect SliderBounds
         {
@@ -725,7 +729,7 @@ namespace AES_Controls.Composition
                 float h = itemHeight;
                 if (UseFullCoverSize && i >= 0 && i < _images.Count && _images[i] is SKImage img)
                 {
-                    float aspect = (float)img.Width / img.Height;
+                    float aspect = ClampFullCoverAspectRatio((float)img.Width / img.Height);
                     if (aspect > 0.01f) w = h * aspect;
                 }
 
@@ -1893,7 +1897,7 @@ namespace AES_Controls.Composition
         {
             if (UseFullCoverSize && i >= 0 && i < _images.Count && _images[i] is SKImage img)
             {
-                float aspect = (float)img.Width / img.Height;
+                float aspect = ClampFullCoverAspectRatio((float)img.Width / img.Height);
                 if (aspect > 0.01f) w = h * aspect;
             }
 
@@ -1941,7 +1945,7 @@ namespace AES_Controls.Composition
             float h = (float)ItemHeight * scaleVal;
             if (UseFullCoverSize && i >= 0 && i < _images.Count && _images[i] is SKImage img)
             {
-                float aspect = (float)img.Width / img.Height;
+                float aspect = ClampFullCoverAspectRatio((float)img.Width / img.Height);
                 if (aspect > 0.01f) w = h * aspect;
             }
 

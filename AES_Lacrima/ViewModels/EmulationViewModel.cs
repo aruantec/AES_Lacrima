@@ -95,7 +95,10 @@ namespace AES_Lacrima.ViewModels
         private double _selectedIndex = -1;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsItemPointed))]
         private int _pointedIndex = -1;
+
+        public bool IsItemPointed => PointedIndex != -1 && PointedIndex < CoverItems.Count;
 
         [ObservableProperty]
         private MediaItem _highlightedItem = CreateEmptyMediaItem();
@@ -307,11 +310,43 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand(CanExecute = nameof(CanAddRoms))]
-        private void ClearAlbum()
+        private async Task ClearAlbumCache()
         {
             var album = SelectedAlbum;
             if (album == null)
                 return;
+
+            if (MetadataService != null && album.Children.Count > 0)
+            {
+                try
+                {
+                    await MetadataService.ClearCacheForItemsAsync(album.Children).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn($"Failed to clear metadata cache for album '{album.Title}'", ex);
+                }
+            }
+        }
+
+        [RelayCommand(CanExecute = nameof(CanAddRoms))]
+        private async Task ClearAlbum()
+        {
+            var album = SelectedAlbum;
+            if (album == null)
+                return;
+
+            if (MetadataService != null && album.Children.Count > 0)
+            {
+                try
+                {
+                    await MetadataService.ClearCacheForItemsAsync(album.Children).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn($"Failed to clear metadata cache for album '{album.Title}'", ex);
+                }
+            }
 
             try
             {
