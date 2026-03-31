@@ -180,6 +180,10 @@ jobs:
       - name: Restore generator
         run: dotnet restore AES_Di.Generator/AES_Di.Generator.csproj
 
+      - name: Setup MSBuild (Windows)
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@v2
+
       - name: Restore and Build WgcBridge (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -188,22 +192,10 @@ jobs:
           # Ensure we are in the workspace root
           Get-Location
           
-          # Use vswhere to find the latest MSBuild if dotnet msbuild is failing to find C++ targets
-          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
-          $msbuildPath = & $vswhere -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
-          
-          if ($null -eq $msbuildPath) {
-            Write-Host "MSBuild.exe not found via vswhere, falling back to dotnet msbuild"
-            $msbuildCmd = "dotnet msbuild"
-          } else {
-            Write-Host "Found MSBuild at: $msbuildPath"
-            $msbuildCmd = "`"$msbuildPath`""
-          }
-
           nuget restore WgcBridge/packages.config -PackagesDirectory packages
           
-          # Run the build
-          Invoke-Expression "$msbuildCmd WgcBridge/WgcBridge.vcxproj -p:Configuration=Release -p:Platform=x64"
+          # Run the build using msbuild from setup-msbuild
+          msbuild WgcBridge/WgcBridge.vcxproj -p:Configuration=Release -p:Platform=x64
           
           $wgc = 'AES_Lacrima/libs/windows/WgcBridge.dll'
           if (Test-Path $wgc) {
