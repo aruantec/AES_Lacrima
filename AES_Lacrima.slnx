@@ -1,12 +1,23 @@
 <Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
   <Folder Name="/build/">
     <Project Path="build/_build.csproj" />
   </Folder>
-  <Project Path="AES_Controls/AES_Controls.csproj" />
+  <Project Path="AES_Controls/AES_Controls.csproj">
+    <Platform Solution="*|x64" Project="x64" />
+  </Project>
   <Project Path="AES_Core/AES_Core.csproj" />
   <Project Path="AES_Di.Generator/AES_Di.Generator.csproj" />
   <Project Path="AES_Tests/AES_Tests.csproj" />
   <Project Path="AES_Lacrima/AES_Lacrima.csproj" />
-  <Project Path="AES_Lacrima.Android/AES_Lacrima.Android.csproj" />
+  <Project Path="AES_Lacrima.Android/AES_Lacrima.Android.csproj">
+    <Deploy Solution="*|x64" />
+    <Deploy Solution="*|x86" />
+  </Project>
   <Project Path="AES_Mpv/AES_Mpv.csproj" />
+  <Project Path="WgcBridge/WgcBridge.vcxproj" Id="bb166246-f004-42a5-a2c3-863a9665946f">`r`n    <Platform Solution="*|Any CPU" Project="x64" />`r`n  </Project>
 </Solution>

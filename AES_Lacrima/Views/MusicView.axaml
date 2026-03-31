@@ -14,7 +14,6 @@
              xmlns:common="using:AES_Lacrima"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
-             x:Name="RootMusicView"
              x:Class="AES_Lacrima.Views.MusicView"
              x:DataType="vm:MusicViewModel">
 
@@ -1049,7 +1048,7 @@
                                         <DataTemplate x:DataType="services:WebImageSearchResult">
                                             <Button Margin="6"
                                                     Padding="0"
-                                                    Command="{Binding #RootMusicView.DataContext.MetadataService.SelectSearchImageCommand}"
+                                                    Command="{Binding $parent[UserControl].DataContext.MetadataService.SelectSearchImageCommand}"
                                                     CommandParameter="{Binding}">
                                                 <Border Background="#222"
                                                         BorderBrush="#44FFFFFF"

@@ -61,10 +61,25 @@
     <ProjectReference Include="..\AES_Controls\AES_Controls.csproj" />
     <ProjectReference Include="..\AES_Core\AES_Core.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="'$(PublishAot)' != 'true'">
-    <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+
+  <PropertyGroup>
+    <!--
+      WgcBridge is a native C++ project that requires Visual Studio C++ tooling.
+      On environments without MSBuild C++ installed, skip building the native project
+      and rely on prebuilt libs/windows/WgcBridge.dll (from release packaging).
+    -->
+    <BuildWgcBridge Condition="'$(BuildWgcBridge)' == '' and Exists('$(VCTargetsPath)\\Microsoft.Cpp.Default.props')">true</BuildWgcBridge>
+    <BuildWgcBridge Condition="'$(BuildWgcBridge)' == '' and !Exists('$(VCTargetsPath)\\Microsoft.Cpp.Default.props')">false</BuildWgcBridge>
+  </PropertyGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(BuildWgcBridge)' == 'true'">
+    <ProjectReference Include="..\WgcBridge\WgcBridge.vcxproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <SetPlatform>Platform=x64</SetPlatform>
+    </ProjectReference>
   </ItemGroup>
-  <ItemGroup Condition="'$(PublishAot)' == 'true'">
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
     <Analyzer Include="..\AES_Di.Generator\bin\$(Configuration)\netstandard2.0\AES_Di.Generator.dll" />
   </ItemGroup>
   <ItemGroup>
@@ -88,6 +103,12 @@
       <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </None>
     <None Update="Linux\install-desktop-entry.sh" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <None Include="libs\windows\WgcBridge.dll">
+      <Link>WgcBridge.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Compile Update="Views\Common\MainTopBar.axaml.cs">
