@@ -51,7 +51,8 @@ public sealed class EmulationViewModelTests
         Assert.NotNull(buildMethod);
 
         var map = Assert.IsType<Dictionary<string, List<MediaItem>>>(buildMethod!.Invoke(vm, Array.Empty<object>())!);
-        Assert.True(map.ContainsKey("test-console.png"));
+        var expectedKey = "test-console.png";
+        Assert.Contains(expectedKey, map.Keys, StringComparer.OrdinalIgnoreCase);
 
         var pendingField = typeof(EmulationViewModel).GetField("_pendingAlbumRoms", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(pendingField);

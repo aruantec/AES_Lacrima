@@ -441,18 +441,31 @@ namespace AES_Lacrima.ViewModels
         private static string GetAlbumPersistenceKey(FolderMediaItem album)
         {
             if (!string.IsNullOrWhiteSpace(album.FileName))
-                return Path.GetFileName(album.FileName);
+            {
+                var fileName = GetFileNameFromPath(album.FileName);
+                if (!string.IsNullOrWhiteSpace(fileName))
+                    return fileName;
+            }
 
             return album.Title?.Trim() ?? string.Empty;
         }
 
         private static string GetAlbumPersistenceKeyFromPath(string imagePath, string? albumTitle)
         {
-            var candidate = Path.GetFileName(imagePath);
+            var candidate = GetFileNameFromPath(imagePath);
             if (!string.IsNullOrWhiteSpace(candidate))
                 return candidate;
 
             return albumTitle?.Trim() ?? string.Empty;
+        }
+
+        private static string GetFileNameFromPath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return string.Empty;
+
+            var normalized = path.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
+            return Path.GetFileName(normalized).Trim();
         }
 
         private bool CanAddRoms() => SelectedAlbum != null;
