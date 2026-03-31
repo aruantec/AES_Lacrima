@@ -181,12 +181,20 @@ jobs:
         run: dotnet restore AES_Di.Generator/AES_Di.Generator.csproj
 
       - name: Restore and Build WgcBridge (Windows)
-        if: startsWith(matrix.runtime, 'win-')
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Write-Host "Matrix runtime=${{ matrix.runtime }} package_type=${{ matrix.package_type }}"
+          Write-Host "WgcBridge step (runner.os=$env:RUNNER_OS, runtime=${{ matrix.runtime }}, package_type=${{ matrix.package_type }})"
+          dotnet --info
           nuget restore WgcBridge/packages.config -PackagesDirectory packages
           dotnet msbuild WgcBridge/WgcBridge.vcxproj -p:Configuration=Release -p:Platform=x64
+          $wgc = 'WgcBridge\bin\Release\x64\WgcBridge.dll'
+          if (Test-Path $wgc) {
+            Write-Host "Found WgcBridge.dll at $wgc"
+          } else {
+            Write-Error "WgcBridge.dll not found at $wgc"
+            exit 1
+          }
 
       - name: Publish app on Windows
         if: startsWith(matrix.runtime, 'win-')
