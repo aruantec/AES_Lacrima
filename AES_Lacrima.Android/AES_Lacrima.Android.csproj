@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <SupportedOSPlatformVersion>21</SupportedOSPlatformVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <AndroidJavaMaxHeapSize>2G</AndroidJavaMaxHeapSize>
     <ApplicationId>com.aruantec.aeslacrima</ApplicationId>
     <ApplicationTitle>AES - Lacrima</ApplicationTitle>
     <ApplicationVersion>1</ApplicationVersion>

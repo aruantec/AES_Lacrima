@@ -180,6 +180,13 @@ jobs:
       - name: Restore generator
         run: dotnet restore AES_Di.Generator/AES_Di.Generator.csproj
 
+      - name: Restore and Build WgcBridge (Windows)
+        if: matrix.package_type == 'windows'
+        shell: pwsh
+        run: |
+          nuget restore WgcBridge/packages.config -PackagesDirectory packages
+          msbuild WgcBridge/WgcBridge.vcxproj -p:Configuration=Release -p:Platform=x64
+
       - name: Publish app on Windows
         if: matrix.package_type == 'windows'
         shell: pwsh

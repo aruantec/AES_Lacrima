@@ -1,1 +1,6 @@
-<Project />
+<Project>
+  <PropertyGroup>
+    <!-- Prevent Azure/dev builds from failing due to shared compilation file locks -->
+    <UseSharedCompilation>false</UseSharedCompilation>
+  </PropertyGroup>
+</Project>

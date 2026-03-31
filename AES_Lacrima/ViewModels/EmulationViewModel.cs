@@ -129,6 +129,12 @@ namespace AES_Lacrima.ViewModels
             IsPrepared = true;
         }
 
+        public override void OnLeaveViewModel()
+        {
+            base.OnLeaveViewModel();
+            SaveSettings();
+        }
+
         partial void OnIsAlbumListCollapsedChanged(bool value)
         {
             if (IsPrepared)
@@ -200,8 +206,12 @@ namespace AES_Lacrima.ViewModels
         protected override void OnSaveSettings(JsonObject section)
         {
             WriteSetting(section, nameof(IsAlbumListCollapsed), IsAlbumListCollapsed);
-            WriteCollectionSetting(section, "AlbumOrder", "string", AlbumList.Select(GetAlbumOrderKey));
-            WriteObjectSetting(section, "AlbumRoms", BuildAlbumRomMap());
+
+            _pendingAlbumOrder = new AvaloniaList<string>(AlbumList.Select(GetAlbumOrderKey));
+            _pendingAlbumRoms = BuildAlbumRomMap();
+
+            WriteCollectionSetting(section, "AlbumOrder", "string", _pendingAlbumOrder);
+            WriteObjectSetting(section, "AlbumRoms", _pendingAlbumRoms);
         }
 
         private void LoadConsoleAlbums()
@@ -212,6 +222,7 @@ namespace AES_Lacrima.ViewModels
             {
                 var title = GetConsoleTitle(imagePath);
                 var previewBitmap = LoadBitmap(imagePath);
+                var albumKey = GetAlbumPersistenceKeyFromPath(imagePath, title);
 
                 AlbumList.Add(new EmulationAlbumItem
                 {
@@ -229,7 +240,7 @@ namespace AES_Lacrima.ViewModels
                             CoverBitmap = previewBitmap
                         }
                     ],
-                    Children = RestoreAlbumRoms(imagePath, title, previewBitmap)
+                    Children = RestoreAlbumRoms(albumKey, title, previewBitmap)
                 });
             }
 
@@ -425,9 +436,24 @@ namespace AES_Lacrima.ViewModels
         }
 
         private static string GetAlbumOrderKey(FolderMediaItem album)
-            => string.IsNullOrWhiteSpace(album.FileName)
-                ? album.Title ?? string.Empty
-                : Path.GetFileName(album.FileName);
+            => GetAlbumPersistenceKey(album);
+
+        private static string GetAlbumPersistenceKey(FolderMediaItem album)
+        {
+            if (!string.IsNullOrWhiteSpace(album.FileName))
+                return Path.GetFileName(album.FileName);
+
+            return album.Title?.Trim() ?? string.Empty;
+        }
+
+        private static string GetAlbumPersistenceKeyFromPath(string imagePath, string? albumTitle)
+        {
+            var candidate = Path.GetFileName(imagePath);
+            if (!string.IsNullOrWhiteSpace(candidate))
+                return candidate;
+
+            return albumTitle?.Trim() ?? string.Empty;
+        }
 
         private bool CanAddRoms() => SelectedAlbum != null;
 
@@ -694,9 +720,20 @@ namespace AES_Lacrima.ViewModels
             _ = Task.Run(() => LoadAlbumCoversAsync(album, cancellationToken), cancellationToken);
         }
 
-        private AvaloniaList<MediaItem> RestoreAlbumRoms(string imagePath, string albumTitle, Bitmap? previewBitmap)
+        private AvaloniaList<MediaItem> RestoreAlbumRoms(string albumKey, string albumTitle, Bitmap? previewBitmap)
         {
-            if (!_pendingAlbumRoms.TryGetValue(Path.GetFileName(imagePath), out var savedItems) || savedItems.Count == 0)
+            if (!_pendingAlbumRoms.TryGetValue(albumKey, out var savedItems) || savedItems.Count == 0)
+            {
+                // Backward compatibility: older save state might have centered on title keys.
+                if (!string.IsNullOrWhiteSpace(albumTitle) &&
+                    _pendingAlbumRoms.TryGetValue(albumTitle.Trim(), out var fallbackItems) &&
+                    fallbackItems.Count > 0)
+                {
+                    savedItems = fallbackItems;
+                }
+            }
+
+            if (savedItems == null || savedItems.Count == 0)
                 return [];
 
             return new AvaloniaList<MediaItem>(
@@ -708,7 +745,7 @@ namespace AES_Lacrima.ViewModels
             return AlbumList
                 .Where(album => album.Children.Count > 0)
                 .ToDictionary(
-                    GetAlbumOrderKey,
+                    GetAlbumPersistenceKey,
                     album => album.Children.Select(item => CloneRomItem(item, album.Title, null)).ToList(),
                     StringComparer.OrdinalIgnoreCase);
         }
