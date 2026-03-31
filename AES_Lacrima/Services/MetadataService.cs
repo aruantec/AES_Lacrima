@@ -25,6 +25,7 @@ using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using TagLib;
 using File = System.IO.File;
@@ -53,7 +54,33 @@ namespace AES_Lacrima.Services
         private static readonly Regex ImageKindDescriptionRegex = new(@"^\[AES_KIND:(?<kind>[A-Za-z]+)\]\s*", RegexOptions.Compiled);
         private static readonly Regex GoogleImgTagRegex = new(@"<img[^>]+(?:src|data-src|data-iurl)=""(?<url>[^""]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex GoogleImgResRegex = new(@"[?&]imgurl=(?<url>[^&""'\s<>]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex GoogleJsonImageUrlRegex = new(@"(?:""(?:(?:ou)|(?:iurl)|(?:imageUrl)|(?:thumbnailUrl))""\s*:\s*"")(?<url>https?:\\?/\\?/[^""]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex GoogleQuotedHttpUrlRegex = new(@"""(?<url>https?:\\?/\\?/[^""'\s<>]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex BingJsonImageUrlRegex = new(@"""(?:murl|imgurl|turl|thumb|thumbnailUrl)""\s*:\s*""(?<url>https?:\\?/\\?/[^""]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex BingHtmlEncodedImageUrlRegex = new(@"(?:murl|imgurl|turl|thumb|thumbnailUrl)&quot;:&quot;(?<url>https?:[^""'<>]+?)&quot;", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex DirectImageUrlRegex = new(@"https?://[^""'\s<>\\]+?\.(?:jpg|jpeg|png|webp|gif|bmp|avif)(?:\?[^""'\s<>\\]*)?", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex RomDumpTokenRegex = new(@"\b(?:rev\s*\d+|beta|proto|prototype|demo|sample|unl|hack|translated?|translation|usa|europe|japan|world)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex CoverSearchTokenRegex = new(@"\b(?:cover(?:\s+art)?|album\s+cover|box\s*art)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly SemaphoreSlim AutoCoverLookupThrottle = new(2, 2);
+        private const string GoogleConsentCookie = "CONSENT=YES+cb.20210328-17-p0.en+FX+471";
+        private static readonly Dictionary<string, string[]> ConsoleSearchAliases = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["SNES"] = ["Super Nintendo", "Super Nintendo Entertainment System"],
+            ["NES"] = ["Nintendo Entertainment System"],
+            ["N64"] = ["Nintendo 64"],
+            ["GCN"] = ["Nintendo GameCube", "GameCube"],
+            ["GBA"] = ["Game Boy Advance"],
+            ["NDS"] = ["Nintendo DS"],
+            ["3DS"] = ["Nintendo 3DS"],
+            ["PSX"] = ["PlayStation"],
+            ["PS1"] = ["PlayStation"],
+            ["PS2"] = ["PlayStation 2"],
+            ["PS3"] = ["PlayStation 3"],
+            ["PS4"] = ["PlayStation 4"],
+            ["PS5"] = ["PlayStation 5"],
+            ["XBOX360"] = ["Xbox 360"],
+            ["XBOX 360"] = ["Xbox 360"]
+        };
         private static readonly string[] NoiseTokens =
         [
             "lyrics", "lyric", "official video", "official audio", "official",
@@ -612,6 +639,87 @@ namespace AES_Lacrima.Services
             }
         }
 
+        public async Task<bool> TryPopulateCoverFromLocalMetadataOrGoogleAsync(MediaItem item, string? albumName, CancellationToken cancellationToken = default)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.FileName))
+                return false;
+
+            var acquired = false;
+            try
+            {
+                await AutoCoverLookupThrottle.WaitAsync(cancellationToken);
+                acquired = true;
+
+                if (await TryApplyCoverFromLocalMetadataAsync(item, cancellationToken).ConfigureAwait(false))
+                    return true;
+
+                var searchQueries = BuildAutoCoverQueries(item, albumName);
+                if (searchQueries.Count == 0)
+                    return false;
+
+                SLog.Debug($"Auto cover lookup queries for '{item.FileName}': {string.Join(" | ", searchQueries)}");
+
+                foreach (var searchQuery in searchQueries)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var googleResults = await FindWebImageResultsAsync(searchQuery, cancellationToken).ConfigureAwait(false);
+                    if (googleResults.Count == 0)
+                    {
+                        SLog.Debug($"Auto cover lookup returned no Google candidates for query '{searchQuery}'.");
+                        continue;
+                    }
+
+                    SLog.Debug($"Auto cover lookup returned {googleResults.Count} Google candidates for query '{searchQuery}'.");
+
+                    foreach (var candidate in googleResults)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        try
+                        {
+                            var download = await TryDownloadImageBytesAsync(candidate.FullImageUrl, cancellationToken).ConfigureAwait(false);
+                            if (download.Bytes == null || string.IsNullOrWhiteSpace(download.MimeType))
+                            {
+                                SLog.Debug($"Skipping Google candidate that could not be downloaded as an image: {candidate.FullImageUrl}");
+                                continue;
+                            }
+
+                            await ApplyCoverBytesToItemAsync(item, download.Bytes, download.MimeType, cancellationToken).ConfigureAwait(false);
+                            await SaveCoverToMetadataCacheAsync(item, download.Bytes, download.MimeType).ConfigureAwait(false);
+                            SLog.Info($"Auto cover applied for '{item.Title}' from '{candidate.FullImageUrl}' using query '{searchQuery}'.");
+                            return true;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            SLog.Warn($"Failed auto cover candidate for '{item.FileName}' from '{candidate.FullImageUrl}'.", ex);
+                        }
+                    }
+                }
+
+                SLog.Warn($"Auto cover lookup found no usable Google candidates for '{item.FileName}'.");
+                return false;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to populate auto cover for {item.FileName}", ex);
+                return false;
+            }
+            finally
+            {
+                if (acquired)
+                    AutoCoverLookupThrottle.Release();
+            }
+        }
+
         private void Close()
         {
             IsMetadataLoaded = false;
@@ -733,11 +841,51 @@ namespace AES_Lacrima.Services
                 if (results.Count >= MaxImageSearchResults)
                     break;
 
-                // 2. Google Image Search fallback
+                // 2. Bing Images fallback
+                await LoadBingImageResults(query, seen, results);
+            }
+
+            foreach (var query in normalizedQueries)
+            {
+                if (results.Count >= MaxImageSearchResults)
+                    break;
+
+                // 3. Google Image Search fallback
                 await LoadGoogleImageResults(query, seen, results);
             }
 
             return results;
+        }
+
+        private static async Task LoadBingImageResults(string query, HashSet<string> seen, List<WebImageSearchResult> sink)
+        {
+            try
+            {
+                foreach (var bingQuery in BuildGoogleQueries(query))
+                {
+                    if (sink.Count >= MaxImageSearchResults)
+                        break;
+
+                    var url = $"https://www.bing.com/images/search?q={Uri.EscapeDataString(bingQuery)}&form=HDRSC3&first=1";
+
+                    using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
+                    request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
+                    request.Headers.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
+                    request.Headers.Referrer = new Uri("https://www.bing.com/");
+
+                    using var response = await ImageHttpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead);
+                    if (!response.IsSuccessStatusCode)
+                        continue;
+
+                    var html = await response.Content.ReadAsStringAsync();
+                    ExtractBingImageResults(html, seen, sink);
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Bing image search failed for query: {query}", ex);
+            }
         }
 
         private static async Task LoadGoogleImageResults(string query, HashSet<string> seen, List<WebImageSearchResult> sink)
@@ -754,6 +902,8 @@ namespace AES_Lacrima.Services
                     using var request = new HttpRequestMessage(HttpMethod.Get, url);
                     request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
                     request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
+                    request.Headers.Add("Cookie", GoogleConsentCookie);
+                    request.Headers.Referrer = new Uri("https://www.google.com/");
 
                     using var response = await ImageHttpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead);
                     if (!response.IsSuccessStatusCode)
@@ -772,10 +922,48 @@ namespace AES_Lacrima.Services
         private static IEnumerable<string> BuildGoogleQueries(string query)
         {
             var googleQueries = new List<string>();
-            AddDistinctQuery(googleQueries, query);
-            AddDistinctQuery(googleQueries, $"{query} album cover");
-            AddDistinctQuery(googleQueries, $"{query} cover art");
+            var normalized = NormalizeSearchTitle(query);
+            AddDistinctQuery(googleQueries, normalized);
+
+            foreach (var aliasQuery in ExpandSearchQueryAliases(normalized))
+                AddDistinctQuery(googleQueries, aliasQuery);
+
+            AddDistinctQuery(googleQueries, $"{normalized} album cover");
+            AddDistinctQuery(googleQueries, $"{normalized} cover art");
+
+            var stripped = StripCoverSearchTokens(normalized);
+            if (!string.IsNullOrWhiteSpace(stripped) && !string.Equals(stripped, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                AddDistinctQuery(googleQueries, stripped);
+                foreach (var aliasQuery in ExpandSearchQueryAliases(stripped))
+                    AddDistinctQuery(googleQueries, aliasQuery);
+            }
+
             return googleQueries;
+        }
+
+        private static IEnumerable<string> ExpandSearchQueryAliases(string query)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+                yield break;
+
+            foreach (var pair in ConsoleSearchAliases)
+            {
+                if (!query.Contains(pair.Key, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                foreach (var alias in pair.Value)
+                    yield return Regex.Replace(query, $@"\b{Regex.Escape(pair.Key)}\b", alias, RegexOptions.IgnoreCase);
+            }
+        }
+
+        private static string StripCoverSearchTokens(string query)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+                return string.Empty;
+
+            var stripped = CoverSearchTokenRegex.Replace(query, " ");
+            return MultiSpaceRegex.Replace(stripped, " ").Trim();
         }
 
         private static void ExtractGoogleImageResults(string html, HashSet<string> seen, List<WebImageSearchResult> sink)
@@ -795,6 +983,59 @@ namespace AES_Lacrima.Services
                 .Replace("\\/", "/");
 
             foreach (Match match in GoogleImgResRegex.Matches(decodedHtml))
+            {
+                if (sink.Count >= MaxImageSearchResults)
+                    return;
+
+                var imageUrl = DecodeGoogleUrl(match.Groups["url"].Value);
+                TryAddGoogleImageResult(imageUrl, seen, sink);
+            }
+
+            foreach (Match match in DirectImageUrlRegex.Matches(decodedHtml))
+            {
+                if (sink.Count >= MaxImageSearchResults)
+                    return;
+
+                var imageUrl = DecodeGoogleUrl(match.Value);
+                TryAddGoogleImageResult(imageUrl, seen, sink);
+            }
+
+            foreach (Match match in GoogleJsonImageUrlRegex.Matches(decodedHtml))
+            {
+                if (sink.Count >= MaxImageSearchResults)
+                    return;
+
+                var imageUrl = DecodeGoogleUrl(match.Groups["url"].Value);
+                TryAddGoogleImageResult(imageUrl, seen, sink);
+            }
+
+            foreach (Match match in GoogleQuotedHttpUrlRegex.Matches(decodedHtml))
+            {
+                if (sink.Count >= MaxImageSearchResults)
+                    return;
+
+                var imageUrl = DecodeGoogleUrl(match.Groups["url"].Value);
+                TryAddGoogleImageResult(imageUrl, seen, sink);
+            }
+        }
+
+        private static void ExtractBingImageResults(string html, HashSet<string> seen, List<WebImageSearchResult> sink)
+        {
+            var decodedHtml = WebUtility.HtmlDecode(html)
+                .Replace("\\u003d", "=")
+                .Replace("\\u0026", "&")
+                .Replace("\\/", "/");
+
+            foreach (Match match in BingJsonImageUrlRegex.Matches(decodedHtml))
+            {
+                if (sink.Count >= MaxImageSearchResults)
+                    return;
+
+                var imageUrl = DecodeGoogleUrl(match.Groups["url"].Value);
+                TryAddGoogleImageResult(imageUrl, seen, sink);
+            }
+
+            foreach (Match match in BingHtmlEncodedImageUrlRegex.Matches(decodedHtml))
             {
                 if (sink.Count >= MaxImageSearchResults)
                     return;
@@ -863,14 +1104,30 @@ namespace AES_Lacrima.Services
             if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
                 return false;
 
-            var host = uri.Host;
-            if (host.Contains("google.", StringComparison.OrdinalIgnoreCase)
-                || host.Contains("gstatic.com", StringComparison.OrdinalIgnoreCase))
+            if (imageUrl.Contains("googlelogo", StringComparison.OrdinalIgnoreCase)
+                || imageUrl.Contains("/images/branding/", StringComparison.OrdinalIgnoreCase)
+                || imageUrl.Contains("/gen_204", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
 
-            return !imageUrl.Contains("googlelogo", StringComparison.OrdinalIgnoreCase);
+            var host = uri.Host;
+            var isGoogleThumbnailHost =
+                host.StartsWith("encrypted-tbn", StringComparison.OrdinalIgnoreCase)
+                || host.Contains("gstatic.com", StringComparison.OrdinalIgnoreCase)
+                || host.Contains("googleusercontent.com", StringComparison.OrdinalIgnoreCase);
+
+            if (host.Contains("google.", StringComparison.OrdinalIgnoreCase) && !isGoogleThumbnailHost)
+                return false;
+
+            if (uri.AbsolutePath.Contains("/search", StringComparison.OrdinalIgnoreCase)
+                || uri.AbsolutePath.Contains("/imgres", StringComparison.OrdinalIgnoreCase)
+                || uri.AbsolutePath.Contains("/url", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return true;
         }
 
         private static async Task LoadItunesResults(string uri, HashSet<string> seen, List<WebImageSearchResult> sink)
@@ -1093,6 +1350,309 @@ namespace AES_Lacrima.Services
                 // Fallback: set to null or default
                 await Dispatcher.UIThread.InvokeAsync(() => { model.Image = null; });
             }
+        }
+
+        private static List<string> BuildAutoCoverQueries(MediaItem item, string? albumName)
+        {
+            var title = NormalizeRomSearchTitle(item.Title);
+            if (string.IsNullOrWhiteSpace(title))
+                title = NormalizeRomSearchTitle(ExtractFilenameForSearch(item.FileName));
+
+            var normalizedAlbum = NormalizeSearchTitle(albumName ?? item.Album);
+            var queries = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(normalizedAlbum))
+            {
+                AddDistinctQuery(queries, title, normalizedAlbum, "cover");
+
+                foreach (var alias in ExpandConsoleAlbumAliases(normalizedAlbum))
+                {
+                    AddDistinctQuery(queries, title, alias, "cover");
+                    AddDistinctQuery(queries, title, alias);
+                }
+
+                AddDistinctQuery(queries, title, normalizedAlbum);
+            }
+
+            AddDistinctQuery(queries, title, "cover");
+            AddDistinctQuery(queries, title);
+            return queries;
+        }
+
+        private static IEnumerable<string> ExpandConsoleAlbumAliases(string albumName)
+        {
+            if (string.IsNullOrWhiteSpace(albumName))
+                yield break;
+
+            var compact = albumName.Replace(" ", string.Empty);
+
+            if (ConsoleSearchAliases.TryGetValue(albumName, out var directAliases))
+            {
+                foreach (var alias in directAliases)
+                    yield return alias;
+            }
+
+            if (!string.Equals(compact, albumName, StringComparison.OrdinalIgnoreCase)
+                && ConsoleSearchAliases.TryGetValue(compact, out var compactAliases))
+            {
+                foreach (var alias in compactAliases)
+                    yield return alias;
+            }
+        }
+
+        private async Task<bool> TryApplyCoverFromLocalMetadataAsync(MediaItem item, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var cachePath = GetMetadataCachePath(item.FileName);
+            var metadata = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath), cancellationToken).ConfigureAwait(false);
+            var cover = metadata?.Images?.FirstOrDefault(image => image.Kind == TagImageKind.Cover && image.Data.Length > 0);
+            if (cover == null)
+                return false;
+
+            await ApplyCoverBytesToItemAsync(item, cover.Data, cover.MimeType ?? GuessMimeTypeFromBytes(cover.Data), cancellationToken, cachePath)
+                .ConfigureAwait(false);
+
+            if (string.IsNullOrWhiteSpace(item.Title) && !string.IsNullOrWhiteSpace(metadata?.Title))
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => item.Title = metadata!.Title);
+            }
+
+            if (string.IsNullOrWhiteSpace(item.Album) && !string.IsNullOrWhiteSpace(metadata?.Album))
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => item.Album = metadata!.Album);
+            }
+
+            return true;
+        }
+
+        private static string GetMetadataCachePath(string? filePath)
+        {
+            var cacheId = BinaryMetadataHelper.GetCacheId(filePath ?? string.Empty);
+            return ApplicationPaths.GetCacheFile(cacheId + ".meta");
+        }
+
+        private async Task<IReadOnlyList<WebImageSearchResult>> FindWebImageResultsAsync(string query, CancellationToken cancellationToken)
+        {
+            var results = new List<WebImageSearchResult>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            cancellationToken.ThrowIfCancellationRequested();
+            await LoadBingImageResultsForExactQuery(query, seen, results, cancellationToken).ConfigureAwait(false);
+            if (results.Count == 0)
+                await LoadGoogleImageResultsForExactQuery(query, seen, results, cancellationToken).ConfigureAwait(false);
+            return results;
+        }
+
+        private static async Task LoadBingImageResultsForExactQuery(string query, HashSet<string> seen, List<WebImageSearchResult> sink, CancellationToken cancellationToken)
+        {
+            try
+            {
+                if (sink.Count >= MaxImageSearchResults)
+                    return;
+
+                var url = $"https://www.bing.com/images/search?q={Uri.EscapeDataString(query)}&form=HDRSC3&first=1";
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
+                request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
+                request.Headers.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
+                request.Headers.Referrer = new Uri("https://www.bing.com/");
+
+                using var response = await ImageHttpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    SLog.Warn($"Bing image search returned HTTP {(int)response.StatusCode} for exact query '{query}'.");
+                    return;
+                }
+
+                var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                ExtractBingImageResults(html, seen, sink);
+                SLog.Debug($"Bing image search extracted {sink.Count} candidate URLs for exact query '{query}'.");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Bing image search failed for exact query: {query}", ex);
+            }
+        }
+
+        private static async Task LoadGoogleImageResultsForExactQuery(string query, HashSet<string> seen, List<WebImageSearchResult> sink, CancellationToken cancellationToken)
+        {
+            try
+            {
+                if (sink.Count >= MaxImageSearchResults)
+                    return;
+
+                var url = $"https://www.google.com/search?hl=en&q={Uri.EscapeDataString(query)}&udm=2";
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
+                request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
+                request.Headers.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
+                request.Headers.Add("Cookie", GoogleConsentCookie);
+                request.Headers.Referrer = new Uri("https://www.google.com/");
+
+                using var response = await ImageHttpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    SLog.Warn($"Google image search returned HTTP {(int)response.StatusCode} for exact query '{query}'.");
+                    return;
+                }
+
+                var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                ExtractGoogleImageResults(html, seen, sink);
+                SLog.Debug($"Google image search extracted {sink.Count} candidate URLs for exact query '{query}'.");
+
+                if (sink.Count == 0)
+                {
+                    var snippet = html.Length <= 400 ? html : html[..400];
+                    SLog.Warn($"Google image search extracted 0 candidates for '{query}'. Response snippet: {snippet}");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Google image search failed for exact query: {query}", ex);
+            }
+        }
+
+        private async Task<(byte[]? Bytes, string? MimeType)> TryDownloadImageBytesAsync(string url, CancellationToken cancellationToken)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
+                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                return (null, null);
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
+            request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
+
+            using var response = await ImageHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                return (null, null);
+
+            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+            if (bytes.Length == 0)
+                return (null, null);
+
+            var mimeType = response.Content.Headers.ContentType?.MediaType;
+            mimeType ??= GuessMimeTypeFromUrl(uri.AbsolutePath);
+            if (!mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                return (null, null);
+
+            return (bytes, mimeType);
+        }
+
+        private async Task SaveCoverToMetadataCacheAsync(MediaItem item, byte[] bytes, string mimeType)
+        {
+            if (string.IsNullOrWhiteSpace(item.FileName))
+                return;
+
+            var cachePath = GetMetadataCachePath(item.FileName);
+            var cacheDirectory = Path.GetDirectoryName(cachePath);
+            if (!string.IsNullOrWhiteSpace(cacheDirectory) && !Directory.Exists(cacheDirectory))
+                Directory.CreateDirectory(cacheDirectory);
+
+            await Task.Run(() =>
+            {
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                metadata.Title = string.IsNullOrWhiteSpace(item.Title) ? metadata.Title : item.Title;
+                metadata.Artist = string.IsNullOrWhiteSpace(item.Artist) ? metadata.Artist : item.Artist;
+                metadata.Album = string.IsNullOrWhiteSpace(item.Album) ? metadata.Album : item.Album;
+                metadata.Track = item.Track == 0 ? metadata.Track : item.Track;
+                metadata.Year = item.Year == 0 ? metadata.Year : item.Year;
+                metadata.Duration = item.Duration <= 0 ? metadata.Duration : item.Duration;
+                metadata.Genre = string.IsNullOrWhiteSpace(item.Genre) ? metadata.Genre : item.Genre;
+                metadata.Comment = string.IsNullOrWhiteSpace(item.Comment) ? metadata.Comment : item.Comment;
+                metadata.Lyrics = string.IsNullOrWhiteSpace(item.Lyrics) ? metadata.Lyrics : item.Lyrics;
+                metadata.ReplayGainTrackGain = item.ReplayGainTrackGain;
+                metadata.ReplayGainAlbumGain = item.ReplayGainAlbumGain;
+                metadata.Images ??= [];
+                metadata.Images.RemoveAll(image => image.Kind == TagImageKind.Cover);
+                metadata.Images.Insert(0, new ImageData
+                {
+                    Data = bytes,
+                    MimeType = mimeType,
+                    Kind = TagImageKind.Cover
+                });
+
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            }).ConfigureAwait(false);
+        }
+
+        private async Task ApplyCoverBytesToItemAsync(MediaItem item, byte[] bytes, string mimeType, CancellationToken cancellationToken, string? cachePath = null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            Bitmap bitmap;
+            using (var stream = new MemoryStream(bytes, writable: false))
+            {
+                bitmap = new Bitmap(stream);
+            }
+
+            var resolvedCachePath = cachePath ?? GetMetadataCachePath(item.FileName);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                item.CoverBitmap = bitmap;
+                item.CoverFound = true;
+                item.LocalCoverPath = resolvedCachePath;
+                item.SaveCoverBitmapAction = saveItem =>
+                {
+                    _ = SaveCoverToMetadataCacheAsync(saveItem, bytes, mimeType);
+                };
+            }, DispatcherPriority.Background);
+        }
+
+        private static string GuessMimeTypeFromBytes(byte[] bytes)
+        {
+            if (bytes.Length >= 12 &&
+                bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 &&
+                bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50)
+            {
+                return "image/webp";
+            }
+
+            if (bytes.Length >= 8 &&
+                bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47)
+            {
+                return "image/png";
+            }
+
+            if (bytes.Length >= 3 &&
+                bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF)
+            {
+                return "image/jpeg";
+            }
+
+            if (bytes.Length >= 3 &&
+                bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46)
+            {
+                return "image/gif";
+            }
+
+            return "image/jpeg";
+        }
+
+        private static string NormalizeRomSearchTitle(string? title)
+        {
+            var normalized = NormalizeSearchTitle(title);
+            if (string.IsNullOrWhiteSpace(normalized))
+                return string.Empty;
+
+            normalized = RomDumpTokenRegex.Replace(normalized, " ");
+            normalized = normalized.Replace('!', ' ')
+                .Replace(',', ' ')
+                .Replace('.', ' ')
+                .Replace("  ", " ");
+
+            return MultiSpaceRegex.Replace(normalized, " ").Trim();
         }
     }
 }

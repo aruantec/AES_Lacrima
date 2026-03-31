@@ -1,19 +1,246 @@
 <UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:composition="using:AES_Controls.Composition"
+             xmlns:navigation="using:AES_Lacrima.Views.Navigation"
+             xmlns:behaviors="using:AES_Lacrima.Behaviors"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:Interaction="http://avaloniaui.net/schemas/2019/interactivity"
              xmlns:vm="using:AES_Lacrima.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
-             x:Class="AES_Lacrima.Views.EmulationView">
+             mc:Ignorable="d"
+             d:DesignWidth="800"
+             d:DesignHeight="450"
+             x:Class="AES_Lacrima.Views.EmulationView"
+             x:DataType="vm:EmulationViewModel">
 
-    <!-- Sets the DataContext for the previewer -->
     <Design.DataContext>
         <vm:EmulationViewModel/>
     </Design.DataContext>
 
-    <Grid Grid.RowDefinitions="*,Auto" Background="Green">
-        <!-- Main content area -->
+    <Grid RowDefinitions="*,Auto,Auto" ClipToBounds="False">
+        <Border Background="#0F0F0F" Grid.RowSpan="3"/>
 
-        <!-- Menu -->
+        <composition:CompositionCarouselControl ItemsSource="{Binding CoverItems}"
+                                                ImageBitmapProperty="CoverBitmap"
+                                                SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                                                PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
+                                                ShowCoverFoundOverlay="False"
+                                                ItemSpacing="{Binding SettingsViewModel.CarouselSpacing}"
+                                                ItemScale="{Binding SettingsViewModel.CarouselScale}"
+                                                VerticalOffset="{Binding SettingsViewModel.CarouselVerticalOffset}"
+                                                SliderVerticalOffset="{Binding SettingsViewModel.CarouselSliderVerticalOffset}"
+                                                SliderTrackHeight="{Binding SettingsViewModel.CarouselSliderTrackHeight}"
+                                                SideTranslation="{Binding SettingsViewModel.CarouselSideTranslation}"
+                                                StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"
+                                                UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
+                                                GlobalOpacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
+                                                ClipToBounds="False">
+            <composition:CompositionCarouselControl.ContextMenu>
+                <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
+                    <MenuItem Header="Add Roms" CornerRadius="8" Command="{Binding AddRomsCommand}">
+                        <MenuItem.Icon>
+                            <Viewbox Width="32" Height="32" Stretch="Uniform">
+                                <Canvas Width="100" Height="100">
+                                    <Rectangle Canvas.Left="2" Canvas.Top="2" Width="96" Height="96" RadiusX="22" RadiusY="22" Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" />
+                                    <Rectangle Canvas.Left="46" Canvas.Top="32" Width="8" Height="36" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+                                    <Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+                                </Canvas>
+                            </Viewbox>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                </ContextMenu>
+            </composition:CompositionCarouselControl.ContextMenu>
+        </composition:CompositionCarouselControl>
+
+        <StackPanel HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Margin="0,380,0,0"
+                    Spacing="2"
+                    IsHitTestVisible="False">
+            <StackPanel.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.3"/>
+                </Transitions>
+            </StackPanel.Transitions>
+
+            <TextBlock Text="{Binding HighlightedItem.Title, FallbackValue=''}"
+                       FontSize="28"
+                       FontWeight="SemiBold"
+                       Foreground="White"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       MaxWidth="1000"
+                       TextTrimming="CharacterEllipsis"/>
+            <TextBlock Text="{Binding HighlightedItem.Album, FallbackValue=''}"
+                       FontSize="18"
+                       Foreground="#CCFFFFFF"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       MaxWidth="900"
+                       TextTrimming="CharacterEllipsis"
+                       IsVisible="False"/>
+        </StackPanel>
+
+        <TextBlock Text="No roms loaded"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Margin="0,380,0,0"
+                   FontSize="28"
+                   FontWeight="Bold"
+                   Foreground="White"
+                   IsHitTestVisible="False"
+                   IsVisible="{Binding IsNoAlbumLoadedVisible}"/>
+
+        <TextBox HorizontalAlignment="Right"
+                 VerticalAlignment="Top"
+                 Margin="0,15,30,0"
+                 Watermark="Search"
+                 Text="{Binding SearchText, Mode=TwoWay}"
+                 Classes="AlbumSearch"
+                 ZIndex="100"
+                 Cursor="Hand">
+            <TextBox.Styles>
+                <Style Selector="TextBox.AlbumSearch">
+                    <Setter Property="Width" Value="35"/>
+                    <Setter Property="Height" Value="35"/>
+                    <Setter Property="MinWidth" Value="35"/>
+                    <Setter Property="Transitions">
+                        <Transitions>
+                            <DoubleTransition Property="Width" Duration="0:0:0.35" Easing="CubicEaseOut"/>
+                            <ThicknessTransition Property="Padding" Duration="0:0:0.35" Easing="CubicEaseOut"/>
+                            <BrushTransition Property="Background" Duration="0:0:0.35"/>
+                            <BrushTransition Property="BorderBrush" Duration="0:0:0.35"/>
+                        </Transitions>
+                    </Setter>
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="BorderBrush" Value="Transparent"/>
+                    <Setter Property="BorderThickness" Value="1"/>
+                    <Setter Property="CornerRadius" Value="18"/>
+                    <Setter Property="Padding" Value="0,0,5,0"/>
+                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                    <Setter Property="Foreground" Value="Transparent"/>
+                </Style>
+                <Style Selector="TextBox.AlbumSearch:pointerover, TextBox.AlbumSearch:focus">
+                    <Setter Property="Width" Value="220"/>
+                    <Setter Property="Background" Value="#AA000000"/>
+                    <Setter Property="BorderBrush" Value="#44FFFFFF"/>
+                    <Setter Property="Padding" Value="10,0,5,0"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </Style>
+                <Style Selector="TextBox.AlbumSearch /template/ TextBlock#PART_Watermark">
+                    <Setter Property="Opacity" Value="0"/>
+                    <Setter Property="Transitions">
+                        <Transitions>
+                            <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+                        </Transitions>
+                    </Setter>
+                </Style>
+                <Style Selector="TextBox.AlbumSearch:pointerover /template/ TextBlock#PART_Watermark, TextBox.AlbumSearch:focus /template/ TextBlock#PART_Watermark">
+                    <Setter Property="Opacity" Value="0.5"/>
+                </Style>
+                <Style Selector="TextBox.AlbumSearch /template/ Border#PART_BorderElement">
+                    <Setter Property="CornerRadius" Value="18"/>
+                    <Setter Property="Transitions">
+                        <Transitions>
+                            <BrushTransition Property="Background" Duration="0:0:0.35"/>
+                            <BrushTransition Property="BorderBrush" Duration="0:0:0.35"/>
+                        </Transitions>
+                    </Setter>
+                </Style>
+            </TextBox.Styles>
+
+            <TextBox.InnerLeftContent>
+                <Path Data="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
+                      Fill="#CCFFFFFF"
+                      Stretch="Uniform"
+                      Width="16"
+                      Height="16"
+                      Margin="10,0,5,0"
+                      VerticalAlignment="Center"
+                      IsHitTestVisible="False"/>
+            </TextBox.InnerLeftContent>
+
+            <TextBox.InnerRightContent>
+                <Button Command="{Binding ClearSearchCommand}"
+                        IsVisible="{Binding SearchText, Converter={StaticResource StringNotEmptyToBoolConverter}}"
+                        Background="Transparent"
+                        Margin="0,0,5,0"
+                        Width="25"
+                        Cursor="Hand">
+                    <Button.Template>
+                        <ControlTemplate>
+                            <Path Data="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+                                  Fill="#AAFFFFFF"
+                                  Stretch="Uniform"
+                                  Width="10"
+                                  Height="10"
+                                  VerticalAlignment="Center"
+                                  HorizontalAlignment="Center"/>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </TextBox.InnerRightContent>
+        </TextBox>
+
+        <Grid Grid.Row="1" Height="140" Background="#E6000000">
+            <Separator Margin="0" VerticalAlignment="Top"/>
+            <StackPanel Orientation="Horizontal" Spacing="50" HorizontalAlignment="Left">
+                <Button Height="60"
+                        Cursor="Hand"
+                        VerticalAlignment="Center"
+                        Command="{Binding ToggleAlbumListCommand}"
+                        Margin="50,0,0,0"
+                        ToolTip.Tip="{Binding IsAlbumListCollapsed, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Show Albums, Hide Albums'}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <Rectangle Canvas.Left="18" Canvas.Top="15" Width="64" Height="8" RadiusX="4" RadiusY="4"
+                                       Fill="{Binding IsAlbumListCollapsed, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
+                                <Rectangle.Transitions>
+                                    <Transitions>
+                                        <BrushTransition Property="Fill" Duration="0:0:0.32" />
+                                    </Transitions>
+                                </Rectangle.Transitions>
+                            </Rectangle>
+                            <Rectangle Canvas.Left="10" Canvas.Top="30" Width="80" Height="58" RadiusX="12" RadiusY="12"
+                                       StrokeThickness="6"
+                                       Stroke="{Binding IsAlbumListCollapsed, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                       Fill="Transparent">
+                                <Rectangle.Transitions>
+                                    <Transitions>
+                                        <BrushTransition Property="Stroke" Duration="0:0:0.32" />
+                                    </Transitions>
+                                </Rectangle.Transitions>
+                            </Rectangle>
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+            </StackPanel>
+            <Separator Margin="0" VerticalAlignment="Bottom"/>
+        </Grid>
+
+        <Grid Grid.Row="2">
+            <Separator Margin="0" VerticalAlignment="Top"/>
+            <navigation:EmulationListView Opacity="{Binding !IsAlbumListCollapsed, Converter={StaticResource BoolToOpacityConverter}}">
+                <Interaction.Behaviors>
+                    <behaviors:MaxHeightToggleBehavior IsOpen="{Binding IsAlbumListCollapsed}" />
+                </Interaction.Behaviors>
+                <navigation:EmulationListView.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="MaxHeight" Duration="0:0:0.55" Easing="CubicEaseInOut"/>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseInOut"/>
+                    </Transitions>
+                </navigation:EmulationListView.Transitions>
+            </navigation:EmulationListView>
+        </Grid>
     </Grid>
 </UserControl>

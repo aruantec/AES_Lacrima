@@ -25,5 +25,7 @@ namespace AES_Lacrima.Settings
     [JsonSerializable(typeof(List<MediaItem>))]
     [JsonSerializable(typeof(List<FolderMediaItem>))]
     [JsonSerializable(typeof(List<BandModel>))]
+    [JsonSerializable(typeof(List<string>))]
+    [JsonSerializable(typeof(Dictionary<string, List<MediaItem>>))]
     public partial class SettingsJsonContext : JsonSerializerContext;
 }
