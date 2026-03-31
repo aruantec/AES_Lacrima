@@ -1,9 +1,6 @@
 name: Release
 
 on:
-  release:
-    # Trigger when a release is created/published (including prereleases)
-    types: [created, published, prereleased]
   push:
     branches:
       - main
