@@ -180,31 +180,32 @@ jobs:
       - name: Restore generator
         run: dotnet restore AES_Di.Generator/AES_Di.Generator.csproj
 
-      - name: Setup MSBuild (Windows)
-        if: runner.os == 'Windows'
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Restore and Build WgcBridge (Windows)
-        if: runner.os == 'Windows'
+      - name: Build WgcBridge (Windows)
+        if: matrix.package_type == 'windows'
         shell: pwsh
         run: |
-          Write-Host "WgcBridge step (runner.os=$env:RUNNER_OS, runtime=${{ matrix.runtime }}, package_type=${{ matrix.package_type }})"
-          # Ensure we are in the workspace root
-          Get-Location
+          Write-Host "Building WgcBridge for Windows..."
           
+          # Setup MSBuild environment
+          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuildPath = & $vswhere -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          if ($null -eq $msbuildPath) {
+            Write-Error "MSBuild.exe not found"
+            exit 1
+          }
+          Write-Host "Using MSBuild at: $msbuildPath"
+
           nuget restore WgcBridge/packages.config -PackagesDirectory packages
-          
-          # Run the build using msbuild from setup-msbuild
-          msbuild WgcBridge/WgcBridge.vcxproj -p:Configuration=Release -p:Platform=x64
+          & $msbuildPath WgcBridge/WgcBridge.vcxproj -p:Configuration=Release -p:Platform=x64
           
           $wgc = 'AES_Lacrima/libs/windows/WgcBridge.dll'
           if (Test-Path $wgc) {
-            Write-Host "Found WgcBridge.dll at $wgc"
+            Write-Host "Successfully built WgcBridge.dll at $wgc"
           } else {
             # Check secondary default location
             $wgc = 'WgcBridge/bin/Release/x64/WgcBridge.dll'
             if (Test-Path $wgc) {
-              Write-Host "Found WgcBridge.dll at $wgc"
+              Write-Host "Successfully built WgcBridge.dll at $wgc"
             } else {
               Write-Error "WgcBridge.dll not found after build."
               exit 1
@@ -212,7 +213,7 @@ jobs:
           }
 
       - name: Publish app on Windows
-        if: startsWith(matrix.runtime, 'win-')
+        if: matrix.package_type == 'windows'
         shell: pwsh
         run: |
           $arguments = @(
@@ -229,7 +230,7 @@ jobs:
           dotnet @arguments
 
       - name: Copy WgcBridge.dll to publish output (Windows)
-        if: startsWith(matrix.runtime, 'win-')
+        if: matrix.package_type == 'windows'
         shell: pwsh
         run: |
           $publishedDir = "output/publish/Release/${{ matrix.publish_dir_name }}"
