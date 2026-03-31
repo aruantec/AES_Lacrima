@@ -188,12 +188,18 @@ jobs:
           dotnet --info
           nuget restore WgcBridge/packages.config -PackagesDirectory packages
           dotnet msbuild WgcBridge/WgcBridge.vcxproj -p:Configuration=Release -p:Platform=x64
-          $wgc = 'WgcBridge\bin\Release\x64\WgcBridge.dll'
+          $wgc = 'AES_Lacrima/libs/windows/WgcBridge.dll'
           if (Test-Path $wgc) {
             Write-Host "Found WgcBridge.dll at $wgc"
           } else {
-            Write-Error "WgcBridge.dll not found at $wgc"
-            exit 1
+            # Check secondary default location
+            $wgc = 'WgcBridge/bin/Release/x64/WgcBridge.dll'
+            if (Test-Path $wgc) {
+              Write-Host "Found WgcBridge.dll at $wgc"
+            } else {
+              Write-Error "WgcBridge.dll not found after build."
+              exit 1
+            }
           }
 
       - name: Publish app on Windows
@@ -219,24 +225,31 @@ jobs:
         run: |
           $publishedDir = "output/publish/Release/${{ matrix.publish_dir_name }}"
           $bridgeCandidates = @(
-            'WgcBridge\bin\Release\x64\WgcBridge.dll',
-            'AES_Lacrima\libs\windows\WgcBridge.dll'
+            "AES_Lacrima/libs/windows/WgcBridge.dll",
+            "WgcBridge/bin/Release/x64/WgcBridge.dll"
           )
 
           $bridgePath = $null
           foreach ($candidate in $bridgeCandidates) {
             if (Test-Path $candidate) {
               $bridgePath = $candidate
+              Write-Host "Found WgcBridge.dll at $candidate"
               break
             }
           }
 
           if (-Not $bridgePath) {
             # also check the AES_Lacrima build output folder as seen on local systems
-            $buildOutputCandidate = 'AES_Lacrima\bin\Release\net10.0\win-x64\WgcBridge.dll'
-            if (Test-Path $buildOutputCandidate) {
-              $bridgePath = $buildOutputCandidate
-              Write-Host "Found WgcBridge.dll in AES_Lacrima build output at $bridgePath"
+            $buildOutputCandidates = @(
+              "AES_Lacrima/bin/Release/net10.0/${{ matrix.runtime }}/WgcBridge.dll",
+              "AES_Lacrima/bin/Release/net10.0/win-x64/WgcBridge.dll"
+            )
+            foreach ($candidate in $buildOutputCandidates) {
+              if (Test-Path $candidate) {
+                $bridgePath = $candidate
+                Write-Host "Found WgcBridge.dll in AES_Lacrima build output at $bridgePath"
+                break
+              }
             }
           }
 
@@ -255,6 +268,7 @@ jobs:
           }
 
           $dest = Join-Path $publishedDir 'WgcBridge.dll'
+          # Use Move-Item or Copy-Item -Force to ensure it's in the root
           Copy-Item -Path $bridgePath -Destination $dest -Force
           Write-Host "Copied WgcBridge.dll to publish output: $dest"
 
