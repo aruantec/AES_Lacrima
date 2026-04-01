@@ -4,7 +4,6 @@ using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
 using AES_Mpv.Player;
 using System.Diagnostics;
-using Avalonia.Threading;
 using System.Globalization;
 
 namespace AES_Controls.Player;
@@ -19,10 +18,16 @@ public enum VideoFlip
 
 public class VideoViewControl : OpenGlControlBase
 {
+    private const int DisplayFpsUpdateInterval = 12;
+    private const double MinMeasuredDisplayFps = 24.0;
+    private const double MaxMeasuredDisplayFps = 240.0;
+
     private bool _initialized;
     private bool _hasRenderedOnceSincePause;
     private GlInterface? _glInterface;
-    private DispatcherTimer? _uiHeartbeat;
+    private long _lastRenderTimestamp;
+    private double _smoothedDisplayFps;
+    private int _framesSinceDisplayFpsUpdate;
 
     public static readonly StyledProperty<AesMpvPlayer?> PlayerProperty =
         AvaloniaProperty.Register<VideoViewControl, AesMpvPlayer?>(nameof(Player));
@@ -70,7 +75,7 @@ public class VideoViewControl : OpenGlControlBase
     }
 
     public static readonly StyledProperty<double> HeartbeatFpsProperty =
-        AvaloniaProperty.Register<VideoViewControl, double>(nameof(HeartbeatFps), 60.0);
+        AvaloniaProperty.Register<VideoViewControl, double>(nameof(HeartbeatFps), 120.0);
 
     public double HeartbeatFps
     {
@@ -79,7 +84,7 @@ public class VideoViewControl : OpenGlControlBase
     }
 
     public static readonly StyledProperty<bool> UseCustomHeartbeatProperty =
-        AvaloniaProperty.Register<VideoViewControl, bool>(nameof(UseCustomHeartbeat));
+        AvaloniaProperty.Register<VideoViewControl, bool>(nameof(UseCustomHeartbeat), true);
 
     public bool UseCustomHeartbeat
     {
@@ -98,16 +103,7 @@ public class VideoViewControl : OpenGlControlBase
 
     public VideoViewControl()
     {
-        _uiHeartbeat = new DispatcherTimer(
-            CalculateInterval(HeartbeatFps),
-            DispatcherPriority.Render,
-            (_, _) => { if (!IsRenderingPaused) RequestNextFrameRendering(); });
-    }
-
-    private TimeSpan CalculateInterval(double fps)
-    {
-        if (fps <= 0) fps = 60.0;
-        return TimeSpan.FromTicks((long)(TimeSpan.TicksPerSecond / fps));
+        _smoothedDisplayFps = HeartbeatFps;
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -116,13 +112,11 @@ public class VideoViewControl : OpenGlControlBase
         _hasRenderedOnceSincePause = false;
         if (!IsRenderingPaused)
             RequestNextFrameRendering();
-        if (UseCustomHeartbeat && !IsRenderingPaused) _uiHeartbeat?.Start();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
-        _uiHeartbeat?.Stop();
     }
 
     private IntPtr GetProcAddressInternal(IntPtr ctx, string name)
@@ -133,6 +127,9 @@ public class VideoViewControl : OpenGlControlBase
         _glInterface = gl;
         _initialized = false;
         _hasRenderedOnceSincePause = false;
+        _lastRenderTimestamp = 0;
+        _smoothedDisplayFps = HeartbeatFps;
+        _framesSinceDisplayFpsUpdate = 0;
     }
 
     private void InitializeMpvInternal()
@@ -142,24 +139,24 @@ public class VideoViewControl : OpenGlControlBase
         try
         {
             Player.Options.ResolveOpenGlAddress = GetProcAddressInternal;
+            _smoothedDisplayFps = HeartbeatFps;
 
             Player.SetProperty("video-sync", UseCustomHeartbeat ? "display-resample" : "audio");
             Player.SetProperty("audio-pitch-correction", "yes");
             Player.SetProperty("hwdec", "auto-safe");
             Player.SetProperty("opengl-waitvsync", "no");
+            Player.SetProperty("override-display-fps", "0");
 
             if (UseCustomHeartbeat)
             {
                 Player.SetProperty("override-display-fps", HeartbeatFps.ToString(CultureInfo.InvariantCulture));
                 Player.SetProperty("interpolation", "yes");
                 Player.SetProperty("tscale", "oversample");
-                if (!IsRenderingPaused) _uiHeartbeat?.Start();
             }
             else
             {
                 Player.SetProperty("interpolation", "no");
                 Player.SetProperty("override-display-fps", "0");
-                _uiHeartbeat?.Stop();
             }
 
             Player.EnsureRenderContext();
@@ -226,6 +223,35 @@ public class VideoViewControl : OpenGlControlBase
         Player?.SetProperty("audio-delay", seconds.ToString(CultureInfo.InvariantCulture));
     }
 
+    private void UpdateObservedDisplayFps()
+    {
+        if (!UseCustomHeartbeat || Player == null)
+            return;
+
+        long now = Stopwatch.GetTimestamp();
+        long previous = _lastRenderTimestamp;
+        _lastRenderTimestamp = now;
+
+        if (previous == 0)
+            return;
+
+        double elapsedSeconds = (now - previous) / (double)Stopwatch.Frequency;
+        if (elapsedSeconds <= 0)
+            return;
+
+        double observedFps = Math.Clamp(1.0 / elapsedSeconds, MinMeasuredDisplayFps, MaxMeasuredDisplayFps);
+        _smoothedDisplayFps = _smoothedDisplayFps <= 0
+            ? observedFps
+            : (_smoothedDisplayFps * 0.85) + (observedFps * 0.15);
+
+        _framesSinceDisplayFpsUpdate++;
+        if (_framesSinceDisplayFpsUpdate < DisplayFpsUpdateInterval)
+            return;
+
+        _framesSinceDisplayFpsUpdate = 0;
+        Player.SetProperty("override-display-fps", _smoothedDisplayFps.ToString("0.###", CultureInfo.InvariantCulture));
+    }
+
     protected override void OnOpenGlRender(GlInterface gl, int fb)
     {
         if (IsRenderingPaused && _hasRenderedOnceSincePause) return;
@@ -242,14 +268,13 @@ public class VideoViewControl : OpenGlControlBase
             gl.BindFramebuffer(0x8D40, fb);
             gl.Viewport(0, 0, width, height);
             Player.RenderToOpenGl(width, height, fb, flipY: 1);
+            UpdateObservedDisplayFps();
 
             if (IsRenderingPaused) _hasRenderedOnceSincePause = true;
         }
 
-        if (!UseCustomHeartbeat && !IsRenderingPaused)
-        {
-            Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Input);
-        }
+        if (!IsRenderingPaused && IsVisible)
+            RequestNextFrameRendering();
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -270,37 +295,48 @@ public class VideoViewControl : OpenGlControlBase
             bool paused = change.GetNewValue<bool>();
             if (paused)
             {
-                _uiHeartbeat?.Stop();
+                _hasRenderedOnceSincePause = false;
+                RequestNextFrameRendering();
             }
             else
             {
                 _hasRenderedOnceSincePause = false;
-                if (UseCustomHeartbeat) _uiHeartbeat?.Start();
                 RequestNextFrameRendering();
             }
         }
         else if (change.Property == StretchProperty)
+        {
             ApplyStretch(change.GetNewValue<Stretch>());
+            RequestNextFrameRendering();
+        }
         else if (change.Property == RotationProperty)
+        {
             ApplyRotation(change.GetNewValue<int>());
+            RequestNextFrameRendering();
+        }
         else if (change.Property == FlipProperty)
+        {
             ApplyFlip(change.GetNewValue<VideoFlip>());
+            RequestNextFrameRendering();
+        }
         else if (change.Property == AudioSyncOffsetProperty)
             ApplyAudioOffset(change.GetNewValue<double>());
+        else if (change.Property == BoundsProperty)
+            RequestNextFrameRendering();
         else if (change.Property == UseCustomHeartbeatProperty || change.Property == PlayerProperty)
         {
             _initialized = false;
             _hasRenderedOnceSincePause = false;
-            if (!IsRenderingPaused) RequestNextFrameRendering();
+            _lastRenderTimestamp = 0;
+            _smoothedDisplayFps = HeartbeatFps;
+            _framesSinceDisplayFpsUpdate = 0;
+            RequestNextFrameRendering();
         }
         else if (change.Property == HeartbeatFpsProperty)
         {
-            var val = change.GetNewValue<double>();
-            if (_uiHeartbeat != null)
-                _uiHeartbeat.Interval = CalculateInterval(val);
-
+            _smoothedDisplayFps = change.GetNewValue<double>();
             if (UseCustomHeartbeat)
-                Player?.SetProperty("override-display-fps", val.ToString(CultureInfo.InvariantCulture));
+                Player?.SetProperty("override-display-fps", change.GetNewValue<double>().ToString(CultureInfo.InvariantCulture));
         }
     }
 
@@ -308,6 +344,9 @@ public class VideoViewControl : OpenGlControlBase
     {
         _initialized = false;
         _hasRenderedOnceSincePause = false;
+        _glInterface = null;
+        _lastRenderTimestamp = 0;
+        _framesSinceDisplayFpsUpdate = 0;
         base.OnOpenGlDeinit(gl);
     }
 }

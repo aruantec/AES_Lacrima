@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using AES_Code.Models;
 
 namespace AES_Controls.Helpers;
@@ -73,6 +74,9 @@ public class VideoData
 /// </summary>
 public static class BinaryMetadataHelper
 {
+    private const int IoRetryCount = 3;
+    private const int IoRetryDelayMs = 15;
+
     /// <summary>
     /// Serializes the provided metadata to a file at the specified path.
     /// </summary>
@@ -82,8 +86,23 @@ public static class BinaryMetadataHelper
     {
         try
         {
-            using var fs = File.Create(cachePath);
-            JsonSerializer.Serialize(fs, metadata, BinaryMetadataJsonContext.Default.CustomMetadata);
+            var directory = Path.GetDirectoryName(cachePath);
+            if (!string.IsNullOrWhiteSpace(directory))
+                Directory.CreateDirectory(directory);
+
+            string tempPath = cachePath + ".tmp";
+            using (var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                JsonSerializer.Serialize(fs, metadata, BinaryMetadataJsonContext.Default.CustomMetadata);
+                fs.Flush(true);
+            }
+
+            if (File.Exists(cachePath))
+                File.Copy(tempPath, cachePath, overwrite: true);
+            else
+                File.Move(tempPath, cachePath);
+
+            TryDeleteTempFile(tempPath);
         }
         catch (Exception ex)
         {
@@ -100,16 +119,31 @@ public static class BinaryMetadataHelper
     {
         if (!File.Exists(cachePath)) return null;
 
-        try
+        for (int attempt = 0; attempt < IoRetryCount; attempt++)
         {
-            using var fs = File.OpenRead(cachePath);
-            return JsonSerializer.Deserialize(fs, BinaryMetadataJsonContext.Default.CustomMetadata);
+            try
+            {
+                using var fs = new FileStream(cachePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                return JsonSerializer.Deserialize(fs, BinaryMetadataJsonContext.Default.CustomMetadata);
+            }
+            catch (JsonException ex)
+            {
+                Debug.WriteLine($"JSON Parsing Error: {ex.Message}");
+                return null;
+            }
+            catch (IOException ex) when (attempt < IoRetryCount - 1)
+            {
+                Debug.WriteLine($"Metadata cache read retry {attempt + 1} for '{cachePath}': {ex.Message}");
+                Thread.Sleep(IoRetryDelayMs);
+            }
+            catch (IOException ex)
+            {
+                Debug.WriteLine($"Metadata cache read failed for '{cachePath}': {ex.Message}");
+                return null;
+            }
         }
-        catch (JsonException ex)
-        {
-            Debug.WriteLine($"JSON Parsing Error: {ex.Message}");
-            return null;
-        }
+
+        return null;
     }
 
     /// <summary>
@@ -121,6 +155,19 @@ public static class BinaryMetadataHelper
         using var sha = SHA1.Create();
         var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(path));
         return BitConverter.ToString(hash).Replace("-", "").ToLower();
+    }
+
+    private static void TryDeleteTempFile(string tempPath)
+    {
+        try
+        {
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Temp cleanup error: {ex.Message}");
+        }
     }
 }
 

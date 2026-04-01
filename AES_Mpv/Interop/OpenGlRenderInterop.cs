@@ -17,6 +17,10 @@ public enum MpvRenderParameterType
     OpenGlInitParams = 2,
     OpenGlFbo = 3,
     FlipY = 4,
+    AdvancedControl = 10,
+    NextFrameInfo = 11,
+    BlockForTargetTime = 12,
+    SkipRendering = 13,
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -50,8 +54,14 @@ internal static partial class MpvRenderApi
     [LibraryImport(Native.MpvNativeLibrary.ImportName, EntryPoint = "mpv_render_context_set_update_callback")]
     internal static unsafe partial void SetUpdateCallback(MpvRenderContext* context, MpvRenderUpdateCallback? callback, void* callbackContext);
 
+    [LibraryImport(Native.MpvNativeLibrary.ImportName, EntryPoint = "mpv_render_context_update")]
+    internal static unsafe partial ulong Update(MpvRenderContext* context);
+
     [LibraryImport(Native.MpvNativeLibrary.ImportName, EntryPoint = "mpv_render_context_render")]
     internal static unsafe partial int Render(MpvRenderContext* context, MpvRenderParameter* parameters);
+
+    [LibraryImport(Native.MpvNativeLibrary.ImportName, EntryPoint = "mpv_render_context_report_swap")]
+    internal static unsafe partial void ReportSwap(MpvRenderContext* context);
 
     [LibraryImport(Native.MpvNativeLibrary.ImportName, EntryPoint = "mpv_render_context_free")]
     internal static unsafe partial void Free(MpvRenderContext* context);
