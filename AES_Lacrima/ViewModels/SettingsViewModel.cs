@@ -77,6 +77,20 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private int _appMode = 0;
 
     /// <summary>
+    /// When true, use the first ROM item cover inside each emulation album as the displayed album tile in AES mode.
+    /// When false, keep the console default folder covers from Assets/Consoles.
+    /// </summary>
+    [ObservableProperty]
+    private bool _emulationUseFirstItemCover = false;
+
+    public event Action<bool>? EmulationUseFirstItemCoverChanged;
+
+    partial void OnEmulationUseFirstItemCoverChanged(bool value)
+    {
+        EmulationUseFirstItemCoverChanged?.Invoke(value);
+    }
+
+    /// <summary>
     /// Backing field for the <c>ScaleFactor</c> observable property.
     /// Controls UI scaling applied by the <c>ScalableDecorator</c>.
     /// </summary>
@@ -89,6 +103,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private double _miniScaleFactor = 1.0;
 
     public bool HasPersistedMiniScaleFactor => _hasPersistedMiniScaleFactor;
+
+    public bool IsAesMode => AppMode == 0;
+
+    partial void OnAppModeChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsAesMode));
+    }
 
     /// <summary>
     /// Backing field for the <c>ParticleCount</c> observable property.
@@ -1297,6 +1318,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         // application mode (window type)
         AppMode = ReadIntSetting(section, nameof(AppMode), AppMode);
+        EmulationUseFirstItemCover = ReadBoolSetting(section, nameof(EmulationUseFirstItemCover), EmulationUseFirstItemCover);
         CheckForAppUpdatesOnStartup = ReadBoolSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
         PreferAotAppUpdates = ReadBoolSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
 
@@ -1377,6 +1399,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         // Persist application mode (window type)
         WriteSetting(section, nameof(AppMode), AppMode);
+        WriteSetting(section, nameof(EmulationUseFirstItemCover), EmulationUseFirstItemCover);
         WriteSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
         WriteSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
 

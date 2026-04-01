@@ -123,7 +123,7 @@
                                                                       FolderCoverItem="{Binding}"
                                                                       DefaultCover="{Binding CoverBitmap}"
                                                                       ClipToBounds="True"
-                                                                      MaxVisibleCovers="1"
+                                                                      MaxVisibleCovers="3"
                                                                       CoverStretch="UniformToFill"/>
                             </Border>
 

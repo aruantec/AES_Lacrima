@@ -125,6 +125,19 @@
                 </ScrollViewer>
             </TabItem>
 
+            <TabItem Header="Emulation" FontSize="30">
+                <ScrollViewer>
+                    <StackPanel Margin="15,20,0,0">
+                        <TextBlock Text="Miscellaneous" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,0,0,10"/>
+                        <Separator Margin="0,0,0,15"/>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,15" Spacing="10">
+                            <TextBlock Text="Use first ROM item cover for album tiles" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
+                            <ToggleSwitch FontSize="20" IsChecked="{Binding EmulationUseFirstItemCover, Mode=TwoWay}" Margin="8,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <TabItem Header="Updates" FontSize="30">
                 <ScrollViewer>
                     <StackPanel Margin="15,20,0,0">
