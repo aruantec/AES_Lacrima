@@ -28,6 +28,19 @@ namespace AES_Lacrima
                 // Set working directory to the app base directory so it doesn't crash on macOS when launched via double-click where Working Directory is '/'
                 Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
 
+                // Bring logging online as early as possible so startup stalls and failures
+                // have a chance to show up in the normal log.
+                try
+                {
+                    Directory.CreateDirectory(ApplicationPaths.LogsDirectory);
+                    ConfigureLogging();
+                    Log.Info("Application startup beginning");
+                }
+                catch (Exception ex)
+                {
+                    WriteFatalStartupLog(ex);
+                }
+
                 // Add standard tool locations to PATH so native libraries (ffmpeg, libmpv, yt-dlp) can be located.
                 var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
                 var pathSeparator = Path.PathSeparator;
@@ -68,9 +81,6 @@ namespace AES_Lacrima
                 Directory.CreateDirectory(ApplicationPaths.ShadersDirectory);
                 Directory.CreateDirectory(ApplicationPaths.ToolsDirectory);
 
-                EnsureResourceFolderPresent("Shaders", ApplicationPaths.ShadersDirectory);
-                EnsureResourceFolderPresent("Assets", Path.Combine(ApplicationPaths.DataRootDirectory, "Assets"));
-
                 // Ensure libmpv and other native helpers are loaded from the per-user Tools folder
                 try
                 {
@@ -82,8 +92,7 @@ namespace AES_Lacrima
                 }
 
                 Environment.SetEnvironmentVariable("PATH", currentPath);
-
-                ConfigureLogging();
+                Log.Info("Starting Avalonia application");
 
                 // Start the Avalonia application with the classic desktop lifetime
                 BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
@@ -125,6 +134,12 @@ namespace AES_Lacrima
                 XmlConfigurator.Configure(loggingRepository, new FileInfo("log4net.config"));
             }
 #endif
+        }
+
+        internal static void EnsureBundledResources()
+        {
+            EnsureResourceFolderPresent("Shaders", ApplicationPaths.ShadersDirectory);
+            EnsureResourceFolderPresent("Assets", Path.Combine(ApplicationPaths.DataRootDirectory, "Assets"));
         }
 
         private static void WriteFatalStartupLog(Exception ex)
