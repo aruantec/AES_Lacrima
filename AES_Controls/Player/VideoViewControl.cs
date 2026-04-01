@@ -19,10 +19,14 @@ public enum VideoFlip
 public class VideoViewControl : OpenGlControlBase
 {
     private const double DefaultHeartbeatFps = 60.0;
+    private static readonly TimeSpan ViewportExpansionDelay = TimeSpan.FromSeconds(2);
 
     private bool _initialized;
     private bool _hasRenderedOnceSincePause;
     private GlInterface? _glInterface;
+    private double _videoAspectRatio;
+    private double _expandedViewportWidth;
+    private long _viewportExpansionHoldUntilTicks;
 
     public static readonly StyledProperty<AesMpvPlayer?> PlayerProperty =
         AvaloniaProperty.Register<VideoViewControl, AesMpvPlayer?>(nameof(Player));
@@ -96,6 +100,35 @@ public class VideoViewControl : OpenGlControlBase
         set => SetValue(AudioSyncOffsetProperty, value);
     }
 
+    public static readonly DirectProperty<VideoViewControl, double> ExpandedViewportWidthProperty =
+        AvaloniaProperty.RegisterDirect<VideoViewControl, double>(
+            nameof(ExpandedViewportWidth),
+            o => o.ExpandedViewportWidth);
+
+    public static readonly StyledProperty<double> ReferenceViewportWidthProperty =
+        AvaloniaProperty.Register<VideoViewControl, double>(nameof(ReferenceViewportWidth));
+
+    public double ReferenceViewportWidth
+    {
+        get => GetValue(ReferenceViewportWidthProperty);
+        set => SetValue(ReferenceViewportWidthProperty, value);
+    }
+
+    public static readonly StyledProperty<double> ReferenceViewportHeightProperty =
+        AvaloniaProperty.Register<VideoViewControl, double>(nameof(ReferenceViewportHeight));
+
+    public double ReferenceViewportHeight
+    {
+        get => GetValue(ReferenceViewportHeightProperty);
+        set => SetValue(ReferenceViewportHeightProperty, value);
+    }
+
+    public double ExpandedViewportWidth
+    {
+        get => _expandedViewportWidth;
+        private set => SetAndRaise(ExpandedViewportWidthProperty, ref _expandedViewportWidth, value);
+    }
+
     public VideoViewControl()
     {
     }
@@ -106,10 +139,83 @@ public class VideoViewControl : OpenGlControlBase
     private TimeSpan CalculateInterval(double heartbeatFps)
         => TimeSpan.FromTicks((long)(TimeSpan.TicksPerSecond / GetEffectiveHeartbeatFps(heartbeatFps)));
 
+    private void ResetViewportSizing()
+    {
+        _videoAspectRatio = 0;
+        _viewportExpansionHoldUntilTicks = 0;
+        UpdateExpandedViewportWidth();
+    }
+
+    private void HoldViewportExpansion()
+    {
+        _viewportExpansionHoldUntilTicks = Stopwatch.GetTimestamp() +
+            (long)(ViewportExpansionDelay.TotalSeconds * Stopwatch.Frequency);
+        UpdateExpandedViewportWidth();
+    }
+
+    private void UpdateExpandedViewportWidth()
+    {
+        double baseWidth = ReferenceViewportWidth > 0
+            ? ReferenceViewportWidth
+            : Bounds.Width;
+        double baseHeight = ReferenceViewportHeight > 0
+            ? ReferenceViewportHeight
+            : Bounds.Height;
+
+        double targetWidth = baseWidth > 0
+            ? Math.Round(baseWidth, 2)
+            : (Bounds.Width > 0 ? Math.Round(Bounds.Width, 2) : 0);
+
+        if (Stopwatch.GetTimestamp() >= _viewportExpansionHoldUntilTicks &&
+            _videoAspectRatio > 0 &&
+            baseHeight > 0)
+        {
+            double videoWidth = Math.Round(baseHeight * _videoAspectRatio, 2);
+            targetWidth = Math.Max(targetWidth, videoWidth);
+        }
+
+        ExpandedViewportWidth = targetWidth;
+    }
+
+    private void RefreshVideoAspectRatio()
+    {
+        if (Player == null)
+            return;
+
+        double aspect = 0;
+
+        try
+        {
+            aspect = Player.GetDoubleProperty("video-out-params/aspect");
+        }
+        catch
+        {
+            try
+            {
+                aspect = Player.GetDoubleProperty("video-params/aspect");
+            }
+            catch
+            {
+                return;
+            }
+        }
+
+        if (aspect <= 0 || double.IsNaN(aspect) || double.IsInfinity(aspect))
+            return;
+
+        if (Math.Abs(aspect - _videoAspectRatio) < 0.01)
+            return;
+
+        _videoAspectRatio = aspect;
+        UpdateExpandedViewportWidth();
+    }
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
         _hasRenderedOnceSincePause = false;
+        ResetViewportSizing();
+        HoldViewportExpansion();
         if (!IsRenderingPaused)
             RequestNextFrameRendering();
     }
@@ -127,6 +233,8 @@ public class VideoViewControl : OpenGlControlBase
         _glInterface = gl;
         _initialized = false;
         _hasRenderedOnceSincePause = false;
+        ResetViewportSizing();
+        HoldViewportExpansion();
     }
 
     private void InitializeMpvInternal()
@@ -236,6 +344,8 @@ public class VideoViewControl : OpenGlControlBase
             gl.BindFramebuffer(0x8D40, fb);
             gl.Viewport(0, 0, width, height);
             Player.RenderToOpenGl(width, height, fb, flipY: 1);
+            RefreshVideoAspectRatio();
+            UpdateExpandedViewportWidth();
 
             if (IsRenderingPaused) _hasRenderedOnceSincePause = true;
         }
@@ -253,8 +363,14 @@ public class VideoViewControl : OpenGlControlBase
             if (change.GetNewValue<bool>())
             {
                 _hasRenderedOnceSincePause = false;
+                ResetViewportSizing();
+                HoldViewportExpansion();
                 if (!IsRenderingPaused)
                     RequestNextFrameRendering();
+            }
+            else
+            {
+                ResetViewportSizing();
             }
         }
         else if (change.Property == IsRenderingPausedProperty)
@@ -263,11 +379,14 @@ public class VideoViewControl : OpenGlControlBase
             if (paused)
             {
                 _hasRenderedOnceSincePause = false;
+                ResetViewportSizing();
                 RequestNextFrameRendering();
             }
             else
             {
                 _hasRenderedOnceSincePause = false;
+                ResetViewportSizing();
+                HoldViewportExpansion();
                 RequestNextFrameRendering();
             }
         }
@@ -289,11 +408,22 @@ public class VideoViewControl : OpenGlControlBase
         else if (change.Property == AudioSyncOffsetProperty)
             ApplyAudioOffset(change.GetNewValue<double>());
         else if (change.Property == BoundsProperty)
+        {
+            UpdateExpandedViewportWidth();
             RequestNextFrameRendering();
+        }
+        else if (change.Property == ReferenceViewportWidthProperty || change.Property == ReferenceViewportHeightProperty)
+        {
+            ResetViewportSizing();
+            HoldViewportExpansion();
+            RequestNextFrameRendering();
+        }
         else if (change.Property == UseCustomHeartbeatProperty || change.Property == PlayerProperty)
         {
             _initialized = false;
             _hasRenderedOnceSincePause = false;
+            ResetViewportSizing();
+            HoldViewportExpansion();
             RequestNextFrameRendering();
         }
         else if (change.Property == HeartbeatFpsProperty)
@@ -309,6 +439,7 @@ public class VideoViewControl : OpenGlControlBase
         _initialized = false;
         _hasRenderedOnceSincePause = false;
         _glInterface = null;
+        ResetViewportSizing();
         base.OnOpenGlDeinit(gl);
     }
 }

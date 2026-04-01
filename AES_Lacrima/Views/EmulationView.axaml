@@ -113,17 +113,36 @@
                     Canvas.Top="{Binding SelectedItemBounds.Y, ElementName=RomCarousel}"
                     Width="{Binding SelectedItemBounds.Width, ElementName=RomCarousel}"
                     Height="{Binding SelectedItemBounds.Height, ElementName=RomCarousel}"
-                    ClipToBounds="True"
+                    ClipToBounds="False"
                     Opacity="{Binding IsGameplayVideoVisible, Converter={StaticResource BoolToOpacityConverter}}"
-                    Background="#FF000000">
+                    Background="Transparent">
                 <Border.Transitions>
                     <Transitions>
                         <DoubleTransition Property="Opacity" Duration="0:0:0.35" Easing="SineEaseOut" />
                     </Transitions>
                 </Border.Transitions>
-                <player:VideoViewControl Player="{Binding AudioPlayer}"
-                                         Stretch="UniformToFill"
-                                         IsRenderingPaused="{Binding !IsGameplayVideoVisible}" />
+                <Border Width="{Binding ExpandedViewportWidth, ElementName=GameplayVideo}"
+                        Height="{Binding SelectedItemBounds.Height, ElementName=RomCarousel}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Background="#FF000000"
+                        ClipToBounds="True"
+                        RenderTransformOrigin="0.5,0.5">
+                    <Border.RenderTransform>
+                        <ScaleTransform ScaleX="1.03" ScaleY="1.03" />
+                    </Border.RenderTransform>
+                    <Border.Transitions>
+                        <Transitions>
+                            <DoubleTransition Property="Width" Duration="0:0:0.6" Easing="CubicEaseInOut" />
+                        </Transitions>
+                    </Border.Transitions>
+                    <player:VideoViewControl x:Name="GameplayVideo"
+                                             Player="{Binding AudioPlayer}"
+                                             Stretch="Uniform"
+                                             ReferenceViewportWidth="{Binding SelectedItemBounds.Width, ElementName=RomCarousel}"
+                                             ReferenceViewportHeight="{Binding SelectedItemBounds.Height, ElementName=RomCarousel}"
+                                             IsRenderingPaused="{Binding !IsGameplayVideoVisible}" />
+                </Border>
             </Border>
         </Canvas>
 
