@@ -79,7 +79,8 @@ namespace AES_Lacrima
                 desktop.MainWindow.Closing += MainWindow_Closing;
 
                 // Configure FFmpeg, libmpv and yt-dlp checks. Skip auto-installation on startup.
-                await PerformInitialToolChecksAsync(desktop.MainWindow);
+                // Run initial checks in background so app can render immediately.
+                _ = PerformInitialToolChecksAsync(desktop.MainWindow);
             }
             else if (ApplicationLifetime is ISingleViewApplicationLifetime singleView)
             {
