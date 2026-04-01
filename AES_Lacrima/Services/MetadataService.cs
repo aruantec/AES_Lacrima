@@ -236,168 +236,128 @@ namespace AES_Lacrima.Services
             }
         }
 
+        public Task LoadMetadataForItemAsync(MediaItem item)
+        {
+            if (item == null)
+                return Task.CompletedTask;
+
+            _currentSelectedMedia = item;
+            FilePath = item.FileName;
+            Title = item.Title;
+            Artists = item.Artist;
+            Album = item.Album;
+            Track = item.Track;
+            Year = item.Year;
+            Lyrics = item.Lyrics;
+            Genres = item.Genre;
+            Comment = item.Comment;
+            ReplayGainTrackGain = item.ReplayGainTrackGain;
+            ReplayGainAlbumGain = item.ReplayGainAlbumGain;
+
+            foreach (var old in Images)
+                old.Dispose();
+
+            Images.Clear();
+
+            if (item.CoverBitmap != null)
+            {
+                using var ms = new MemoryStream();
+                item.CoverBitmap.Save(ms);
+                var content = ms.ToArray();
+                var coverImage = new TagImageModel(TagImageKind.Cover, content, "image/png", "Cover from album item")
+                {
+                    OnDeleteImage = OnDeleteImage
+                };
+                Images.Add(coverImage);
+            }
+
+            IsMetadataLoaded = true;
+            return Task.CompletedTask;
+        }
+
         [RelayCommand]
         private async Task SaveMetadataAsync(string? path = null)
         {
             try
             {
-                if (!File.Exists(FilePath) && FilePath != null && FilePath.Contains("youtu", StringComparison.OrdinalIgnoreCase))
-                {
-                    // Get unique cache id
-                    var cacheId = BinaryMetadataHelper.GetCacheId(FilePath);
-                    // Construct metadata path
-                    var metaData = ApplicationPaths.GetCacheFile(cacheId + ".meta");
-
-                    // Ensure Cache directory exists
-                    var metaDir = Path.GetDirectoryName(metaData);
-                    if (!string.IsNullOrEmpty(metaDir) && !Directory.Exists(metaDir))
-                        Directory.CreateDirectory(metaDir);
-
-                    // Save metadata
-                    try
-                    {
-                        var customMetadata = new CustomMetadata
-                        {
-                            Title = Title!,
-                            Artist = Artists!,
-                            Album = Album!,
-                            Track = Track,
-                            Year = Year,
-                            Lyrics = Lyrics!,
-                            Genre = Genres!,
-                            Comment = Comment!,
-                            ReplayGainTrackGain = ReplayGainTrackGain,
-                            ReplayGainAlbumGain = ReplayGainAlbumGain,
-                            Duration = _currentSelectedMedia?.Duration ?? 0.0,
-                            Images = [.. Images.Select(img => new ImageData
-                            {
-                                Data = img.Data,
-                                MimeType = img.MimeType,
-                                Kind = img.Kind
-                            })],
-                            Videos = [.. Images.Where(img => img.Kind == TagImageKind.LiveWallpaper)
-                                .Select(img => new VideoData
-                                {
-                                    MimeType = img.MimeType,
-                                    Data = img.Data,
-                                    Kind = img.Kind
-                                })]
-                        };
-
-                        BinaryMetadataHelper.SaveMetadata(metaData, customMetadata);
-                    }
-                    catch (Exception e)
-                    {
-                        SLog.Error("Failed to save metadata cache", e);
-                    }
-
-                    // Set cover bitmap in current media item
-                    if (_currentSelectedMedia != null
-                        && Images.FirstOrDefault(cover => cover.Kind == TagImageKind.Cover) is { } localCoverImage)
-                    {
-                        using var ms = new MemoryStream(localCoverImage.Data);
-                        _currentSelectedMedia.CoverBitmap = new Bitmap(ms);
-                    }
-
-                    // Set wallpaper bitmap in current media item
-                    if (_currentSelectedMedia != null
-                        && Images.FirstOrDefault(cover => cover.Kind == TagImageKind.Wallpaper) is { } localWallpaperImage)
-                    {
-                        using var ms = new MemoryStream(localWallpaperImage.Data);
-                        _currentSelectedMedia.WallpaperBitmap = new Bitmap(ms);
-                    }
-                    // Update current media item
-                    UpdateInfo();
-
-                    return;
-                }
-
                 if (string.IsNullOrWhiteSpace(path))
                     path = FilePath;
 
-                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-                    throw new ArgumentException("file missing", nameof(path));
+                var isMissingFile = string.IsNullOrWhiteSpace(path) || !File.Exists(path);
 
-                using var tlFile = TagLib.File.Create(path);
-                var tag = tlFile.Tag;
-                Debug.WriteLine($"Tag type: {tag.GetType().FullName}");
-
-                tag.Title = Title;
-                tag.Performers = string.IsNullOrEmpty(Artists) ? [] : [Artists];
-                tag.Album = Album;
-                tag.Track = Track;
-                tag.Year = Year;
-                tag.Lyrics = Lyrics;
-                tag.Genres = string.IsNullOrEmpty(Genres) ? [] : Genres.Split(';');
-                tag.Comment = Comment;
-
-                var picList = new List<IPicture>();
-                TagImageModel? wallpaperImage = null;
-                TagImageModel? coverImage = null;
-                foreach (var img in Images)
+                if (isMissingFile || (path != null && path.Contains("youtu", StringComparison.OrdinalIgnoreCase)))
                 {
-                    // Add wallpaper description
-                    if (img.Kind == TagImageKind.Wallpaper)
+                    await SaveToMetadataCacheAsync(path);
+                    return;
+                }
+
+                try
+                {
+                    using var tlFile = TagLib.File.Create(path);
+                    var tag = tlFile.Tag;
+                    Debug.WriteLine($"Tag type: {tag.GetType().FullName}");
+
+                    tag.Title = Title;
+                    tag.Performers = string.IsNullOrEmpty(Artists) ? [] : [Artists];
+                    tag.Album = Album;
+                    tag.Track = Track;
+                    tag.Year = Year;
+                    tag.Lyrics = Lyrics;
+                    tag.Genres = string.IsNullOrEmpty(Genres) ? [] : Genres.Split(';');
+                    tag.Comment = Comment;
+
+                    var picList = new List<IPicture>();
+                    TagImageModel? wallpaperImage = null;
+                    TagImageModel? coverImage = null;
+                    foreach (var img in Images)
                     {
-                        wallpaperImage = img;
+                        if (img.Kind == TagImageKind.Wallpaper)
+                        {
+                            wallpaperImage = img;
+                        }
+                        else if (img.Kind != TagImageKind.LiveWallpaper)
+                        {
+                            coverImage ??= img;
+                            if (img.Kind == TagImageKind.Cover || img.Kind == TagImageKind.Other)
+                                coverImage = img;
+                        }
+
+                        var pic = new Picture([.. img.Data])
+                        {
+                            Type = MapKindToPictureType(img),
+                            MimeType = img.MimeType,
+                            Description = BuildPictureDescription(img)
+                        };
+
+                        picList.Add(pic);
                     }
-                    else if (img.Kind != TagImageKind.LiveWallpaper)
+
+                    tag.Pictures = [.. picList];
+                    if (_musicViewModel != null
+                        && _musicViewModel?.SelectedMediaItem?.FileName == _currentSelectedMedia?.FileName
+                        && _musicViewModel != null
+                        && _musicViewModel.AudioPlayer != null)
                     {
-                        coverImage ??= img;
-                        if (img.Kind == TagImageKind.Cover || img.Kind == TagImageKind.Other)
-                            coverImage = img;
+                        var (position, wasPlaying) = await _musicViewModel.AudioPlayer.SuspendForEditingAsync();
+                        tlFile.Save();
+                        await _musicViewModel.AudioPlayer.ResumeAfterEditingAsync(_currentSelectedMedia!.FileName!, position, wasPlaying);
+                    }
+                    else
+                    {
+                        tlFile.Save();
                     }
 
-                    // Create picture
-                    var pic = new Picture([.. img.Data])
-                    {
-                        Type = MapKindToPictureType(img),
-                        MimeType = img.MimeType,
-                        Description = BuildPictureDescription(img)
-                    };
-
-                    picList.Add(pic);
+                    UpdateInfo();
+                    SetMediaItemCoverFromTags(coverImage, wallpaperImage);
+                    return;
                 }
-
-                // Assign pictures
-                tag.Pictures = [.. picList];
-                if (_musicViewModel != null
-                    && _musicViewModel?.SelectedMediaItem?.FileName == _currentSelectedMedia?.FileName
-                    && _musicViewModel != null
-                    && _musicViewModel.AudioPlayer != null)
+                catch (Exception ex)
                 {
-                    // Pause music playback
-                    var (position, wasPlaying) = await _musicViewModel.AudioPlayer.SuspendForEditingAsync();
-                    // Save tag
-                    tlFile.Save();
-                    // Resume music playback
-                    await _musicViewModel.AudioPlayer.ResumeAfterEditingAsync(_currentSelectedMedia!.FileName!, position, wasPlaying);
-                }
-                else
-                {
-                    tlFile.Save();
+                    SLog.Warn("TagLib save failed, falling back to metadata cache", ex);
+                    await SaveToMetadataCacheAsync(path);
+                    return;
                 }
 
-                // Update current media item
-                UpdateInfo();
-
-                // Set cover bitmap in current media item
-                if (coverImage != null && _currentSelectedMedia != null)
-                {
-                    using var ms = new MemoryStream(coverImage.Data);
-                    _currentSelectedMedia.CoverBitmap = new Bitmap(ms);
-                }
-                else if (_currentSelectedMedia != null)
-                {
-                    _currentSelectedMedia.CoverBitmap = null;
-                }
-
-                // Set wallpaper bitmap in current media item
-                if (wallpaperImage != null && _currentSelectedMedia != null)
-                {
-                    using var ms = new MemoryStream(wallpaperImage.Data);
-                    _currentSelectedMedia.WallpaperBitmap = new Bitmap(ms);
-                }
             }
             catch (Exception ex)
             {
@@ -406,6 +366,80 @@ namespace AES_Lacrima.Services
             finally
             {
                 Close();
+            }
+        }
+
+        private async Task SaveToMetadataCacheAsync(string? path)
+        {
+            var cacheId = BinaryMetadataHelper.GetCacheId(path ?? string.Empty);
+            var metaDataPath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
+
+            var metaDir = Path.GetDirectoryName(metaDataPath);
+            if (!string.IsNullOrEmpty(metaDir) && !Directory.Exists(metaDir))
+                Directory.CreateDirectory(metaDir);
+
+            try
+            {
+                var customMetadata = new CustomMetadata
+                {
+                    Title = Title!,
+                    Artist = Artists!,
+                    Album = Album!,
+                    Track = Track,
+                    Year = Year,
+                    Lyrics = Lyrics!,
+                    Genre = Genres!,
+                    Comment = Comment!,
+                    ReplayGainTrackGain = ReplayGainTrackGain,
+                    ReplayGainAlbumGain = ReplayGainAlbumGain,
+                    Duration = _currentSelectedMedia?.Duration ?? 0.0,
+                    Images = [.. Images.Select(img => new ImageData
+                    {
+                        Data = img.Data,
+                        MimeType = img.MimeType,
+                        Kind = img.Kind
+                    })],
+                    Videos = [.. Images.Where(img => img.Kind == TagImageKind.LiveWallpaper)
+                        .Select(img => new VideoData
+                        {
+                            MimeType = img.MimeType,
+                            Data = img.Data,
+                            Kind = img.Kind
+                        })]
+                };
+
+                BinaryMetadataHelper.SaveMetadata(metaDataPath, customMetadata);
+            }
+            catch (Exception e)
+            {
+                SLog.Error("Failed to save metadata cache", e);
+            }
+
+            UpdateInfo();
+            SetMediaItemCoverFromTags(
+                Images.FirstOrDefault(img => img.Kind == TagImageKind.Cover),
+                Images.FirstOrDefault(img => img.Kind == TagImageKind.Wallpaper));
+        }
+
+        private void SetMediaItemCoverFromTags(TagImageModel? coverImage, TagImageModel? wallpaperImage)
+        {
+            if (_currentSelectedMedia == null)
+                return;
+
+            if (coverImage != null)
+            {
+                using var ms = new MemoryStream(coverImage.Data);
+                _currentSelectedMedia.CoverBitmap = new Bitmap(ms);
+            }
+            else
+            {
+                _currentSelectedMedia.CoverBitmap = null;
+            }
+
+            if (wallpaperImage != null)
+            {
+                using var ms = new MemoryStream(wallpaperImage.Data);
+                _currentSelectedMedia.WallpaperBitmap = new Bitmap(ms);
             }
         }
 
@@ -560,7 +594,17 @@ namespace AES_Lacrima.Services
                 titleNorm = NormalizeSearchTitle(GetSearchFallbackFromFilename());
             }
 
-            var searchQueries = BuildMetadataSearchQueries(titleNorm, artistNorm, albumNorm);
+            IReadOnlyList<string> searchQueries;
+            if (_currentSelectedMedia != null)
+            {
+                // For emulation-like cover lookup, include sanitized title + platform + box art
+                searchQueries = BuildAutoCoverQueries(_currentSelectedMedia, albumNorm);
+            }
+            else
+            {
+                searchQueries = BuildMetadataSearchQueries(titleNorm, artistNorm, albumNorm);
+            }
+
             if (searchQueries.Count == 0)
                 return;
 

@@ -102,22 +102,28 @@ namespace AES_Lacrima.Services
         [RelayCommand]
         private void NavigateBack()
         {
-            //Check if the current view is a MusicViewModel and set it to inactive before navigating back to fade out
+            // If metadata overlay is open (Music or Emulation), close it first instead of navigating back
+            var metadataService = DiLocator.ResolveViewModel<MetadataService>();
+            if (metadataService != null && metadataService.IsMetadataLoaded)
+            {
+                metadataService.IsMetadataLoaded = false;
+                return;
+            }
+
+            //Check if the current view is a MusicViewModel or EmulationViewModel and set it to inactive before navigating back to support fade out
             if (View is MusicViewModel musicViewModel)
             {
-                if (musicViewModel.MetadataService != null && 
-                    musicViewModel.MetadataService.IsMetadataLoaded)
-                {
-                    musicViewModel.MetadataService.IsMetadataLoaded = false;
-                    return;
-                }
-                else if (musicViewModel.IsEqualizerVisible)
+                if (musicViewModel.IsEqualizerVisible)
                 {
                     musicViewModel.IsEqualizerVisible = false;
                     return;
                 }
 
                 musicViewModel.IsActive = false;
+            }
+            else if (View is EmulationViewModel emulationViewModel)
+            {
+                emulationViewModel.IsActive = false;
             }
 
             ResumeShaderToyIfLeavingMusicView();
