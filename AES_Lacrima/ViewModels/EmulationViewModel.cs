@@ -35,6 +35,8 @@ namespace AES_Lacrima.ViewModels
     public partial class EmulationViewModel : ViewModelBase, IEmulationViewModel
     {
         private static readonly ILog SLog = AES_Core.Logging.LogHelper.For<EmulationViewModel>();
+        private static AvaloniaList<FolderMediaItem>? _sharedAlbumCache;
+
         private static readonly Regex RomBracketTokenRegex = new(@"[\(\[\{][^\)\]\}]*[\)\]\}]", RegexOptions.Compiled);
         private static readonly Regex RomMediaLabelRegex = new(
             @"[\(\[\{]\s*((?:disc|disk|cd|dvd|gd|side)\s*(?:\d+|[ivx]+|[a-z]))\s*[\)\]\}]",
@@ -168,6 +170,24 @@ namespace AES_Lacrima.ViewModels
             ApplyFilter();
         }
 
+        partial void OnMetadataServiceChanged(MetadataService? oldValue, MetadataService? newValue)
+        {
+            if (oldValue != null)
+                oldValue.PropertyChanged -= MetadataService_PropertyChanged;
+
+            if (newValue != null)
+                newValue.PropertyChanged += MetadataService_PropertyChanged;
+        }
+
+        private void MetadataService_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(MetadataService.IsMetadataLoaded) && MetadataService != null && !MetadataService.IsMetadataLoaded)
+            {
+                ApplyFilter();
+                SaveSettings();
+            }
+        }
+
         public override void Prepare()
         {
             if (IsPrepared)
@@ -177,6 +197,15 @@ namespace AES_Lacrima.ViewModels
             EnsureSettingsViewModelSubscription();
             LoadSettings();
 
+            if (_sharedAlbumCache != null && _sharedAlbumCache.Count > 0)
+            {
+                AlbumList = new AvaloniaList<FolderMediaItem>(_sharedAlbumCache);
+                SelectedAlbum = AlbumList.FirstOrDefault();
+                LoadedAlbum = SelectedAlbum;
+                IsPrepared = true;
+                return;
+            }
+
             // Load emulation albums in background so the UI can render immediately.
             _ = InitializeAlbumsAsync();
         }
@@ -185,7 +214,8 @@ namespace AES_Lacrima.ViewModels
         {
             base.OnShowViewModel();
             EnsureSettingsViewModelSubscription();
-            RefreshAlbumPreviews();
+            if (!IsPrepared)
+                RefreshAlbumPreviews();
         }
 
         public override void OnLeaveViewModel()
@@ -342,6 +372,7 @@ namespace AES_Lacrima.ViewModels
 
                 SelectedAlbum = AlbumList.FirstOrDefault();
                 LoadedAlbum = SelectedAlbum;
+                _sharedAlbumCache = new AvaloniaList<FolderMediaItem>(AlbumList);
                 IsPrepared = true;
                 ApplyFilter();
             });
@@ -420,6 +451,25 @@ namespace AES_Lacrima.ViewModels
             FinalizeRomImport(album);
         }
 
+        [RelayCommand]
+        private async Task OpenMetadata(object? parameter)
+        {
+            var target = parameter switch
+            {
+                MediaItem mi => mi,
+                int idx when idx >= 0 && idx < CoverItems.Count => CoverItems[idx],
+                _ => HighlightedItem
+            };
+
+            if (target == null || MetadataService == null)
+                return;
+
+            if (MetadataService.IsMetadataLoaded)
+                MetadataService.IsMetadataLoaded = false;
+
+            await MetadataService.LoadMetadataForItemAsync(target);
+        }
+
         [RelayCommand(CanExecute = nameof(CanAddRoms))]
         private async Task ClearAlbumCache()
         {
@@ -441,23 +491,11 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand(CanExecute = nameof(CanAddRoms))]
-        private async Task ClearAlbum()
+        private Task ClearAlbum()
         {
             var album = SelectedAlbum;
             if (album == null)
-                return;
-
-            if (MetadataService != null && album.Children.Count > 0)
-            {
-                try
-                {
-                    await MetadataService.ClearCacheForItemsAsync(album.Children).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    SLog.Warn($"Failed to clear metadata cache for album '{album.Title}'", ex);
-                }
-            }
+                return Task.CompletedTask;
 
             try
             {
@@ -476,6 +514,7 @@ namespace AES_Lacrima.ViewModels
             album.Children.Clear();
             ApplyFilter();
             SaveSettings();
+            return Task.CompletedTask;
         }
 
         private static IReadOnlyList<string> FindConsoleImagePaths()
