@@ -11,6 +11,7 @@ using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Lacrima.Services;
 using Avalonia;
+using System.ComponentModel;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media.Imaging;
@@ -56,6 +57,7 @@ namespace AES_Lacrima.ViewModels
             ".webp"
         ];
 
+        private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumScanCtsMap = [];
         private AvaloniaList<string> _pendingAlbumOrder = [];
         private Dictionary<string, List<MediaItem>> _pendingAlbumRoms = new(StringComparer.OrdinalIgnoreCase);
         private bool _isSyncingAlbumSelection;
@@ -64,6 +66,8 @@ namespace AES_Lacrima.ViewModels
         [AutoResolve]
         [ObservableProperty]
         private SettingsViewModel? _settingsViewModel;
+
+        private SettingsViewModel? _subscribedSettingsViewModel;
 
         [AutoResolve]
         [ObservableProperty]
@@ -116,17 +120,80 @@ namespace AES_Lacrima.ViewModels
             AlbumList.CollectionChanged += AlbumList_CollectionChanged;
         }
 
+        private void EnsureSettingsViewModelSubscription()
+        {
+            var settings = SettingsViewModel ?? DiLocator.ResolveViewModel<SettingsViewModel>();
+            if (settings == null)
+                return;
+
+            if (ReferenceEquals(settings, _subscribedSettingsViewModel))
+                return;
+
+            if (_subscribedSettingsViewModel != null)
+            {
+                _subscribedSettingsViewModel.PropertyChanged -= SettingsViewModel_PropertyChanged;
+                _subscribedSettingsViewModel.EmulationUseFirstItemCoverChanged -= OnEmulationUseFirstItemCoverChanged;
+            }
+
+            _subscribedSettingsViewModel = settings;
+            _subscribedSettingsViewModel.PropertyChanged += SettingsViewModel_PropertyChanged;
+            _subscribedSettingsViewModel.EmulationUseFirstItemCoverChanged += OnEmulationUseFirstItemCoverChanged;
+        }
+
+        partial void OnSettingsViewModelChanged(SettingsViewModel? value)
+        {
+            EnsureSettingsViewModelSubscription();
+        }
+
+        private void SettingsViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(SettingsViewModel.EmulationUseFirstItemCover) || e.PropertyName == nameof(SettingsViewModel.AppMode))
+            {
+                RefreshAlbumPreviews();
+            }
+        }
+
+        private void OnEmulationUseFirstItemCoverChanged(bool useFirstItem)
+        {
+            RefreshAlbumPreviews();
+        }
+
+        private void RefreshAlbumPreviews()
+        {
+            foreach (var album in AlbumList.OfType<EmulationAlbumItem>())
+                UpdatePreviewItems(album);
+
+            // Force update of album list for view refresh.
+            AlbumList = new AvaloniaList<FolderMediaItem>(AlbumList);
+            ApplyFilter();
+        }
+
         public override void Prepare()
         {
             if (IsPrepared)
                 return;
 
             base.Prepare();
+            EnsureSettingsViewModelSubscription();
             LoadSettings();
             LoadConsoleAlbums();
+
+            foreach (var album in AlbumList)
+            {
+                if (album.Children.Count > 0)
+                    QueueSelectedAlbumCoverScan(album);
+            }
+
             SelectedAlbum = AlbumList.FirstOrDefault();
             LoadedAlbum = SelectedAlbum;
             IsPrepared = true;
+        }
+
+        public override void OnShowViewModel()
+        {
+            base.OnShowViewModel();
+            EnsureSettingsViewModelSubscription();
+            RefreshAlbumPreviews();
         }
 
         public override void OnLeaveViewModel()
@@ -230,18 +297,9 @@ namespace AES_Lacrima.ViewModels
                     Album = title,
                     FileName = imagePath,
                     CoverBitmap = previewBitmap,
-                    PreviewItems =
-                    [
-                        new MediaItem
-                        {
-                            Title = title,
-                            Album = title,
-                            FileName = imagePath,
-                            CoverBitmap = previewBitmap
-                        }
-                    ],
                     Children = RestoreAlbumRoms(albumKey, title, previewBitmap)
                 });
+                UpdatePreviewItems(AlbumList.Last() as EmulationAlbumItem);
             }
 
             ApplySavedAlbumOrder();
@@ -468,6 +526,48 @@ namespace AES_Lacrima.ViewModels
             return Path.GetFileName(normalized).Trim();
         }
 
+        private void UpdatePreviewItems(EmulationAlbumItem? album)
+        {
+            if (album == null)
+                return;
+
+            bool useFirstItemCover = SettingsViewModel?.EmulationUseFirstItemCover == true;
+            Bitmap? topCover = album.CoverBitmap;
+            var firstChild = album.Children.FirstOrDefault();
+
+            if (useFirstItemCover && firstChild != null)
+            {
+                topCover = firstChild.CoverBitmap ?? album.CoverBitmap;
+            }
+
+            var previewItems = new AvaloniaList<MediaItem>();
+            foreach (var child in album.Children)
+            {
+                if (child == firstChild)
+                    continue;
+
+                if (child.CoverBitmap == null)
+                    continue;
+
+                if (topCover != null && ReferenceEquals(child.CoverBitmap, topCover))
+                    continue;
+
+                previewItems.Add(child);
+                if (previewItems.Count >= 2)
+                    break;
+            }
+
+            previewItems.Add(new MediaItem
+            {
+                Title = album.Title,
+                Album = album.Title,
+                FileName = album.FileName,
+                CoverBitmap = topCover
+            });
+
+            album.PreviewItems = previewItems;
+        }
+
         private bool CanAddRoms() => SelectedAlbum != null;
 
         private bool ImportRomPaths(FolderMediaItem album, IEnumerable<string> paths)
@@ -496,6 +596,7 @@ namespace AES_Lacrima.ViewModels
             if (ReferenceEquals(LoadedAlbum, album))
                 ApplyFilter();
 
+            UpdatePreviewItems(album as EmulationAlbumItem);
             QueueSelectedAlbumCoverScan(album);
             SaveSettings();
         }
@@ -712,24 +813,29 @@ namespace AES_Lacrima.ViewModels
 
         private void QueueSelectedAlbumCoverScan(FolderMediaItem? album)
         {
+            if (album == null || album.Children.Count == 0 || MetadataService == null)
+                return;
+
             try
             {
-                _albumCoverScanCts?.Cancel();
-                _albumCoverScanCts?.Dispose();
+                if (_albumScanCtsMap.TryGetValue(album, out var existingCts))
+                {
+                    existingCts.Cancel();
+                    existingCts.Dispose();
+                    _albumScanCtsMap.Remove(album);
+                }
             }
             catch (Exception ex)
             {
-                SLog.Warn("Failed to cancel previous emulation album cover scan.", ex);
+                SLog.Warn($"Failed to cancel previous emulation album cover scan for '{album.Title}'.", ex);
             }
-
-            if (album == null || album.Children.Count == 0 || MetadataService == null)
-                return;
 
             NormalizeAlbumRomTitles(album);
             SLog.Debug($"Queueing emulation cover scan for album '{album.Title}' with {album.Children.Count} items.");
 
-            _albumCoverScanCts = new CancellationTokenSource();
-            var cancellationToken = _albumCoverScanCts.Token;
+            var cts = new CancellationTokenSource();
+            _albumScanCtsMap[album] = cts;
+            var cancellationToken = cts.Token;
             _ = Task.Run(() => LoadAlbumCoversAsync(album, cancellationToken), cancellationToken);
         }
 
@@ -784,12 +890,9 @@ namespace AES_Lacrima.ViewModels
                             ? $"Auto cover resolved for rom '{item.Title}' in album '{album.Title}'."
                             : $"Auto cover not found for rom '{item.Title}' in album '{album.Title}'.");
 
-                    if (!ReferenceEquals(LoadedAlbum, album))
-                        continue;
-
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
-                        if (ReferenceEquals(HighlightedItem, item))
+                        if (ReferenceEquals(LoadedAlbum, album) && ReferenceEquals(HighlightedItem, item))
                             HighlightedItem = item;
                     }, DispatcherPriority.Background);
 
@@ -802,6 +905,12 @@ namespace AES_Lacrima.ViewModels
                         break;
                     }
                 }
+
+                // Update preview tiles once per album scan pass to avoid flickering from incremental updates.
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    UpdatePreviewItems(album as EmulationAlbumItem);
+                }, DispatcherPriority.Background);
             }
             catch (OperationCanceledException)
             {
