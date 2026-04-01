@@ -52,9 +52,6 @@ namespace AES_Lacrima
         {
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
-                // Process pending mpv updates or uninstalls WITHOUT starting automatic setup/download
-                await MpvSetup.EnsureInstalled(autoInstall: false);
-
                 DisableAvaloniaDataAnnotationValidation();
                 //Initialize DI Locator
                 DiLocator.ConfigureContainer(builder =>
@@ -78,9 +75,9 @@ namespace AES_Lacrima
                 // Attach closing handler to perform cleanup/save on exit
                 desktop.MainWindow.Closing += MainWindow_Closing;
 
-                // Configure FFmpeg, libmpv and yt-dlp checks. Skip auto-installation on startup.
-                // Run initial checks in background so app can render immediately.
-                _ = PerformInitialToolChecksAsync(desktop.MainWindow);
+                // Finish heavier startup tasks after the window is already available
+                // so release builds don't appear frozen before first render.
+                _ = PerformPostStartupInitializationAsync(desktop.MainWindow);
             }
             else if (ApplicationLifetime is ISingleViewApplicationLifetime singleView)
             {
@@ -101,6 +98,39 @@ namespace AES_Lacrima
             }
 
             base.OnFrameworkInitializationCompleted();
+        }
+
+        private static async Task PerformPostStartupInitializationAsync(Window mainWindow)
+        {
+            try
+            {
+                Program.EnsureBundledResources();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Failed to synchronize bundled startup resources", ex);
+            }
+
+            try
+            {
+                // Process pending mpv updates or uninstalls WITHOUT starting automatic setup/download.
+                await MpvSetup.EnsureInstalled(autoInstall: false);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Failed during mpv startup validation", ex);
+            }
+
+            try
+            {
+                // Configure FFmpeg, libmpv and yt-dlp checks. Skip auto-installation on startup.
+                // Run initial checks in background so app can render immediately.
+                await PerformInitialToolChecksAsync(mainWindow);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Failed during post-startup tool checks", ex);
+            }
         }
 
         private static async Task PerformInitialToolChecksAsync(Window mainWindow)
