@@ -12,6 +12,10 @@ public enum TagImageKind
 {
     /// <summary>Front cover of the media or album.</summary>
     Cover,
+    /// <summary>Box art image used for game metadata.</summary>
+    BoxArt,
+    /// <summary>Gameplay screenshot image used for game metadata.</summary>
+    Gameplay,
     /// <summary>Back cover of the media or album.</summary>
     BackCover,
     /// <summary>A wallpaper suitable for desktop backgrounds.</summary>

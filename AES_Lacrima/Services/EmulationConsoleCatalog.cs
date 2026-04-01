@@ -199,6 +199,16 @@ namespace AES_Lacrima.Services
                 : consoleName;
         }
 
+        public static string GetPreferredBoxArtSearchLabel(string? consoleName)
+        {
+            if (TryGetDefinition(consoleName, out var definition))
+                return definition.DisplayName;
+
+            return string.IsNullOrWhiteSpace(consoleName)
+                ? string.Empty
+                : consoleName;
+        }
+
         public static bool IsArcadeConsole(string? consoleName)
         {
             if (!TryGetDefinition(consoleName, out var definition))
