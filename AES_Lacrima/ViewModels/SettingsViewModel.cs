@@ -90,6 +90,16 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         EmulationUseFirstItemCoverChanged?.Invoke(value);
     }
 
+    [ObservableProperty]
+    private bool _emulationGameplayAutoplay = false;
+
+    public event Action<bool>? EmulationGameplayAutoplayChanged;
+
+    partial void OnEmulationGameplayAutoplayChanged(bool value)
+    {
+        EmulationGameplayAutoplayChanged?.Invoke(value);
+    }
+
     /// <summary>
     /// Backing field for the <c>ScaleFactor</c> observable property.
     /// Controls UI scaling applied by the <c>ScalableDecorator</c>.
@@ -1319,6 +1329,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         // application mode (window type)
         AppMode = ReadIntSetting(section, nameof(AppMode), AppMode);
         EmulationUseFirstItemCover = ReadBoolSetting(section, nameof(EmulationUseFirstItemCover), EmulationUseFirstItemCover);
+        EmulationGameplayAutoplay = ReadBoolSetting(section, nameof(EmulationGameplayAutoplay), EmulationGameplayAutoplay);
         CheckForAppUpdatesOnStartup = ReadBoolSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
         PreferAotAppUpdates = ReadBoolSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
 
@@ -1400,6 +1411,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         // Persist application mode (window type)
         WriteSetting(section, nameof(AppMode), AppMode);
         WriteSetting(section, nameof(EmulationUseFirstItemCover), EmulationUseFirstItemCover);
+        WriteSetting(section, nameof(EmulationGameplayAutoplay), EmulationGameplayAutoplay);
         WriteSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
         WriteSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
 

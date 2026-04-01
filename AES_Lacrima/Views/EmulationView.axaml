@@ -9,6 +9,7 @@
              xmlns:common="using:AES_Lacrima"
              xmlns:asyncImageLoader="clr-namespace:AsyncImageLoader;assembly=AsyncImageLoader.Avalonia"
              xmlns:services="using:AES_Lacrima.Services"
+             xmlns:player="using:AES_Controls.Player"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d"
              d:DesignWidth="800"
@@ -22,6 +23,13 @@
 
     <Grid RowDefinitions="*,Auto,Auto" ClipToBounds="False">
         <Border Background="#0F0F0F" Grid.RowSpan="3"/>
+
+        <Grid IsVisible="{Binding IsGameplayVideoVisible}" Grid.RowSpan="3">
+            <Border Background="#FF000000"/>
+            <player:VideoViewControl Player="{Binding AudioPlayer}"
+                                     Stretch="UniformToFill"
+                                     IsRenderingPaused="{Binding !IsGameplayVideoVisible}" />
+        </Grid>
 
         <composition:CompositionCarouselControl ItemsSource="{Binding CoverItems}"
                                                 ImageBitmapProperty="CoverBitmap"

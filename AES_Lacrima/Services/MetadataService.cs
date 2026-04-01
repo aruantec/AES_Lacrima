@@ -33,6 +33,12 @@ using Path = System.IO.Path;
 
 namespace AES_Lacrima.Services
 {
+    internal enum MetadataSearchMode
+    {
+        Images,
+        GameplayVideo
+    }
+
     public sealed class WebImageSearchResult
     {
         public required string ThumbnailUrl { get; init; }
@@ -75,6 +81,8 @@ namespace AES_Lacrima.Services
         ];
 
         private MediaItem? _currentSelectedMedia;
+        private MetadataSearchMode _searchMode = MetadataSearchMode.Images;
+        private static readonly Regex YouTubeVideoIdRegex = new(@"""videoId"":""(?<id>[A-Za-z0-9_-]{11})""", RegexOptions.Compiled);
 
         [ObservableProperty] private bool _isOnlineMedia;
         [ObservableProperty] private string? _filePath;
@@ -86,6 +94,7 @@ namespace AES_Lacrima.Services
         [ObservableProperty] private string? _genres;
         [ObservableProperty] private string? _comment;
         [ObservableProperty] private string? _lyrics;
+        [ObservableProperty] private string? _videoUrl;
         [ObservableProperty] private double _replayGainTrackGain;
         [ObservableProperty] private double _replayGainAlbumGain;
         [ObservableProperty] private TagImageKind _selectedImageKind;
@@ -155,6 +164,7 @@ namespace AES_Lacrima.Services
                     Genres = item.Genre;
                     Comment = item.Comment;
                     Lyrics = item.Lyrics;
+                    VideoUrl = string.Empty;
                     IsOnlineMedia = true;
 
                     var metadata = await Task.Run(() =>
@@ -180,8 +190,11 @@ namespace AES_Lacrima.Services
                             Lyrics = metadata.Lyrics;
                             Genres = metadata.Genre;
                             Comment = metadata.Comment;
+                            VideoUrl = metadata.VideoUrl;
                             ReplayGainTrackGain = metadata.ReplayGainTrackGain;
                             ReplayGainAlbumGain = metadata.ReplayGainAlbumGain;
+                            if (_currentSelectedMedia != null)
+                                _currentSelectedMedia.VideoUrl = metadata.VideoUrl;
                             if (_currentSelectedMedia != null && metadata.Duration > 0)
                                 _currentSelectedMedia.Duration = metadata.Duration;
                         }
@@ -242,6 +255,7 @@ namespace AES_Lacrima.Services
                     Lyrics = snapshot.Lyrics;
                     Genres = snapshot.Genres;
                     Comment = snapshot.Comment;
+                    VideoUrl = string.Empty;
 
                     foreach (var old in Images)
                         old.Dispose();
@@ -275,6 +289,7 @@ namespace AES_Lacrima.Services
             Lyrics = item.Lyrics;
             Genres = item.Genre;
             Comment = item.Comment;
+            VideoUrl = string.Empty;
             ReplayGainTrackGain = item.ReplayGainTrackGain;
             ReplayGainAlbumGain = item.ReplayGainAlbumGain;
 
@@ -304,10 +319,12 @@ namespace AES_Lacrima.Services
                     Genres = metadata.Genre;
                 if (string.IsNullOrWhiteSpace(Comment))
                     Comment = metadata.Comment;
+                VideoUrl = metadata.VideoUrl;
                 if (ReplayGainTrackGain == 0)
                     ReplayGainTrackGain = metadata.ReplayGainTrackGain;
                 if (ReplayGainAlbumGain == 0)
                     ReplayGainAlbumGain = metadata.ReplayGainAlbumGain;
+                item.VideoUrl = metadata.VideoUrl;
 
                 foreach (var image in metadata.Images ?? [])
                 {
@@ -367,6 +384,12 @@ namespace AES_Lacrima.Services
                 }
 
                 if (Images.Any(img => IsLocalMetadataOnlyKind(img.Kind)))
+                {
+                    await SaveToMetadataCacheAsync(path);
+                    return;
+                }
+
+                if (!string.IsNullOrWhiteSpace(VideoUrl))
                 {
                     await SaveToMetadataCacheAsync(path);
                     return;
@@ -471,6 +494,7 @@ namespace AES_Lacrima.Services
                     Lyrics = Lyrics!,
                     Genre = Genres!,
                     Comment = Comment!,
+                    VideoUrl = VideoUrl ?? string.Empty,
                     ReplayGainTrackGain = ReplayGainTrackGain,
                     ReplayGainAlbumGain = ReplayGainAlbumGain,
                     Duration = _currentSelectedMedia?.Duration ?? 0.0,
@@ -537,6 +561,7 @@ namespace AES_Lacrima.Services
             _currentSelectedMedia!.Comment = Comment;
             _currentSelectedMedia!.ReplayGainTrackGain = ReplayGainTrackGain;
             _currentSelectedMedia!.ReplayGainAlbumGain = ReplayGainAlbumGain;
+            _currentSelectedMedia!.VideoUrl = VideoUrl;
         }
 
         [RelayCommand]
@@ -695,9 +720,46 @@ namespace AES_Lacrima.Services
             if (searchQueries.Count == 0)
                 return;
 
+            _searchMode = MetadataSearchMode.Images;
             var activeQuery = searchQueries[0];
             ImageSearchQuery = activeQuery;
             await SearchImagesCoreAsync(activeQuery, searchQueries);
+        }
+
+        [RelayCommand]
+        private async Task AddGameplayAsync()
+        {
+            if (_currentSelectedMedia == null)
+                return;
+
+            var gameplayQuery = BuildGameplayVideoQuery(_currentSelectedMedia, Album);
+            if (string.IsNullOrWhiteSpace(gameplayQuery))
+                return;
+
+            _searchMode = MetadataSearchMode.GameplayVideo;
+            ImageSearchQuery = gameplayQuery;
+            IsImageSearchOverlayOpen = true;
+            IsImageSearchLoading = true;
+            ImageSearchStatus = $"Searching YouTube gameplay videos for \"{gameplayQuery}\"...";
+
+            try
+            {
+                var results = await SearchYouTubeGameplayVideosAsync(gameplayQuery);
+                ImageSearchResults = new AvaloniaList<WebImageSearchResult>(results.Take(MaxImageSearchResults).ToList());
+                ImageSearchStatus = ImageSearchResults.Count == 0
+                    ? $"No YouTube gameplay videos found for \"{gameplayQuery}\"."
+                    : $"Found {ImageSearchResults.Count} YouTube gameplay videos for \"{gameplayQuery}\".";
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Gameplay video search failed.", ex);
+                ImageSearchStatus = "Gameplay video search failed.";
+                ImageSearchResults = [];
+            }
+            finally
+            {
+                IsImageSearchLoading = false;
+            }
         }
 
         [RelayCommand]
@@ -707,6 +769,7 @@ namespace AES_Lacrima.Services
             if (string.IsNullOrWhiteSpace(activeQuery))
                 return;
 
+            _searchMode = MetadataSearchMode.Images;
             await SearchImagesCoreAsync(activeQuery.Trim(), [activeQuery.Trim()]);
         }
 
@@ -748,6 +811,16 @@ namespace AES_Lacrima.Services
         {
             if (result == null)
                 return;
+
+            if (_searchMode == MetadataSearchMode.GameplayVideo)
+            {
+                VideoUrl = result.FullImageUrl;
+                if (_currentSelectedMedia != null)
+                    _currentSelectedMedia.VideoUrl = VideoUrl;
+                IsImageSearchOverlayOpen = false;
+                ImageSearchStatus = $"Selected gameplay video: {VideoUrl}";
+                return;
+            }
 
             if (await TryAddImageFromUrlAsync(result.FullImageUrl, SelectedImageKind))
             {
@@ -1430,6 +1503,62 @@ namespace AES_Lacrima.Services
 
         private static bool IsLocalMetadataOnlyKind(TagImageKind kind)
             => kind is TagImageKind.Gameplay or TagImageKind.BoxArt;
+
+        private static string BuildGameplayVideoQuery(MediaItem item, string? albumName)
+        {
+            var title = NormalizeRomSearchTitle(item.Title);
+            if (string.IsNullOrWhiteSpace(title))
+                title = NormalizeRomSearchTitle(ExtractFilenameForSearch(item.FileName));
+
+            var normalizedAlbum = NormalizeSearchTitle(albumName ?? item.Album);
+            var consoleLabel = NormalizeSearchTitle(EmulationConsoleCatalog.GetPreferredBoxArtSearchLabel(normalizedAlbum));
+            var query = string.Join(" ",
+                new[] { title, consoleLabel, "Gameplay" }
+                    .Where(part => !string.IsNullOrWhiteSpace(part))
+                    .Select(part => part!.Trim()));
+            return MultiSpaceRegex.Replace(query, " ").Trim();
+        }
+
+        private static async Task<List<WebImageSearchResult>> SearchYouTubeGameplayVideosAsync(string query)
+        {
+            var results = new List<WebImageSearchResult>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var url = $"https://www.youtube.com/results?search_query={Uri.EscapeDataString(query)}";
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
+            request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
+            request.Headers.Referrer = new Uri("https://www.youtube.com/");
+
+            using var response = await ImageHttpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                return results;
+
+            var html = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            foreach (Match match in YouTubeVideoIdRegex.Matches(html))
+            {
+                var id = match.Groups["id"].Value;
+                if (string.IsNullOrWhiteSpace(id))
+                    continue;
+
+                var videoUrl = $"https://www.youtube.com/watch?v={id}";
+                if (!seen.Add(videoUrl))
+                    continue;
+
+                results.Add(new WebImageSearchResult
+                {
+                    FullImageUrl = videoUrl,
+                    ThumbnailUrl = $"https://i.ytimg.com/vi/{id}/hqdefault.jpg",
+                    Title = string.Empty,
+                    Artist = "YouTube"
+                });
+
+                if (results.Count >= MaxImageSearchResults)
+                    break;
+            }
+
+            return results;
+        }
 
         private async Task LoadImageAsync(TagImageModel model)
         {
