@@ -24,14 +24,8 @@
     <Grid RowDefinitions="*,Auto,Auto" ClipToBounds="False">
         <Border Background="#0F0F0F" Grid.RowSpan="3"/>
 
-        <Grid IsVisible="{Binding IsGameplayVideoVisible}" Grid.RowSpan="3">
-            <Border Background="#FF000000"/>
-            <player:VideoViewControl Player="{Binding AudioPlayer}"
-                                     Stretch="UniformToFill"
-                                     IsRenderingPaused="{Binding !IsGameplayVideoVisible}" />
-        </Grid>
-
-        <composition:CompositionCarouselControl ItemsSource="{Binding CoverItems}"
+        <composition:CompositionCarouselControl x:Name="RomCarousel"
+                                                ItemsSource="{Binding CoverItems}"
                                                 ImageBitmapProperty="CoverBitmap"
                                                 SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
                                                 PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
@@ -112,6 +106,26 @@
                 </ContextMenu>
             </composition:CompositionCarouselControl.ContextMenu>
         </composition:CompositionCarouselControl>
+
+        <Canvas Grid.Row="0" IsHitTestVisible="False">
+            <Border IsVisible="{Binding IsGameplayVideoVisible}"
+                    Canvas.Left="{Binding SelectedItemBounds.X, ElementName=RomCarousel}"
+                    Canvas.Top="{Binding SelectedItemBounds.Y, ElementName=RomCarousel}"
+                    Width="{Binding SelectedItemBounds.Width, ElementName=RomCarousel}"
+                    Height="{Binding SelectedItemBounds.Height, ElementName=RomCarousel}"
+                    ClipToBounds="True"
+                    Opacity="{Binding IsGameplayVideoVisible, Converter={StaticResource BoolToOpacityConverter}}"
+                    Background="#FF000000">
+                <Border.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.35" Easing="SineEaseOut" />
+                    </Transitions>
+                </Border.Transitions>
+                <player:VideoViewControl Player="{Binding AudioPlayer}"
+                                         Stretch="UniformToFill"
+                                         IsRenderingPaused="{Binding !IsGameplayVideoVisible}" />
+            </Border>
+        </Canvas>
 
         <StackPanel HorizontalAlignment="Center"
                     VerticalAlignment="Center"

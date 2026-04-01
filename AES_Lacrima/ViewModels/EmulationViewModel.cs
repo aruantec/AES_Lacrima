@@ -69,6 +69,7 @@ namespace AES_Lacrima.ViewModels
         private CancellationTokenSource? _albumCoverScanCts;
         private CancellationTokenSource? _gameplayPreviewCts;
         private bool _isGameplayPreviewActive;
+        private double _lastSelectedIndexForPreview = double.NaN;
         private string? _pendingGameplayPreviewItemPath;
         private string? _activeGameplayPreviewItemPath;
 
@@ -221,13 +222,55 @@ namespace AES_Lacrima.ViewModels
                 SaveSettings();
 
                 if (IsGameplayAutoplayEnabled)
-                    QueueGameplayPreview(HighlightedItem);
+                {
+                    var target = ResolveMetadataTargetItem();
+                    if (target != null && !string.IsNullOrWhiteSpace(MetadataService.VideoUrl))
+                    {
+                        target.VideoUrl = MetadataService.VideoUrl;
+                        ForceRestartGameplayPreview(target);
+                    }
+                    else
+                    {
+                        QueueGameplayPreview(target);
+                    }
+                }
             }
 
-            if (e.PropertyName == nameof(MetadataService.VideoUrl) && IsGameplayAutoplayEnabled)
+            if (e.PropertyName == nameof(MetadataService.VideoUrl) &&
+                MetadataService != null &&
+                !string.IsNullOrWhiteSpace(MetadataService.VideoUrl))
             {
-                QueueGameplayPreview(HighlightedItem);
+                var target = ResolveMetadataTargetItem();
+                if (target != null)
+                {
+                    target.VideoUrl = MetadataService.VideoUrl;
+                }
             }
+        }
+
+        private MediaItem? ResolveMetadataTargetItem()
+        {
+            var metadata = MetadataService;
+            if (metadata == null)
+                return HighlightedItem;
+
+            var targetPath = metadata.FilePath;
+            if (!string.IsNullOrWhiteSpace(targetPath))
+            {
+                var item = CoverItems.FirstOrDefault(candidate =>
+                    string.Equals(candidate.FileName, targetPath, StringComparison.OrdinalIgnoreCase));
+
+                if (item != null)
+                    return item;
+            }
+
+            return HighlightedItem;
+        }
+
+        private void ForceRestartGameplayPreview(MediaItem item)
+        {
+            StopGameplayPreview();
+            QueueGameplayPreview(item);
         }
 
         public override void Prepare()
@@ -305,6 +348,16 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnSelectedIndexChanged(double value)
         {
+            if (!double.IsNaN(_lastSelectedIndexForPreview) &&
+                Math.Abs(value - _lastSelectedIndexForPreview) > 0.0001)
+            {
+                StopGameplayPreview();
+            }
+            _lastSelectedIndexForPreview = value;
+
+            if (Math.Abs(value - Math.Round(value)) > 0.001)
+                return;
+
             int roundedIndex = GetRoundedSelectedIndex(value);
             if (roundedIndex >= 0 && roundedIndex < CoverItems.Count)
             {
@@ -1293,8 +1346,18 @@ namespace AES_Lacrima.ViewModels
             if (_isGameplayPreviewActive &&
                 string.Equals(_activeGameplayPreviewItemPath, requestedPath, StringComparison.OrdinalIgnoreCase))
             {
-                IsGameplayVideoVisible = true;
-                return;
+                var currentPlaybackUrl = AudioPlayer?.CurrentMediaItem?.FileName;
+                var requestedVideoUrl = item.VideoUrl;
+                if (!string.IsNullOrWhiteSpace(requestedVideoUrl) &&
+                    !string.Equals(currentPlaybackUrl, requestedVideoUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Same selected item but gameplay URL changed -> force restart with new URL.
+                }
+                else
+                {
+                    IsGameplayVideoVisible = true;
+                    return;
+                }
             }
 
             // Selection actually changed -> stop/hide immediately, then delay-start the next item.
@@ -1311,7 +1374,7 @@ namespace AES_Lacrima.ViewModels
         {
             try
             {
-                await Task.Delay(1000, cancellationToken);
+                await Task.Delay(2000, cancellationToken);
 
                 var videoUrl = await ResolveGameplayVideoUrlAsync(item, cancellationToken);
 
