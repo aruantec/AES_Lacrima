@@ -106,7 +106,31 @@ namespace AES_Lacrima.Services
         [AutoResolve]
         private MusicViewModel? _musicViewModel;
 
-        public IEnumerable<TagImageKind> ImageKinds { get; } = Enum.GetValues<TagImageKind>();
+        public IReadOnlyList<TagImageKind> MetadataImageKinds { get; } =
+        [
+            TagImageKind.Cover,
+            TagImageKind.BackCover,
+            TagImageKind.Wallpaper,
+            TagImageKind.LiveWallpaper,
+            TagImageKind.Artist,
+            TagImageKind.Other
+        ];
+
+        public IReadOnlyList<TagImageKind> EmulationImageKinds { get; } =
+        [
+            TagImageKind.Cover,
+            TagImageKind.BoxArt,
+            TagImageKind.Gameplay,
+            TagImageKind.BackCover,
+            TagImageKind.Wallpaper,
+            TagImageKind.LiveWallpaper,
+            TagImageKind.Artist,
+            TagImageKind.Other
+        ];
+
+        // Keep this for existing bindings; default metadata overlay should not expose
+        // emulation-only kinds.
+        public IReadOnlyList<TagImageKind> ImageKinds => MetadataImageKinds;
 
         public async Task LoadMetadataAsync(MediaItem item)
         {
@@ -236,10 +260,10 @@ namespace AES_Lacrima.Services
             }
         }
 
-        public Task LoadMetadataForItemAsync(MediaItem item)
+        public async Task LoadMetadataForItemAsync(MediaItem item)
         {
             if (item == null)
-                return Task.CompletedTask;
+                return;
 
             _currentSelectedMedia = item;
             FilePath = item.FileName;
@@ -259,20 +283,71 @@ namespace AES_Lacrima.Services
 
             Images.Clear();
 
-            if (item.CoverBitmap != null)
+            var cachePath = GetMetadataCachePath(item.FileName);
+            var metadata = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath));
+
+            if (metadata != null)
+            {
+                if (string.IsNullOrWhiteSpace(Title))
+                    Title = metadata.Title;
+                if (string.IsNullOrWhiteSpace(Artists))
+                    Artists = metadata.Artist;
+                if (string.IsNullOrWhiteSpace(Album))
+                    Album = metadata.Album;
+                if (Track == 0)
+                    Track = metadata.Track;
+                if (Year == 0)
+                    Year = metadata.Year;
+                if (string.IsNullOrWhiteSpace(Lyrics))
+                    Lyrics = metadata.Lyrics;
+                if (string.IsNullOrWhiteSpace(Genres))
+                    Genres = metadata.Genre;
+                if (string.IsNullOrWhiteSpace(Comment))
+                    Comment = metadata.Comment;
+                if (ReplayGainTrackGain == 0)
+                    ReplayGainTrackGain = metadata.ReplayGainTrackGain;
+                if (ReplayGainAlbumGain == 0)
+                    ReplayGainAlbumGain = metadata.ReplayGainAlbumGain;
+
+                foreach (var image in metadata.Images ?? [])
+                {
+                    if (image.Data == null || image.Data.Length == 0)
+                        continue;
+
+                    Images.Add(new TagImageModel(image.Kind, image.Data, image.MimeType ?? "image/png")
+                    {
+                        OnDeleteImage = OnDeleteImage
+                    });
+                }
+
+                foreach (var video in metadata.Videos ?? [])
+                {
+                    if (video.Data == null || video.Data.Length == 0)
+                        continue;
+
+                    var model = new TagImageModel(video.Kind, video.Data, video.MimeType ?? "video/mp4")
+                    {
+                        OnDeleteImage = OnDeleteImage
+                    };
+                    Images.Add(model);
+
+                    if (model.Kind == TagImageKind.LiveWallpaper)
+                        await LoadImageAsync(model);
+                }
+            }
+
+            if (Images.Count == 0 && item.CoverBitmap != null)
             {
                 using var ms = new MemoryStream();
                 item.CoverBitmap.Save(ms);
                 var content = ms.ToArray();
-                var coverImage = new TagImageModel(TagImageKind.Cover, content, "image/png", "Cover from album item")
+                Images.Add(new TagImageModel(TagImageKind.Cover, content, "image/png", "Cover from album item")
                 {
                     OnDeleteImage = OnDeleteImage
-                };
-                Images.Add(coverImage);
+                });
             }
 
             IsMetadataLoaded = true;
-            return Task.CompletedTask;
         }
 
         [RelayCommand]
@@ -286,6 +361,12 @@ namespace AES_Lacrima.Services
                 var isMissingFile = string.IsNullOrWhiteSpace(path) || !File.Exists(path);
 
                 if (isMissingFile || (path != null && path.Contains("youtu", StringComparison.OrdinalIgnoreCase)))
+                {
+                    await SaveToMetadataCacheAsync(path);
+                    return;
+                }
+
+                if (Images.Any(img => IsLocalMetadataOnlyKind(img.Kind)))
                 {
                     await SaveToMetadataCacheAsync(path);
                     return;
@@ -526,7 +607,7 @@ namespace AES_Lacrima.Services
             if (string.IsNullOrWhiteSpace(url))
                 return;
 
-            if (await TryAddImageFromUrlAsCoverAsync(url))
+            if (await TryAddImageFromUrlAsync(url, SelectedImageKind))
             {
                 AddImageUrl = string.Empty;
                 ImageSearchStatus = "Image added.";
@@ -550,7 +631,7 @@ namespace AES_Lacrima.Services
                 {
                     using var ms = new MemoryStream();
                     bitmap.Save(ms);
-                    AddImageToCollection(ms.ToArray(), "image/png", TagImageKind.Cover, "clipboard-image");
+                    AddImageToCollection(ms.ToArray(), "image/png", SelectedImageKind, "clipboard-image");
                     ImageSearchStatus = "Pasted image from clipboard.";
                     return;
                 }
@@ -597,8 +678,14 @@ namespace AES_Lacrima.Services
             IReadOnlyList<string> searchQueries;
             if (_currentSelectedMedia != null)
             {
-                // For emulation-like cover lookup, include sanitized title + platform + box art
-                searchQueries = BuildAutoCoverQueries(_currentSelectedMedia, albumNorm);
+                // For emulation cover searches triggered from the metadata overlay,
+                // prefer the exact leading query shown in the textbox. Falling back
+                // through multiple alternates here can dilute results even when the
+                // visible query is already correct.
+                var romQueries = BuildAutoCoverQueries(_currentSelectedMedia, albumNorm);
+                searchQueries = romQueries.Count == 0
+                    ? []
+                    : [romQueries[0]];
             }
             else
             {
@@ -635,8 +722,8 @@ namespace AES_Lacrima.Services
                 var results = await SearchWebImagesAsync(searchQueries);
                 ImageSearchResults = new AvaloniaList<WebImageSearchResult>(results.Take(MaxImageSearchResults).ToList());
                 ImageSearchStatus = ImageSearchResults.Count == 0
-                    ? "No images found."
-                    : $"Found {ImageSearchResults.Count} image candidates.";
+                    ? $"No images found for \"{activeQuery}\"."
+                    : $"Found {ImageSearchResults.Count} image candidates for \"{activeQuery}\".";
             }
             catch (Exception ex)
             {
@@ -662,10 +749,10 @@ namespace AES_Lacrima.Services
             if (result == null)
                 return;
 
-            if (await TryAddImageFromUrlAsCoverAsync(result.FullImageUrl))
+            if (await TryAddImageFromUrlAsync(result.FullImageUrl, SelectedImageKind))
             {
                 IsImageSearchOverlayOpen = false;
-                ImageSearchStatus = "Selected image added as cover.";
+                ImageSearchStatus = $"Selected image added as {SelectedImageKind}.";
             }
         }
 
@@ -1211,7 +1298,7 @@ namespace AES_Lacrima.Services
             return Regex.Replace(artworkUrl, @"\d+x\d+bb", "1200x1200bb", RegexOptions.IgnoreCase);
         }
 
-        private async Task<bool> TryAddImageFromUrlAsCoverAsync(string url)
+        private async Task<bool> TryAddImageFromUrlAsync(string url, TagImageKind kind)
         {
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
                 || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
@@ -1244,7 +1331,7 @@ namespace AES_Lacrima.Services
                     return false;
                 }
 
-                AddImageToCollection(bytes, mimeType, TagImageKind.Cover, uri.AbsoluteUri);
+                AddImageToCollection(bytes, mimeType, kind, uri.AbsoluteUri);
                 return true;
             }
             catch (Exception ex)
@@ -1341,6 +1428,9 @@ namespace AES_Lacrima.Services
             return ImageKindDescriptionRegex.Replace(description, string.Empty).Trim();
         }
 
+        private static bool IsLocalMetadataOnlyKind(TagImageKind kind)
+            => kind is TagImageKind.Gameplay or TagImageKind.BoxArt;
+
         private async Task LoadImageAsync(TagImageModel model)
         {
             var ffmpegPath = FFmpegLocator.FindFFmpegPath();
@@ -1397,65 +1487,27 @@ namespace AES_Lacrima.Services
             var normalizedAlbum = NormalizeSearchTitle(albumName ?? item.Album);
             var queries = new List<string>();
             var strippedTitle = StripRomReleaseTokens(title);
-            var consoleTerms = EmulationConsoleCatalog.GetSearchQueryTerms(normalizedAlbum);
+            var preferredConsoleLabel = NormalizeSearchTitle(EmulationConsoleCatalog.GetPreferredBoxArtSearchLabel(normalizedAlbum));
 
-            if (!string.IsNullOrWhiteSpace(normalizedAlbum))
-            {
-                if (!string.IsNullOrWhiteSpace(rawTitle))
-                {
-                    AddDistinctQuery(queries, rawTitle, normalizedAlbum, "cover");
-                    AddDistinctQuery(queries, rawTitle, normalizedAlbum, "box art");
-                }
-
-                AddDistinctQuery(queries, title, normalizedAlbum, "cover");
-                AddDistinctQuery(queries, title, normalizedAlbum, "box art");
-
-                foreach (var term in consoleTerms)
-                {
-                    if (!string.IsNullOrWhiteSpace(rawTitle))
-                    {
-                        AddDistinctQuery(queries, rawTitle, term, "cover");
-                        AddDistinctQuery(queries, rawTitle, term, "box art");
-                        AddDistinctQuery(queries, rawTitle, term);
-                    }
-
-                    AddDistinctQuery(queries, title, term, "cover");
-                    AddDistinctQuery(queries, title, term, "box art");
-                    AddDistinctQuery(queries, title, term);
-
-                    if (!string.IsNullOrWhiteSpace(strippedTitle) &&
-                        !string.Equals(strippedTitle, title, StringComparison.OrdinalIgnoreCase))
-                    {
-                        AddDistinctQuery(queries, strippedTitle, term, "cover");
-                        AddDistinctQuery(queries, strippedTitle, term, "box art");
-                        AddDistinctQuery(queries, strippedTitle, term);
-                    }
-                }
-
-                AddDistinctQuery(queries, title, normalizedAlbum);
-
-                if (!string.IsNullOrWhiteSpace(strippedTitle) &&
-                    !string.Equals(strippedTitle, title, StringComparison.OrdinalIgnoreCase))
-                {
-                    AddDistinctQuery(queries, strippedTitle, normalizedAlbum, "cover");
-                    AddDistinctQuery(queries, strippedTitle, normalizedAlbum, "box art");
-                    AddDistinctQuery(queries, strippedTitle, normalizedAlbum);
-                }
-            }
-
-            AddDistinctQuery(queries, title, "cover");
-            AddDistinctQuery(queries, title, "box art");
-            AddDistinctQuery(queries, title);
+            AddPreferredRomBoxArtQueries(queries, rawTitle, preferredConsoleLabel);
+            AddPreferredRomBoxArtQueries(queries, title, preferredConsoleLabel);
 
             if (!string.IsNullOrWhiteSpace(strippedTitle) &&
                 !string.Equals(strippedTitle, title, StringComparison.OrdinalIgnoreCase))
             {
-                AddDistinctQuery(queries, strippedTitle, "cover");
-                AddDistinctQuery(queries, strippedTitle, "box art");
-                AddDistinctQuery(queries, strippedTitle);
+                AddPreferredRomBoxArtQueries(queries, strippedTitle, preferredConsoleLabel);
             }
 
             return queries;
+        }
+
+        private static void AddPreferredRomBoxArtQueries(List<string> queries, string? title, string? consoleLabel)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+                return;
+
+            AddDistinctQuery(queries, title, consoleLabel, "box art");
+            AddDistinctQuery(queries, title, consoleLabel);
         }
 
         private static IEnumerable<string> ExpandConsoleAlbumAliases(string albumName)

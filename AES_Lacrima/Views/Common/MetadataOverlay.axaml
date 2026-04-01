@@ -5,6 +5,7 @@
              xmlns:services="using:AES_Lacrima.Services"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d"
+             x:Name="Root"
              x:Class="AES_Lacrima.MetadataOverlay"
              x:DataType="services:MetadataService"
              IsHitTestVisible="{Binding IsMetadataLoaded}"
@@ -157,7 +158,7 @@
                                FontSize="35"
                                Foreground="White"
                                VerticalAlignment="Top" />
-                        <ComboBox ItemsSource="{Binding ImageKinds}"
+                        <ComboBox ItemsSource="{Binding MetadataImageKinds}"
                                   SelectedItem="{Binding SelectedImageKind, Mode=TwoWay}"
                                   VerticalAlignment="Center"
                                   FontSize="22" />
@@ -235,7 +236,7 @@
                                                 ClipToBounds="True"
                                                 Padding="5">
                                             <StackPanel>
-                                                <ComboBox ItemsSource="{Binding ImageKinds}"
+                                                <ComboBox ItemsSource="{Binding #Root.DataContext.MetadataImageKinds}"
                                                           SelectedItem="{Binding Kind, Mode=TwoWay}"
                                                           HorizontalAlignment="Stretch"
                                                           Margin="-5,-3,-5,0" />
