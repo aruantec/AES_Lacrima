@@ -73,6 +73,7 @@ namespace AES_Lacrima.ViewModels
         private double _lastSelectedIndexForPreview = double.NaN;
         private string? _pendingGameplayPreviewItemPath;
         private string? _activeGameplayPreviewItemPath;
+        private long _gameplayPreviewRequestVersion;
 
         [AutoResolve]
         [ObservableProperty]
@@ -1412,14 +1413,15 @@ namespace AES_Lacrima.ViewModels
             // Selection actually changed -> stop/hide immediately, then delay-start the next item.
             StopGameplayPreview();
             _pendingGameplayPreviewItemPath = requestedPath;
+            long requestVersion = Interlocked.Increment(ref _gameplayPreviewRequestVersion);
 
             var cts = new CancellationTokenSource();
             _gameplayPreviewCts = cts;
             var token = cts.Token;
-            _ = StartGameplayPreviewAsync(item, token, immediate);
+            _ = StartGameplayPreviewAsync(item, token, immediate, requestVersion);
         }
 
-        private async Task StartGameplayPreviewAsync(MediaItem item, CancellationToken cancellationToken, bool immediate)
+        private async Task StartGameplayPreviewAsync(MediaItem item, CancellationToken cancellationToken, bool immediate, long requestVersion)
         {
             try
             {
@@ -1427,6 +1429,8 @@ namespace AES_Lacrima.ViewModels
                     await Task.Delay(2000, cancellationToken);
 
                 var videoUrl = await ResolveGameplayVideoUrlAsync(item, cancellationToken);
+                if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
+                    return;
 
                 if (string.IsNullOrWhiteSpace(videoUrl))
                 {
@@ -1452,8 +1456,6 @@ namespace AES_Lacrima.ViewModels
                     return;
                 }
 
-                await Dispatcher.UIThread.InvokeAsync(() => IsGameplayVideoVisible = true, DispatcherPriority.Background);
-
                 var previewItem = new MediaItem
                 {
                     FileName = videoUrl,
@@ -1477,6 +1479,20 @@ namespace AES_Lacrima.ViewModels
                 else
                 {
                     await player.PlayFile(previewItem, video: true);
+                }
+
+                if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
+                {
+                    try
+                    {
+                        player.Stop();
+                    }
+                    catch (Exception ex)
+                    {
+                        SLog.Warn("Failed to stop stale gameplay preview video.", ex);
+                    }
+
+                    return;
                 }
 
                 _isGameplayPreviewActive = true;
@@ -1516,20 +1532,19 @@ namespace AES_Lacrima.ViewModels
                 _gameplayPreviewCts = null;
             }
 
+            Interlocked.Increment(ref _gameplayPreviewRequestVersion);
+
             _pendingGameplayPreviewItemPath = null;
             _activeGameplayPreviewItemPath = null;
             IsGameplayVideoVisible = false;
 
-            if (_isGameplayPreviewActive)
+            try
             {
-                try
-                {
-                    AudioPlayer?.Stop();
-                }
-                catch (Exception ex)
-                {
-                    SLog.Warn("Failed to stop gameplay preview video.", ex);
-                }
+                AudioPlayer?.Stop();
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed to stop gameplay preview video.", ex);
             }
 
             _isGameplayPreviewActive = false;

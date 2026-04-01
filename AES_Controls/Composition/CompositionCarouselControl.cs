@@ -1354,6 +1354,8 @@ namespace AES_Controls.Composition
                 if (TryAcquireSharedImage(sourceKey, out var sharedImage))
                 {
                     AssignItemImage(sender, idx, sharedImage!, sourceKey);
+                    ClearProjectionCache();
+                    UpdateSelectedItemBounds();
                     return;
                 }
 
@@ -1368,6 +1370,8 @@ namespace AES_Controls.Composition
                 {
                     var imageToUse = RegisterSharedImage(sourceKey, realImage);
                     AssignItemImage(sender, idx, imageToUse, sourceKey);
+                    ClearProjectionCache();
+                    UpdateSelectedItemBounds();
                 }
                 else if (_imageCache.ContainsKey(sender))
                 {
@@ -1375,6 +1379,8 @@ namespace AES_Controls.Composition
                     var placeholder = GetPlaceholder();
                     if (idx < _images.Count) _images[idx] = placeholder;
                     _visual?.SendHandlerMessage(new UpdateImageMessage(idx, placeholder));
+                    ClearProjectionCache();
+                    UpdateSelectedItemBounds();
                 }
             });
         }
