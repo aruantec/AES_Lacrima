@@ -89,6 +89,7 @@ namespace AES_Controls.Composition
         private int _draggingIndex = -1;
         private DispatcherTimer? _autoScrollTimer;
         private double _autoScrollVelocity;
+        private Rect _selectedItemBounds = default;
 
         // Projection cache to reduce heavy math during hit-testing and pointer moves
         private Dictionary<int, (Point p1, Point p2, Point p3, Point p4, float scale)> _projPolyCache = new();
@@ -158,6 +159,11 @@ namespace AES_Controls.Composition
 
         public static readonly StyledProperty<bool> ShowCoverFoundOverlayProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, bool>(nameof(ShowCoverFoundOverlay), true);
+
+        public static readonly DirectProperty<CompositionCarouselControl, Rect> SelectedItemBoundsProperty =
+            AvaloniaProperty.RegisterDirect<CompositionCarouselControl, Rect>(
+                nameof(SelectedItemBounds),
+                o => o.SelectedItemBounds);
 
         #endregion
 
@@ -352,6 +358,15 @@ namespace AES_Controls.Composition
             set => SetValue(ItemDoubleClickedCommandProperty, value);
         }
 
+        /// <summary>
+        /// Screen-space rectangle for the currently selected carousel item.
+        /// </summary>
+        public Rect SelectedItemBounds
+        {
+            get => _selectedItemBounds;
+            private set => SetAndRaise(SelectedItemBoundsProperty, ref _selectedItemBounds, value);
+        }
+
         #endregion
 
         #region Constructor
@@ -403,6 +418,8 @@ namespace AES_Controls.Composition
                     _uiLastTicks = 0;
                     _uiSyncTimer?.Stop();
                 }
+
+                UpdateSelectedItemBounds();
             });
 
             _settleCommitTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(SettleCommitDelayMs) };
@@ -777,6 +794,51 @@ namespace AES_Controls.Composition
             _projCacheSize = new Vector2(0,0);
         }
 
+        private void UpdateSelectedItemBounds()
+        {
+            if (_images.Count == 0 || Bounds.Width <= 0 || Bounds.Height <= 0)
+            {
+                SelectedItemBounds = default;
+                return;
+            }
+
+            int index = (int)Math.Clamp(Math.Round(_uiCurrentIndex), 0, Math.Max(0, _images.Count - 1));
+            if (TryGetProjectedItemBounds(index, _uiCurrentIndex, out var bounds))
+                SelectedItemBounds = bounds;
+            else
+                SelectedItemBounds = default;
+        }
+
+        private bool TryGetProjectedItemBounds(int index, double currentIndex, out Rect bounds)
+        {
+            bounds = default;
+
+            if (index < 0 || index >= _images.Count || Bounds.Width <= 0 || Bounds.Height <= 0)
+                return false;
+
+            var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
+            EnsureProjectionCache(currentIndex, size);
+
+            if (!_projPolyCache.TryGetValue(index, out var poly))
+                return false;
+
+            double minX = Math.Min(Math.Min(poly.p1.X, poly.p2.X), Math.Min(poly.p3.X, poly.p4.X));
+            double maxX = Math.Max(Math.Max(poly.p1.X, poly.p2.X), Math.Max(poly.p3.X, poly.p4.X));
+            double minY = Math.Min(Math.Min(poly.p1.Y, poly.p2.Y), Math.Min(poly.p3.Y, poly.p4.Y));
+            double maxY = Math.Max(Math.Max(poly.p1.Y, poly.p2.Y), Math.Max(poly.p3.Y, poly.p4.Y));
+
+            minX = Math.Clamp(minX, 0, Bounds.Width);
+            maxX = Math.Clamp(maxX, 0, Bounds.Width);
+            minY = Math.Clamp(minY, 0, Bounds.Height);
+            maxY = Math.Clamp(maxY, 0, Bounds.Height);
+
+            if (maxX <= minX || maxY <= minY)
+                return false;
+
+            bounds = new Rect(minX, minY, maxX - minX, maxY - minY);
+            return true;
+        }
+
         // Helper for polygon hit testing
         private static double Cross(Point a, Point b, Point c) => (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);
 
@@ -848,6 +910,7 @@ namespace AES_Controls.Composition
             try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch (Exception ex) { Log.Warn("Error canceling load during detach", ex); }
             ClearResources();
             ClearProjectionCache();
+            SelectedItemBounds = default;
         }
         private void UpdateVirtualization()
         {
@@ -936,6 +999,8 @@ namespace AES_Controls.Composition
                      change.Property == ImageFileNamePropertyProperty || 
                      change.Property == ImageBitmapPropertyProperty)
                 UpdateItems();
+
+            UpdateSelectedItemBounds();
         }
 
         private void UpdateItems()
@@ -1015,6 +1080,7 @@ namespace AES_Controls.Composition
 
             ClearProjectionCache();
             UpdateVirtualization();
+            UpdateSelectedItemBounds();
         }
 
         private void UpdateImageCacheSize(int cacheSize)
@@ -1547,6 +1613,7 @@ namespace AES_Controls.Composition
                 _visual.Size = logicalSize + new Vector2(0, 1000); // Allow extra space for reflections below
                 _visual.SendHandlerMessage(logicalSize);
             }
+            UpdateSelectedItemBounds();
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
