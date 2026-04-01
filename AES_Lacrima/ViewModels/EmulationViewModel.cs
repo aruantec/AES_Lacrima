@@ -69,6 +69,7 @@ namespace AES_Lacrima.ViewModels
         private CancellationTokenSource? _albumCoverScanCts;
         private CancellationTokenSource? _gameplayPreviewCts;
         private bool _isGameplayPreviewActive;
+        private bool _suppressSelectionStopForGameplayPreview;
         private double _lastSelectedIndexForPreview = double.NaN;
         private string? _pendingGameplayPreviewItemPath;
         private string? _activeGameplayPreviewItemPath;
@@ -82,6 +83,7 @@ namespace AES_Lacrima.ViewModels
         [AutoResolve]
         [ObservableProperty]
         private MetadataService? _metadataService;
+        private MetadataService? _subscribedMetadataService;
 
         [ObservableProperty]
         private AudioPlayer? _audioPlayer;
@@ -161,9 +163,37 @@ namespace AES_Lacrima.ViewModels
             _subscribedSettingsViewModel.EmulationGameplayAutoplayChanged += OnEmulationGameplayAutoplayChanged;
         }
 
+        private void EnsureMetadataServiceSubscription()
+        {
+            var metadata = MetadataService ?? DiLocator.ResolveViewModel<MetadataService>();
+            if (metadata == null)
+                return;
+
+            if (!ReferenceEquals(MetadataService, metadata))
+                MetadataService = metadata;
+
+            if (ReferenceEquals(metadata, _subscribedMetadataService))
+                return;
+
+            if (_subscribedMetadataService != null)
+                _subscribedMetadataService.PropertyChanged -= MetadataService_PropertyChanged;
+
+            _subscribedMetadataService = metadata;
+            _subscribedMetadataService.PropertyChanged += MetadataService_PropertyChanged;
+        }
+
         partial void OnSettingsViewModelChanged(SettingsViewModel? value)
         {
             EnsureSettingsViewModelSubscription();
+        }
+
+        partial void OnMetadataServiceChanged(MetadataService? oldValue, MetadataService? newValue)
+        {
+            if (ReferenceEquals(oldValue, _subscribedMetadataService) && oldValue != null)
+                oldValue.PropertyChanged -= MetadataService_PropertyChanged;
+
+            _subscribedMetadataService = null;
+            EnsureMetadataServiceSubscription();
         }
 
         private void SettingsViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -205,15 +235,6 @@ namespace AES_Lacrima.ViewModels
             ApplyFilter();
         }
 
-        partial void OnMetadataServiceChanged(MetadataService? oldValue, MetadataService? newValue)
-        {
-            if (oldValue != null)
-                oldValue.PropertyChanged -= MetadataService_PropertyChanged;
-
-            if (newValue != null)
-                newValue.PropertyChanged += MetadataService_PropertyChanged;
-        }
-
         private void MetadataService_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(MetadataService.IsMetadataLoaded) && MetadataService != null && !MetadataService.IsMetadataLoaded)
@@ -223,16 +244,20 @@ namespace AES_Lacrima.ViewModels
 
                 if (IsGameplayAutoplayEnabled)
                 {
-                    var target = ResolveMetadataTargetItem();
-                    if (target != null && !string.IsNullOrWhiteSpace(MetadataService.VideoUrl))
+                    Dispatcher.UIThread.Post(() =>
                     {
-                        target.VideoUrl = MetadataService.VideoUrl;
-                        ForceRestartGameplayPreview(target);
-                    }
-                    else
-                    {
-                        QueueGameplayPreview(target);
-                    }
+                        if (!IsGameplayAutoplayEnabled)
+                            return;
+
+                        var value = ResolveMetadataTargetItem();
+                        if (value == null)
+                            return;
+
+                        if (!string.IsNullOrWhiteSpace(MetadataService.VideoUrl))
+                            value.VideoUrl = MetadataService.VideoUrl;
+
+                        QueueGameplayPreview(value);
+                    }, DispatcherPriority.Background);
                 }
             }
 
@@ -267,10 +292,13 @@ namespace AES_Lacrima.ViewModels
             return HighlightedItem;
         }
 
-        private void ForceRestartGameplayPreview(MediaItem item)
+        private void ForceRestartGameplayPreview(MediaItem item, bool immediate = false)
         {
+            if (immediate)
+                _suppressSelectionStopForGameplayPreview = true;
+
             StopGameplayPreview();
-            QueueGameplayPreview(item);
+            QueueGameplayPreview(item, immediate);
         }
 
         public override void Prepare()
@@ -280,6 +308,7 @@ namespace AES_Lacrima.ViewModels
 
             base.Prepare();
             EnsureSettingsViewModelSubscription();
+            EnsureMetadataServiceSubscription();
             LoadSettings();
 
             if (_sharedAlbumCache != null && _sharedAlbumCache.Count > 0)
@@ -299,6 +328,7 @@ namespace AES_Lacrima.ViewModels
         {
             base.OnShowViewModel();
             EnsureSettingsViewModelSubscription();
+            EnsureMetadataServiceSubscription();
             if (!IsPrepared)
                 RefreshAlbumPreviews();
         }
@@ -348,7 +378,8 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnSelectedIndexChanged(double value)
         {
-            if (!double.IsNaN(_lastSelectedIndexForPreview) &&
+            if (!_suppressSelectionStopForGameplayPreview &&
+                !double.IsNaN(_lastSelectedIndexForPreview) &&
                 Math.Abs(value - _lastSelectedIndexForPreview) > 0.0001)
             {
                 StopGameplayPreview();
@@ -1331,17 +1362,23 @@ namespace AES_Lacrima.ViewModels
 
         private bool IsGameplayAutoplayEnabled => SettingsViewModel?.EmulationGameplayAutoplay == true;
 
-        private void QueueGameplayPreview(MediaItem? item)
+        private void QueueGameplayPreview(MediaItem? item, bool immediate = false)
         {
             if (!IsGameplayAutoplayEnabled || item == null || string.IsNullOrWhiteSpace(item.FileName))
             {
+                if (immediate)
+                    _suppressSelectionStopForGameplayPreview = false;
                 StopGameplayPreview();
                 return;
             }
 
             var requestedPath = item.FileName;
             if (string.Equals(_pendingGameplayPreviewItemPath, requestedPath, StringComparison.OrdinalIgnoreCase))
+            {
+                if (immediate)
+                    _suppressSelectionStopForGameplayPreview = false;
                 return;
+            }
 
             if (_isGameplayPreviewActive &&
                 string.Equals(_activeGameplayPreviewItemPath, requestedPath, StringComparison.OrdinalIgnoreCase))
@@ -1356,6 +1393,8 @@ namespace AES_Lacrima.ViewModels
                 else
                 {
                     IsGameplayVideoVisible = true;
+                    if (immediate)
+                        _suppressSelectionStopForGameplayPreview = false;
                     return;
                 }
             }
@@ -1367,14 +1406,15 @@ namespace AES_Lacrima.ViewModels
             var cts = new CancellationTokenSource();
             _gameplayPreviewCts = cts;
             var token = cts.Token;
-            _ = StartGameplayPreviewAsync(item, token);
+            _ = StartGameplayPreviewAsync(item, token, immediate);
         }
 
-        private async Task StartGameplayPreviewAsync(MediaItem item, CancellationToken cancellationToken)
+        private async Task StartGameplayPreviewAsync(MediaItem item, CancellationToken cancellationToken, bool immediate)
         {
             try
             {
-                await Task.Delay(2000, cancellationToken);
+                if (!immediate)
+                    await Task.Delay(2000, cancellationToken);
 
                 var videoUrl = await ResolveGameplayVideoUrlAsync(item, cancellationToken);
 
@@ -1432,6 +1472,7 @@ namespace AES_Lacrima.ViewModels
                 _isGameplayPreviewActive = true;
                 _activeGameplayPreviewItemPath = item.FileName;
                 _pendingGameplayPreviewItemPath = null;
+                await Dispatcher.UIThread.InvokeAsync(() => IsGameplayVideoVisible = true, DispatcherPriority.Background);
             }
             catch (OperationCanceledException)
             {
@@ -1442,6 +1483,10 @@ namespace AES_Lacrima.ViewModels
                 SLog.Warn($"Failed to autoplay gameplay preview for '{item.Title}'.", ex);
                 await Dispatcher.UIThread.InvokeAsync(() => IsGameplayVideoVisible = false, DispatcherPriority.Background);
                 _isGameplayPreviewActive = false;
+            }
+            finally
+            {
+                _suppressSelectionStopForGameplayPreview = false;
             }
         }
 
