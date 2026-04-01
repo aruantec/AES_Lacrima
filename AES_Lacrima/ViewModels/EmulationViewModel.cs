@@ -139,6 +139,15 @@ namespace AES_Lacrima.ViewModels
         public EmulationViewModel()
         {
             AlbumList.CollectionChanged += AlbumList_CollectionChanged;
+            PropertyChanged += EmulationViewModel_PropertyChanged;
+        }
+
+        private void EmulationViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(IsActive) && !IsActive)
+            {
+                StopGameplayPreview();
+            }
         }
 
         private void EnsureSettingsViewModelSubscription()
@@ -339,6 +348,7 @@ namespace AES_Lacrima.ViewModels
             StopGameplayPreview();
             SaveSettings();
         }
+
 
         partial void OnIsAlbumListCollapsedChanged(bool value)
         {

@@ -50,6 +50,7 @@ public unsafe class AesMpvPlayer : IDisposable
     }
 
     public event EventHandler<MpvEvent>? EventReceived;
+    public event EventHandler? RenderInvalidated;
 
     public void ObserveProperty(string name, MpvFormat format)
     {
@@ -236,6 +237,8 @@ public unsafe class AesMpvPlayer : IDisposable
         if (_renderContext == null || _disposed)
             return;
 
+        int blockForTargetTime = 0;
+
         var target = new MpvOpenGlFramebuffer
         {
             Framebuffer = framebuffer,
@@ -248,6 +251,7 @@ public unsafe class AesMpvPlayer : IDisposable
         [
             new MpvRenderParameter { Type = MpvRenderParameterType.OpenGlFbo, Data = &target },
             new MpvRenderParameter { Type = MpvRenderParameterType.FlipY, Data = &flip },
+            new MpvRenderParameter { Type = MpvRenderParameterType.BlockForTargetTime, Data = &blockForTargetTime },
             new MpvRenderParameter { Type = MpvRenderParameterType.Invalid, Data = null },
         ];
 
@@ -259,6 +263,7 @@ public unsafe class AesMpvPlayer : IDisposable
                     return;
 
                 ThrowIfError(MpvRenderApi.Render(_renderContext, parameterPtr), nameof(MpvRenderApi.Render));
+                MpvRenderApi.ReportSwap(_renderContext);
             }
         }
     }
@@ -346,7 +351,18 @@ public unsafe class AesMpvPlayer : IDisposable
         => _options.ResolveOpenGlAddress?.Invoke(context, name) ?? 0;
 
     private void HandleRenderUpdate(void* context)
-        => _options.OnRenderInvalidated?.Invoke(context);
+    {
+        _options.OnRenderInvalidated?.Invoke(context);
+
+        try
+        {
+            RenderInvalidated?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"RenderInvalidated event handler threw an exception: {ex}");
+        }
+    }
 
     private void OnWakeup(void* context)
     {
@@ -415,8 +431,9 @@ public unsafe class AesMpvPlayer : IDisposable
         {
             EventReceived?.Invoke(this, mpvEvent);
         }
-        catch
+        catch (Exception ex)
         {
+            Debug.WriteLine($"EventReceived handler threw an exception: {ex}");
         }
     }
 
