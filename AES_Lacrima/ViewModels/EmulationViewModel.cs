@@ -176,17 +176,9 @@ namespace AES_Lacrima.ViewModels
             base.Prepare();
             EnsureSettingsViewModelSubscription();
             LoadSettings();
-            LoadConsoleAlbums();
 
-            foreach (var album in AlbumList)
-            {
-                if (album.Children.Count > 0)
-                    QueueSelectedAlbumCoverScan(album);
-            }
-
-            SelectedAlbum = AlbumList.FirstOrDefault();
-            LoadedAlbum = SelectedAlbum;
-            IsPrepared = true;
+            // Load emulation albums in background so the UI can render immediately.
+            _ = InitializeAlbumsAsync();
         }
 
         public override void OnShowViewModel()
@@ -303,6 +295,56 @@ namespace AES_Lacrima.ViewModels
             }
 
             ApplySavedAlbumOrder();
+        }
+
+        private async Task InitializeAlbumsAsync()
+        {
+            var albums = await Task.Run(() =>
+            {
+                var result = new List<EmulationAlbumItem>();
+                foreach (var imagePath in FindConsoleImagePaths())
+                {
+                    var title = GetConsoleTitle(imagePath);
+                    var previewBitmap = LoadBitmap(imagePath);
+                    var albumKey = GetAlbumPersistenceKeyFromPath(imagePath, title);
+
+                    var album = new EmulationAlbumItem
+                    {
+                        Title = title,
+                        Album = title,
+                        FileName = imagePath,
+                        CoverBitmap = previewBitmap,
+                        Children = RestoreAlbumRoms(albumKey, title, previewBitmap)
+                    };
+
+                    result.Add(album);
+                }
+
+                return result;
+            }).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AlbumList.Clear();
+                foreach (var album in albums)
+                {
+                    AlbumList.Add(album);
+                    UpdatePreviewItems(album);
+                }
+
+                ApplySavedAlbumOrder();
+
+                foreach (var album in AlbumList)
+                {
+                    if (album.Children.Count > 0)
+                        QueueSelectedAlbumCoverScan(album);
+                }
+
+                SelectedAlbum = AlbumList.FirstOrDefault();
+                LoadedAlbum = SelectedAlbum;
+                IsPrepared = true;
+                ApplyFilter();
+            });
         }
 
         [RelayCommand(CanExecute = nameof(CanAddRoms))]
