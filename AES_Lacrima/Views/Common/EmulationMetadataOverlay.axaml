@@ -65,7 +65,7 @@
             <Grid ColumnDefinitions="Auto, *, Auto, Auto">
                 <Grid Grid.Column="0"
                       ColumnDefinitions="Auto, 450"
-                      RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto"
+                      RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto"
                       RowSpacing="10"
                       Margin="20,0,0,0">
                     <Grid.Styles>
@@ -129,6 +129,22 @@
                            VerticalAlignment="Top"
                            HorizontalAlignment="Right" />
                     <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding FilePath, Mode=TwoWay}" VerticalAlignment="Center" />
+
+                    <!-- Gameplay Url -->
+                    <Label Grid.Row="7" Grid.Column="0" Content="Gameplay Url: "
+                           Foreground="White"
+                           VerticalAlignment="Top"
+                           HorizontalAlignment="Right" />
+                    <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding VideoUrl, Mode=TwoWay}" VerticalAlignment="Center" />
+
+                    <Button Grid.Row="8"
+                            Grid.Column="1"
+                            HorizontalAlignment="Stretch"
+                            Height="38"
+                            FontSize="22"
+                            FontWeight="SemiBold"
+                            Content="Add Gameplay"
+                            Command="{Binding AddGameplayCommand}" />
                 </Grid>
 
                 <StackPanel Grid.Column="1" Margin="50,0,0,0" VerticalAlignment="Stretch">

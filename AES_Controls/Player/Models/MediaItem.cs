@@ -137,6 +137,15 @@ public partial class MediaItem : ObservableObject, IDisposable
         set => SetProperty(ref _localCoverPath, value);
     }
 
+    private string? _videoUrl;
+
+    [JsonPropertyName("VideoUrl")]
+    public string? VideoUrl
+    {
+        get => _videoUrl;
+        set => SetProperty(ref _videoUrl, value);
+    }
+
     // Runtime-only flags and resources (not serialized)
     private bool _isLoadingCover;
     private bool _coverFound;
