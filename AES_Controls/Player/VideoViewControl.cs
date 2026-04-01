@@ -18,16 +18,11 @@ public enum VideoFlip
 
 public class VideoViewControl : OpenGlControlBase
 {
-    private const int DisplayFpsUpdateInterval = 12;
-    private const double MinMeasuredDisplayFps = 24.0;
-    private const double MaxMeasuredDisplayFps = 240.0;
+    private const double DefaultHeartbeatFps = 60.0;
 
     private bool _initialized;
     private bool _hasRenderedOnceSincePause;
     private GlInterface? _glInterface;
-    private long _lastRenderTimestamp;
-    private double _smoothedDisplayFps;
-    private int _framesSinceDisplayFpsUpdate;
 
     public static readonly StyledProperty<AesMpvPlayer?> PlayerProperty =
         AvaloniaProperty.Register<VideoViewControl, AesMpvPlayer?>(nameof(Player));
@@ -75,7 +70,7 @@ public class VideoViewControl : OpenGlControlBase
     }
 
     public static readonly StyledProperty<double> HeartbeatFpsProperty =
-        AvaloniaProperty.Register<VideoViewControl, double>(nameof(HeartbeatFps), 120.0);
+        AvaloniaProperty.Register<VideoViewControl, double>(nameof(HeartbeatFps), DefaultHeartbeatFps);
 
     public double HeartbeatFps
     {
@@ -84,7 +79,7 @@ public class VideoViewControl : OpenGlControlBase
     }
 
     public static readonly StyledProperty<bool> UseCustomHeartbeatProperty =
-        AvaloniaProperty.Register<VideoViewControl, bool>(nameof(UseCustomHeartbeat), true);
+        AvaloniaProperty.Register<VideoViewControl, bool>(nameof(UseCustomHeartbeat), false);
 
     public bool UseCustomHeartbeat
     {
@@ -103,8 +98,13 @@ public class VideoViewControl : OpenGlControlBase
 
     public VideoViewControl()
     {
-        _smoothedDisplayFps = HeartbeatFps;
     }
+
+    private static double GetEffectiveHeartbeatFps(double heartbeatFps)
+        => heartbeatFps > 0 ? heartbeatFps : DefaultHeartbeatFps;
+
+    private TimeSpan CalculateInterval(double heartbeatFps)
+        => TimeSpan.FromTicks((long)(TimeSpan.TicksPerSecond / GetEffectiveHeartbeatFps(heartbeatFps)));
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
@@ -127,9 +127,6 @@ public class VideoViewControl : OpenGlControlBase
         _glInterface = gl;
         _initialized = false;
         _hasRenderedOnceSincePause = false;
-        _lastRenderTimestamp = 0;
-        _smoothedDisplayFps = HeartbeatFps;
-        _framesSinceDisplayFpsUpdate = 0;
     }
 
     private void InitializeMpvInternal()
@@ -139,7 +136,7 @@ public class VideoViewControl : OpenGlControlBase
         try
         {
             Player.Options.ResolveOpenGlAddress = GetProcAddressInternal;
-            _smoothedDisplayFps = HeartbeatFps;
+            double heartbeatFps = GetEffectiveHeartbeatFps(HeartbeatFps);
 
             Player.SetProperty("video-sync", UseCustomHeartbeat ? "display-resample" : "audio");
             Player.SetProperty("audio-pitch-correction", "yes");
@@ -149,7 +146,7 @@ public class VideoViewControl : OpenGlControlBase
 
             if (UseCustomHeartbeat)
             {
-                Player.SetProperty("override-display-fps", HeartbeatFps.ToString(CultureInfo.InvariantCulture));
+                Player.SetProperty("override-display-fps", heartbeatFps.ToString(CultureInfo.InvariantCulture));
                 Player.SetProperty("interpolation", "yes");
                 Player.SetProperty("tscale", "oversample");
             }
@@ -223,35 +220,6 @@ public class VideoViewControl : OpenGlControlBase
         Player?.SetProperty("audio-delay", seconds.ToString(CultureInfo.InvariantCulture));
     }
 
-    private void UpdateObservedDisplayFps()
-    {
-        if (!UseCustomHeartbeat || Player == null)
-            return;
-
-        long now = Stopwatch.GetTimestamp();
-        long previous = _lastRenderTimestamp;
-        _lastRenderTimestamp = now;
-
-        if (previous == 0)
-            return;
-
-        double elapsedSeconds = (now - previous) / (double)Stopwatch.Frequency;
-        if (elapsedSeconds <= 0)
-            return;
-
-        double observedFps = Math.Clamp(1.0 / elapsedSeconds, MinMeasuredDisplayFps, MaxMeasuredDisplayFps);
-        _smoothedDisplayFps = _smoothedDisplayFps <= 0
-            ? observedFps
-            : (_smoothedDisplayFps * 0.85) + (observedFps * 0.15);
-
-        _framesSinceDisplayFpsUpdate++;
-        if (_framesSinceDisplayFpsUpdate < DisplayFpsUpdateInterval)
-            return;
-
-        _framesSinceDisplayFpsUpdate = 0;
-        Player.SetProperty("override-display-fps", _smoothedDisplayFps.ToString("0.###", CultureInfo.InvariantCulture));
-    }
-
     protected override void OnOpenGlRender(GlInterface gl, int fb)
     {
         if (IsRenderingPaused && _hasRenderedOnceSincePause) return;
@@ -268,7 +236,6 @@ public class VideoViewControl : OpenGlControlBase
             gl.BindFramebuffer(0x8D40, fb);
             gl.Viewport(0, 0, width, height);
             Player.RenderToOpenGl(width, height, fb, flipY: 1);
-            UpdateObservedDisplayFps();
 
             if (IsRenderingPaused) _hasRenderedOnceSincePause = true;
         }
@@ -327,16 +294,13 @@ public class VideoViewControl : OpenGlControlBase
         {
             _initialized = false;
             _hasRenderedOnceSincePause = false;
-            _lastRenderTimestamp = 0;
-            _smoothedDisplayFps = HeartbeatFps;
-            _framesSinceDisplayFpsUpdate = 0;
             RequestNextFrameRendering();
         }
         else if (change.Property == HeartbeatFpsProperty)
         {
-            _smoothedDisplayFps = change.GetNewValue<double>();
+            double heartbeatFps = GetEffectiveHeartbeatFps(change.GetNewValue<double>());
             if (UseCustomHeartbeat)
-                Player?.SetProperty("override-display-fps", change.GetNewValue<double>().ToString(CultureInfo.InvariantCulture));
+                Player?.SetProperty("override-display-fps", heartbeatFps.ToString(CultureInfo.InvariantCulture));
         }
     }
 
@@ -345,8 +309,6 @@ public class VideoViewControl : OpenGlControlBase
         _initialized = false;
         _hasRenderedOnceSincePause = false;
         _glInterface = null;
-        _lastRenderTimestamp = 0;
-        _framesSinceDisplayFpsUpdate = 0;
         base.OnOpenGlDeinit(gl);
     }
 }
