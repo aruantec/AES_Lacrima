@@ -1,0 +1,17 @@
+<Project>
+  <PropertyGroup>
+    <!-- Ensure linker incremental linking is enabled for Debug builds -->
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'Debug'">
+    <ClCompile>
+      <!-- Force /Zi (Program Database) instead of /ZI (Edit-and-Continue) so the compiler does not emit /EDITANDCONTINUE -->
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <!-- Ensure linker incremental linking is enabled at the Link item level as well -->
+      <LinkIncremental>true</LinkIncremental>
+    </Link>
+  </ItemDefinitionGroup>
+</Project>

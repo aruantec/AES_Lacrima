@@ -19,5 +19,6 @@
     <Deploy Solution="*|x86" />
   </Project>
   <Project Path="AES_Mpv/AES_Mpv.csproj" />
+  <Project Path="AES_Emulation/AES_Emulation.csproj" />
   <Project Path="WgcBridge/WgcBridge.vcxproj" Id="bb166246-f004-42a5-a2c3-863a9665946f">`r`n    <Platform Solution="*|Any CPU" Project="x64" />`r`n  </Project>
 </Solution>

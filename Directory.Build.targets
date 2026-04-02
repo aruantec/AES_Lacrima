@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <!-- Ensure linker incremental linking is enabled (overrides project setting) -->
+    <LinkIncremental>true</LinkIncremental>
+    <!-- Use Program Database debug info instead of Edit-and-Continue to avoid /EDITANDCONTINUE being emitted -->
+    <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+  </PropertyGroup>
+</Project>
