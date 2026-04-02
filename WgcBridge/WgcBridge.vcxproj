@@ -24,8 +24,9 @@
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{bb166246-f004-42a5-a2c3-863a9665946f}</ProjectGuid>
     <RootNamespace>WgcBridge</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.22621.0</WindowsTargetPlatformVersion>
-    <TargetPlatformVersion>10.0.22621.0</TargetPlatformVersion>
+    <!-- Use a generic Windows SDK version so CI uses whichever Windows SDK is installed -->
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <TargetPlatformVersion>10.0</TargetPlatformVersion>
     <NoWarn>$(NoWarn);NU1503</NoWarn>
   </PropertyGroup>
 
