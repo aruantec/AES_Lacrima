@@ -15,6 +15,7 @@ using Avalonia.Media;
 using System;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -26,6 +27,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
 using System.Text;
+using log4net;
 using TagLib;
 
 namespace AES_Lacrima.ViewModels
@@ -45,6 +47,7 @@ namespace AES_Lacrima.ViewModels
     {
         #region Private fields
         // Private fields
+        private static readonly ILog Log = AES_Core.Logging.LogHelper.For<MusicViewModel>();
         protected static readonly string[] MusicSupportedTypes = ["*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4"];
         protected static readonly string[] VideoSupportedTypes = ["*.mp4", "*.m4v", "*.mkv", "*.avi", "*.mov", "*.webm", "*.wmv"];
         private static readonly HttpClient FastThumbnailClient = new() { Timeout = TimeSpan.FromSeconds(10) };
@@ -152,6 +155,7 @@ namespace AES_Lacrima.ViewModels
         private readonly Dictionary<FolderMediaItem, AvaloniaList<MediaItem>> _folderChildrenCollections = [];
         private bool _isSyncingAlbumSelection;
         private bool _scanMissingStreamDurationsOnLoadedAlbum;
+        private bool _hasDeferredLibraryMetadataWarmupStarted;
         private CancellationTokenSource? _loadedAlbumCoverCts;
         private MediaItem? _pendingTrackLoadItem;
 
@@ -1077,6 +1081,8 @@ namespace AES_Lacrima.ViewModels
 
         public override void Prepare()
         {
+            Log.Info($"MusicViewModel.Prepare starting. IsVideoMode={IsVideoMode}.");
+
             // Ensure inherited [AutoResolve] dependencies are resolved even for derived types
             // (e.g. VideoViewModel). The DI generator only walks directly-declared members on
             // the activated type, so inherited fields/properties can remain null.
@@ -1095,20 +1101,41 @@ namespace AES_Lacrima.ViewModels
             {
                 // Initialize equalizer and load settings off-thread
                 if (EqualizerService != null && AudioPlayer != null) await EqualizerService.InitializeAsync(AudioPlayer);
+                var loadSettingsStopwatch = Stopwatch.StartNew();
                 await LoadSettingsAsync();
+                loadSettingsStopwatch.Stop();
 
                 // Marshal UI state updates and filters back to the dispatcher
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
+                    Log.Info(
+                        $"MusicViewModel.LoadSettingsAsync completed in {loadSettingsStopwatch.ElapsedMilliseconds} ms. " +
+                        $"Albums={AlbumList.Count}, Items={GetAlbumItemCount()}, LoadedAlbum='{LoadedAlbum?.Title ?? "<none>"}'.");
+
                     _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
                     MetadataService?.PropertyChanged += MetadataService_PropertyChanged;
 
                     ReduceCoverResidency(LoadedAlbum);
-                    StartMetadataScrappersForLoadedFolders();
+                    Log.Info(
+                        $"MusicViewModel startup metadata decision. Albums={AlbumList.Count}, " +
+                        $"Items={GetAlbumItemCount()}, LoadedAlbum='{LoadedAlbum?.Title ?? "<none>"}'.");
+                    if (LoadedAlbum != null)
+                    {
+                        Log.Info($"MusicViewModel queuing loaded album metadata during startup for '{LoadedAlbum.Title}'.");
+                        QueueLoadedAlbumCoverLoad(LoadedAlbum);
+                        QueueOpenedAlbumStreamDurationScan(LoadedAlbum);
+                    }
+                    else
+                    {
+                        Log.Info("MusicViewModel skipping eager library metadata warmup during startup because no album is loaded.");
+                        EnsureCurrentMediaCoverIsLoaded();
+                        EnsureMediaItemCoverIsLoaded(SelectedMediaItem);
+                    }
                     ApplyAlbumFilter();
                     ApplyFilter();
                     IsNoAlbumLoadedVisible = LoadedAlbum == null;
                     IsPrepared = true;
+                    Log.Info($"MusicViewModel.Prepare completed. IsVideoMode={IsVideoMode}, IsPrepared={IsPrepared}.");
                 });
             });
         }
@@ -1119,6 +1146,15 @@ namespace AES_Lacrima.ViewModels
             if (_mainWindowViewModel != null)
             {
                 _mainWindowViewModel.IsShaderToyRenderingPaused = true;
+            }
+
+            if (!_hasDeferredLibraryMetadataWarmupStarted && AlbumList.Count > 0)
+            {
+                _hasDeferredLibraryMetadataWarmupStarted = true;
+                Log.Info(
+                    $"MusicViewModel view became visible; starting deferred library metadata warmup. Albums={AlbumList.Count}, " +
+                    $"Items={GetAlbumItemCount()}, LoadedAlbum='{LoadedAlbum?.Title ?? "<none>"}'.");
+                StartMetadataScrappersForLoadedFolders();
             }
         }
 
@@ -2040,6 +2076,9 @@ namespace AES_Lacrima.ViewModels
 
             var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
             IsAddingPlaylist = true;
+            Log.Info(
+                $"StartMetadataScrappersForLoadedFolders queued. ForceUpdate={forceUpdate}, " +
+                $"Albums={AlbumList.Count}, Items={GetAlbumItemCount()}, LoadedAlbum='{LoadedAlbum?.Title ?? "<none>"}'.");
 
             _ = Task.Run(async () =>
             {
@@ -2057,6 +2096,9 @@ namespace AES_Lacrima.ViewModels
                 }
                 finally
                 {
+                    Log.Info(
+                        $"StartMetadataScrappersForLoadedFolders finished queueing. ForceUpdate={forceUpdate}, " +
+                        $"Albums={AlbumList.Count}, Items={GetAlbumItemCount()}.");
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                     {
                         IsAddingPlaylist = false;
@@ -2790,6 +2832,8 @@ namespace AES_Lacrima.ViewModels
                 i++;
             return $"{baseName} ({i})";
         }
+
+        private int GetAlbumItemCount() => AlbumList.Sum(folder => folder.Children?.Count ?? 0);
         #endregion
 
         #region Public methods
@@ -2923,6 +2967,7 @@ namespace AES_Lacrima.ViewModels
 
         protected override void OnLoadSettings(JsonObject section)
         {
+            var restoreStopwatch = Stopwatch.StartNew();
             AudioPlayer?.Volume = ReadDoubleSetting(section, "Volume", 70.0);
             IsAlbumlistOpen = ReadBoolSetting(section, nameof(IsAlbumlistOpen));
             AlbumList = ReadCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
@@ -2932,6 +2977,11 @@ namespace AES_Lacrima.ViewModels
                 // Children is initialized by FolderMediaItem; ensure runtime safety
                 foreach (var child in folder.Children) child.SaveCoverBitmapAction ??= _ => { };
             }
+
+            restoreStopwatch.Stop();
+            Log.Info(
+                $"MusicViewModel.OnLoadSettings restored playlist in {restoreStopwatch.ElapsedMilliseconds} ms. " +
+                $"Albums={AlbumList.Count}, Items={GetAlbumItemCount()}.");
         }
 
         protected override void OnSaveSettings(JsonObject section)
