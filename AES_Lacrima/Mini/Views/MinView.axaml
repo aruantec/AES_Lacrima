@@ -412,7 +412,10 @@
               IsVisible="{Binding ShowPlaylist}"
               RowDefinitions="Auto,*">
             <!-- Selected Album Info -->
-            <Grid Grid.Row="0" Margin="10" ColumnDefinitions="Auto,*">
+            <Grid Grid.Row="0"
+                  Margin="10"
+                  ColumnDefinitions="Auto,*"
+                  IsVisible="{Binding !MusicViewModel.ShowEmptyAlbumListHint}">
                 <Border Grid.Column="0" Width="60" Height="60" ClipToBounds="True" BorderThickness="0">
                     <composition:FolderCompositionControl Items="{Binding SelectedAlbum.Children}"
                                                           FolderCoverItem="{Binding SelectedAlbum}"
@@ -433,7 +436,8 @@
             </Grid>
 
             <!-- Album List -->
-            <ListBox Grid.Row="1" Background="Transparent"
+            <Grid Grid.Row="1">
+            <ListBox Background="Transparent"
                      ItemsSource="{Binding MusicViewModel.FilteredAlbumList}"
                      SelectedItem="{Binding SelectedAlbum, Mode=TwoWay}"
                      SelectedIndex="{Binding SelectedAlbumIndex, Mode=TwoWay}"
@@ -556,10 +560,24 @@
                     <ExecuteCommandOnDoubleTappedBehavior Command="{Binding OpenSelectedAlbumCommand}"/>
                 </Interaction.Behaviors>
             </ListBox>
+                <TextBlock Text="{Binding MusicViewModel.EmptyAlbumListMessage}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           TextAlignment="Center"
+                           FontSize="18"
+                           MaxWidth="420"
+                           Margin="18"
+                           Foreground="#88787878"
+                           TextWrapping="Wrap"
+                           IsHitTestVisible="False"
+                           IsVisible="{Binding MusicViewModel.ShowEmptyAlbumListHint}"/>
+            </Grid>
         </Grid>
         
         <!-- Playlist -->
-        <ListBox Grid.Row="2" Background="Transparent"
+        <Grid Grid.Row="2"
+              IsVisible="{Binding !ShowPlaylist}">
+        <ListBox Background="Transparent"
                  ItemsSource="{Binding MusicViewModel.CoverItems}"
                  SelectedItem="{Binding SelectedMediaItem}"
                  SelectedIndex="{Binding SelectedPlaylistIndex, Mode=TwoWay}"
@@ -567,8 +585,7 @@
                  BorderBrush="DimGray"
                  BorderThickness="0.5,0,0,0.5"
                  Padding="5"
-                 Grid.IsSharedSizeScope="True"
-                 IsVisible="{Binding !ShowPlaylist}">
+                 Grid.IsSharedSizeScope="True">
 
             <!-- Right-click context menu: same actions as the Add button -->
             <ListBox.ContextMenu>
@@ -682,6 +699,18 @@
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
+            <TextBlock Text="{Binding MusicViewModel.EmptyLoadedAlbumMessage}"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       TextAlignment="Center"
+                       FontSize="18"
+                       MaxWidth="420"
+                       Margin="18"
+                       Foreground="#88787878"
+                       TextWrapping="Wrap"
+                       IsHitTestVisible="False"
+                       IsVisible="{Binding MusicViewModel.ShowEmptyLoadedAlbumHint}"/>
+        </Grid>
 
         <!-- Footer -->
         <Grid Grid.Row="3" Height="28">
