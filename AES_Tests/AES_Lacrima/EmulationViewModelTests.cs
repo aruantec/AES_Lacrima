@@ -61,7 +61,7 @@ public sealed class EmulationViewModelTests
         var restoreMethod = typeof(EmulationViewModel).GetMethod("RestoreAlbumRoms", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(restoreMethod);
 
-        var restored = Assert.IsType<AvaloniaList<MediaItem>>(restoreMethod!.Invoke(vm, new object[] { "test-console.png", "Test Console", null })!);
+        var restored = Assert.IsType<AvaloniaList<MediaItem>>(restoreMethod!.Invoke(vm, new object?[] { "test-console.png", "Test Console", null })!);
         Assert.Single(restored);
         Assert.Equal("C:\\Roms\\game1.nes", restored[0].FileName);
     }

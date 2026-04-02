@@ -4,6 +4,8 @@
     <OutputType Condition="'$(BuildingForAndroid)' != 'true'">WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <UseSharedCompilation>false</UseSharedCompilation>
+    <DisableBuildServer>true</DisableBuildServer>
     <Nullable>enable</Nullable>
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
