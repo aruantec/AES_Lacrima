@@ -15,6 +15,11 @@ namespace AES_Lacrima.Services
     /// </summary>
     public interface IMediaUrlService;
 
+    internal sealed record ResolvedMediaSource(string VideoUrl, string AudioUrl, double? AspectRatio)
+    {
+        public (string, string) OnlineUrls => (VideoUrl, AudioUrl);
+    }
+
     /// <summary>
     /// Implementation of <see cref="IMediaUrlService"/> that uses yt-dlp to resolve streaming URLs.
     /// </summary>
@@ -34,30 +39,21 @@ namespace AES_Lacrima.Services
             audioPlayer.IsLoadingMedia = true;
 
             // Load online urls
-            item.OnlineUrls = await HandleStreamFile(item.FileName, preferVideo).ConfigureAwait(false);
+            var resolvedSource = await ResolveMediaSourceAsync(item.FileName, preferVideo).ConfigureAwait(false);
+            item.OnlineUrls = resolvedSource?.OnlineUrls;
             // Play media (audio by default, video when requested)
             await audioPlayer.PlayFile(item, preferVideo).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// Resolves the best available video and audio stream URLs for a given source URL using yt-dlp.
-        /// </summary>
-        /// <param name="url">The source URL to process.</param>
-        /// <returns>A tuple containing the video URL and audio URL.</returns>
-        private async Task<(string, string)> HandleStreamFile(string url, bool preferVideo)
+        internal async Task<ResolvedMediaSource?> ResolveMediaSourceAsync(string url, bool preferVideo)
         {
             try
             {
                 const int targetHeight = 1080;
 
-                // Remove query parameters for better compatibility with yt-dlp
                 var currentUrl = YouTubeThumbnail.GetCleanVideoLink(url);
-                // fetch data
                 var info = await YtDlpMetadata.GetMetaDataAsync(currentUrl).ConfigureAwait(false);
 
-                // Score order for video quality target:
-                // 1) exact 1080p, 2) nearest >=1080p (prefer higher quality), 3) nearest below 1080p.
-                // This avoids selecting low-quality muxed streams when better separate video exists.
                 var bestMuxed = info.MuxedFormats
                     .Where(m => !string.IsNullOrWhiteSpace(m.Url) && (m.Height ?? 0) > 0)
                     .OrderBy(m => m.Height == targetHeight ? 0 : 1)
@@ -76,41 +72,56 @@ namespace AES_Lacrima.Services
                     .ThenByDescending(v => v.Fps ?? 0)
                     .FirstOrDefault();
 
-                // Best separate audio stream.
                 var bestAudio = info.AudioFormats
                     .Where(a => !string.IsNullOrWhiteSpace(a.Url))
                     .OrderByDescending(a => a.Bitrate ?? 0)
                     .FirstOrDefault();
 
-                // Prefer separate video stream selection for audio-only playback metadata/fallback.
-                // For actual video playback we strongly prefer a single muxed stream because it is
-                // much more stable than attaching a second remote audio stream after load.
                 string videoUrl = bestVideo?.Url ?? bestMuxed?.Url ?? string.Empty;
-
-                // For separate video streams, use the best audio stream.
-                // If no separate audio exists, fall back to muxed URL.
                 string audioUrl = bestAudio?.Url ?? bestMuxed?.Url ?? string.Empty;
+
+                int? width = bestVideo?.Width ?? bestMuxed?.Width;
+                int? height = bestVideo?.Height ?? bestMuxed?.Height;
 
                 if (preferVideo && !string.IsNullOrWhiteSpace(bestMuxed?.Url))
                 {
-                    // Use the same muxed URL for both slots so the player does not try to attach
-                    // a separate external audio stream for video playback.
                     videoUrl = bestMuxed.Url;
                     audioUrl = bestMuxed.Url;
+                    width = bestMuxed.Width;
+                    height = bestMuxed.Height;
                 }
                 else if (string.IsNullOrWhiteSpace(bestVideo?.Url) && !string.IsNullOrWhiteSpace(bestMuxed?.Url))
                 {
-                    // If only muxed stream is available, use it for both entries.
                     audioUrl = bestMuxed.Url;
+                    width = bestMuxed.Width;
+                    height = bestMuxed.Height;
                 }
 
-                return (videoUrl, audioUrl);
+                if (string.IsNullOrWhiteSpace(videoUrl) && string.IsNullOrWhiteSpace(audioUrl))
+                    return null;
+
+                double? aspectRatio = width > 0 && height > 0
+                    ? Math.Round(width.Value / (double)height.Value, 4)
+                    : null;
+
+                return new ResolvedMediaSource(videoUrl, audioUrl, aspectRatio);
             }
             catch (Exception ex)
             {
                 AES_Core.Logging.LogHelper.For<MediaUrlService>().Error($"Fetch failed after retries: {ex.Message}", ex);
+                return null;
             }
-            return (string.Empty, string.Empty);
+        }
+
+        /// <summary>
+        /// Resolves the best available video and audio stream URLs for a given source URL using yt-dlp.
+        /// </summary>
+        /// <param name="url">The source URL to process.</param>
+        /// <returns>A tuple containing the video URL and audio URL.</returns>
+        private async Task<(string, string)> HandleStreamFile(string url, bool preferVideo)
+        {
+            var resolved = await ResolveMediaSourceAsync(url, preferVideo).ConfigureAwait(false);
+            return resolved?.OnlineUrls ?? (string.Empty, string.Empty);
         }
     }
 }

@@ -118,32 +118,39 @@
         </composition:CompositionCarouselControl>
 
         <Canvas Grid.Row="0" IsHitTestVisible="False">
-            <Border IsVisible="{Binding IsGameplayVideoVisible}"
+            <Border IsVisible="{Binding IsGameplayPreviewHostVisible}"
                     Canvas.Left="{Binding SelectedItemBounds.X, ElementName=RomCarousel}"
                     Canvas.Top="{Binding SelectedItemBounds.Y, ElementName=RomCarousel}"
                     Width="{Binding SelectedItemBounds.Width, ElementName=RomCarousel}"
                     Height="{Binding SelectedItemBounds.Height, ElementName=RomCarousel}"
+                    Margin="-8,-6,0,0"
                     ClipToBounds="False"
-                    Opacity="{Binding IsGameplayVideoVisible, Converter={StaticResource BoolToOpacityConverter}}"
+                    Opacity="{Binding IsGameplayPreviewHostVisible, Converter={StaticResource BoolToOpacityConverter}}"
                     Background="Transparent">
                 <Border.Transitions>
                     <Transitions>
-                        <DoubleTransition Property="Opacity" Duration="0:0:0.35" Easing="SineEaseOut" />
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut" />
                     </Transitions>
                 </Border.Transitions>
-                <Border Width="{Binding ExpandedViewportWidth, ElementName=GameplayVideo}"
-                        Height="{Binding SelectedItemBounds.Height, ElementName=RomCarousel}"
+                <Border Height="{Binding SelectedItemBounds.Height, ElementName=RomCarousel}"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Background="#FF000000"
                         ClipToBounds="True"
-                        RenderTransformOrigin="0.5,0.5">
+                        RenderTransformOrigin="0.5,0">
+                    <Border.Width>
+                        <MultiBinding Converter="{StaticResource GameplayPreviewWidthConverter}">
+                            <Binding Path="SelectedItemBounds.Width" ElementName="RomCarousel" />
+                            <Binding Path="SelectedItemBounds.Height" ElementName="RomCarousel" />
+                            <Binding Path="GameplayPreviewTargetAspectRatio" />
+                        </MultiBinding>
+                    </Border.Width>
                     <Border.RenderTransform>
                         <ScaleTransform ScaleX="1.03" ScaleY="1.03" />
                     </Border.RenderTransform>
                     <Border.Transitions>
                         <Transitions>
-                            <DoubleTransition Property="Width" Duration="0:0:0.6" Easing="CubicEaseInOut" />
+                            <DoubleTransition Property="Width" Duration="0:0:0.8" Easing="SineEaseInOut" />
                         </Transitions>
                     </Border.Transitions>
                     <player:VideoViewControl x:Name="GameplayVideo"
@@ -151,7 +158,14 @@
                                              Stretch="Uniform"
                                              ReferenceViewportWidth="{Binding SelectedItemBounds.Width, ElementName=RomCarousel}"
                                              ReferenceViewportHeight="{Binding SelectedItemBounds.Height, ElementName=RomCarousel}"
-                                             IsRenderingPaused="{Binding !IsGameplayVideoVisible}" />
+                                             IsRenderingPaused="{Binding !IsGameplayVideoVisible}"
+                                             Opacity="{Binding IsGameplayVideoVisible, Converter={StaticResource BoolToOpacityConverter}}">
+                        <player:VideoViewControl.Transitions>
+                            <Transitions>
+                                <DoubleTransition Property="Opacity" Duration="0:0:0.3" Easing="SineEaseOut" />
+                            </Transitions>
+                        </player:VideoViewControl.Transitions>
+                    </player:VideoViewControl>
                 </Border>
             </Border>
         </Canvas>

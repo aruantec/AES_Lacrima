@@ -76,11 +76,17 @@ namespace AES_Lacrima.ViewModels
         private string? _pendingGameplayPreviewItemPath;
         private string? _activeGameplayPreviewItemPath;
         private long _gameplayPreviewRequestVersion;
+        private const int GameplayPreviewHoverDelayMs = 2000;
+        private const int GameplayPreviewResizeAnimationMs = 800;
+        private const int GameplayPreviewPostAnimationDelayMs = 200;
+        private const int GameplayPreviewResizeDelayMs = GameplayPreviewResizeAnimationMs + GameplayPreviewPostAnimationDelayMs;
 
         private sealed record PersistedEmulationState(
             bool IsAlbumListCollapsed,
             AvaloniaList<string> AlbumOrder,
             Dictionary<string, List<MediaItem>> AlbumRoms);
+
+        private sealed record GameplayPreviewSource(MediaItem PreviewItem, double? AspectRatio);
 
         [AutoResolve]
         [ObservableProperty]
@@ -144,7 +150,14 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private bool _isGameplayVideoVisible;
 
+        [ObservableProperty]
+        private bool _isGameplayPreviewHostVisible;
+
+        [ObservableProperty]
+        private double _gameplayPreviewTargetAspectRatio;
+
         public string AlbumListToggleText => IsAlbumListCollapsed ? "Show Albums" : "Hide Albums";
+        public bool IsGameplayPreviewAvailable => IsGameplayAutoplayEnabled && IsYtDlpInstalled;
 
         public EmulationViewModel()
         {
@@ -204,6 +217,7 @@ namespace AES_Lacrima.ViewModels
         partial void OnSettingsViewModelChanged(SettingsViewModel? value)
         {
             EnsureSettingsViewModelSubscription();
+            OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
         }
 
         partial void OnMetadataServiceChanged(MetadataService? oldValue, MetadataService? newValue)
@@ -222,9 +236,11 @@ namespace AES_Lacrima.ViewModels
                 RefreshAlbumPreviews();
             }
 
-            if (e.PropertyName == nameof(SettingsViewModel.EmulationGameplayAutoplay))
+            if (e.PropertyName == nameof(SettingsViewModel.IsYtDlpInstalled))
             {
-                if (SettingsViewModel?.EmulationGameplayAutoplay == true)
+                OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
+
+                if (IsGameplayPreviewAvailable)
                     QueueGameplayPreview(HighlightedItem);
                 else
                     StopGameplayPreview();
@@ -238,7 +254,9 @@ namespace AES_Lacrima.ViewModels
 
         private void OnEmulationGameplayAutoplayChanged(bool enabled)
         {
-            if (enabled)
+            OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
+
+            if (IsGameplayPreviewAvailable)
                 QueueGameplayPreview(HighlightedItem);
             else
                 StopGameplayPreview();
@@ -1454,10 +1472,11 @@ namespace AES_Lacrima.ViewModels
         };
 
         private bool IsGameplayAutoplayEnabled => SettingsViewModel?.EmulationGameplayAutoplay == true;
+        private bool IsYtDlpInstalled => SettingsViewModel?.IsYtDlpInstalled ?? YtDlpManager.IsInstalled;
 
         private void QueueGameplayPreview(MediaItem? item, bool immediate = false)
         {
-            if (!IsGameplayAutoplayEnabled || item == null || string.IsNullOrWhiteSpace(item.FileName))
+            if (!IsGameplayPreviewAvailable || item == null || string.IsNullOrWhiteSpace(item.FileName))
             {
                 if (immediate)
                     _suppressSelectionStopForGameplayPreview = false;
@@ -1508,60 +1527,51 @@ namespace AES_Lacrima.ViewModels
             try
             {
                 if (!immediate)
-                    await Task.Delay(2000, cancellationToken);
+                    await Task.Delay(GameplayPreviewHoverDelayMs, cancellationToken);
 
-                var videoUrl = await ResolveGameplayVideoUrlAsync(item, cancellationToken);
                 if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
                     return;
 
-                if (string.IsNullOrWhiteSpace(videoUrl))
+                // Start resolving the final playback source immediately so the shell reveal
+                // and the yt-dlp/stream work overlap as much as possible.
+                var previewSourceTask = ResolveGameplayPreviewSourceAsync(item, cancellationToken);
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    await Dispatcher.UIThread.InvokeAsync(() => IsGameplayVideoVisible = false, DispatcherPriority.Background);
+                    IsGameplayPreviewHostVisible = true;
+                    IsGameplayVideoVisible = false;
+                    GameplayPreviewTargetAspectRatio = 0;
+                }, DispatcherPriority.Background);
+
+                var previewSource = await previewSourceTask.ConfigureAwait(false);
+                if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
+                    return;
+
+                if (previewSource == null)
+                {
                     StopGameplayPreview();
                     return;
                 }
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    GameplayPreviewTargetAspectRatio = previewSource.AspectRatio ?? 0;
+                }, DispatcherPriority.Background);
+
+                await Task.Delay(GameplayPreviewResizeDelayMs, cancellationToken);
+
+                if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
+                    return;
 
                 EnsureGameplayAudioPlayer();
                 var player = AudioPlayer;
                 if (player == null)
                 {
-                    await Dispatcher.UIThread.InvokeAsync(() => IsGameplayVideoVisible = false, DispatcherPriority.Background);
+                    StopGameplayPreview();
                     return;
                 }
 
-                if (_isGameplayPreviewActive &&
-                    string.Equals(player.CurrentMediaItem?.FileName, videoUrl, StringComparison.OrdinalIgnoreCase))
-                {
-                    _activeGameplayPreviewItemPath = item.FileName;
-                    _pendingGameplayPreviewItemPath = null;
-                    await Dispatcher.UIThread.InvokeAsync(() => IsGameplayVideoVisible = true, DispatcherPriority.Background);
-                    return;
-                }
-
-                var previewItem = new MediaItem
-                {
-                    FileName = videoUrl,
-                    Title = item.Title,
-                    Artist = item.Artist,
-                    Album = item.Album,
-                    VideoUrl = videoUrl
-                };
-
-                if (videoUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                {
-                    _mediaUrlService ??= DiLocator.ResolveViewModel<MediaUrlService>();
-                    if (_mediaUrlService == null)
-                    {
-                        await Dispatcher.UIThread.InvokeAsync(() => IsGameplayVideoVisible = false, DispatcherPriority.Background);
-                        return;
-                    }
-
-                    await _mediaUrlService.OpenMediaItemAsync(player, previewItem, preferVideo: true);
-                }
-                else
-                {
-                    await player.PlayFile(previewItem, video: true);
-                }
+                await player.PlayFile(previewSource.PreviewItem, video: true);
 
                 if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
                 {
@@ -1618,7 +1628,9 @@ namespace AES_Lacrima.ViewModels
 
             _pendingGameplayPreviewItemPath = null;
             _activeGameplayPreviewItemPath = null;
+            IsGameplayPreviewHostVisible = false;
             IsGameplayVideoVisible = false;
+            GameplayPreviewTargetAspectRatio = 0;
 
             try
             {
@@ -1651,6 +1663,40 @@ namespace AES_Lacrima.ViewModels
 
             await Dispatcher.UIThread.InvokeAsync(() => item.VideoUrl = cachedVideoUrl, DispatcherPriority.Background);
             return cachedVideoUrl;
+        }
+
+        private async Task<GameplayPreviewSource?> ResolveGameplayPreviewSourceAsync(MediaItem item, CancellationToken cancellationToken)
+        {
+            var videoUrl = await ResolveGameplayVideoUrlAsync(item, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(videoUrl))
+                return null;
+
+            var previewItem = new MediaItem
+            {
+                FileName = videoUrl,
+                Title = item.Title,
+                Artist = item.Artist,
+                Album = item.Album,
+                VideoUrl = videoUrl
+            };
+
+            double? aspectRatio = null;
+
+            if (videoUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                _mediaUrlService ??= DiLocator.ResolveViewModel<MediaUrlService>();
+                if (_mediaUrlService == null)
+                    return null;
+
+                var resolvedSource = await _mediaUrlService.ResolveMediaSourceAsync(videoUrl, preferVideo: true).ConfigureAwait(false);
+                if (resolvedSource == null)
+                    return null;
+
+                previewItem.OnlineUrls = resolvedSource.OnlineUrls;
+                aspectRatio = resolvedSource.AspectRatio;
+            }
+
+            return new GameplayPreviewSource(previewItem, aspectRatio);
         }
 
         private void EnsureGameplayAudioPlayer()
