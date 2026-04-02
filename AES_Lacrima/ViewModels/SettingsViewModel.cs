@@ -518,6 +518,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private string _selectedAppReleaseStatus = "Release history has not been loaded yet.";
 
+    [ObservableProperty]
+    private bool _isInstallingSelectedAppRelease;
+
     /// <summary>
     /// Gets or sets the path to the current background image.
     /// </summary>
@@ -840,8 +843,16 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             return;
         }
 
-        await AppUpdateService.DownloadAndRestartToApplyUpdateAsync(preparedRelease);
-        SyncSelectedAppReleaseState();
+        IsInstallingSelectedAppRelease = true;
+        try
+        {
+            await AppUpdateService.DownloadAndRestartToApplyUpdateAsync(preparedRelease);
+        }
+        finally
+        {
+            IsInstallingSelectedAppRelease = false;
+            SyncSelectedAppReleaseState();
+        }
     }
 
     [RelayCommand]
@@ -1143,23 +1154,26 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         !(AppUpdateService?.IsBusy ?? false);
 
     public string SelectedAppReleaseDisplayStatus =>
-        AppUpdateService?.IsBusy == true && !string.IsNullOrWhiteSpace(AppUpdateService.Status)
+        IsInstallingSelectedAppRelease && AppUpdateService?.IsBusy == true && !string.IsNullOrWhiteSpace(AppUpdateService.Status)
             ? AppUpdateService.Status
             : SelectedAppReleaseStatus;
 
-    public bool IsSelectedAppReleaseBusy => AppUpdateService?.IsBusy == true;
+    public bool IsSelectedAppReleaseBusy => IsInstallingSelectedAppRelease && AppUpdateService?.IsBusy == true;
 
-    public bool IsSelectedAppReleaseDownloading => AppUpdateService?.IsDownloading == true;
+    public bool IsSelectedAppReleaseDownloading => IsInstallingSelectedAppRelease && AppUpdateService?.IsDownloading == true;
 
     public bool IsSelectedAppReleasePreparing =>
-        AppUpdateService?.IsBusy == true && AppUpdateService.IsDownloading == false;
+        IsInstallingSelectedAppRelease && AppUpdateService?.IsBusy == true && AppUpdateService.IsDownloading == false;
 
-    public double SelectedAppReleaseProgressValue => AppUpdateService?.DownloadProgress ?? 0;
+    public double SelectedAppReleaseProgressValue =>
+        IsInstallingSelectedAppRelease
+            ? AppUpdateService?.DownloadProgress ?? 0
+            : 0;
 
     public string SelectedAppReleaseProgressText =>
         IsSelectedAppReleaseDownloading
             ? $"{SelectedAppReleaseProgressValue:0}% downloaded"
-            : (AppUpdateService?.Status ?? "Preparing update...");
+            : (IsInstallingSelectedAppRelease ? AppUpdateService?.Status ?? "Preparing update..." : string.Empty);
 
     public string SelectedAppReleaseActionLabel
     {
@@ -1331,6 +1345,11 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     partial void OnSelectedAppReleaseStatusChanged(string value)
     {
         OnPropertyChanged(nameof(SelectedAppReleaseDisplayStatus));
+    }
+
+    partial void OnIsInstallingSelectedAppReleaseChanged(bool value)
+    {
+        RaiseSelectedAppReleaseProgressProperties();
     }
 
     private void RaiseSelectedAppReleaseProgressProperties()

@@ -133,51 +133,61 @@ namespace AES_Lacrima.Settings
         }
 
         /// <summary>
-        /// Load settings for this object from Settings.json (if present) asynchronously.
-        /// Calls OnLoadSettings for derived classes to read values.
+        /// Load and return this object's persisted section from the settings file.
+        /// This helper performs the file IO under the shared process lock but does
+        /// not invoke <see cref="OnLoadSettings(JsonObject)"/> or marshal to the UI thread.
         /// </summary>
-        public async Task LoadSettingsAsync()
+        protected async Task<JsonObject?> LoadSettingsSectionAsync()
         {
             await FileLock.WaitAsync();
-            JsonObject? section = null;
             try
             {
-                if (!File.Exists(SettingsFilePath)) return;
+                if (!File.Exists(SettingsFilePath))
+                    return null;
 
                 var content = await File.ReadAllTextAsync(SettingsFilePath);
                 var root = DeserializeSettingsRoot(content);
 
                 if (root.TryGetPropertyValue(ViewModelsSectionName, out var vmsNode) && vmsNode is JsonObject vmsElement)
                 {
-                    if (vmsElement.TryGetPropertyValue(GetType().Name, out var sectionNode) && sectionNode is JsonObject s)
-                    {
-                        section = s;
-                    }
+                    if (vmsElement.TryGetPropertyValue(GetType().Name, out var sectionNode) && sectionNode is JsonObject section)
+                        return section;
                 }
+
+                return null;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"Failed to load settings from '{SettingsFilePath}': {ex.Message}");
+                return null;
             }
             finally
             {
                 FileLock.Release();
             }
+        }
 
-            if (section != null)
+        /// <summary>
+        /// Load settings for this object from Settings.json (if present) asynchronously.
+        /// Calls OnLoadSettings for derived classes to read values.
+        /// </summary>
+        public async Task LoadSettingsAsync()
+        {
+            var section = await LoadSettingsSectionAsync();
+            if (section == null)
+                return;
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                try
                 {
-                    try
-                    {
-                        OnLoadSettings(section);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"OnLoadSettings failed for {GetType().Name}: {ex.Message}");
-                    }
-                });
-            }
+                    OnLoadSettings(section);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"OnLoadSettings failed for {GetType().Name}: {ex.Message}");
+                }
+            });
         }
 
         /// <summary>

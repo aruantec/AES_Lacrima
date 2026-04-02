@@ -4,6 +4,7 @@ using AES_Controls.Player.Models;
 using AES_Code.Models;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Lacrima.Settings;
 using AES_Lacrima.Services;
 using Avalonia;
 using Avalonia.Collections;
@@ -18,6 +19,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -57,6 +59,7 @@ namespace AES_Lacrima.ViewModels
         private const int MetadataScrapperCacheEntries = 80;
         private const int MetadataStaggerDelayMs = 120;
         private const int PlaylistUiAddBatchSize = 12;
+        private const double DefaultPersistedVolume = 70.0;
 
         private TaskbarButton[]? _taskbarButtons;
         private IntPtr _playIcon;
@@ -163,6 +166,11 @@ namespace AES_Lacrima.ViewModels
         private AvaloniaList<FolderMediaItem>? _pendingPersistedAlbumList;
         private CancellationTokenSource? _loadedAlbumCoverCts;
         private MediaItem? _pendingTrackLoadItem;
+
+        private sealed record PersistedPlaylistSnapshot(
+            double Volume,
+            bool IsAlbumListOpen,
+            AvaloniaList<FolderMediaItem> Albums);
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsVideoViewportVisible))]
@@ -1098,23 +1106,28 @@ namespace AES_Lacrima.ViewModels
             _mediaUrlService ??= DiLocator.ResolveViewModel<MediaUrlService>();
 
             // Manual initialization of the AudioPlayer to control its lifecycle and avoid early DLL locking
+            var audioPlayerInitStopwatch = Stopwatch.StartNew();
+            Log.Info("MusicViewModel.InitializeAudioPlayer starting.");
             InitializeAudioPlayer();
+            audioPlayerInitStopwatch.Stop();
+            Log.Info($"MusicViewModel.InitializeAudioPlayer completed in {audioPlayerInitStopwatch.ElapsedMilliseconds} ms.");
 
-            // Offload heavy initialization including equalizer and settings loading to a background thread
-            // to ensure the UI remains responsive when the music view is first opened.
+            // Offload heavy initialization including equalizer and playlist snapshot loading to a
+            // background thread to ensure the UI remains responsive when the shell is first composed.
             _ = Task.Run(async () =>
             {
-                // Initialize equalizer and load settings off-thread
+                // Initialize equalizer and load the persisted playlist snapshot off-thread.
                 if (EqualizerService != null && AudioPlayer != null) await EqualizerService.InitializeAsync(AudioPlayer);
                 var loadSettingsStopwatch = Stopwatch.StartNew();
-                await LoadSettingsAsync();
+                var playlistSnapshot = await LoadPersistedPlaylistSnapshotAsync();
                 loadSettingsStopwatch.Stop();
 
                 // Marshal UI state updates and filters back to the dispatcher
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
+                    ApplyPersistedPlaylistSnapshot(playlistSnapshot);
                     Log.Info(
-                        $"MusicViewModel.LoadSettingsAsync completed in {loadSettingsStopwatch.ElapsedMilliseconds} ms. " +
+                        $"MusicViewModel.LoadPersistedPlaylistSnapshotAsync completed in {loadSettingsStopwatch.ElapsedMilliseconds} ms. " +
                         $"Albums={AlbumList.Count}, Items={GetAlbumItemCount()}, LoadedAlbum='{LoadedAlbum?.Title ?? "<none>"}'.");
 
                     _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
@@ -2923,6 +2936,59 @@ namespace AES_Lacrima.ViewModels
             StartMetadataScrappersForLoadedFolders();
         }
 
+        private async Task<PersistedPlaylistSnapshot> LoadPersistedPlaylistSnapshotAsync()
+        {
+            var section = await LoadSettingsSectionAsync();
+            if (section == null)
+            {
+                Log.Info("MusicViewModel.LoadPersistedPlaylistSnapshotAsync found no persisted playlist snapshot.");
+                return new PersistedPlaylistSnapshot(DefaultPersistedVolume, IsAlbumlistOpen, new AvaloniaList<FolderMediaItem>());
+            }
+
+            var restoreStopwatch = Stopwatch.StartNew();
+            var volume = ReadDoubleSetting(section, "Volume", DefaultPersistedVolume);
+            var isAlbumListOpen = ReadBoolSetting(section, nameof(IsAlbumlistOpen));
+            var restoredAlbums = ReadPlaylistAlbums(section);
+            InitializeRestoredAlbumRuntimeState(restoredAlbums);
+
+            restoreStopwatch.Stop();
+            Log.Info(
+                $"MusicViewModel.LoadPersistedPlaylistSnapshotAsync parsed playlist snapshot in {restoreStopwatch.ElapsedMilliseconds} ms. " +
+                $"Albums={restoredAlbums.Count}, Items={restoredAlbums.Sum(folder => folder.Children?.Count ?? 0)}.");
+            return new PersistedPlaylistSnapshot(volume, isAlbumListOpen, restoredAlbums);
+        }
+
+        private void ApplyPersistedPlaylistSnapshot(PersistedPlaylistSnapshot snapshot)
+        {
+            if (AudioPlayer != null)
+                AudioPlayer.Volume = snapshot.Volume;
+
+            IsAlbumlistOpen = snapshot.IsAlbumListOpen;
+            _pendingPersistedAlbumList = snapshot.Albums.Count > 0 ? snapshot.Albums : null;
+            _pendingPersistedAlbumRestoreIndex = 0;
+        }
+
+        private static AvaloniaList<FolderMediaItem> ReadPlaylistAlbums(JsonObject section)
+        {
+            var restoredAlbums = new AvaloniaList<FolderMediaItem>();
+            if (!section.TryGetPropertyValue(nameof(AlbumList), out var node) || node == null)
+                return restoredAlbums;
+
+            try
+            {
+                var typeInfo = (System.Text.Json.Serialization.Metadata.JsonTypeInfo<List<FolderMediaItem>>)SettingsJsonContext.Default.GetTypeInfo(typeof(List<FolderMediaItem>))!;
+                var list = node.Deserialize(typeInfo);
+                if (list != null)
+                    restoredAlbums.AddRange(list);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("MusicViewModel.ReadPlaylistAlbums failed to parse persisted playlist snapshot.", ex);
+            }
+
+            return restoredAlbums;
+        }
+
         private static void InitializeRestoredAlbumRuntimeState(IEnumerable<FolderMediaItem> albums)
         {
             foreach (var folder in albums)
@@ -3077,18 +3143,9 @@ namespace AES_Lacrima.ViewModels
 
         protected override void OnLoadSettings(JsonObject section)
         {
-            var restoreStopwatch = Stopwatch.StartNew();
-            AudioPlayer?.Volume = ReadDoubleSetting(section, "Volume", 70.0);
+            AudioPlayer?.Volume = ReadDoubleSetting(section, "Volume", DefaultPersistedVolume);
             IsAlbumlistOpen = ReadBoolSetting(section, nameof(IsAlbumlistOpen));
-            var restoredAlbums = ReadCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", new AvaloniaList<FolderMediaItem>());
-            InitializeRestoredAlbumRuntimeState(restoredAlbums);
-            _pendingPersistedAlbumList = restoredAlbums;
-            _pendingPersistedAlbumRestoreIndex = 0;
-
-            restoreStopwatch.Stop();
-            Log.Info(
-                $"MusicViewModel.OnLoadSettings parsed playlist snapshot in {restoreStopwatch.ElapsedMilliseconds} ms. " +
-                $"Albums={restoredAlbums.Count}, Items={restoredAlbums.Sum(folder => folder.Children?.Count ?? 0)}.");
+            Log.Info("MusicViewModel.OnLoadSettings applied lightweight playlist state on the UI thread.");
         }
 
         protected override void OnSaveSettings(JsonObject section)
