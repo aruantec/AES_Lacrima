@@ -30,7 +30,7 @@
                                                 ImageBitmapProperty="CoverBitmap"
                                                 SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
                                                 PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
-                                                ShowCoverFoundOverlay="{Binding !IsVideoMode}"
+                                                ShowCoverFoundOverlay="True"
                                                 ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
                                                 ItemSpacing="{Binding SettingsViewModel.CarouselSpacing}"
                                                 ItemScale="{Binding SettingsViewModel.CarouselScale}"
@@ -238,14 +238,6 @@
             </spectrum:GlSpectrumControl>
         </Grid>
 
-        <!-- Video viewport -->
-        <Grid IsVisible="{Binding IsVideoViewportVisible}" ZIndex="200">
-            <Border Background="#FF000000"/>
-            <player:VideoViewControl Player="{Binding AudioPlayer}"
-                                     Stretch="Uniform"
-                                     IsRenderingPaused="{Binding !IsVideoViewportVisible}" />
-        </Grid>
-
         <!-- Search Bar (on top) -->
         <TextBox HorizontalAlignment="Right"
                  VerticalAlignment="Top"
@@ -426,9 +418,7 @@
         </Grid>
 
         <!-- MetadataOverlay -->
-        <Grid IsVisible="{Binding !IsVideoMode}">
-            <common:MetadataOverlay DataContext="{Binding MetadataService}"/>
-        </Grid>
+        <common:MetadataOverlay DataContext="{Binding MetadataService}"/>
 
         <!-- Loading control -->
         <StackPanel HorizontalAlignment="Center"
@@ -539,49 +529,6 @@
                     </Viewbox>
                 </Button>
 
-                <!-- Video view: carousel icon second, toggles video viewport -->
-                <Button Height="60"
-                        Cursor="Hand"
-                        VerticalAlignment="Center"
-                        Command="{Binding ToggleVideoViewportCommand}"
-                        IsVisible="{Binding IsVideoMode}"
-                        ToolTip.Tip="{Binding IsVideoViewportVisible, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Show Carousel, Show Video'}">
-					<Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="Transparent" BorderThickness="0">
-                                <ContentPresenter Content="{TemplateBinding Content}"
-                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
-                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                    <Viewbox Stretch="Uniform">
-                        <StackPanel Height="100" Orientation="Horizontal" Spacing="15">
-                            <Rectangle Width="8" Height="76" Fill="{Binding IsVideoViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
-                                <Rectangle.Transitions>
-                                    <Transitions>
-                                        <BrushTransition Property="Fill" Duration="0:0:0.32" />
-                                    </Transitions>
-                                </Rectangle.Transitions>
-                            </Rectangle>
-                            <Rectangle Width="90" Height="80" RadiusX="16" RadiusY="16" StrokeThickness="10" Stroke="{Binding IsVideoViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}" Fill="Transparent">
-                                <Rectangle.Transitions>
-                                    <Transitions>
-                                        <BrushTransition Property="Stroke" Duration="0:0:0.32" />
-                                    </Transitions>
-                                </Rectangle.Transitions>
-                            </Rectangle>
-                            <Rectangle Width="8" Height="76" Fill="{Binding IsVideoViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
-                                <Rectangle.Transitions>
-                                    <Transitions>
-                                        <BrushTransition Property="Fill" Duration="0:0:0.32" />
-                                    </Transitions>
-                                </Rectangle.Transitions>
-                            </Rectangle>
-                        </StackPanel>
-                    </Viewbox>
-                </Button>
             </StackPanel>
 
             <!-- Center buttons -->
@@ -797,11 +744,11 @@
                                         HorizontalAlignment="Right"
                                         Margin="0,0,70,0"/>
             </StackPanel>
-            <Separator Margin="0" VerticalAlignment="Bottom" IsVisible="{Binding !IsVideoMode}"/>
+            <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
 
         <!-- Progressbar -->
-        <Grid Grid.Row="2" Background="#FF000000" IsVisible="{Binding !IsVideoMode}">
+        <Grid Grid.Row="2" Background="#FF000000">
 			<player:WaveformProgressBar Margin="1,5,1,10"
                                         IndicatorColor="Gray"
                                         Waveform="{Binding AudioPlayer.Waveform}"
@@ -832,37 +779,6 @@
                 </player:WaveformProgressBar.Transitions>
             </player:WaveformProgressBar>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
-        </Grid>
-
-        <Grid Grid.Row="2"
-              Background="#FF000000"
-              Opacity="{Binding IsVideoMode, Converter={StaticResource BoolToOpacityConverter}}"
-              IsHitTestVisible="{Binding IsVideoMode}">
-            <Grid Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
-                  ColumnDefinitions="Auto,*">
-                <TextBlock Grid.Column="0"
-                           Margin="24,0,8,7"
-                           VerticalAlignment="Center"
-                           FontSize="22"
-                           Foreground="#E6FFFFFF">
-                    <TextBlock.Text>
-                        <MultiBinding StringFormat="\{0\} / \{1\}">
-                            <Binding Path="AudioPlayer.Position" Converter="{StaticResource TimeSpanConverter}" />
-                            <Binding Path="AudioPlayer.Duration" Converter="{StaticResource TimeSpanConverter}" />
-                        </MultiBinding>
-                    </TextBlock.Text>
-                </TextBlock>
-
-                <composition:CompositionSlider Grid.Column="1"
-                                               Height="60"
-                                               Margin="1,5,1,10"
-                                               Minimum="0"
-                                               Maximum="{Binding AudioPlayer.Duration, FallbackValue=1}"
-                                               Value="{Binding AudioPlayer.Position, Mode=TwoWay}"
-                                               SetValueCommand="{Binding SetPositionCommand}"
-                                               ExecuteDuringDrag="True"
-                                               SliderTrackHeight="13"/>
-            </Grid>
         </Grid>
 
         <!-- Menu-->
@@ -1002,13 +918,12 @@
 		</Grid>
 
         <!-- Metadata Image Search Overlay -->
-        <Grid IsVisible="{Binding !IsVideoMode}">
-            <Grid Background="#E0000000"
-                  Grid.RowSpan="4"
-                  IsVisible="{Binding MetadataService.IsImageSearchOverlayOpen}"
-                  IsHitTestVisible="{Binding MetadataService.IsImageSearchOverlayOpen}"
-                  Opacity="{Binding MetadataService.IsImageSearchOverlayOpen, Converter={StaticResource BoolToOpacityConverter}}"
-                  ZIndex="2100">
+        <Grid Background="#E0000000"
+              Grid.RowSpan="4"
+              IsVisible="{Binding MetadataService.IsImageSearchOverlayOpen}"
+              IsHitTestVisible="{Binding MetadataService.IsImageSearchOverlayOpen}"
+              Opacity="{Binding MetadataService.IsImageSearchOverlayOpen, Converter={StaticResource BoolToOpacityConverter}}"
+              ZIndex="2100">
                 <Grid.Transitions>
 					<Transitions>
                         <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut"/>
@@ -1097,7 +1012,6 @@
                         </Grid>
                     </Grid>
                 </Border>
-            </Grid>
         </Grid>
 
 	</Grid>
