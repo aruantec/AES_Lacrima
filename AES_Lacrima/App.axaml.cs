@@ -14,6 +14,7 @@ using Avalonia.Data.Core.Plugins;
 using Avalonia.Markup.Xaml;
 using log4net;
 using System;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading.Tasks;
@@ -65,7 +66,11 @@ namespace AES_Lacrima
                 // value is available before we construct the window.
                 var settingsVm = DiLocator.ResolveViewModel<SettingsViewModel>();
                 if (settingsVm != null)
+                {
+                    var settingsPrepareStopwatch = Stopwatch.StartNew();
                     settingsVm.Prepare();
+                    Logger.Info($"SettingsViewModel.Prepare completed in {settingsPrepareStopwatch.ElapsedMilliseconds} ms.");
+                }
 
                 if (settingsVm != null && settingsVm.AppMode == 1)
                     desktop.MainWindow = new CustomWindow();
@@ -102,9 +107,17 @@ namespace AES_Lacrima
 
         private static async Task PerformPostStartupInitializationAsync(Window mainWindow)
         {
+            // Let the window reach its first frame before any post-startup work runs.
+            await Task.Yield();
+            await Task.Delay(150);
+
+            var startupStopwatch = Stopwatch.StartNew();
+
             try
             {
-                Program.EnsureBundledResources();
+                var resourceSyncStopwatch = Stopwatch.StartNew();
+                await Task.Run(Program.EnsureBundledResources);
+                Logger.Info($"Bundled resource sync completed in {resourceSyncStopwatch.ElapsedMilliseconds} ms.");
             }
             catch (Exception ex)
             {
@@ -114,7 +127,9 @@ namespace AES_Lacrima
             try
             {
                 // Process pending mpv updates or uninstalls WITHOUT starting automatic setup/download.
-                await MpvSetup.EnsureInstalled(autoInstall: false);
+                var mpvValidationStopwatch = Stopwatch.StartNew();
+                await Task.Run(() => MpvSetup.EnsureInstalled(autoInstall: false));
+                Logger.Info($"mpv startup validation completed in {mpvValidationStopwatch.ElapsedMilliseconds} ms.");
             }
             catch (Exception ex)
             {
@@ -125,12 +140,16 @@ namespace AES_Lacrima
             {
                 // Configure FFmpeg, libmpv and yt-dlp checks. Skip auto-installation on startup.
                 // Run initial checks in background so app can render immediately.
+                var toolChecksStopwatch = Stopwatch.StartNew();
                 await PerformInitialToolChecksAsync(mainWindow);
+                Logger.Info($"Initial tool checks completed in {toolChecksStopwatch.ElapsedMilliseconds} ms.");
             }
             catch (Exception ex)
             {
                 Logger.Warn("Failed during post-startup tool checks", ex);
             }
+
+            Logger.Info($"Post-startup initialization completed in {startupStopwatch.ElapsedMilliseconds} ms.");
         }
 
         private static async Task PerformInitialToolChecksAsync(Window mainWindow)
