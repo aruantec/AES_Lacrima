@@ -224,7 +224,7 @@
                                         <TextBlock Text="Install Specific Version"
                                                    Foreground="WhiteSmoke"
                                                    FontSize="16"/>
-                                        <TextBlock Text="{Binding SelectedAppReleaseStatus}"
+                                        <TextBlock Text="{Binding SelectedAppReleaseDisplayStatus}"
                                                    Foreground="#B8B8B8"
                                                    TextWrapping="Wrap"/>
 
@@ -248,6 +248,17 @@
                                                     Background="Gold"
                                                     Foreground="Black"/>
                                         </WrapPanel>
+                                        <ProgressBar Height="8"
+                                                     Minimum="0"
+                                                     Maximum="100"
+                                                     Value="{Binding SelectedAppReleaseProgressValue}"
+                                                     IsVisible="{Binding IsSelectedAppReleaseDownloading}"/>
+                                        <TextBlock Text="{Binding SelectedAppReleaseProgressText}"
+                                                   Foreground="#B8B8B8"
+                                                   IsVisible="{Binding IsSelectedAppReleaseDownloading}"/>
+                                        <ProgressBar Height="4"
+                                                     IsIndeterminate="True"
+                                                     IsVisible="{Binding IsSelectedAppReleasePreparing}"/>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>

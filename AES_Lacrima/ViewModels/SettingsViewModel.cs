@@ -1142,6 +1142,25 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         (AppUpdateService?.CanSelfUpdate ?? false) &&
         !(AppUpdateService?.IsBusy ?? false);
 
+    public string SelectedAppReleaseDisplayStatus =>
+        AppUpdateService?.IsBusy == true && !string.IsNullOrWhiteSpace(AppUpdateService.Status)
+            ? AppUpdateService.Status
+            : SelectedAppReleaseStatus;
+
+    public bool IsSelectedAppReleaseBusy => AppUpdateService?.IsBusy == true;
+
+    public bool IsSelectedAppReleaseDownloading => AppUpdateService?.IsDownloading == true;
+
+    public bool IsSelectedAppReleasePreparing =>
+        AppUpdateService?.IsBusy == true && AppUpdateService.IsDownloading == false;
+
+    public double SelectedAppReleaseProgressValue => AppUpdateService?.DownloadProgress ?? 0;
+
+    public string SelectedAppReleaseProgressText =>
+        IsSelectedAppReleaseDownloading
+            ? $"{SelectedAppReleaseProgressValue:0}% downloaded"
+            : (AppUpdateService?.Status ?? "Preparing update...");
+
     public string SelectedAppReleaseActionLabel
     {
         get
@@ -1180,6 +1199,14 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             e.PropertyName == nameof(AppUpdateService.PreferAotUpdates))
         {
             SyncSelectedAppReleaseState();
+        }
+
+        if (e.PropertyName == nameof(AppUpdateService.IsBusy) ||
+            e.PropertyName == nameof(AppUpdateService.IsDownloading) ||
+            e.PropertyName == nameof(AppUpdateService.DownloadProgress) ||
+            e.PropertyName == nameof(AppUpdateService.Status))
+        {
+            RaiseSelectedAppReleaseProgressProperties();
         }
     }
 
@@ -1299,6 +1326,22 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         SelectedAppReleaseStatus = AppUpdateService.IsNewerVersion(SelectedAppRelease)
             ? $"Selected version {SelectedAppRelease.DisplayLabel} is newer than the installed build."
             : $"Selected version {SelectedAppRelease.DisplayLabel} is older than the installed build and can be used to roll back.";
+    }
+
+    partial void OnSelectedAppReleaseStatusChanged(string value)
+    {
+        OnPropertyChanged(nameof(SelectedAppReleaseDisplayStatus));
+    }
+
+    private void RaiseSelectedAppReleaseProgressProperties()
+    {
+        OnPropertyChanged(nameof(CanInstallSelectedAppRelease));
+        OnPropertyChanged(nameof(SelectedAppReleaseDisplayStatus));
+        OnPropertyChanged(nameof(IsSelectedAppReleaseBusy));
+        OnPropertyChanged(nameof(IsSelectedAppReleaseDownloading));
+        OnPropertyChanged(nameof(IsSelectedAppReleasePreparing));
+        OnPropertyChanged(nameof(SelectedAppReleaseProgressValue));
+        OnPropertyChanged(nameof(SelectedAppReleaseProgressText));
     }
 
     /// <summary>
