@@ -76,7 +76,10 @@
                             </Viewbox>
                         </MenuItem.Icon>
                     </MenuItem>
-                    <MenuItem Header="Clear Album" CornerRadius="8" Command="{Binding ClearAlbumCommand}">
+                    <MenuItem Header="Clear Album"
+                              CornerRadius="8"
+                              Command="{Binding ClearAlbumCommand}"
+                              IsVisible="{Binding HasActiveAlbumItems}">
                         <MenuItem.Icon>
                             <Path Data="M6,19A2,2 0 0,0 8,21h8a2,2 0 0,0 2-2V7H6v12zM19,4h-3.5l-1-1h-5l-1,1H5v2h14V4z"
                                   Fill="#CCFFFFFF"
@@ -85,7 +88,11 @@
                                   Stretch="Uniform"/>
                         </MenuItem.Icon>
                     </MenuItem>
-                    <MenuItem Header="Edit Metadata" CornerRadius="8" Command="{Binding OpenMetadataCommand}" CommandParameter="{Binding PointedIndex}">
+                    <MenuItem Header="Edit Metadata"
+                              CornerRadius="8"
+                              Command="{Binding OpenMetadataCommand}"
+                              CommandParameter="{Binding PointedIndex}"
+                              IsVisible="{Binding HasActiveAlbumItems}">
                         <MenuItem.Icon>
                             <Path Data="M48,8 L88,8 L88,48 L70,48 L70,20 L48,20 Z M20,20 L20,92 L80,92 L80,68 L48,68 L48,56 L32,56 L32,20 Z"
                                   Fill="#CCFFFFFF"
@@ -94,7 +101,10 @@
                                   Stretch="Uniform" />
                         </MenuItem.Icon>
                     </MenuItem>
-                    <MenuItem Header="Clear Album Cache" CornerRadius="8" Command="{Binding ClearAlbumCacheCommand}" IsVisible="{Binding IsItemPointed}">
+                    <MenuItem Header="Clear Album Cache"
+                              CornerRadius="8"
+                              Command="{Binding ClearAlbumCacheCommand}"
+                              IsVisible="{Binding HasActiveAlbumItems}">
                         <MenuItem.Icon>
                             <Path Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14h2v2h-2zm0-10h2v8h-2z"
                                   Fill="#CCFFFFFF"
@@ -180,7 +190,7 @@
                     Margin="0"
                     IsHitTestVisible="False"
                     IsVisible="{Binding IsNoAlbumLoadedVisible}">
-            <TextBlock Text="Right-click here to scan a folder or add ROMs"
+            <TextBlock Text="Right-click to add ROMs or scan a folder"
                        HorizontalAlignment="Center"
                        TextAlignment="Center"
                        FontSize="24"
