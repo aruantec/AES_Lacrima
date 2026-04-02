@@ -140,7 +140,7 @@ jobs:
         run: |
           Write-Host "Building WgcBridge for Windows..."
           nuget restore WgcBridge/packages.config -PackagesDirectory packages
-          msbuild WgcBridge/WgcBridge.vcxproj /p:Configuration=Release /p:Platform=x64 /p:BuildTarget=Build /p:PlatformToolset=v143
+          msbuild WgcBridge/WgcBridge.vcxproj /p:Configuration=Release /p:Platform=x64 /p:BuildTarget=Build /p:PlatformToolset=v143 /p:WindowsTargetPlatformVersion=10.0 /p:TargetPlatformVersion=10.0
           $wgc = "AES_Lacrima/libs/windows/WgcBridge.dll"
           if (Test-Path $wgc) {
             Write-Host "Successfully built WgcBridge.dll at $wgc"
