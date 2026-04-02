@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -65,6 +66,7 @@ namespace AES_Lacrima.ViewModels
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumScanCtsMap = [];
         private AvaloniaList<string> _pendingAlbumOrder = [];
         private Dictionary<string, List<MediaItem>> _pendingAlbumRoms = new(StringComparer.OrdinalIgnoreCase);
+        private bool _isPreparing;
         private bool _isSyncingAlbumSelection;
         private CancellationTokenSource? _albumCoverScanCts;
         private CancellationTokenSource? _gameplayPreviewCts;
@@ -74,6 +76,11 @@ namespace AES_Lacrima.ViewModels
         private string? _pendingGameplayPreviewItemPath;
         private string? _activeGameplayPreviewItemPath;
         private long _gameplayPreviewRequestVersion;
+
+        private sealed record PersistedEmulationState(
+            bool IsAlbumListCollapsed,
+            AvaloniaList<string> AlbumOrder,
+            Dictionary<string, List<MediaItem>> AlbumRoms);
 
         [AutoResolve]
         [ObservableProperty]
@@ -122,6 +129,8 @@ namespace AES_Lacrima.ViewModels
         private int _pointedIndex = -1;
 
         public bool IsItemPointed => PointedIndex != -1 && PointedIndex < CoverItems.Count;
+        public bool HasActiveAlbumItems => (LoadedAlbum ?? SelectedAlbum)?.Children.Count > 0;
+        public bool ShowEmptyActiveAlbumHint => (LoadedAlbum ?? SelectedAlbum) != null && !HasActiveAlbumItems;
 
         [ObservableProperty]
         private MediaItem _highlightedItem = CreateEmptyMediaItem();
@@ -313,25 +322,50 @@ namespace AES_Lacrima.ViewModels
 
         public override void Prepare()
         {
-            if (IsPrepared)
+            if (IsPrepared || _isPreparing)
                 return;
 
+            _isPreparing = true;
             base.Prepare();
             EnsureSettingsViewModelSubscription();
             EnsureMetadataServiceSubscription();
-            LoadSettings();
 
-            if (_sharedAlbumCache != null && _sharedAlbumCache.Count > 0)
+            _ = Task.Run(async () =>
             {
-                AlbumList = new AvaloniaList<FolderMediaItem>(_sharedAlbumCache);
-                SelectedAlbum = AlbumList.FirstOrDefault();
-                LoadedAlbum = SelectedAlbum;
-                IsPrepared = true;
-                return;
-            }
+                try
+                {
+                    var persistedStateStopwatch = Stopwatch.StartNew();
+                    var persistedState = await LoadPersistedEmulationStateAsync().ConfigureAwait(false);
+                    persistedStateStopwatch.Stop();
 
-            // Load emulation albums in background so the UI can render immediately.
-            _ = InitializeAlbumsAsync();
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        ApplyPersistedEmulationState(persistedState);
+                        SLog.Info(
+                            $"EmulationViewModel.LoadPersistedEmulationStateAsync completed in {persistedStateStopwatch.ElapsedMilliseconds} ms. " +
+                            $"SavedAlbums={persistedState.AlbumRoms.Count}, SavedOrderEntries={persistedState.AlbumOrder.Count}.");
+
+                        if (_sharedAlbumCache != null && _sharedAlbumCache.Count > 0)
+                        {
+                            AlbumList = new AvaloniaList<FolderMediaItem>(_sharedAlbumCache);
+                            SelectedAlbum = AlbumList.FirstOrDefault();
+                            LoadedAlbum = SelectedAlbum;
+                            IsPrepared = true;
+                            _isPreparing = false;
+                            RefreshActiveAlbumState();
+                            return;
+                        }
+
+                        // Load emulation albums in background so the UI can render immediately.
+                        _ = InitializeAlbumsAsync();
+                    }, DispatcherPriority.Background);
+                }
+                catch (Exception ex)
+                {
+                    _isPreparing = false;
+                    SLog.Warn("Failed to load persisted emulation state during Prepare.", ex);
+                }
+            });
         }
 
         public override void OnShowViewModel()
@@ -371,6 +405,7 @@ namespace AES_Lacrima.ViewModels
         {
             ApplyFilter();
             QueueSelectedAlbumCoverScan(value);
+            RefreshActiveAlbumState();
         }
 
         partial void OnSelectedAlbumIndexChanged(int value)
@@ -430,9 +465,7 @@ namespace AES_Lacrima.ViewModels
         protected override void OnLoadSettings(JsonObject section)
         {
             IsAlbumListCollapsed = ReadBoolSetting(section, nameof(IsAlbumListCollapsed));
-            _pendingAlbumOrder = ReadCollectionSetting(section, "AlbumOrder", "string", _pendingAlbumOrder);
-            _pendingAlbumRoms = ReadObjectSetting<Dictionary<string, List<MediaItem>>>(section, "AlbumRoms")
-                ?? new Dictionary<string, List<MediaItem>>(StringComparer.OrdinalIgnoreCase);
+            SLog.Info("EmulationViewModel.OnLoadSettings applied lightweight settings on the UI thread.");
         }
 
         protected override void OnSaveSettings(JsonObject section)
@@ -517,8 +550,41 @@ namespace AES_Lacrima.ViewModels
                 LoadedAlbum = SelectedAlbum;
                 _sharedAlbumCache = new AvaloniaList<FolderMediaItem>(AlbumList);
                 IsPrepared = true;
+                _isPreparing = false;
                 ApplyFilter();
             });
+        }
+
+        private async Task<PersistedEmulationState> LoadPersistedEmulationStateAsync()
+        {
+            var section = await LoadSettingsSectionAsync().ConfigureAwait(false);
+            if (section == null)
+            {
+                SLog.Info("EmulationViewModel.LoadPersistedEmulationStateAsync found no persisted state.");
+                return new PersistedEmulationState(
+                    IsAlbumListCollapsed,
+                    [],
+                    new Dictionary<string, List<MediaItem>>(StringComparer.OrdinalIgnoreCase));
+            }
+
+            var restoreStopwatch = Stopwatch.StartNew();
+            var isAlbumListCollapsed = ReadBoolSetting(section, nameof(IsAlbumListCollapsed));
+            var albumOrder = ReadCollectionSetting(section, "AlbumOrder", "string", new AvaloniaList<string>());
+            var albumRoms = ReadObjectSetting<Dictionary<string, List<MediaItem>>>(section, "AlbumRoms")
+                ?? new Dictionary<string, List<MediaItem>>(StringComparer.OrdinalIgnoreCase);
+            restoreStopwatch.Stop();
+
+            SLog.Info(
+                $"EmulationViewModel.LoadPersistedEmulationStateAsync parsed state in {restoreStopwatch.ElapsedMilliseconds} ms. " +
+                $"SavedAlbums={albumRoms.Count}, SavedOrderEntries={albumOrder.Count}.");
+            return new PersistedEmulationState(isAlbumListCollapsed, albumOrder, albumRoms);
+        }
+
+        private void ApplyPersistedEmulationState(PersistedEmulationState state)
+        {
+            IsAlbumListCollapsed = state.IsAlbumListCollapsed;
+            _pendingAlbumOrder = state.AlbumOrder;
+            _pendingAlbumRoms = state.AlbumRoms;
         }
 
         [RelayCommand(CanExecute = nameof(CanAddRoms))]
@@ -594,7 +660,7 @@ namespace AES_Lacrima.ViewModels
             FinalizeRomImport(album);
         }
 
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(CanOpenMetadata))]
         private async Task OpenMetadata(object? parameter)
         {
             var target = parameter switch
@@ -613,7 +679,7 @@ namespace AES_Lacrima.ViewModels
             await MetadataService.LoadMetadataForItemAsync(target);
         }
 
-        [RelayCommand(CanExecute = nameof(CanAddRoms))]
+        [RelayCommand(CanExecute = nameof(CanClearLoadedAlbum))]
         private async Task ClearAlbumCache()
         {
             var album = SelectedAlbum;
@@ -633,7 +699,7 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        [RelayCommand(CanExecute = nameof(CanAddRoms))]
+        [RelayCommand(CanExecute = nameof(CanClearLoadedAlbum))]
         private Task ClearAlbum()
         {
             var album = SelectedAlbum;
@@ -659,6 +725,10 @@ namespace AES_Lacrima.ViewModels
             SaveSettings();
             return Task.CompletedTask;
         }
+
+        private bool CanOpenMetadata(object? parameter) => HasActiveAlbumItems;
+
+        private bool CanClearLoadedAlbum() => HasActiveAlbumItems;
 
         private static IReadOnlyList<string> FindConsoleImagePaths()
         {
@@ -1268,6 +1338,7 @@ namespace AES_Lacrima.ViewModels
                 PointedIndex = -1;
                 HighlightedItem = CreateEmptyMediaItem();
                 IsNoAlbumLoadedVisible = true;
+                RefreshActiveAlbumState();
                 return;
             }
 
@@ -1290,6 +1361,7 @@ namespace AES_Lacrima.ViewModels
                 PointedIndex = -1;
                 HighlightedItem = CreateEmptyMediaItem();
                 IsNoAlbumLoadedVisible = true;
+                RefreshActiveAlbumState();
                 return;
             }
 
@@ -1303,6 +1375,16 @@ namespace AES_Lacrima.ViewModels
 
             HighlightedItem = CoverItems[nextIndex];
             IsNoAlbumLoadedVisible = false;
+            RefreshActiveAlbumState();
+        }
+
+        private void RefreshActiveAlbumState()
+        {
+            OnPropertyChanged(nameof(HasActiveAlbumItems));
+            OnPropertyChanged(nameof(ShowEmptyActiveAlbumHint));
+            ClearAlbumCommand.NotifyCanExecuteChanged();
+            ClearAlbumCacheCommand.NotifyCanExecuteChanged();
+            OpenMetadataCommand.NotifyCanExecuteChanged();
         }
 
         private void SyncSelectedAlbumIndexFromAlbum(FolderMediaItem? album)

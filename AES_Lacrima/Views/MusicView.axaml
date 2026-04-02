@@ -179,17 +179,28 @@
         </StackPanel>
 
         <!-- Message -->
-        <TextBlock Text="No Album Loaded"
-                   HorizontalAlignment="Center" 
-                   VerticalAlignment="Center" 
-                   Margin="0,380,0,0"
-                   FontSize="28"
-                   FontWeight="Bold"
+        <TextBlock Text="{Binding EmptyLoadedAlbumMessage}"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   TextAlignment="Center"
+                   FontSize="24"
+                   MaxWidth="620"
+                   Foreground="#88787878"
                    IsHitTestVisible="False"
                    IsVisible="{Binding IsNoAlbumLoadedVisible}"/>
 
         <!-- Metadata -->
-        <StackPanel Spacing="12" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="25,20,0,0">
+        <StackPanel Spacing="12"
+                    VerticalAlignment="Top"
+                    HorizontalAlignment="Left"
+                    Margin="25,20,0,0"
+                    Opacity="{Binding HasCurrentMediaLoaded, Converter={StaticResource BoolToOpacityConverter}}"
+                    IsHitTestVisible="False">
+            <StackPanel.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.6" Easing="CubicEaseInOut"/>
+                </Transitions>
+            </StackPanel.Transitions>
             <StackPanel VerticalAlignment="Center" Spacing="4" Margin="2,0,0,0">
                 <TextBlock Text="{Binding SelectedMediaItem.Title, FallbackValue='No File Loaded'}" FontSize="28" FontWeight="Bold"/>
                 <TextBlock Text="{Binding SelectedMediaItem.Artist, FallbackValue=''}" FontSize="22" Foreground="#ccc"/>

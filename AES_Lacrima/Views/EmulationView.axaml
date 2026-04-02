@@ -175,15 +175,19 @@
                        IsVisible="False"/>
         </StackPanel>
 
-        <TextBlock Text="No roms loaded"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   Margin="0,380,0,0"
-                   FontSize="28"
-                   FontWeight="Bold"
-                   Foreground="White"
-                   IsHitTestVisible="False"
-                   IsVisible="{Binding IsNoAlbumLoadedVisible}"/>
+        <StackPanel HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Margin="0"
+                    IsHitTestVisible="False"
+                    IsVisible="{Binding IsNoAlbumLoadedVisible}">
+            <TextBlock Text="Right-click here to scan a folder or add ROMs"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       FontSize="24"
+                       MaxWidth="620"
+                       Foreground="#88787878"
+                       IsVisible="{Binding ShowEmptyActiveAlbumHint}"/>
+        </StackPanel>
 
         <TextBox HorizontalAlignment="Right"
                  VerticalAlignment="Top"

@@ -122,7 +122,6 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(AddItemsCommand))]
         [NotifyCanExecuteChangedFor(nameof(AddUrlCommand))]
-        [NotifyCanExecuteChangedFor(nameof(ClearAlbumCommand))]
         private FolderMediaItem? _loadedAlbum;
 
         [ObservableProperty]
@@ -201,6 +200,17 @@ namespace AES_Lacrima.ViewModels
         public bool IsItemPointed => PointedIndex != -1 && PointedIndex < CoverItems.Count;
 
         public bool IsFolderPointed => PointedFolder != null;
+        public bool HasAlbums => AlbumList.Count > 0;
+        public bool ShowEmptyAlbumListHint => !HasAlbums;
+        public bool CanSortAlbums => AlbumList.Count > 1;
+        public bool HasLoadedAlbumItems => LoadedAlbum?.Children.Count > 0;
+        public bool ShowEmptyLoadedAlbumHint => LoadedAlbum != null && !HasLoadedAlbumItems;
+        public bool HasCurrentMediaLoaded => AudioPlayer?.CurrentMediaItem != null;
+        public string EmptyAlbumListMessage => "Right-click to open a folder, create an album or scan folders";
+        public string EmptyLoadedAlbumMessage =>
+            LoadedAlbum != null
+                ? "Right-click to add files, URL or playlist"
+                : "No album loaded";
 
         public virtual bool IsVideoMode => false;
 
@@ -278,6 +288,7 @@ namespace AES_Lacrima.ViewModels
 
             OnPropertyChanged(nameof(ShuffleMode));
             OnPropertyChanged(nameof(NextRepeatToolTip));
+            OnPropertyChanged(nameof(HasCurrentMediaLoaded));
         }
 
         private IntPtr GetCurrentWindowHandle()
@@ -304,6 +315,7 @@ namespace AES_Lacrima.ViewModels
                 UpdateTrackLoadPendingState();
                 EnsureCurrentMediaCoverIsLoaded();
                 OnPropertyChanged(nameof(IsVideoViewportVisible));
+                OnPropertyChanged(nameof(HasCurrentMediaLoaded));
             }
             else if (e.PropertyName == nameof(AudioPlayer.IsLoadingMedia) ||
                      e.PropertyName == nameof(AudioPlayer.IsBuffering) ||
@@ -546,7 +558,7 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        [RelayCommand(CanExecute = nameof(CanAddItems))]
+        [RelayCommand(CanExecute = nameof(CanClearLoadedAlbum))]
         private void ClearAlbum()
         {
             if (LoadedAlbum == null)
@@ -671,10 +683,10 @@ namespace AES_Lacrima.ViewModels
             RenameFolder(newAlbum);
         }
 
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(CanSortAlbums))]
         private void SortAlbumsAscending() => SortAlbums(alphabeticalAscending: true);
 
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(CanSortAlbums))]
         private void SortAlbumsDescending() => SortAlbums(alphabeticalAscending: false);
 
         [RelayCommand]
@@ -844,7 +856,6 @@ namespace AES_Lacrima.ViewModels
 
             _scanMissingStreamDurationsOnLoadedAlbum = true;
             LoadedAlbum = selectedAlbum;
-            IsNoAlbumLoadedVisible = false;
 
             if (isSameAlbum && selectedAlbum != null)
             {
@@ -1151,7 +1162,6 @@ namespace AES_Lacrima.ViewModels
                     }
                     ApplyAlbumFilter();
                     ApplyFilter();
-                    IsNoAlbumLoadedVisible = LoadedAlbum == null;
                     IsPrepared = true;
                     QueueDeferredPersistedAlbumRestore();
                     Log.Info($"MusicViewModel.Prepare completed. IsVideoMode={IsVideoMode}, IsPrepared={IsPrepared}.");
@@ -1485,13 +1495,14 @@ namespace AES_Lacrima.ViewModels
                 SubscribeFolder(item);
             if (!_isApplyingDeferredAlbumList)
                 ApplyAlbumFilter();
+            RefreshAlbumListState();
         }
 
         partial void OnLoadedAlbumChanged(FolderMediaItem? value)
         {
             ApplyFilter();
-            IsNoAlbumLoadedVisible = value == null;
             ReduceCoverResidency(value);
+            RefreshLoadedAlbumState();
 
             if (value != null && IsPrepared)
             {
@@ -1789,6 +1800,8 @@ namespace AES_Lacrima.ViewModels
 
             if (!_isApplyingDeferredAlbumList)
                 ApplyAlbumFilter();
+
+            RefreshAlbumListState();
         }
 
         private void SubscribeFolder(FolderMediaItem folder)
@@ -2723,6 +2736,8 @@ namespace AES_Lacrima.ViewModels
 
         private bool CanAddItems() => LoadedAlbum != null;
 
+        private bool CanClearLoadedAlbum() => HasLoadedAlbumItems;
+
         private async Task PlayIndexSelection(int currentIndex)
         {
             if (currentIndex < 0 || currentIndex >= PlaybackQueue.Count) return;
@@ -2794,6 +2809,8 @@ namespace AES_Lacrima.ViewModels
                 SelectedIndex = -1;
                 PointedIndex = -1;
                 HighlightedItem = new MediaItem { Title = string.Empty, Artist = string.Empty, Album = string.Empty };
+                IsNoAlbumLoadedVisible = true;
+                RefreshLoadedAlbumState();
                 return;
             }
 
@@ -2823,6 +2840,8 @@ namespace AES_Lacrima.ViewModels
                 SelectedIndex = -1;
                 PointedIndex = -1;
                 HighlightedItem = new MediaItem { Title = string.Empty, Artist = string.Empty, Album = string.Empty };
+                IsNoAlbumLoadedVisible = true;
+                RefreshLoadedAlbumState();
                 return;
             }
 
@@ -2835,6 +2854,26 @@ namespace AES_Lacrima.ViewModels
                 PointedIndex = -1;
 
             HighlightedItem = CoverItems[nextIndex];
+            IsNoAlbumLoadedVisible = false;
+            RefreshLoadedAlbumState();
+        }
+
+        private void RefreshLoadedAlbumState()
+        {
+            OnPropertyChanged(nameof(HasLoadedAlbumItems));
+            OnPropertyChanged(nameof(ShowEmptyLoadedAlbumHint));
+            OnPropertyChanged(nameof(EmptyLoadedAlbumMessage));
+            ClearAlbumCommand.NotifyCanExecuteChanged();
+        }
+
+        private void RefreshAlbumListState()
+        {
+            OnPropertyChanged(nameof(HasAlbums));
+            OnPropertyChanged(nameof(ShowEmptyAlbumListHint));
+            OnPropertyChanged(nameof(CanSortAlbums));
+            OnPropertyChanged(nameof(EmptyAlbumListMessage));
+            SortAlbumsAscendingCommand.NotifyCanExecuteChanged();
+            SortAlbumsDescendingCommand.NotifyCanExecuteChanged();
         }
 
         private static int GetRoundedSelectedIndex(double value)
@@ -2903,7 +2942,6 @@ namespace AES_Lacrima.ViewModels
                     if (LoadedAlbum != null)
                         ApplyFilter();
 
-                    IsNoAlbumLoadedVisible = LoadedAlbum == null;
                     StartDeferredLibraryMetadataWarmupIfNeeded();
                 }, Avalonia.Threading.DispatcherPriority.Background);
             }
