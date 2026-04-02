@@ -175,6 +175,12 @@ namespace AES_Lacrima
                     return;
                 }
 
+                if (PathsEqual(sourceRoot, targetPath))
+                {
+                    Log.Info($"Skipping bundled {folderName} sync because source and target are identical: {sourceRoot}");
+                    return;
+                }
+
                 // Keep user-provided/cached folders intact, but always copy any newly shipped files.
                 CopyDirectoryIfMissing(sourceRoot, targetPath);
             }
@@ -182,6 +188,20 @@ namespace AES_Lacrima
             {
                 Log.Warn($"Failed to ensure default {folderName} are available", ex);
             }
+        }
+
+        private static bool PathsEqual(string left, string right)
+        {
+            var comparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+
+            var normalizedLeft = Path.GetFullPath(left)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var normalizedRight = Path.GetFullPath(right)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            return string.Equals(normalizedLeft, normalizedRight, comparison);
         }
 
         private static void CopyDirectoryIfMissing(string sourceRoot, string targetRoot)
