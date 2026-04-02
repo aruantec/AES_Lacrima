@@ -155,7 +155,12 @@ namespace AES_Lacrima.ViewModels
         private readonly Dictionary<FolderMediaItem, AvaloniaList<MediaItem>> _folderChildrenCollections = [];
         private bool _isSyncingAlbumSelection;
         private bool _scanMissingStreamDurationsOnLoadedAlbum;
+        private bool _isApplyingDeferredAlbumList;
+        private bool _hasQueuedDeferredAlbumListRestore;
+        private bool _isMusicViewVisible;
         private bool _hasDeferredLibraryMetadataWarmupStarted;
+        private int _pendingPersistedAlbumRestoreIndex;
+        private AvaloniaList<FolderMediaItem>? _pendingPersistedAlbumList;
         private CancellationTokenSource? _loadedAlbumCoverCts;
         private MediaItem? _pendingTrackLoadItem;
 
@@ -1135,6 +1140,7 @@ namespace AES_Lacrima.ViewModels
                     ApplyFilter();
                     IsNoAlbumLoadedVisible = LoadedAlbum == null;
                     IsPrepared = true;
+                    QueueDeferredPersistedAlbumRestore();
                     Log.Info($"MusicViewModel.Prepare completed. IsVideoMode={IsVideoMode}, IsPrepared={IsPrepared}.");
                 });
             });
@@ -1143,24 +1149,19 @@ namespace AES_Lacrima.ViewModels
         public override void OnViewFullyVisible()
         {
             base.OnViewFullyVisible();
+            _isMusicViewVisible = true;
             if (_mainWindowViewModel != null)
             {
                 _mainWindowViewModel.IsShaderToyRenderingPaused = true;
             }
 
-            if (!_hasDeferredLibraryMetadataWarmupStarted && AlbumList.Count > 0)
-            {
-                _hasDeferredLibraryMetadataWarmupStarted = true;
-                Log.Info(
-                    $"MusicViewModel view became visible; starting deferred library metadata warmup. Albums={AlbumList.Count}, " +
-                    $"Items={GetAlbumItemCount()}, LoadedAlbum='{LoadedAlbum?.Title ?? "<none>"}'.");
-                StartMetadataScrappersForLoadedFolders();
-            }
+            StartDeferredLibraryMetadataWarmupIfNeeded();
         }
 
         public override void OnLeaveViewModel()
         {
             base.OnLeaveViewModel();
+            _isMusicViewVisible = false;
             if (_mainWindowViewModel != null)
             {
                 _mainWindowViewModel.IsShaderToyRenderingPaused = false;
@@ -1469,7 +1470,8 @@ namespace AES_Lacrima.ViewModels
             newValue.CollectionChanged += AlbumList_CollectionChanged;
             foreach (var item in newValue)
                 SubscribeFolder(item);
-            ApplyAlbumFilter();
+            if (!_isApplyingDeferredAlbumList)
+                ApplyAlbumFilter();
         }
 
         partial void OnLoadedAlbumChanged(FolderMediaItem? value)
@@ -1772,7 +1774,8 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
-            ApplyAlbumFilter();
+            if (!_isApplyingDeferredAlbumList)
+                ApplyAlbumFilter();
         }
 
         private void SubscribeFolder(FolderMediaItem folder)
@@ -1834,12 +1837,18 @@ namespace AES_Lacrima.ViewModels
 
         private void RefreshAlbumFilterIfNeeded()
         {
+            if (_isApplyingDeferredAlbumList)
+                return;
+
             if (!string.IsNullOrWhiteSpace(SearchAlbumText) || !ReferenceEquals(FilteredAlbumList, AlbumList))
                 ApplyAlbumFilter();
         }
 
         private void RefreshTrackFilterIfNeeded()
         {
+            if (_isApplyingDeferredAlbumList)
+                return;
+
             if (LoadedAlbum == null)
                 return;
 
@@ -2833,6 +2842,107 @@ namespace AES_Lacrima.ViewModels
             return $"{baseName} ({i})";
         }
 
+        private void QueueDeferredPersistedAlbumRestore()
+        {
+            if (_hasQueuedDeferredAlbumListRestore || _pendingPersistedAlbumList == null || _pendingPersistedAlbumList.Count == 0)
+                return;
+
+            _hasQueuedDeferredAlbumListRestore = true;
+            Log.Info(
+                $"MusicViewModel scheduling deferred playlist restore. Albums={_pendingPersistedAlbumList.Count}, " +
+                $"Items={_pendingPersistedAlbumList.Sum(folder => folder.Children?.Count ?? 0)}.");
+
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(250);
+                await ApplyDeferredPersistedAlbumRestoreAsync();
+            });
+        }
+
+        private async Task ApplyDeferredPersistedAlbumRestoreAsync()
+        {
+            var pendingAlbums = _pendingPersistedAlbumList;
+            if (pendingAlbums == null || pendingAlbums.Count == 0)
+                return;
+
+            var restoreStopwatch = Stopwatch.StartNew();
+            _isApplyingDeferredAlbumList = true;
+
+            try
+            {
+                _pendingPersistedAlbumRestoreIndex = 0;
+
+                for (int start = 0; start < pendingAlbums.Count; start += PlaylistUiAddBatchSize)
+                {
+                    var batch = pendingAlbums.Skip(start).Take(PlaylistUiAddBatchSize).ToList();
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        AlbumList.AddRange(batch);
+                    }, Avalonia.Threading.DispatcherPriority.Background);
+
+                    _pendingPersistedAlbumRestoreIndex = Math.Min(pendingAlbums.Count, start + batch.Count);
+                    await Task.Yield();
+                }
+
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    ApplyAlbumFilter();
+                    if (LoadedAlbum != null)
+                        ApplyFilter();
+
+                    IsNoAlbumLoadedVisible = LoadedAlbum == null;
+                    StartDeferredLibraryMetadataWarmupIfNeeded();
+                }, Avalonia.Threading.DispatcherPriority.Background);
+            }
+            finally
+            {
+                restoreStopwatch.Stop();
+                _isApplyingDeferredAlbumList = false;
+
+                if (ReferenceEquals(_pendingPersistedAlbumList, pendingAlbums))
+                {
+                    _pendingPersistedAlbumList = null;
+                    _pendingPersistedAlbumRestoreIndex = 0;
+                }
+
+                Log.Info(
+                    $"MusicViewModel deferred playlist restore completed in {restoreStopwatch.ElapsedMilliseconds} ms. " +
+                    $"Albums={AlbumList.Count}, Items={GetAlbumItemCount()}.");
+            }
+        }
+
+        private void StartDeferredLibraryMetadataWarmupIfNeeded()
+        {
+            if (_hasDeferredLibraryMetadataWarmupStarted || !_isMusicViewVisible || AlbumList.Count == 0)
+                return;
+
+            _hasDeferredLibraryMetadataWarmupStarted = true;
+            Log.Info(
+                $"MusicViewModel view became visible; starting deferred library metadata warmup. Albums={AlbumList.Count}, " +
+                $"Items={GetAlbumItemCount()}, LoadedAlbum='{LoadedAlbum?.Title ?? "<none>"}'.");
+            StartMetadataScrappersForLoadedFolders();
+        }
+
+        private static void InitializeRestoredAlbumRuntimeState(IEnumerable<FolderMediaItem> albums)
+        {
+            foreach (var folder in albums)
+            {
+                foreach (var child in folder.Children)
+                    child.SaveCoverBitmapAction ??= _ => { };
+            }
+        }
+
+        private IEnumerable<FolderMediaItem> GetAlbumsForPersistence()
+        {
+            if (_pendingPersistedAlbumList == null)
+                return AlbumList;
+
+            if (_pendingPersistedAlbumRestoreIndex <= 0 && AlbumList.Count == 0)
+                return _pendingPersistedAlbumList;
+
+            return AlbumList.Concat(_pendingPersistedAlbumList.Skip(_pendingPersistedAlbumRestoreIndex));
+        }
+
         private int GetAlbumItemCount() => AlbumList.Sum(folder => folder.Children?.Count ?? 0);
         #endregion
 
@@ -2970,25 +3080,22 @@ namespace AES_Lacrima.ViewModels
             var restoreStopwatch = Stopwatch.StartNew();
             AudioPlayer?.Volume = ReadDoubleSetting(section, "Volume", 70.0);
             IsAlbumlistOpen = ReadBoolSetting(section, nameof(IsAlbumlistOpen));
-            AlbumList = ReadCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
-            DefaultFolderCover ??= GenerateDefaultFolderCover();
-            foreach (var folder in AlbumList)
-            {
-                // Children is initialized by FolderMediaItem; ensure runtime safety
-                foreach (var child in folder.Children) child.SaveCoverBitmapAction ??= _ => { };
-            }
+            var restoredAlbums = ReadCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", new AvaloniaList<FolderMediaItem>());
+            InitializeRestoredAlbumRuntimeState(restoredAlbums);
+            _pendingPersistedAlbumList = restoredAlbums;
+            _pendingPersistedAlbumRestoreIndex = 0;
 
             restoreStopwatch.Stop();
             Log.Info(
-                $"MusicViewModel.OnLoadSettings restored playlist in {restoreStopwatch.ElapsedMilliseconds} ms. " +
-                $"Albums={AlbumList.Count}, Items={GetAlbumItemCount()}.");
+                $"MusicViewModel.OnLoadSettings parsed playlist snapshot in {restoreStopwatch.ElapsedMilliseconds} ms. " +
+                $"Albums={restoredAlbums.Count}, Items={restoredAlbums.Sum(folder => folder.Children?.Count ?? 0)}.");
         }
 
         protected override void OnSaveSettings(JsonObject section)
         {
             if (AudioPlayer != null) WriteSetting(section, "Volume", AudioPlayer.Volume);
             WriteSetting(section, nameof(IsAlbumlistOpen), IsAlbumlistOpen);
-            WriteCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", AlbumList);
+            WriteCollectionSetting(section, nameof(AlbumList), "FolderMediaItem", GetAlbumsForPersistence());
         }
         #endregion
 
