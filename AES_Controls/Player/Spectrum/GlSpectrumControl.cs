@@ -19,8 +19,8 @@ namespace AES_Controls.Player.Spectrum;
 /// </summary>
 public sealed class GlSpectrumControl : Control, IDisposable
 {
-    private const double MinAdaptiveFrameIntervalMs = 1000.0 / 120.0;
-    private const double MaxAdaptiveFrameIntervalMs = 1000.0 / 30.0;
+    private const double MinAdaptiveFrameIntervalMs = 1000.0 / 60.0;
+    private const double MaxAdaptiveFrameIntervalMs = 1000.0 / 24.0;
     private const double AdaptiveIntervalToleranceMs = 0.25;
     private const double SpectrumDensityFloor = 0.72;
     private const float DefaultPeakThicknessPixels = 2.0f;
@@ -33,6 +33,9 @@ public sealed class GlSpectrumControl : Control, IDisposable
 
     public static readonly StyledProperty<bool> DisableVSyncProperty =
         AvaloniaProperty.Register<GlSpectrumControl, bool>(nameof(DisableVSync), true);
+
+    public static readonly StyledProperty<bool> IsRenderingPausedProperty =
+        AvaloniaProperty.Register<GlSpectrumControl, bool>(nameof(IsRenderingPaused), false);
 
     public static readonly StyledProperty<double> BarWidthProperty =
         AvaloniaProperty.Register<GlSpectrumControl, double>(nameof(BarWidth), 4.0);
@@ -91,6 +94,12 @@ public sealed class GlSpectrumControl : Control, IDisposable
     {
         get => GetValue(DisableVSyncProperty);
         set => SetValue(DisableVSyncProperty, value);
+    }
+
+    public bool IsRenderingPaused
+    {
+        get => GetValue(IsRenderingPausedProperty);
+        set => SetValue(IsRenderingPausedProperty, value);
     }
 
     public double BarWidth
@@ -190,7 +199,7 @@ public sealed class GlSpectrumControl : Control, IDisposable
     public GlSpectrumControl()
     {
         ClipToBounds = true;
-        _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(MinAdaptiveFrameIntervalMs), DispatcherPriority.Render, OnRenderTimerTick);
+        _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(MinAdaptiveFrameIntervalMs), DispatcherPriority.Background, OnRenderTimerTick);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -242,7 +251,7 @@ public sealed class GlSpectrumControl : Control, IDisposable
 
         if (change.Property == IsVisibleProperty)
         {
-            if (change.GetNewValue<bool>())
+            if (change.GetNewValue<bool>() && !IsRenderingPaused)
             {
                 if (_isAnimating || Volatile.Read(ref _pendingRedraw) != 0)
                     _renderTimer?.Start();
@@ -252,6 +261,22 @@ public sealed class GlSpectrumControl : Control, IDisposable
             else
             {
                 _renderTimer?.Stop();
+            }
+
+            return;
+        }
+
+        if (change.Property == IsRenderingPausedProperty)
+        {
+            if (change.GetNewValue<bool>())
+            {
+                _renderTimer?.Stop();
+            }
+            else
+            {
+                _lastTicks = _stopwatch.Elapsed.TotalSeconds;
+                ResetAdaptiveFramePacing();
+                RequestRedraw();
             }
 
             return;
@@ -314,7 +339,7 @@ public sealed class GlSpectrumControl : Control, IDisposable
 
     private void OnRenderTimerTick(object? sender, EventArgs e)
     {
-        if (!IsVisible || _visual == null || (Volatile.Read(ref _pendingRedraw) == 0 && !_isAnimating))
+        if (!IsVisible || IsRenderingPaused || _visual == null || (Volatile.Read(ref _pendingRedraw) == 0 && !_isAnimating))
             return;
 
         Interlocked.Exchange(ref _pendingRedraw, 0);
@@ -323,6 +348,9 @@ public sealed class GlSpectrumControl : Control, IDisposable
 
     private void RequestRedraw()
     {
+        if (IsRenderingPaused)
+            return;
+
         _isAnimating = true;
         Interlocked.Exchange(ref _pendingRedraw, 1);
 
