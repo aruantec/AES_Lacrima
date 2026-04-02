@@ -687,13 +687,9 @@ namespace AES_Controls.Composition
             float wR = w / sc; float hR = h / sc;
             float xO = (dims.Width - wR) / 2f; float yO = (dims.Height - hR) / 2f;
 
-            // Subdivide the quad just enough to keep side cards believable without
-            // overloading the render loop during fast carousel motion.
-            float aspect = w / Math.Max(1f, h);
-            int horizontalSegments = 1 + (int)Math.Ceiling(Math.Max(0f, aspect - 1.0f) * (isReflection ? 0.25f : 1.4f) + rotationYAbs * (UseReducedMotionQuality ? 1.6f : 3.0f));
-            if (horizontalSegments < 1) horizontalSegments = 1;
-            int maxSegments = isReflection ? 1 : (UseReducedMotionQuality ? 2 : 5);
-            if (horizontalSegments > maxSegments) horizontalSegments = maxSegments;
+            // Render every cover as one rigid quad so artwork details stay stable
+            // while cards move and rotate in the carousel.
+            int horizontalSegments = 1;
 
             int vertCount = 2 * (horizontalSegments + 1);
             if (_meshVBuffer.Length != vertCount) _meshVBuffer = new SKPoint[vertCount];
