@@ -343,7 +343,7 @@
               Grid.Row="0"
               ZIndex="3000"
               RowDefinitions="Auto,*"
-              IsVisible="{Binding IsVideoMode}"
+              IsVisible="{Binding IsEqualizerVisible}"
               IsHitTestVisible="{Binding IsEqualizerVisible}"
               Opacity="{Binding IsEqualizerVisible, Converter={StaticResource BoolToOpacityConverter}}">
 
