@@ -4,6 +4,7 @@ using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -160,6 +161,9 @@ namespace AES_Lacrima.ViewModels
         public string AlbumListToggleText => IsAlbumListCollapsed ? "Show Albums" : "Hide Albums";
         [ObservableProperty]
         private bool _isEmulatorRunning;
+
+        [ObservableProperty]
+        private IntPtr _emulatorTargetHwnd;
 
         public bool IsGameplayPreviewAvailable => IsGameplayAutoplayEnabled && IsYtDlpInstalled && !IsEmulatorRunning;
 
@@ -1520,6 +1524,7 @@ namespace AES_Lacrima.ViewModels
             if (process == null)
             {
                 SLog.Warn($"Emulator launch for '{romPath}' did not expose a trackable process handle.");
+                EmulatorTargetHwnd = IntPtr.Zero;
                 StopGameplayPreview();
                 return;
             }
@@ -1542,6 +1547,8 @@ namespace AES_Lacrima.ViewModels
 
             if (process.HasExited)
                 HandleTrackedEmulatorExited(process);
+            else
+                _ = ResolveEmulatorTargetHwndAsync(process, romPath);
         }
 
         private void ActiveEmulatorProcess_Exited(object? sender, EventArgs e)
@@ -1576,7 +1583,10 @@ namespace AES_Lacrima.ViewModels
         private void DetachTrackedEmulatorProcess()
         {
             if (_activeEmulatorProcess == null)
+            {
+                EmulatorTargetHwnd = IntPtr.Zero;
                 return;
+            }
 
             try
             {
@@ -1590,8 +1600,131 @@ namespace AES_Lacrima.ViewModels
             finally
             {
                 _activeEmulatorProcess = null;
+                EmulatorTargetHwnd = IntPtr.Zero;
             }
         }
+
+        private async Task ResolveEmulatorTargetHwndAsync(Process process, string romPath)
+        {
+            try
+            {
+                var hwnd = await WaitForMainWindowHandleAsync(process).ConfigureAwait(false);
+                if (hwnd == IntPtr.Zero)
+                {
+                    SLog.Warn($"Failed to resolve emulator HWND for '{romPath}'.");
+                    return;
+                }
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (!ReferenceEquals(_activeEmulatorProcess, process))
+                        return;
+
+                    try
+                    {
+                        if (process.HasExited)
+                            return;
+                    }
+                    catch
+                    {
+                        return;
+                    }
+
+                    EmulatorTargetHwnd = hwnd;
+                }, DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to resolve emulator HWND for '{romPath}'.", ex);
+            }
+        }
+
+        private static async Task<IntPtr> WaitForMainWindowHandleAsync(Process process)
+        {
+            const int maxAttempts = 40;
+            const int delayMs = 250;
+
+            TryWaitForInputIdle(process, 2000);
+
+            for (var attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                try
+                {
+                    if (process.HasExited)
+                        return IntPtr.Zero;
+
+                    process.Refresh();
+
+                    if (process.MainWindowHandle != IntPtr.Zero)
+                        return process.MainWindowHandle;
+
+                    var enumeratedHandle = TryFindMainWindowHandle(process.Id);
+                    if (enumeratedHandle != IntPtr.Zero)
+                        return enumeratedHandle;
+                }
+                catch
+                {
+                    // Ignore races while the emulator process is starting or exiting.
+                }
+
+                await Task.Delay(delayMs).ConfigureAwait(false);
+            }
+
+            return IntPtr.Zero;
+        }
+
+        private static void TryWaitForInputIdle(Process process, int timeoutMs)
+        {
+            try
+            {
+                process.WaitForInputIdle(timeoutMs);
+            }
+            catch
+            {
+                // Some emulators do not expose an input-idle state; handle polling covers that path.
+            }
+        }
+
+        private static IntPtr TryFindMainWindowHandle(int processId)
+        {
+            if (!OperatingSystem.IsWindows())
+                return IntPtr.Zero;
+
+            IntPtr found = IntPtr.Zero;
+
+            EnumWindows((hwnd, _) =>
+            {
+                if (hwnd == IntPtr.Zero || !IsWindowVisible(hwnd))
+                    return true;
+
+                if (GetWindowThreadProcessId(hwnd, out uint windowPid) == 0 || windowPid != (uint)processId)
+                    return true;
+
+                if (GetWindow(hwnd, GW_OWNER) != IntPtr.Zero)
+                    return true;
+
+                found = hwnd;
+                return false;
+            }, IntPtr.Zero);
+
+            return found;
+        }
+
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+        private const uint GW_OWNER = 4;
 
         private static ProcessStartInfo BuildEmulatorStartInfo(string? albumTitle, string launcherPath, string romPath)
         {

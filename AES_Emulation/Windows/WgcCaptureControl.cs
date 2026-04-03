@@ -96,6 +96,7 @@ public class WgcCaptureControl : OpenGlControlBase
     private bool _dxInteropAvailable = false;
     private bool _usingDxInterop = false;
     private WindowHandler? _windowHandler;
+    private TopLevel? _hostTopLevel;
 
     // GPU interop state
     private IntPtr _wglDeviceHandle = IntPtr.Zero;
@@ -298,6 +299,22 @@ public class WgcCaptureControl : OpenGlControlBase
     #endregion
 
     #region Private/Protected Methods
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        TryResolveHostHandle();
+
+        if (TargetHwnd != IntPtr.Zero)
+            TryAttachTargetWindow();
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        DetachHostTopLevel();
+        _hostHandle = IntPtr.Zero;
+        base.OnDetachedFromVisualTree(e);
+    }
+
     protected override unsafe void OnOpenGlInit(GlInterface gl)
     {
         var shaderInfo = GlHelper.GetShaderVersion(gl);
@@ -809,11 +826,7 @@ public class WgcCaptureControl : OpenGlControlBase
         _uiHeartbeat?.Stop();
 
         // Cleanup host event subscriptions
-        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            var mw = desktop.MainWindow as TopLevel;
-            if (mw != null) mw.PointerReleased -= Mw_PointerReleased;
-        }
+        DetachHostTopLevel();
 
         CleanupTargetWindow(TargetHwnd);
 
@@ -851,20 +864,7 @@ public class WgcCaptureControl : OpenGlControlBase
             Win32API.RemoveWindowDecorations(hwnd);
             Win32API.MoveAway(hwnd);
             Win32API.SetWindowOpacity(hwnd, 0);
-
-            if (_hostHandle != IntPtr.Zero)
-            {
-                _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
-                _windowHandler.EnableRoundedCorners(44);
-                _windowHandler.SetMoveToHost(false);
-                _windowHandler.Start(_hostHandle, hwnd);
-                StartCapture();
-            }
-            else
-            {
-                Loaded -= WgcCaptureControl_Loaded;
-                Loaded += WgcCaptureControl_Loaded;
-            }
+            TryAttachTargetWindow();
         }
         else
         {
@@ -879,23 +879,7 @@ public class WgcCaptureControl : OpenGlControlBase
     private void WgcCaptureControl_Loaded(object? sender, RoutedEventArgs e)
     {
         if (TargetHwnd == IntPtr.Zero) return;
-
-        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            var mw = desktop.MainWindow as TopLevel;
-            if (mw != null && mw.TryGetPlatformHandle() is IPlatformHandle platform)
-            {
-                _hostHandle = platform.Handle;
-                mw.PointerReleased -= Mw_PointerReleased;
-                mw.PointerReleased += Mw_PointerReleased;
-
-                _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
-                _windowHandler.EnableRoundedCorners(44);
-                _windowHandler.SetMoveToHost(false);
-                _windowHandler.Start(platform.Handle, TargetHwnd);
-                StartCapture();
-            }
-        }
+        TryAttachTargetWindow();
     }
 
     private void Mw_PointerReleased(object? sender, PointerReleasedEventArgs e)
@@ -925,6 +909,58 @@ public class WgcCaptureControl : OpenGlControlBase
         {
             Debug.WriteLine($"[WGC] Error during CleanupTargetWindow: {ex.Message}");
         }
+    }
+
+    private bool TryResolveHostHandle()
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null)
+            return false;
+
+        if (!ReferenceEquals(_hostTopLevel, topLevel))
+        {
+            DetachHostTopLevel();
+            _hostTopLevel = topLevel;
+            _hostTopLevel.PointerReleased -= Mw_PointerReleased;
+            _hostTopLevel.PointerReleased += Mw_PointerReleased;
+        }
+
+        if (topLevel.TryGetPlatformHandle() is not IPlatformHandle platform || platform.Handle == IntPtr.Zero)
+            return false;
+
+        _hostHandle = platform.Handle;
+        return true;
+    }
+
+    private void DetachHostTopLevel()
+    {
+        if (_hostTopLevel == null)
+            return;
+
+        _hostTopLevel.PointerReleased -= Mw_PointerReleased;
+        _hostTopLevel = null;
+    }
+
+    private void TryAttachTargetWindow()
+    {
+        if (TargetHwnd == IntPtr.Zero)
+            return;
+
+        if (!TryResolveHostHandle())
+        {
+            Loaded -= WgcCaptureControl_Loaded;
+            Loaded += WgcCaptureControl_Loaded;
+            return;
+        }
+
+        Loaded -= WgcCaptureControl_Loaded;
+
+        _windowHandler?.Stop();
+        _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
+        _windowHandler.EnableRoundedCorners(44);
+        _windowHandler.SetMoveToHost(false);
+        _windowHandler.Start(_hostHandle, TargetHwnd);
+        StartCapture();
     }
 
     private void OnRetroarchShaderFileChanged(AvaloniaPropertyChangedEventArgs e)
