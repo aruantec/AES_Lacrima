@@ -15,7 +15,7 @@ using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
-using AES_Emulation.Windows.API;
+using AES_Emulation.EmulationHandlers;
 using AES_Lacrima.Services;
 using Avalonia;
 using System.ComponentModel;
@@ -1619,9 +1619,16 @@ namespace AES_Lacrima.ViewModels
         {
             try
             {
-                var startInfo = BuildEmulatorStartInfo(request.AlbumTitle, request.LauncherPath, request.RomPath, request.LaunchSettings);
+                var handler = EmulatorHandlerRegistry.GetHandler(request.AlbumTitle);
+                if (!handler.IsPrepared)
+                    handler.Prepare();
+
+                var startInfo = handler.BuildStartInfo(
+                    request.LauncherPath,
+                    request.RomPath,
+                    request.LaunchSettings?.StartFullscreen == true);
                 var process = Process.Start(startInfo);
-                TrackEmulatorProcess(process, request.AlbumTitle, request.RomPath);
+                TrackEmulatorProcess(process, request.RomPath, handler);
             }
             catch (Exception ex)
             {
@@ -1714,7 +1721,7 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private void TrackEmulatorProcess(Process? process, string albumTitle, string romPath)
+        private void TrackEmulatorProcess(Process? process, string romPath, IEmulatorHandler handler)
         {
             EmulatorTargetHwnd = IntPtr.Zero;
 
@@ -1745,7 +1752,7 @@ namespace AES_Lacrima.ViewModels
             if (process.HasExited)
                 HandleTrackedEmulatorExited(process);
             else
-                _ = ResolveEmulatorTargetHwndAsync(process, albumTitle, romPath);
+                _ = ResolveEmulatorTargetHwndAsync(process, romPath, handler);
         }
 
         private void ActiveEmulatorProcess_Exited(object? sender, EventArgs e)
@@ -1802,7 +1809,7 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private async Task ResolveEmulatorTargetHwndAsync(Process process, string albumTitle, string romPath)
+        private async Task ResolveEmulatorTargetHwndAsync(Process process, string romPath, IEmulatorHandler handler)
         {
             const int maxAttempts = 80;
             const int delayMs = 250;
@@ -1814,7 +1821,7 @@ namespace AES_Lacrima.ViewModels
             IntPtr assignedHwnd = IntPtr.Zero;
             var assignedStableAttempts = 0;
             var hasAssignedHandle = false;
-            bool keepDuckStationHiddenUntilCaptured = IsDuckStationSection(albumTitle);
+            var hideUntilCaptured = handler.HideUntilCaptured;
 
             try
             {
@@ -1825,17 +1832,14 @@ namespace AES_Lacrima.ViewModels
                     if (!IsTrackedProcessAlive(process))
                         return;
 
-                    if (keepDuckStationHiddenUntilCaptured)
-                        HideProcessWindowsForCapture(process);
+                    if (hideUntilCaptured)
+                        handler.PrepareProcessForCapture(process);
 
-                    var hwnd = TryFindPreferredWindowHandle(
-                        process,
-                        keepDuckStationHiddenUntilCaptured,
-                        allowHiddenWindows: keepDuckStationHiddenUntilCaptured);
+                    var hwnd = handler.FindPreferredWindowHandle(process);
                     if (hwnd != IntPtr.Zero)
                     {
-                        if (keepDuckStationHiddenUntilCaptured)
-                            HideWindowForCapture(hwnd);
+                        if (hideUntilCaptured)
+                            handler.PrepareWindowForCapture(hwnd);
 
                         if (hwnd == observedHwnd)
                         {
@@ -1847,9 +1851,7 @@ namespace AES_Lacrima.ViewModels
                             observedStableAttempts = 1;
                         }
 
-                        var canAssign =
-                            !keepDuckStationHiddenUntilCaptured ||
-                            IsLikelyDuckStationRenderWindow(hwnd, process.MainWindowHandle);
+                        var canAssign = !hideUntilCaptured || handler.CanAssignWindow(hwnd, process.MainWindowHandle);
 
                         if (canAssign &&
                             hwnd != assignedHwnd &&
@@ -1858,7 +1860,7 @@ namespace AES_Lacrima.ViewModels
                             if (!await TryApplyEmulatorTargetHwndAsync(
                                     process,
                                     hwnd,
-                                    showWindowForCapture: keepDuckStationHiddenUntilCaptured).ConfigureAwait(false))
+                                    showWindowForCapture: hideUntilCaptured).ConfigureAwait(false))
                                 return;
 
                             assignedHwnd = hwnd;
@@ -1889,45 +1891,6 @@ namespace AES_Lacrima.ViewModels
             {
                 SLog.Warn($"Failed to resolve emulator HWND for '{romPath}'.", ex);
             }
-        }
-
-        private static void HideProcessWindowsForCapture(Process process)
-        {
-            if (!OperatingSystem.IsWindows())
-                return;
-
-            uint processId;
-
-            try
-            {
-                processId = (uint)process.Id;
-            }
-            catch
-            {
-                return;
-            }
-
-            EnumWindows((hwnd, _) =>
-            {
-                if (hwnd == IntPtr.Zero || !IsWindowVisible(hwnd))
-                    return true;
-
-                if (GetWindowThreadProcessId(hwnd, out uint windowPid) == 0 || windowPid != processId)
-                    return true;
-
-                HideWindowForCapture(hwnd);
-                return true;
-            }, IntPtr.Zero);
-        }
-
-        private static void HideWindowForCapture(IntPtr hwnd)
-        {
-            if (hwnd == IntPtr.Zero)
-                return;
-
-            Win32API.RemoveWindowDecorations(hwnd);
-            Win32API.MoveAway(hwnd);
-            Win32API.SetWindowOpacity(hwnd, 0);
         }
 
         private bool IsTrackedProcessAlive(Process process)
@@ -1987,109 +1950,6 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private static IntPtr TryFindPreferredWindowHandle(Process process, bool preferDuckStationRenderWindow, bool allowHiddenWindows = false)
-        {
-            if (!OperatingSystem.IsWindows())
-                return IntPtr.Zero;
-
-            IntPtr mainWindowHandle;
-            uint processId;
-
-            try
-            {
-                process.Refresh();
-                mainWindowHandle = process.MainWindowHandle;
-                processId = (uint)process.Id;
-            }
-            catch
-            {
-                return IntPtr.Zero;
-            }
-
-            IntPtr bestHandle = IntPtr.Zero;
-            long bestScore = long.MinValue;
-
-            EnumWindows((hwnd, _) =>
-            {
-                var score = ScoreProcessWindowCandidate(
-                    hwnd,
-                    processId,
-                    mainWindowHandle,
-                    preferDuckStationRenderWindow,
-                    allowHiddenWindows);
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    bestHandle = hwnd;
-                }
-
-                return true;
-            }, IntPtr.Zero);
-
-            if (bestHandle != IntPtr.Zero)
-                return bestHandle;
-
-            if (preferDuckStationRenderWindow)
-                return IntPtr.Zero;
-
-            return ScoreProcessWindowCandidate(
-                    mainWindowHandle,
-                    processId,
-                    mainWindowHandle,
-                    preferDuckStationRenderWindow,
-                    allowHiddenWindows) > long.MinValue
-                ? mainWindowHandle
-                : IntPtr.Zero;
-        }
-
-        private static long ScoreProcessWindowCandidate(
-            IntPtr hwnd,
-            uint processId,
-            IntPtr mainWindowHandle,
-            bool preferDuckStationRenderWindow,
-            bool allowHiddenWindows)
-        {
-            if (hwnd == IntPtr.Zero)
-                return long.MinValue;
-
-            var isVisible = IsWindowVisible(hwnd);
-            if (!isVisible && !allowHiddenWindows)
-                return long.MinValue;
-
-            if (GetWindowThreadProcessId(hwnd, out uint windowPid) == 0 || windowPid != processId)
-                return long.MinValue;
-
-            if (!GetWindowRect(hwnd, out RECT windowRect))
-                return long.MinValue;
-
-            var width = Math.Max(0, windowRect.Right - windowRect.Left);
-            var height = Math.Max(0, windowRect.Bottom - windowRect.Top);
-            if (width <= 0 || height <= 0)
-                return long.MinValue;
-
-            long score = (long)width * height * 10;
-            score += isVisible ? 100_000 : -100_000;
-
-            if (GetWindow(hwnd, GW_OWNER) == IntPtr.Zero)
-                score += 1_000_000;
-
-            if (hwnd == mainWindowHandle)
-                score += 750_000;
-
-            if (width >= 640 && height >= 360)
-                score += 250_000;
-
-            if (preferDuckStationRenderWindow)
-            {
-                if (!IsLikelyDuckStationRenderWindow(hwnd, mainWindowHandle))
-                    return long.MinValue;
-
-                score += 5_000_000;
-            }
-
-            return score;
-        }
-
         private static void ShowWindowForCapture(IntPtr hwnd)
         {
             if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
@@ -2105,162 +1965,9 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private static bool IsLikelyDuckStationRenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
-        {
-            if (hwnd == IntPtr.Zero)
-                return false;
-
-            var title = GetWindowTitle(hwnd);
-            var className = GetWindowClassName(hwnd);
-            var style = GetWindowLong(hwnd, GWL_STYLE);
-
-            var hasCaption = (style & WS_CAPTION) == WS_CAPTION;
-            var hasThickFrame = (style & WS_THICKFRAME) == WS_THICKFRAME;
-            var looksLikePrimaryUi = hwnd == mainWindowHandle;
-            var normalizedTitle = title.Trim();
-
-            if (!string.IsNullOrWhiteSpace(normalizedTitle))
-            {
-                if (normalizedTitle.Contains("DuckStation", StringComparison.OrdinalIgnoreCase) ||
-                    normalizedTitle.Contains("settings", StringComparison.OrdinalIgnoreCase) ||
-                    normalizedTitle.Contains("game list", StringComparison.OrdinalIgnoreCase) ||
-                    normalizedTitle.Contains("controller", StringComparison.OrdinalIgnoreCase) ||
-                    normalizedTitle.Contains("memory card", StringComparison.OrdinalIgnoreCase) ||
-                    normalizedTitle.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
-                    normalizedTitle.Contains("achievement", StringComparison.OrdinalIgnoreCase) ||
-                    normalizedTitle.Contains("tools", StringComparison.OrdinalIgnoreCase) ||
-                    normalizedTitle.Contains("view", StringComparison.OrdinalIgnoreCase) ||
-                    normalizedTitle.Contains("help", StringComparison.OrdinalIgnoreCase))
-                {
-                    looksLikePrimaryUi = true;
-                }
-
-                if (!normalizedTitle.Contains("DuckStation", StringComparison.OrdinalIgnoreCase) &&
-                    normalizedTitle.Length >= 3)
-                {
-                    looksLikePrimaryUi = false;
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(className) &&
-                (className.Contains("QWindow", StringComparison.OrdinalIgnoreCase) ||
-                 className.Contains("Qt", StringComparison.OrdinalIgnoreCase)))
-            {
-                looksLikePrimaryUi |= hasCaption && hasThickFrame;
-            }
-
-            return !looksLikePrimaryUi && (!hasCaption || !string.IsNullOrWhiteSpace(normalizedTitle));
-        }
-
-        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct RECT
-        {
-            public int Left;
-            public int Top;
-            public int Right;
-            public int Bottom;
-        }
-
-        [DllImport("user32.dll")]
-        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        private static extern bool IsWindowVisible(IntPtr hWnd);
-
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-        [DllImport("user32.dll")]
-        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
-
-        [DllImport("user32.dll")]
-        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
-
-        [DllImport("user32.dll", EntryPoint = "GetWindowLong")]
-        private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-
-        private const uint GW_OWNER = 4;
         private const int SW_SHOWNOACTIVATE = 4;
-        private const int GWL_STYLE = -16;
-        private const int WS_CAPTION = 0x00C00000;
-        private const int WS_THICKFRAME = 0x00040000;
-
-        private static string GetWindowTitle(IntPtr hwnd)
-        {
-            try
-            {
-                var builder = new StringBuilder(256);
-                return GetWindowText(hwnd, builder, builder.Capacity) > 0 ? builder.ToString() : string.Empty;
-            }
-            catch
-            {
-                return string.Empty;
-            }
-        }
-
-        private static string GetWindowClassName(IntPtr hwnd)
-        {
-            try
-            {
-                var builder = new StringBuilder(256);
-                return GetClassName(hwnd, builder, builder.Capacity) > 0 ? builder.ToString() : string.Empty;
-            }
-            catch
-            {
-                return string.Empty;
-            }
-        }
-
-        private static ProcessStartInfo BuildEmulatorStartInfo(string? albumTitle, string launcherPath, string romPath, EmulationSectionLaunchSettings? launchSettings)
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = launcherPath,
-                UseShellExecute = true,
-                WorkingDirectory = Path.GetDirectoryName(launcherPath) ?? string.Empty
-            };
-
-            if (IsDuckStationSection(albumTitle))
-            {
-                startInfo.WindowStyle = ProcessWindowStyle.Hidden;
-
-                // DuckStation expects command switches before `--`, with the image path
-                // after `--` so the ROM filename is not parsed as an option.
-                startInfo.ArgumentList.Add("-batch");
-                if (launchSettings?.StartFullscreen == true)
-                    startInfo.ArgumentList.Add("-fullscreen");
-
-                startInfo.ArgumentList.Add("--");
-                startInfo.ArgumentList.Add(romPath);
-            }
-            else
-            {
-                startInfo.ArgumentList.Add(romPath);
-            }
-
-            return startInfo;
-        }
-
-        private static bool IsDuckStationSection(string? albumTitle)
-        {
-            if (string.IsNullOrWhiteSpace(albumTitle))
-                return false;
-
-            return string.Equals(albumTitle, "PlayStation", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(albumTitle, "PSX", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(albumTitle, "PS1", StringComparison.OrdinalIgnoreCase);
-        }
 
 
         private static int GetRoundedSelectedIndex(double value) => (int)Math.Round(value);
