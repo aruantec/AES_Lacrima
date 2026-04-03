@@ -23,6 +23,7 @@ public class CompositionWgcCaptureControl : Control
     private nint _session = nint.Zero;
     private WindowHandler? _windowHandler;
     private nint _hostHandle = nint.Zero;
+    private nint _activeTargetHwnd = nint.Zero;
 
     private bool _isDraggingOverlay;
     private Point _dragStart;
@@ -324,15 +325,8 @@ public class CompositionWgcCaptureControl : Control
             UpdateHandlerSession();
             UpdateHandlerSettings();
 
-            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-            {
-                var mw = desktop.MainWindow as TopLevel;
-                if (mw != null && mw.TryGetPlatformHandle() is IPlatformHandle platform)
-                {
-                    _hostHandle = platform.Handle;
-                    StartSession();
-                }
-            }
+            TryResolveHostHandle();
+            StartSession();
         }
     }
 
@@ -350,23 +344,29 @@ public class CompositionWgcCaptureControl : Control
 
     private void StartSession()
     {
-        if (TargetHwnd == IntPtr.Zero || _hostHandle == IntPtr.Zero) return;
-
         StopSession();
 
+        var nextTargetHwnd = TargetHwnd;
+        if (nextTargetHwnd == IntPtr.Zero)
+            return;
+
+        if (_hostHandle == IntPtr.Zero && !TryResolveHostHandle())
+            return;
+
         // Prepare target window
-        Win32API.RemoveWindowDecorations(TargetHwnd);
-        Win32API.MoveAway(TargetHwnd);
-        Win32API.SetWindowOpacity(TargetHwnd, 0);
+        Win32API.RemoveWindowDecorations(nextTargetHwnd);
+        Win32API.MoveAway(nextTargetHwnd);
+        Win32API.SetWindowOpacity(nextTargetHwnd, 0);
 
         _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
         _windowHandler.EnableRoundedCorners(44);
         _windowHandler.SetMoveToHost(false);
-        _windowHandler.Start(_hostHandle, TargetHwnd);
+        _windowHandler.Start(_hostHandle, nextTargetHwnd);
 
-        _session = WgcBridgeApi.CreateCaptureSession(TargetHwnd);
+        _session = WgcBridgeApi.CreateCaptureSession(nextTargetHwnd);
         if (_session != nint.Zero)
         {
+            _activeTargetHwnd = nextTargetHwnd;
             if (DisableDownscale)
                 WgcBridgeApi.SetCaptureMaxResolution(_session, 0, 0);
             else
@@ -375,26 +375,38 @@ public class CompositionWgcCaptureControl : Control
             UpdateHandlerSession();
             UpdateHandlerSettings();
         }
+        else
+        {
+            Win32API.RestoreWindowDecorations(nextTargetHwnd);
+            Win32API.SetWindowOpacity(nextTargetHwnd, 255);
+        }
     }
 
     private void StopSession()
     {
+        var previousTargetHwnd = _activeTargetHwnd;
+
         if (_windowHandler != null)
         {
             _windowHandler.Stop();
             _windowHandler.RestoreOriginalPosition();
             _windowHandler = null;
 
-            Win32API.RestoreWindowDecorations(TargetHwnd);
-            Win32API.SetWindowOpacity(TargetHwnd, 255);
+            if (previousTargetHwnd != IntPtr.Zero)
+            {
+                Win32API.RestoreWindowDecorations(previousTargetHwnd);
+                Win32API.SetWindowOpacity(previousTargetHwnd, 255);
+            }
         }
 
         if (_session != nint.Zero)
         {
             WgcBridgeApi.DestroyCaptureSession(_session);
             _session = nint.Zero;
-            UpdateHandlerSession();
         }
+
+        _activeTargetHwnd = IntPtr.Zero;
+        UpdateHandlerSession();
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -404,7 +416,6 @@ public class CompositionWgcCaptureControl : Control
         if (change.Property == TargetHwndProperty)
         {
             if (_visual == null) return;
-            //Start or stop session
             StartSession();
         }
         else if (change.Property == RequestStopSessionProperty)
@@ -414,20 +425,7 @@ public class CompositionWgcCaptureControl : Control
                 var requested = change.NewValue is bool b && b;
                 if (requested)
                 {
-                    // Immediately stop session while TargetHwnd still holds the handle
-                    try
-                    {
-                        if (_windowHandler != null)
-                        {
-                            _windowHandler.Stop();
-                            _windowHandler.RestoreOriginalPosition();
-                            _windowHandler = null;
-                            Win32API.RestoreWindowDecorations(TargetHwnd);
-                            Win32API.SetWindowOpacity(TargetHwnd, 255);
-                        }
-                    }
-                    catch { }
-                    // Reset the request flag so subsequent clears don't re-trigger
+                    StopSession();
                     SetValue(RequestStopSessionProperty, false);
                 }
             }
@@ -480,9 +478,19 @@ public class CompositionWgcCaptureControl : Control
         _visual?.SendHandlerMessage(new WgcSessionMessage
         {
             Session = _session,
-            TargetHwnd = TargetHwnd,
+            TargetHwnd = _activeTargetHwnd,
             Owner = new WeakReference<CompositionWgcCaptureControl>(this)
         });
+    }
+
+    private bool TryResolveHostHandle()
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel?.TryGetPlatformHandle() is not IPlatformHandle platform || platform.Handle == IntPtr.Zero)
+            return false;
+
+        _hostHandle = platform.Handle;
+        return true;
     }
 
     private void UpdateHandlerSettings()
@@ -578,6 +586,15 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private string _gpuVendor = "Unknown";
     private readonly float[] _frameTimes = new float[120];
     private int _frameTimePtr = 0;
+    private SKTypeface? _overlayTypefaceBold;
+    private SKTypeface? _overlayTypefaceRegular;
+    private SKPaint? _overlayTextPaint;
+    private SKPaint? _overlayDetailTextPaint;
+    private SKPaint? _overlayBackgroundPaint;
+    private SKPaint? _overlayLinePaint;
+    private SKPaint? _overlayGridPaint;
+    private SKPaint? _overlayGraphTextPaint;
+    private SKPath? _overlayGraphPath;
 
     private Vector2 _visualSize;
     private SKRect _cachedDestRect;
@@ -593,6 +610,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private SlangShaderPipeline? _shaderPipeline;
     private string? _retroarchShaderFile;
     private GlInterface? _gl;
+    private IntPtr _glTexSubImage2DPtr = IntPtr.Zero;
     private int _captureTextureId;
     private int _intermediateFbo;
     private int _intermediateTextureId;
@@ -678,6 +696,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _intermediateTextureId = 0;
             _intermediateFbo = 0;
         }
+        _glTexSubImage2DPtr = IntPtr.Zero;
 
         if (_paint != null)
         {
@@ -685,6 +704,25 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _paint.Dispose();
             _paint = null!;
         }
+
+        _overlayGraphPath?.Dispose();
+        _overlayGraphPath = null;
+        _overlayTextPaint?.Dispose();
+        _overlayTextPaint = null;
+        _overlayDetailTextPaint?.Dispose();
+        _overlayDetailTextPaint = null;
+        _overlayBackgroundPaint?.Dispose();
+        _overlayBackgroundPaint = null;
+        _overlayLinePaint?.Dispose();
+        _overlayLinePaint = null;
+        _overlayGridPaint?.Dispose();
+        _overlayGridPaint = null;
+        _overlayGraphTextPaint?.Dispose();
+        _overlayGraphTextPaint = null;
+        _overlayTypefaceBold?.Dispose();
+        _overlayTypefaceBold = null;
+        _overlayTypefaceRegular?.Dispose();
+        _overlayTypefaceRegular = null;
     }
 
     private void EnsureGl(ImmediateDrawingContext context, GRContext? grContext)
@@ -721,6 +759,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         if (_gl != null)
         {
             _backendName = "OpenGL";
+            if (_glTexSubImage2DPtr == IntPtr.Zero)
+                _glTexSubImage2DPtr = _gl.GetProcAddress("glTexSubImage2D");
             try
             {
                 _gpuRenderer = _gl.GetString(0x1F01) ?? _gpuRenderer; // GL_RENDERER
@@ -762,8 +802,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         }
         _lastFrameTicks = nowTicks;
 
-        // Throttle UI property updates (approx 30 FPS)
-        if ((double)(nowTicks - _lastUiUpdateTicks) / Stopwatch.Frequency >= 0.033)
+        // External UI property updates do not need game-frame cadence.
+        if ((double)(nowTicks - _lastUiUpdateTicks) / Stopwatch.Frequency >= 0.1)
         {
             _lastUiUpdateTicks = nowTicks;
 
@@ -815,6 +855,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         var canvas = lease.SkCanvas;
         var grContext = lease.GrContext;
 
+        canvas.Clear(SKColors.Black);
+
         EnsureGl(context, grContext);
 
         if (WgcBridgeApi.AcquireLatestFrame(_session, out IntPtr ptr, out nuint size, out int w, out int h))
@@ -857,50 +899,42 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     private void RenderOverlay(SKCanvas canvas)
     {
-        using var paint = new SKPaint
-        {
-            Color = SKColors.White.WithAlpha(220),
-            IsAntialias = true,
-            TextSize = 16,
-            Typeface = SKTypeface.FromFamilyName("Consolas", SKFontStyleWeight.Bold, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)
-        };
+        EnsureOverlayResources();
+        if (_overlayTextPaint == null ||
+            _overlayDetailTextPaint == null ||
+            _overlayBackgroundPaint == null)
+            return;
+
+        _overlayBackgroundPaint.Color = new SKColor(
+            _overlayBackgroundColor.R,
+            _overlayBackgroundColor.G,
+            _overlayBackgroundColor.B,
+            (byte)(_overlayOpacity * 255));
 
         float x = _overlayPosition.X;
         float y = _overlayPosition.Y;
         float lineH = 20;
 
         // Background box for readability
-        using (var bgPaint = new SKPaint
-        {
-            Color = new SKColor(_overlayBackgroundColor.R, _overlayBackgroundColor.G, _overlayBackgroundColor.B, (byte)(_overlayOpacity * 255)),
-            IsAntialias = true
-        })
-        {
-            float boxW = 200;
-            if (_showDetailedGpuInfo) boxW = 350;
+        float boxW = _showDetailedGpuInfo ? 350 : 200;
+        float boxH = lineH * 3 + 10;
+        if (_showDetailedGpuInfo) boxH += lineH * 2;
+        if (_showFrametimeGraph) boxH += 60;
+        canvas.DrawRoundRect(x - 10, y - 20, boxW, boxH, 8, 8, _overlayBackgroundPaint);
 
-            float boxH = lineH * 3 + 10;
-            if (_showDetailedGpuInfo) boxH += lineH * 2;
-            if (_showFrametimeGraph) boxH += 60;
-
-            canvas.DrawRoundRect(x - 10, y - 20, boxW, boxH, 8, 8, bgPaint);
-        }
-
-        canvas.DrawText($"Backend: {_backendName}", x, y, paint);
+        canvas.DrawText($"Backend: {_backendName}", x, y, _overlayTextPaint);
         y += lineH;
-        canvas.DrawText($"FPS: {Math.Round(_smoothedFps, 1)}", x, y, paint);
+        canvas.DrawText($"FPS: {Math.Round(_smoothedFps, 1)}", x, y, _overlayTextPaint);
         y += lineH;
-        canvas.DrawText($"VRR/VSync: {(_vrrActive ? "On" : "Off")}", x, y, paint);
+        canvas.DrawText($"VRR/VSync: {(_vrrActive ? "On" : "Off")}", x, y, _overlayTextPaint);
         y += lineH;
 
         if (_showDetailedGpuInfo)
         {
-            paint.TextSize = 14;
-            canvas.DrawText($"GPU: {_gpuRenderer}", x, y, paint);
+            canvas.DrawText($"GPU: {_gpuRenderer}", x, y, _overlayDetailTextPaint);
             y += lineH;
-            canvas.DrawText($"Vendor: {_gpuVendor}", x, y, paint);
+            canvas.DrawText($"Vendor: {_gpuVendor}", x, y, _overlayDetailTextPaint);
             y += lineH;
-            paint.TextSize = 16;
         }
 
         if (_showFrametimeGraph)
@@ -913,28 +947,20 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     private void RenderFrametimeGraph(SKCanvas canvas, float x, float y, float w, float h)
     {
-        using var linePaint = new SKPaint
-        {
-            Color = SKColors.Cyan.WithAlpha(180),
-            Style = SKPaintStyle.Stroke,
-            StrokeWidth = 1.5f,
-            IsAntialias = true
-        };
-
-        using var gridPaint = new SKPaint
-        {
-            Color = SKColors.White.WithAlpha(40),
-            Style = SKPaintStyle.Stroke,
-            StrokeWidth = 1f
-        };
+        EnsureOverlayResources();
+        if (_overlayLinePaint == null ||
+            _overlayGridPaint == null ||
+            _overlayGraphTextPaint == null ||
+            _overlayGraphPath == null)
+            return;
 
         // Grid lines (16.6ms, 33.3ms)
         float ms16 = y + h - (16.6f / 50f * h);
         float ms33 = y + h - (33.3f / 50f * h);
-        canvas.DrawLine(x, ms16, x + w, ms16, gridPaint);
-        canvas.DrawLine(x, ms33, x + w, ms33, gridPaint);
+        canvas.DrawLine(x, ms16, x + w, ms16, _overlayGridPaint);
+        canvas.DrawLine(x, ms33, x + w, ms33, _overlayGridPaint);
 
-        using var path = new SKPath();
+        _overlayGraphPath.Reset();
         float step = w / (_frameTimes.Length - 1);
 
         for (int i = 0; i < _frameTimes.Length; i++)
@@ -944,21 +970,12 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             float py = y + h - (val / 50f * h);
             float px = x + i * step;
 
-            if (i == 0) path.MoveTo(px, py);
-            else path.LineTo(px, py);
+            if (i == 0) _overlayGraphPath.MoveTo(px, py);
+            else _overlayGraphPath.LineTo(px, py);
         }
 
-        canvas.DrawPath(path, linePaint);
-
-        // Value label
-        using var textPaint = new SKPaint
-        {
-            Color = SKColors.Cyan,
-            TextSize = 12,
-            IsAntialias = true,
-            Typeface = SKTypeface.FromFamilyName("Consolas")
-        };
-        canvas.DrawText($"{Math.Round(_smoothedFrameTimeMs, 2)} ms", x + w - 50, y - 5, textPaint);
+        canvas.DrawPath(_overlayGraphPath, _overlayLinePaint);
+        canvas.DrawText($"{Math.Round(_smoothedFrameTimeMs, 2)} ms", x + w - 50, y - 5, _overlayGraphTextPaint);
     }
 
     private unsafe void AutoDetectPillarboxes(IntPtr ptr, int w, int h)
@@ -1073,9 +1090,14 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
         // 1. Upload WGC frame to GPU
         _gl.BindTexture(GlConsts.GL_TEXTURE_2D, _captureTextureId);
-        var texSub = (delegate* unmanaged[Stdcall]<int, int, int, int, int, int, uint, int, IntPtr, void>)_gl.GetProcAddress("glTexSubImage2D");
-        if (texSub != null)
+        if (_glTexSubImage2DPtr == IntPtr.Zero)
+            _glTexSubImage2DPtr = _gl.GetProcAddress("glTexSubImage2D");
+
+        if (_glTexSubImage2DPtr != IntPtr.Zero)
+        {
+            var texSub = (delegate* unmanaged[Stdcall]<int, int, int, int, int, int, uint, int, IntPtr, void>)_glTexSubImage2DPtr;
             texSub(GlConsts.GL_TEXTURE_2D, 0, 0, 0, w, h, 0x80E1u, GlConsts.GL_UNSIGNED_BYTE, ptr); // 0x80E1 = GL_BGRA
+        }
 
         int finalTextureId = _captureTextureId;
 
@@ -1175,6 +1197,62 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         };
 
         _paint.ColorFilter = SKColorFilter.CreateColorMatrix(matrix);
+    }
+
+    private void EnsureOverlayResources()
+    {
+        _overlayTypefaceBold ??= SKTypeface.FromFamilyName(
+            "Consolas",
+            SKFontStyleWeight.Bold,
+            SKFontStyleWidth.Normal,
+            SKFontStyleSlant.Upright);
+        _overlayTypefaceRegular ??= SKTypeface.FromFamilyName("Consolas");
+
+        _overlayTextPaint ??= new SKPaint
+        {
+            Color = SKColors.White.WithAlpha(220),
+            IsAntialias = true,
+            TextSize = 16,
+            Typeface = _overlayTypefaceBold
+        };
+
+        _overlayDetailTextPaint ??= new SKPaint
+        {
+            Color = SKColors.White.WithAlpha(220),
+            IsAntialias = true,
+            TextSize = 14,
+            Typeface = _overlayTypefaceBold
+        };
+
+        _overlayBackgroundPaint ??= new SKPaint
+        {
+            IsAntialias = true
+        };
+
+        _overlayLinePaint ??= new SKPaint
+        {
+            Color = SKColors.Cyan.WithAlpha(180),
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 1.5f,
+            IsAntialias = true
+        };
+
+        _overlayGridPaint ??= new SKPaint
+        {
+            Color = SKColors.White.WithAlpha(40),
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 1f
+        };
+
+        _overlayGraphTextPaint ??= new SKPaint
+        {
+            Color = SKColors.Cyan,
+            TextSize = 12,
+            IsAntialias = true,
+            Typeface = _overlayTypefaceRegular
+        };
+
+        _overlayGraphPath ??= new SKPath();
     }
 
     private SKRect CalculateAspectRect(float viewW, float viewH, float frameW, float frameH)
