@@ -14,6 +14,7 @@ using SkiaSharp;
 using System;
 using System.Diagnostics;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace AES_Emulation.Windows;
 
@@ -385,14 +386,16 @@ public class CompositionWgcCaptureControl : Control
     private void StopSession()
     {
         var previousTargetHwnd = _activeTargetHwnd;
+        var canRestoreTargetWindow = previousTargetHwnd != IntPtr.Zero && IsWindow(previousTargetHwnd);
 
         if (_windowHandler != null)
         {
             _windowHandler.Stop();
-            _windowHandler.RestoreOriginalPosition();
+            if (canRestoreTargetWindow)
+                _windowHandler.RestoreOriginalPosition();
             _windowHandler = null;
 
-            if (previousTargetHwnd != IntPtr.Zero)
+            if (canRestoreTargetWindow)
             {
                 Win32API.RestoreWindowDecorations(previousTargetHwnd);
                 Win32API.SetWindowOpacity(previousTargetHwnd, 255);
@@ -520,6 +523,9 @@ public class CompositionWgcCaptureControl : Control
         base.OnSizeChanged(e);
         UpdateHandlerSize();
     }
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr hWnd);
 }
 
 internal class WgcSessionMessage
