@@ -138,6 +138,56 @@
                             <TextBlock Text="Gameplay Autoplay" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
                             <ToggleSwitch FontSize="20" IsChecked="{Binding EmulationGameplayAutoplay, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
+
+                        <TextBlock Text="Section Apps" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,15,0,10"/>
+                        <Separator Margin="0,0,0,15"/>
+                        <TextBlock Text="Choose the app/binary that should be used for each emulation section."
+                                   Foreground="DarkGray"
+                                   FontSize="16"
+                                   TextWrapping="Wrap"
+                                   MaxWidth="760"
+                                   Margin="0,0,0,15"/>
+
+                        <ItemsControl ItemsSource="{Binding EmulationSectionApps}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:EmulationSectionAppItem">
+                                    <Border Background="#151515"
+                                            BorderBrush="#343434"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Padding="14"
+                                            Margin="0,0,0,12">
+                                        <Grid ColumnDefinitions="220,*,Auto,Auto" ColumnSpacing="14" RowDefinitions="Auto,Auto">
+                                            <TextBlock Grid.RowSpan="2"
+                                                       Text="{Binding SectionTitle}"
+                                                       VerticalAlignment="Center"
+                                                       FontSize="20"
+                                                       Foreground="WhiteSmoke"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding LauncherDisplayPath}"
+                                                       Foreground="DarkGray"
+                                                       FontSize="14"
+                                                       TextWrapping="Wrap"
+                                                       VerticalAlignment="Center"
+                                                       MaxWidth="420"/>
+                                            <Button Grid.Column="2"
+                                                    Content="Browse"
+                                                    Command="{Binding BrowseLauncherCommand}"
+                                                    Padding="14,8"
+                                                    MinWidth="100"/>
+                                            <Button Grid.Column="3"
+                                                    Content="Clear"
+                                                    Command="{Binding ClearLauncherCommand}"
+                                                    IsVisible="{Binding HasLauncherPath}"
+                                                    Padding="14,8"
+                                                    MinWidth="90"
+                                                    Background="#3A2020"
+                                                    Foreground="WhiteSmoke"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

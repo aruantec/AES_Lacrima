@@ -1,7 +1,4 @@
-﻿using Avalonia.Layout;
-using AES_Controls.Player.Models;
-using System.Collections.Generic;
-using System.Text.Json.Nodes;
+﻿using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace AES_Lacrima.Settings
@@ -26,6 +23,7 @@ namespace AES_Lacrima.Settings
     [JsonSerializable(typeof(List<FolderMediaItem>))]
     [JsonSerializable(typeof(List<BandModel>))]
     [JsonSerializable(typeof(List<string>))]
+    [JsonSerializable(typeof(Dictionary<string, string>))]
     [JsonSerializable(typeof(Dictionary<string, List<MediaItem>>))]
     public partial class SettingsJsonContext : JsonSerializerContext;
 }
