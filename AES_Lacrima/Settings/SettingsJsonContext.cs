@@ -13,6 +13,9 @@ namespace AES_Lacrima.Settings
     // Dynamic settings tree root
     [JsonSerializable(typeof(JsonObject))]
     // Collection roots used by SettingsBase and persisted view-model snapshots
+    [JsonSerializable(typeof(MediaItem))]
+    [JsonSerializable(typeof(FolderMediaItem))]
+    [JsonSerializable(typeof(BandModel))]
     [JsonSerializable(typeof(List<MediaItem>))]
     [JsonSerializable(typeof(List<FolderMediaItem>))]
     [JsonSerializable(typeof(List<BandModel>))]

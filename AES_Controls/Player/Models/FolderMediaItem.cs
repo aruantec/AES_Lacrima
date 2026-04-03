@@ -1,5 +1,6 @@
 ﻿using Avalonia.Collections;
 using CommunityToolkit.Mvvm.ComponentModel;
+using System.Text.Json.Serialization;
 
 namespace AES_Controls.Player.Models
 {
@@ -12,6 +13,7 @@ namespace AES_Controls.Player.Models
         /// <summary>
         /// Gets or sets the list of child media items contained within this folder.
         /// </summary>
+        [JsonIgnore]
         [ObservableProperty]
         private AvaloniaList<MediaItem> _children = [];
     }
