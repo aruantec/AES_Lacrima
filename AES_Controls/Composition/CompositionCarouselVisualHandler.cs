@@ -228,6 +228,11 @@ namespace AES_Controls.Composition
             }
             else if (message is DragPositionMessage dp) {
                 if (_smoothDragPosition.X == 0 && _smoothDragPosition.Y == 0) _smoothDragPosition = dp.Position;
+                else if (Vector2.DistanceSquared(_smoothDragPosition, dp.Position) > 2500f)
+                {
+                    _smoothDragPosition = dp.Position;
+                    _smoothDragVelocity = Vector2.Zero;
+                }
                 _dragPosition = dp.Position;
                 Invalidate();
             }
@@ -310,19 +315,17 @@ namespace AES_Controls.Composition
 
             if (_draggingIndex != -1)
             {
-                double dragStiffness = 600.0;
-                double dragDamping = 2.0 * Math.Sqrt(dragStiffness) * 1.05;
-                _smoothDragVelocity.X += (float)((_dragPosition.X - _smoothDragPosition.X) * dragStiffness - _smoothDragVelocity.X * dragDamping) * (float)dt;
-                _smoothDragVelocity.Y += (float)((_dragPosition.Y - _smoothDragPosition.Y) * dragStiffness - _smoothDragVelocity.Y * dragDamping) * (float)dt;
-                _smoothDragPosition.X += _smoothDragVelocity.X * (float)dt;
-                _smoothDragPosition.Y += _smoothDragVelocity.Y * (float)dt;
+                // The lifted cover should feel attached to the pointer instead of
+                // lagging behind it; keep smoothing for the surrounding slots only.
+                _smoothDragPosition = _dragPosition;
+                _smoothDragVelocity = Vector2.Zero;
 
                 if (_smoothDropTargetIndex == -1) _smoothDropTargetIndex = _dropTargetIndex;
                 else
                 {
-                    // use an exponential smoothing (time-constant) so reaction feels natural and framerate-independent
-                    // larger tau => slower, smoother movement when items shift to make room for dragged item
-                    double tau = 0.45; // much smoother, relaxed movement to comfortably see them slide apart
+                    // Smooth the slot response, but keep a clear gap opening where
+                    // the dragged cover can land.
+                    double tau = 0.18;
                     double alpha = 1.0 - Math.Exp(-dt / Math.Max(1e-6, tau));
                     _smoothDropTargetIndex += (_dropTargetIndex - _smoothDropTargetIndex) * alpha;
                 }
@@ -568,7 +571,9 @@ namespace AES_Controls.Composition
             {
                 float rank = (i < _draggingIndex) ? i : (float)(i - 1);
                 float slotDiff = rank - (float)_smoothDropTargetIndex;
-                float shiftStrength = 0.5f + 0.5f * (float)Math.Tanh((slotDiff + 0.5f) * 8.0f);
+                // A gentler tanh keeps the gap readable while avoiding the harsh
+                // shove from the steeper curve.
+                float shiftStrength = 0.5f + 0.5f * (float)Math.Tanh((slotDiff + 0.5f) * 3.2f);
                 float partedVisualI = rank + shiftStrength;
 
                 if (_isDropping) visualI = partedVisualI + (i - partedVisualI) * (float)(1.0 - Math.Pow(1.0 - _dropAlpha, 3));

@@ -63,6 +63,7 @@ namespace AES_Controls.Composition
         private int _maxImageCacheEntries = 160;
 
         private int _lastVirtualizationIndex = -1;
+        private const double DragHoldJitterThreshold = 24.0;
 
         private Point _startPoint;
         private Point _prevPoint;
@@ -70,6 +71,7 @@ namespace AES_Controls.Composition
         private double _velocity;
         private bool _isPressed;
         private double _pressIndex;
+        private int _pressedItemIndex = -1;
         private double _uiTargetIndex;
         private double _uiCurrentIndex;
         private double _uiVelocity;
@@ -87,6 +89,9 @@ namespace AES_Controls.Composition
         private int _lastHoveredItem = -1, _lastHoveredButton = 0;
         private int _lastPressedItem = -1, _lastPressedButton = 0;
         private int _draggingIndex = -1;
+        private int _dragStartIndex = -1;
+        private int _currentDragTargetIndex = -1;
+        private Avalonia.Vector _dragPointerOffset;
         private DispatcherTimer? _autoScrollTimer;
         private double _autoScrollVelocity;
         private Rect _selectedItemBounds = default;
@@ -870,6 +875,61 @@ namespace AES_Controls.Composition
             return (int)Math.Clamp(Math.Round(targetFloat), 0, Math.Max(0, _images.Count - 1));
         }
 
+        private Point GetDragVisualPoint(Point pointerPoint)
+            => new(pointerPoint.X + _dragPointerOffset.X, pointerPoint.Y + _dragPointerOffset.Y);
+
+        private int GetDragTargetIndex(Point pointerPoint)
+        {
+            if (_images.Count == 0)
+                return -1;
+
+            if (_images.Count == 1 || _draggingIndex < 0)
+                return Math.Clamp(IndexAtPoint(pointerPoint), 0, Math.Max(0, _images.Count - 1));
+
+            var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
+            EnsureProjectionCache(_uiCurrentIndex, size);
+
+            var dragCenter = GetDragVisualPoint(pointerPoint);
+            var projectedCenters = new List<(int TargetIndex, double CenterX)>(_projPolyCache.Count);
+
+            foreach (int index in _projPolyCache.Keys.OrderBy(i => i))
+            {
+                if (index == _draggingIndex)
+                    continue;
+
+                if (!TryGetProjectedItemBounds(index, _uiCurrentIndex, out var bounds))
+                    continue;
+
+                int targetIndex = index < _draggingIndex ? index : index - 1;
+                projectedCenters.Add((targetIndex, bounds.X + bounds.Width * 0.5));
+            }
+
+            if (projectedCenters.Count == 0)
+                return Math.Clamp(IndexAtPoint(dragCenter), 0, Math.Max(0, _images.Count - 1));
+
+            projectedCenters.Sort((a, b) => a.CenterX.CompareTo(b.CenterX));
+
+            int insertionSlot = projectedCenters[^1].TargetIndex + 1;
+            if (dragCenter.X <= projectedCenters[0].CenterX)
+            {
+                insertionSlot = projectedCenters[0].TargetIndex;
+            }
+            else
+            {
+                for (int i = 0; i < projectedCenters.Count - 1; i++)
+                {
+                    double midpoint = (projectedCenters[i].CenterX + projectedCenters[i + 1].CenterX) * 0.5;
+                    if (dragCenter.X < midpoint)
+                    {
+                        insertionSlot = projectedCenters[i + 1].TargetIndex;
+                        break;
+                    }
+                }
+            }
+
+            return Math.Clamp(insertionSlot, 0, Math.Max(0, _images.Count - 1));
+        }
+
         private void ClearResources()
         {
             var disposedImages = new HashSet<SKImage>(ReferenceEqualityComparer.Instance);
@@ -1624,6 +1684,29 @@ namespace AES_Controls.Composition
 
         protected override void OnKeyDown(KeyEventArgs e)
         {
+            if (e.Key == Key.Escape)
+            {
+                if (_isDragging)
+                {
+                    CancelActiveDrag();
+                    e.Handled = true;
+                    return;
+                }
+
+                if (_isPressed || _isSliderPressed)
+                {
+                    _longPressTimer?.Stop();
+                    _autoScrollTimer?.Stop();
+                    _isPressed = false;
+                    _isSliderPressed = false;
+                    _pressedItemIndex = -1;
+                    _currentDragTargetIndex = -1;
+                    _dragPointerOffset = default;
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             base.OnKeyDown(e);
             double delta = 0;
             if (e.Key == Key.Left) delta = -1;
@@ -1648,14 +1731,26 @@ namespace AES_Controls.Composition
             _longPressTimer?.Stop();
             if (_isPressed && !_isDragging)
             {
-                int hit = HitTest(_prevPoint, new Vector2((float)Bounds.Width, (float)Bounds.Height), _uiCurrentIndex);
+                int hit = _pressedItemIndex;
+                if (hit == -1)
+                    hit = HitTest(_prevPoint, new Vector2((float)Bounds.Width, (float)Bounds.Height), _uiCurrentIndex);
                 if (hit != -1)
                 {
                     _isDragging = true;
                     _draggingIndex = hit;
+                    _dragStartIndex = hit;
+                    _currentDragTargetIndex = hit;
+                    _dragPointerOffset = default;
+                    if (TryGetProjectedItemBounds(hit, _uiCurrentIndex, out var dragBounds))
+                    {
+                        var dragCenter = new Point(dragBounds.X + dragBounds.Width * 0.5, dragBounds.Y + dragBounds.Height * 0.5);
+                        _dragPointerOffset = dragCenter - _prevPoint;
+                    }
+
+                    var dragPoint = GetDragVisualPoint(_prevPoint);
                     _visual?.SendHandlerMessage(new DragStateMessage(_draggingIndex, true));
-                    _visual?.SendHandlerMessage(new DragPositionMessage(new Vector2((float)_prevPoint.X, (float)_prevPoint.Y)));
-                    _visual?.SendHandlerMessage(new DropTargetMessage(_draggingIndex));
+                    _visual?.SendHandlerMessage(new DragPositionMessage(new Vector2((float)dragPoint.X, (float)dragPoint.Y)));
+                    _visual?.SendHandlerMessage(new DropTargetMessage(_currentDragTargetIndex));
                 }
             }
         }
@@ -1677,6 +1772,16 @@ namespace AES_Controls.Composition
                 _autoScrollVelocity = delta * 0.08;
                 SelectedIndex = Math.Clamp(SelectedIndex + _autoScrollVelocity, 0, Math.Max(0, _images.Count - 1));
             }
+            else
+            {
+                _autoScrollVelocity = 0;
+            }
+
+            var dragPoint = GetDragVisualPoint(_prevPoint);
+            _visual?.SendHandlerMessage(new DragPositionMessage(new Vector2((float)dragPoint.X, (float)dragPoint.Y)));
+
+            _currentDragTargetIndex = GetDragTargetIndex(_prevPoint);
+            _visual?.SendHandlerMessage(new DropTargetMessage(_currentDragTargetIndex));
         }
 
         private void QueueSettleCommit()
@@ -1715,6 +1820,7 @@ namespace AES_Controls.Composition
             _prevTime = e.Timestamp;
             _velocity = 0;
             _pressIndex = SelectedIndex;
+            _pressedItemIndex = -1;
             e.Pointer.Capture(this);
 
             if (SliderBounds.Inflate(new Thickness(40, 30)).Contains(pos))
@@ -1728,6 +1834,7 @@ namespace AES_Controls.Composition
             _longPressTimer?.Start();
 
             int hitIndex = IndexAtPoint(pos);
+            _pressedItemIndex = hitIndex;
             if (e.ClickCount == 2 && hitIndex != -1) ItemDoubleClickedCommand?.Execute(hitIndex);
 
             if (hitIndex != -1)
@@ -1765,17 +1872,30 @@ namespace AES_Controls.Composition
             }
             else if (_isDragging)
             {
-                _visual?.SendHandlerMessage(new DragPositionMessage(new Vector2((float)point.X, (float)point.Y)));
+                var dragPoint = GetDragVisualPoint(point);
+                _visual?.SendHandlerMessage(new DragPositionMessage(new Vector2((float)dragPoint.X, (float)dragPoint.Y)));
 
-                int targetIndex = IndexAtPoint(point);
-
-                _visual?.SendHandlerMessage(new DropTargetMessage(targetIndex));
+                _currentDragTargetIndex = GetDragTargetIndex(point);
+                _visual?.SendHandlerMessage(new DropTargetMessage(_currentDragTargetIndex));
 
                 if (!_autoScrollTimer!.IsEnabled) _autoScrollTimer.Start();
             }
             else if (_isPressed)
             {
-                if (Point.Distance(_startPoint, point) > 15) _longPressTimer?.Stop();
+                double moveDistance = Point.Distance(_startPoint, point);
+                bool dragCandidateActive = _pressedItemIndex != -1 && _longPressTimer?.IsEnabled == true;
+                if (dragCandidateActive && moveDistance <= DragHoldJitterThreshold)
+                {
+                    _prevPoint = point;
+                    _prevTime = e.Timestamp;
+                    return;
+                }
+
+                if (moveDistance > DragHoldJitterThreshold)
+                {
+                    _longPressTimer?.Stop();
+                    _pressedItemIndex = -1;
+                }
 
                 long dt = (long)(e.Timestamp - _prevTime);
                 if (dt > 0)
@@ -1819,6 +1939,57 @@ namespace AES_Controls.Composition
             }
         }
 
+        private void FinishDrag(int targetIndex, bool cancel, IPointer? pointer = null)
+        {
+            _longPressTimer?.Stop();
+            _autoScrollTimer?.Stop();
+
+            int releaseIndex = cancel ? _dragStartIndex : targetIndex;
+            releaseIndex = Math.Clamp(releaseIndex, 0, Math.Max(0, _images.Count - 1));
+
+            if (!cancel && targetIndex != _draggingIndex)
+            {
+                _isInternalMove = true;
+                try
+                {
+                    var img = _images[_draggingIndex];
+                    _images.RemoveAt(_draggingIndex);
+                    _images.Insert(targetIndex, img);
+                    MoveSnapshotItem(_draggingIndex, targetIndex);
+                    _visual?.SendHandlerMessage(_images);
+
+                    MoveItem(_draggingIndex, targetIndex);
+                    SelectedIndex = targetIndex;
+                }
+                finally { _isInternalMove = false; }
+            }
+            else if (cancel && _dragStartIndex >= 0)
+            {
+                SelectedIndex = _dragStartIndex;
+            }
+
+            _isDragging = false;
+            _visual?.SendHandlerMessage(new DropTargetMessage(releaseIndex));
+            _visual?.SendHandlerMessage(new DragStateMessage(releaseIndex, false));
+            _draggingIndex = -1;
+            _dragStartIndex = -1;
+            _pressedItemIndex = -1;
+            _currentDragTargetIndex = -1;
+            _dragPointerOffset = default;
+            _autoScrollVelocity = 0;
+            _isPressed = false;
+            _isSliderPressed = false;
+            pointer?.Capture(null);
+        }
+
+        private void CancelActiveDrag()
+        {
+            if (!_isDragging)
+                return;
+
+            FinishDrag(_dragStartIndex, cancel: true);
+        }
+
         protected override void OnPointerReleased(PointerReleasedEventArgs e)
         {
             _longPressTimer?.Stop();
@@ -1840,32 +2011,11 @@ namespace AES_Controls.Composition
             if (_isDragging)
             {
                 // Determine drop target one last time to be sure
-                int targetIndex = IndexAtPoint(e.GetPosition(this));
+                int targetIndex = _currentDragTargetIndex != -1
+                    ? _currentDragTargetIndex
+                    : GetDragTargetIndex(e.GetPosition(this));
 
-                if (targetIndex != _draggingIndex)
-                {
-                    _isInternalMove = true;
-                    try
-                    {
-                        // Manually sync local images state to avoid waiting for INotifyCollectionChanged
-                        var img = _images[_draggingIndex];
-                        _images.RemoveAt(_draggingIndex);
-                        _images.Insert(targetIndex, img);
-                        MoveSnapshotItem(_draggingIndex, targetIndex);
-                        _visual?.SendHandlerMessage(_images);
-
-                        MoveItem(_draggingIndex, targetIndex);
-                        SelectedIndex = targetIndex;
-                    }
-                    finally { _isInternalMove = false; }
-                }
-
-                _isDragging = false;
-                _visual?.SendHandlerMessage(new DropTargetMessage(targetIndex));
-                _visual?.SendHandlerMessage(new DragStateMessage(targetIndex, false));
-                _draggingIndex = -1;
-                e.Pointer.Capture(null);
-                _isPressed = false;
+                FinishDrag(targetIndex, cancel: false, e.Pointer);
                 return;
             }
 
@@ -1873,6 +2023,10 @@ namespace AES_Controls.Composition
             if (_isPressed)
             {
                 _isPressed = false;
+                _dragStartIndex = -1;
+                _pressedItemIndex = -1;
+                _currentDragTargetIndex = -1;
+                _dragPointerOffset = default;
                 e.Pointer.Capture(null);
                 var point = e.GetPosition(this);
                 double projectedIndex = SelectedIndex + _velocity * 100.0;
