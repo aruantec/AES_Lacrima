@@ -2,6 +2,7 @@
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using AES_Controls.Player.Models;
+using AES_Lacrima.ViewModels;
 
 namespace AES_Lacrima.Settings
 {
@@ -21,6 +22,9 @@ namespace AES_Lacrima.Settings
     [JsonSerializable(typeof(List<BandModel>))]
     [JsonSerializable(typeof(List<string>))]
     [JsonSerializable(typeof(Dictionary<string, string>))]
+    [JsonSerializable(typeof(EmulationSectionLaunchSettings))]
+    [JsonSerializable(typeof(EmulationSectionConfiguration))]
+    [JsonSerializable(typeof(Dictionary<string, EmulationSectionConfiguration>))]
     [JsonSerializable(typeof(Dictionary<string, List<MediaItem>>))]
     public partial class SettingsJsonContext : JsonSerializerContext;
 }

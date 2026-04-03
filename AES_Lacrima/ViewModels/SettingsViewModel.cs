@@ -46,6 +46,9 @@ public partial class EmulationSectionAppItem : ObservableObject
     [ObservableProperty]
     private string? _launcherPath;
 
+    [ObservableProperty]
+    private EmulationSectionLaunchSettings _launchSettings = new();
+
     public string LauncherDisplayPath =>
         string.IsNullOrWhiteSpace(LauncherPath)
             ? "No app selected"
@@ -65,6 +68,24 @@ public partial class EmulationSectionAppItem : ObservableObject
     }
 }
 
+public sealed class EmulationSectionLaunchSettings
+{
+    public bool? StartFullscreen { get; set; }
+
+    public EmulationSectionLaunchSettings Clone() =>
+        new()
+        {
+            StartFullscreen = StartFullscreen
+        };
+}
+
+public sealed class EmulationSectionConfiguration
+{
+    public string? LauncherPath { get; set; }
+
+    public EmulationSectionLaunchSettings LaunchSettings { get; set; } = new();
+}
+
 /// <summary>
 /// View model that exposes application settings used by the UI. Settings
 /// are loaded and saved via the inherited settings infrastructure.
@@ -81,6 +102,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ".webp"
     ];
     private const string EmulationSectionLauncherPathsSettingName = "EmulationSectionLauncherPaths";
+    private const string EmulationSectionConfigurationsSettingName = "EmulationSectionConfigurations";
 #if NATIVE_AOT
     private const bool DefaultPreferAotAppUpdates = true;
 #else
@@ -1309,7 +1331,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             var item = new EmulationSectionAppItem
             {
                 SectionKey = sectionKey,
-                SectionTitle = sectionTitle
+                SectionTitle = sectionTitle,
+                LaunchSettings = CreateDefaultEmulationSectionLaunchSettings(sectionKey, sectionTitle)
             };
 
             item.BrowseLauncherCommand = new AsyncRelayCommand(() => BrowseEmulationSectionBinaryAsync(item));
@@ -1436,6 +1459,37 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         return string.IsNullOrWhiteSpace(match?.LauncherPath)
             ? null
             : match.LauncherPath;
+    }
+
+    public EmulationSectionLaunchSettings GetResolvedEmulationSectionLaunchSettings(string? sectionTitle)
+    {
+        if (string.IsNullOrWhiteSpace(sectionTitle))
+            return new EmulationSectionLaunchSettings();
+
+        var match = EmulationSectionApps.FirstOrDefault(item =>
+            string.Equals(item.SectionTitle, sectionTitle, StringComparison.OrdinalIgnoreCase));
+
+        return match?.LaunchSettings?.Clone() ?? new EmulationSectionLaunchSettings();
+    }
+
+    private static EmulationSectionLaunchSettings CreateDefaultEmulationSectionLaunchSettings(string sectionKey, string sectionTitle)
+    {
+        var settings = new EmulationSectionLaunchSettings();
+
+        if (IsPlayStationSection(sectionKey, sectionTitle))
+            settings.StartFullscreen = true;
+
+        return settings;
+    }
+
+    private static bool IsPlayStationSection(string? sectionKey, string? sectionTitle)
+    {
+        return string.Equals(sectionTitle, "PlayStation", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(sectionTitle, "PSX", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(sectionTitle, "PS1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(sectionKey, "playstation", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(sectionKey, "psx", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(sectionKey, "ps1", StringComparison.OrdinalIgnoreCase);
     }
 
     private void EnsureDefaultSelectedShaderToy()
@@ -1606,13 +1660,25 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         AppMode = ReadIntSetting(section, nameof(AppMode), AppMode);
         EmulationUseFirstItemCover = ReadBoolSetting(section, nameof(EmulationUseFirstItemCover), EmulationUseFirstItemCover);
         EmulationGameplayAutoplay = ReadBoolSetting(section, nameof(EmulationGameplayAutoplay), EmulationGameplayAutoplay);
+        var emulationSectionConfigurations = ReadObjectSetting<Dictionary<string, EmulationSectionConfiguration>>(section, EmulationSectionConfigurationsSettingName)
+            ?? new Dictionary<string, EmulationSectionConfiguration>(StringComparer.OrdinalIgnoreCase);
         var emulationSectionLauncherPaths = ReadObjectSetting<Dictionary<string, string>>(section, EmulationSectionLauncherPathsSettingName)
             ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in EmulationSectionApps)
         {
-            item.LauncherPath = emulationSectionLauncherPaths.TryGetValue(item.SectionKey, out var path)
-                ? path
-                : null;
+            var defaultLaunchSettings = CreateDefaultEmulationSectionLaunchSettings(item.SectionKey, item.SectionTitle);
+            if (emulationSectionConfigurations.TryGetValue(item.SectionKey, out var configuration))
+            {
+                item.LauncherPath = configuration.LauncherPath;
+                item.LaunchSettings = MergeLaunchSettings(defaultLaunchSettings, configuration.LaunchSettings);
+            }
+            else
+            {
+                item.LauncherPath = emulationSectionLauncherPaths.TryGetValue(item.SectionKey, out var path)
+                    ? path
+                    : null;
+                item.LaunchSettings = defaultLaunchSettings;
+            }
         }
         CheckForAppUpdatesOnStartup = ReadBoolSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
         PreferAotAppUpdates = ReadBoolSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
@@ -1698,6 +1764,19 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(EmulationGameplayAutoplay), EmulationGameplayAutoplay);
         WriteObjectSetting(
             section,
+            EmulationSectionConfigurationsSettingName,
+            EmulationSectionApps
+                .Where(HasPersistedEmulationSectionConfiguration)
+                .ToDictionary(
+                    item => item.SectionKey,
+                    item => new EmulationSectionConfiguration
+                    {
+                        LauncherPath = item.LauncherPath,
+                        LaunchSettings = item.LaunchSettings?.Clone() ?? new EmulationSectionLaunchSettings()
+                    },
+                    StringComparer.OrdinalIgnoreCase));
+        WriteObjectSetting(
+            section,
             EmulationSectionLauncherPathsSettingName,
             EmulationSectionApps
                 .Where(item => !string.IsNullOrWhiteSpace(item.SectionKey) && !string.IsNullOrWhiteSpace(item.LauncherPath))
@@ -1725,6 +1804,28 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ReplayGainTagsPreampDb), ReplayGainTagsPreampDb);
         WriteSetting(section, nameof(ReplayGainTagSource), ReplayGainTagSource);
         WriteSetting(section, nameof(SilenceAdvanceDelayMs), SilenceAdvanceDelayMs);
+    }
+
+    private static bool HasPersistedEmulationSectionConfiguration(EmulationSectionAppItem item)
+    {
+        if (string.IsNullOrWhiteSpace(item.SectionKey))
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(item.LauncherPath))
+            return true;
+
+        return item.LaunchSettings?.StartFullscreen is not null;
+    }
+
+    private static EmulationSectionLaunchSettings MergeLaunchSettings(EmulationSectionLaunchSettings defaults, EmulationSectionLaunchSettings? persisted)
+    {
+        if (persisted == null)
+            return defaults;
+
+        return new EmulationSectionLaunchSettings
+        {
+            StartFullscreen = persisted.StartFullscreen ?? defaults.StartFullscreen
+        };
     }
 
     partial void OnScaleFactorChanged(double value)

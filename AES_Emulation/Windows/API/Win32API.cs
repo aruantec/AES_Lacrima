@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace AES_Emulation.Windows.API
 {
@@ -35,6 +36,7 @@ namespace AES_Emulation.Windows.API
         private static readonly ConcurrentDictionary<IntPtr, IntPtr> _savedStyles = new();
         private static readonly ConcurrentDictionary<IntPtr, IntPtr> _savedMenus = new();
         private static readonly ConcurrentDictionary<IntPtr, RECT> _savedRects = new();
+        private static readonly ConcurrentDictionary<IntPtr, bool> _savedChildVisibility = new();
 
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
@@ -85,6 +87,23 @@ namespace AES_Emulation.Windows.API
         private static extern bool DrawMenuBar(IntPtr hWnd);
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumChildWindows(IntPtr hWndParent, EnumChildProc lpEnumFunc, IntPtr lParam);
+
+        private delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = false)]
+        private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
@@ -168,6 +187,7 @@ namespace AES_Emulation.Windows.API
 
                 // Apply frame changed
                 SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
+                HideDecorativeChildWindows(hwnd);
                 return true;
             }
             catch
@@ -212,6 +232,8 @@ namespace AES_Emulation.Windows.API
                     }
                     catch { }
                 }
+
+                RestoreDecorativeChildWindows(hwnd);
 
                 // Notify frame changed
                 SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
@@ -397,6 +419,142 @@ namespace AES_Emulation.Windows.API
                 }
             }
             catch { }
+        }
+
+        private static void HideDecorativeChildWindows(IntPtr parentHwnd)
+        {
+            try
+            {
+                if (parentHwnd == IntPtr.Zero || !GetWindowRect(parentHwnd, out RECT parentRect))
+                    return;
+
+                int parentWidth = Math.Max(0, parentRect.Right - parentRect.Left);
+                int parentHeight = Math.Max(0, parentRect.Bottom - parentRect.Top);
+                if (parentWidth <= 0 || parentHeight <= 0)
+                    return;
+
+                EnumChildWindows(parentHwnd, (child, _) =>
+                {
+                    if (child == IntPtr.Zero || !IsWindowVisible(child))
+                        return true;
+
+                    try
+                    {
+                        if (!GetWindowRect(child, out RECT childRect))
+                            return true;
+
+                        if (!IsLikelyDecorativeChild(parentRect, parentWidth, parentHeight, child, childRect))
+                            return true;
+
+                        _savedChildVisibility.TryAdd(child, true);
+                        ShowWindow(child, 0);
+                        SetWindowPos(child, IntPtr.Zero, -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                    }
+                    catch
+                    {
+                        // Ignore individual child failures and continue hiding the rest.
+                    }
+
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch
+            {
+                // Best-effort only.
+            }
+        }
+
+        private static void RestoreDecorativeChildWindows(IntPtr parentHwnd)
+        {
+            try
+            {
+                if (parentHwnd == IntPtr.Zero)
+                    return;
+
+                EnumChildWindows(parentHwnd, (child, _) =>
+                {
+                    if (child != IntPtr.Zero && _savedChildVisibility.TryRemove(child, out bool wasVisible))
+                    {
+                        try
+                        {
+                            ShowWindow(child, wasVisible ? 1 : 0);
+                        }
+                        catch
+                        {
+                            // Ignore restore issues per child.
+                        }
+                    }
+
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch
+            {
+                // Best-effort only.
+            }
+        }
+
+        private static bool IsLikelyDecorativeChild(RECT parentRect, int parentWidth, int parentHeight, IntPtr childHwnd, RECT childRect)
+        {
+            int childWidth = Math.Max(0, childRect.Right - childRect.Left);
+            int childHeight = Math.Max(0, childRect.Bottom - childRect.Top);
+            if (childWidth <= 0 || childHeight <= 0)
+                return false;
+
+            string className = GetWindowClassName(childHwnd);
+            string title = GetWindowTitle(childHwnd);
+
+            bool classMatches =
+                className.Contains("Qt", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("QWindow", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("QMenu", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("QToolBar", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("QStatusBar", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("ToolbarWindow32", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("msctls_statusbar32", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("ReBarWindow32", StringComparison.OrdinalIgnoreCase);
+
+            bool textMatches =
+                title.Contains("FPS", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("Video:", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("System", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("Settings", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("Tools", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("Help", StringComparison.OrdinalIgnoreCase);
+
+            int offsetTop = childRect.Top - parentRect.Top;
+            int offsetBottom = parentRect.Bottom - childRect.Bottom;
+            bool dockedToTopOrBottom = offsetTop <= 140 || offsetBottom <= 140;
+            bool spansMostWidth = childWidth >= (int)(parentWidth * 0.65);
+            bool shortBar = childHeight <= Math.Min(140, Math.Max(48, parentHeight / 5));
+
+            return shortBar && dockedToTopOrBottom && (spansMostWidth || classMatches || textMatches);
+        }
+
+        private static string GetWindowClassName(IntPtr hwnd)
+        {
+            try
+            {
+                var builder = new StringBuilder(256);
+                return GetClassName(hwnd, builder, builder.Capacity) > 0 ? builder.ToString() : string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static string GetWindowTitle(IntPtr hwnd)
+        {
+            try
+            {
+                var builder = new StringBuilder(256);
+                return GetWindowText(hwnd, builder, builder.Capacity) > 0 ? builder.ToString() : string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
     }
 }
