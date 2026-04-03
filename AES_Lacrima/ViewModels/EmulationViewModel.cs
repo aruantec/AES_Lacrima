@@ -4,7 +4,6 @@ using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -16,6 +15,7 @@ using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
 using AES_Emulation.EmulationHandlers;
+using AES_Emulation.Platform;
 using AES_Lacrima.Services;
 using Avalonia;
 using System.ComponentModel;
@@ -1048,8 +1048,9 @@ namespace AES_Lacrima.ViewModels
                        Directory.Exists(Path.Combine(path, "content")) &&
                        Directory.Exists(Path.Combine(path, "meta"));
             }
-            catch
+            catch (Exception ex)
             {
+                SLog.Debug($"Failed to inspect Wii U package folder '{path}'.", ex);
                 return false;
             }
         }
@@ -1647,8 +1648,9 @@ namespace AES_Lacrima.ViewModels
                 if (process.HasExited)
                     return false;
             }
-            catch
+            catch (Exception ex)
             {
+                SLog.Debug("Failed to inspect the tracked emulator process state.", ex);
                 return false;
             }
 
@@ -1674,15 +1676,17 @@ namespace AES_Lacrima.ViewModels
                     if (!process.CloseMainWindow())
                         process.Kill(true);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    SLog.Debug("Failed to close the emulator gracefully; forcing termination.", ex);
+
                     try
                     {
                         process.Kill(true);
                     }
-                    catch
+                    catch (Exception killEx)
                     {
-                        // Ignore termination failures and rely on the current process state.
+                        SLog.Debug("Failed to force-close the emulator process during relaunch.", killEx);
                     }
                 }
 
@@ -1692,9 +1696,9 @@ namespace AES_Lacrima.ViewModels
                     {
                         process.WaitForExit(5000);
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // Ignore wait races; final state is checked on the UI thread.
+                        SLog.Debug("Timed wait for emulator shutdown failed; continuing with final state checks.", ex);
                     }
                 }).ConfigureAwait(false);
 
@@ -1706,9 +1710,9 @@ namespace AES_Lacrima.ViewModels
                         await Task.Run(() => process.WaitForExit(3000)).ConfigureAwait(false);
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Ignore final forced-close races.
+                    SLog.Debug("Final forced emulator shutdown hit a process race.", ex);
                 }
             }
             finally
@@ -1772,9 +1776,9 @@ namespace AES_Lacrima.ViewModels
                     process.Exited -= ActiveEmulatorProcess_Exited;
                     process.Dispose();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Ignore cleanup races for stale processes.
+                    SLog.Debug("Failed to clean up a stale emulator process reference.", ex);
                 }
 
                 return;
@@ -1798,9 +1802,9 @@ namespace AES_Lacrima.ViewModels
                 _activeEmulatorProcess.Exited -= ActiveEmulatorProcess_Exited;
                 _activeEmulatorProcess.Dispose();
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore teardown issues during shutdown/relaunch.
+                SLog.Debug("Failed to detach the active emulator process cleanly.", ex);
             }
             finally
             {
@@ -1902,8 +1906,9 @@ namespace AES_Lacrima.ViewModels
             {
                 return !process.HasExited;
             }
-            catch
+            catch (Exception ex)
             {
+                SLog.Debug("Failed to poll the tracked emulator process state.", ex);
                 return false;
             }
         }
@@ -1923,13 +1928,14 @@ namespace AES_Lacrima.ViewModels
                     if (process.HasExited)
                         return false;
                 }
-                catch
+                catch (Exception ex)
                 {
+                    SLog.Debug("Failed to confirm emulator process state before applying the capture target.", ex);
                     return false;
                 }
 
                 if (showWindowForCapture)
-                    ShowWindowForCapture(hwnd);
+                    RevealCaptureWindow(hwnd);
 
                 if (EmulatorTargetHwnd != hwnd)
                     EmulatorTargetHwnd = hwnd;
@@ -1944,30 +1950,23 @@ namespace AES_Lacrima.ViewModels
             {
                 process.WaitForInputIdle(timeoutMs);
             }
-            catch
+            catch (Exception ex)
             {
-                // Some emulators do not expose an input-idle state; handle polling covers that path.
+                SLog.Debug("Emulator did not provide an input-idle state; falling back to polling.", ex);
             }
         }
 
-        private static void ShowWindowForCapture(IntPtr hwnd)
+        private static void RevealCaptureWindow(IntPtr platformWindowHandle)
         {
-            if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
-                return;
-
             try
             {
-                ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                EmulatorCapturePlatform.RevealWindowForCapture(platformWindowHandle);
             }
-            catch
+            catch (Exception ex)
             {
-                // Best-effort only. Capture setup will still continue if the show request fails.
+                SLog.Debug("Failed to reveal the emulator window for the active capture platform.", ex);
             }
         }
-
-        [DllImport("user32.dll")]
-        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-        private const int SW_SHOWNOACTIVATE = 4;
 
 
         private static int GetRoundedSelectedIndex(double value) => (int)Math.Round(value);
@@ -2123,9 +2122,9 @@ namespace AES_Lacrima.ViewModels
                 _gameplayPreviewCts?.Cancel();
                 _gameplayPreviewCts?.Dispose();
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore cancellation cleanup errors.
+                SLog.Debug("Failed to cancel or dispose the gameplay preview token source cleanly.", ex);
             }
             finally
             {
