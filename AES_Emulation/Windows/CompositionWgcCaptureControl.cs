@@ -8,12 +8,14 @@ using Avalonia.Media;
 using Avalonia.OpenGL;
 using Avalonia.Platform;
 using Avalonia.Rendering.Composition;
+using Avalonia.Rendering.SceneGraph;
 using Avalonia.Skia;
 using Avalonia.Threading;
 using SkiaSharp;
 using System;
 using System.Diagnostics;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace AES_Emulation.Windows;
@@ -21,10 +23,14 @@ namespace AES_Emulation.Windows;
 public class CompositionWgcCaptureControl : Control
 {
     private CompositionCustomVisual? _visual;
+    private WgcCaptureVisualHandler? _handler;
+    private DispatcherTimer? _fallbackRenderTimer;
     private nint _session = nint.Zero;
     private WindowHandler? _windowHandler;
     private nint _hostHandle = nint.Zero;
     private nint _activeTargetHwnd = nint.Zero;
+    private bool _isAttachedToVisualTree;
+    private bool _useOwnerRenderFallback;
 
     private bool _isDraggingOverlay;
     private Point _dragStart;
@@ -316,24 +322,39 @@ public class CompositionWgcCaptureControl : Control
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
+        _isAttachedToVisualTree = true;
+        _handler ??= new WgcCaptureVisualHandler();
+
         var compositor = ElementComposition.GetElementVisual(this)?.Compositor;
-        if (compositor != null)
+        _useOwnerRenderFallback = !RuntimeFeature.IsDynamicCodeSupported || compositor == null;
+
+        if (!_useOwnerRenderFallback && compositor != null)
         {
-            _visual = compositor.CreateCustomVisual(new WgcCaptureVisualHandler());
-            ElementComposition.SetElementChildVisual(this, _visual);
-
-            UpdateHandlerSize();
-            UpdateHandlerSession();
-            UpdateHandlerSettings();
-
-            TryResolveHostHandle();
-            StartSession();
+            try
+            {
+                _visual = compositor.CreateCustomVisual(_handler);
+                ElementComposition.SetElementChildVisual(this, _visual);
+            }
+            catch
+            {
+                _useOwnerRenderFallback = true;
+                _visual = null;
+            }
         }
+
+        UpdateHandlerSize();
+        UpdateHandlerSession();
+        UpdateHandlerSettings();
+
+        TryResolveHostHandle();
+        StartSession();
+        UpdateFallbackRenderLoop();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
+        _isAttachedToVisualTree = false;
         StopSession();
         if (_visual != null)
         {
@@ -341,6 +362,12 @@ public class CompositionWgcCaptureControl : Control
             ElementComposition.SetElementChildVisual(this, null);
             _visual = null;
         }
+        else
+        {
+            _handler?.OnMessage(null);
+        }
+
+        _fallbackRenderTimer?.Stop();
     }
 
     private void StartSession()
@@ -375,6 +402,7 @@ public class CompositionWgcCaptureControl : Control
 
             UpdateHandlerSession();
             UpdateHandlerSettings();
+            UpdateFallbackRenderLoop();
         }
         else
         {
@@ -410,6 +438,7 @@ public class CompositionWgcCaptureControl : Control
 
         _activeTargetHwnd = IntPtr.Zero;
         UpdateHandlerSession();
+        UpdateFallbackRenderLoop();
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -418,7 +447,9 @@ public class CompositionWgcCaptureControl : Control
 
         if (change.Property == TargetHwndProperty)
         {
-            if (_visual == null) return;
+            if (_visual == null && _handler == null)
+                return;
+
             StartSession();
         }
         else if (change.Property == RequestStopSessionProperty)
@@ -468,21 +499,23 @@ public class CompositionWgcCaptureControl : Control
 
     private void UpdateHandlerSize()
     {
+        var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
         if (_visual != null)
         {
-            var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
             _visual.Size = size;
-            _visual.SendHandlerMessage(size);
         }
+
+        SendHandlerMessage(size);
     }
 
     private void UpdateHandlerSession()
     {
-        _visual?.SendHandlerMessage(new WgcSessionMessage
+        SendHandlerMessage(new WgcSessionMessage
         {
             Session = _session,
             TargetHwnd = _activeTargetHwnd,
-            Owner = new WeakReference<CompositionWgcCaptureControl>(this)
+            Owner = new WeakReference<CompositionWgcCaptureControl>(this),
+            UseOwnerInvalidation = _useOwnerRenderFallback
         });
     }
 
@@ -498,7 +531,7 @@ public class CompositionWgcCaptureControl : Control
 
     private void UpdateHandlerSettings()
     {
-        _visual?.SendHandlerMessage(new WgcSettingsMessage
+        SendHandlerMessage(new WgcSettingsMessage
         {
             Stretch = Stretch,
             Brightness = (float)Brightness,
@@ -518,6 +551,60 @@ public class CompositionWgcCaptureControl : Control
         });
     }
 
+    private void SendHandlerMessage(object? message)
+    {
+        if (_visual != null)
+        {
+            _visual.SendHandlerMessage(message);
+            return;
+        }
+
+        _handler?.OnMessage(message);
+    }
+
+    private void UpdateFallbackRenderLoop()
+    {
+        if (!_useOwnerRenderFallback || !_isAttachedToVisualTree || _session == IntPtr.Zero || _handler == null)
+        {
+            _fallbackRenderTimer?.Stop();
+            return;
+        }
+
+        EnsureFallbackRenderTimer();
+        if (_fallbackRenderTimer != null && !_fallbackRenderTimer.IsEnabled)
+            _fallbackRenderTimer.Start();
+
+        InvalidateVisual();
+    }
+
+    private void EnsureFallbackRenderTimer()
+    {
+        if (_fallbackRenderTimer != null)
+            return;
+
+        _fallbackRenderTimer = new DispatcherTimer(DispatcherPriority.Render)
+        {
+            Interval = TimeSpan.FromMilliseconds(16)
+        };
+
+        _fallbackRenderTimer.Tick += (_, _) =>
+        {
+            if (!_useOwnerRenderFallback || !_isAttachedToVisualTree || _handler == null || _session == IntPtr.Zero)
+                return;
+
+            _handler.OnAnimationFrameUpdate();
+            InvalidateVisual();
+        };
+    }
+
+    public override void Render(DrawingContext context)
+    {
+        base.Render(context);
+
+        if (_useOwnerRenderFallback && _handler != null && Bounds.Width > 0 && Bounds.Height > 0)
+            context.Custom(new WgcCaptureDrawOperation(new Rect(Bounds.Size), _handler));
+    }
+
     protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
         base.OnSizeChanged(e);
@@ -533,6 +620,7 @@ internal class WgcSessionMessage
     public nint Session;
     public nint TargetHwnd;
     public WeakReference<CompositionWgcCaptureControl>? Owner;
+    public bool UseOwnerInvalidation;
 }
 
 internal class WgcSettingsMessage
@@ -554,11 +642,30 @@ internal class WgcSettingsMessage
     public Vector2 OverlayPosition;
 }
 
+internal sealed class WgcCaptureDrawOperation(Rect bounds, WgcCaptureVisualHandler handler) : ICustomDrawOperation
+{
+    public Rect Bounds { get; } = bounds;
+
+    public bool HitTest(Point p) => Bounds.Contains(p);
+
+    public void Dispose()
+    {
+    }
+
+    public void Render(ImmediateDrawingContext context)
+    {
+        handler.OnRender(context);
+    }
+
+    public bool Equals(ICustomDrawOperation? other) => false;
+}
+
 public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 {
     private nint _session = nint.Zero;
     private nint _targetHwnd = nint.Zero;
     private WeakReference<CompositionWgcCaptureControl>? _ownerRef;
+    private bool _useOwnerInvalidation;
     private bool _forceUseTargetClientSize = false;
     private int _lastCropX, _lastCropY, _lastCropW, _lastCropH;
 
@@ -637,8 +744,11 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _session = sm.Session;
             _targetHwnd = sm.TargetHwnd;
             _ownerRef = sm.Owner;
+            _useOwnerInvalidation = sm.UseOwnerInvalidation;
             _lastNativeFrameCount = -1;
-            if (_session != nint.Zero) RegisterForNextAnimationFrameUpdate();
+            if (_session != nint.Zero && !_useOwnerInvalidation)
+                RegisterForNextAnimationFrameUpdate();
+            RequestRender();
         }
         else if (message is Vector2 size)
         {
@@ -646,7 +756,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             {
                 _visualSize = size;
                 _rectDirty = true;
-                Invalidate();
+                RequestRender();
             }
         }
         else if (message is WgcSettingsMessage st)
@@ -685,7 +795,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 WgcBridgeApi.SetVrrEnabled(_session, _vrrActive);
             }
 
-            Invalidate();
+            RequestRender();
         }
     }
 
@@ -853,10 +963,23 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         if (nativeCount != _lastNativeFrameCount)
         {
             _lastNativeFrameCount = nativeCount;
-            Invalidate();
+            RequestRender();
         }
 
-        RegisterForNextAnimationFrameUpdate();
+        if (!_useOwnerInvalidation)
+            RegisterForNextAnimationFrameUpdate();
+    }
+
+    private void RequestRender()
+    {
+        if (_useOwnerInvalidation)
+        {
+            if (_ownerRef?.TryGetTarget(out var owner) == true)
+                Dispatcher.UIThread.Post(owner.InvalidateVisual, DispatcherPriority.Render);
+            return;
+        }
+
+        Invalidate();
     }
 
     public override void OnRender(ImmediateDrawingContext context)

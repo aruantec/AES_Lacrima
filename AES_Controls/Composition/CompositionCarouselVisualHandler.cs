@@ -692,9 +692,13 @@ namespace AES_Controls.Composition
             float wR = w / sc; float hR = h / sc;
             float xO = (dims.Width - wR) / 2f; float yO = (dims.Height - hR) / 2f;
 
-            // Render every cover as one rigid quad so artwork details stay stable
-            // while cards move and rotate in the carousel.
-            int horizontalSegments = 1;
+            // Approximate perspective with multiple vertical strips so the existing
+            // 3D card motion stays intact without visibly bending the artwork.
+            int horizontalSegments = isReflection
+                ? 4
+                : (UseReducedMotionQuality
+                    ? Math.Clamp(2 + (int)MathF.Ceiling(rotationYAbs * 6f), 2, 6)
+                    : Math.Clamp(6 + (int)MathF.Ceiling(rotationYAbs * 10f), 6, 14));
 
             int vertCount = 2 * (horizontalSegments + 1);
             if (_meshVBuffer.Length != vertCount) _meshVBuffer = new SKPoint[vertCount];
