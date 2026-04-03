@@ -39,6 +39,7 @@
                                                 SideTranslation="{Binding SettingsViewModel.CarouselSideTranslation}"
                                                 StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"
                                                 UseFullCoverSize="True"
+                                                IsVisible="{Binding !IsEmulatorViewportVisible}"
                                                 GlobalOpacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
                                                 ClipToBounds="False">
             <composition:CompositionCarouselControl.ContextMenu>
@@ -119,14 +120,14 @@
         </composition:CompositionCarouselControl>
 
         <Canvas Grid.Row="0" IsHitTestVisible="False">
-            <Border IsVisible="{Binding IsGameplayPreviewHostVisible}"
+            <Border IsVisible="{Binding IsGameplayPreviewViewportVisible}"
                     Canvas.Left="{Binding SelectedItemBounds.X, ElementName=RomCarousel}"
                     Canvas.Top="{Binding SelectedItemBounds.Y, ElementName=RomCarousel}"
                     Width="{Binding SelectedItemBounds.Width, ElementName=RomCarousel}"
                     Height="{Binding SelectedItemBounds.Height, ElementName=RomCarousel}"
                     Margin="-8,-6,0,0"
                     ClipToBounds="False"
-                    Opacity="{Binding IsGameplayPreviewHostVisible, Converter={StaticResource BoolToOpacityConverter}}"
+                    Opacity="{Binding IsGameplayPreviewViewportVisible, Converter={StaticResource BoolToOpacityConverter}}"
                     Background="Transparent">
                 <Border.Transitions>
                     <Transitions>
@@ -159,8 +160,8 @@
                                              Stretch="Uniform"
                                              ReferenceViewportWidth="{Binding SelectedItemBounds.Width, ElementName=RomCarousel}"
                                              ReferenceViewportHeight="{Binding SelectedItemBounds.Height, ElementName=RomCarousel}"
-                                             IsRenderingPaused="{Binding !IsGameplayVideoVisible}"
-                                             Opacity="{Binding IsGameplayVideoVisible, Converter={StaticResource BoolToOpacityConverter}}">
+                                             IsRenderingPaused="{Binding !IsGameplayVideoSurfaceVisible}"
+                                             Opacity="{Binding IsGameplayVideoSurfaceVisible, Converter={StaticResource BoolToOpacityConverter}}">
                         <player:VideoViewControl.Transitions>
                             <Transitions>
                                 <DoubleTransition Property="Opacity" Duration="0:0:0.3" Easing="SineEaseOut" />
@@ -172,8 +173,15 @@
         </Canvas>
 
         <Grid Grid.Row="0"
-              IsVisible="{Binding IsEmulatorViewportVisible}"
+              IsVisible="{Binding IsCompositionCaptureVisible}"
+              Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
+              IsHitTestVisible="{Binding IsCompositionCaptureVisible}"
               ZIndex="5">
+            <Grid.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut" />
+                </Transitions>
+            </Grid.Transitions>
             <Border x:Name="EmulatorCaptureHost"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch"
@@ -200,29 +208,18 @@
                        TextAlignment="Center"
                        MaxWidth="1000"
                        TextTrimming="CharacterEllipsis"/>
-            <TextBlock Text="{Binding HighlightedItem.Album, FallbackValue=''}"
-                       FontSize="18"
-                       Foreground="#CCFFFFFF"
-                       HorizontalAlignment="Center"
-                       TextAlignment="Center"
-                       MaxWidth="900"
-                       TextTrimming="CharacterEllipsis"
-                       IsVisible="False"/>
         </StackPanel>
 
-        <StackPanel HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Margin="0"
-                    IsHitTestVisible="False"
-                    IsVisible="{Binding IsNoAlbumLoadedVisible}">
-            <TextBlock Text="Right-click to add ROMs or scan a folder"
-                       HorizontalAlignment="Center"
-                       TextAlignment="Center"
-                       FontSize="24"
-                       MaxWidth="620"
-                       Foreground="#88787878"
-                       IsVisible="{Binding ShowEmptyActiveAlbumHint}"/>
-        </StackPanel>
+        <!-- Message -->
+        <TextBlock Text="{Binding EmptyLoadedAlbumMessage}"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   TextAlignment="Center"
+                   FontSize="24"
+                   MaxWidth="620"
+                   Foreground="#88787878"
+                   IsHitTestVisible="False"
+                   IsVisible="{Binding IsNoAlbumLoadedVisible}"/>
 
         <TextBox HorizontalAlignment="Right"
                  VerticalAlignment="Top"
@@ -337,7 +334,7 @@
                     <Viewbox Stretch="Uniform">
                         <Canvas Width="100" Height="100">
                             <Rectangle Canvas.Left="18" Canvas.Top="15" Width="64" Height="8" RadiusX="4" RadiusY="4"
-                                       Fill="{Binding IsAlbumListCollapsed, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
+                                       Fill="{Binding IsAlbumListCollapsed, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}">
                                 <Rectangle.Transitions>
                                     <Transitions>
                                         <BrushTransition Property="Fill" Duration="0:0:0.32" />
@@ -346,7 +343,7 @@
                             </Rectangle>
                             <Rectangle Canvas.Left="10" Canvas.Top="30" Width="80" Height="58" RadiusX="12" RadiusY="12"
                                        StrokeThickness="6"
-                                       Stroke="{Binding IsAlbumListCollapsed, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                       Stroke="{Binding IsAlbumListCollapsed, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}"
                                        Fill="Transparent">
                                 <Rectangle.Transitions>
                                     <Transitions>
@@ -376,21 +373,21 @@
                     </Button.Template>
                     <Viewbox Stretch="Uniform">
                         <StackPanel Height="100" Orientation="Horizontal" Spacing="15">
-                            <Rectangle Width="8" Height="76" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
+                            <Rectangle Width="8" Height="76" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}">
                                 <Rectangle.Transitions>
                                     <Transitions>
                                         <BrushTransition Property="Fill" Duration="0:0:0.32" />
                                     </Transitions>
                                 </Rectangle.Transitions>
                             </Rectangle>
-                            <Rectangle Width="90" Height="80" RadiusX="16" RadiusY="16" StrokeThickness="10" Stroke="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}" Fill="Transparent">
+                            <Rectangle Width="90" Height="80" RadiusX="16" RadiusY="16" StrokeThickness="10" Stroke="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}" Fill="Transparent">
                                 <Rectangle.Transitions>
                                     <Transitions>
                                         <BrushTransition Property="Stroke" Duration="0:0:0.32" />
                                     </Transitions>
                                 </Rectangle.Transitions>
                             </Rectangle>
-                            <Rectangle Width="8" Height="76" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
+                            <Rectangle Width="8" Height="76" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}">
                                 <Rectangle.Transitions>
                                     <Transitions>
                                         <BrushTransition Property="Fill" Duration="0:0:0.32" />
@@ -398,6 +395,45 @@
                                 </Rectangle.Transitions>
                             </Rectangle>
                         </StackPanel>
+                    </Viewbox>
+                </Button>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Height="60"
+                        Width="60"
+                        VerticalAlignment="Center"
+                        Margin="0,0,60,0"
+                        Cursor="Hand"
+                        Command="{Binding CloseEmulatorCommand}"
+                        IsVisible="{Binding IsEmulatorRunning}"
+                        ToolTip.Tip="Close Emulator">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <!-- Rounded outer frame with exit gap -->
+                            <Path Data="M 36,12 L 18,12 Q 10,12 10,20 L 10,80 Q 10,88 18,88 L 36,88 M 36,64 L 36,88 M 36,36 L 36,12"
+                                  Stroke="White"
+                                  StrokeThickness="10"
+                                  StrokeLineCap="Round"
+                                  Fill="Transparent" />
+                            <!-- Solid logout arrow -->
+                            <Path Data="M 30,50 L 88,50 M 88,50 L 62,28 L 62,72 Z"
+                                  Stroke="White"
+                                  StrokeThickness="10"
+                                  StrokeLineCap="Round"
+                                  StrokeJoin="Round"
+                                  Fill="White" />
+                        </Canvas>
                     </Viewbox>
                 </Button>
             </StackPanel>

@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -148,6 +149,10 @@ namespace AES_Lacrima.ViewModels
         public bool IsItemPointed => PointedIndex != -1 && PointedIndex < CoverItems.Count;
         public bool HasActiveAlbumItems => (LoadedAlbum ?? SelectedAlbum)?.Children.Count > 0;
         public bool ShowEmptyActiveAlbumHint => (LoadedAlbum ?? SelectedAlbum) != null && !HasActiveAlbumItems;
+        public string EmptyLoadedAlbumMessage =>
+            LoadedAlbum != null
+                ? "Right-click to add ROMs or scan folder"
+                : "No album loaded";
 
         [ObservableProperty]
         private MediaItem _highlightedItem = CreateEmptyMediaItem();
@@ -159,9 +164,11 @@ namespace AES_Lacrima.ViewModels
         private string? _searchText;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsGameplayVideoSurfaceVisible))]
         private bool _isGameplayVideoVisible;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsGameplayPreviewViewportVisible))]
         private bool _isGameplayPreviewHostVisible;
 
         [ObservableProperty]
@@ -176,10 +183,15 @@ namespace AES_Lacrima.ViewModels
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsEmulatorViewportVisible))]
+        [NotifyPropertyChangedFor(nameof(IsGameplayPreviewViewportVisible))]
+        [NotifyPropertyChangedFor(nameof(IsGameplayVideoSurfaceVisible))]
         private bool _isEmulatorViewportDismissed;
 
         public bool IsGameplayPreviewAvailable => IsGameplayAutoplayEnabled && IsYtDlpInstalled && !IsEmulatorRunning;
         public bool IsEmulatorViewportVisible => IsEmulatorRunning && !IsEmulatorViewportDismissed;
+        public bool IsCompositionCaptureVisible => IsActive && IsEmulatorViewportVisible;
+        public bool IsGameplayPreviewViewportVisible => IsGameplayPreviewHostVisible && !IsEmulatorViewportVisible;
+        public bool IsGameplayVideoSurfaceVisible => IsGameplayVideoVisible && !IsEmulatorViewportVisible;
 
         public EmulationViewModel()
         {
@@ -192,6 +204,11 @@ namespace AES_Lacrima.ViewModels
             if (e.PropertyName == nameof(IsActive) && !IsActive)
             {
                 StopGameplayPreview();
+            }
+
+            if (e.PropertyName == nameof(IsActive))
+            {
+                OnPropertyChanged(nameof(IsCompositionCaptureVisible));
             }
         }
 
@@ -288,6 +305,9 @@ namespace AES_Lacrima.ViewModels
         {
             OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
             OnPropertyChanged(nameof(IsEmulatorViewportVisible));
+            OnPropertyChanged(nameof(IsCompositionCaptureVisible));
+            OnPropertyChanged(nameof(IsGameplayPreviewViewportVisible));
+            OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
 
             if (value)
             {
@@ -303,6 +323,9 @@ namespace AES_Lacrima.ViewModels
         partial void OnIsEmulatorViewportDismissedChanged(bool value)
         {
             OnPropertyChanged(nameof(IsEmulatorViewportVisible));
+            OnPropertyChanged(nameof(IsCompositionCaptureVisible));
+            OnPropertyChanged(nameof(IsGameplayPreviewViewportVisible));
+            OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
         }
 
         private void RefreshAlbumPreviews()
@@ -410,7 +433,7 @@ namespace AES_Lacrima.ViewModels
                         {
                             AlbumList = new AvaloniaList<FolderMediaItem>(_sharedAlbumCache);
                             SelectedAlbum = AlbumList.FirstOrDefault();
-                            LoadedAlbum = SelectedAlbum;
+                            LoadedAlbum = null;
                             IsPrepared = true;
                             _isPreparing = false;
                             RefreshActiveAlbumState();
@@ -523,6 +546,21 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             IsEmulatorViewportDismissed = !IsEmulatorViewportDismissed;
+        }
+
+        [RelayCommand]
+        private void CloseEmulator()
+        {
+            _pendingEmulatorLaunchRequest = null;
+
+            if (TryGetRunningTrackedEmulatorProcess(out var process))
+            {
+                CloseTrackedEmulatorForPendingLaunch(process);
+                return;
+            }
+
+            DetachTrackedEmulatorProcess();
+            IsEmulatorRunning = false;
         }
 
         [RelayCommand]
@@ -651,7 +689,7 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 SelectedAlbum = AlbumList.FirstOrDefault();
-                LoadedAlbum = SelectedAlbum;
+                LoadedAlbum = null;
                 _sharedAlbumCache = new AvaloniaList<FolderMediaItem>(AlbumList);
                 IsPrepared = true;
                 _isPreparing = false;
@@ -1551,6 +1589,7 @@ namespace AES_Lacrima.ViewModels
         private void RequestEmulatorLaunch(PendingEmulatorLaunchRequest request)
         {
             _pendingEmulatorLaunchRequest = request;
+            EmulatorTargetHwnd = IntPtr.Zero;
 
             if (TryGetRunningTrackedEmulatorProcess(out var process))
             {
@@ -1615,6 +1654,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             _isClosingActiveEmulatorForRelaunch = true;
+            EmulatorTargetHwnd = IntPtr.Zero;
             _ = CloseTrackedEmulatorForPendingLaunchAsync(process);
         }
 
@@ -1676,6 +1716,8 @@ namespace AES_Lacrima.ViewModels
 
         private void TrackEmulatorProcess(Process? process, string albumTitle, string romPath)
         {
+            EmulatorTargetHwnd = IntPtr.Zero;
+
             if (process == null)
             {
                 SLog.Warn($"Emulator launch for '{romPath}' did not expose a trackable process handle.");
@@ -1765,9 +1807,12 @@ namespace AES_Lacrima.ViewModels
             const int maxAttempts = 80;
             const int delayMs = 250;
             const int stableAttemptsBeforeStop = 12;
+            const int stableAttemptsBeforeAssign = 3;
 
-            IntPtr lastResolvedHwnd = IntPtr.Zero;
-            var stableAttempts = 0;
+            IntPtr observedHwnd = IntPtr.Zero;
+            var observedStableAttempts = 0;
+            IntPtr assignedHwnd = IntPtr.Zero;
+            var assignedStableAttempts = 0;
             var hasAssignedHandle = false;
             bool keepDuckStationHiddenUntilCaptured = IsDuckStationSection(albumTitle);
 
@@ -1783,28 +1828,49 @@ namespace AES_Lacrima.ViewModels
                     if (keepDuckStationHiddenUntilCaptured)
                         HideProcessWindowsForCapture(process);
 
-                    var hwnd = TryFindPreferredWindowHandle(process);
+                    var hwnd = TryFindPreferredWindowHandle(process, keepDuckStationHiddenUntilCaptured);
                     if (hwnd != IntPtr.Zero)
                     {
                         if (keepDuckStationHiddenUntilCaptured)
                             HideWindowForCapture(hwnd);
 
-                        if (hwnd == lastResolvedHwnd)
+                        if (hwnd == observedHwnd)
                         {
-                            stableAttempts++;
+                            observedStableAttempts++;
                         }
                         else
                         {
-                            lastResolvedHwnd = hwnd;
-                            stableAttempts = 0;
-                            hasAssignedHandle = true;
-
-                            if (!await TryApplyEmulatorTargetHwndAsync(process, hwnd).ConfigureAwait(false))
-                                return;
+                            observedHwnd = hwnd;
+                            observedStableAttempts = 1;
                         }
 
-                        if (hasAssignedHandle && stableAttempts >= stableAttemptsBeforeStop)
+                        var canAssign =
+                            !keepDuckStationHiddenUntilCaptured ||
+                            IsLikelyDuckStationRenderWindow(hwnd, process.MainWindowHandle);
+
+                        if (canAssign &&
+                            hwnd != assignedHwnd &&
+                            observedStableAttempts >= stableAttemptsBeforeAssign)
+                        {
+                            if (!await TryApplyEmulatorTargetHwndAsync(process, hwnd).ConfigureAwait(false))
+                                return;
+
+                            assignedHwnd = hwnd;
+                            assignedStableAttempts = observedStableAttempts;
+                            hasAssignedHandle = true;
+                        }
+                        else if (hwnd == assignedHwnd)
+                        {
+                            assignedStableAttempts = observedStableAttempts;
+                        }
+
+                        if (hasAssignedHandle && assignedStableAttempts >= stableAttemptsBeforeStop)
                             return;
+                    }
+                    else
+                    {
+                        observedHwnd = IntPtr.Zero;
+                        observedStableAttempts = 0;
                     }
 
                     await Task.Delay(delayMs).ConfigureAwait(false);
@@ -1912,7 +1978,7 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private static IntPtr TryFindPreferredWindowHandle(Process process)
+        private static IntPtr TryFindPreferredWindowHandle(Process process, bool preferDuckStationRenderWindow)
         {
             if (!OperatingSystem.IsWindows())
                 return IntPtr.Zero;
@@ -1936,7 +2002,7 @@ namespace AES_Lacrima.ViewModels
 
             EnumWindows((hwnd, _) =>
             {
-                var score = ScoreProcessWindowCandidate(hwnd, processId, mainWindowHandle);
+                var score = ScoreProcessWindowCandidate(hwnd, processId, mainWindowHandle, preferDuckStationRenderWindow);
                 if (score > bestScore)
                 {
                     bestScore = score;
@@ -1949,12 +2015,15 @@ namespace AES_Lacrima.ViewModels
             if (bestHandle != IntPtr.Zero)
                 return bestHandle;
 
-            return ScoreProcessWindowCandidate(mainWindowHandle, processId, mainWindowHandle) > long.MinValue
+            if (preferDuckStationRenderWindow)
+                return IntPtr.Zero;
+
+            return ScoreProcessWindowCandidate(mainWindowHandle, processId, mainWindowHandle, preferDuckStationRenderWindow) > long.MinValue
                 ? mainWindowHandle
                 : IntPtr.Zero;
         }
 
-        private static long ScoreProcessWindowCandidate(IntPtr hwnd, uint processId, IntPtr mainWindowHandle)
+        private static long ScoreProcessWindowCandidate(IntPtr hwnd, uint processId, IntPtr mainWindowHandle, bool preferDuckStationRenderWindow)
         {
             if (hwnd == IntPtr.Zero || !IsWindowVisible(hwnd))
                 return long.MinValue;
@@ -1981,7 +2050,62 @@ namespace AES_Lacrima.ViewModels
             if (width >= 640 && height >= 360)
                 score += 250_000;
 
+            if (preferDuckStationRenderWindow)
+            {
+                if (!IsLikelyDuckStationRenderWindow(hwnd, mainWindowHandle))
+                    return long.MinValue;
+
+                score += 5_000_000;
+            }
+
             return score;
+        }
+
+        private static bool IsLikelyDuckStationRenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
+        {
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            var title = GetWindowTitle(hwnd);
+            var className = GetWindowClassName(hwnd);
+            var style = GetWindowLong(hwnd, GWL_STYLE);
+
+            var hasCaption = (style & WS_CAPTION) == WS_CAPTION;
+            var hasThickFrame = (style & WS_THICKFRAME) == WS_THICKFRAME;
+            var looksLikePrimaryUi = hwnd == mainWindowHandle;
+            var normalizedTitle = title.Trim();
+
+            if (!string.IsNullOrWhiteSpace(normalizedTitle))
+            {
+                if (normalizedTitle.Contains("DuckStation", StringComparison.OrdinalIgnoreCase) ||
+                    normalizedTitle.Contains("settings", StringComparison.OrdinalIgnoreCase) ||
+                    normalizedTitle.Contains("game list", StringComparison.OrdinalIgnoreCase) ||
+                    normalizedTitle.Contains("controller", StringComparison.OrdinalIgnoreCase) ||
+                    normalizedTitle.Contains("memory card", StringComparison.OrdinalIgnoreCase) ||
+                    normalizedTitle.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
+                    normalizedTitle.Contains("achievement", StringComparison.OrdinalIgnoreCase) ||
+                    normalizedTitle.Contains("tools", StringComparison.OrdinalIgnoreCase) ||
+                    normalizedTitle.Contains("view", StringComparison.OrdinalIgnoreCase) ||
+                    normalizedTitle.Contains("help", StringComparison.OrdinalIgnoreCase))
+                {
+                    looksLikePrimaryUi = true;
+                }
+
+                if (!normalizedTitle.Contains("DuckStation", StringComparison.OrdinalIgnoreCase) &&
+                    normalizedTitle.Length >= 3)
+                {
+                    looksLikePrimaryUi = false;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(className) &&
+                (className.Contains("QWindow", StringComparison.OrdinalIgnoreCase) ||
+                 className.Contains("Qt", StringComparison.OrdinalIgnoreCase)))
+            {
+                looksLikePrimaryUi |= hasCaption && hasThickFrame;
+            }
+
+            return !looksLikePrimaryUi && (!hasCaption || !string.IsNullOrWhiteSpace(normalizedTitle));
         }
 
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
@@ -2010,7 +2134,45 @@ namespace AES_Lacrima.ViewModels
         [DllImport("user32.dll")]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLong")]
+        private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
         private const uint GW_OWNER = 4;
+        private const int GWL_STYLE = -16;
+        private const int WS_CAPTION = 0x00C00000;
+        private const int WS_THICKFRAME = 0x00040000;
+
+        private static string GetWindowTitle(IntPtr hwnd)
+        {
+            try
+            {
+                var builder = new StringBuilder(256);
+                return GetWindowText(hwnd, builder, builder.Capacity) > 0 ? builder.ToString() : string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static string GetWindowClassName(IntPtr hwnd)
+        {
+            try
+            {
+                var builder = new StringBuilder(256);
+                return GetClassName(hwnd, builder, builder.Capacity) > 0 ? builder.ToString() : string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
 
         private static ProcessStartInfo BuildEmulatorStartInfo(string? albumTitle, string launcherPath, string romPath, EmulationSectionLaunchSettings? launchSettings)
         {

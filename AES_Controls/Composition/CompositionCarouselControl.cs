@@ -1815,6 +1815,17 @@ namespace AES_Controls.Composition
             base.OnPointerPressed(e);
             _settleCommitTimer?.Stop();
             Focus();
+
+            int hitIndex = IndexAtPoint(pos);
+            if (e.ClickCount == 2 && hitIndex != -1)
+            {
+                SelectedIndex = hitIndex;
+                ItemSelectedCommand?.Execute(hitIndex);
+                ItemDoubleClickedCommand?.Execute(hitIndex);
+                e.Handled = true;
+                return;
+            }
+
             _isPressed = true;
             _startPoint = _prevPoint = pos;
             _prevTime = e.Timestamp;
@@ -1833,9 +1844,7 @@ namespace AES_Controls.Composition
             
             _longPressTimer?.Start();
 
-            int hitIndex = IndexAtPoint(pos);
             _pressedItemIndex = hitIndex;
-            if (e.ClickCount == 2 && hitIndex != -1) ItemDoubleClickedCommand?.Execute(hitIndex);
 
             if (hitIndex != -1)
             {
