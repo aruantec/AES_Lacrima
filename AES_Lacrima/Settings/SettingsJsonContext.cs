@@ -1,5 +1,7 @@
-﻿using System.Text.Json.Nodes;
+﻿using System.Collections.Generic;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using AES_Controls.Player.Models;
 
 namespace AES_Lacrima.Settings
 {
