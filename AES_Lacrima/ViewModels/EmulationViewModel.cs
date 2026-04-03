@@ -1828,7 +1828,10 @@ namespace AES_Lacrima.ViewModels
                     if (keepDuckStationHiddenUntilCaptured)
                         HideProcessWindowsForCapture(process);
 
-                    var hwnd = TryFindPreferredWindowHandle(process, keepDuckStationHiddenUntilCaptured);
+                    var hwnd = TryFindPreferredWindowHandle(
+                        process,
+                        keepDuckStationHiddenUntilCaptured,
+                        allowHiddenWindows: keepDuckStationHiddenUntilCaptured);
                     if (hwnd != IntPtr.Zero)
                     {
                         if (keepDuckStationHiddenUntilCaptured)
@@ -1852,7 +1855,10 @@ namespace AES_Lacrima.ViewModels
                             hwnd != assignedHwnd &&
                             observedStableAttempts >= stableAttemptsBeforeAssign)
                         {
-                            if (!await TryApplyEmulatorTargetHwndAsync(process, hwnd).ConfigureAwait(false))
+                            if (!await TryApplyEmulatorTargetHwndAsync(
+                                    process,
+                                    hwnd,
+                                    showWindowForCapture: keepDuckStationHiddenUntilCaptured).ConfigureAwait(false))
                                 return;
 
                             assignedHwnd = hwnd;
@@ -1939,7 +1945,7 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private async Task<bool> TryApplyEmulatorTargetHwndAsync(Process process, IntPtr hwnd)
+        private async Task<bool> TryApplyEmulatorTargetHwndAsync(Process process, IntPtr hwnd, bool showWindowForCapture)
         {
             if (hwnd == IntPtr.Zero)
                 return false;
@@ -1958,6 +1964,9 @@ namespace AES_Lacrima.ViewModels
                 {
                     return false;
                 }
+
+                if (showWindowForCapture)
+                    ShowWindowForCapture(hwnd);
 
                 if (EmulatorTargetHwnd != hwnd)
                     EmulatorTargetHwnd = hwnd;
@@ -1978,7 +1987,7 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private static IntPtr TryFindPreferredWindowHandle(Process process, bool preferDuckStationRenderWindow)
+        private static IntPtr TryFindPreferredWindowHandle(Process process, bool preferDuckStationRenderWindow, bool allowHiddenWindows = false)
         {
             if (!OperatingSystem.IsWindows())
                 return IntPtr.Zero;
@@ -2002,7 +2011,12 @@ namespace AES_Lacrima.ViewModels
 
             EnumWindows((hwnd, _) =>
             {
-                var score = ScoreProcessWindowCandidate(hwnd, processId, mainWindowHandle, preferDuckStationRenderWindow);
+                var score = ScoreProcessWindowCandidate(
+                    hwnd,
+                    processId,
+                    mainWindowHandle,
+                    preferDuckStationRenderWindow,
+                    allowHiddenWindows);
                 if (score > bestScore)
                 {
                     bestScore = score;
@@ -2018,14 +2032,28 @@ namespace AES_Lacrima.ViewModels
             if (preferDuckStationRenderWindow)
                 return IntPtr.Zero;
 
-            return ScoreProcessWindowCandidate(mainWindowHandle, processId, mainWindowHandle, preferDuckStationRenderWindow) > long.MinValue
+            return ScoreProcessWindowCandidate(
+                    mainWindowHandle,
+                    processId,
+                    mainWindowHandle,
+                    preferDuckStationRenderWindow,
+                    allowHiddenWindows) > long.MinValue
                 ? mainWindowHandle
                 : IntPtr.Zero;
         }
 
-        private static long ScoreProcessWindowCandidate(IntPtr hwnd, uint processId, IntPtr mainWindowHandle, bool preferDuckStationRenderWindow)
+        private static long ScoreProcessWindowCandidate(
+            IntPtr hwnd,
+            uint processId,
+            IntPtr mainWindowHandle,
+            bool preferDuckStationRenderWindow,
+            bool allowHiddenWindows)
         {
-            if (hwnd == IntPtr.Zero || !IsWindowVisible(hwnd))
+            if (hwnd == IntPtr.Zero)
+                return long.MinValue;
+
+            var isVisible = IsWindowVisible(hwnd);
+            if (!isVisible && !allowHiddenWindows)
                 return long.MinValue;
 
             if (GetWindowThreadProcessId(hwnd, out uint windowPid) == 0 || windowPid != processId)
@@ -2040,6 +2068,7 @@ namespace AES_Lacrima.ViewModels
                 return long.MinValue;
 
             long score = (long)width * height * 10;
+            score += isVisible ? 100_000 : -100_000;
 
             if (GetWindow(hwnd, GW_OWNER) == IntPtr.Zero)
                 score += 1_000_000;
@@ -2059,6 +2088,21 @@ namespace AES_Lacrima.ViewModels
             }
 
             return score;
+        }
+
+        private static void ShowWindowForCapture(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
+                return;
+
+            try
+            {
+                ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
+            catch
+            {
+                // Best-effort only. Capture setup will still continue if the show request fails.
+            }
         }
 
         private static bool IsLikelyDuckStationRenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
@@ -2126,6 +2170,9 @@ namespace AES_Lacrima.ViewModels
         private static extern bool IsWindowVisible(IntPtr hWnd);
 
         [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
         [DllImport("user32.dll")]
@@ -2144,6 +2191,7 @@ namespace AES_Lacrima.ViewModels
         private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
         private const uint GW_OWNER = 4;
+        private const int SW_SHOWNOACTIVATE = 4;
         private const int GWL_STYLE = -16;
         private const int WS_CAPTION = 0x00C00000;
         private const int WS_THICKFRAME = 0x00040000;
@@ -2185,6 +2233,8 @@ namespace AES_Lacrima.ViewModels
 
             if (IsDuckStationSection(albumTitle))
             {
+                startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+
                 // DuckStation expects command switches before `--`, with the image path
                 // after `--` so the ROM filename is not parsed as an option.
                 startInfo.ArgumentList.Add("-batch");
