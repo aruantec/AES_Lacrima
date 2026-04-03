@@ -29,6 +29,7 @@
                                                 ImageBitmapProperty="CoverBitmap"
                                                 SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
                                                 PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
+                                                ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
                                                 ShowCoverFoundOverlay="False"
                                                 ItemSpacing="{Binding SettingsViewModel.CarouselSpacing}"
                                                 ItemScale="{Binding SettingsViewModel.CarouselScale}"

@@ -76,6 +76,7 @@ namespace AES_Lacrima.ViewModels
         private string? _pendingGameplayPreviewItemPath;
         private string? _activeGameplayPreviewItemPath;
         private long _gameplayPreviewRequestVersion;
+        private Process? _activeEmulatorProcess;
         private const int GameplayPreviewHoverDelayMs = 2000;
         private const int GameplayPreviewResizeAnimationMs = 800;
         private const int GameplayPreviewPostAnimationDelayMs = 200;
@@ -157,7 +158,10 @@ namespace AES_Lacrima.ViewModels
         private double _gameplayPreviewTargetAspectRatio;
 
         public string AlbumListToggleText => IsAlbumListCollapsed ? "Show Albums" : "Hide Albums";
-        public bool IsGameplayPreviewAvailable => IsGameplayAutoplayEnabled && IsYtDlpInstalled;
+        [ObservableProperty]
+        private bool _isEmulatorRunning;
+
+        public bool IsGameplayPreviewAvailable => IsGameplayAutoplayEnabled && IsYtDlpInstalled && !IsEmulatorRunning;
 
         public EmulationViewModel()
         {
@@ -260,6 +264,20 @@ namespace AES_Lacrima.ViewModels
                 QueueGameplayPreview(HighlightedItem);
             else
                 StopGameplayPreview();
+        }
+
+        partial void OnIsEmulatorRunningChanged(bool value)
+        {
+            OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
+
+            if (value)
+            {
+                StopGameplayPreview();
+                return;
+            }
+
+            if (IsActive && IsGameplayPreviewAvailable)
+                QueueGameplayPreview(HighlightedItem, immediate: true);
         }
 
         private void RefreshAlbumPreviews()
@@ -393,6 +411,8 @@ namespace AES_Lacrima.ViewModels
             EnsureMetadataServiceSubscription();
             if (!IsPrepared)
                 RefreshAlbumPreviews();
+            else if (!IsEmulatorRunning && IsGameplayPreviewAvailable)
+                QueueGameplayPreview(HighlightedItem, immediate: true);
         }
 
         public override void OnLeaveViewModel()
@@ -478,6 +498,39 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             LoadedAlbum = SelectedAlbum;
+        }
+
+        [RelayCommand]
+        private void OpenSelectedItem(object? parameter)
+        {
+            var item = parameter switch
+            {
+                MediaItem mediaItem => mediaItem,
+                int idx when idx >= 0 && idx < CoverItems.Count => CoverItems[idx],
+                _ => HighlightedItem
+            };
+
+            if (item == null || string.IsNullOrWhiteSpace(item.FileName))
+                return;
+
+            var album = LoadedAlbum ?? SelectedAlbum;
+            if (album == null)
+                return;
+
+            var launcherPath = SettingsViewModel?.GetEmulationSectionLauncherPath(album.Title);
+            if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
+                return;
+
+            try
+            {
+                var startInfo = BuildEmulatorStartInfo(album.Title, launcherPath, item.FileName);
+                var process = Process.Start(startInfo);
+                TrackEmulatorProcess(process, item.FileName);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to launch emulator for '{album.Title}' item '{item.Title}'.", ex);
+            }
         }
 
         protected override void OnLoadSettings(JsonObject section)
@@ -1461,6 +1514,121 @@ namespace AES_Lacrima.ViewModels
                 item.Artist?.Contains(query, StringComparison.OrdinalIgnoreCase) == true ||
                 item.FileName?.Contains(query, StringComparison.OrdinalIgnoreCase) == true;
         }
+
+        private void TrackEmulatorProcess(Process? process, string romPath)
+        {
+            if (process == null)
+            {
+                SLog.Warn($"Emulator launch for '{romPath}' did not expose a trackable process handle.");
+                StopGameplayPreview();
+                return;
+            }
+
+            DetachTrackedEmulatorProcess();
+
+            _activeEmulatorProcess = process;
+
+            try
+            {
+                process.EnableRaisingEvents = true;
+                process.Exited += ActiveEmulatorProcess_Exited;
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed to subscribe to emulator exit events.", ex);
+            }
+
+            IsEmulatorRunning = !process.HasExited;
+
+            if (process.HasExited)
+                HandleTrackedEmulatorExited(process);
+        }
+
+        private void ActiveEmulatorProcess_Exited(object? sender, EventArgs e)
+        {
+            if (sender is not Process process)
+                return;
+
+            Dispatcher.UIThread.Post(() => HandleTrackedEmulatorExited(process), DispatcherPriority.Background);
+        }
+
+        private void HandleTrackedEmulatorExited(Process process)
+        {
+            if (!ReferenceEquals(_activeEmulatorProcess, process))
+            {
+                try
+                {
+                    process.Exited -= ActiveEmulatorProcess_Exited;
+                    process.Dispose();
+                }
+                catch
+                {
+                    // Ignore cleanup races for stale processes.
+                }
+
+                return;
+            }
+
+            DetachTrackedEmulatorProcess();
+            IsEmulatorRunning = false;
+        }
+
+        private void DetachTrackedEmulatorProcess()
+        {
+            if (_activeEmulatorProcess == null)
+                return;
+
+            try
+            {
+                _activeEmulatorProcess.Exited -= ActiveEmulatorProcess_Exited;
+                _activeEmulatorProcess.Dispose();
+            }
+            catch
+            {
+                // Ignore teardown issues during shutdown/relaunch.
+            }
+            finally
+            {
+                _activeEmulatorProcess = null;
+            }
+        }
+
+        private static ProcessStartInfo BuildEmulatorStartInfo(string? albumTitle, string launcherPath, string romPath)
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = launcherPath,
+                UseShellExecute = true,
+                WorkingDirectory = Path.GetDirectoryName(launcherPath) ?? string.Empty
+            };
+
+            if (IsDuckStationSection(albumTitle))
+            {
+                // DuckStation expects command switches before `--`, with the image path
+                // after `--` so the ROM filename is not parsed as an option.
+                startInfo.ArgumentList.Add("-batch");
+
+                startInfo.ArgumentList.Add("--");
+                startInfo.ArgumentList.Add(romPath);
+            }
+            else
+            {
+                startInfo.ArgumentList.Add(romPath);
+            }
+
+            return startInfo;
+        }
+
+        private static bool IsDuckStationSection(string? albumTitle)
+        {
+            if (string.IsNullOrWhiteSpace(albumTitle))
+                return false;
+
+            return string.Equals(albumTitle, "PlayStation", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(albumTitle, "PSX", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(albumTitle, "PS1", StringComparison.OrdinalIgnoreCase);
+        }
+
 
         private static int GetRoundedSelectedIndex(double value) => (int)Math.Round(value);
 
