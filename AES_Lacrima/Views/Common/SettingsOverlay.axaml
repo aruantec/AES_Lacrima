@@ -139,50 +139,115 @@
                             <ToggleSwitch FontSize="20" IsChecked="{Binding EmulationGameplayAutoplay, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
 
-                        <TextBlock Text="Section Apps" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,15,0,10"/>
+                        <TextBlock Text="Consoles" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,15,0,10"/>
                         <Separator Margin="0,0,0,15"/>
-                        <TextBlock Text="Choose the app/binary that should be used for each emulation section."
+                        <TextBlock Text="Expand a console section to configure the supported emulator handlers for it."
                                    Foreground="DarkGray"
                                    FontSize="16"
                                    TextWrapping="Wrap"
                                    MaxWidth="760"
                                    Margin="0,0,0,15"/>
 
-                        <ItemsControl ItemsSource="{Binding EmulationSectionApps}">
+                        <ItemsControl ItemsSource="{Binding EmulationSections}">
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:EmulationSectionAppItem">
+                                <DataTemplate x:DataType="vm:EmulationSectionItem">
                                     <Border Background="#151515"
                                             BorderBrush="#343434"
                                             BorderThickness="1"
                                             CornerRadius="8"
-                                            Padding="14"
                                             Margin="0,0,0,12">
-                                        <Grid ColumnDefinitions="220,*,Auto,Auto" ColumnSpacing="14" RowDefinitions="Auto,Auto">
-                                            <TextBlock Grid.RowSpan="2"
-                                                       Text="{Binding SectionTitle}"
-                                                       VerticalAlignment="Center"
-                                                       FontSize="20"
-                                                       Foreground="WhiteSmoke"/>
-                                            <TextBlock Grid.Column="1"
-                                                       Text="{Binding LauncherDisplayPath}"
-                                                       Foreground="DarkGray"
-                                                       FontSize="14"
-                                                       TextWrapping="Wrap"
-                                                       VerticalAlignment="Center"
-                                                       MaxWidth="420"/>
-                                            <Button Grid.Column="2"
-                                                    Content="Browse"
-                                                    Command="{Binding BrowseLauncherCommand}"
-                                                    Padding="14,8"
-                                                    MinWidth="100"/>
-                                            <Button Grid.Column="3"
-                                                    Content="Clear"
-                                                    Command="{Binding ClearLauncherCommand}"
-                                                    IsVisible="{Binding HasLauncherPath}"
-                                                    Padding="14,8"
-                                                    MinWidth="90"
-                                                    Background="#3A2020"
-                                                    Foreground="WhiteSmoke"/>
+                                        <Grid RowDefinitions="Auto,Auto">
+                                            <ToggleButton Grid.Row="0"
+                                                          IsChecked="{Binding IsExpanded, Mode=TwoWay}"
+                                                          Background="Transparent"
+                                                          BorderThickness="0"
+                                                          HorizontalAlignment="Stretch"
+                                                          HorizontalContentAlignment="Stretch"
+                                                          Padding="14">
+                                                <Grid ColumnDefinitions="96,*,Auto" ColumnSpacing="14">
+                                                    <Border Width="96"
+                                                            Height="60"
+                                                            CornerRadius="8"
+                                                            BorderBrush="#343434"
+                                                            BorderThickness="1"
+                                                            ClipToBounds="True">
+                                                        <Image asyncImageLoader:ImageLoader.Source="{Binding AlbumImagePath}"
+                                                               Stretch="UniformToFill"/>
+                                                    </Border>
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{Binding SectionTitle}"
+                                                               VerticalAlignment="Center"
+                                                               FontSize="20"
+                                                               Foreground="WhiteSmoke"/>
+                                                    <Grid Grid.Column="2"
+                                                          Width="28"
+                                                          Height="28"
+                                                          VerticalAlignment="Center">
+                                                        <TextBlock Text="+"
+                                                                   IsVisible="{Binding !IsExpanded}"
+                                                                   HorizontalAlignment="Center"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="DarkGray"
+                                                                   FontSize="24"/>
+                                                        <TextBlock Text="-"
+                                                                   IsVisible="{Binding IsExpanded}"
+                                                                   HorizontalAlignment="Center"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="DarkGray"
+                                                                   FontSize="24"/>
+                                                    </Grid>
+                                                </Grid>
+                                            </ToggleButton>
+
+                                            <StackPanel Grid.Row="1"
+                                                        Margin="14,0,14,14"
+                                                        Spacing="10"
+                                                        IsVisible="{Binding IsExpanded}">
+                                                <ItemsControl ItemsSource="{Binding Handlers}"
+                                                              IsVisible="{Binding HasHandlers}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:EmulationHandlerAppItem">
+                                                            <Border Background="#1D1D1D"
+                                                                    BorderBrush="#343434"
+                                                                    BorderThickness="1"
+                                                                    CornerRadius="8"
+                                                                    Padding="12">
+                                                                <Grid ColumnDefinitions="180,*,Auto,Auto" ColumnSpacing="12">
+                                                                    <TextBlock Text="{Binding DisplayName}"
+                                                                               VerticalAlignment="Center"
+                                                                               FontSize="18"
+                                                                               Foreground="WhiteSmoke"/>
+                                                                    <TextBlock Grid.Column="1"
+                                                                               Text="{Binding LauncherDisplayPath}"
+                                                                               Foreground="DarkGray"
+                                                                               FontSize="14"
+                                                                               TextWrapping="Wrap"
+                                                                               VerticalAlignment="Center"
+                                                                               MaxWidth="360"/>
+                                                                    <Button Grid.Column="2"
+                                                                            Content="Browse"
+                                                                            Command="{Binding BrowseLauncherCommand}"
+                                                                            Padding="14,8"
+                                                                            MinWidth="100"/>
+                                                                    <Button Grid.Column="3"
+                                                                            Content="Clear"
+                                                                            Command="{Binding ClearLauncherCommand}"
+                                                                            IsVisible="{Binding HasLauncherPath}"
+                                                                            Padding="14,8"
+                                                                            MinWidth="90"
+                                                                            Background="#3A2020"
+                                                                            Foreground="WhiteSmoke"/>
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+
+                                                <TextBlock Text="No handlers available yet for this section."
+                                                           IsVisible="{Binding !HasHandlers}"
+                                                           Foreground="DarkGray"
+                                                           FontSize="14"/>
+                                            </StackPanel>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>

@@ -10,6 +10,7 @@ using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Emulation.EmulationHandlers;
 using AES_Lacrima.Services;
 using Avalonia;
 using Avalonia.Collections;
@@ -19,6 +20,7 @@ using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using log4net;
+using System.Windows.Input;
 
 namespace AES_Lacrima.ViewModels;
 
@@ -35,8 +37,53 @@ public interface ISettingsViewModel;
 /// <param name="Name">The display name of the shader. Cannot be null or empty.</param>
 public record ShaderItem(string Path, string Name);
 
-public partial class EmulationSectionAppItem : ObservableObject
+public sealed class EmulationHandlerAppItem : ObservableObject
 {
+    public EmulationHandlerAppItem(IEmulatorHandler handler)
+    {
+        Handler = handler;
+        Handler.PropertyChanged += Handler_PropertyChanged;
+    }
+
+    public IEmulatorHandler Handler { get; }
+
+    public string HandlerId => Handler.HandlerId;
+
+    public string DisplayName => Handler.DisplayName;
+
+    public string LauncherDisplayPath => Handler.LauncherDisplayPath;
+
+    public bool HasLauncherPath => Handler.HasLauncherPath;
+
+    public ICommand? BrowseLauncherCommand => Handler.BrowseLauncherCommand;
+
+    public ICommand? ClearLauncherCommand => Handler.ClearLauncherCommand;
+
+    private void Handler_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(IEmulatorHandler.LauncherPath) &&
+            e.PropertyName != nameof(IEmulatorHandler.LauncherDisplayPath) &&
+            e.PropertyName != nameof(IEmulatorHandler.HasLauncherPath) &&
+            e.PropertyName != nameof(IEmulatorHandler.BrowseLauncherCommand) &&
+            e.PropertyName != nameof(IEmulatorHandler.ClearLauncherCommand))
+        {
+            return;
+        }
+
+        OnPropertyChanged(nameof(LauncherDisplayPath));
+        OnPropertyChanged(nameof(HasLauncherPath));
+        OnPropertyChanged(nameof(BrowseLauncherCommand));
+        OnPropertyChanged(nameof(ClearLauncherCommand));
+    }
+}
+
+public partial class EmulationSectionItem : ObservableObject
+{
+    public EmulationSectionItem()
+    {
+        Handlers.CollectionChanged += Handlers_CollectionChanged;
+    }
+
     [ObservableProperty]
     private string _sectionKey = string.Empty;
 
@@ -44,28 +91,27 @@ public partial class EmulationSectionAppItem : ObservableObject
     private string _sectionTitle = string.Empty;
 
     [ObservableProperty]
-    private string? _launcherPath;
+    private string? _albumImagePath;
 
     [ObservableProperty]
     private EmulationSectionLaunchSettings _launchSettings = new();
 
-    public string LauncherDisplayPath =>
-        string.IsNullOrWhiteSpace(LauncherPath)
-            ? "No app selected"
-            : LauncherPath;
+    [ObservableProperty]
+    private AvaloniaList<EmulationHandlerAppItem> _handlers = [];
 
-    public bool HasLauncherPath => !string.IsNullOrWhiteSpace(LauncherPath);
+    [ObservableProperty]
+    private bool _isExpanded;
 
-    public IAsyncRelayCommand BrowseLauncherCommand { get; set; } = new AsyncRelayCommand(() => Task.CompletedTask);
+    public bool HasHandlers => Handlers.Count > 0;
 
-    public IRelayCommand ClearLauncherCommand { get; set; } = new RelayCommand(() => { });
-
-    partial void OnLauncherPathChanged(string? value)
+    partial void OnHandlersChanged(AvaloniaList<EmulationHandlerAppItem> value)
     {
-        OnPropertyChanged(nameof(LauncherDisplayPath));
-        OnPropertyChanged(nameof(HasLauncherPath));
-        ClearLauncherCommand.NotifyCanExecuteChanged();
+        value.CollectionChanged += Handlers_CollectionChanged;
+        OnPropertyChanged(nameof(HasHandlers));
     }
+
+    private void Handlers_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        => OnPropertyChanged(nameof(HasHandlers));
 }
 
 public sealed class EmulationSectionLaunchSettings
@@ -103,6 +149,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     ];
     private const string EmulationSectionLauncherPathsSettingName = "EmulationSectionLauncherPaths";
     private const string EmulationSectionConfigurationsSettingName = "EmulationSectionConfigurations";
+    private const string EmulatorHandlerLauncherPathsSettingName = "EmulatorHandlerLauncherPaths";
+    private const string SettingsViewModelsSectionName = "ViewModels";
+    private const string EmulationViewModelSettingsSectionName = "EmulationViewModel";
+    private const string EmulationAlbumOrderSettingName = "AlbumOrder";
 #if NATIVE_AOT
     private const bool DefaultPreferAotAppUpdates = true;
 #else
@@ -121,7 +171,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private AvaloniaList<FolderMediaItem> _previewItems = [];
 
     [ObservableProperty]
-    private AvaloniaList<EmulationSectionAppItem> _emulationSectionApps = [];
+    private AvaloniaList<EmulationSectionItem> _emulationSections = [];
 
     /// <summary>
     /// Backing field for the <c>FfmpegPath</c> observable property.
@@ -440,7 +490,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// </summary>
     public SettingsViewModel()
     {
-        InitializeEmulationSectionApps();
+        InitializeEmulationSections();
 
         // Initialize individual colors from the preset list
         _spectrumColor0 = _presetSpectrumColors[0];
@@ -1289,7 +1339,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         }
     }
 
-    private async Task BrowseEmulationSectionBinaryAsync(EmulationSectionAppItem item)
+    private async Task BrowseEmulatorHandlerBinaryAsync(IEmulatorHandler handler)
     {
         if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop ||
             desktop.MainWindow?.StorageProvider is not { } storage)
@@ -1299,7 +1349,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         var result = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = $"Select App for {item.SectionTitle}",
+            Title = $"Select Executable for {handler.DisplayName}",
             AllowMultiple = false,
             FileTypeFilter = BuildEmulationAppFilePickerFilters()
         });
@@ -1308,43 +1358,50 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (string.IsNullOrWhiteSpace(localPath))
             return;
 
-        item.LauncherPath = localPath;
+        handler.LauncherPath = localPath;
         SaveSettings();
     }
 
-    private void ClearEmulationSectionBinary(EmulationSectionAppItem item)
+    private void ClearEmulatorHandlerBinary(IEmulatorHandler handler)
     {
-        if (string.IsNullOrWhiteSpace(item.LauncherPath))
+        if (string.IsNullOrWhiteSpace(handler.LauncherPath))
             return;
 
-        item.LauncherPath = null;
+        handler.LauncherPath = null;
         SaveSettings();
     }
 
-    private void InitializeEmulationSectionApps()
+    private void InitializeEmulationSections()
     {
-        if (EmulationSectionApps.Count > 0)
+        if (EmulationSections.Count > 0)
             return;
 
-        foreach (var (sectionKey, sectionTitle) in DiscoverEmulationSectionDefinitions())
+        foreach (var handler in EmulatorHandlerRegistry.GetRegisteredHandlers())
         {
-            var item = new EmulationSectionAppItem
+            handler.BrowseLauncherCommand = new AsyncRelayCommand(() => BrowseEmulatorHandlerBinaryAsync(handler));
+            handler.ClearLauncherCommand = new RelayCommand(() => ClearEmulatorHandlerBinary(handler));
+        }
+
+        foreach (var (sectionKey, sectionTitle, albumImagePath) in DiscoverEmulationSectionDefinitions())
+        {
+            var item = new EmulationSectionItem
             {
                 SectionKey = sectionKey,
                 SectionTitle = sectionTitle,
+                AlbumImagePath = albumImagePath,
                 LaunchSettings = CreateDefaultEmulationSectionLaunchSettings(sectionKey, sectionTitle)
             };
 
-            item.BrowseLauncherCommand = new AsyncRelayCommand(() => BrowseEmulationSectionBinaryAsync(item));
-            item.ClearLauncherCommand = new RelayCommand(
-                () => ClearEmulationSectionBinary(item),
-                () => item.HasLauncherPath);
+            foreach (var handler in EmulatorHandlerRegistry.GetHandlersForSection(sectionTitle))
+                item.Handlers.Add(new EmulationHandlerAppItem(handler));
 
-            EmulationSectionApps.Add(item);
+            EmulationSections.Add(item);
         }
+
+        ApplyPersistedEmulationSectionOrder();
     }
 
-    private static IReadOnlyList<(string SectionKey, string SectionTitle)> DiscoverEmulationSectionDefinitions()
+    private static IReadOnlyList<(string SectionKey, string SectionTitle, string AlbumImagePath)> DiscoverEmulationSectionDefinitions()
     {
         foreach (var directory in EnumerateConsoleAssetDirectories())
         {
@@ -1368,13 +1425,88 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                     var key = !string.IsNullOrWhiteSpace(fileName)
                         ? fileName
                         : title;
-                    return (SectionKey: key, SectionTitle: title);
+                    return (SectionKey: key, SectionTitle: title, AlbumImagePath: path);
                 })
-                .OrderBy(item => item.SectionTitle, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
 
         return [];
+    }
+
+    private void ApplyPersistedEmulationSectionOrder()
+    {
+        if (EmulationSections.Count <= 1)
+            return;
+
+        var persistedOrder = LoadPersistedEmulationSectionOrder();
+        if (persistedOrder.Count == 0)
+            return;
+
+        var orderMap = persistedOrder
+            .Select((key, index) => (key, index))
+            .GroupBy(entry => entry.key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().index, StringComparer.OrdinalIgnoreCase);
+
+        var reordered = EmulationSections
+            .Select((section, originalIndex) => new { section, originalIndex })
+            .OrderBy(entry =>
+                orderMap.TryGetValue(GetEmulationSectionOrderKey(entry.section), out var index)
+                    ? index
+                    : int.MaxValue)
+            .ThenBy(entry => entry.originalIndex)
+            .Select(entry => entry.section)
+            .ToList();
+
+        if (reordered.SequenceEqual(EmulationSections))
+            return;
+
+        EmulationSections.Clear();
+        EmulationSections.AddRange(reordered);
+    }
+
+    private IReadOnlyList<string> LoadPersistedEmulationSectionOrder()
+    {
+        try
+        {
+            if (!File.Exists(SettingsFilePath))
+                return [];
+
+            var root = JsonNode.Parse(File.ReadAllText(SettingsFilePath)) as JsonObject;
+            if (root == null)
+                return [];
+
+            if (root[SettingsViewModelsSectionName] is not JsonObject viewModelsSection)
+                return [];
+
+            if (viewModelsSection[EmulationViewModelSettingsSectionName] is not JsonObject emulationSection)
+                return [];
+
+            if (emulationSection[EmulationAlbumOrderSettingName] is not JsonArray albumOrderArray)
+                return [];
+
+            return albumOrderArray
+                .Select(node => node?.GetValue<string>()?.Trim())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Cast<string>()
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("Failed to load persisted emulation section order from Settings.json.", ex);
+            return [];
+        }
+    }
+
+    private static string GetEmulationSectionOrderKey(EmulationSectionItem item)
+    {
+        var imageFileName = Path.GetFileName(item.AlbumImagePath)?.Trim();
+        if (!string.IsNullOrWhiteSpace(imageFileName))
+            return imageFileName;
+
+        if (!string.IsNullOrWhiteSpace(item.SectionKey))
+            return item.SectionKey.Trim();
+
+        return item.SectionTitle.Trim();
     }
 
     private static IEnumerable<string> EnumerateConsoleAssetDirectories()
@@ -1448,17 +1580,17 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         return filters;
     }
 
-    public string? GetEmulationSectionLauncherPath(string? sectionTitle)
+    public IEmulatorHandler? GetConfiguredEmulatorHandler(string? sectionTitle)
     {
         if (string.IsNullOrWhiteSpace(sectionTitle))
             return null;
 
-        var match = EmulationSectionApps.FirstOrDefault(item =>
+        var match = EmulationSections.FirstOrDefault(item =>
             string.Equals(item.SectionTitle, sectionTitle, StringComparison.OrdinalIgnoreCase));
 
-        return string.IsNullOrWhiteSpace(match?.LauncherPath)
-            ? null
-            : match.LauncherPath;
+        return match?.Handlers
+            .Select(item => item.Handler)
+            .FirstOrDefault(handler => handler.HasLauncherPath);
     }
 
     public EmulationSectionLaunchSettings GetResolvedEmulationSectionLaunchSettings(string? sectionTitle)
@@ -1466,7 +1598,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (string.IsNullOrWhiteSpace(sectionTitle))
             return new EmulationSectionLaunchSettings();
 
-        var match = EmulationSectionApps.FirstOrDefault(item =>
+        var match = EmulationSections.FirstOrDefault(item =>
             string.Equals(item.SectionTitle, sectionTitle, StringComparison.OrdinalIgnoreCase));
 
         return match?.LaunchSettings?.Clone() ?? new EmulationSectionLaunchSettings();
@@ -1558,6 +1690,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             });
         }
         PreviewItems = [.. items];
+    }
+
+    public override void OnShowViewModel()
+    {
+        base.OnShowViewModel();
+        ApplyPersistedEmulationSectionOrder();
     }
 
     private void SyncSelectedAppReleaseState()
@@ -1664,22 +1802,38 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             ?? new Dictionary<string, EmulationSectionConfiguration>(StringComparer.OrdinalIgnoreCase);
         var emulationSectionLauncherPaths = ReadObjectSetting<Dictionary<string, string>>(section, EmulationSectionLauncherPathsSettingName)
             ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in EmulationSectionApps)
+        var emulatorHandlerLauncherPaths = ReadObjectSetting<Dictionary<string, string>>(section, EmulatorHandlerLauncherPathsSettingName)
+            ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var handler in EmulatorHandlerRegistry.GetRegisteredHandlers())
+            handler.LauncherPath = null;
+
+        foreach (var handler in EmulatorHandlerRegistry.GetRegisteredHandlers())
+        {
+            if (emulatorHandlerLauncherPaths.TryGetValue(handler.HandlerId, out var launcherPath))
+                handler.LauncherPath = launcherPath;
+        }
+
+        foreach (var item in EmulationSections)
         {
             var defaultLaunchSettings = CreateDefaultEmulationSectionLaunchSettings(item.SectionKey, item.SectionTitle);
             if (emulationSectionConfigurations.TryGetValue(item.SectionKey, out var configuration))
             {
-                item.LauncherPath = configuration.LauncherPath;
                 item.LaunchSettings = MergeLaunchSettings(defaultLaunchSettings, configuration.LaunchSettings);
+
+                if (!string.IsNullOrWhiteSpace(configuration.LauncherPath))
+                    MigrateLegacySectionLauncherPath(item.SectionTitle, configuration.LauncherPath);
             }
             else
             {
-                item.LauncherPath = emulationSectionLauncherPaths.TryGetValue(item.SectionKey, out var path)
-                    ? path
-                    : null;
                 item.LaunchSettings = defaultLaunchSettings;
             }
+
+            if (emulationSectionLauncherPaths.TryGetValue(item.SectionKey, out var legacyLauncherPath))
+                MigrateLegacySectionLauncherPath(item.SectionTitle, legacyLauncherPath);
         }
+
+        ApplyPersistedEmulationSectionOrder();
         CheckForAppUpdatesOnStartup = ReadBoolSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
         PreferAotAppUpdates = ReadBoolSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
 
@@ -1765,22 +1919,21 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteObjectSetting(
             section,
             EmulationSectionConfigurationsSettingName,
-            EmulationSectionApps
+            EmulationSections
                 .Where(HasPersistedEmulationSectionConfiguration)
                 .ToDictionary(
                     item => item.SectionKey,
                     item => new EmulationSectionConfiguration
                     {
-                        LauncherPath = item.LauncherPath,
                         LaunchSettings = item.LaunchSettings?.Clone() ?? new EmulationSectionLaunchSettings()
                     },
                     StringComparer.OrdinalIgnoreCase));
         WriteObjectSetting(
             section,
-            EmulationSectionLauncherPathsSettingName,
-            EmulationSectionApps
-                .Where(item => !string.IsNullOrWhiteSpace(item.SectionKey) && !string.IsNullOrWhiteSpace(item.LauncherPath))
-                .ToDictionary(item => item.SectionKey, item => item.LauncherPath!, StringComparer.OrdinalIgnoreCase));
+            EmulatorHandlerLauncherPathsSettingName,
+            EmulatorHandlerRegistry.GetRegisteredHandlers()
+                .Where(handler => !string.IsNullOrWhiteSpace(handler.HandlerId) && !string.IsNullOrWhiteSpace(handler.LauncherPath))
+                .ToDictionary(handler => handler.HandlerId, handler => handler.LauncherPath!, StringComparer.OrdinalIgnoreCase));
         WriteSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
         WriteSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
 
@@ -1806,13 +1959,24 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(SilenceAdvanceDelayMs), SilenceAdvanceDelayMs);
     }
 
-    private static bool HasPersistedEmulationSectionConfiguration(EmulationSectionAppItem item)
+    private void MigrateLegacySectionLauncherPath(string? sectionTitle, string? launcherPath)
+    {
+        if (string.IsNullOrWhiteSpace(sectionTitle) || string.IsNullOrWhiteSpace(launcherPath))
+            return;
+
+        var handler = GetConfiguredEmulatorHandler(sectionTitle)
+            ?? EmulatorHandlerRegistry.GetHandlersForSection(sectionTitle).FirstOrDefault();
+
+        if (handler == null || !string.IsNullOrWhiteSpace(handler.LauncherPath))
+            return;
+
+        handler.LauncherPath = launcherPath;
+    }
+
+    private static bool HasPersistedEmulationSectionConfiguration(EmulationSectionItem item)
     {
         if (string.IsNullOrWhiteSpace(item.SectionKey))
             return false;
-
-        if (!string.IsNullOrWhiteSpace(item.LauncherPath))
-            return true;
 
         return item.LaunchSettings?.StartFullscreen is not null;
     }

@@ -2,12 +2,29 @@ using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Threading.Tasks;
+using System.Windows.Input;
 
 namespace AES_Emulation.EmulationHandlers;
 
 public interface IEmulatorHandler : INotifyPropertyChanged
 {
     string HandlerId { get; }
+
+    string SectionKey { get; }
+
+    string SectionTitle { get; }
+
+    string DisplayName { get; }
+
+    string? LauncherPath { get; set; }
+
+    string LauncherDisplayPath { get; }
+
+    bool HasLauncherPath { get; }
+
+    ICommand? BrowseLauncherCommand { get; set; }
+
+    ICommand? ClearLauncherCommand { get; set; }
 
     bool IsActive { get; }
 

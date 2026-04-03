@@ -13,6 +13,12 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
 
     public override string HandlerId => "duckstation";
 
+    public override string SectionKey => "PSX";
+
+    public override string SectionTitle => "PlayStation";
+
+    public override string DisplayName => "DuckStation";
+
     public override bool HideUntilCaptured => true;
 
     public override bool CanHandleAlbumTitle(string? albumTitle)
@@ -20,8 +26,8 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
         if (string.IsNullOrWhiteSpace(albumTitle))
             return false;
 
-        return string.Equals(albumTitle, "PlayStation", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(albumTitle, "PSX", StringComparison.OrdinalIgnoreCase) ||
+        return string.Equals(albumTitle, SectionTitle, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(albumTitle, SectionKey, StringComparison.OrdinalIgnoreCase) ||
                string.Equals(albumTitle, "PS1", StringComparison.OrdinalIgnoreCase);
     }
 

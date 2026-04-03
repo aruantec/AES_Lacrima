@@ -621,6 +621,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private int _intermediateFbo;
     private int _intermediateTextureId;
     private int _texWidth, _texHeight;
+    private IntPtr _frameCopyBuffer = IntPtr.Zero;
+    private nuint _frameCopyBufferSize;
 
     public override void OnMessage(object? message)
     {
@@ -703,6 +705,13 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _intermediateFbo = 0;
         }
         _glTexSubImage2DPtr = IntPtr.Zero;
+
+        if (_frameCopyBuffer != IntPtr.Zero)
+        {
+            Marshal.FreeHGlobal(_frameCopyBuffer);
+            _frameCopyBuffer = IntPtr.Zero;
+            _frameCopyBufferSize = 0;
+        }
 
         if (_paint != null)
         {
@@ -900,6 +909,86 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             {
                 WgcBridgeApi.ReleaseLatestFrame(_session);
             }
+        }
+        else if (TryCopyLatestFrame(out ptr, out w, out h))
+        {
+            if (w > 0 && h > 0 && ptr != IntPtr.Zero)
+            {
+                AutoDetectPillarboxes(ptr, w, h);
+
+                if (_rectDirty || _texWidth != w || _texHeight != h)
+                {
+                    _cachedDestRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, w - _cropLeft - _cropRight, h);
+                    _rectDirty = false;
+                }
+
+                if (_gl != null)
+                    RenderInternal(canvas, ptr, w, h, grContext);
+                else
+                    RenderSimpleFallback(canvas, ptr, w, h);
+
+                if (_showStatisticsOverlay)
+                    RenderOverlay(canvas);
+            }
+        }
+    }
+
+    private bool TryCopyLatestFrame(out IntPtr ptr, out int width, out int height)
+    {
+        ptr = IntPtr.Zero;
+        width = 0;
+        height = 0;
+
+        if (_session == IntPtr.Zero)
+            return false;
+
+        if (!WgcBridgeApi.PeekLatestFrame(_session, out int peekWidth, out int peekHeight, out nuint requiredSize) ||
+            peekWidth <= 0 ||
+            peekHeight <= 0 ||
+            requiredSize == 0)
+        {
+            return false;
+        }
+
+        EnsureFrameCopyBuffer(requiredSize);
+        if (_frameCopyBuffer == IntPtr.Zero)
+            return false;
+
+        if (!WgcBridgeApi.GetLatestFrame(_session, _frameCopyBuffer, _frameCopyBufferSize, out width, out height) ||
+            width <= 0 ||
+            height <= 0)
+        {
+            return false;
+        }
+
+        ptr = _frameCopyBuffer;
+        return true;
+    }
+
+    private void EnsureFrameCopyBuffer(nuint requiredSize)
+    {
+        if (requiredSize == 0)
+            return;
+
+        if (_frameCopyBuffer != IntPtr.Zero && _frameCopyBufferSize >= requiredSize)
+            return;
+
+        if (_frameCopyBuffer != IntPtr.Zero)
+        {
+            Marshal.FreeHGlobal(_frameCopyBuffer);
+            _frameCopyBuffer = IntPtr.Zero;
+            _frameCopyBufferSize = 0;
+        }
+
+        try
+        {
+            _frameCopyBuffer = Marshal.AllocHGlobal(checked((nint)requiredSize));
+            _frameCopyBufferSize = requiredSize;
+        }
+        catch
+        {
+            _frameCopyBuffer = IntPtr.Zero;
+            _frameCopyBufferSize = 0;
         }
     }
 

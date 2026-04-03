@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Input;
 
 namespace AES_Emulation.EmulationHandlers;
 
@@ -15,10 +16,41 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 {
     private bool _isActive;
     private bool _isPrepared;
+    private string? _launcherPath;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public abstract string HandlerId { get; }
+
+    public abstract string SectionKey { get; }
+
+    public abstract string SectionTitle { get; }
+
+    public abstract string DisplayName { get; }
+
+    public string? LauncherPath
+    {
+        get => _launcherPath;
+        set
+        {
+            if (!SetProperty(ref _launcherPath, value))
+                return;
+
+            OnPropertyChanged(nameof(LauncherDisplayPath));
+            OnPropertyChanged(nameof(HasLauncherPath));
+        }
+    }
+
+    public string LauncherDisplayPath =>
+        string.IsNullOrWhiteSpace(LauncherPath)
+            ? "No executable selected"
+            : LauncherPath;
+
+    public bool HasLauncherPath => !string.IsNullOrWhiteSpace(LauncherPath);
+
+    public ICommand? BrowseLauncherCommand { get; set; }
+
+    public ICommand? ClearLauncherCommand { get; set; }
 
     public bool IsActive
     {
