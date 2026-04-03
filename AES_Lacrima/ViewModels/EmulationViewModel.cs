@@ -552,6 +552,8 @@ namespace AES_Lacrima.ViewModels
         private void CloseEmulator()
         {
             _pendingEmulatorLaunchRequest = null;
+            EmulatorTargetHwnd = IntPtr.Zero;
+            IsEmulatorRunning = false;
 
             if (TryGetRunningTrackedEmulatorProcess(out var process))
             {
@@ -560,7 +562,6 @@ namespace AES_Lacrima.ViewModels
             }
 
             DetachTrackedEmulatorProcess();
-            IsEmulatorRunning = false;
         }
 
         [RelayCommand]
@@ -1672,27 +1673,27 @@ namespace AES_Lacrima.ViewModels
         {
             try
             {
-                try
-                {
-                    if (!process.CloseMainWindow())
-                        process.Kill(true);
-                }
-                catch (Exception ex)
-                {
-                    SLog.Debug("Failed to close the emulator gracefully; forcing termination.", ex);
-
-                    try
-                    {
-                        process.Kill(true);
-                    }
-                    catch (Exception killEx)
-                    {
-                        SLog.Debug("Failed to force-close the emulator process during relaunch.", killEx);
-                    }
-                }
-
                 await Task.Run(() =>
                 {
+                    try
+                    {
+                        if (!process.CloseMainWindow())
+                            process.Kill(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        SLog.Debug("Failed to close the emulator gracefully; forcing termination.", ex);
+
+                        try
+                        {
+                            process.Kill(true);
+                        }
+                        catch (Exception killEx)
+                        {
+                            SLog.Debug("Failed to force-close the emulator process during relaunch.", killEx);
+                        }
+                    }
+
                     try
                     {
                         process.WaitForExit(5000);
@@ -1701,20 +1702,20 @@ namespace AES_Lacrima.ViewModels
                     {
                         SLog.Debug("Timed wait for emulator shutdown failed; continuing with final state checks.", ex);
                     }
-                }).ConfigureAwait(false);
 
-                try
-                {
-                    if (!process.HasExited)
+                    try
                     {
-                        process.Kill(true);
-                        await Task.Run(() => process.WaitForExit(3000)).ConfigureAwait(false);
+                        if (!process.HasExited)
+                        {
+                            process.Kill(true);
+                            process.WaitForExit(3000);
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    SLog.Debug("Final forced emulator shutdown hit a process race.", ex);
-                }
+                    catch (Exception ex)
+                    {
+                        SLog.Debug("Final forced emulator shutdown hit a process race.", ex);
+                    }
+                }).ConfigureAwait(false);
             }
             finally
             {
