@@ -96,7 +96,7 @@ namespace AES_Lacrima.ViewModels
         private sealed record PendingEmulatorLaunchRequest(
             string AlbumTitle,
             string ItemTitle,
-            string LauncherPath,
+            IEmulatorHandler Handler,
             string RomPath,
             EmulationSectionLaunchSettings? LaunchSettings);
 
@@ -589,15 +589,16 @@ namespace AES_Lacrima.ViewModels
             if (album == null)
                 return;
 
-            var launcherPath = SettingsViewModel?.GetEmulationSectionLauncherPath(album.Title);
-            if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
+            var handler = SettingsViewModel?.GetConfiguredEmulatorHandler(album.Title);
+            var launcherPath = handler?.LauncherPath;
+            if (handler == null || string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
                 return;
 
             var launchSettings = SettingsViewModel?.GetResolvedEmulationSectionLaunchSettings(album.Title);
             var launchRequest = new PendingEmulatorLaunchRequest(
                 album.Title ?? string.Empty,
                 item.Title ?? Path.GetFileNameWithoutExtension(item.FileName),
-                launcherPath,
+                handler,
                 item.FileName,
                 launchSettings);
 
@@ -1620,12 +1621,12 @@ namespace AES_Lacrima.ViewModels
         {
             try
             {
-                var handler = EmulatorHandlerRegistry.GetHandler(request.AlbumTitle);
+                var handler = request.Handler;
                 if (!handler.IsPrepared)
                     handler.Prepare();
 
                 var startInfo = handler.BuildStartInfo(
-                    request.LauncherPath,
+                    handler.LauncherPath ?? string.Empty,
                     request.RomPath,
                     request.LaunchSettings?.StartFullscreen == true);
                 var process = Process.Start(startInfo);

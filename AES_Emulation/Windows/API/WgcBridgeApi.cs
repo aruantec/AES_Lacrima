@@ -9,6 +9,8 @@ public static class WgcBridgeApi
 {
     // Keep the native library handle so delegates remain valid
     private static IntPtr s_nativeHandle = IntPtr.Zero;
+    private static bool s_acquireLatestFrameFaulted;
+    private static bool s_releaseLatestFrameFaulted;
 
     // Delegates for optional exports
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -216,9 +218,26 @@ public static class WgcBridgeApi
 
     public static bool GetLatestFrame(nint session, nint outBuffer, nuint bufferSize, out int width, out int height)
     {
-        if (s_getLatestFrame != null)
-            return s_getLatestFrame(session, (IntPtr)outBuffer, bufferSize, out width, out height);
-        return GetLatestFrameNative(session, outBuffer, bufferSize, out width, out height);
+        width = 0;
+        height = 0;
+
+        try
+        {
+            if (s_getLatestFrame != null)
+                return s_getLatestFrame(session, (IntPtr)outBuffer, bufferSize, out width, out height);
+
+            return GetLatestFrameNative(session, outBuffer, bufferSize, out width, out height);
+        }
+        catch (SEHException ex)
+        {
+            Debug.WriteLine($"[WGC] SEHException in GetLatestFrame: {ex}");
+            return false;
+        }
+        catch (ExternalException ex)
+        {
+            Debug.WriteLine($"[WGC] ExternalException in GetLatestFrame: {ex}");
+            return false;
+        }
     }
 
     public static void DestroyCaptureSession(nint session)
@@ -241,8 +260,27 @@ public static class WgcBridgeApi
 
     public static bool PeekLatestFrame(nint session, out int width, out int height, out nuint requiredSize)
     {
-        if (s_peekLatestFrame != null) return s_peekLatestFrame(session, out width, out height, out requiredSize);
-        return PeekLatestFrameNative(session, out width, out height, out requiredSize);
+        width = 0;
+        height = 0;
+        requiredSize = 0;
+
+        try
+        {
+            if (s_peekLatestFrame != null)
+                return s_peekLatestFrame(session, out width, out height, out requiredSize);
+
+            return PeekLatestFrameNative(session, out width, out height, out requiredSize);
+        }
+        catch (SEHException ex)
+        {
+            Debug.WriteLine($"[WGC] SEHException in PeekLatestFrame: {ex}");
+            return false;
+        }
+        catch (ExternalException ex)
+        {
+            Debug.WriteLine($"[WGC] ExternalException in PeekLatestFrame: {ex}");
+            return false;
+        }
     }
 
     public static void SetCaptureMaxResolution(nint session, int maxWidth, int maxHeight)
@@ -284,13 +322,55 @@ public static class WgcBridgeApi
 
     public static bool AcquireLatestFrame(nint session, out IntPtr outBuffer, out nuint outSize, out int width, out int height)
     {
-        if (s_acquireLatestFrame != null) return s_acquireLatestFrame(session, out outBuffer, out outSize, out width, out height);
-        outBuffer = IntPtr.Zero; outSize = 0; width = 0; height = 0; return false;
+        outBuffer = IntPtr.Zero;
+        outSize = 0;
+        width = 0;
+        height = 0;
+
+        if (s_acquireLatestFrame == null || s_acquireLatestFrameFaulted || session == IntPtr.Zero)
+            return false;
+
+        try
+        {
+            return s_acquireLatestFrame(session, out outBuffer, out outSize, out width, out height);
+        }
+        catch (SEHException ex)
+        {
+            s_acquireLatestFrameFaulted = true;
+            s_acquireLatestFrame = null;
+            Debug.WriteLine($"[WGC] SEHException in AcquireLatestFrame. Disabling zero-copy fast path. {ex}");
+            return false;
+        }
+        catch (ExternalException ex)
+        {
+            s_acquireLatestFrameFaulted = true;
+            s_acquireLatestFrame = null;
+            Debug.WriteLine($"[WGC] ExternalException in AcquireLatestFrame. Disabling zero-copy fast path. {ex}");
+            return false;
+        }
     }
 
     public static void ReleaseLatestFrame(nint session)
     {
-        if (s_releaseLatestFrame != null) s_releaseLatestFrame(session);
+        if (s_releaseLatestFrame == null || s_releaseLatestFrameFaulted || session == IntPtr.Zero)
+            return;
+
+        try
+        {
+            s_releaseLatestFrame(session);
+        }
+        catch (SEHException ex)
+        {
+            s_releaseLatestFrameFaulted = true;
+            s_releaseLatestFrame = null;
+            Debug.WriteLine($"[WGC] SEHException in ReleaseLatestFrame. Disabling zero-copy release path. {ex}");
+        }
+        catch (ExternalException ex)
+        {
+            s_releaseLatestFrameFaulted = true;
+            s_releaseLatestFrame = null;
+            Debug.WriteLine($"[WGC] ExternalException in ReleaseLatestFrame. Disabling zero-copy release path. {ex}");
+        }
     }
 
     // Diagnostics helpers
