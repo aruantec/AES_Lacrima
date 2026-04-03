@@ -19,13 +19,13 @@ public partial class EmulationView : UserControl
         if (host == null || host.Child != null)
             return;
 
-        var captureControl = new WgcCaptureControl
+        var captureControl = new CompositionWgcCaptureControl
         {
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch
         };
 
-        captureControl.Bind(WgcCaptureControl.TargetHwndProperty, new Binding("EmulatorTargetHwnd"));
+        captureControl.Bind(CompositionWgcCaptureControl.TargetHwndProperty, new Binding("EmulatorTargetHwnd"));
         host.Child = captureControl;
     }
 }
