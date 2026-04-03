@@ -14,6 +14,7 @@ using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Emulation.Windows.API;
 using AES_Lacrima.Services;
 using Avalonia;
 using System.ComponentModel;
@@ -78,6 +79,8 @@ namespace AES_Lacrima.ViewModels
         private string? _activeGameplayPreviewItemPath;
         private long _gameplayPreviewRequestVersion;
         private Process? _activeEmulatorProcess;
+        private PendingEmulatorLaunchRequest? _pendingEmulatorLaunchRequest;
+        private bool _isClosingActiveEmulatorForRelaunch;
         private const int GameplayPreviewHoverDelayMs = 2000;
         private const int GameplayPreviewResizeAnimationMs = 800;
         private const int GameplayPreviewPostAnimationDelayMs = 200;
@@ -89,6 +92,12 @@ namespace AES_Lacrima.ViewModels
             Dictionary<string, List<MediaItem>> AlbumRoms);
 
         private sealed record GameplayPreviewSource(MediaItem PreviewItem, double? AspectRatio);
+        private sealed record PendingEmulatorLaunchRequest(
+            string AlbumTitle,
+            string ItemTitle,
+            string LauncherPath,
+            string RomPath,
+            EmulationSectionLaunchSettings? LaunchSettings);
 
         [AutoResolve]
         [ObservableProperty]
@@ -546,17 +555,15 @@ namespace AES_Lacrima.ViewModels
             if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
                 return;
 
-            try
-            {
-                var launchSettings = SettingsViewModel?.GetResolvedEmulationSectionLaunchSettings(album.Title);
-                var startInfo = BuildEmulatorStartInfo(album.Title, launcherPath, item.FileName, launchSettings);
-                var process = Process.Start(startInfo);
-                TrackEmulatorProcess(process, item.FileName);
-            }
-            catch (Exception ex)
-            {
-                SLog.Warn($"Failed to launch emulator for '{album.Title}' item '{item.Title}'.", ex);
-            }
+            var launchSettings = SettingsViewModel?.GetResolvedEmulationSectionLaunchSettings(album.Title);
+            var launchRequest = new PendingEmulatorLaunchRequest(
+                album.Title ?? string.Empty,
+                item.Title ?? Path.GetFileNameWithoutExtension(item.FileName),
+                launcherPath,
+                item.FileName,
+                launchSettings);
+
+            RequestEmulatorLaunch(launchRequest);
         }
 
         protected override void OnLoadSettings(JsonObject section)
@@ -1541,7 +1548,133 @@ namespace AES_Lacrima.ViewModels
                 item.FileName?.Contains(query, StringComparison.OrdinalIgnoreCase) == true;
         }
 
-        private void TrackEmulatorProcess(Process? process, string romPath)
+        private void RequestEmulatorLaunch(PendingEmulatorLaunchRequest request)
+        {
+            _pendingEmulatorLaunchRequest = request;
+
+            if (TryGetRunningTrackedEmulatorProcess(out var process))
+            {
+                CloseTrackedEmulatorForPendingLaunch(process);
+                return;
+            }
+
+            TryLaunchPendingEmulatorRequest();
+        }
+
+        private void TryLaunchPendingEmulatorRequest()
+        {
+            if (_pendingEmulatorLaunchRequest is not { } request)
+                return;
+
+            if (TryGetRunningTrackedEmulatorProcess(out var process))
+            {
+                CloseTrackedEmulatorForPendingLaunch(process);
+                return;
+            }
+
+            _pendingEmulatorLaunchRequest = null;
+            LaunchEmulator(request);
+        }
+
+        private void LaunchEmulator(PendingEmulatorLaunchRequest request)
+        {
+            try
+            {
+                var startInfo = BuildEmulatorStartInfo(request.AlbumTitle, request.LauncherPath, request.RomPath, request.LaunchSettings);
+                var process = Process.Start(startInfo);
+                TrackEmulatorProcess(process, request.AlbumTitle, request.RomPath);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to launch emulator for '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
+            }
+        }
+
+        private bool TryGetRunningTrackedEmulatorProcess(out Process process)
+        {
+            process = _activeEmulatorProcess!;
+            if (process == null)
+                return false;
+
+            try
+            {
+                if (process.HasExited)
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private void CloseTrackedEmulatorForPendingLaunch(Process process)
+        {
+            if (_isClosingActiveEmulatorForRelaunch)
+                return;
+
+            _isClosingActiveEmulatorForRelaunch = true;
+            _ = CloseTrackedEmulatorForPendingLaunchAsync(process);
+        }
+
+        private async Task CloseTrackedEmulatorForPendingLaunchAsync(Process process)
+        {
+            try
+            {
+                try
+                {
+                    if (!process.CloseMainWindow())
+                        process.Kill(true);
+                }
+                catch
+                {
+                    try
+                    {
+                        process.Kill(true);
+                    }
+                    catch
+                    {
+                        // Ignore termination failures and rely on the current process state.
+                    }
+                }
+
+                await Task.Run(() =>
+                {
+                    try
+                    {
+                        process.WaitForExit(5000);
+                    }
+                    catch
+                    {
+                        // Ignore wait races; final state is checked on the UI thread.
+                    }
+                }).ConfigureAwait(false);
+
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(true);
+                        await Task.Run(() => process.WaitForExit(3000)).ConfigureAwait(false);
+                    }
+                }
+                catch
+                {
+                    // Ignore final forced-close races.
+                }
+            }
+            finally
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    _isClosingActiveEmulatorForRelaunch = false;
+                    TryLaunchPendingEmulatorRequest();
+                }, DispatcherPriority.Background);
+            }
+        }
+
+        private void TrackEmulatorProcess(Process? process, string albumTitle, string romPath)
         {
             if (process == null)
             {
@@ -1570,7 +1703,7 @@ namespace AES_Lacrima.ViewModels
             if (process.HasExited)
                 HandleTrackedEmulatorExited(process);
             else
-                _ = ResolveEmulatorTargetHwndAsync(process, romPath);
+                _ = ResolveEmulatorTargetHwndAsync(process, albumTitle, romPath);
         }
 
         private void ActiveEmulatorProcess_Exited(object? sender, EventArgs e)
@@ -1600,6 +1733,7 @@ namespace AES_Lacrima.ViewModels
 
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
+            TryLaunchPendingEmulatorRequest();
         }
 
         private void DetachTrackedEmulatorProcess()
@@ -1626,7 +1760,7 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private async Task ResolveEmulatorTargetHwndAsync(Process process, string romPath)
+        private async Task ResolveEmulatorTargetHwndAsync(Process process, string albumTitle, string romPath)
         {
             const int maxAttempts = 80;
             const int delayMs = 250;
@@ -1635,6 +1769,7 @@ namespace AES_Lacrima.ViewModels
             IntPtr lastResolvedHwnd = IntPtr.Zero;
             var stableAttempts = 0;
             var hasAssignedHandle = false;
+            bool keepDuckStationHiddenUntilCaptured = IsDuckStationSection(albumTitle);
 
             try
             {
@@ -1645,9 +1780,15 @@ namespace AES_Lacrima.ViewModels
                     if (!IsTrackedProcessAlive(process))
                         return;
 
+                    if (keepDuckStationHiddenUntilCaptured)
+                        HideProcessWindowsForCapture(process);
+
                     var hwnd = TryFindPreferredWindowHandle(process);
                     if (hwnd != IntPtr.Zero)
                     {
+                        if (keepDuckStationHiddenUntilCaptured)
+                            HideWindowForCapture(hwnd);
+
                         if (hwnd == lastResolvedHwnd)
                         {
                             stableAttempts++;
@@ -1676,6 +1817,45 @@ namespace AES_Lacrima.ViewModels
             {
                 SLog.Warn($"Failed to resolve emulator HWND for '{romPath}'.", ex);
             }
+        }
+
+        private static void HideProcessWindowsForCapture(Process process)
+        {
+            if (!OperatingSystem.IsWindows())
+                return;
+
+            uint processId;
+
+            try
+            {
+                processId = (uint)process.Id;
+            }
+            catch
+            {
+                return;
+            }
+
+            EnumWindows((hwnd, _) =>
+            {
+                if (hwnd == IntPtr.Zero || !IsWindowVisible(hwnd))
+                    return true;
+
+                if (GetWindowThreadProcessId(hwnd, out uint windowPid) == 0 || windowPid != processId)
+                    return true;
+
+                HideWindowForCapture(hwnd);
+                return true;
+            }, IntPtr.Zero);
+        }
+
+        private static void HideWindowForCapture(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            Win32API.RemoveWindowDecorations(hwnd);
+            Win32API.MoveAway(hwnd);
+            Win32API.SetWindowOpacity(hwnd, 0);
         }
 
         private bool IsTrackedProcessAlive(Process process)
