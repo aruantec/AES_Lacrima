@@ -172,7 +172,7 @@
         </Canvas>
 
         <Grid Grid.Row="0"
-              IsVisible="{Binding IsEmulatorRunning}"
+              IsVisible="{Binding IsEmulatorViewportVisible}"
               ZIndex="5">
             <Border x:Name="EmulatorCaptureHost"
                     HorizontalAlignment="Stretch"
@@ -355,6 +355,49 @@
                                 </Rectangle.Transitions>
                             </Rectangle>
                         </Canvas>
+                    </Viewbox>
+                </Button>
+
+                <Button Height="60"
+                        Cursor="Hand"
+                        VerticalAlignment="Center"
+                        Command="{Binding ToggleEmulatorViewportCommand}"
+                        IsVisible="{Binding IsEmulatorRunning}"
+                        ToolTip.Tip="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Show Carousel, Show Emulator'}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <StackPanel Height="100" Orientation="Horizontal" Spacing="15">
+                            <Rectangle Width="8" Height="76" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
+                                <Rectangle.Transitions>
+                                    <Transitions>
+                                        <BrushTransition Property="Fill" Duration="0:0:0.32" />
+                                    </Transitions>
+                                </Rectangle.Transitions>
+                            </Rectangle>
+                            <Rectangle Width="90" Height="80" RadiusX="16" RadiusY="16" StrokeThickness="10" Stroke="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}" Fill="Transparent">
+                                <Rectangle.Transitions>
+                                    <Transitions>
+                                        <BrushTransition Property="Stroke" Duration="0:0:0.32" />
+                                    </Transitions>
+                                </Rectangle.Transitions>
+                            </Rectangle>
+                            <Rectangle Width="8" Height="76" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}">
+                                <Rectangle.Transitions>
+                                    <Transitions>
+                                        <BrushTransition Property="Fill" Duration="0:0:0.32" />
+                                    </Transitions>
+                                </Rectangle.Transitions>
+                            </Rectangle>
+                        </StackPanel>
                     </Viewbox>
                 </Button>
             </StackPanel>

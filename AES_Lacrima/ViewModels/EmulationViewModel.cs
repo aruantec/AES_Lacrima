@@ -165,7 +165,12 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private IntPtr _emulatorTargetHwnd;
 
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsEmulatorViewportVisible))]
+        private bool _isEmulatorViewportDismissed;
+
         public bool IsGameplayPreviewAvailable => IsGameplayAutoplayEnabled && IsYtDlpInstalled && !IsEmulatorRunning;
+        public bool IsEmulatorViewportVisible => IsEmulatorRunning && !IsEmulatorViewportDismissed;
 
         public EmulationViewModel()
         {
@@ -273,15 +278,22 @@ namespace AES_Lacrima.ViewModels
         partial void OnIsEmulatorRunningChanged(bool value)
         {
             OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
+            OnPropertyChanged(nameof(IsEmulatorViewportVisible));
 
             if (value)
             {
+                IsEmulatorViewportDismissed = false;
                 StopGameplayPreview();
                 return;
             }
 
             if (IsActive && IsGameplayPreviewAvailable)
                 QueueGameplayPreview(HighlightedItem, immediate: true);
+        }
+
+        partial void OnIsEmulatorViewportDismissedChanged(bool value)
+        {
+            OnPropertyChanged(nameof(IsEmulatorViewportVisible));
         }
 
         private void RefreshAlbumPreviews()
@@ -496,6 +508,15 @@ namespace AES_Lacrima.ViewModels
         private void ClearSearch() => SearchText = string.Empty;
 
         [RelayCommand]
+        private void ToggleEmulatorViewport()
+        {
+            if (!IsEmulatorRunning)
+                return;
+
+            IsEmulatorViewportDismissed = !IsEmulatorViewportDismissed;
+        }
+
+        [RelayCommand]
         private void OpenSelectedAlbum()
         {
             if (SelectedAlbum == null)
@@ -527,7 +548,8 @@ namespace AES_Lacrima.ViewModels
 
             try
             {
-                var startInfo = BuildEmulatorStartInfo(album.Title, launcherPath, item.FileName);
+                var launchSettings = SettingsViewModel?.GetResolvedEmulationSectionLaunchSettings(album.Title);
+                var startInfo = BuildEmulatorStartInfo(album.Title, launcherPath, item.FileName, launchSettings);
                 var process = Process.Start(startInfo);
                 TrackEmulatorProcess(process, item.FileName);
             }
@@ -1606,32 +1628,49 @@ namespace AES_Lacrima.ViewModels
 
         private async Task ResolveEmulatorTargetHwndAsync(Process process, string romPath)
         {
+            const int maxAttempts = 80;
+            const int delayMs = 250;
+            const int stableAttemptsBeforeStop = 12;
+
+            IntPtr lastResolvedHwnd = IntPtr.Zero;
+            var stableAttempts = 0;
+            var hasAssignedHandle = false;
+
             try
             {
-                var hwnd = await WaitForMainWindowHandleAsync(process).ConfigureAwait(false);
-                if (hwnd == IntPtr.Zero)
-                {
-                    SLog.Warn($"Failed to resolve emulator HWND for '{romPath}'.");
-                    return;
-                }
+                TryWaitForInputIdle(process, 2000);
 
-                await Dispatcher.UIThread.InvokeAsync(() =>
+                for (var attempt = 0; attempt < maxAttempts; attempt++)
                 {
-                    if (!ReferenceEquals(_activeEmulatorProcess, process))
+                    if (!IsTrackedProcessAlive(process))
                         return;
 
-                    try
+                    var hwnd = TryFindPreferredWindowHandle(process);
+                    if (hwnd != IntPtr.Zero)
                     {
-                        if (process.HasExited)
+                        if (hwnd == lastResolvedHwnd)
+                        {
+                            stableAttempts++;
+                        }
+                        else
+                        {
+                            lastResolvedHwnd = hwnd;
+                            stableAttempts = 0;
+                            hasAssignedHandle = true;
+
+                            if (!await TryApplyEmulatorTargetHwndAsync(process, hwnd).ConfigureAwait(false))
+                                return;
+                        }
+
+                        if (hasAssignedHandle && stableAttempts >= stableAttemptsBeforeStop)
                             return;
                     }
-                    catch
-                    {
-                        return;
-                    }
 
-                    EmulatorTargetHwnd = hwnd;
-                }, DispatcherPriority.Background);
+                    await Task.Delay(delayMs).ConfigureAwait(false);
+                }
+
+                if (!hasAssignedHandle)
+                    SLog.Warn($"Failed to resolve emulator HWND for '{romPath}'.");
             }
             catch (Exception ex)
             {
@@ -1639,38 +1678,46 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private static async Task<IntPtr> WaitForMainWindowHandleAsync(Process process)
+        private bool IsTrackedProcessAlive(Process process)
         {
-            const int maxAttempts = 40;
-            const int delayMs = 250;
+            if (!ReferenceEquals(_activeEmulatorProcess, process))
+                return false;
 
-            TryWaitForInputIdle(process, 2000);
-
-            for (var attempt = 0; attempt < maxAttempts; attempt++)
+            try
             {
+                return !process.HasExited;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task<bool> TryApplyEmulatorTargetHwndAsync(Process process, IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            return await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (!ReferenceEquals(_activeEmulatorProcess, process))
+                    return false;
+
                 try
                 {
                     if (process.HasExited)
-                        return IntPtr.Zero;
-
-                    process.Refresh();
-
-                    if (process.MainWindowHandle != IntPtr.Zero)
-                        return process.MainWindowHandle;
-
-                    var enumeratedHandle = TryFindMainWindowHandle(process.Id);
-                    if (enumeratedHandle != IntPtr.Zero)
-                        return enumeratedHandle;
+                        return false;
                 }
                 catch
                 {
-                    // Ignore races while the emulator process is starting or exiting.
+                    return false;
                 }
 
-                await Task.Delay(delayMs).ConfigureAwait(false);
-            }
+                if (EmulatorTargetHwnd != hwnd)
+                    EmulatorTargetHwnd = hwnd;
 
-            return IntPtr.Zero;
+                return true;
+            }, DispatcherPriority.Background);
         }
 
         private static void TryWaitForInputIdle(Process process, int timeoutMs)
@@ -1685,32 +1732,88 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private static IntPtr TryFindMainWindowHandle(int processId)
+        private static IntPtr TryFindPreferredWindowHandle(Process process)
         {
             if (!OperatingSystem.IsWindows())
                 return IntPtr.Zero;
 
-            IntPtr found = IntPtr.Zero;
+            IntPtr mainWindowHandle;
+            uint processId;
+
+            try
+            {
+                process.Refresh();
+                mainWindowHandle = process.MainWindowHandle;
+                processId = (uint)process.Id;
+            }
+            catch
+            {
+                return IntPtr.Zero;
+            }
+
+            IntPtr bestHandle = IntPtr.Zero;
+            long bestScore = long.MinValue;
 
             EnumWindows((hwnd, _) =>
             {
-                if (hwnd == IntPtr.Zero || !IsWindowVisible(hwnd))
-                    return true;
+                var score = ScoreProcessWindowCandidate(hwnd, processId, mainWindowHandle);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestHandle = hwnd;
+                }
 
-                if (GetWindowThreadProcessId(hwnd, out uint windowPid) == 0 || windowPid != (uint)processId)
-                    return true;
-
-                if (GetWindow(hwnd, GW_OWNER) != IntPtr.Zero)
-                    return true;
-
-                found = hwnd;
-                return false;
+                return true;
             }, IntPtr.Zero);
 
-            return found;
+            if (bestHandle != IntPtr.Zero)
+                return bestHandle;
+
+            return ScoreProcessWindowCandidate(mainWindowHandle, processId, mainWindowHandle) > long.MinValue
+                ? mainWindowHandle
+                : IntPtr.Zero;
+        }
+
+        private static long ScoreProcessWindowCandidate(IntPtr hwnd, uint processId, IntPtr mainWindowHandle)
+        {
+            if (hwnd == IntPtr.Zero || !IsWindowVisible(hwnd))
+                return long.MinValue;
+
+            if (GetWindowThreadProcessId(hwnd, out uint windowPid) == 0 || windowPid != processId)
+                return long.MinValue;
+
+            if (!GetWindowRect(hwnd, out RECT windowRect))
+                return long.MinValue;
+
+            var width = Math.Max(0, windowRect.Right - windowRect.Left);
+            var height = Math.Max(0, windowRect.Bottom - windowRect.Top);
+            if (width <= 0 || height <= 0)
+                return long.MinValue;
+
+            long score = (long)width * height * 10;
+
+            if (GetWindow(hwnd, GW_OWNER) == IntPtr.Zero)
+                score += 1_000_000;
+
+            if (hwnd == mainWindowHandle)
+                score += 750_000;
+
+            if (width >= 640 && height >= 360)
+                score += 250_000;
+
+            return score;
         }
 
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
 
         [DllImport("user32.dll")]
         private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
@@ -1724,9 +1827,12 @@ namespace AES_Lacrima.ViewModels
         [DllImport("user32.dll")]
         private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
 
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
         private const uint GW_OWNER = 4;
 
-        private static ProcessStartInfo BuildEmulatorStartInfo(string? albumTitle, string launcherPath, string romPath)
+        private static ProcessStartInfo BuildEmulatorStartInfo(string? albumTitle, string launcherPath, string romPath, EmulationSectionLaunchSettings? launchSettings)
         {
             var startInfo = new ProcessStartInfo
             {
@@ -1740,6 +1846,8 @@ namespace AES_Lacrima.ViewModels
                 // DuckStation expects command switches before `--`, with the image path
                 // after `--` so the ROM filename is not parsed as an option.
                 startInfo.ArgumentList.Add("-batch");
+                if (launchSettings?.StartFullscreen == true)
+                    startInfo.ArgumentList.Add("-fullscreen");
 
                 startInfo.ArgumentList.Add("--");
                 startInfo.ArgumentList.Add(romPath);
