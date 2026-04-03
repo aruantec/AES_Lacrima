@@ -171,6 +171,16 @@
             </Border>
         </Canvas>
 
+        <Grid Grid.Row="0"
+              IsVisible="{Binding IsEmulatorRunning}"
+              ZIndex="5">
+            <Border x:Name="EmulatorCaptureHost"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    Background="Transparent"
+                    ClipToBounds="True" />
+        </Grid>
+
         <StackPanel HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Margin="0,380,0,0"
