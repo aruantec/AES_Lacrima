@@ -21,6 +21,7 @@ using Avalonia;
 using System.ComponentModel;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -34,6 +35,8 @@ namespace AES_Lacrima.ViewModels
     {
         IntPtr EmulatorTargetHwnd { get; }
     }
+
+    public record ShaderFileItem(string Path, string Name);
 
     public partial class EmulationAlbumItem : FolderMediaItem
     {
@@ -188,6 +191,15 @@ namespace AES_Lacrima.ViewModels
         private bool _requestStopEmulatorCapture;
 
         [ObservableProperty]
+        private bool _isRenderOptionsOpen;
+
+        [ObservableProperty]
+        private int _renderOptionsSelectedTabIndex;
+
+        [ObservableProperty]
+        private IEmulatorHandler? _currentEmulatorHandler;
+
+        [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsEmulatorViewportVisible))]
         [NotifyPropertyChangedFor(nameof(IsGameplayPreviewViewportVisible))]
         [NotifyPropertyChangedFor(nameof(IsGameplayVideoSurfaceVisible))]
@@ -196,13 +208,43 @@ namespace AES_Lacrima.ViewModels
         public bool IsGameplayPreviewAvailable => IsGameplayAutoplayEnabled && IsYtDlpInstalled && !IsEmulatorRunning;
         public bool IsEmulatorViewportVisible => IsEmulatorRunning && !IsEmulatorViewportDismissed;
         public bool IsCompositionCaptureVisible => IsActive && IsEmulatorViewportVisible;
+        public bool IsCarouselVisible => !IsEmulatorViewportVisible;
+        public bool IsSearchOverlayVisible => MetadataService?.IsImageSearchOverlayOpen == true && !IsCompositionCaptureVisible;
         public bool IsGameplayPreviewViewportVisible => IsGameplayPreviewHostVisible && !IsEmulatorViewportVisible;
         public bool IsGameplayVideoSurfaceVisible => IsGameplayVideoVisible && !IsEmulatorViewportVisible;
+
+        public IReadOnlyList<Stretch> CaptureStretchOptions { get; } = new[] { Stretch.Uniform, Stretch.UniformToFill, Stretch.Fill };
+        public IReadOnlyList<ShaderFileItem> ShaderFileItems { get; } = LoadShaderFileItems();
+
+        [ObservableProperty]
+        private ShaderFileItem _selectedShaderFileItem = new(string.Empty, string.Empty);
+
+        private static IReadOnlyList<ShaderFileItem> LoadShaderFileItems()
+        {
+            var shaderDirectories = new[]
+            {
+                Path.Combine(AppContext.BaseDirectory, "Shaders", "glsl"),
+                Path.Combine(ApplicationPaths.ShadersDirectory, "glsl")
+            };
+
+            var files = shaderDirectories
+                .Where(Directory.Exists)
+                .SelectMany(dir => Directory.EnumerateFiles(dir, "*.glsl", SearchOption.TopDirectoryOnly))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
+                .Select(path => new ShaderFileItem(path, Path.GetFileName(path)))
+                .ToList();
+
+            var entries = new List<ShaderFileItem> { new(string.Empty, string.Empty) };
+            entries.AddRange(files);
+            return entries;
+        }
 
         public EmulationViewModel()
         {
             AlbumList.CollectionChanged += AlbumList_CollectionChanged;
             PropertyChanged += EmulationViewModel_PropertyChanged;
+            _selectedShaderFileItem = ShaderFileItems.FirstOrDefault() ?? new(string.Empty, string.Empty);
         }
 
         private void EmulationViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -272,6 +314,7 @@ namespace AES_Lacrima.ViewModels
 
             _subscribedMetadataService = null;
             EnsureMetadataServiceSubscription();
+            OnPropertyChanged(nameof(IsSearchOverlayVisible));
         }
 
         private void SettingsViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -312,6 +355,8 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
             OnPropertyChanged(nameof(IsEmulatorViewportVisible));
             OnPropertyChanged(nameof(IsCompositionCaptureVisible));
+            OnPropertyChanged(nameof(IsCarouselVisible));
+            OnPropertyChanged(nameof(IsSearchOverlayVisible));
             OnPropertyChanged(nameof(IsGameplayPreviewViewportVisible));
             OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
 
@@ -322,6 +367,9 @@ namespace AES_Lacrima.ViewModels
                 return;
             }
 
+            IsRenderOptionsOpen = false;
+            CurrentEmulatorHandler = null;
+
             if (IsActive && IsGameplayPreviewAvailable)
                 QueueGameplayPreview(HighlightedItem, immediate: true);
         }
@@ -330,6 +378,8 @@ namespace AES_Lacrima.ViewModels
         {
             OnPropertyChanged(nameof(IsEmulatorViewportVisible));
             OnPropertyChanged(nameof(IsCompositionCaptureVisible));
+            OnPropertyChanged(nameof(IsCarouselVisible));
+            OnPropertyChanged(nameof(IsSearchOverlayVisible));
             OnPropertyChanged(nameof(IsGameplayPreviewViewportVisible));
             OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
         }
@@ -368,6 +418,11 @@ namespace AES_Lacrima.ViewModels
                         QueueGameplayPreview(value);
                     }, DispatcherPriority.Background);
                 }
+            }
+
+            if (e.PropertyName == nameof(MetadataService.IsImageSearchOverlayOpen))
+            {
+                OnPropertyChanged(nameof(IsSearchOverlayVisible));
             }
 
             if (e.PropertyName == nameof(MetadataService.VideoUrl) &&
@@ -555,6 +610,15 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
+        private void ToggleRenderOptions()
+        {
+            if (!IsEmulatorRunning)
+                return;
+
+            IsRenderOptionsOpen = !IsRenderOptionsOpen;
+        }
+
+        [RelayCommand]
         private void CloseEmulator()
         {
             SLog.Info("EmulationViewModel.CloseEmulator requested by the user.");
@@ -562,6 +626,8 @@ namespace AES_Lacrima.ViewModels
             RequestStopEmulatorCapture = true;
             EmulatorTargetHwnd = IntPtr.Zero;
             IsEmulatorRunning = false;
+            IsRenderOptionsOpen = false;
+            CurrentEmulatorHandler = null;
 
             if (TryGetRunningTrackedEmulatorProcess(out var process))
             {
@@ -1632,6 +1698,8 @@ namespace AES_Lacrima.ViewModels
             try
             {
                 var handler = request.Handler;
+                CurrentEmulatorHandler = handler;
+
                 if (!handler.IsPrepared)
                     handler.Prepare();
 
