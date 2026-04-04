@@ -29,6 +29,7 @@ namespace AES_Emulation.Windows.API
         private const long WS_EX_TOOLWINDOW = 0x00000080;
         private const long WS_EX_APPWINDOW = 0x00040000;
         private const long WS_EX_LAYERED = 0x00080000;
+        private const long WS_EX_TOPMOST = 0x00000008;
 
         private const uint LWA_ALPHA = 0x00000002;
 
@@ -287,6 +288,46 @@ namespace AES_Emulation.Windows.API
 
         private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+
+        public static bool SetWindowTopMost(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            try
+            {
+                return SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool SetWindowNotTopMost(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            try
+            {
+                return SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool IsWindowTopMost(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            try
+            {
+                var exStyle = GetWindowLongPtrCompat(hwnd, GWL_EXSTYLE).ToInt64();
+                return (exStyle & WS_EX_TOPMOST) == WS_EX_TOPMOST;
+            }
+            catch
+            {
+                return false;
+            }
+        }
 
         /// <summary>
         /// Give focus to the emulator target. If hostHwnd is provided the host will be made briefly topmost

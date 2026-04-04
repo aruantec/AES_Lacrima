@@ -10,6 +10,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:Interaction="http://avaloniaui.net/schemas/2019/interactivity"
              xmlns:common="using:AES_Lacrima"
+             xmlns:controls="using:AES_Controls"
              xmlns:asyncImageLoader="clr-namespace:AsyncImageLoader;assembly=AsyncImageLoader.Avalonia"
              xmlns:services="using:AES_Lacrima.Services"
              xmlns:player="using:AES_Controls.Player"
@@ -400,9 +401,25 @@
 
         <StackPanel HorizontalAlignment="Center"
                     VerticalAlignment="Center"
-                    Margin="0,380,0,0"
+                    Margin="0,360,0,0"
                     Spacing="2"
                     IsHitTestVisible="False">
+            <StackPanel IsVisible="{Binding IsEmulatorLaunchInProgress}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="10"
+                        Margin="0,0,0,12">
+                <controls:LoadingControl Width="80"
+                                         Height="80"
+                                         Foreground="White" />
+                <TextBlock Text="Launching emulator..."
+                           FontSize="22"
+                           FontWeight="SemiBold"
+                           Foreground="White"
+                           HorizontalAlignment="Center"
+                           TextAlignment="Center" />
+            </StackPanel>
+
             <StackPanel.Transitions>
                 <Transitions>
                     <DoubleTransition Property="Opacity" Duration="0:0:0.3"/>
@@ -415,6 +432,7 @@
                        Foreground="White"
                        HorizontalAlignment="Center"
                        TextAlignment="Center"
+                       Margin="0,8,0,0"
                        MaxWidth="1000"
                        TextTrimming="CharacterEllipsis"/>
         </StackPanel>
