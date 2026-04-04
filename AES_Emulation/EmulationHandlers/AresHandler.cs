@@ -1,5 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace AES_Emulation.EmulationHandlers;
 
@@ -43,5 +45,11 @@ public sealed class AresHandler : EmulatorHandlerBase
             startInfo.ArgumentList.Insert(0, "--fullscreen");
 
         return startInfo;
+    }
+
+    public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
+    {
+        await Task.Delay(1500, cancellationToken).ConfigureAwait(false);
+        return await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
     }
 }
