@@ -1,16 +1,60 @@
-﻿using System.Runtime.InteropServices;
+﻿using log4net;
+using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System;
+using System.IO;
 using System.Text;
 
 namespace AES_Emulation.Windows.API;
 
 public static class WgcBridgeApi
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(WgcBridgeApi));
     // Keep the native library handle so delegates remain valid
     private static IntPtr s_nativeHandle = IntPtr.Zero;
     private static bool s_acquireLatestFrameFaulted;
     private static bool s_releaseLatestFrameFaulted;
+    private static bool s_loggedCreateCaptureSession;
+    private static bool s_loggedGetLatestFrame;
+    private static bool s_loggedPeekLatestFrame;
+    private static bool s_loggedAcquireLatestFrame;
+
+    private static void LogDebug(string message)
+    {
+        Log.Debug(message);
+        Debug.WriteLine(message);
+        Trace.WriteLine(message);
+    }
+
+    private static void LogInfo(string message)
+    {
+        Log.Info(message);
+        Debug.WriteLine(message);
+        Trace.WriteLine(message);
+    }
+
+    private static void LogWarn(string message)
+    {
+        Log.Warn(message);
+        Debug.WriteLine(message);
+        Trace.WriteLine(message);
+    }
+
+    private static void LogError(string message, Exception ex)
+    {
+        Log.Error(message, ex);
+        Debug.WriteLine($"{message} {ex}");
+        Trace.WriteLine($"{message} {ex}");
+    }
+
+    private static void LogDebugOnce(ref bool flag, string message)
+    {
+        if (flag)
+            return;
+
+        flag = true;
+        LogDebug(message);
+    }
 
     // Delegates for optional exports
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -74,6 +118,18 @@ public static class WgcBridgeApi
     {
         try
         {
+            string baseDir = AppContext.BaseDirectory;
+            string bridgePath = Path.Combine(baseDir, "WgcBridge.dll");
+            LogInfo(
+                $"[WGC] Initializing WgcBridgeApi. baseDir='{baseDir}', " +
+                $"bridgeExists={File.Exists(bridgePath)}, processArch={RuntimeInformation.ProcessArchitecture}, osArch={RuntimeInformation.OSArchitecture}, " +
+#if NATIVE_AOT
+                "nativeAot=true."
+#else
+                "nativeAot=false."
+#endif
+            );
+
             // Attempt to load the native library from the default search path
             IntPtr handle;
             if (NativeLibrary.TryLoad("WgcBridge.dll", out handle))
@@ -81,7 +137,7 @@ public static class WgcBridgeApi
                 // Keep the handle alive for the lifetime of the process so
                 // delegates obtained from function pointers remain valid.
                 s_nativeHandle = handle;
-                Debug.WriteLine("[WGC] Loaded native WgcBridge.dll for export check.");
+                LogInfo("[WGC] Loaded native WgcBridge.dll for export check.");
 
                 string[] exports = new[] {
                     "CreateCaptureSession",
@@ -104,9 +160,9 @@ public static class WgcBridgeApi
                 foreach (var name in exports)
                 {
                     if (NativeLibrary.TryGetExport(handle, name, out IntPtr addr))
-                        Debug.WriteLine($"[WGC] Export present: {name}");
+                        LogDebug($"[WGC] Export present: {name}");
                     else
-                        Debug.WriteLine($"[WGC] Export MISSING: {name}");
+                        LogWarn($"[WGC] Export MISSING: {name}");
                 }
 
                 // Bind optional exports to delegates if present
@@ -146,12 +202,12 @@ public static class WgcBridgeApi
             }
             else
             {
-                Debug.WriteLine("[WGC] Failed to load WgcBridge.dll for export check.");
+                LogWarn("[WGC] Failed to load WgcBridge.dll for export check.");
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[WGC] Exception while checking native exports: {ex.Message}");
+            LogError("[WGC] Exception while checking native exports.", ex);
         }
     }
 
@@ -189,14 +245,15 @@ public static class WgcBridgeApi
     {
         try
         {
+            LogDebugOnce(ref s_loggedCreateCaptureSession, "[WGC] CreateCaptureSession invoked for the first time.");
             if (s_createCaptureSession != null)
             {
                 var result = s_createCaptureSession(targetHwnd);
                 if (result == nint.Zero)
                 {
-                    Debug.WriteLine("[WGC] CreateCaptureSession (delegate) returned NULL");
+                    LogWarn("[WGC] CreateCaptureSession (delegate) returned NULL");
                 }
-                else Debug.WriteLine($"[WGC] CreateCaptureSession (delegate) succeeded: 0x{result.ToString("X")}");
+                else LogInfo($"[WGC] CreateCaptureSession (delegate) succeeded: 0x{result.ToString("X")}");
                 return result;
             }
 
@@ -204,14 +261,14 @@ public static class WgcBridgeApi
             if (res == nint.Zero)
             {
                 int err = Marshal.GetLastWin32Error();
-                Debug.WriteLine($"[WGC] CreateCaptureSession returned NULL. Win32 error: {err}");
+                LogWarn($"[WGC] CreateCaptureSession returned NULL. Win32 error: {err}");
             }
-            else Debug.WriteLine($"[WGC] CreateCaptureSession succeeded: 0x{res.ToString("X")}");
+            else LogInfo($"[WGC] CreateCaptureSession succeeded: 0x{res.ToString("X")}");
             return res;
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[WGC] Exception CreateCaptureSession: {ex.Message}");
+            LogError("[WGC] Exception CreateCaptureSession.", ex);
             return nint.Zero;
         }
     }
@@ -223,6 +280,7 @@ public static class WgcBridgeApi
 
         try
         {
+            LogDebugOnce(ref s_loggedGetLatestFrame, "[WGC] GetLatestFrame invoked for the first time.");
             if (s_getLatestFrame != null)
                 return s_getLatestFrame(session, (IntPtr)outBuffer, bufferSize, out width, out height);
 
@@ -230,12 +288,12 @@ public static class WgcBridgeApi
         }
         catch (SEHException ex)
         {
-            Debug.WriteLine($"[WGC] SEHException in GetLatestFrame: {ex}");
+            LogError("[WGC] SEHException in GetLatestFrame.", ex);
             return false;
         }
         catch (ExternalException ex)
         {
-            Debug.WriteLine($"[WGC] ExternalException in GetLatestFrame: {ex}");
+            LogError("[WGC] ExternalException in GetLatestFrame.", ex);
             return false;
         }
     }
@@ -266,6 +324,7 @@ public static class WgcBridgeApi
 
         try
         {
+            LogDebugOnce(ref s_loggedPeekLatestFrame, "[WGC] PeekLatestFrame invoked for the first time.");
             if (s_peekLatestFrame != null)
                 return s_peekLatestFrame(session, out width, out height, out requiredSize);
 
@@ -273,12 +332,12 @@ public static class WgcBridgeApi
         }
         catch (SEHException ex)
         {
-            Debug.WriteLine($"[WGC] SEHException in PeekLatestFrame: {ex}");
+            LogError("[WGC] SEHException in PeekLatestFrame.", ex);
             return false;
         }
         catch (ExternalException ex)
         {
-            Debug.WriteLine($"[WGC] ExternalException in PeekLatestFrame: {ex}");
+            LogError("[WGC] ExternalException in PeekLatestFrame.", ex);
             return false;
         }
     }
@@ -332,20 +391,21 @@ public static class WgcBridgeApi
 
         try
         {
+            LogDebugOnce(ref s_loggedAcquireLatestFrame, "[WGC] AcquireLatestFrame invoked for the first time.");
             return s_acquireLatestFrame(session, out outBuffer, out outSize, out width, out height);
         }
         catch (SEHException ex)
         {
             s_acquireLatestFrameFaulted = true;
             s_acquireLatestFrame = null;
-            Debug.WriteLine($"[WGC] SEHException in AcquireLatestFrame. Disabling zero-copy fast path. {ex}");
+            LogError("[WGC] SEHException in AcquireLatestFrame. Disabling zero-copy fast path.", ex);
             return false;
         }
         catch (ExternalException ex)
         {
             s_acquireLatestFrameFaulted = true;
             s_acquireLatestFrame = null;
-            Debug.WriteLine($"[WGC] ExternalException in AcquireLatestFrame. Disabling zero-copy fast path. {ex}");
+            LogError("[WGC] ExternalException in AcquireLatestFrame. Disabling zero-copy fast path.", ex);
             return false;
         }
     }
@@ -363,13 +423,13 @@ public static class WgcBridgeApi
         {
             s_releaseLatestFrameFaulted = true;
             s_releaseLatestFrame = null;
-            Debug.WriteLine($"[WGC] SEHException in ReleaseLatestFrame. Disabling zero-copy release path. {ex}");
+            LogError("[WGC] SEHException in ReleaseLatestFrame. Disabling zero-copy release path.", ex);
         }
         catch (ExternalException ex)
         {
             s_releaseLatestFrameFaulted = true;
             s_releaseLatestFrame = null;
-            Debug.WriteLine($"[WGC] ExternalException in ReleaseLatestFrame. Disabling zero-copy release path. {ex}");
+            LogError("[WGC] ExternalException in ReleaseLatestFrame. Disabling zero-copy release path.", ex);
         }
     }
 
@@ -379,8 +439,13 @@ public static class WgcBridgeApi
     public static string GetDiagnostics()
     {
         var sb = new StringBuilder();
+        sb.AppendLine("[WGC] Diagnostics:");
         sb.AppendLine($"NativeLoaded: {IsNativeLoaded()}");
         sb.AppendLine($"IntPtr.Size: {IntPtr.Size}");
+        sb.AppendLine($"ProcessArchitecture: {RuntimeInformation.ProcessArchitecture}");
+        sb.AppendLine($"OSArchitecture: {RuntimeInformation.OSArchitecture}");
+        sb.AppendLine($"BaseDirectory: {AppContext.BaseDirectory}");
+        sb.AppendLine($"WgcBridgePathExists: {File.Exists(Path.Combine(AppContext.BaseDirectory, "WgcBridge.dll"))}");
         sb.AppendLine($"GetD3D11Device delegate: { (s_getD3D11Device != null) }");
         sb.AppendLine($"GetLatestD3DTexture delegate: { (s_getLatestD3DTexture != null) }");
         sb.AppendLine($"SetInteropEnabled delegate: { (s_setInteropEnabled != null) }");
@@ -388,6 +453,9 @@ public static class WgcBridgeApi
         sb.AppendLine($"AcquireLatestFrame delegate: { (s_acquireLatestFrame != null) }");
         sb.AppendLine($"ReleaseLatestFrame delegate: { (s_releaseLatestFrame != null) }");
         sb.AppendLine($"GetReaderCount delegate: { (s_getReaderCount != null) }");
+        sb.AppendLine($"CreateCaptureSession delegate: { (s_createCaptureSession != null) }");
+        sb.AppendLine($"GetLatestFrame delegate: { (s_getLatestFrame != null) }");
+        sb.AppendLine($"PeekLatestFrame delegate: { (s_peekLatestFrame != null) }");
         return sb.ToString();
     }
 }

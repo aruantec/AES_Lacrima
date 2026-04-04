@@ -11,9 +11,11 @@ using Avalonia.Rendering.Composition;
 using Avalonia.Rendering.SceneGraph;
 using Avalonia.Skia;
 using Avalonia.Threading;
+using log4net;
 using SkiaSharp;
 using System;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -22,6 +24,7 @@ namespace AES_Emulation.Windows;
 
 public class CompositionWgcCaptureControl : Control
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(CompositionWgcCaptureControl));
     private CompositionCustomVisual? _visual;
     private WgcCaptureVisualHandler? _handler;
     private DispatcherTimer? _fallbackRenderTimer;
@@ -242,7 +245,22 @@ public class CompositionWgcCaptureControl : Control
 
     public CompositionWgcCaptureControl()
     {
+        PreserveAotDependencies();
         ClipToBounds = true;
+        LogInfo(
+            $"CompositionWgcCaptureControl constructed. " +
+#if NATIVE_AOT
+            "nativeAot=true."
+#else
+            "nativeAot=false."
+#endif
+        );
+    }
+
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(WgcCaptureVisualHandler))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(WgcCaptureDrawOperation))]
+    private static void PreserveAotDependencies()
+    {
     }
 
     private static void LogDebugOnce(ref bool flag, string message)
@@ -251,18 +269,21 @@ public class CompositionWgcCaptureControl : Control
             return;
 
         flag = true;
+        Log.Debug(message);
         Debug.WriteLine(message);
         Trace.WriteLine(message);
     }
 
     private static void LogInfo(string message)
     {
+        Log.Info(message);
         Debug.WriteLine(message);
         Trace.WriteLine(message);
     }
 
     private static void LogError(string message, Exception ex)
     {
+        Log.Error(message, ex);
         Debug.WriteLine($"{message} {ex}");
         Trace.WriteLine($"{message} {ex}");
     }
@@ -355,6 +376,7 @@ public class CompositionWgcCaptureControl : Control
         LogInfo(
             $"CompositionWgcCaptureControl attached. compositor={(compositor != null ? "available" : "null")}, " +
             $"dynamicCodeSupported={RuntimeFeature.IsDynamicCodeSupported}, usingOwnerFallback={_useOwnerRenderFallback}.");
+        LogInfo(WgcBridgeApi.GetDiagnostics());
 
         if (!_useOwnerRenderFallback && compositor != null)
         {
@@ -385,6 +407,7 @@ public class CompositionWgcCaptureControl : Control
     {
         base.OnDetachedFromVisualTree(e);
         _isAttachedToVisualTree = false;
+        LogInfo("CompositionWgcCaptureControl detached from visual tree.");
         StopSession();
         if (_visual != null)
         {
@@ -453,6 +476,9 @@ public class CompositionWgcCaptureControl : Control
 
     private void StopSession()
     {
+        LogInfo(
+            $"CompositionWgcCaptureControl StopSession. session=0x{_session.ToInt64():X}, " +
+            $"activeTarget=0x{_activeTargetHwnd.ToInt64():X}.");
         var previousTargetHwnd = _activeTargetHwnd;
         var canRestoreTargetWindow = previousTargetHwnd != IntPtr.Zero && IsWindow(previousTargetHwnd);
 
@@ -499,11 +525,15 @@ public class CompositionWgcCaptureControl : Control
                 var requested = change.NewValue is bool b && b;
                 if (requested)
                 {
+                    LogInfo("CompositionWgcCaptureControl RequestStopSession triggered.");
                     StopSession();
                     SetValue(RequestStopSessionProperty, false);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogError("CompositionWgcCaptureControl RequestStopSession handler failed.", ex);
+            }
         }
         else if (change.Property == StretchProperty ||
                  change.Property == BrightnessProperty ||
@@ -566,9 +596,13 @@ public class CompositionWgcCaptureControl : Control
     {
         var topLevel = TopLevel.GetTopLevel(this);
         if (topLevel?.TryGetPlatformHandle() is not IPlatformHandle platform || platform.Handle == IntPtr.Zero)
+        {
+            LogInfo("CompositionWgcCaptureControl TryResolveHostHandle failed because platform handle was unavailable.");
             return false;
+        }
 
         _hostHandle = platform.Handle;
+        LogInfo($"CompositionWgcCaptureControl resolved host handle 0x{_hostHandle.ToInt64():X}.");
         return true;
     }
 
@@ -708,6 +742,7 @@ internal sealed class WgcCaptureDrawOperation(Rect bounds, WgcCaptureVisualHandl
 
 public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(WgcCaptureVisualHandler));
     private nint _session = nint.Zero;
     private nint _targetHwnd = nint.Zero;
     private WeakReference<CompositionWgcCaptureControl>? _ownerRef;
@@ -792,6 +827,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             return;
 
         flag = true;
+        Log.Debug(message);
         Debug.WriteLine(message);
         Trace.WriteLine(message);
     }
@@ -802,6 +838,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             return;
 
         flag = true;
+        Log.Warn(message);
         Debug.WriteLine(message);
         Trace.WriteLine(message);
     }
@@ -985,7 +1022,10 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                     else _backendName = "OpenGL " + version.Split(' ')[0];
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogWarnOnce(ref _loggedGlDiscovery, $"WgcCaptureVisualHandler failed while querying GL strings: {ex}");
+            }
         }
 
         LogDebugOnce(
@@ -1228,8 +1268,9 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _frameCopyBuffer = Marshal.AllocHGlobal(checked((nint)requiredSize));
             _frameCopyBufferSize = requiredSize;
         }
-        catch
+        catch (Exception ex)
         {
+            LogWarnOnce(ref _loggedCopyLatestFrame, $"WgcCaptureVisualHandler failed to allocate frame copy buffer ({requiredSize} bytes): {ex}");
             _frameCopyBuffer = IntPtr.Zero;
             _frameCopyBufferSize = 0;
         }
@@ -1417,7 +1458,11 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 _shaderPipeline = new SlangShaderPipeline(_gl);
                 _shaderPipeline.LoadShaderPreset(_retroarchShaderFile);
             }
-            catch { _shaderPipeline = null; }
+            catch (Exception ex)
+            {
+                LogWarnOnce(ref _loggedGlRenderPath, $"WgcCaptureVisualHandler failed to initialize Slang shader pipeline: {ex}");
+                _shaderPipeline = null;
+            }
         }
 
         // Ensure GL resources for the current frame size
