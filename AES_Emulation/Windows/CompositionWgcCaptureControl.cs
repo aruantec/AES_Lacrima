@@ -326,7 +326,7 @@ public class CompositionWgcCaptureControl : Control
         _handler ??= new WgcCaptureVisualHandler();
 
         var compositor = ElementComposition.GetElementVisual(this)?.Compositor;
-        _useOwnerRenderFallback = !RuntimeFeature.IsDynamicCodeSupported || compositor == null;
+        _useOwnerRenderFallback = compositor == null;
 
         if (!_useOwnerRenderFallback && compositor != null)
         {
