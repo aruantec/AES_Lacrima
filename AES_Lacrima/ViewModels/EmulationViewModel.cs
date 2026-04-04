@@ -15,6 +15,7 @@ using AES_Core.DI;
 using AES_Core.IO;
 using AES_Emulation.EmulationHandlers;
 using AES_Emulation.Platform;
+using AES_Emulation.Windows.API;
 using AES_Lacrima.Services;
 using Avalonia;
 using System.ComponentModel;
@@ -87,6 +88,9 @@ namespace AES_Lacrima.ViewModels
         private Process? _activeEmulatorProcess;
         private PendingEmulatorLaunchRequest? _pendingEmulatorLaunchRequest;
         private bool _isClosingActiveEmulatorForRelaunch;
+        private bool _appTopmostOverride;
+        private bool _appWasTopmostBeforeEmulatorLaunch;
+        private IntPtr _appWindowHandleBeforeEmulatorLaunch = IntPtr.Zero;
         private const int GameplayPreviewHoverDelayMs = 2000;
         private const int GameplayPreviewResizeAnimationMs = 800;
         private const int GameplayPreviewPostAnimationDelayMs = 200;
@@ -206,6 +210,9 @@ namespace AES_Lacrima.ViewModels
         public string AlbumListToggleText => IsAlbumListCollapsed ? "Show Albums" : "Hide Albums";
         [ObservableProperty]
         private bool _isEmulatorRunning;
+
+        [ObservableProperty]
+        private bool _isEmulatorLaunchInProgress;
 
         [ObservableProperty]
         private IntPtr _emulatorTargetHwnd;
@@ -1731,6 +1738,7 @@ namespace AES_Lacrima.ViewModels
             _pendingEmulatorLaunchRequest = request;
             RequestStopEmulatorCapture = true;
             EmulatorTargetHwnd = IntPtr.Zero;
+            IsEmulatorLaunchInProgress = true;
 
             if (TryGetRunningTrackedEmulatorProcess(out var process))
             {
@@ -1766,6 +1774,8 @@ namespace AES_Lacrima.ViewModels
                 if (!handler.IsPrepared)
                     handler.Prepare();
 
+                EnsureAppTopMostBeforeLaunch();
+
                 var startInfo = handler.BuildStartInfo(
                     handler.LauncherPath ?? string.Empty,
                     request.RomPath,
@@ -1776,6 +1786,7 @@ namespace AES_Lacrima.ViewModels
             catch (Exception ex)
             {
                 SLog.Warn($"Failed to launch emulator for '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
+                IsEmulatorLaunchInProgress = false;
             }
         }
 
@@ -1885,6 +1896,7 @@ namespace AES_Lacrima.ViewModels
             {
                 SLog.Warn($"Emulator launch for '{romPath}' did not expose a trackable process handle.");
                 EmulatorTargetHwnd = IntPtr.Zero;
+                IsEmulatorLaunchInProgress = false;
                 StopGameplayPreview();
                 return;
             }
@@ -1938,7 +1950,12 @@ namespace AES_Lacrima.ViewModels
 
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
+
+            var hadPendingLaunch = _pendingEmulatorLaunchRequest != null;
             TryLaunchPendingEmulatorRequest();
+
+            if (!hadPendingLaunch)
+                IsEmulatorLaunchInProgress = false;
         }
 
         private void DetachTrackedEmulatorProcess()
@@ -2038,8 +2055,12 @@ namespace AES_Lacrima.ViewModels
                 if (showWindowForCapture)
                     RevealCaptureWindow(hwnd);
 
+                RestoreAppTopMost();
+
                 if (EmulatorTargetHwnd != hwnd)
                     EmulatorTargetHwnd = hwnd;
+
+                IsEmulatorLaunchInProgress = false;
 
                 return true;
             }, DispatcherPriority.Background);
@@ -2069,6 +2090,46 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
+
+        private void EnsureAppTopMostBeforeLaunch()
+        {
+            if (_appTopmostOverride)
+                return;
+
+            var hwnd = GetHostWindowHandle();
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            _appWasTopmostBeforeEmulatorLaunch = Win32API.IsWindowTopMost(hwnd);
+            _appWindowHandleBeforeEmulatorLaunch = hwnd;
+
+            if (!_appWasTopmostBeforeEmulatorLaunch)
+            {
+                Win32API.SetWindowTopMost(hwnd);
+                _appTopmostOverride = true;
+            }
+        }
+
+        private void RestoreAppTopMost()
+        {
+            if (!_appTopmostOverride)
+                return;
+
+            if (_appWindowHandleBeforeEmulatorLaunch == IntPtr.Zero)
+                return;
+
+            Win32API.SetWindowNotTopMost(_appWindowHandleBeforeEmulatorLaunch);
+            _appTopmostOverride = false;
+            _appWindowHandleBeforeEmulatorLaunch = IntPtr.Zero;
+        }
+
+        private static IntPtr GetHostWindowHandle()
+        {
+            if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+                return IntPtr.Zero;
+
+            return desktop.MainWindow?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        }
 
         private static int GetRoundedSelectedIndex(double value) => (int)Math.Round(value);
 
