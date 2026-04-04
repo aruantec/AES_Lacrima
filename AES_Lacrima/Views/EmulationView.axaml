@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:composition="using:AES_Controls.Composition"
+             xmlns:emulation="using:AES_Emulation.Windows"
              xmlns:navigation="using:AES_Lacrima.Views.Navigation"
              xmlns:behaviors="using:AES_Lacrima.Behaviors"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -186,7 +187,12 @@
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch"
                     Background="Transparent"
-                    ClipToBounds="True" />
+                    ClipToBounds="True">
+                <emulation:CompositionWgcCaptureControl HorizontalAlignment="Stretch"
+                                                        VerticalAlignment="Stretch"
+                                                        TargetHwnd="{Binding EmulatorTargetHwnd}"
+                                                        RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}" />
+            </Border>
         </Grid>
 
         <StackPanel HorizontalAlignment="Center"

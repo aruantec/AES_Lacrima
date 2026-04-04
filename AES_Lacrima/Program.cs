@@ -106,11 +106,6 @@ namespace AES_Lacrima
 
         private static void ConfigureLogging()
         {
-#if NATIVE_AOT
-            // log4net relies on reflection-heavy configuration paths that are unreliable under Native AOT.
-            // Keep startup logging minimal for AOT builds and write fatal errors directly to a file instead.
-            return;
-#else
             var logsDirectory = ApplicationPaths.LogsDirectory;
             Directory.CreateDirectory(logsDirectory);
 
@@ -129,6 +124,7 @@ namespace AES_Lacrima
             ILoggerRepository loggingRepository = LogManager.GetRepository(typeof(Program).Assembly);
             BasicConfigurator.Configure(loggingRepository, fileAppender);
 
+#if !NATIVE_AOT
             if (File.Exists("log4net.config"))
             {
                 XmlConfigurator.Configure(loggingRepository, new FileInfo("log4net.config"));
