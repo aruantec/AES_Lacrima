@@ -10,7 +10,8 @@ public static class EmulatorHandlerRegistry
     [
         DuckStationHandler.Instance,
         FlyCastHandler.Instance,
-        RedreamHandler.Instance
+        RedreamHandler.Instance,
+        AresHandler.Instance
     ];
 
     public static IReadOnlyList<IEmulatorHandler> GetRegisteredHandlers()
