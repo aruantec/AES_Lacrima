@@ -276,6 +276,25 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
+        public void ShowEmulatorErrorPrompt(string title, string message, string details)
+        {
+            var prompt = new EmulatorErrorPromptViewModel(title, message, details);
+            prompt.RequestClose += () =>
+            {
+                if (PromptView == prompt)
+                    PromptView = null;
+            };
+
+            if (PromptView == null)
+            {
+                PromptView = prompt;
+            }
+            else
+            {
+                _pendingPromptFactory = () => prompt;
+            }
+        }
+
         /// <summary>
         /// Displays the initial setup prompt for missing components.
         /// </summary>

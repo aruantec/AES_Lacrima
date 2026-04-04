@@ -86,11 +86,14 @@ namespace AES_Lacrima.ViewModels
         private string? _activeGameplayPreviewItemPath;
         private long _gameplayPreviewRequestVersion;
         private Process? _activeEmulatorProcess;
+        private CancellationTokenSource? _retroArchLogWatcherCts;
+        private CancellationTokenSource? _appTopmostRestoreCts;
         private PendingEmulatorLaunchRequest? _pendingEmulatorLaunchRequest;
         private bool _isClosingActiveEmulatorForRelaunch;
         private bool _appTopmostOverride;
         private bool _appWasTopmostBeforeEmulatorLaunch;
         private IntPtr _appWindowHandleBeforeEmulatorLaunch = IntPtr.Zero;
+        private static readonly TimeSpan AppTopmostRestoreTimeout = TimeSpan.FromSeconds(10);
         private const int GameplayPreviewHoverDelayMs = 2000;
         private const int GameplayPreviewResizeAnimationMs = 800;
         private const int GameplayPreviewPostAnimationDelayMs = 200;
@@ -1786,6 +1789,7 @@ namespace AES_Lacrima.ViewModels
             catch (Exception ex)
             {
                 SLog.Warn($"Failed to launch emulator for '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
+                RestoreAppTopMost();
                 IsEmulatorLaunchInProgress = false;
             }
         }
@@ -1895,6 +1899,7 @@ namespace AES_Lacrima.ViewModels
             if (process == null)
             {
                 SLog.Warn($"Emulator launch for '{romPath}' did not expose a trackable process handle.");
+                RestoreAppTopMost();
                 EmulatorTargetHwnd = IntPtr.Zero;
                 IsEmulatorLaunchInProgress = false;
                 StopGameplayPreview();
@@ -1902,6 +1907,10 @@ namespace AES_Lacrima.ViewModels
             }
 
             DetachTrackedEmulatorProcess();
+
+            _retroArchLogWatcherCts?.Cancel();
+            _retroArchLogWatcherCts?.Dispose();
+            _retroArchLogWatcherCts = null;
 
             _activeEmulatorProcess = process;
 
@@ -1916,6 +1925,9 @@ namespace AES_Lacrima.ViewModels
             }
 
             IsEmulatorRunning = !process.HasExited;
+
+            if (handler is RetroArchHandler retroArchHandler)
+                StartRetroArchLogWatcher(process, retroArchHandler);
 
             if (process.HasExited)
                 HandleTrackedEmulatorExited(process);
@@ -1950,6 +1962,12 @@ namespace AES_Lacrima.ViewModels
 
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
+            RestoreAppTopMost();
+
+            if (CurrentEmulatorHandler is RetroArchHandler retroArchHandler)
+            {
+                TryShowRetroArchErrorPrompt(process, retroArchHandler);
+            }
 
             var hadPendingLaunch = _pendingEmulatorLaunchRequest != null;
             TryLaunchPendingEmulatorRequest();
@@ -1963,6 +1981,9 @@ namespace AES_Lacrima.ViewModels
             if (_activeEmulatorProcess == null)
             {
                 EmulatorTargetHwnd = IntPtr.Zero;
+                _retroArchLogWatcherCts?.Cancel();
+                _retroArchLogWatcherCts?.Dispose();
+                _retroArchLogWatcherCts = null;
                 return;
             }
 
@@ -2003,6 +2024,89 @@ namespace AES_Lacrima.ViewModels
             {
                 SLog.Warn($"Failed to resolve emulator HWND for '{romPath}'.", ex);
             }
+        }
+
+        private void TryShowRetroArchErrorPrompt(Process process, RetroArchHandler handler)
+        {
+            if (!RetroArchHandler.TryGetRetroArchErrorDetails(handler.LauncherPath, out var summary, out var details))
+                return;
+
+            if (string.IsNullOrWhiteSpace(details))
+                return;
+
+            var title = "RetroArch Emulator Error";
+            var message = string.IsNullOrWhiteSpace(summary)
+                ? "RetroArch reported an error during launch."
+                : summary;
+
+            DiLocator.ResolveViewModel<MainWindowViewModel>()?.ShowEmulatorErrorPrompt(title, message, details);
+        }
+
+        private void StartRetroArchLogWatcher(Process process, RetroArchHandler handler)
+        {
+            if (process.HasExited)
+                return;
+
+            _retroArchLogWatcherCts?.Cancel();
+            _retroArchLogWatcherCts?.Dispose();
+            _retroArchLogWatcherCts = new CancellationTokenSource();
+            var token = _retroArchLogWatcherCts.Token;
+
+            _ = Task.Run(async () =>
+            {
+                var logFilePath = RetroArchHandler.GetRetroArchLogFilePath(handler.LauncherPath);
+                if (string.IsNullOrWhiteSpace(logFilePath))
+                    return;
+
+                var lastLineCount = 0;
+                var startTime = DateTime.UtcNow;
+                while (!token.IsCancellationRequested && !process.HasExited && DateTime.UtcNow - startTime < TimeSpan.FromSeconds(12))
+                {
+                    try
+                    {
+                        if (!File.Exists(logFilePath))
+                        {
+                            await Task.Delay(250, token).ConfigureAwait(false);
+                            continue;
+                        }
+
+                        var lines = File.ReadAllLines(logFilePath);
+                        if (lines.Length <= lastLineCount)
+                        {
+                            await Task.Delay(250, token).ConfigureAwait(false);
+                            continue;
+                        }
+
+                        var newLines = lines.Skip(lastLineCount).ToArray();
+                        lastLineCount = lines.Length;
+
+                        if (RetroArchHandler.TryExtractRetroArchErrorDetails(newLines, out var summary, out var details))
+                        {
+                            var title = "RetroArch Emulator Error";
+                            var message = string.IsNullOrWhiteSpace(summary)
+                                ? "RetroArch reported an error during launch."
+                                : summary;
+
+                            await Dispatcher.UIThread.InvokeAsync(() =>
+                            {
+                                DiLocator.ResolveViewModel<MainWindowViewModel>()?.ShowEmulatorErrorPrompt(title, message, details);
+                            }, DispatcherPriority.Background);
+                            break;
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch
+                    {
+                        await Task.Delay(250, token).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    await Task.Delay(250, token).ConfigureAwait(false);
+                }
+            }, token);
         }
 
         private bool IsTrackedProcessAlive(Process process)
@@ -2107,7 +2211,40 @@ namespace AES_Lacrima.ViewModels
             {
                 Win32API.SetWindowTopMost(hwnd);
                 _appTopmostOverride = true;
+                StartAppTopmostRestoreTimeout();
             }
+        }
+
+        private void StartAppTopmostRestoreTimeout()
+        {
+            _appTopmostRestoreCts?.Cancel();
+            _appTopmostRestoreCts?.Dispose();
+            _appTopmostRestoreCts = new CancellationTokenSource();
+            var token = _appTopmostRestoreCts.Token;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(AppTopmostRestoreTimeout, token).ConfigureAwait(false);
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (_appTopmostOverride)
+                        {
+                            SLog.Info("Restoring app topmost because emulator launch did not complete within timeout.");
+                            RestoreAppTopMost();
+                        }
+                    }, DispatcherPriority.Background);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Cancellation expected when restore happens normally.
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn("App topmost restore timeout task failed.", ex);
+                }
+            }, token);
         }
 
         private void RestoreAppTopMost()
@@ -2117,6 +2254,10 @@ namespace AES_Lacrima.ViewModels
 
             if (_appWindowHandleBeforeEmulatorLaunch == IntPtr.Zero)
                 return;
+
+            _appTopmostRestoreCts?.Cancel();
+            _appTopmostRestoreCts?.Dispose();
+            _appTopmostRestoreCts = null;
 
             Win32API.SetWindowNotTopMost(_appWindowHandleBeforeEmulatorLaunch);
             _appTopmostOverride = false;

@@ -11,6 +11,7 @@ public static class EmulatorHandlerRegistry
         DuckStationHandler.Instance,
         FlyCastHandler.Instance,
         RedreamHandler.Instance,
+        RetroArchHandler.Instance,
         AresHandler.Instance
     ];
 
