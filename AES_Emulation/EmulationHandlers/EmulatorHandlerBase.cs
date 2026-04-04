@@ -6,7 +6,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 
@@ -107,16 +109,107 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual void PrepareProcessForCapture(Process process)
     {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        PrepareProcessForCaptureWindows(process);
     }
 
     public virtual void PrepareWindowForCapture(IntPtr hwnd)
     {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        PrepareWindowForCaptureWindows(hwnd);
     }
 
     public virtual IntPtr FindPreferredWindowHandle(Process process)
-        => FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: false, isPreferredRenderWindow: null);
+    {
+        if (!OperatingSystem.IsWindows())
+            return IntPtr.Zero;
+
+        return FindPreferredWindowHandleWindows(process);
+    }
 
     public virtual bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle) => hwnd != IntPtr.Zero;
+
+    public virtual async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 80;
+        const int delayMs = 100;
+        const int stableAttemptsBeforeAssign = 2;
+        const int stableAttemptsBeforeStop = 6;
+
+        IntPtr observedHwnd = IntPtr.Zero;
+        var observedStableAttempts = 0;
+        IntPtr assignedHwnd = IntPtr.Zero;
+        var assignedStableAttempts = 0;
+        var hasAssignedHandle = false;
+
+        TryWaitForInputIdle(process, 500);
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (HideUntilCaptured)
+                PrepareProcessForCapture(process);
+
+            var hwnd = FindPreferredWindowHandle(process);
+            if (hwnd != IntPtr.Zero)
+            {
+                if (HideUntilCaptured)
+                    PrepareWindowForCapture(hwnd);
+
+                if (hwnd == observedHwnd)
+                {
+                    observedStableAttempts++;
+                }
+                else
+                {
+                    observedHwnd = hwnd;
+                    observedStableAttempts = 1;
+                }
+
+                var canAssign = !HideUntilCaptured || CanAssignWindow(hwnd, process.MainWindowHandle);
+
+                if (canAssign && hwnd != assignedHwnd && observedStableAttempts >= stableAttemptsBeforeAssign)
+                {
+                    assignedHwnd = hwnd;
+                    assignedStableAttempts = observedStableAttempts;
+                    hasAssignedHandle = true;
+                }
+                else if (hwnd == assignedHwnd)
+                {
+                    assignedStableAttempts = observedStableAttempts;
+                }
+
+                if (hasAssignedHandle && assignedStableAttempts >= stableAttemptsBeforeStop)
+                    break;
+            }
+            else
+            {
+                observedHwnd = IntPtr.Zero;
+                observedStableAttempts = 0;
+            }
+
+            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+        }
+
+        return assignedHwnd;
+    }
+
+    protected static void TryWaitForInputIdle(Process process, int timeoutMs)
+    {
+        try
+        {
+            process.WaitForInputIdle(timeoutMs);
+        }
+        catch (Exception)
+        {
+            // Some emulator processes do not expose an input idle state.
+        }
+    }
 
     protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
@@ -136,6 +229,12 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         if (!OperatingSystem.IsWindows())
             return;
 
+        HideProcessWindowsForCaptureWindows(process);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void HideProcessWindowsForCaptureWindows(Process process)
+    {
         uint processId;
 
         try
@@ -161,15 +260,27 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         }, IntPtr.Zero);
     }
 
+    [SupportedOSPlatform("windows")]
+    protected static void PrepareProcessForCaptureWindows(Process process)
+        => HideProcessWindowsForCaptureWindows(process);
+
+    [SupportedOSPlatform("windows")]
+    protected static void PrepareWindowForCaptureWindows(IntPtr hwnd)
+        => HideWindowForCapture(hwnd);
+
     protected static void HideWindowForCapture(IntPtr hwnd)
     {
-        if (hwnd == IntPtr.Zero)
+        if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
             return;
 
         Win32API.RemoveWindowDecorations(hwnd);
         Win32API.MoveAway(hwnd);
         Win32API.SetWindowOpacity(hwnd, 0);
     }
+
+    [SupportedOSPlatform("windows")]
+    protected static IntPtr FindPreferredWindowHandleWindows(Process process)
+        => FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: false, isPreferredRenderWindow: null);
 
     protected static IntPtr FindBestProcessWindowHandle(
         Process process,
@@ -284,6 +395,15 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     protected static string GetWindowTitle(IntPtr hwnd)
     {
+        if (!OperatingSystem.IsWindows())
+            return string.Empty;
+
+        return GetWindowTitleWindows(hwnd);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static string GetWindowTitleWindows(IntPtr hwnd)
+    {
         try
         {
             var builder = new StringBuilder(256);
@@ -297,6 +417,15 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     protected static string GetWindowClassName(IntPtr hwnd)
     {
+        if (!OperatingSystem.IsWindows())
+            return string.Empty;
+
+        return GetWindowClassNameWindows(hwnd);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static string GetWindowClassNameWindows(IntPtr hwnd)
+    {
         try
         {
             var builder = new StringBuilder(256);
@@ -309,6 +438,15 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     }
 
     protected static int GetWindowStyle(IntPtr hwnd)
+    {
+        if (!OperatingSystem.IsWindows())
+            return 0;
+
+        return GetWindowStyleWindows(hwnd);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static int GetWindowStyleWindows(IntPtr hwnd)
     {
         try
         {

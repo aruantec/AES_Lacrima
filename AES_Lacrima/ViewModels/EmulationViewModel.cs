@@ -4,7 +4,6 @@ using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -585,12 +584,18 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnSelectedAlbumChanged(FolderMediaItem? value)
         {
+            if (IsEmulatorRunning && !IsEmulatorViewportDismissed)
+                IsEmulatorViewportDismissed = true;
+
             SyncSelectedAlbumIndexFromAlbum(value);
             AutoSave();
         }
 
         partial void OnLoadedAlbumChanged(FolderMediaItem? value)
         {
+            if (IsEmulatorRunning && !IsEmulatorViewportDismissed)
+                IsEmulatorViewportDismissed = true;
+
             ApplyFilter();
             QueueSelectedAlbumCoverScan(value);
             RefreshActiveAlbumState();
@@ -728,7 +733,7 @@ namespace AES_Lacrima.ViewModels
             ShowFrametimeGraph = ReadBoolSetting(section, nameof(ShowFrametimeGraph), false);
             ShowDetailedGpuInfo = ReadBoolSetting(section, nameof(ShowDetailedGpuInfo), false);
             RenderOverlayOpacity = ReadDoubleSetting(section, nameof(RenderOverlayOpacity), 0.55);
-            SelectedStretch = ReadStringSetting(section, nameof(SelectedStretch), "Uniform");
+            SelectedStretch = ReadStringSetting(section, nameof(SelectedStretch), "Uniform") ?? "Uniform";
             DisableVSync = ReadBoolSetting(section, nameof(DisableVSync), false);
             RenderBrightness = ReadDoubleSetting(section, nameof(RenderBrightness), 1.0);
             RenderSaturation = ReadDoubleSetting(section, nameof(RenderSaturation), 1.0);
@@ -1962,81 +1967,20 @@ namespace AES_Lacrima.ViewModels
 
         private async Task ResolveEmulatorTargetHwndAsync(Process process, string romPath, IEmulatorHandler handler)
         {
-            const int maxAttempts = 80;
-            const int delayMs = 250;
-            const int stableAttemptsBeforeStop = 12;
-            const int stableAttemptsBeforeAssign = 3;
-
-            IntPtr observedHwnd = IntPtr.Zero;
-            var observedStableAttempts = 0;
-            IntPtr assignedHwnd = IntPtr.Zero;
-            var assignedStableAttempts = 0;
-            var hasAssignedHandle = false;
-            var hideUntilCaptured = handler.HideUntilCaptured;
-
             try
             {
-                TryWaitForInputIdle(process, 2000);
-
-                for (var attempt = 0; attempt < maxAttempts; attempt++)
+                var hwnd = await handler.ResolveCaptureTargetAsync(process, CancellationToken.None).ConfigureAwait(false);
+                if (hwnd == IntPtr.Zero)
                 {
-                    if (!IsTrackedProcessAlive(process))
-                        return;
-
-                    if (hideUntilCaptured)
-                        handler.PrepareProcessForCapture(process);
-
-                    var hwnd = handler.FindPreferredWindowHandle(process);
-                    if (hwnd != IntPtr.Zero)
-                    {
-                        if (hideUntilCaptured)
-                            handler.PrepareWindowForCapture(hwnd);
-
-                        if (hwnd == observedHwnd)
-                        {
-                            observedStableAttempts++;
-                        }
-                        else
-                        {
-                            observedHwnd = hwnd;
-                            observedStableAttempts = 1;
-                        }
-
-                        var canAssign = !hideUntilCaptured || handler.CanAssignWindow(hwnd, process.MainWindowHandle);
-
-                        if (canAssign &&
-                            hwnd != assignedHwnd &&
-                            observedStableAttempts >= stableAttemptsBeforeAssign)
-                        {
-                            if (!await TryApplyEmulatorTargetHwndAsync(
-                                    process,
-                                    hwnd,
-                                    showWindowForCapture: hideUntilCaptured).ConfigureAwait(false))
-                                return;
-
-                            assignedHwnd = hwnd;
-                            assignedStableAttempts = observedStableAttempts;
-                            hasAssignedHandle = true;
-                        }
-                        else if (hwnd == assignedHwnd)
-                        {
-                            assignedStableAttempts = observedStableAttempts;
-                        }
-
-                        if (hasAssignedHandle && assignedStableAttempts >= stableAttemptsBeforeStop)
-                            return;
-                    }
-                    else
-                    {
-                        observedHwnd = IntPtr.Zero;
-                        observedStableAttempts = 0;
-                    }
-
-                    await Task.Delay(delayMs).ConfigureAwait(false);
+                    SLog.Warn($"Failed to resolve emulator HWND for '{romPath}'.");
+                    return;
                 }
 
-                if (!hasAssignedHandle)
-                    SLog.Warn($"Failed to resolve emulator HWND for '{romPath}'.");
+                await TryApplyEmulatorTargetHwndAsync(process, hwnd, showWindowForCapture: handler.HideUntilCaptured).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                SLog.Debug($"Emulator HWND resolution canceled for '{romPath}'.");
             }
             catch (Exception ex)
             {
