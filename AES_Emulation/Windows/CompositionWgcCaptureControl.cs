@@ -24,7 +24,9 @@ namespace AES_Emulation.Windows;
 
 public class CompositionWgcCaptureControl : Control
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(CompositionWgcCaptureControl));
+    private static readonly ILog Log = LogManager.GetLogger(
+        typeof(CompositionWgcCaptureControl).Assembly,
+        typeof(CompositionWgcCaptureControl).FullName ?? nameof(CompositionWgcCaptureControl));
     private CompositionCustomVisual? _visual;
     private WgcCaptureVisualHandler? _handler;
     private DispatcherTimer? _fallbackRenderTimer;
@@ -742,7 +744,10 @@ internal sealed class WgcCaptureDrawOperation(Rect bounds, WgcCaptureVisualHandl
 
 public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(WgcCaptureVisualHandler));
+    private static readonly ILog Log = LogManager.GetLogger(
+        typeof(WgcCaptureVisualHandler).Assembly,
+        typeof(WgcCaptureVisualHandler).FullName ?? nameof(WgcCaptureVisualHandler));
+    private static readonly bool ForceSafeCpuRenderPath = !RuntimeFeature.IsDynamicCodeSupported;
     private nint _session = nint.Zero;
     private nint _targetHwnd = nint.Zero;
     private WeakReference<CompositionWgcCaptureControl>? _ownerRef;
@@ -820,6 +825,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private bool _loggedNoFrameAvailable;
     private bool _loggedGlRenderPath;
     private bool _loggedSimpleRenderPath;
+    private bool _loggedForcedCpuRenderPath;
 
     private static void LogDebugOnce(ref bool flag, string message)
     {
@@ -976,6 +982,15 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     private void EnsureGl(ImmediateDrawingContext context, GRContext? grContext)
     {
+        if (ForceSafeCpuRenderPath)
+        {
+            _backendName = "CPU Copy";
+            LogDebugOnce(
+                ref _loggedForcedCpuRenderPath,
+                "WgcCaptureVisualHandler is forcing the safe CPU copy render path because dynamic code is unavailable.");
+            return;
+        }
+
         if (_gl != null) return;
 
         // Try multiple ways to get GL interface
@@ -1036,70 +1051,83 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     public override void OnAnimationFrameUpdate()
     {
-        if (_session == nint.Zero) return;
+        if (_session == nint.Zero)
+            return;
 
-        // Perform per-frame updates for FPS tracking
-        var nowTicks = Stopwatch.GetTimestamp();
-        if (_lastFrameTicks != 0)
+        try
         {
-            double dt = (double)(nowTicks - _lastFrameTicks) / Stopwatch.Frequency;
-            double instantFps = dt > 0 ? (1.0 / dt) : 0.0;
-            double frameMs = dt * 1000.0;
-
-            double s = Math.Clamp(_fpsSmoothing, 0.0, 0.999);
-            _smoothedFps = (_smoothedFps <= 0.0) ? instantFps : (_smoothedFps * s) + (instantFps * (1.0 - s));
-            _smoothedFrameTimeMs = (_smoothedFrameTimeMs <= 0.0) ? frameMs : (_smoothedFrameTimeMs * s) + (frameMs * (1.0 - s));
-
-            // Store for graph
-            if (_showFrametimeGraph)
+            // Perform per-frame updates for FPS tracking
+            var nowTicks = Stopwatch.GetTimestamp();
+            if (_lastFrameTicks != 0)
             {
-                _frameTimes[_frameTimePtr] = (float)frameMs;
-                _frameTimePtr = (_frameTimePtr + 1) % _frameTimes.Length;
-            }
-        }
-        _lastFrameTicks = nowTicks;
+                double dt = (double)(nowTicks - _lastFrameTicks) / Stopwatch.Frequency;
+                double instantFps = dt > 0 ? (1.0 / dt) : 0.0;
+                double frameMs = dt * 1000.0;
 
-        // External UI property updates do not need game-frame cadence.
-        if ((double)(nowTicks - _lastUiUpdateTicks) / Stopwatch.Frequency >= 0.1)
-        {
-            _lastUiUpdateTicks = nowTicks;
+                double s = Math.Clamp(_fpsSmoothing, 0.0, 0.999);
+                _smoothedFps = (_smoothedFps <= 0.0) ? instantFps : (_smoothedFps * s) + (instantFps * (1.0 - s));
+                _smoothedFrameTimeMs = (_smoothedFrameTimeMs <= 0.0) ? frameMs : (_smoothedFrameTimeMs * s) + (frameMs * (1.0 - s));
 
-            var fps = Math.Round(_smoothedFps, 1);
-            var ft = Math.Round(_smoothedFrameTimeMs, 2);
-
-            if ((fps != _lastSentFps || ft != _lastSentFt) && _ownerRef != null && _ownerRef.TryGetTarget(out var owner))
-            {
-                _lastSentFps = fps;
-                _lastSentFt = ft;
-                Dispatcher.UIThread.Post(() =>
+                if (_showFrametimeGraph)
                 {
-                    owner.Fps = fps;
-                    owner.FrameTimeMs = ft;
-                }, DispatcherPriority.Background);
-            }
-        }
-
-        if (_forceUseTargetClientSize && _targetHwnd != IntPtr.Zero)
-        {
-            if (Win32API.GetClientAreaOffsets(_targetHwnd, out int cx, out int cy, out int cw, out int ch))
-            {
-                if (cx != _lastCropX || cy != _lastCropY || cw != _lastCropW || ch != _lastCropH)
-                {
-                    WgcBridgeApi.SetCaptureCropRect(_session, cx, cy, cw, ch);
-                    _lastCropX = cx; _lastCropY = cy; _lastCropW = cw; _lastCropH = ch;
+                    _frameTimes[_frameTimePtr] = (float)frameMs;
+                    _frameTimePtr = (_frameTimePtr + 1) % _frameTimes.Length;
                 }
             }
-        }
+            _lastFrameTicks = nowTicks;
 
-        int nativeCount = WgcBridgeApi.GetCaptureStatus(_session);
-        if (nativeCount != _lastNativeFrameCount)
-        {
-            _lastNativeFrameCount = nativeCount;
+            if ((double)(nowTicks - _lastUiUpdateTicks) / Stopwatch.Frequency >= 0.1)
+            {
+                _lastUiUpdateTicks = nowTicks;
+
+                var fps = Math.Round(_smoothedFps, 1);
+                var ft = Math.Round(_smoothedFrameTimeMs, 2);
+
+                if ((fps != _lastSentFps || ft != _lastSentFt) && _ownerRef != null && _ownerRef.TryGetTarget(out var owner))
+                {
+                    _lastSentFps = fps;
+                    _lastSentFt = ft;
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        owner.Fps = fps;
+                        owner.FrameTimeMs = ft;
+                    }, DispatcherPriority.Background);
+                }
+            }
+
+            if (_forceUseTargetClientSize && _targetHwnd != IntPtr.Zero)
+            {
+                if (Win32API.GetClientAreaOffsets(_targetHwnd, out int cx, out int cy, out int cw, out int ch))
+                {
+                    if (cx != _lastCropX || cy != _lastCropY || cw != _lastCropW || ch != _lastCropH)
+                    {
+                        WgcBridgeApi.SetCaptureCropRect(_session, cx, cy, cw, ch);
+                        _lastCropX = cx; _lastCropY = cy; _lastCropW = cw; _lastCropH = ch;
+                    }
+                }
+            }
+
+            int nativeCount = WgcBridgeApi.GetCaptureStatus(_session);
+            if (nativeCount != _lastNativeFrameCount)
+            {
+                _lastNativeFrameCount = nativeCount;
+            }
+
+            // Under NativeAOT the composition custom visual can stall if we only redraw on
+            // capture-status transitions, so keep the visual invalidating while a session is active.
             RequestRender();
         }
-
-        if (!_useOwnerInvalidation)
-            RegisterForNextAnimationFrameUpdate();
+        catch (Exception ex)
+        {
+            Log.Error("WgcCaptureVisualHandler OnAnimationFrameUpdate failed.", ex);
+            Debug.WriteLine($"WgcCaptureVisualHandler OnAnimationFrameUpdate failed. {ex}");
+            Trace.WriteLine($"WgcCaptureVisualHandler OnAnimationFrameUpdate failed. {ex}");
+        }
+        finally
+        {
+            if (!_useOwnerInvalidation && _session != nint.Zero)
+                RegisterForNextAnimationFrameUpdate();
+        }
     }
 
     private void RequestRender()
@@ -1119,33 +1147,73 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         if (_session == nint.Zero || _visualSize.X < 1 || _visualSize.Y < 1)
             return;
 
-        LogDebugOnce(
-            ref _loggedRenderEntry,
-            $"WgcCaptureVisualHandler OnRender entered. session=0x{_session.ToInt64():X}, size={_visualSize.X}x{_visualSize.Y}, " +
-            $"ownerInvalidation={_useOwnerInvalidation}.");
-
-        var leaseFeature = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
-        if (leaseFeature == null)
-        {
-            LogWarnOnce(ref _loggedLeaseMissing, "WgcCaptureVisualHandler OnRender could not get ISkiaSharpApiLeaseFeature.");
-            return;
-        }
-
-        using var lease = leaseFeature.Lease();
-        var canvas = lease.SkCanvas;
-        var grContext = lease.GrContext;
-
-        canvas.Clear(SKColors.Black);
-
-        EnsureGl(context, grContext);
-
-        if (WgcBridgeApi.AcquireLatestFrame(_session, out IntPtr ptr, out nuint size, out int w, out int h))
+        try
         {
             LogDebugOnce(
-                ref _loggedAcquireLatestFrame,
-                $"WgcCaptureVisualHandler acquired latest frame directly. size={w}x{h}, bytes={size}, ptr={(ptr != IntPtr.Zero ? "valid" : "null")}.");
-            try
+                ref _loggedRenderEntry,
+                $"WgcCaptureVisualHandler OnRender entered. session=0x{_session.ToInt64():X}, size={_visualSize.X}x{_visualSize.Y}, " +
+                $"ownerInvalidation={_useOwnerInvalidation}.");
+
+            var leaseFeature = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
+            if (leaseFeature == null)
             {
+                LogWarnOnce(ref _loggedLeaseMissing, "WgcCaptureVisualHandler OnRender could not get ISkiaSharpApiLeaseFeature.");
+                return;
+            }
+
+            using var lease = leaseFeature.Lease();
+            var canvas = lease.SkCanvas;
+            var grContext = lease.GrContext;
+
+            canvas.Clear(SKColors.Black);
+
+            EnsureGl(context, grContext);
+
+        if (!ForceSafeCpuRenderPath &&
+            WgcBridgeApi.AcquireLatestFrame(_session, out IntPtr ptr, out nuint size, out int w, out int h))
+            {
+                LogDebugOnce(
+                    ref _loggedAcquireLatestFrame,
+                    $"WgcCaptureVisualHandler acquired latest frame directly. size={w}x{h}, bytes={size}, ptr={(ptr != IntPtr.Zero ? "valid" : "null")}.");
+                try
+                {
+                    if (w > 0 && h > 0 && ptr != IntPtr.Zero)
+                    {
+                        AutoDetectPillarboxes(ptr, w, h);
+
+                        if (_rectDirty || _texWidth != w || _texHeight != h)
+                        {
+                            _cachedDestRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, w - _cropLeft - _cropRight, h);
+                            _rectDirty = false;
+                        }
+
+                        if (_gl != null)
+                        {
+                            LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL path.");
+                            RenderInternal(canvas, ptr, w, h, grContext);
+                        }
+                        else
+                        {
+                            LogDebugOnce(ref _loggedSimpleRenderPath, "WgcCaptureVisualHandler is rendering through the simple CPU fallback path.");
+                            RenderSimpleFallback(canvas, ptr, w, h);
+                        }
+
+                        if (_showStatisticsOverlay)
+                        {
+                            RenderOverlay(canvas);
+                        }
+                    }
+                }
+                finally
+                {
+                    WgcBridgeApi.ReleaseLatestFrame(_session);
+                }
+            }
+            else if (TryCopyLatestFrame(out ptr, out w, out h))
+            {
+                LogDebugOnce(
+                    ref _loggedCopyLatestFrame,
+                    $"WgcCaptureVisualHandler acquired latest frame through copy fallback. size={w}x{h}, ptr={(ptr != IntPtr.Zero ? "valid" : "null")}.");
                 if (w > 0 && h > 0 && ptr != IntPtr.Zero)
                 {
                     AutoDetectPillarboxes(ptr, w, h);
@@ -1156,7 +1224,6 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                         _rectDirty = false;
                     }
 
-                    // Always use GL path if available for better performance
                     if (_gl != null)
                     {
                         LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL path.");
@@ -1168,51 +1235,20 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                         RenderSimpleFallback(canvas, ptr, w, h);
                     }
 
-                    // Render Statistics Overlay
                     if (_showStatisticsOverlay)
-                    {
                         RenderOverlay(canvas);
-                    }
                 }
             }
-            finally
+            else
             {
-                WgcBridgeApi.ReleaseLatestFrame(_session);
+                LogWarnOnce(ref _loggedNoFrameAvailable, "WgcCaptureVisualHandler could not acquire any frame in OnRender.");
             }
         }
-        else if (TryCopyLatestFrame(out ptr, out w, out h))
+        catch (Exception ex)
         {
-            LogDebugOnce(
-                ref _loggedCopyLatestFrame,
-                $"WgcCaptureVisualHandler acquired latest frame through copy fallback. size={w}x{h}, ptr={(ptr != IntPtr.Zero ? "valid" : "null")}.");
-            if (w > 0 && h > 0 && ptr != IntPtr.Zero)
-            {
-                AutoDetectPillarboxes(ptr, w, h);
-
-                if (_rectDirty || _texWidth != w || _texHeight != h)
-                {
-                    _cachedDestRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, w - _cropLeft - _cropRight, h);
-                    _rectDirty = false;
-                }
-
-                if (_gl != null)
-                {
-                    LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL path.");
-                    RenderInternal(canvas, ptr, w, h, grContext);
-                }
-                else
-                {
-                    LogDebugOnce(ref _loggedSimpleRenderPath, "WgcCaptureVisualHandler is rendering through the simple CPU fallback path.");
-                    RenderSimpleFallback(canvas, ptr, w, h);
-                }
-
-                if (_showStatisticsOverlay)
-                    RenderOverlay(canvas);
-            }
-        }
-        else
-        {
-            LogWarnOnce(ref _loggedNoFrameAvailable, "WgcCaptureVisualHandler could not acquire any frame in OnRender.");
+            Log.Error("WgcCaptureVisualHandler OnRender failed.", ex);
+            Debug.WriteLine($"WgcCaptureVisualHandler OnRender failed. {ex}");
+            Trace.WriteLine($"WgcCaptureVisualHandler OnRender failed. {ex}");
         }
     }
 

@@ -30,7 +30,10 @@ using log4net;
 
 namespace AES_Lacrima.ViewModels
 {
-    public interface IEmulationViewModel;
+    public interface IEmulationViewModel
+    {
+        IntPtr EmulatorTargetHwnd { get; }
+    }
 
     public partial class EmulationAlbumItem : FolderMediaItem
     {
@@ -180,6 +183,9 @@ namespace AES_Lacrima.ViewModels
 
         [ObservableProperty]
         private IntPtr _emulatorTargetHwnd;
+
+        [ObservableProperty]
+        private bool _requestStopEmulatorCapture;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsEmulatorViewportVisible))]
@@ -551,7 +557,9 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void CloseEmulator()
         {
+            SLog.Info("EmulationViewModel.CloseEmulator requested by the user.");
             _pendingEmulatorLaunchRequest = null;
+            RequestStopEmulatorCapture = true;
             EmulatorTargetHwnd = IntPtr.Zero;
             IsEmulatorRunning = false;
 
@@ -1592,6 +1600,7 @@ namespace AES_Lacrima.ViewModels
         private void RequestEmulatorLaunch(PendingEmulatorLaunchRequest request)
         {
             _pendingEmulatorLaunchRequest = request;
+            RequestStopEmulatorCapture = true;
             EmulatorTargetHwnd = IntPtr.Zero;
 
             if (TryGetRunningTrackedEmulatorProcess(out var process))
@@ -1662,9 +1671,14 @@ namespace AES_Lacrima.ViewModels
         private void CloseTrackedEmulatorForPendingLaunch(Process process)
         {
             if (_isClosingActiveEmulatorForRelaunch)
+            {
+                SLog.Info("EmulationViewModel ignored a duplicate emulator close request because shutdown is already in progress.");
                 return;
+            }
 
             _isClosingActiveEmulatorForRelaunch = true;
+            SLog.Info($"EmulationViewModel starting tracked emulator shutdown. pid={process.Id}.");
+            RequestStopEmulatorCapture = true;
             EmulatorTargetHwnd = IntPtr.Zero;
             _ = CloseTrackedEmulatorForPendingLaunchAsync(process);
         }
@@ -1677,7 +1691,9 @@ namespace AES_Lacrima.ViewModels
                 {
                     try
                     {
-                        if (!process.CloseMainWindow())
+                        var closeMainWindowResult = process.CloseMainWindow();
+                        SLog.Info($"EmulationViewModel CloseMainWindow returned {closeMainWindowResult} for pid={process.Id}.");
+                        if (!closeMainWindowResult)
                             process.Kill(true);
                     }
                     catch (Exception ex)
@@ -1696,6 +1712,7 @@ namespace AES_Lacrima.ViewModels
 
                     try
                     {
+                        SLog.Info($"EmulationViewModel waiting up to 5000 ms for emulator pid={process.Id} to exit.");
                         process.WaitForExit(5000);
                     }
                     catch (Exception ex)
@@ -1707,6 +1724,7 @@ namespace AES_Lacrima.ViewModels
                     {
                         if (!process.HasExited)
                         {
+                            SLog.Info($"EmulationViewModel is force-closing emulator pid={process.Id} after graceful shutdown timed out.");
                             process.Kill(true);
                             process.WaitForExit(3000);
                         }
@@ -1721,6 +1739,7 @@ namespace AES_Lacrima.ViewModels
             {
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
+                    SLog.Info("EmulationViewModel finished the tracked emulator shutdown flow.");
                     _isClosingActiveEmulatorForRelaunch = false;
                     TryLaunchPendingEmulatorRequest();
                 }, DispatcherPriority.Background);
@@ -1904,6 +1923,9 @@ namespace AES_Lacrima.ViewModels
             if (!ReferenceEquals(_activeEmulatorProcess, process))
                 return false;
 
+            if (_isClosingActiveEmulatorForRelaunch)
+                return false;
+
             try
             {
                 return !process.HasExited;
@@ -1924,6 +1946,13 @@ namespace AES_Lacrima.ViewModels
             {
                 if (!ReferenceEquals(_activeEmulatorProcess, process))
                     return false;
+
+                if (_isClosingActiveEmulatorForRelaunch)
+                {
+                    SLog.Info(
+                        $"EmulationViewModel skipped applying emulator hwnd 0x{hwnd.ToInt64():X} because emulator shutdown is in progress.");
+                    return false;
+                }
 
                 try
                 {
