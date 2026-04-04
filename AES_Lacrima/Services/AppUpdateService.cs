@@ -18,6 +18,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -51,6 +52,16 @@ internal sealed record AppUpdateCheckCache(
 internal sealed record AppUpdateReleaseListCache(
     DateTimeOffset CheckedAtUtc,
     IReadOnlyList<AppReleaseInfo> Releases);
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    WriteIndented = false,
+    DefaultIgnoreCondition = JsonIgnoreCondition.Never)]
+[JsonSerializable(typeof(AppUpdateCheckCache))]
+[JsonSerializable(typeof(AppUpdateReleaseListCache))]
+internal partial class AppUpdateJsonContext : JsonSerializerContext
+{
+}
 
 [AutoRegister]
 public partial class AppUpdateService : ObservableObject
@@ -797,7 +808,7 @@ public partial class AppUpdateService : ObservableObject
                 return false;
 
             var json = File.ReadAllText(cachePath);
-            var cache = JsonSerializer.Deserialize<AppUpdateCheckCache>(json);
+            var cache = JsonSerializer.Deserialize(json, AppUpdateJsonContext.Default.AppUpdateCheckCache);
             if (cache?.Release == null)
                 return false;
 
@@ -824,7 +835,7 @@ public partial class AppUpdateService : ObservableObject
                 return false;
 
             var json = File.ReadAllText(cachePath);
-            var cache = JsonSerializer.Deserialize<AppUpdateReleaseListCache>(json);
+            var cache = JsonSerializer.Deserialize(json, AppUpdateJsonContext.Default.AppUpdateReleaseListCache);
             if (cache?.Releases == null)
                 return false;
 
@@ -846,7 +857,7 @@ public partial class AppUpdateService : ObservableObject
             Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
             var cachePath = ApplicationPaths.GetCacheFile(UpdateCheckCacheFileName);
             var cache = new AppUpdateCheckCache(DateTimeOffset.UtcNow, release);
-            var json = JsonSerializer.Serialize(cache);
+            var json = JsonSerializer.Serialize(cache, AppUpdateJsonContext.Default.AppUpdateCheckCache);
             File.WriteAllText(cachePath, json, Encoding.UTF8);
         }
         catch (Exception ex)
@@ -862,7 +873,7 @@ public partial class AppUpdateService : ObservableObject
             Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
             var cachePath = ApplicationPaths.GetCacheFile(ReleaseListCacheFileName);
             var cache = new AppUpdateReleaseListCache(DateTimeOffset.UtcNow, releases);
-            var json = JsonSerializer.Serialize(cache);
+            var json = JsonSerializer.Serialize(cache, AppUpdateJsonContext.Default.AppUpdateReleaseListCache);
             File.WriteAllText(cachePath, json, Encoding.UTF8);
         }
         catch (Exception ex)

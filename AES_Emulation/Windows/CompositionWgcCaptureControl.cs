@@ -35,6 +35,7 @@ public class CompositionWgcCaptureControl : Control
     private nint _hostHandle = nint.Zero;
     private nint _activeTargetHwnd = nint.Zero;
     private bool _isAttachedToVisualTree;
+    private bool _isStoppingSession;
     private bool _useOwnerRenderFallback;
     private bool _loggedFallbackRenderPath;
 
@@ -413,8 +414,8 @@ public class CompositionWgcCaptureControl : Control
         StopSession();
         if (_visual != null)
         {
-            _visual.SendHandlerMessage(null); // Cleanup signal
-            ElementComposition.SetElementChildVisual(this, null);
+            _visual.SendHandlerMessage(null!); // Cleanup signal
+            ElementComposition.SetElementChildVisual(this, null!);
             _visual = null;
         }
         else
@@ -478,6 +479,16 @@ public class CompositionWgcCaptureControl : Control
 
     private void StopSession()
     {
+        if (_isStoppingSession)
+            return;
+
+        if (_session == IntPtr.Zero && _windowHandler == null && _activeTargetHwnd == IntPtr.Zero)
+            return;
+
+        _isStoppingSession = true;
+
+        try
+        {
         LogInfo(
             $"CompositionWgcCaptureControl StopSession. session=0x{_session.ToInt64():X}, " +
             $"activeTarget=0x{_activeTargetHwnd.ToInt64():X}.");
@@ -507,6 +518,11 @@ public class CompositionWgcCaptureControl : Control
         _activeTargetHwnd = IntPtr.Zero;
         UpdateHandlerSession();
         UpdateFallbackRenderLoop();
+        }
+        finally
+        {
+            _isStoppingSession = false;
+        }
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -634,11 +650,11 @@ public class CompositionWgcCaptureControl : Control
     {
         if (_visual != null)
         {
-            _visual.SendHandlerMessage(message);
+            _visual.SendHandlerMessage(message!);
             return;
         }
 
-        _handler?.OnMessage(message);
+        _handler?.OnMessage(message!);
     }
 
     private void UpdateFallbackRenderLoop()
@@ -747,7 +763,6 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private static readonly ILog Log = LogManager.GetLogger(
         typeof(WgcCaptureVisualHandler).Assembly,
         typeof(WgcCaptureVisualHandler).FullName ?? nameof(WgcCaptureVisualHandler));
-    private static readonly bool ForceSafeCpuRenderPath = !RuntimeFeature.IsDynamicCodeSupported;
     private nint _session = nint.Zero;
     private nint _targetHwnd = nint.Zero;
     private WeakReference<CompositionWgcCaptureControl>? _ownerRef;
@@ -825,7 +840,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private bool _loggedNoFrameAvailable;
     private bool _loggedGlRenderPath;
     private bool _loggedSimpleRenderPath;
-    private bool _loggedForcedCpuRenderPath;
+    // Per-session flag: set when GL render fails so we fall back to CPU Skia for the remainder of the session
+    private bool _glRenderFailed;
 
     private static void LogDebugOnce(ref bool flag, string message)
     {
@@ -872,6 +888,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _loggedNoFrameAvailable = false;
             _loggedGlRenderPath = false;
             _loggedSimpleRenderPath = false;
+            _glRenderFailed = false;
             LogDebugOnce(
                 ref _loggedSessionMessage,
                 $"WgcCaptureVisualHandler received session message. session=0x{_session.ToInt64():X}, " +
@@ -982,15 +999,6 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     private void EnsureGl(ImmediateDrawingContext context, GRContext? grContext)
     {
-        if (ForceSafeCpuRenderPath)
-        {
-            _backendName = "CPU Copy";
-            LogDebugOnce(
-                ref _loggedForcedCpuRenderPath,
-                "WgcCaptureVisualHandler is forcing the safe CPU copy render path because dynamic code is unavailable.");
-            return;
-        }
-
         if (_gl != null) return;
 
         // Try multiple ways to get GL interface
@@ -1169,8 +1177,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
             EnsureGl(context, grContext);
 
-        if (!ForceSafeCpuRenderPath &&
-            WgcBridgeApi.AcquireLatestFrame(_session, out IntPtr ptr, out nuint size, out int w, out int h))
+        if (WgcBridgeApi.AcquireLatestFrame(_session, out IntPtr ptr, out nuint size, out int w, out int h))
             {
                 LogDebugOnce(
                     ref _loggedAcquireLatestFrame,
@@ -1187,14 +1194,23 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                             _rectDirty = false;
                         }
 
-                        if (_gl != null)
+                        if (_gl != null && !_glRenderFailed)
                         {
-                            LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL path.");
-                            RenderInternal(canvas, ptr, w, h, grContext);
+                            try
+                            {
+                                LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL path.");
+                                RenderInternal(canvas, ptr, w, h, grContext);
+                            }
+                            catch (Exception glEx)
+                            {
+                                _glRenderFailed = true;
+                                Log.Warn($"WgcCaptureVisualHandler GL render failed, falling back to CPU Skia path for this session. {glEx}");
+                                RenderSimpleFallback(canvas, ptr, w, h);
+                            }
                         }
                         else
                         {
-                            LogDebugOnce(ref _loggedSimpleRenderPath, "WgcCaptureVisualHandler is rendering through the simple CPU fallback path.");
+                            LogDebugOnce(ref _loggedSimpleRenderPath, "WgcCaptureVisualHandler is rendering through the CPU Skia path.");
                             RenderSimpleFallback(canvas, ptr, w, h);
                         }
 
@@ -1224,14 +1240,23 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                         _rectDirty = false;
                     }
 
-                    if (_gl != null)
+                    if (_gl != null && !_glRenderFailed)
                     {
-                        LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL path.");
-                        RenderInternal(canvas, ptr, w, h, grContext);
+                        try
+                        {
+                            LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL path.");
+                            RenderInternal(canvas, ptr, w, h, grContext);
+                        }
+                        catch (Exception glEx)
+                        {
+                            _glRenderFailed = true;
+                            Log.Warn($"WgcCaptureVisualHandler GL render failed, falling back to CPU Skia path for this session. {glEx}");
+                            RenderSimpleFallback(canvas, ptr, w, h);
+                        }
                     }
                     else
                     {
-                        LogDebugOnce(ref _loggedSimpleRenderPath, "WgcCaptureVisualHandler is rendering through the simple CPU fallback path.");
+                        LogDebugOnce(ref _loggedSimpleRenderPath, "WgcCaptureVisualHandler is rendering through the CPU Skia path.");
                         RenderSimpleFallback(canvas, ptr, w, h);
                     }
 
@@ -1484,7 +1509,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     {
         if (_gl == null || grContext == null) return;
 
-        bool hasShader = !string.IsNullOrEmpty(_retroarchShaderFile);
+        var shaderFile = _retroarchShaderFile;
+        bool hasShader = !string.IsNullOrEmpty(shaderFile);
 
         // Initialize or Update Pipeline if shader is present
         if (hasShader && _shaderPipeline == null)
@@ -1492,7 +1518,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             try
             {
                 _shaderPipeline = new SlangShaderPipeline(_gl);
-                _shaderPipeline.LoadShaderPreset(_retroarchShaderFile);
+                _shaderPipeline.LoadShaderPreset(shaderFile!);
             }
             catch (Exception ex)
             {
@@ -1528,10 +1554,17 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _shaderPipeline.ColorTint = new[] { _tint.R / 255f, _tint.G / 255f, _tint.B / 255f, _tint.A / 255f };
             _shaderPipeline.Process(_captureTextureId, w, h, _intermediateFbo, 0, 0, w, h);
             finalTextureId = _intermediateTextureId;
-            grContext.ResetContext();
         }
 
-        // 3. Draw directly from GPU texture
+        // Tell Skia its cached GL state is stale after our raw GL calls (glBindTexture, glTexSubImage2D,
+        // and any shader draw calls made outside of Skia's knowledge).
+        // This MUST be called before any subsequent Skia API use of the GrContext.
+        grContext.ResetContext();
+
+        // 3. Draw directly from GPU texture.
+        // Use FromTexture (borrow) instead of FromAdoptedTexture (take ownership).
+        // FromAdoptedTexture would cause Skia to call glDeleteTextures on _captureTextureId
+        // when the SKImage is disposed, corrupting the texture ID we reuse every frame.
         var glInfo = new GRGlTextureInfo
         {
             Id = (uint)finalTextureId,
@@ -1540,7 +1573,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         };
 
         using var backendTexture = new GRBackendTexture(w, h, false, glInfo);
-        using var skImage = SKImage.FromAdoptedTexture(grContext, backendTexture, GRSurfaceOrigin.TopLeft, SKColorType.Rgba8888);
+        using var skImage = SKImage.FromTexture(grContext, backendTexture, GRSurfaceOrigin.TopLeft, SKColorType.Rgba8888);
 
         if (skImage != null)
         {
