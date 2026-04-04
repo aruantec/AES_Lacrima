@@ -212,7 +212,7 @@
                                                                     BorderThickness="1"
                                                                     CornerRadius="8"
                                                                     Padding="12">
-                                                                <Grid ColumnDefinitions="180,*,Auto,Auto" ColumnSpacing="12">
+                                                                <Grid ColumnDefinitions="180,*,Auto,Auto,Auto" ColumnSpacing="12">
                                                                     <TextBlock Text="{Binding DisplayName}"
                                                                                VerticalAlignment="Center"
                                                                                FontSize="18"
@@ -225,11 +225,26 @@
                                                                                VerticalAlignment="Center"
                                                                                MaxWidth="360"/>
                                                                     <Button Grid.Column="2"
+                                                                            Content="Set default"
+                                                                            Command="{Binding SetDefaultHandlerCommand}"
+                                                                            IsVisible="{Binding !IsDefault}"
+                                                                            Padding="14,8"
+                                                                            MinWidth="100"
+                                                                            Background="#1E4B7A"
+                                                                            Foreground="WhiteSmoke"/>
+                                                                    <TextBlock Grid.Column="2"
+                                                                               Text="Default"
+                                                                               IsVisible="{Binding IsDefault}"
+                                                                               Foreground="#7CFF7C"
+                                                                               FontSize="14"
+                                                                               VerticalAlignment="Center"
+                                                                               Margin="0,0,8,0"/>
+                                                                    <Button Grid.Column="3"
                                                                             Content="Browse"
                                                                             Command="{Binding BrowseLauncherCommand}"
                                                                             Padding="14,8"
                                                                             MinWidth="100"/>
-                                                                    <Button Grid.Column="3"
+                                                                    <Button Grid.Column="4"
                                                                             Content="Clear"
                                                                             Command="{Binding ClearLauncherCommand}"
                                                                             IsVisible="{Binding HasLauncherPath}"

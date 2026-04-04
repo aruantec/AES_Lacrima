@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 
@@ -57,4 +58,6 @@ public interface IEmulatorHandler : INotifyPropertyChanged
     IntPtr FindPreferredWindowHandle(Process process);
 
     bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle);
+
+    Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken);
 }

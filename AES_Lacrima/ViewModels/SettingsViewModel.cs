@@ -39,10 +39,14 @@ public record ShaderItem(string Path, string Name);
 
 public sealed class EmulationHandlerAppItem : ObservableObject
 {
-    public EmulationHandlerAppItem(IEmulatorHandler handler)
+    private readonly EmulationSectionItem _section;
+
+    public EmulationHandlerAppItem(IEmulatorHandler handler, EmulationSectionItem section)
     {
         Handler = handler;
+        _section = section;
         Handler.PropertyChanged += Handler_PropertyChanged;
+        SetDefaultHandlerCommand = new RelayCommand(() => _section.SelectedHandlerId = Handler.HandlerId);
     }
 
     public IEmulatorHandler Handler { get; }
@@ -58,6 +62,15 @@ public sealed class EmulationHandlerAppItem : ObservableObject
     public ICommand? BrowseLauncherCommand => Handler.BrowseLauncherCommand;
 
     public ICommand? ClearLauncherCommand => Handler.ClearLauncherCommand;
+
+    public ICommand SetDefaultHandlerCommand { get; }
+
+    public bool IsDefault => string.Equals(_section.SelectedHandlerId, Handler.HandlerId, StringComparison.OrdinalIgnoreCase);
+
+    public void NotifyDefaultSelectionChanged()
+    {
+        OnPropertyChanged(nameof(IsDefault));
+    }
 
     private void Handler_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -100,6 +113,9 @@ public partial class EmulationSectionItem : ObservableObject
     private AvaloniaList<EmulationHandlerAppItem> _handlers = [];
 
     [ObservableProperty]
+    private string? _selectedHandlerId;
+
+    [ObservableProperty]
     private bool _isExpanded;
 
     public bool HasHandlers => Handlers.Count > 0;
@@ -108,6 +124,12 @@ public partial class EmulationSectionItem : ObservableObject
     {
         value.CollectionChanged += Handlers_CollectionChanged;
         OnPropertyChanged(nameof(HasHandlers));
+    }
+
+    partial void OnSelectedHandlerIdChanged(string? value)
+    {
+        foreach (var handlerAppItem in Handlers)
+            handlerAppItem.NotifyDefaultSelectionChanged();
     }
 
     private void Handlers_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
@@ -128,6 +150,8 @@ public sealed class EmulationSectionLaunchSettings
 public sealed class EmulationSectionConfiguration
 {
     public string? LauncherPath { get; set; }
+
+    public string? DefaultHandlerId { get; set; }
 
     public EmulationSectionLaunchSettings LaunchSettings { get; set; } = new();
 }
@@ -1393,7 +1417,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             };
 
             foreach (var handler in EmulatorHandlerRegistry.GetHandlersForSection(sectionTitle))
-                item.Handlers.Add(new EmulationHandlerAppItem(handler));
+                item.Handlers.Add(new EmulationHandlerAppItem(handler, item));
+
+            if (item.Handlers.Count == 1)
+                item.SelectedHandlerId = item.Handlers[0].HandlerId;
 
             EmulationSections.Add(item);
         }
@@ -1588,9 +1615,31 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         var match = EmulationSections.FirstOrDefault(item =>
             string.Equals(item.SectionTitle, sectionTitle, StringComparison.OrdinalIgnoreCase));
 
-        return match?.Handlers
+        if (match == null || match.Handlers.Count == 0)
+            return null;
+
+        if (!string.IsNullOrWhiteSpace(match.SelectedHandlerId))
+        {
+            var selectedHandler = match.Handlers
+                .FirstOrDefault(handlerItem =>
+                    string.Equals(handlerItem.HandlerId, match.SelectedHandlerId, StringComparison.OrdinalIgnoreCase))
+                ?.Handler;
+
+            if (selectedHandler != null)
+                return selectedHandler;
+        }
+
+        var configuredHandler = match.Handlers
             .Select(item => item.Handler)
             .FirstOrDefault(handler => handler.HasLauncherPath);
+
+        if (configuredHandler != null)
+            return configuredHandler;
+
+        if (match.Handlers.Count == 1)
+            return match.Handlers[0].Handler;
+
+        return match.Handlers.Select(item => item.Handler).FirstOrDefault();
     }
 
     public EmulationSectionLaunchSettings GetResolvedEmulationSectionLaunchSettings(string? sectionTitle)
@@ -1820,6 +1869,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             if (emulationSectionConfigurations.TryGetValue(item.SectionKey, out var configuration))
             {
                 item.LaunchSettings = MergeLaunchSettings(defaultLaunchSettings, configuration.LaunchSettings);
+                item.SelectedHandlerId = configuration.DefaultHandlerId;
 
                 if (!string.IsNullOrWhiteSpace(configuration.LauncherPath))
                     MigrateLegacySectionLauncherPath(item.SectionTitle, configuration.LauncherPath);
@@ -1828,6 +1878,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             {
                 item.LaunchSettings = defaultLaunchSettings;
             }
+
+            if (item.Handlers.Count == 1 && string.IsNullOrWhiteSpace(item.SelectedHandlerId))
+                item.SelectedHandlerId = item.Handlers[0].HandlerId;
 
             if (emulationSectionLauncherPaths.TryGetValue(item.SectionKey, out var legacyLauncherPath))
                 MigrateLegacySectionLauncherPath(item.SectionTitle, legacyLauncherPath);
@@ -1925,6 +1978,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                     item => item.SectionKey,
                     item => new EmulationSectionConfiguration
                     {
+                        DefaultHandlerId = item.SelectedHandlerId,
                         LaunchSettings = item.LaunchSettings?.Clone() ?? new EmulationSectionLaunchSettings()
                     },
                     StringComparer.OrdinalIgnoreCase));
@@ -1978,7 +2032,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (string.IsNullOrWhiteSpace(item.SectionKey))
             return false;
 
-        return item.LaunchSettings?.StartFullscreen is not null;
+        return item.LaunchSettings?.StartFullscreen is not null ||
+               !string.IsNullOrWhiteSpace(item.SelectedHandlerId);
     }
 
     private static EmulationSectionLaunchSettings MergeLaunchSettings(EmulationSectionLaunchSettings defaults, EmulationSectionLaunchSettings? persisted)
