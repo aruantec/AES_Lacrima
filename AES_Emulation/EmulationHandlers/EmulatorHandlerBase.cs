@@ -1,4 +1,5 @@
 using AES_Emulation.Windows.API;
+using log4net;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -16,6 +17,8 @@ namespace AES_Emulation.EmulationHandlers;
 
 public abstract class EmulatorHandlerBase : IEmulatorHandler
 {
+    private static readonly ILog SLog = LogManager.GetLogger(typeof(EmulatorHandlerBase));
+
     private bool _isActive;
     private bool _isPrepared;
     private string? _launcherPath;
@@ -205,9 +208,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         {
             process.WaitForInputIdle(timeoutMs);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Some emulator processes do not expose an input idle state.
+            SLog.Debug("Emulator did not provide an input-idle state; falling back to polling.", ex);
         }
     }
 
@@ -242,8 +245,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             process.Refresh();
             processId = (uint)process.Id;
         }
-        catch
+        catch (Exception ex)
         {
+            SLog.Debug("Failed to refresh process while preparing windows for capture.", ex);
             return;
         }
 
@@ -300,8 +304,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             mainWindowHandle = process.MainWindowHandle;
             processId = (uint)process.Id;
         }
-        catch
+        catch (Exception ex)
         {
+            SLog.Debug("Failed to refresh process while scoring window candidates.", ex);
             return IntPtr.Zero;
         }
 
@@ -409,8 +414,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             var builder = new StringBuilder(256);
             return GetWindowText(hwnd, builder, builder.Capacity) > 0 ? builder.ToString() : string.Empty;
         }
-        catch
+        catch (Exception ex)
         {
+            SLog.Debug("Failed to retrieve window title.", ex);
             return string.Empty;
         }
     }
@@ -431,8 +437,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             var builder = new StringBuilder(256);
             return GetClassName(hwnd, builder, builder.Capacity) > 0 ? builder.ToString() : string.Empty;
         }
-        catch
+        catch (Exception ex)
         {
+            SLog.Debug("Failed to retrieve window class name.", ex);
             return string.Empty;
         }
     }
@@ -452,8 +459,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         {
             return GetWindowLong(hwnd, GWL_STYLE);
         }
-        catch
+        catch (Exception ex)
         {
+            SLog.Debug("Failed to retrieve window style.", ex);
             return 0;
         }
     }
