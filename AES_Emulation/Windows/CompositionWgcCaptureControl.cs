@@ -31,6 +31,7 @@ public class CompositionWgcCaptureControl : Control
     private nint _activeTargetHwnd = nint.Zero;
     private bool _isAttachedToVisualTree;
     private bool _useOwnerRenderFallback;
+    private bool _loggedFallbackRenderPath;
 
     private bool _isDraggingOverlay;
     private Point _dragStart;
@@ -244,6 +245,28 @@ public class CompositionWgcCaptureControl : Control
         ClipToBounds = true;
     }
 
+    private static void LogDebugOnce(ref bool flag, string message)
+    {
+        if (flag)
+            return;
+
+        flag = true;
+        Debug.WriteLine(message);
+        Trace.WriteLine(message);
+    }
+
+    private static void LogInfo(string message)
+    {
+        Debug.WriteLine(message);
+        Trace.WriteLine(message);
+    }
+
+    private static void LogError(string message, Exception ex)
+    {
+        Debug.WriteLine($"{message} {ex}");
+        Trace.WriteLine($"{message} {ex}");
+    }
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         var pos = e.GetPosition(this);
@@ -327,6 +350,11 @@ public class CompositionWgcCaptureControl : Control
 
         var compositor = ElementComposition.GetElementVisual(this)?.Compositor;
         _useOwnerRenderFallback = compositor == null;
+        _loggedFallbackRenderPath = false;
+
+        LogInfo(
+            $"CompositionWgcCaptureControl attached. compositor={(compositor != null ? "available" : "null")}, " +
+            $"dynamicCodeSupported={RuntimeFeature.IsDynamicCodeSupported}, usingOwnerFallback={_useOwnerRenderFallback}.");
 
         if (!_useOwnerRenderFallback && compositor != null)
         {
@@ -334,11 +362,13 @@ public class CompositionWgcCaptureControl : Control
             {
                 _visual = compositor.CreateCustomVisual(_handler);
                 ElementComposition.SetElementChildVisual(this, _visual);
+                LogInfo("CompositionWgcCaptureControl created composition custom visual successfully.");
             }
-            catch
+            catch (Exception ex)
             {
                 _useOwnerRenderFallback = true;
                 _visual = null;
+                LogError("CompositionWgcCaptureControl failed to create composition custom visual. Falling back to owner rendering.", ex);
             }
         }
 
@@ -376,10 +406,16 @@ public class CompositionWgcCaptureControl : Control
 
         var nextTargetHwnd = TargetHwnd;
         if (nextTargetHwnd == IntPtr.Zero)
+        {
+            LogInfo("CompositionWgcCaptureControl StartSession skipped because TargetHwnd is zero.");
             return;
+        }
 
         if (_hostHandle == IntPtr.Zero && !TryResolveHostHandle())
+        {
+            LogInfo("CompositionWgcCaptureControl StartSession could not resolve host handle.");
             return;
+        }
 
         // Prepare target window
         Win32API.RemoveWindowDecorations(nextTargetHwnd);
@@ -395,6 +431,9 @@ public class CompositionWgcCaptureControl : Control
         if (_session != nint.Zero)
         {
             _activeTargetHwnd = nextTargetHwnd;
+            LogInfo(
+                $"CompositionWgcCaptureControl capture session created. session=0x{_session.ToInt64():X}, " +
+                $"target=0x{nextTargetHwnd.ToInt64():X}, useOwnerFallback={_useOwnerRenderFallback}.");
             if (DisableDownscale)
                 WgcBridgeApi.SetCaptureMaxResolution(_session, 0, 0);
             else
@@ -408,6 +447,7 @@ public class CompositionWgcCaptureControl : Control
         {
             Win32API.RestoreWindowDecorations(nextTargetHwnd);
             Win32API.SetWindowOpacity(nextTargetHwnd, 255);
+            LogInfo($"CompositionWgcCaptureControl failed to create capture session for hwnd 0x{nextTargetHwnd.ToInt64():X}.");
         }
     }
 
@@ -510,6 +550,9 @@ public class CompositionWgcCaptureControl : Control
 
     private void UpdateHandlerSession()
     {
+        LogInfo(
+            $"CompositionWgcCaptureControl UpdateHandlerSession: session=0x{_session.ToInt64():X}, " +
+            $"target=0x{_activeTargetHwnd.ToInt64():X}, useOwnerInvalidation={_useOwnerRenderFallback}.");
         SendHandlerMessage(new WgcSessionMessage
         {
             Session = _session,
@@ -570,6 +613,7 @@ public class CompositionWgcCaptureControl : Control
             return;
         }
 
+        LogDebugOnce(ref _loggedFallbackRenderPath, "CompositionWgcCaptureControl is using the owner-render fallback path.");
         EnsureFallbackRenderTimer();
         if (_fallbackRenderTimer != null && !_fallbackRenderTimer.IsEnabled)
             _fallbackRenderTimer.Start();
@@ -602,7 +646,9 @@ public class CompositionWgcCaptureControl : Control
         base.Render(context);
 
         if (_useOwnerRenderFallback && _handler != null && Bounds.Width > 0 && Bounds.Height > 0)
+        {
             context.Custom(new WgcCaptureDrawOperation(new Rect(Bounds.Size), _handler));
+        }
     }
 
     protected override void OnSizeChanged(SizeChangedEventArgs e)
@@ -730,6 +776,35 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private int _texWidth, _texHeight;
     private IntPtr _frameCopyBuffer = IntPtr.Zero;
     private nuint _frameCopyBufferSize;
+    private bool _loggedSessionMessage;
+    private bool _loggedRenderEntry;
+    private bool _loggedLeaseMissing;
+    private bool _loggedGlDiscovery;
+    private bool _loggedAcquireLatestFrame;
+    private bool _loggedCopyLatestFrame;
+    private bool _loggedNoFrameAvailable;
+    private bool _loggedGlRenderPath;
+    private bool _loggedSimpleRenderPath;
+
+    private static void LogDebugOnce(ref bool flag, string message)
+    {
+        if (flag)
+            return;
+
+        flag = true;
+        Debug.WriteLine(message);
+        Trace.WriteLine(message);
+    }
+
+    private static void LogWarnOnce(ref bool flag, string message)
+    {
+        if (flag)
+            return;
+
+        flag = true;
+        Debug.WriteLine(message);
+        Trace.WriteLine(message);
+    }
 
     public override void OnMessage(object? message)
     {
@@ -746,6 +821,18 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _ownerRef = sm.Owner;
             _useOwnerInvalidation = sm.UseOwnerInvalidation;
             _lastNativeFrameCount = -1;
+            _loggedRenderEntry = false;
+            _loggedLeaseMissing = false;
+            _loggedGlDiscovery = false;
+            _loggedAcquireLatestFrame = false;
+            _loggedCopyLatestFrame = false;
+            _loggedNoFrameAvailable = false;
+            _loggedGlRenderPath = false;
+            _loggedSimpleRenderPath = false;
+            LogDebugOnce(
+                ref _loggedSessionMessage,
+                $"WgcCaptureVisualHandler received session message. session=0x{_session.ToInt64():X}, " +
+                $"target=0x{_targetHwnd.ToInt64():X}, useOwnerInvalidation={_useOwnerInvalidation}.");
             if (_session != nint.Zero && !_useOwnerInvalidation)
                 RegisterForNextAnimationFrameUpdate();
             RequestRender();
@@ -900,6 +987,11 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             }
             catch { }
         }
+
+        LogDebugOnce(
+            ref _loggedGlDiscovery,
+            $"WgcCaptureVisualHandler EnsureGl: backend={_backendName}, grContext={(grContext != null ? "available" : "null")}, " +
+            $"glInterface={(_gl != null ? "available" : "null")}, renderer={_gpuRenderer}, vendor={_gpuVendor}.");
     }
 
     public override void OnAnimationFrameUpdate()
@@ -984,10 +1076,20 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     public override void OnRender(ImmediateDrawingContext context)
     {
-        if (_session == nint.Zero || _visualSize.X < 1 || _visualSize.Y < 1) return;
+        if (_session == nint.Zero || _visualSize.X < 1 || _visualSize.Y < 1)
+            return;
+
+        LogDebugOnce(
+            ref _loggedRenderEntry,
+            $"WgcCaptureVisualHandler OnRender entered. session=0x{_session.ToInt64():X}, size={_visualSize.X}x{_visualSize.Y}, " +
+            $"ownerInvalidation={_useOwnerInvalidation}.");
 
         var leaseFeature = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
-        if (leaseFeature == null) return;
+        if (leaseFeature == null)
+        {
+            LogWarnOnce(ref _loggedLeaseMissing, "WgcCaptureVisualHandler OnRender could not get ISkiaSharpApiLeaseFeature.");
+            return;
+        }
 
         using var lease = leaseFeature.Lease();
         var canvas = lease.SkCanvas;
@@ -999,6 +1101,9 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
         if (WgcBridgeApi.AcquireLatestFrame(_session, out IntPtr ptr, out nuint size, out int w, out int h))
         {
+            LogDebugOnce(
+                ref _loggedAcquireLatestFrame,
+                $"WgcCaptureVisualHandler acquired latest frame directly. size={w}x{h}, bytes={size}, ptr={(ptr != IntPtr.Zero ? "valid" : "null")}.");
             try
             {
                 if (w > 0 && h > 0 && ptr != IntPtr.Zero)
@@ -1014,10 +1119,12 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                     // Always use GL path if available for better performance
                     if (_gl != null)
                     {
+                        LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL path.");
                         RenderInternal(canvas, ptr, w, h, grContext);
                     }
                     else
                     {
+                        LogDebugOnce(ref _loggedSimpleRenderPath, "WgcCaptureVisualHandler is rendering through the simple CPU fallback path.");
                         RenderSimpleFallback(canvas, ptr, w, h);
                     }
 
@@ -1035,6 +1142,9 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         }
         else if (TryCopyLatestFrame(out ptr, out w, out h))
         {
+            LogDebugOnce(
+                ref _loggedCopyLatestFrame,
+                $"WgcCaptureVisualHandler acquired latest frame through copy fallback. size={w}x{h}, ptr={(ptr != IntPtr.Zero ? "valid" : "null")}.");
             if (w > 0 && h > 0 && ptr != IntPtr.Zero)
             {
                 AutoDetectPillarboxes(ptr, w, h);
@@ -1046,13 +1156,23 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 }
 
                 if (_gl != null)
+                {
+                    LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL path.");
                     RenderInternal(canvas, ptr, w, h, grContext);
+                }
                 else
+                {
+                    LogDebugOnce(ref _loggedSimpleRenderPath, "WgcCaptureVisualHandler is rendering through the simple CPU fallback path.");
                     RenderSimpleFallback(canvas, ptr, w, h);
+                }
 
                 if (_showStatisticsOverlay)
                     RenderOverlay(canvas);
             }
+        }
+        else
+        {
+            LogWarnOnce(ref _loggedNoFrameAvailable, "WgcCaptureVisualHandler could not acquire any frame in OnRender.");
         }
     }
 

@@ -38,3 +38,4 @@ x64/
 ARM64/
 /packages/
 /AES_Lacrima/libs/
+/.dotnet-home
