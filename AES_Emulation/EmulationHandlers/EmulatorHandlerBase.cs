@@ -133,7 +133,40 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
         return FindPreferredWindowHandleWindows(process);
     }
+    protected static IReadOnlyList<IntPtr> EnumerateProcessTopLevelWindows(Process process, bool includeHiddenWindows = false)
+    {
+        if (!OperatingSystem.IsWindows())
+            return Array.Empty<IntPtr>();
 
+        try
+        {
+            process.Refresh();
+            var processId = (uint)process.Id;
+            var handles = new List<IntPtr>();
+
+            EnumWindows((hwnd, _) =>
+            {
+                if (hwnd == IntPtr.Zero)
+                    return true;
+
+                if (!includeHiddenWindows && !IsWindowVisible(hwnd))
+                    return true;
+
+                if (GetWindowThreadProcessId(hwnd, out uint windowPid) == 0 || windowPid != processId)
+                    return true;
+
+                handles.Add(hwnd);
+                return true;
+            }, IntPtr.Zero);
+
+            return handles;
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug("Failed to enumerate process windows.", ex);
+            return Array.Empty<IntPtr>();
+        }
+    }
     public virtual bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle) => hwnd != IntPtr.Zero;
 
     public virtual async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
