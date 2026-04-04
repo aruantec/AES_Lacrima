@@ -128,6 +128,30 @@ namespace AES_Lacrima.ViewModels
         private bool _isAlbumListCollapsed;
 
         [ObservableProperty]
+        private bool _showStatisticsOverlay;
+
+        [ObservableProperty]
+        private bool _showFrametimeGraph;
+
+        [ObservableProperty]
+        private bool _showDetailedGpuInfo;
+
+        [ObservableProperty]
+        private double _renderOverlayOpacity = 0.55;
+
+        [ObservableProperty]
+        private string _selectedStretch = "Uniform";
+
+        [ObservableProperty]
+        private bool _disableVSync;
+
+        [ObservableProperty]
+        private double _renderBrightness = 1.0;
+
+        [ObservableProperty]
+        private double _renderSaturation = 1.0;
+
+        [ObservableProperty]
         private AvaloniaList<MediaItem> _coverItems = [];
 
         [ObservableProperty]
@@ -472,6 +496,7 @@ namespace AES_Lacrima.ViewModels
 
             _isPreparing = true;
             base.Prepare();
+            LoadSettings(); // Load lightweight settings (toggles, opacity, etc)
             EnsureSettingsViewModelSubscription();
             EnsureMetadataServiceSubscription();
 
@@ -532,7 +557,25 @@ namespace AES_Lacrima.ViewModels
         }
 
 
-        partial void OnIsAlbumListCollapsedChanged(bool value)
+        partial void OnIsAlbumListCollapsedChanged(bool value) => AutoSave();
+
+        partial void OnShowStatisticsOverlayChanged(bool value) => AutoSave();
+
+        partial void OnShowFrametimeGraphChanged(bool value) => AutoSave();
+
+        partial void OnShowDetailedGpuInfoChanged(bool value) => AutoSave();
+
+        partial void OnRenderOverlayOpacityChanged(double value) => AutoSave();
+
+        partial void OnSelectedStretchChanged(string value) => AutoSave();
+
+        partial void OnDisableVSyncChanged(bool value) => AutoSave();
+
+        partial void OnRenderBrightnessChanged(double value) => AutoSave();
+
+        partial void OnRenderSaturationChanged(double value) => AutoSave();
+
+        private void AutoSave()
         {
             if (IsPrepared)
                 SaveSettings();
@@ -543,9 +586,7 @@ namespace AES_Lacrima.ViewModels
         partial void OnSelectedAlbumChanged(FolderMediaItem? value)
         {
             SyncSelectedAlbumIndexFromAlbum(value);
-
-            if (IsPrepared)
-                SaveSettings();
+            AutoSave();
         }
 
         partial void OnLoadedAlbumChanged(FolderMediaItem? value)
@@ -683,12 +724,29 @@ namespace AES_Lacrima.ViewModels
         protected override void OnLoadSettings(JsonObject section)
         {
             IsAlbumListCollapsed = ReadBoolSetting(section, nameof(IsAlbumListCollapsed));
+            ShowStatisticsOverlay = ReadBoolSetting(section, nameof(ShowStatisticsOverlay), false);
+            ShowFrametimeGraph = ReadBoolSetting(section, nameof(ShowFrametimeGraph), false);
+            ShowDetailedGpuInfo = ReadBoolSetting(section, nameof(ShowDetailedGpuInfo), false);
+            RenderOverlayOpacity = ReadDoubleSetting(section, nameof(RenderOverlayOpacity), 0.55);
+            SelectedStretch = ReadStringSetting(section, nameof(SelectedStretch), "Uniform");
+            DisableVSync = ReadBoolSetting(section, nameof(DisableVSync), false);
+            RenderBrightness = ReadDoubleSetting(section, nameof(RenderBrightness), 1.0);
+            RenderSaturation = ReadDoubleSetting(section, nameof(RenderSaturation), 1.0);
+
             SLog.Info("EmulationViewModel.OnLoadSettings applied lightweight settings on the UI thread.");
         }
 
         protected override void OnSaveSettings(JsonObject section)
         {
             WriteSetting(section, nameof(IsAlbumListCollapsed), IsAlbumListCollapsed);
+            WriteSetting(section, nameof(ShowStatisticsOverlay), ShowStatisticsOverlay);
+            WriteSetting(section, nameof(ShowFrametimeGraph), ShowFrametimeGraph);
+            WriteSetting(section, nameof(ShowDetailedGpuInfo), ShowDetailedGpuInfo);
+            WriteSetting(section, nameof(RenderOverlayOpacity), RenderOverlayOpacity);
+            WriteSetting(section, nameof(SelectedStretch), SelectedStretch);
+            WriteSetting(section, nameof(DisableVSync), DisableVSync);
+            WriteSetting(section, nameof(RenderBrightness), RenderBrightness);
+            WriteSetting(section, nameof(RenderSaturation), RenderSaturation);
 
             _pendingAlbumOrder = new AvaloniaList<string>(AlbumList.Select(GetAlbumOrderKey));
             _pendingAlbumRoms = BuildAlbumRomMap();

@@ -180,7 +180,7 @@ public class CompositionWgcCaptureControl : Control
     }
 
     public static readonly StyledProperty<bool> ShowStatisticsOverlayProperty =
-        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(ShowStatisticsOverlay), true);
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(ShowStatisticsOverlay), false);
 
     public bool ShowStatisticsOverlay
     {
@@ -189,7 +189,7 @@ public class CompositionWgcCaptureControl : Control
     }
 
     public static readonly StyledProperty<bool> ShowFrametimeGraphProperty =
-        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(ShowFrametimeGraph), true);
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(ShowFrametimeGraph), false);
 
     public bool ShowFrametimeGraph
     {
@@ -1351,6 +1351,10 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _overlayBackgroundColor.B,
             (byte)(_overlayOpacity * 255));
 
+        byte textAlpha = (byte)Math.Clamp(_overlayOpacity * 1.5f * 255, 0, 255);
+        _overlayTextPaint.Color = SKColors.White.WithAlpha(textAlpha);
+        _overlayDetailTextPaint.Color = SKColors.White.WithAlpha(textAlpha);
+
         float x = _overlayPosition.X;
         float y = _overlayPosition.Y;
         float lineH = 20;
@@ -1586,12 +1590,25 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private void RenderSimpleFallback(SKCanvas canvas, IntPtr ptr, int w, int h)
     {
         var info = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
-        using var img = SKImage.FromPixels(info, ptr, w * 4);
-        if (img != null)
+        
+        // Use SKBitmap.InstallPixels to wrapping the unmanaged pointer.
+        // We must ensure the bitmap doesn't outlive the pointer, which is true here.
+        using var bitmap = new SKBitmap();
+        if (!bitmap.InstallPixels(info, ptr, w * 4))
+            return;
+        
+        if (_settingsDirty) { UpdatePaint(); _settingsDirty = false; }
+        SKRect srcRect = new SKRect(_cropLeft, 0, w - _cropRight, h);
+
+        try
         {
-            if (_settingsDirty) { UpdatePaint(); _settingsDirty = false; }
-            SKRect srcRect = new SKRect(_cropLeft, 0, w - _cropRight, h);
-            canvas.DrawImage(img, srcRect, _cachedDestRect, _paint);
+            // The exception often occurs here if the unmanaged memory (ptr) 
+            // is invalidated or if the paint/rects are corrupt.
+            canvas.DrawBitmap(bitmap, srcRect, _cachedDestRect, _paint);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("WgcCaptureVisualHandler RenderSimpleFallback.DrawBitmap failed.", ex);
         }
     }
 
@@ -1642,9 +1659,9 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
         float[] matrix = new float[]
         {
-            (rAlpha + _saturation) * _brightness * (_tint.R / 255f), gAlpha * _brightness, bAlpha * _brightness, 0, 0,
-            rAlpha * _brightness, (gAlpha + _saturation) * _brightness * (_tint.G / 255f), bAlpha * _brightness, 0, 0,
-            rAlpha * _brightness, gAlpha * _brightness, (bAlpha + _saturation) * _brightness * (_tint.B / 255f), 0, 0,
+            (rAlpha + _saturation) * _brightness * (_tint.R / 255f), gAlpha * _brightness * (_tint.G / 255f), bAlpha * _brightness * (_tint.B / 255f), 0, 0,
+            rAlpha * _brightness * (_tint.R / 255f), (gAlpha + _saturation) * _brightness * (_tint.G / 255f), bAlpha * _brightness * (_tint.B / 255f), 0, 0,
+            rAlpha * _brightness * (_tint.R / 255f), gAlpha * _brightness * (_tint.G / 255f), (bAlpha + _saturation) * _brightness * (_tint.B / 255f), 0, 0,
             0, 0, 0, _tint.A / 255f, 0
         };
 
