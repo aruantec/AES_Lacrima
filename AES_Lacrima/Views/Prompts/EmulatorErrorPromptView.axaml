@@ -1,0 +1,66 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AES_Lacrima.ViewModels.Prompts"
+             mc:Ignorable="d"
+             d:DesignWidth="800"
+             d:DesignHeight="450"
+             x:Class="AES_Lacrima.Views.Prompts.EmulatorErrorPromptView"
+             x:DataType="vm:EmulatorErrorPromptViewModel">
+    <Grid Background="#B3000000" Grid.ColumnDefinitions="20*,60*,20*">
+        <Border Background="#1E1E1E"
+                BorderBrush="#3E3E42"
+                BorderThickness="1"
+                CornerRadius="12"
+                Grid.Column="1"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                MinWidth="800"
+                MaxWidth="1200"
+                MinHeight="600"
+                Padding="20">
+            <Grid Name="Dialog" RowDefinitions="Auto,Auto,*,Auto">
+                <StackPanel Margin="20" Spacing="18">
+                    <TextBlock Text="{Binding Title}"
+                               FontSize="28"
+                               FontWeight="Bold"
+                               Foreground="White"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="{Binding Message}"
+                               FontSize="24"
+                               Foreground="#F0F0F0"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"/>
+                </StackPanel>
+                <ScrollViewer Grid.Row="2"
+                              Margin="20,0,20,0"
+                              VerticalScrollBarVisibility="Auto"
+                              Height="360"
+                              Background="Transparent"
+                              Padding="8"
+                              MaxHeight="460">
+                    <TextBlock Text="{Binding Details}"
+                               FontSize="16"
+                               Foreground="#E0E0E0"
+                               TextWrapping="Wrap"
+                               LineHeight="22"/>
+                </ScrollViewer>
+                <StackPanel Grid.Row="3"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            Margin="20"
+                            Spacing="10">
+                    <Button Content="CLOSE"
+                            Command="{Binding CloseCommand}"
+                            Background="#007ACC"
+                            Foreground="White"
+                            FontWeight="Bold"
+                            Width="140"
+                            Height="45"
+                            HorizontalContentAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
