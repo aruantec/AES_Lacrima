@@ -3,6 +3,8 @@
              xmlns:emulation="using:AES_Emulation.Windows"
              xmlns:navigation="using:AES_Lacrima.Views.Navigation"
              xmlns:behaviors="using:AES_Lacrima.Behaviors"
+             xmlns:controlBehaviors="using:AES_Controls.Behaviors"
+             xmlns:media="using:Avalonia.Media"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -23,6 +25,17 @@
     </Design.DataContext>
 
     <Grid RowDefinitions="*,Auto,Auto" ClipToBounds="False">
+        <Grid.Styles>
+            <Style Selector="Border#RenderOptionsOverlay">
+                <Setter Property="Transitions">
+                    <Setter.Value>
+                        <Transitions>
+                            <DoubleTransition Property="Opacity" Duration="0:0:0.30" Easing="CubicEaseInOut" />
+                        </Transitions>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </Grid.Styles>
         <Border Background="#0F0F0F" Grid.RowSpan="3"/>
 
         <composition:CompositionCarouselControl x:Name="RomCarousel"
@@ -188,10 +201,207 @@
                     VerticalAlignment="Stretch"
                     Background="Transparent"
                     ClipToBounds="True">
-                <emulation:CompositionWgcCaptureControl HorizontalAlignment="Stretch"
+                <emulation:CompositionWgcCaptureControl x:Name="CaptureControl"
+                                                        HorizontalAlignment="Stretch"
                                                         VerticalAlignment="Stretch"
                                                         TargetHwnd="{Binding EmulatorTargetHwnd}"
+                                                        RetroarchShaderFile="{Binding SelectedShaderFileItem.Path, Mode=TwoWay}"
                                                         RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}" />
+            </Border>
+
+            <Border x:Name="RenderOptionsOverlay"
+                    Background="#B0000000"
+                    BorderBrush="DimGray"
+                    BorderThickness="0.5,0,0,0"
+                    Width="560"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Stretch"
+                    Margin="0,0,24,0"
+                    ZIndex="2100"
+                    Opacity="{Binding IsRenderOptionsOpen, Converter={StaticResource BoolToOpacityConverter}}"
+                    IsHitTestVisible="{Binding IsRenderOptionsOpen}">
+                <ScrollViewer Grid.Row="0"
+                              Margin="0,0,0,0"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <Grid Margin="15,0,15,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Grid ColumnDefinitions="*,Auto" Grid.Row="0">
+                            <TextBlock Text="Render Options"
+                                       FontSize="26"
+                                       FontWeight="SemiBold"
+                                       Foreground="White"
+                                       VerticalAlignment="Center" />
+                            <Button Content="Close"
+                                    Command="{Binding ToggleRenderOptionsCommand}"
+                                    Margin="12,0,0,0"
+                                    Padding="12,8"
+                                    Background="#222"
+                                    Foreground="White"
+                                    BorderBrush="#555"
+                                    BorderThickness="1"
+                                    Grid.Column="1" />
+                        </Grid>
+
+                        <TabControl Grid.Row="1" Margin="0,16,0,0" SelectedIndex="{Binding RenderOptionsSelectedTabIndex, Mode=TwoWay}">
+                            <TabItem Header="Rendering">
+                                <ScrollViewer>
+                                    <StackPanel Margin="0,12,0,0" Spacing="12">
+                                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                            <TextBlock Text="Stretch" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="180"/>
+                                            <ComboBox MinWidth="220"
+                                                      ItemsSource="{Binding CaptureStretchOptions}"
+                                                      SelectedItem="{Binding ElementName=CaptureControl, Path=Stretch, Mode=TwoWay}">
+                                                <Interaction.Behaviors>
+                                                    <controlBehaviors:ComboBoxPopupScaler/>
+                                                </Interaction.Behaviors>
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding}" />
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                        </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Brightness" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="180"/>
+                                        <Slider Width="280"
+                                                Minimum="0.25"
+                                                Maximum="2.0"
+                                                SmallChange="0.01"
+                                                LargeChange="0.1"
+                                                Value="{Binding ElementName=CaptureControl, Path=Brightness, Mode=TwoWay}" />
+                                        <TextBlock Text="{Binding ElementName=CaptureControl, Path=Brightness, StringFormat='{}{0:0.00}'}"
+                                                   Foreground="White"
+                                                   VerticalAlignment="Center"
+                                                   Width="60"
+                                                   FontSize="16"/>
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Saturation" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="180"/>
+                                        <Slider Width="280"
+                                                Minimum="0"
+                                                Maximum="2"
+                                                SmallChange="0.01"
+                                                LargeChange="0.1"
+                                                Value="{Binding ElementName=CaptureControl, Path=Saturation, Mode=TwoWay}" />
+                                        <TextBlock Text="{Binding ElementName=CaptureControl, Path=Saturation, StringFormat='{}{0:0.00}'}"
+                                                   Foreground="White"
+                                                   VerticalAlignment="Center"
+                                                   Width="60"
+                                                   FontSize="16"/>
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Overlay Opacity" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="180"/>
+                                        <Slider Width="280"
+                                                Minimum="0"
+                                                Maximum="1"
+                                                SmallChange="0.01"
+                                                LargeChange="0.1"
+                                                Value="{Binding ElementName=CaptureControl, Path=OverlayOpacity, Mode=TwoWay}" />
+                                        <TextBlock Text="{Binding ElementName=CaptureControl, Path=OverlayOpacity, StringFormat='{}{0:0.00}'}"
+                                                   Foreground="White"
+                                                   VerticalAlignment="Center"
+                                                   Width="60"
+                                                   FontSize="16"/>
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Disable Downscale" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="180"/>
+                                        <ToggleSwitch IsChecked="{Binding ElementName=CaptureControl, Path=DisableDownscale, Mode=TwoWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Disable VSync" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="180"/>
+                                        <ToggleSwitch IsChecked="{Binding ElementName=CaptureControl, Path=DisableVSync, Mode=TwoWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Force Target Client Size" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="180"/>
+                                        <ToggleSwitch IsChecked="{Binding ElementName=CaptureControl, Path=ForceUseTargetClientSize, Mode=TwoWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Show Stats Overlay" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="180"/>
+                                        <ToggleSwitch IsChecked="{Binding ElementName=CaptureControl, Path=ShowStatisticsOverlay, Mode=TwoWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Show Frametime Graph" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="180"/>
+                                        <ToggleSwitch IsChecked="{Binding ElementName=CaptureControl, Path=ShowFrametimeGraph, Mode=TwoWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Show GPU Info" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="180"/>
+                                        <ToggleSwitch IsChecked="{Binding ElementName=CaptureControl, Path=ShowDetailedGpuInfo, Mode=TwoWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Color Tint" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="180"/>
+                                        <ColorPicker Width="120" Height="40" Color="{Binding ElementName=CaptureControl, Path=ColorTint, Mode=TwoWay}"/>
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Background Color" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="180"/>
+                                        <ColorPicker Width="120" Height="40" Color="{Binding ElementName=CaptureControl, Path=OverlayBackgroundColor, Mode=TwoWay}"/>
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Shader File" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="180"/>
+                                        <ComboBox MinWidth="320"
+                                                  ItemsSource="{Binding ShaderFileItems}"
+                                                  SelectedItem="{Binding SelectedShaderFileItem, Mode=TwoWay}">
+                                            <Interaction.Behaviors>
+                                                <controlBehaviors:ComboBoxPopupScaler/>
+                                            </Interaction.Behaviors>
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Name}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                        <TabItem Header="Handler">
+                            <ScrollViewer>
+                                <StackPanel Margin="0,12,0,0" Spacing="12">
+                                    <TextBlock Text="Current Emulator Handler" Foreground="White" FontSize="20" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding CurrentEmulatorHandler.DisplayName}" Foreground="#E0E0E0" FontSize="18" />
+                                    <TextBlock Text="{Binding CurrentEmulatorHandler.SectionTitle}" Foreground="#B0B0B0" FontSize="16" />
+                                    <TextBlock Text="Launcher Path" Foreground="White" FontSize="18" Margin="0,12,0,0" />
+                                    <TextBlock Text="{Binding CurrentEmulatorHandler.LauncherDisplayPath}" TextWrapping="Wrap" Foreground="#D0D0D0" FontSize="16" />
+
+                                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,12,0,0">
+                                        <Button Content="Browse Launcher"
+                                                Command="{Binding CurrentEmulatorHandler.BrowseLauncherCommand}"
+                                                Padding="12,8"
+                                                Background="#222"
+                                                Foreground="White"
+                                                BorderBrush="#555"
+                                                BorderThickness="1"/>
+                                        <Button Content="Clear Launcher"
+                                                Command="{Binding CurrentEmulatorHandler.ClearLauncherCommand}"
+                                                Padding="12,8"
+                                                Background="#222"
+                                                Foreground="White"
+                                                BorderBrush="#555"
+                                                BorderThickness="1"/>
+                                    </StackPanel>
+                                    <TextBlock Text="Handler runtime options are not currently exposed in the UI." Foreground="#B0B0B0" FontSize="16" TextWrapping="Wrap" Margin="0,16,0,0" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                    </TabControl>
+                </Grid>
+            </ScrollViewer>
             </Border>
         </Grid>
 
@@ -230,6 +440,7 @@
         <TextBox HorizontalAlignment="Right"
                  VerticalAlignment="Top"
                  Margin="0,15,30,0"
+                 IsVisible="{Binding IsCarouselVisible}"
                  Watermark="Search"
                  Text="{Binding SearchText, Mode=TwoWay}"
                  Classes="AlbumSearch"
@@ -409,6 +620,30 @@
                 <Button Height="60"
                         Width="60"
                         VerticalAlignment="Center"
+                        Margin="0,0,20,0"
+                        Cursor="Hand"
+                        Command="{Binding ToggleRenderOptionsCommand}"
+                        IsVisible="{Binding IsEmulatorRunning}"
+                        ToolTip.Tip="Render Options">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Path Fill="White"
+                              Data="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.98C19.47,12.66 19.5,12.34 19.5,12C19.5,11.66 19.47,11.34 19.43,11.02L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.65 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.65 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11.02C4.53,11.34 4.5,11.66 4.5,12C4.5,12.34 4.53,12.66 4.57,12.98L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.98Z" />
+                    </Viewbox>
+                </Button>
+
+                <Button Height="60"
+                        Width="60"
+                        VerticalAlignment="Center"
                         Margin="0,0,60,0"
                         Cursor="Hand"
                         Command="{Binding CloseEmulatorCommand}"
@@ -467,9 +702,9 @@
         <!-- Search overlay (like music view) -->
         <Grid Background="#E0000000"
               Grid.RowSpan="3"
-              IsVisible="{Binding MetadataService.IsImageSearchOverlayOpen}"
-              IsHitTestVisible="{Binding MetadataService.IsImageSearchOverlayOpen}"
-              Opacity="{Binding MetadataService.IsImageSearchOverlayOpen, Converter={StaticResource BoolToOpacityConverter}}"
+              IsVisible="{Binding IsSearchOverlayVisible}"
+              IsHitTestVisible="{Binding IsSearchOverlayVisible}"
+              Opacity="{Binding IsSearchOverlayVisible, Converter={StaticResource BoolToOpacityConverter}}"
               ZIndex="2100">
             <Grid.Transitions>
                 <Transitions>
