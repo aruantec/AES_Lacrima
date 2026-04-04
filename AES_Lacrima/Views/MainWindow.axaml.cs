@@ -1,6 +1,7 @@
 ﻿using AES_Core.DI;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Platform;
 using log4net;
 using Avalonia.Media;
@@ -22,6 +23,41 @@ namespace AES_Lacrima.Views
             Opened += OnOpened;
             SizeChanged += OnSizeChanged;
             LayoutUpdated += OnLayoutUpdated;
+            KeyDown += OnKeyDown;
+        }
+
+        private void OnKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e == null)
+                return;
+
+            if (DataContext is not ViewModels.MainWindowViewModel vm)
+                return;
+
+            var music = vm.MusicViewModel;
+            if (music == null)
+                return;
+
+            switch (e.Key)
+            {
+                case Key.MediaNextTrack:
+                    if (music.PlayNextCommand.CanExecute(null))
+                        music.PlayNextCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+
+                case Key.MediaPreviousTrack:
+                    if (music.PlayPreviousCommand.CanExecute(null))
+                        music.PlayPreviousCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+
+                case Key.MediaPlayPause:
+                    if (music.TogglePlayCommand.CanExecute(null))
+                        music.TogglePlayCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+            }
         }
 
         private void OnOpened(object? sender, EventArgs e)
