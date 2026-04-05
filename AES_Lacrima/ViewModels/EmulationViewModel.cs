@@ -1882,12 +1882,35 @@ namespace AES_Lacrima.ViewModels
             {
                 await Task.Run(() =>
                 {
+                    var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
+                    forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "dolphin", StringComparison.OrdinalIgnoreCase);
+                    if (!forceKillFirst)
+                    {
+                        try
+                        {
+                            forceKillFirst = process.ProcessName.Contains("pcsx2", StringComparison.OrdinalIgnoreCase) ||
+                                             process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
+                        }
+                        catch
+                        {
+                            // ignore and keep current value
+                        }
+                    }
+
                     try
                     {
-                        var closeMainWindowResult = process.CloseMainWindow();
-                        SLog.Info($"EmulationViewModel CloseMainWindow returned {closeMainWindowResult} for pid={process.Id}.");
-                        if (!closeMainWindowResult)
+                        if (forceKillFirst)
+                        {
+                            SLog.Info($"EmulationViewModel using direct termination for PCSX2 pid={process.Id} to bypass confirm-shutdown dialogs.");
                             process.Kill(true);
+                        }
+                        else
+                        {
+                            var closeMainWindowResult = process.CloseMainWindow();
+                            SLog.Info($"EmulationViewModel CloseMainWindow returned {closeMainWindowResult} for pid={process.Id}.");
+                            if (!closeMainWindowResult)
+                                process.Kill(true);
+                        }
                     }
                     catch (Exception ex)
                     {
