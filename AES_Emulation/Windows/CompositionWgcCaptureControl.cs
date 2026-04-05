@@ -2,7 +2,6 @@
 using AES_Emulation.Windows.API;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.OpenGL;
@@ -525,13 +524,20 @@ public class CompositionWgcCaptureControl : Control
             LogInfo($"CompositionWgcCaptureControl StartSessionDelayedAsync could not restore target hwnd 0x{nextTargetHwnd.ToInt64():X}: {ex.Message}");
         }
 
-        Win32API.RemoveWindowDecorations(nextTargetHwnd);
-        Win32API.MoveAway(nextTargetHwnd, false);
-        Win32API.SetWindowOpacity(nextTargetHwnd, 0);
-
-        _session = WgcBridgeApi.CreateCaptureSession(nextTargetHwnd);
+        _session = await CreateCaptureSessionWithRetryAsync(nextTargetHwnd, cancellationToken).ConfigureAwait(true);
         if (_session != nint.Zero)
         {
+            try
+            {
+                Win32API.RemoveWindowDecorations(nextTargetHwnd);
+                Win32API.MoveAway(nextTargetHwnd, false);
+                Win32API.SetWindowOpacity(nextTargetHwnd, 0);
+            }
+            catch (Exception ex)
+            {
+                LogInfo($"CompositionWgcCaptureControl could not fully hide/decorate target hwnd 0x{nextTargetHwnd.ToInt64():X} after session creation: {ex.Message}");
+            }
+
             _activeTargetHwnd = nextTargetHwnd;
             LogInfo(
                 $"CompositionWgcCaptureControl capture session created. session=0x{_session.ToInt64():X}, " +
@@ -555,11 +561,37 @@ public class CompositionWgcCaptureControl : Control
         }
         else
         {
+            if (_windowHandler != null)
+            {
+                _windowHandler.Stop();
+                _windowHandler = null;
+            }
+
             Win32API.RestoreWindowDecorations(nextTargetHwnd);
             Win32API.SetWindowOpacity(nextTargetHwnd, 255);
             LogInfo($"CompositionWgcCaptureControl failed to create capture session for hwnd 0x{nextTargetHwnd.ToInt64():X}.");
             IsCaptureInitializing = false;
         }
+    }
+
+    private static async Task<nint> CreateCaptureSessionWithRetryAsync(nint targetHwnd, CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 6;
+        const int retryDelayMs = 300;
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var session = WgcBridgeApi.CreateCaptureSession(targetHwnd);
+            if (session != nint.Zero)
+                return session;
+
+            if (attempt < maxAttempts)
+                await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(true);
+        }
+
+        return nint.Zero;
     }
 
     private void StopSession()
@@ -745,6 +777,8 @@ public class CompositionWgcCaptureControl : Control
 
     private void UpdateHandlerSettings()
     {
+        var effectiveEnableAutoCrop = EnableAutoCrop && !ForceUseTargetClientSize;
+
         SendHandlerMessage(new WgcSettingsMessage
         {
             Stretch = Stretch,
@@ -760,7 +794,7 @@ public class CompositionWgcCaptureControl : Control
             ShowDetailedGpuInfo = ShowDetailedGpuInfo,
             OverlayOpacity = (float)OverlayOpacity,
             OverlayBackgroundColor = OverlayBackgroundColor,
-            EnableAutoCrop = EnableAutoCrop,
+            EnableAutoCrop = effectiveEnableAutoCrop,
             OverlayPosition = new Vector2((float)OverlayPosition.X, (float)OverlayPosition.Y)
         });
     }
@@ -961,6 +995,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private bool _loggedSimpleRenderPath;
     // Per-session flag: set when GL render fails so we fall back to CPU Skia for the remainder of the session
     private bool _glRenderFailed;
+    private int _ownerInvalidateQueued;
+    private int _ownerStatsUpdateQueued;
 
     private static void LogDebugOnce(ref bool flag, string message)
     {
@@ -999,6 +1035,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _ownerRef = sm.Owner;
             _useOwnerInvalidation = sm.UseOwnerInvalidation;
             _lastNativeFrameCount = -1;
+            _ownerInvalidateQueued = 0;
+            _ownerStatsUpdateQueued = 0;
             _loggedRenderEntry = false;
             _loggedLeaseMissing = false;
             _loggedGlDiscovery = false;
@@ -1043,9 +1081,16 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _showDetailedGpuInfo = st.ShowDetailedGpuInfo;
             _overlayOpacity = st.OverlayOpacity;
             _overlayBackgroundColor = st.OverlayBackgroundColor;
-            _enableAutoCrop = st.EnableAutoCrop;
+            _enableAutoCrop = st.EnableAutoCrop && !st.ForceUseTargetClientSize;
             _overlayPosition = st.OverlayPosition;
             _settingsDirty = true;
+
+            if (!_enableAutoCrop && (_cropLeft != 0 || _cropRight != 0))
+            {
+                _cropLeft = 0;
+                _cropRight = 0;
+                _rectDirty = true;
+            }
 
             if (_retroarchShaderFile != st.RetroarchShaderFile)
             {
@@ -1081,6 +1126,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _intermediateFbo = 0;
         }
         _glTexSubImage2DPtr = IntPtr.Zero;
+        _ownerInvalidateQueued = 0;
+        _ownerStatsUpdateQueued = 0;
 
         if (_frameCopyBuffer != IntPtr.Zero)
         {
@@ -1214,11 +1261,22 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 {
                     _lastSentFps = fps;
                     _lastSentFt = ft;
-                    Dispatcher.UIThread.Post(() =>
+
+                    if (Interlocked.Exchange(ref _ownerStatsUpdateQueued, 1) == 0)
                     {
-                        owner.Fps = fps;
-                        owner.FrameTimeMs = ft;
-                    }, DispatcherPriority.Background);
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            try
+                            {
+                                owner.Fps = fps;
+                                owner.FrameTimeMs = ft;
+                            }
+                            finally
+                            {
+                                Volatile.Write(ref _ownerStatsUpdateQueued, 0);
+                            }
+                        }, DispatcherPriority.Background);
+                    }
                 }
             }
 
@@ -1242,7 +1300,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
             // Under NativeAOT the composition custom visual can stall if we only redraw on
             // capture-status transitions, so keep the visual invalidating while a session is active.
-            RequestRender();
+            if (!_useOwnerInvalidation)
+                RequestRender();
         }
         catch (Exception ex)
         {
@@ -1262,7 +1321,22 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         if (_useOwnerInvalidation)
         {
             if (_ownerRef?.TryGetTarget(out var owner) == true)
-                Dispatcher.UIThread.Post(owner.InvalidateVisual, DispatcherPriority.Render);
+            {
+                if (Interlocked.Exchange(ref _ownerInvalidateQueued, 1) == 0)
+                {
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        try
+                        {
+                            owner.InvalidateVisual();
+                        }
+                        finally
+                        {
+                            Volatile.Write(ref _ownerInvalidateQueued, 0);
+                        }
+                    }, DispatcherPriority.Render);
+                }
+            }
             return;
         }
 
@@ -1552,14 +1626,19 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         byte* pixels = (byte*)ptr.ToPointer();
         int stride = w * 4;
 
-        // Use 15 rows for much better vertical coverage to hit small UI or centered floating text
-        int[] rows = { h / 16, h / 8, 3 * h / 16, h / 4, 5 * h / 16, 3 * h / 8, 7 * h / 16, h / 2, 9 * h / 16, 5 * h / 8, 11 * h / 16, 3 * h / 4, 13 * h / 16, 7 * h / 8, 15 * h / 16 };
+        // Use stackalloc to avoid per-frame heap allocations.
+        Span<int> rows = stackalloc int[15]
+        {
+            h / 16, h / 8, 3 * h / 16, h / 4, 5 * h / 16,
+            3 * h / 8, 7 * h / 16, h / 2, 9 * h / 16, 5 * h / 8,
+            11 * h / 16, 3 * h / 4, 13 * h / 16, 7 * h / 8, 15 * h / 16
+        };
         int maxScan = w / 4;
         const int contentThreshold = 1; // Extremely sensitive to remove almost-black edges
 
         // Verify there is SOME content in sampled middle before trusting a crop (prevents cropping purely black screens)
         bool hasContent = false;
-        int[] centerSampleX = { w / 2, w / 3, 2 * w / 3, w / 4, 3 * w / 4 };
+        Span<int> centerSampleX = stackalloc int[5] { w / 2, w / 3, 2 * w / 3, w / 4, 3 * w / 4 };
         foreach (int x in centerSampleX)
         {
             foreach (int r in rows)

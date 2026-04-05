@@ -324,21 +324,29 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
             Path.Combine(commonAppData, "RetroArch", "cores")
         };
 
+        var platform = GetRetroArchPlatform(sectionTitle, romPath);
+
         if (!string.IsNullOrWhiteSpace(selectedRetroArchCore))
         {
             var explicitPath = ResolveRetroArchCorePath(candidateDirectories, selectedRetroArchCore);
             if (!string.IsNullOrWhiteSpace(explicitPath))
             {
+                var explicitCoreName = Path.GetFileName(explicitPath);
+                if (!IsRetroArchCoreCompatibleWithPlatform(explicitCoreName, platform))
+                {
+                    Log.Warn($"Selected RetroArch core '{selectedRetroArchCore}' is incompatible with platform '{platform}' (section='{sectionTitle}', rom='{romPath}'). Falling back to platform defaults.");
+                }
+                else
+                {
                 if (IsRetroArchCoreUsable(explicitPath, launcherPath))
                     return explicitPath;
 
-                var explicitCoreName = Path.GetFileName(explicitPath)?.ToLowerInvariant() ?? string.Empty;
-                if (explicitCoreName.Contains("pcsx2"))
-                    return explicitPath;
+                    var explicitCoreNameNormalized = explicitCoreName?.ToLowerInvariant() ?? string.Empty;
+                    if (explicitCoreNameNormalized.Contains("pcsx2"))
+                        return explicitPath;
+                }
             }
         }
-
-        var platform = GetRetroArchPlatform(sectionTitle, romPath);
 
         foreach (var directory in candidateDirectories)
         {
@@ -359,6 +367,34 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
         Log.Warn($"No RetroArch core found in candidate directories for launcher '{launcherPath}' and section '{sectionTitle}'.");
         return null;
+    }
+
+    private static bool IsRetroArchCoreCompatibleWithPlatform(string? coreFileName, RetroArchPlatform platform)
+    {
+        if (platform == RetroArchPlatform.Unknown)
+            return true;
+
+        if (string.IsNullOrWhiteSpace(coreFileName))
+            return false;
+
+        var name = coreFileName.ToLowerInvariant();
+        return platform switch
+        {
+            RetroArchPlatform._3DS => name.Contains("citra"),
+            RetroArchPlatform.GameCube => name.Contains("dolphin"),
+            RetroArchPlatform.Wii => name.Contains("dolphin"),
+            RetroArchPlatform.N64 => name.Contains("mupen") || name.Contains("parallel_n64") || name.Contains("angrylion"),
+            RetroArchPlatform.SNES => name.Contains("snes") || name.Contains("bsnes") || name.Contains("higan"),
+            RetroArchPlatform.NES => name.Contains("nestopia") || name.Contains("fceumm") || name.Contains("quicknes"),
+            RetroArchPlatform.Dreamcast => name.Contains("flycast") || name.Contains("nulldc"),
+            RetroArchPlatform.PlayStation2 => name.Contains("pcsx2"),
+            RetroArchPlatform.PlayStation => name.Contains("beetle_psx") || name.Contains("mednafen_psx") || name.Contains("pcsx_rearmed"),
+            _ => name.Contains("fbneo") ||
+                 name.Contains("mame") ||
+                 name.Contains("fbalpha") ||
+                 name.Contains("finalburn") ||
+                 name.Contains("neogeo")
+        };
     }
 
     private static string? ResolveRetroArchCorePath(string[] candidateDirectories, string selectedRetroArchCore)
@@ -456,32 +492,60 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
     private static RetroArchPlatform GetRetroArchPlatform(string? sectionTitle, string? romPath)
     {
-        if (IsRetroArch3DSSection(sectionTitle) || IsRetroArch3DSRom(romPath))
+        // Section title is the most reliable signal because several platforms share
+        // ambiguous extensions (notably .iso/.cue/.chd). Always prefer section first.
+        if (IsRetroArch3DSSection(sectionTitle))
             return RetroArchPlatform._3DS;
 
-        if (IsRetroArchSection(sectionTitle, "gamecube", "gcn", "gc") || IsRetroArchGameCubeRom(romPath))
+        if (IsRetroArchSection(sectionTitle, "gamecube", "gcn", "gc"))
             return RetroArchPlatform.GameCube;
 
-        if (IsRetroArchSection(sectionTitle, "wii") || IsRetroArchWiiRom(romPath))
+        if (IsRetroArchSection(sectionTitle, "wii"))
             return RetroArchPlatform.Wii;
 
-        if (IsRetroArchSection(sectionTitle, "n64", "nintendo 64") || IsRetroArchN64Rom(romPath))
+        if (IsRetroArchSection(sectionTitle, "n64", "nintendo 64"))
             return RetroArchPlatform.N64;
 
-        if (IsRetroArchSection(sectionTitle, "snes", "super nintendo") || IsRetroArchSnesRom(romPath))
+        if (IsRetroArchSection(sectionTitle, "snes", "super nintendo"))
             return RetroArchPlatform.SNES;
 
-        if (IsRetroArchSection(sectionTitle, "nes", "nintendo entertainment system") || IsRetroArchNesRom(romPath))
+        if (IsRetroArchSection(sectionTitle, "nes", "nintendo entertainment system"))
             return RetroArchPlatform.NES;
 
-        if (IsRetroArchSection(sectionTitle, "dreamcast") || IsRetroArchDreamcastRom(romPath))
-            return RetroArchPlatform.Dreamcast;
-
-        if (IsRetroArchSection(sectionTitle, "playstation 2", "ps2") || IsRetroArchPlayStation2Rom(romPath))
+        if (IsRetroArchSection(sectionTitle, "playstation 2", "ps2"))
             return RetroArchPlatform.PlayStation2;
 
-        if (IsRetroArchSection(sectionTitle, "playstation", "ps1", "psx") || IsRetroArchPlayStationRom(romPath))
+        if (IsRetroArchSection(sectionTitle, "playstation", "ps1", "psx"))
             return RetroArchPlatform.PlayStation;
+
+        // Fallback to ROM-based detection only when section metadata is unavailable.
+        if (IsRetroArch3DSRom(romPath))
+            return RetroArchPlatform._3DS;
+
+        if (IsRetroArchGameCubeRom(romPath))
+            return RetroArchPlatform.GameCube;
+
+        if (IsRetroArchWiiRom(romPath))
+            return RetroArchPlatform.Wii;
+
+        if (IsRetroArchN64Rom(romPath))
+            return RetroArchPlatform.N64;
+
+        if (IsRetroArchSnesRom(romPath))
+            return RetroArchPlatform.SNES;
+
+        if (IsRetroArchNesRom(romPath))
+            return RetroArchPlatform.NES;
+
+        // Keep PS2 before Dreamcast in ROM-only fallback due to shared .iso/.chd extensions.
+        if (IsRetroArchPlayStation2Rom(romPath))
+            return RetroArchPlatform.PlayStation2;
+
+        if (IsRetroArchPlayStationRom(romPath))
+            return RetroArchPlatform.PlayStation;
+
+        if (IsRetroArchDreamcastRom(romPath))
+            return RetroArchPlatform.Dreamcast;
 
         return RetroArchPlatform.Unknown;
     }
