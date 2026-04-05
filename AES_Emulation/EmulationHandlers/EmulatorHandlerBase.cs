@@ -110,6 +110,8 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         return startInfo;
     }
 
+    public virtual int CaptureStartupDelayMs => 3000;
+
     public virtual void PrepareProcessForCapture(Process process)
     {
         if (!OperatingSystem.IsWindows())

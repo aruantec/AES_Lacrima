@@ -41,7 +41,6 @@ public class CompositionWgcCaptureControl : Control
     private bool _useOwnerRenderFallback;
     private bool _loggedFallbackRenderPath;
     private CancellationTokenSource? _sessionStartCts;
-    private const int CaptureSessionStartDelayMs = 3000;
     private const int CaptureReadyTimeoutMs = 5000;
 
     private bool _isDraggingOverlay;
@@ -92,6 +91,15 @@ public class CompositionWgcCaptureControl : Control
     {
         get => GetValue(IsCaptureInitializingProperty);
         set => SetValue(IsCaptureInitializingProperty, value);
+    }
+
+    public static readonly StyledProperty<int> CaptureSessionStartDelayMsProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, int>(nameof(CaptureSessionStartDelayMs), 3000);
+
+    public int CaptureSessionStartDelayMs
+    {
+        get => GetValue(CaptureSessionStartDelayMsProperty);
+        set => SetValue(CaptureSessionStartDelayMsProperty, value);
     }
 
     public static readonly StyledProperty<Stretch> StretchProperty =
