@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using AES_Controls.Helpers;
@@ -1534,6 +1535,72 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             return availableCores.FirstOrDefault(core => core.Contains("citra", StringComparison.OrdinalIgnoreCase));
         }
 
+        if (IsRetroArchGameCubeSection(section.SectionKey, section.SectionTitle) ||
+            IsRetroArchWiiSection(section.SectionKey, section.SectionTitle))
+        {
+            return availableCores.FirstOrDefault(core => core.Contains("dolphin", StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (IsRetroArchN64Section(section.SectionKey, section.SectionTitle))
+        {
+            var n64Preference = new[] { "mupen64plus_next", "parallel_n64", "angrylion", "mupen64plus" };
+            foreach (var keyword in n64Preference)
+            {
+                var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    return match;
+            }
+        }
+
+        if (IsRetroArchSnesSection(section.SectionKey, section.SectionTitle))
+        {
+            var snesPreference = new[] { "snes9x_next", "bsnes", "higan", "snes9x" };
+            foreach (var keyword in snesPreference)
+            {
+                var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    return match;
+            }
+        }
+
+        if (IsRetroArchNesSection(section.SectionKey, section.SectionTitle))
+        {
+            var nesPreference = new[] { "nestopia", "fceumm", "quicknes" };
+            foreach (var keyword in nesPreference)
+            {
+                var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    return match;
+            }
+        }
+
+        if (IsRetroArchDreamcastSection(section.SectionKey, section.SectionTitle))
+        {
+            var dreamcastPreference = new[] { "flycast", "nulldc" };
+            foreach (var keyword in dreamcastPreference)
+            {
+                var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    return match;
+            }
+        }
+
+        if (IsRetroArchPlayStation2Section(section.SectionKey, section.SectionTitle))
+        {
+            return availableCores.FirstOrDefault(core => core.Contains("pcsx2", StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (IsRetroArchPlayStationSection(section.SectionKey, section.SectionTitle))
+        {
+            var psxPreference = new[] { "beetle_psx", "pcsx_rearmed", "mednafen_psx" };
+            foreach (var keyword in psxPreference)
+            {
+                var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    return match;
+            }
+        }
+
         var arcadePreference = new[] { "fbneo", "mame", "finalburn", "fbalpha", "neogeo" };
         foreach (var keyword in arcadePreference)
         {
@@ -1552,6 +1619,71 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         if (!string.IsNullOrWhiteSpace(sectionKey) && sectionKey.IndexOf("3ds", StringComparison.OrdinalIgnoreCase) >= 0)
             return true;
+
+        return false;
+    }
+
+    private static bool IsRetroArchGameCubeSection(string? sectionKey, string? sectionTitle)
+    {
+        return IsRetroArchSection(sectionKey, sectionTitle, "gamecube", "gcn", "gc");
+    }
+
+    private static bool IsRetroArchWiiSection(string? sectionKey, string? sectionTitle)
+    {
+        return IsRetroArchSection(sectionKey, sectionTitle, "wii");
+    }
+
+    private static bool IsRetroArchN64Section(string? sectionKey, string? sectionTitle)
+    {
+        return IsRetroArchSection(sectionKey, sectionTitle, "n64", "nintendo 64");
+    }
+
+    private static bool IsRetroArchSnesSection(string? sectionKey, string? sectionTitle)
+    {
+        return IsRetroArchSection(sectionKey, sectionTitle, "snes", "super nintendo");
+    }
+
+    private static bool IsRetroArchNesSection(string? sectionKey, string? sectionTitle)
+    {
+        return IsRetroArchSection(sectionKey, sectionTitle, "nes", "nintendo entertainment system");
+    }
+
+    private static bool IsRetroArchDreamcastSection(string? sectionKey, string? sectionTitle)
+    {
+        return IsRetroArchSection(sectionKey, sectionTitle, "dreamcast");
+    }
+
+    private static bool IsRetroArchPlayStation2Section(string? sectionKey, string? sectionTitle)
+    {
+        return IsRetroArchSection(sectionKey, sectionTitle, "playstation 2", "ps2");
+    }
+
+    private static bool IsRetroArchPlayStationSection(string? sectionKey, string? sectionTitle)
+    {
+        return IsRetroArchSection(sectionKey, sectionTitle, "playstation", "ps1", "psx");
+    }
+
+    private static bool IsRetroArchSection(string? sectionKey, string? sectionTitle, params string[] values)
+    {
+        if (!string.IsNullOrWhiteSpace(sectionTitle))
+        {
+            var normalized = sectionTitle.ToLowerInvariant();
+            foreach (var value in values)
+            {
+                if (normalized.Contains(value, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(sectionKey))
+        {
+            var normalizedKey = sectionKey.ToLowerInvariant();
+            foreach (var value in values)
+            {
+                if (normalizedKey.Contains(value, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
 
         return false;
     }
@@ -1697,8 +1829,30 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private static string GetConsoleTitle(string imagePath)
     {
         var fileName = Path.GetFileNameWithoutExtension(imagePath);
-        var normalizedName = fileName.Replace('_', ' ').Replace('-', ' ').Trim();
+        var normalizedName = NormalizeConsoleTitle(fileName);
         return EmulationConsoleCatalog.GetDisplayName(normalizedName);
+    }
+
+    private static string NormalizeConsoleTitle(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return string.Empty;
+
+        var builder = new StringBuilder(title.Length);
+
+        foreach (var c in title)
+        {
+            if (char.IsLetterOrDigit(c) || c == ' ')
+            {
+                builder.Append(c);
+            }
+            else if (c == '_' || c == '-')
+            {
+                builder.Append(' ');
+            }
+        }
+
+        return builder.ToString().Trim().Replace("  ", " ");
     }
 
     private static IReadOnlyList<FilePickerFileType> BuildEmulationAppFilePickerFilters()

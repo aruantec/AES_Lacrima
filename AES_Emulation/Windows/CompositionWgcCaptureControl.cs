@@ -19,6 +19,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace AES_Emulation.Windows;
 
@@ -38,6 +40,9 @@ public class CompositionWgcCaptureControl : Control
     private bool _isStoppingSession;
     private bool _useOwnerRenderFallback;
     private bool _loggedFallbackRenderPath;
+    private CancellationTokenSource? _sessionStartCts;
+    private const int CaptureSessionStartDelayMs = 3000;
+    private const int CaptureReadyTimeoutMs = 5000;
 
     private bool _isDraggingOverlay;
     private Point _dragStart;
@@ -80,8 +85,17 @@ public class CompositionWgcCaptureControl : Control
         set => SetValue(TargetHwndProperty, value);
     }
 
+    public static readonly StyledProperty<bool> IsCaptureInitializingProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(IsCaptureInitializing), false);
+
+    public bool IsCaptureInitializing
+    {
+        get => GetValue(IsCaptureInitializingProperty);
+        set => SetValue(IsCaptureInitializingProperty, value);
+    }
+
     public static readonly StyledProperty<Stretch> StretchProperty =
-        AvaloniaProperty.Register<CompositionWgcCaptureControl, Stretch>(nameof(Stretch), Stretch.Uniform);
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, Stretch>(nameof(Stretch), Stretch.UniformToFill);
 
     public Stretch Stretch
     {
@@ -446,22 +460,66 @@ public class CompositionWgcCaptureControl : Control
             return;
         }
 
+        IsCaptureInitializing = true;
+
+        try
+        {
+            Win32API.MinimizeWindow(nextTargetHwnd);
+        }
+        catch (Exception ex)
+        {
+            LogInfo($"CompositionWgcCaptureControl StartSession could not minimize target hwnd 0x{nextTargetHwnd.ToInt64():X}: {ex.Message}");
+        }
+
         if (_hostHandle == IntPtr.Zero && !TryResolveHostHandle())
         {
             LogInfo("CompositionWgcCaptureControl StartSession could not resolve host handle.");
+            IsCaptureInitializing = false;
+            return;
+        }
+
+        _sessionStartCts?.Cancel();
+        _sessionStartCts?.Dispose();
+        _sessionStartCts = new CancellationTokenSource();
+        var sessionStartToken = _sessionStartCts.Token;
+        _ = StartSessionDelayedAsync(nextTargetHwnd, sessionStartToken);
+    }
+
+    private async Task StartSessionDelayedAsync(nint nextTargetHwnd, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(CaptureSessionStartDelayMs, cancellationToken).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            IsCaptureInitializing = false;
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested || TargetHwnd != nextTargetHwnd)
+        {
+            IsCaptureInitializing = false;
             return;
         }
 
         _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
         _windowHandler.EnableRoundedCorners(44);
-        _windowHandler.SetMoveToHost(UseHostWindowCapture);
+        _windowHandler.SetMoveToHost(false);
         _windowHandler.Start(_hostHandle, nextTargetHwnd);
 
-        if (!UseHostWindowCapture)
+        try
         {
-            Win32API.RemoveWindowDecorations(nextTargetHwnd);
-            Win32API.SetWindowOpacity(nextTargetHwnd, 0);
+            Win32API.RestoreWindow(nextTargetHwnd);
         }
+        catch (Exception ex)
+        {
+            LogInfo($"CompositionWgcCaptureControl StartSessionDelayedAsync could not restore target hwnd 0x{nextTargetHwnd.ToInt64():X}: {ex.Message}");
+        }
+
+        Win32API.RemoveWindowDecorations(nextTargetHwnd);
+        Win32API.MoveAway(nextTargetHwnd, false);
+        Win32API.SetWindowOpacity(nextTargetHwnd, 0);
 
         _session = WgcBridgeApi.CreateCaptureSession(nextTargetHwnd);
         if (_session != nint.Zero)
@@ -478,12 +536,21 @@ public class CompositionWgcCaptureControl : Control
             UpdateHandlerSession();
             UpdateHandlerSettings();
             UpdateFallbackRenderLoop();
+
+            var captureReady = await WaitForCaptureReadyAsync(cancellationToken).ConfigureAwait(true);
+            if (!captureReady)
+            {
+                LogInfo($"CompositionWgcCaptureControl capture session did not receive a frame within {CaptureReadyTimeoutMs} ms.");
+            }
+
+            IsCaptureInitializing = false;
         }
         else
         {
             Win32API.RestoreWindowDecorations(nextTargetHwnd);
             Win32API.SetWindowOpacity(nextTargetHwnd, 255);
             LogInfo($"CompositionWgcCaptureControl failed to create capture session for hwnd 0x{nextTargetHwnd.ToInt64():X}.");
+            IsCaptureInitializing = false;
         }
     }
 
@@ -502,6 +569,10 @@ public class CompositionWgcCaptureControl : Control
         LogInfo(
             $"CompositionWgcCaptureControl StopSession. session=0x{_session.ToInt64():X}, " +
             $"activeTarget=0x{_activeTargetHwnd.ToInt64():X}.");
+        _sessionStartCts?.Cancel();
+        _sessionStartCts?.Dispose();
+        _sessionStartCts = null;
+
         var previousTargetHwnd = _activeTargetHwnd;
         var canRestoreTargetWindow = previousTargetHwnd != IntPtr.Zero && IsWindow(previousTargetHwnd);
 
@@ -526,6 +597,7 @@ public class CompositionWgcCaptureControl : Control
         }
 
         _activeTargetHwnd = IntPtr.Zero;
+        IsCaptureInitializing = false;
         UpdateHandlerSession();
         UpdateFallbackRenderLoop();
         }
@@ -533,6 +605,31 @@ public class CompositionWgcCaptureControl : Control
         {
             _isStoppingSession = false;
         }
+    }
+
+    private async Task<bool> WaitForCaptureReadyAsync(CancellationToken cancellationToken)
+    {
+        if (_session == nint.Zero)
+            return false;
+
+        var start = Stopwatch.GetTimestamp();
+        var timeoutTicks = CaptureReadyTimeoutMs * Stopwatch.Frequency / 1000;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            if (WgcBridgeApi.GetCaptureStatus(_session) > 0)
+                return true;
+
+            if (WgcBridgeApi.PeekLatestFrame(_session, out int peekW, out int peekH, out nuint requiredSize) && peekW > 0 && peekH > 0)
+                return true;
+
+            if ((Stopwatch.GetTimestamp() - start) > timeoutTicks)
+                break;
+
+            await Task.Delay(100, cancellationToken).ConfigureAwait(true);
+        }
+
+        return false;
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)

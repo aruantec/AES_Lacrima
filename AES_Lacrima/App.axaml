@@ -19,6 +19,7 @@
         <converters:BoolToValueConverter x:Key="BoolToValueConverter"/>
         <converters:TimeSpanConverter x:Key="TimeSpanConverter"/>
         <converters:BrushToColorConverter x:Key="BrushToColorConverter"/>
+        <converters:BoolOrConverter x:Key="BoolOrConverter"/>
         <converters:StringNotEmptyToBoolConverter x:Key="StringNotEmptyToBoolConverter"/>
         <converters:GameplayPreviewWidthConverter x:Key="GameplayPreviewWidthConverter"/>
         <!-- Digital Equalizer Gradient: Red/Orange at Bottom, Cyan/Blue at Top -->

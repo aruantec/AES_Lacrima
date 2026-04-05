@@ -33,6 +33,9 @@ namespace AES_Emulation.Windows.API
 
         private const uint LWA_ALPHA = 0x00000002;
 
+        private const int SW_MINIMIZE = 6;
+        private const int SW_RESTORE = 9;
+
         // storage for restoring
         private static readonly ConcurrentDictionary<IntPtr, IntPtr> _savedStyles = new();
         private static readonly ConcurrentDictionary<IntPtr, IntPtr> _savedMenus = new();
@@ -76,6 +79,9 @@ namespace AES_Emulation.Windows.API
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern int GetSystemMetrics(int nIndex);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
@@ -250,6 +256,11 @@ namespace AES_Emulation.Windows.API
         /// Move the target window out of the visible area and optionally attempt to cloak it via DWM.
         /// Saves the previous window rect (if not already saved) so it can be restored later.
         /// </summary>
+        private const int SM_XVIRTUALSCREEN = 76;
+        private const int SM_YVIRTUALSCREEN = 77;
+        private const int SM_CXVIRTUALSCREEN = 78;
+        private const int SM_CYVIRTUALSCREEN = 79;
+
         public static bool MoveAway(IntPtr hwnd, bool useCloak = false)
         {
             if (hwnd == IntPtr.Zero) return false;
@@ -276,8 +287,17 @@ namespace AES_Emulation.Windows.API
                     catch { }
                 }
 
-                // Move far off-screen
-                SetWindowPos(hwnd, IntPtr.Zero, -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                int virtualLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                int virtualTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                int virtualWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                int virtualHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+                // Keep the window inside the virtual desktop so WGC can still capture it.
+                // Place the target near the bottom-right of the virtual desktop with minimal on-screen exposure.
+                int destX = virtualLeft + Math.Max(0, virtualWidth - 100);
+                int destY = virtualTop + Math.Max(0, virtualHeight - 100);
+
+                SetWindowPos(hwnd, IntPtr.Zero, destX, destY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
                 return true;
             }
             catch
@@ -377,6 +397,20 @@ namespace AES_Emulation.Windows.API
                 }
                 return SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
             }
+            catch { return false; }
+        }
+
+        public static bool MinimizeWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            try { return ShowWindow(hwnd, SW_MINIMIZE); }
+            catch { return false; }
+        }
+
+        public static bool RestoreWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            try { return ShowWindow(hwnd, SW_RESTORE); }
             catch { return false; }
         }
 
