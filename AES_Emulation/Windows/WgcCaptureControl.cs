@@ -861,9 +861,12 @@ public class WgcCaptureControl : OpenGlControlBase
 
         if (e.NewValue is IntPtr hwnd && hwnd != IntPtr.Zero)
         {
-            Win32API.RemoveWindowDecorations(hwnd);
-            Win32API.MoveAway(hwnd);
-            Win32API.SetWindowOpacity(hwnd, 0);
+            try
+            {
+                Win32API.MinimizeWindow(hwnd);
+            }
+            catch { }
+
             TryAttachTargetWindow();
         }
         else
@@ -960,6 +963,17 @@ public class WgcCaptureControl : OpenGlControlBase
         _windowHandler.EnableRoundedCorners(44);
         _windowHandler.SetMoveToHost(false);
         _windowHandler.Start(_hostHandle, TargetHwnd);
+
+        try
+        {
+            Win32API.RestoreWindow(TargetHwnd);
+        }
+        catch { }
+
+        Win32API.RemoveWindowDecorations(TargetHwnd);
+        Win32API.MoveAway(TargetHwnd);
+        Win32API.SetWindowOpacity(TargetHwnd, 0);
+
         StartCapture();
     }
 

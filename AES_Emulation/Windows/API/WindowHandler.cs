@@ -288,17 +288,17 @@ namespace AES_Emulation.Windows.API
                         try { SetWindowPos(_target, IntPtr.Zero, 0, 0, FixedCaptureWidth, FixedCaptureHeight, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE); } catch { }
                         
                         // Move away the target but keep its size synchronized for capture.
-                        try { Win32API.MoveAway(_target, true); } catch { }
+                        try { Win32API.MoveAway(_target, false); } catch { }
                         
                         _lastTargetRect.Right = FixedCaptureWidth;
                         _lastTargetRect.Bottom = FixedCaptureHeight;
                     }
 
-                    if (_lastOpacity != 1)
+                    if (_lastOpacity != 255)
                     {
-                        // Make it transparent so the user doesn't see it but WGC may still capture it.
-                        try { Win32API.SetWindowOpacity(_target, 1); } catch { }
-                        _lastOpacity = 1;
+                        // Keep the hidden window opaque off-screen so WGC can capture it reliably.
+                        try { Win32API.SetWindowOpacity(_target, 255); } catch { }
+                        _lastOpacity = 255;
                     }
                 }
                 _lastMoveToHost = MoveToHost;
@@ -545,18 +545,14 @@ namespace AES_Emulation.Windows.API
                     {
                         if (GetWindowRectSafe(_host, out RECT hostRect))
                         {
-                            int targetW = Math.Max(0, hostRect.Right - hostRect.Left);
-                            int targetH = Math.Max(0, hostRect.Bottom - hostRect.Top);
                             try { SetWindowPos(_target, IntPtr.Zero, 0, 0, FixedCaptureWidth, FixedCaptureHeight, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE); } catch { }
                         }
                     }
                     catch { }
 
-                    // Move away off-screen and hide window so it's not visible to user.
-                    // Use Win32API.MoveAway to preserve saved rects and optional DWM cloak.
-                    try { Win32API.MoveAway(_target, true); } catch { }
-                    // Dim window so user does not see it but keep it present for capture.
-                    try { Win32API.SetWindowOpacity(_target, 1); } catch { }
+                    // Move away off-screen and keep the window opaque so WGC can capture it reliably.
+                    try { Win32API.MoveAway(_target, false); } catch { }
+                    try { Win32API.SetWindowOpacity(_target, 255); } catch { }
                 }
             }
             catch { }

@@ -146,7 +146,7 @@ namespace AES_Lacrima.ViewModels
         private double _renderOverlayOpacity = 0.55;
 
         [ObservableProperty]
-        private string _selectedStretch = "Uniform";
+        private string _selectedStretch = "UniformToFill";
 
         [ObservableProperty]
         private bool _useHostWindowCapture;
@@ -228,6 +228,19 @@ namespace AES_Lacrima.ViewModels
 
         [ObservableProperty]
         private bool _isRenderOptionsOpen;
+
+        [ObservableProperty]
+        private bool _isRetroArchErrorOverlayOpen;
+
+        [ObservableProperty]
+        private string? _retroArchErrorSummary;
+
+        [ObservableProperty]
+        private string? _retroArchErrorDetails;
+
+        public bool HasRetroArchError => !string.IsNullOrWhiteSpace(RetroArchErrorSummary);
+
+        partial void OnRetroArchErrorSummaryChanged(string? value) => OnPropertyChanged(nameof(HasRetroArchError));
 
         [ObservableProperty]
         private int _renderOptionsSelectedTabIndex;
@@ -678,6 +691,22 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
+        private void ToggleRetroArchErrorOverlay()
+        {
+            if (!HasRetroArchError)
+                return;
+
+            IsRetroArchErrorOverlayOpen = !IsRetroArchErrorOverlayOpen;
+        }
+
+        private void ClearRetroArchErrorState()
+        {
+            RetroArchErrorSummary = null;
+            RetroArchErrorDetails = null;
+            IsRetroArchErrorOverlayOpen = false;
+        }
+
+        [RelayCommand]
         private void CloseEmulator()
         {
             SLog.Info("EmulationViewModel.CloseEmulator requested by the user.");
@@ -686,6 +715,7 @@ namespace AES_Lacrima.ViewModels
             EmulatorTargetHwnd = IntPtr.Zero;
             IsEmulatorRunning = false;
             IsRenderOptionsOpen = false;
+            ClearRetroArchErrorState();
             CurrentEmulatorHandler = null;
 
             if (TryGetRunningTrackedEmulatorProcess(out var process))
@@ -746,7 +776,7 @@ namespace AES_Lacrima.ViewModels
             ShowFrametimeGraph = ReadBoolSetting(section, nameof(ShowFrametimeGraph), false);
             ShowDetailedGpuInfo = ReadBoolSetting(section, nameof(ShowDetailedGpuInfo), false);
             RenderOverlayOpacity = ReadDoubleSetting(section, nameof(RenderOverlayOpacity), 0.55);
-            SelectedStretch = ReadStringSetting(section, nameof(SelectedStretch), "Uniform") ?? "Uniform";
+            SelectedStretch = ReadStringSetting(section, nameof(SelectedStretch), "UniformToFill") ?? "UniformToFill";
             DisableVSync = ReadBoolSetting(section, nameof(DisableVSync), false);
             RenderBrightness = ReadDoubleSetting(section, nameof(RenderBrightness), 1.0);
             RenderSaturation = ReadDoubleSetting(section, nameof(RenderSaturation), 1.0);
@@ -1774,6 +1804,8 @@ namespace AES_Lacrima.ViewModels
         {
             try
             {
+                ClearRetroArchErrorState();
+
                 var handler = request.Handler;
                 CurrentEmulatorHandler = handler;
 
@@ -1789,6 +1821,12 @@ namespace AES_Lacrima.ViewModels
                     request.AlbumTitle,
                     request.LaunchSettings?.SelectedRetroArchCore);
                 var process = Process.Start(startInfo);
+
+                if (process != null)
+                {
+                    SLog.Info($"Emulator process launched: pid={process.Id}, name={process.ProcessName}, hasExited={process.HasExited}.");
+                }
+
                 TrackEmulatorProcess(process, request.RomPath, handler);
             }
             catch (Exception ex)
@@ -2026,7 +2064,7 @@ namespace AES_Lacrima.ViewModels
                     return;
                 }
 
-                UseHostWindowCapture = string.Equals(handler.HandlerId, "retroarch", StringComparison.OrdinalIgnoreCase);
+                UseHostWindowCapture = false;
                 await TryApplyEmulatorTargetHwndAsync(process, hwnd, showWindowForCapture: handler.HideUntilCaptured).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -2047,12 +2085,12 @@ namespace AES_Lacrima.ViewModels
             if (string.IsNullOrWhiteSpace(details))
                 return;
 
-            var title = "RetroArch Emulator Error";
-            var message = string.IsNullOrWhiteSpace(summary)
+            RetroArchErrorSummary = string.IsNullOrWhiteSpace(summary)
                 ? "RetroArch reported an error during launch."
                 : summary;
+            RetroArchErrorDetails = details;
 
-            DiLocator.ResolveViewModel<MainWindowViewModel>()?.ShowEmulatorErrorPrompt(title, message, details);
+            SLog.Warn($"RetroArch launch issue detected: {RetroArchErrorSummary}");
         }
 
         private void StartRetroArchLogWatcher(Process process, RetroArchHandler handler)
@@ -2095,14 +2133,12 @@ namespace AES_Lacrima.ViewModels
 
                         if (RetroArchHandler.TryExtractRetroArchErrorDetails(newLines, out var summary, out var details))
                         {
-                            var title = "RetroArch Emulator Error";
-                            var message = string.IsNullOrWhiteSpace(summary)
-                                ? "RetroArch reported an error during launch."
-                                : summary;
-
                             await Dispatcher.UIThread.InvokeAsync(() =>
                             {
-                                DiLocator.ResolveViewModel<MainWindowViewModel>()?.ShowEmulatorErrorPrompt(title, message, details);
+                                RetroArchErrorSummary = string.IsNullOrWhiteSpace(summary)
+                                    ? "RetroArch reported an error during launch."
+                                    : summary;
+                                RetroArchErrorDetails = details;
                             }, DispatcherPriority.Background);
                             break;
                         }

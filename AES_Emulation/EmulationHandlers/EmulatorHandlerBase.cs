@@ -102,7 +102,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         var startInfo = new ProcessStartInfo
         {
             FileName = launcherPath,
-            UseShellExecute = true,
+            UseShellExecute = false,
             WorkingDirectory = Path.GetDirectoryName(launcherPath) ?? string.Empty
         };
 
@@ -312,7 +312,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
         Win32API.RemoveWindowDecorations(hwnd);
         Win32API.MoveAway(hwnd);
-        Win32API.SetWindowOpacity(hwnd, 0);
+        Win32API.SetWindowOpacity(hwnd, 255);
     }
 
     [SupportedOSPlatform("windows")]
@@ -334,13 +334,55 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         try
         {
             process.Refresh();
-            mainWindowHandle = process.MainWindowHandle;
-            processId = (uint)process.Id;
         }
         catch (Exception ex)
         {
             SLog.Debug("Failed to refresh process while scoring window candidates.", ex);
-            return IntPtr.Zero;
+
+            if (!TryResolveDetachedProcess(process, out process))
+                return FindBestProcesslessWindowHandle(preferSpecificRenderWindow, allowHiddenWindows, isPreferredRenderWindow);
+
+            try
+            {
+                process.Refresh();
+            }
+            catch (Exception fallbackEx)
+            {
+                SLog.Debug("Failed to refresh a detached emulator process candidate.", fallbackEx);
+                return IntPtr.Zero;
+            }
+        }
+
+        try
+        {
+            processId = (uint)process.Id;
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug("Failed to retrieve process Id while scoring window candidates.", ex);
+
+            if (!TryResolveDetachedProcess(process, out process))
+                return FindBestProcesslessWindowHandle(preferSpecificRenderWindow, allowHiddenWindows, isPreferredRenderWindow);
+
+            try
+            {
+                processId = (uint)process.Id;
+            }
+            catch (Exception fallbackEx)
+            {
+                SLog.Debug("Failed to retrieve process Id for detached process candidate.", fallbackEx);
+                return FindBestProcesslessWindowHandle(preferSpecificRenderWindow, allowHiddenWindows, isPreferredRenderWindow);
+            }
+        }
+
+        try
+        {
+            mainWindowHandle = process.MainWindowHandle;
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug("Failed to retrieve MainWindowHandle for process while scoring window candidates.", ex);
+            mainWindowHandle = IntPtr.Zero;
         }
 
         IntPtr bestHandle = IntPtr.Zero;
@@ -380,6 +422,128 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
                 isPreferredRenderWindow) > long.MinValue
             ? mainWindowHandle
             : IntPtr.Zero;
+    }
+
+    private static IntPtr FindBestProcesslessWindowHandle(
+        bool preferSpecificRenderWindow,
+        bool allowHiddenWindows,
+        Func<IntPtr, IntPtr, bool>? isPreferredRenderWindow)
+    {
+        IntPtr bestHandle = IntPtr.Zero;
+        long bestScore = long.MinValue;
+
+        EnumWindows((hwnd, _) =>
+        {
+            if (hwnd == IntPtr.Zero)
+                return true;
+
+            if (!allowHiddenWindows && !IsWindowVisible(hwnd))
+                return true;
+
+            if (!GetWindowRect(hwnd, out RECT windowRect))
+                return true;
+
+            var width = Math.Max(0, windowRect.Right - windowRect.Left);
+            var height = Math.Max(0, windowRect.Bottom - windowRect.Top);
+            if (width <= 0 || height <= 0)
+                return true;
+
+            long score = (long)width * height * 10;
+            score += IsWindowVisible(hwnd) ? 100_000 : -100_000;
+
+            if (GetWindow(hwnd, GW_OWNER) == IntPtr.Zero)
+                score += 1_000_000;
+
+            if (width >= 640 && height >= 360)
+                score += 250_000;
+
+            if (preferSpecificRenderWindow)
+            {
+                if (isPreferredRenderWindow == null || !isPreferredRenderWindow(hwnd, IntPtr.Zero))
+                    return true;
+
+                score += 5_000_000;
+            }
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestHandle = hwnd;
+            }
+
+            return true;
+        }, IntPtr.Zero);
+
+        return bestHandle;
+    }
+
+    private static bool TryResolveDetachedProcess(Process process, out Process resolvedProcess)
+    {
+        resolvedProcess = null!;
+
+        try
+        {
+            string? processName = null;
+            try
+            {
+                processName = Path.GetFileNameWithoutExtension(process.StartInfo?.FileName ?? string.Empty);
+            }
+            catch
+            {
+                processName = null;
+            }
+
+            if (string.IsNullOrWhiteSpace(processName))
+            {
+                try
+                {
+                    processName = process.ProcessName;
+                }
+                catch
+                {
+                    processName = null;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(processName))
+                return false;
+
+            var candidates = Process.GetProcessesByName(processName);
+            SLog.Debug($"Resolving detached process for name='{processName}'. Candidates={candidates.Length}.");
+            if (candidates.Length == 0)
+                return false;
+
+            Process? bestCandidate = null;
+            DateTime bestStartTime = DateTime.MinValue;
+            foreach (var candidate in candidates)
+            {
+                try
+                {
+                    if (candidate.StartTime > bestStartTime)
+                    {
+                        bestStartTime = candidate.StartTime;
+                        bestCandidate = candidate;
+                    }
+                }
+                catch
+                {
+                    // ignore processes we cannot inspect
+                }
+            }
+
+            if (bestCandidate != null)
+            {
+                SLog.Debug($"Resolved detached emulator process candidate: pid={bestCandidate.Id}, name={bestCandidate.ProcessName}.");
+                resolvedProcess = bestCandidate;
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug("Failed to resolve detached process candidate.", ex);
+        }
+
+        return false;
     }
 
     private static long ScoreProcessWindowCandidate(
