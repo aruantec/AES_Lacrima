@@ -1650,7 +1650,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
     private static bool IsRetroArchDreamcastSection(string? sectionKey, string? sectionTitle)
     {
-        return IsRetroArchSection(sectionKey, sectionTitle, "dreamcast");
+        return IsRetroArchSection(sectionKey, sectionTitle, "dreamcast", "dc", "sega dreamcast");
     }
 
     private static bool IsRetroArchPlayStation2Section(string? sectionKey, string? sectionTitle)
