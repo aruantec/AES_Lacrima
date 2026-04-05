@@ -9,6 +9,8 @@ public static class EmulatorHandlerRegistry
     private static readonly IEmulatorHandler[] Handlers =
     [
         DuckStationHandler.Instance,
+        Pcsx2Handler.Instance,
+        DolphinHandler.Instance,
         FlyCastHandler.Instance,
         RedreamHandler.Instance,
         RetroArchHandler.Instance,
