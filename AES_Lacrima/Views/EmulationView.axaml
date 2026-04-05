@@ -219,6 +219,7 @@
                                                         ShowDetailedGpuInfo="{Binding ShowDetailedGpuInfo, Mode=TwoWay}"
                                                         OverlayOpacity="{Binding RenderOverlayOpacity, Mode=TwoWay}"
                                                         Stretch="{Binding SelectedStretch, Mode=TwoWay}"
+                                                        UseHostWindowCapture="{Binding UseHostWindowCapture, Mode=TwoWay}"
                                                         DisableVSync="{Binding DisableVSync, Mode=TwoWay}"
                                                         Brightness="{Binding RenderBrightness, Mode=TwoWay}"
                                                         Saturation="{Binding RenderSaturation, Mode=TwoWay}"

@@ -31,9 +31,9 @@ public sealed class RedreamHandler : EmulatorHandlerBase
                string.Equals(albumTitle, "Sega Dreamcast", StringComparison.OrdinalIgnoreCase);
     }
 
-    public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen)
+    public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
-        var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen);
+        var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
 
         if (startFullscreen)
             startInfo.ArgumentList.Insert(0, "--fullscreen");

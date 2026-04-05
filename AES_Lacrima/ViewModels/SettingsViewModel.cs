@@ -65,6 +65,16 @@ public sealed class EmulationHandlerAppItem : ObservableObject
 
     public ICommand SetDefaultHandlerCommand { get; }
 
+    public bool IsRetroArchHandler => string.Equals(HandlerId, RetroArchHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase);
+
+    public string? SelectedRetroArchCore
+    {
+        get => _section.SelectedRetroArchCore;
+        set => _section.SelectedRetroArchCore = value;
+    }
+
+    public AvaloniaList<string> AvailableRetroArchCores => _section.RetroArchCores;
+
     public bool IsDefault => string.Equals(_section.SelectedHandlerId, Handler.HandlerId, StringComparison.OrdinalIgnoreCase);
 
     public void NotifyDefaultSelectionChanged()
@@ -113,10 +123,31 @@ public partial class EmulationSectionItem : ObservableObject
     private AvaloniaList<EmulationHandlerAppItem> _handlers = [];
 
     [ObservableProperty]
+    private AvaloniaList<string> _retroArchCores = [];
+
+    [ObservableProperty]
     private string? _selectedHandlerId;
 
     [ObservableProperty]
     private bool _isExpanded;
+
+    public string? SelectedRetroArchCore
+    {
+        get => LaunchSettings?.SelectedRetroArchCore;
+        set
+        {
+            if (LaunchSettings == null)
+                LaunchSettings = new EmulationSectionLaunchSettings();
+
+            if (string.Equals(LaunchSettings.SelectedRetroArchCore, value, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            LaunchSettings.SelectedRetroArchCore = value;
+            OnPropertyChanged(nameof(SelectedRetroArchCore));
+        }
+    }
+
+    public bool HasRetroArchCores => RetroArchCores.Count > 0;
 
     public bool HasHandlers => Handlers.Count > 0;
 
@@ -125,6 +156,15 @@ public partial class EmulationSectionItem : ObservableObject
         value.CollectionChanged += Handlers_CollectionChanged;
         OnPropertyChanged(nameof(HasHandlers));
     }
+
+    partial void OnRetroArchCoresChanged(AvaloniaList<string> value)
+    {
+        value.CollectionChanged += RetroArchCores_CollectionChanged;
+        OnPropertyChanged(nameof(HasRetroArchCores));
+    }
+
+    private void RetroArchCores_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        => OnPropertyChanged(nameof(HasRetroArchCores));
 
     partial void OnSelectedHandlerIdChanged(string? value)
     {
@@ -140,10 +180,13 @@ public sealed class EmulationSectionLaunchSettings
 {
     public bool? StartFullscreen { get; set; }
 
+    public string? SelectedRetroArchCore { get; set; }
+
     public EmulationSectionLaunchSettings Clone() =>
         new()
         {
-            StartFullscreen = StartFullscreen
+            StartFullscreen = StartFullscreen,
+            SelectedRetroArchCore = SelectedRetroArchCore
         };
 }
 
@@ -640,7 +683,11 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// Gets or sets a value indicating whether the application should check for app updates on startup.
     /// </summary>
     [ObservableProperty]
+#if DEBUG
+    private bool _checkForAppUpdatesOnStartup = false;
+#else
     private bool _checkForAppUpdatesOnStartup = true;
+#endif
 
     [ObservableProperty]
     private bool _preferAotAppUpdates = DefaultPreferAotAppUpdates;
@@ -1404,6 +1451,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             handler.BrowseLauncherCommand = new AsyncRelayCommand(() => BrowseEmulatorHandlerBinaryAsync(handler));
             handler.ClearLauncherCommand = new RelayCommand(() => ClearEmulatorHandlerBinary(handler));
+            handler.PropertyChanged += OnEmulatorHandlerPropertyChanged;
         }
 
         foreach (var (sectionKey, sectionTitle, albumImagePath) in DiscoverEmulationSectionDefinitions())
@@ -1422,10 +1470,90 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             if (item.Handlers.Count == 1)
                 item.SelectedHandlerId = item.Handlers[0].HandlerId;
 
+            item.PropertyChanged += OnEmulationSectionItemPropertyChanged;
             EmulationSections.Add(item);
         }
 
         ApplyPersistedEmulationSectionOrder();
+    }
+
+    private void OnEmulatorHandlerPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_isLoadingSettings)
+            return;
+
+        if (string.Equals(e.PropertyName, nameof(IEmulatorHandler.LauncherPath), StringComparison.OrdinalIgnoreCase) &&
+            sender is IEmulatorHandler handler &&
+            string.Equals(handler.HandlerId, RetroArchHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+        {
+            RefreshRetroArchCores();
+        }
+    }
+
+    private void OnEmulationSectionItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_isLoadingSettings)
+            return;
+
+        if (string.Equals(e.PropertyName, nameof(EmulationSectionItem.SelectedRetroArchCore), StringComparison.OrdinalIgnoreCase))
+            SaveSettings();
+    }
+
+    private void RefreshRetroArchCores()
+    {
+        var retroArchHandler = EmulatorHandlerRegistry.GetRegisteredHandlers()
+            .FirstOrDefault(handler => string.Equals(handler.HandlerId, RetroArchHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase));
+
+        var availableCores = RetroArchHandler.GetRetroArchCores(retroArchHandler?.LauncherPath);
+
+        foreach (var section in EmulationSections)
+        {
+            section.RetroArchCores.Clear();
+            section.RetroArchCores.AddRange(availableCores);
+
+            if (!string.IsNullOrWhiteSpace(section.SelectedRetroArchCore) &&
+                !section.RetroArchCores.Contains(section.SelectedRetroArchCore, StringComparer.OrdinalIgnoreCase))
+            {
+                section.SelectedRetroArchCore = null;
+            }
+
+            if (string.IsNullOrWhiteSpace(section.SelectedRetroArchCore))
+            {
+                section.SelectedRetroArchCore = SelectDefaultRetroArchCore(section, availableCores);
+            }
+        }
+    }
+
+    private static string? SelectDefaultRetroArchCore(EmulationSectionItem section, IReadOnlyList<string> availableCores)
+    {
+        if (availableCores.Count == 0)
+            return null;
+
+        if (IsRetroArch3DSSection(section.SectionKey, section.SectionTitle))
+        {
+            return availableCores.FirstOrDefault(core => core.Contains("citra", StringComparison.OrdinalIgnoreCase));
+        }
+
+        var arcadePreference = new[] { "fbneo", "mame", "finalburn", "fbalpha", "neogeo" };
+        foreach (var keyword in arcadePreference)
+        {
+            var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+                return match;
+        }
+
+        return availableCores.FirstOrDefault();
+    }
+
+    private static bool IsRetroArch3DSSection(string? sectionKey, string? sectionTitle)
+    {
+        if (!string.IsNullOrWhiteSpace(sectionTitle) && sectionTitle.IndexOf("3ds", StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+
+        if (!string.IsNullOrWhiteSpace(sectionKey) && sectionKey.IndexOf("3ds", StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+
+        return false;
     }
 
     private static IReadOnlyList<(string SectionKey, string SectionTitle, string AlbumImagePath)> DiscoverEmulationSectionDefinitions()
@@ -1887,6 +2015,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         }
 
         ApplyPersistedEmulationSectionOrder();
+        RefreshRetroArchCores();
         CheckForAppUpdatesOnStartup = ReadBoolSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
         PreferAotAppUpdates = ReadBoolSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
 
@@ -2033,6 +2162,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             return false;
 
         return item.LaunchSettings?.StartFullscreen is not null ||
+               !string.IsNullOrWhiteSpace(item.SelectedRetroArchCore) ||
                !string.IsNullOrWhiteSpace(item.SelectedHandlerId);
     }
 
@@ -2043,7 +2173,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         return new EmulationSectionLaunchSettings
         {
-            StartFullscreen = persisted.StartFullscreen ?? defaults.StartFullscreen
+            StartFullscreen = persisted.StartFullscreen ?? defaults.StartFullscreen,
+            SelectedRetroArchCore = persisted.SelectedRetroArchCore ?? defaults.SelectedRetroArchCore
         };
     }
 

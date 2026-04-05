@@ -184,6 +184,7 @@ namespace AES_Lacrima
                 }
             }
 
+#if !DEBUG
             if (settingsViewModel.CheckForAppUpdatesOnStartup && settingsViewModel.AppUpdateService != null)
             {
                 var release = await settingsViewModel.AppUpdateService.CheckForUpdatesAsync();
@@ -200,6 +201,7 @@ namespace AES_Lacrima
                     }
                 }
             }
+#endif
         }
 
         [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "This only removes Avalonia's DataAnnotationsValidationPlugin instances and does not depend on trimmed property accessor discovery.")]

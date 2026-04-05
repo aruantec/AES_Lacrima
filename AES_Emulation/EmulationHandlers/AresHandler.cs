@@ -39,9 +39,9 @@ public sealed class AresHandler : EmulatorHandlerBase
                string.Equals(albumTitle, "Nintendo 64", StringComparison.OrdinalIgnoreCase);
     }
 
-    public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen)
+    public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
-        var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen);
+        var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
 
         if (startFullscreen)
             startInfo.ArgumentList.Insert(0, "--fullscreen");
@@ -55,7 +55,14 @@ public sealed class AresHandler : EmulatorHandlerBase
 
         await CancelN64DdFileDialogAsync(process, cancellationToken).ConfigureAwait(false);
 
-        return await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
+        var targetHwnd = await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
+        if (targetHwnd != IntPtr.Zero)
+        {
+            // Ares requires a borderless capture target for WGC to work reliably.
+            Win32API.RemoveWindowDecorations(targetHwnd);
+        }
+
+        return targetHwnd;
     }
 
     private static async Task CancelN64DdFileDialogAsync(Process process, CancellationToken cancellationToken)
