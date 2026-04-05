@@ -155,6 +155,9 @@ namespace AES_Lacrima.ViewModels
         private bool _disableVSync;
 
         [ObservableProperty]
+        private int _emulatorCaptureDelayMs = 3000;
+
+        [ObservableProperty]
         private double _renderBrightness = 1.0;
 
         [ObservableProperty]
@@ -1808,6 +1811,7 @@ namespace AES_Lacrima.ViewModels
 
                 var handler = request.Handler;
                 CurrentEmulatorHandler = handler;
+                EmulatorCaptureDelayMs = handler.CaptureStartupDelayMs;
 
                 if (!handler.IsPrepared)
                     handler.Prepare();

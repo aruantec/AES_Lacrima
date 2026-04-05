@@ -49,9 +49,11 @@ public sealed class AresHandler : EmulatorHandlerBase
         return startInfo;
     }
 
+    public override int CaptureStartupDelayMs => 1500;
+
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
-        await Task.Delay(1500, cancellationToken).ConfigureAwait(false);
+        await Task.Delay(CaptureStartupDelayMs, cancellationToken).ConfigureAwait(false);
 
         await CancelN64DdFileDialogAsync(process, cancellationToken).ConfigureAwait(false);
 
@@ -63,6 +65,58 @@ public sealed class AresHandler : EmulatorHandlerBase
         }
 
         return targetHwnd;
+    }
+
+    private static bool TryGetWindowArea(IntPtr hwnd, out long area)
+    {
+        area = 0;
+        if (hwnd == IntPtr.Zero)
+            return false;
+
+        if (!GetWindowRect(hwnd, out var rect))
+            return false;
+
+        var width = Math.Max(0, rect.Right - rect.Left);
+        var height = Math.Max(0, rect.Bottom - rect.Top);
+        area = (long)width * height;
+        return area > 0;
+    }
+
+    private static IntPtr FindLargestVisibleChildWindow(IntPtr parentHwnd)
+    {
+        if (parentHwnd == IntPtr.Zero)
+            return IntPtr.Zero;
+
+        IntPtr bestHwnd = IntPtr.Zero;
+        long bestArea = 0;
+
+        EnumChildWindows(parentHwnd, (child, _) =>
+        {
+            if (child == IntPtr.Zero)
+                return true;
+
+            if (!IsWindowVisible(child))
+                return true;
+
+            if (!GetWindowRect(child, out var rect))
+                return true;
+
+            var width = Math.Max(0, rect.Right - rect.Left);
+            var height = Math.Max(0, rect.Bottom - rect.Top);
+            var area = (long)width * height;
+            if (area <= 0)
+                return true;
+
+            if (area > bestArea)
+            {
+                bestArea = area;
+                bestHwnd = child;
+            }
+
+            return true;
+        }, IntPtr.Zero);
+
+        return bestHwnd;
     }
 
     private static async Task CancelN64DdFileDialogAsync(Process process, CancellationToken cancellationToken)
@@ -169,6 +223,15 @@ public sealed class AresHandler : EmulatorHandlerBase
     private static extern bool EnumChildWindows(IntPtr hWndParent, EnumChildProc lpEnumFunc, IntPtr lParam);
 
     private delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
 
     [DllImport("user32.dll", SetLastError = false)]
     private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);

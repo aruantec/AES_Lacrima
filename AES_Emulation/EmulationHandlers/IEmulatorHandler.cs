@@ -49,6 +49,8 @@ public interface IEmulatorHandler : INotifyPropertyChanged
 
     bool HideUntilCaptured { get; }
 
+    int CaptureStartupDelayMs { get; }
+
     ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null);
 
     void PrepareProcessForCapture(Process process);
