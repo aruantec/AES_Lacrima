@@ -149,6 +149,9 @@ namespace AES_Lacrima.ViewModels
         private string _selectedStretch = "Uniform";
 
         [ObservableProperty]
+        private bool _useHostWindowCapture;
+
+        [ObservableProperty]
         private bool _disableVSync;
 
         [ObservableProperty]
@@ -1782,7 +1785,9 @@ namespace AES_Lacrima.ViewModels
                 var startInfo = handler.BuildStartInfo(
                     handler.LauncherPath ?? string.Empty,
                     request.RomPath,
-                    request.LaunchSettings?.StartFullscreen == true);
+                    request.LaunchSettings?.StartFullscreen == true,
+                    request.AlbumTitle,
+                    request.LaunchSettings?.SelectedRetroArchCore);
                 var process = Process.Start(startInfo);
                 TrackEmulatorProcess(process, request.RomPath, handler);
             }
@@ -2010,10 +2015,18 @@ namespace AES_Lacrima.ViewModels
                 var hwnd = await handler.ResolveCaptureTargetAsync(process, CancellationToken.None).ConfigureAwait(false);
                 if (hwnd == IntPtr.Zero)
                 {
-                    SLog.Warn($"Failed to resolve emulator HWND for '{romPath}'.");
+                    SLog.Warn($"Failed to resolve emulator HWND for '{romPath}' on first attempt. Retrying...");
+                    await Task.Delay(2000).ConfigureAwait(false);
+                    hwnd = await handler.ResolveCaptureTargetAsync(process, CancellationToken.None).ConfigureAwait(false);
+                }
+
+                if (hwnd == IntPtr.Zero)
+                {
+                    SLog.Warn($"Failed to resolve emulator HWND for '{romPath}' after retry.");
                     return;
                 }
 
+                UseHostWindowCapture = string.Equals(handler.HandlerId, "retroarch", StringComparison.OrdinalIgnoreCase);
                 await TryApplyEmulatorTargetHwndAsync(process, hwnd, showWindowForCapture: handler.HideUntilCaptured).ConfigureAwait(false);
             }
             catch (OperationCanceledException)

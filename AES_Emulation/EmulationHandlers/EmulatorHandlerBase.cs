@@ -97,7 +97,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         return Task.CompletedTask;
     }
 
-    public virtual ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen)
+    public virtual ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -171,7 +171,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
-        const int maxAttempts = 80;
+        const int maxAttempts = 240;
         const int delayMs = 100;
         const int stableAttemptsBeforeAssign = 2;
         const int stableAttemptsBeforeStop = 6;

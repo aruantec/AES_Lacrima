@@ -179,6 +179,15 @@ public class CompositionWgcCaptureControl : Control
         set => SetValue(ForceUseTargetClientSizeProperty, value);
     }
 
+    public static readonly StyledProperty<bool> UseHostWindowCaptureProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(UseHostWindowCapture), false);
+
+    public bool UseHostWindowCapture
+    {
+        get => GetValue(UseHostWindowCaptureProperty);
+        set => SetValue(UseHostWindowCaptureProperty, value);
+    }
+
     public static readonly StyledProperty<bool> ShowStatisticsOverlayProperty =
         AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(ShowStatisticsOverlay), false);
 
@@ -443,15 +452,16 @@ public class CompositionWgcCaptureControl : Control
             return;
         }
 
-        // Prepare target window
-        Win32API.RemoveWindowDecorations(nextTargetHwnd);
-        Win32API.MoveAway(nextTargetHwnd);
-        Win32API.SetWindowOpacity(nextTargetHwnd, 0);
-
         _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
         _windowHandler.EnableRoundedCorners(44);
-        _windowHandler.SetMoveToHost(false);
+        _windowHandler.SetMoveToHost(UseHostWindowCapture);
         _windowHandler.Start(_hostHandle, nextTargetHwnd);
+
+        if (!UseHostWindowCapture)
+        {
+            Win32API.RemoveWindowDecorations(nextTargetHwnd);
+            Win32API.SetWindowOpacity(nextTargetHwnd, 0);
+        }
 
         _session = WgcBridgeApi.CreateCaptureSession(nextTargetHwnd);
         if (_session != nint.Zero)
@@ -570,6 +580,10 @@ public class CompositionWgcCaptureControl : Control
                  change.Property == OverlayYProperty)
         {
             UpdateHandlerSettings();
+        }
+        else if (change.Property == UseHostWindowCaptureProperty)
+        {
+            StartSession();
         }
         else if (change.Property == DisableDownscaleProperty)
         {
@@ -1589,26 +1603,36 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     private void RenderSimpleFallback(SKCanvas canvas, IntPtr ptr, int w, int h)
     {
-        var info = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
-        
-        // Use SKBitmap.InstallPixels to wrapping the unmanaged pointer.
-        // We must ensure the bitmap doesn't outlive the pointer, which is true here.
-        using var bitmap = new SKBitmap();
-        if (!bitmap.InstallPixels(info, ptr, w * 4))
+        if (w <= 0 || h <= 0 || ptr == IntPtr.Zero)
             return;
-        
+
+        int cropLeft = Math.Max(0, _cropLeft);
+        int cropRight = Math.Max(0, _cropRight);
+        if (cropLeft + cropRight >= w)
+            return;
+
+        SKRect srcRect = new SKRect(cropLeft, 0, w - cropRight, h);
+        if (srcRect.Width <= 0 || srcRect.Height <= 0)
+            return;
+
+        var info = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
+
+        // Prefer a full SKImage copy path for safety when rendering through Skia.
+        // This avoids lifetime issues and invalid pointer access inside DrawBitmap.
+        using var pixmap = new SKPixmap(info, ptr);
+        using var image = SKImage.FromPixels(pixmap);
+        if (image == null)
+            return;
+
         if (_settingsDirty) { UpdatePaint(); _settingsDirty = false; }
-        SKRect srcRect = new SKRect(_cropLeft, 0, w - _cropRight, h);
 
         try
         {
-            // The exception often occurs here if the unmanaged memory (ptr) 
-            // is invalidated or if the paint/rects are corrupt.
-            canvas.DrawBitmap(bitmap, srcRect, _cachedDestRect, _paint);
+            canvas.DrawImage(image, srcRect, _cachedDestRect, _paint);
         }
         catch (Exception ex)
         {
-            Log.Error("WgcCaptureVisualHandler RenderSimpleFallback.DrawBitmap failed.", ex);
+            Log.Error("WgcCaptureVisualHandler RenderSimpleFallback.DrawImage failed.", ex);
         }
     }
 
