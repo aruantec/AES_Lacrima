@@ -7,6 +7,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);SYSLIB1062</NoWarn>
     <Platforms>AnyCPU;x64</Platforms>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)Generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
   <PropertyGroup>
     <EnableWindowsTaskbarSupport Condition="'$(RuntimeIdentifier)' != '' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(RuntimeIdentifier)', '^win'))">true</EnableWindowsTaskbarSupport>

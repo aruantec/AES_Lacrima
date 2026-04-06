@@ -15,7 +15,9 @@
     <AutoInstallLinuxDesktopEntry>true</AutoInstallLinuxDesktopEntry>
     <Version Condition="'$(Version)' == '' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(VERSION)', '^[vV]?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$'))">$([System.Text.RegularExpressions.Regex]::Replace('$(VERSION)', '^[vV]', ''))</Version>
     <Version Condition="'$(Version)' == '' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(GITHUB_REF_NAME)', '^[vV]?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$'))">$([System.Text.RegularExpressions.Regex]::Replace('$(GITHUB_REF_NAME)', '^[vV]', ''))</Version>
-    <Version Condition="'$(Version)' == ''">0.0.0-local</Version>
+    <LangVersion>14.0</LangVersion>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)Generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <!-- Single EXE settings -->
@@ -37,6 +39,8 @@
     <TrimmerRootAssembly Include="AES_Mpv" />
     <TrimmerRootAssembly Include="log4net" />
     <TrimmerRootAssembly Include="TagLibSharp" />
+    <TrimmerRootAssembly Include="System.Configuration.ConfigurationManager" />
+    <RdXmlFile Include="rd.xml" />
   </ItemGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
