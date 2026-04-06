@@ -67,6 +67,7 @@ namespace AES_Lacrima.Services
         private static readonly Regex GoogleQuotedHttpUrlRegex = new(@"""(?<url>https?:\\?/\\?/[^""'\s<>]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex BingJsonImageUrlRegex = new(@"""(?:murl|imgurl|turl|thumb|thumbnailUrl)""\s*:\s*""(?<url>https?:\\?/\\?/[^""]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex BingHtmlEncodedImageUrlRegex = new(@"(?:murl|imgurl|turl|thumb|thumbnailUrl)&quot;:&quot;(?<url>https?:[^""'<>]+?)&quot;", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex DdgJsonImageUrlRegex = new(@"""(?:image|thumbnail)""\s*:\s*""(?<url>https?:\\?/\\?/[^""]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex DirectImageUrlRegex = new(@"https?://[^""'\s<>\\]+?\.(?:jpg|jpeg|png|webp|gif|bmp|avif)(?:\?[^""'\s<>\\]*)?", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex RomDumpTokenRegex = new(@"\b(?:rev\s*\d+|beta|proto|prototype|demo|sample|unl|hack|translated?|translation|usa|europe|japan|world)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex RomReleaseTokenRegex = new(@"\b(?:complete|fixed|fix|patched?|update(?:d)?|release|final)\b|\bv(?:ersion)?\s*\d+(?:[._-]\d+)*(?:\s+\d+)*\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -723,7 +724,7 @@ namespace AES_Lacrima.Services
             _searchMode = MetadataSearchMode.Images;
             var activeQuery = searchQueries[0];
             ImageSearchQuery = activeQuery;
-            await SearchImagesCoreAsync(activeQuery, searchQueries);
+            await SearchImagesCoreAsync(activeQuery, searchQueries, isRomSearch: _currentSelectedMedia != null);
         }
 
         [RelayCommand]
@@ -770,10 +771,10 @@ namespace AES_Lacrima.Services
                 return;
 
             _searchMode = MetadataSearchMode.Images;
-            await SearchImagesCoreAsync(activeQuery.Trim(), [activeQuery.Trim()]);
+            await SearchImagesCoreAsync(activeQuery.Trim(), [activeQuery.Trim()], isRomSearch: true);
         }
 
-        private async Task SearchImagesCoreAsync(string activeQuery, IReadOnlyList<string> searchQueries)
+        private async Task SearchImagesCoreAsync(string activeQuery, IReadOnlyList<string> searchQueries, bool isRomSearch = false)
         {
             ImageSearchQuery = activeQuery;
             IsImageSearchOverlayOpen = true;
@@ -782,7 +783,7 @@ namespace AES_Lacrima.Services
 
             try
             {
-                var results = await SearchWebImagesAsync(searchQueries);
+                var results = await SearchWebImagesAsync(searchQueries, isRomSearch);
                 ImageSearchResults = new AvaloniaList<WebImageSearchResult>(results.Take(MaxImageSearchResults).ToList());
                 ImageSearchStatus = ImageSearchResults.Count == 0
                     ? $"No images found for \"{activeQuery}\"."
@@ -1002,51 +1003,165 @@ namespace AES_Lacrima.Services
                 queries.Add(value);
         }
 
-        private static async Task<List<WebImageSearchResult>> SearchWebImagesAsync(IReadOnlyList<string> queries)
+        private static async Task<List<WebImageSearchResult>> SearchWebImagesAsync(IReadOnlyList<string> queries, bool isRomSearch = false)
         {
-            var results = new List<WebImageSearchResult>();
+            var interimResults = new List<WebImageSearchResult>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var resultsLock = new object();
+
+            // Take fewer queries to significantly speed up searching
             var normalizedQueries = queries
                 .Select(NormalizeSearchTitle)
                 .Where(static query => !string.IsNullOrWhiteSpace(query))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(isRomSearch ? 2 : 3)
                 .ToList();
 
-            foreach (var query in normalizedQueries)
+            void AddResult(WebImageSearchResult result)
             {
-                if (results.Count >= MaxImageSearchResults)
-                    break;
-
-                // 1. Try iTunes for high-quality music-specific metadata
-                var songUri = $"https://itunes.apple.com/search?term={Uri.EscapeDataString(query)}&media=music&entity=song&limit=80";
-                await LoadItunesResults(songUri, seen, results);
-
-                if (results.Count >= MaxImageSearchResults)
-                    break;
-
-                var albumUri = $"https://itunes.apple.com/search?term={Uri.EscapeDataString(query)}&media=music&entity=album&limit=80";
-                await LoadItunesResults(albumUri, seen, results);
+                lock (resultsLock)
+                {
+                    if (interimResults.Count < MaxImageSearchResults && seen.Add(result.FullImageUrl))
+                    {
+                        interimResults.Add(result);
+                    }
+                }
             }
 
-            foreach (var query in normalizedQueries)
-            {
-                if (results.Count >= MaxImageSearchResults)
-                    break;
+            // Using a shorter timeout for individual provider searches to skip slow ones
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
 
-                // 2. Bing Images fallback
-                await LoadBingImageResults(query, seen, results);
+            if (!isRomSearch)
+            {
+                try
+                {
+                    var itunesTasks = normalizedQueries.Select(async query =>
+                    {
+                        var results = new List<WebImageSearchResult>();
+                        var songUri = $"https://itunes.apple.com/search?term={Uri.EscapeDataString(query)}&media=music&entity=song&limit=40";
+                        await LoadItunesResults(songUri, new HashSet<string>(), results);
+                        foreach (var r in results) AddResult(r);
+
+                        results.Clear();
+                        var albumUri = $"https://itunes.apple.com/search?term={Uri.EscapeDataString(query)}&media=music&entity=album&limit=40";
+                        await LoadItunesResults(albumUri, new HashSet<string>(), results);
+                        foreach (var r in results) AddResult(r);
+                    });
+                    await Task.WhenAll(itunesTasks).WaitAsync(timeoutCts.Token);
+                }
+                catch (OperationCanceledException) { SLog.Warn("iTunes search timed out."); }
             }
 
-            foreach (var query in normalizedQueries)
+            if (interimResults.Count < 8) // Lower threshold to move faster to fallbacks
             {
-                if (results.Count >= MaxImageSearchResults)
-                    break;
-
-                // 3. Google Image Search fallback
-                await LoadGoogleImageResults(query, seen, results);
+                try
+                {
+                    var ddgTasks = normalizedQueries.Select(async query =>
+                    {
+                        var results = new List<WebImageSearchResult>();
+                        await LoadDuckDuckGoImageResults(query, new HashSet<string>(), results);
+                        foreach (var r in results) AddResult(r);
+                    });
+                    await Task.WhenAll(ddgTasks).WaitAsync(timeoutCts.Token);
+                }
+                catch (OperationCanceledException) { SLog.Warn("DuckDuckGo search timed out."); }
             }
 
-            return results;
+            if (interimResults.Count < 12)
+            {
+                try
+                {
+                    var bingTasks = normalizedQueries.Select(async query =>
+                    {
+                        var results = new List<WebImageSearchResult>();
+                        await LoadBingImageResults(query, new HashSet<string>(), results);
+                        foreach (var r in results) AddResult(r);
+                    });
+                    await Task.WhenAll(bingTasks).WaitAsync(timeoutCts.Token);
+                }
+                catch (OperationCanceledException) { SLog.Warn("Bing search timed out."); }
+            }
+
+            if (interimResults.Count < 4)
+            {
+                try
+                {
+                    var googleTasks = normalizedQueries.Select(async query =>
+                    {
+                        var results = new List<WebImageSearchResult>();
+                        await LoadGoogleImageResults(query, new HashSet<string>(), results);
+                        foreach (var r in results) AddResult(r);
+                    });
+                    await Task.WhenAll(googleTasks).WaitAsync(timeoutCts.Token);
+                }
+                catch (OperationCanceledException) { SLog.Warn("Google search timed out."); }
+            }
+
+            return interimResults;
+        }
+
+        private static async Task LoadDuckDuckGoImageResults(string query, HashSet<string> seen, List<WebImageSearchResult> sink)
+        {
+            try
+            {
+                foreach (var ddgQuery in BuildGoogleQueries(query))
+                {
+                    if (sink.Count >= MaxImageSearchResults)
+                        break;
+
+                    // DuckDuckGo VQD token is required for the image API
+                    // First, get the main search page to extract the VQD
+                    var mainUrl = $"https://duckduckgo.com/?q={Uri.EscapeDataString(ddgQuery)}&iax=images&ia=images";
+                    using var mainRequest = new HttpRequestMessage(HttpMethod.Get, mainUrl);
+                    mainRequest.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
+
+                    using var mainResponse = await ImageHttpClient.SendAsync(mainRequest, HttpCompletionOption.ResponseContentRead);
+                    if (!mainResponse.IsSuccessStatusCode)
+                        continue;
+
+                    var mainHtml = await mainResponse.Content.ReadAsStringAsync();
+                    var vqdMatch = Regex.Match(mainHtml, @"vqd=['""](?<vqd>[^'""]+)['""]|vqd=(?<vqd2>[^&'""\s]+)", RegexOptions.IgnoreCase);
+                    var vqd = vqdMatch.Groups["vqd"].Value;
+                    if (string.IsNullOrEmpty(vqd)) vqd = vqdMatch.Groups["vqd2"].Value;
+
+                    if (string.IsNullOrEmpty(vqd))
+                        continue;
+
+                    // Now call the AJAX endpoint for images
+                    var apiUrl = $"https://duckduckgo.com/i.js?l=us-en&o=json&q={Uri.EscapeDataString(ddgQuery)}&vqd={vqd}&f=,,,";
+                    using var apiRequest = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+                    apiRequest.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
+                    apiRequest.Headers.Referrer = new Uri(mainUrl);
+
+                    using var apiResponse = await ImageHttpClient.SendAsync(apiRequest, HttpCompletionOption.ResponseContentRead);
+                    if (!apiResponse.IsSuccessStatusCode)
+                        continue;
+
+                    var json = await apiResponse.Content.ReadAsStringAsync();
+                    ExtractDuckDuckGoImageResults(json, seen, sink);
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"DuckDuckGo image search failed for query: {query}", ex);
+            }
+        }
+
+        private static void ExtractDuckDuckGoImageResults(string json, HashSet<string> seen, List<WebImageSearchResult> sink)
+        {
+            var decoded = WebUtility.HtmlDecode(json)
+                .Replace("\\u003d", "=")
+                .Replace("\\u0026", "&")
+                .Replace("\\/", "/");
+
+            foreach (Match match in DdgJsonImageUrlRegex.Matches(decoded))
+            {
+                if (sink.Count >= MaxImageSearchResults)
+                    return;
+
+                var imageUrl = match.Groups["url"].Value;
+                TryAddGoogleImageResult(imageUrl, seen, sink);
+            }
         }
 
         private static async Task LoadBingImageResults(string query, HashSet<string> seen, List<WebImageSearchResult> sink)
@@ -1318,6 +1433,19 @@ namespace AES_Lacrima.Services
             {
                 return false;
             }
+
+            // Reject marketplaces and social media that often host "lazy" photos or listings
+            // like the Dreamcast jewel case on a teal background.
+            var trashHosts = new[]
+            {
+                "ebayimg.com", "ebay.com", "mercari.com", "poshmark.com",
+                "fbcdn.net", "fb.com", "instagram.com", "twimg.com",
+                "pinterest.com", "etsystatic.com", "etsy.com", "carousell.com",
+                "offerup.com", "depop.com", "gumtree.com"
+            };
+
+            if (trashHosts.Any(h => host.Contains(h, StringComparison.OrdinalIgnoreCase)))
+                return false;
 
             return true;
         }
