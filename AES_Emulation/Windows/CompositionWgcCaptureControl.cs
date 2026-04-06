@@ -28,6 +28,7 @@ public class CompositionWgcCaptureControl : Control
     private static readonly ILog Log = LogManager.GetLogger(
         typeof(CompositionWgcCaptureControl).Assembly,
         typeof(CompositionWgcCaptureControl).FullName ?? nameof(CompositionWgcCaptureControl));
+    private static bool IsWindowsPlatform => OperatingSystem.IsWindows();
     private CompositionCustomVisual? _visual;
     private WgcCaptureVisualHandler? _handler;
     private DispatcherTimer? _fallbackRenderTimer;
@@ -406,33 +407,41 @@ public class CompositionWgcCaptureControl : Control
         _useOwnerRenderFallback = compositor == null;
         _loggedFallbackRenderPath = false;
 
-        LogInfo(
-            $"CompositionWgcCaptureControl attached. compositor={(compositor != null ? "available" : "null")}, " +
-            $"dynamicCodeSupported={RuntimeFeature.IsDynamicCodeSupported}, usingOwnerFallback={_useOwnerRenderFallback}.");
-        LogInfo(WgcBridgeApi.GetDiagnostics());
-
-        if (!_useOwnerRenderFallback && compositor != null)
+        if (IsWindowsPlatform)
         {
-            try
+            LogInfo(
+                $"CompositionWgcCaptureControl attached. compositor={(compositor != null ? "available" : "null")}, " +
+                $"dynamicCodeSupported={RuntimeFeature.IsDynamicCodeSupported}, usingOwnerFallback={_useOwnerRenderFallback}.");
+            LogInfo(WgcBridgeApi.GetDiagnostics());
+
+            if (!_useOwnerRenderFallback && compositor != null)
             {
-                _visual = compositor.CreateCustomVisual(_handler);
-                ElementComposition.SetElementChildVisual(this, _visual);
-                LogInfo("CompositionWgcCaptureControl created composition custom visual successfully.");
+                try
+                {
+                    _visual = compositor.CreateCustomVisual(_handler);
+                    ElementComposition.SetElementChildVisual(this, _visual);
+                    LogInfo("CompositionWgcCaptureControl created composition custom visual successfully.");
+                }
+                catch (Exception ex)
+                {
+                    _useOwnerRenderFallback = true;
+                    _visual = null;
+                    LogError("CompositionWgcCaptureControl failed to create composition custom visual. Falling back to owner rendering.", ex);
+                }
             }
-            catch (Exception ex)
-            {
-                _useOwnerRenderFallback = true;
-                _visual = null;
-                LogError("CompositionWgcCaptureControl failed to create composition custom visual. Falling back to owner rendering.", ex);
-            }
+
+            TryResolveHostHandle();
+            StartSession();
+        }
+        else
+        {
+            _useOwnerRenderFallback = true;
+            _visual = null;
         }
 
         UpdateHandlerSize();
         UpdateHandlerSession();
         UpdateHandlerSettings();
-
-        TryResolveHostHandle();
-        StartSession();
         UpdateFallbackRenderLoop();
     }
 
@@ -440,8 +449,12 @@ public class CompositionWgcCaptureControl : Control
     {
         base.OnDetachedFromVisualTree(e);
         _isAttachedToVisualTree = false;
-        LogInfo("CompositionWgcCaptureControl detached from visual tree.");
-        StopSession();
+        if (IsWindowsPlatform)
+        {
+            LogInfo("CompositionWgcCaptureControl detached from visual tree.");
+            StopSession();
+        }
+
         if (_visual != null)
         {
             _visual.SendHandlerMessage(null!); // Cleanup signal
@@ -458,6 +471,9 @@ public class CompositionWgcCaptureControl : Control
 
     private void StartSession()
     {
+        if (!IsWindowsPlatform)
+            return;
+
         StopSession();
 
         var nextTargetHwnd = TargetHwnd;
@@ -494,6 +510,9 @@ public class CompositionWgcCaptureControl : Control
 
     private async Task StartSessionDelayedAsync(nint nextTargetHwnd, CancellationToken cancellationToken)
     {
+        if (!IsWindowsPlatform)
+            return;
+
         try
         {
             await Task.Delay(CaptureSessionStartDelayMs, cancellationToken).ConfigureAwait(true);
@@ -596,6 +615,9 @@ public class CompositionWgcCaptureControl : Control
 
     private void StopSession()
     {
+        if (!IsWindowsPlatform)
+            return;
+
         if (_isStoppingSession)
             return;
 
@@ -649,7 +671,7 @@ public class CompositionWgcCaptureControl : Control
 
     private async Task<bool> WaitForCaptureReadyAsync(CancellationToken cancellationToken)
     {
-        if (_session == nint.Zero)
+        if (!IsWindowsPlatform || _session == nint.Zero)
             return false;
 
         var start = Stopwatch.GetTimestamp();
@@ -681,14 +703,15 @@ public class CompositionWgcCaptureControl : Control
             if (_visual == null && _handler == null)
                 return;
 
-            StartSession();
+            if (IsWindowsPlatform)
+                StartSession();
         }
         else if (change.Property == RequestStopSessionProperty)
         {
             try
             {
                 var requested = change.NewValue is bool b && b;
-                if (requested)
+                if (requested && IsWindowsPlatform)
                 {
                     LogInfo("CompositionWgcCaptureControl RequestStopSession triggered.");
                     StopSession();
@@ -720,7 +743,8 @@ public class CompositionWgcCaptureControl : Control
         }
         else if (change.Property == UseHostWindowCaptureProperty)
         {
-            StartSession();
+            if (IsWindowsPlatform)
+                StartSession();
         }
         else if (change.Property == DisableDownscaleProperty)
         {
@@ -749,6 +773,9 @@ public class CompositionWgcCaptureControl : Control
 
     private void UpdateHandlerSession()
     {
+        if (!IsWindowsPlatform)
+            return;
+
         LogInfo(
             $"CompositionWgcCaptureControl UpdateHandlerSession: session=0x{_session.ToInt64():X}, " +
             $"target=0x{_activeTargetHwnd.ToInt64():X}, useOwnerInvalidation={_useOwnerRenderFallback}.");
@@ -777,6 +804,9 @@ public class CompositionWgcCaptureControl : Control
 
     private void UpdateHandlerSettings()
     {
+        if (!IsWindowsPlatform)
+            return;
+
         var effectiveEnableAutoCrop = EnableAutoCrop && !ForceUseTargetClientSize;
 
         SendHandlerMessage(new WgcSettingsMessage
@@ -801,6 +831,9 @@ public class CompositionWgcCaptureControl : Control
 
     private void SendHandlerMessage(object? message)
     {
+        if (!IsWindowsPlatform)
+            return;
+
         if (_visual != null)
         {
             _visual.SendHandlerMessage(message!);
