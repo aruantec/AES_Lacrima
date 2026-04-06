@@ -11,6 +11,7 @@ using Avalonia.Rendering.SceneGraph;
 using Avalonia.Skia;
 using Avalonia.Threading;
 using log4net;
+using AES_Core.Logging;
 using SkiaSharp;
 using System;
 using System.Diagnostics;
@@ -25,9 +26,7 @@ namespace AES_Emulation.Windows;
 
 public class CompositionWgcCaptureControl : Control
 {
-    private static readonly ILog Log = LogManager.GetLogger(
-        typeof(CompositionWgcCaptureControl).Assembly,
-        typeof(CompositionWgcCaptureControl).FullName ?? nameof(CompositionWgcCaptureControl));
+    private static readonly ILog Log = LogHelper.For<CompositionWgcCaptureControl>();
     private static bool IsWindowsPlatform => OperatingSystem.IsWindows();
     private CompositionCustomVisual? _visual;
     private WgcCaptureVisualHandler? _handler;

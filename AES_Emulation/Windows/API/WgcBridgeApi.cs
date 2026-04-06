@@ -1,4 +1,5 @@
 ﻿using log4net;
+using AES_Core.Logging;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System;
@@ -9,9 +10,7 @@ namespace AES_Emulation.Windows.API;
 
 public static class WgcBridgeApi
 {
-    private static readonly ILog Log = LogManager.GetLogger(
-        typeof(WgcBridgeApi).Assembly,
-        typeof(WgcBridgeApi).FullName ?? nameof(WgcBridgeApi));
+    private static readonly ILog Log = LogHelper.For(typeof(WgcBridgeApi));
     // Keep the native library handle so delegates remain valid
     private static IntPtr s_nativeHandle = IntPtr.Zero;
     private static bool s_acquireLatestFrameFaulted;

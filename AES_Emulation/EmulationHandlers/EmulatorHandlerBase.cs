@@ -1,4 +1,5 @@
 using AES_Emulation.Windows.API;
+using AES_Core.Logging;
 using log4net;
 using System;
 using System.Collections.Generic;
@@ -17,7 +18,7 @@ namespace AES_Emulation.EmulationHandlers;
 
 public abstract class EmulatorHandlerBase : IEmulatorHandler
 {
-    private static readonly ILog SLog = LogManager.GetLogger(typeof(EmulatorHandlerBase));
+    private static readonly ILog SLog = LogHelper.For<EmulatorHandlerBase>();
 
     private bool _isActive;
     private bool _isPrepared;
