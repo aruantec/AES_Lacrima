@@ -4,13 +4,14 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using AES_Core.Logging;
 using log4net;
 
 namespace AES_Emulation.EmulationHandlers;
 
 public sealed class RetroArchHandler : EmulatorHandlerBase
 {
-    private static readonly ILog Log = LogManager.GetLogger(typeof(RetroArchHandler));
+    private static readonly ILog Log = LogHelper.For<RetroArchHandler>();
 
     public static RetroArchHandler Instance { get; } = new();
 
