@@ -45,8 +45,8 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
                normalized.Contains("gamecube", StringComparison.OrdinalIgnoreCase) ||
                normalized.Contains("gcn", StringComparison.OrdinalIgnoreCase) ||
                normalized.Contains("gc", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("wii", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("nintendo wii", StringComparison.OrdinalIgnoreCase) ||
+               (normalized.Contains("wii", StringComparison.OrdinalIgnoreCase) && !normalized.Contains("wii u", StringComparison.OrdinalIgnoreCase)) ||
+               (normalized.Contains("nintendo wii", StringComparison.OrdinalIgnoreCase) && !normalized.Contains("nintendo wii u", StringComparison.OrdinalIgnoreCase)) ||
                normalized.Contains("n64", StringComparison.OrdinalIgnoreCase) ||
                normalized.Contains("nintendo 64", StringComparison.OrdinalIgnoreCase) ||
                normalized.Contains("snes", StringComparison.OrdinalIgnoreCase) ||

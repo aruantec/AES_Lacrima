@@ -146,7 +146,7 @@ namespace AES_Lacrima.ViewModels
         private double _renderOverlayOpacity = 0.55;
 
         [ObservableProperty]
-        private string _selectedStretch = "UniformToFill";
+        private Stretch _selectedStretch = Stretch.UniformToFill;
 
         [ObservableProperty]
         private bool _useHostWindowCapture;
@@ -595,7 +595,7 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnRenderOverlayOpacityChanged(double value) => AutoSave();
 
-        partial void OnSelectedStretchChanged(string value) => AutoSave();
+        partial void OnSelectedStretchChanged(Stretch value) => AutoSave();
 
         partial void OnDisableVSyncChanged(bool value) => AutoSave();
 
@@ -779,7 +779,9 @@ namespace AES_Lacrima.ViewModels
             ShowFrametimeGraph = ReadBoolSetting(section, nameof(ShowFrametimeGraph), false);
             ShowDetailedGpuInfo = ReadBoolSetting(section, nameof(ShowDetailedGpuInfo), false);
             RenderOverlayOpacity = ReadDoubleSetting(section, nameof(RenderOverlayOpacity), 0.55);
-            SelectedStretch = ReadStringSetting(section, nameof(SelectedStretch), "UniformToFill") ?? "UniformToFill";
+            SelectedStretch = ReadStringSetting(section, nameof(SelectedStretch), "UniformToFill") is string stretchString && Enum.TryParse<Stretch>(stretchString, out var stretchValue)
+                ? stretchValue
+                : Stretch.UniformToFill;
             DisableVSync = ReadBoolSetting(section, nameof(DisableVSync), false);
             RenderBrightness = ReadDoubleSetting(section, nameof(RenderBrightness), 1.0);
             RenderSaturation = ReadDoubleSetting(section, nameof(RenderSaturation), 1.0);
@@ -794,7 +796,7 @@ namespace AES_Lacrima.ViewModels
             WriteSetting(section, nameof(ShowFrametimeGraph), ShowFrametimeGraph);
             WriteSetting(section, nameof(ShowDetailedGpuInfo), ShowDetailedGpuInfo);
             WriteSetting(section, nameof(RenderOverlayOpacity), RenderOverlayOpacity);
-            WriteSetting(section, nameof(SelectedStretch), SelectedStretch);
+            WriteSetting(section, nameof(SelectedStretch), SelectedStretch.ToString());
             WriteSetting(section, nameof(DisableVSync), DisableVSync);
             WriteSetting(section, nameof(RenderBrightness), RenderBrightness);
             WriteSetting(section, nameof(RenderSaturation), RenderSaturation);

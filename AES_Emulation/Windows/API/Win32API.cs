@@ -335,6 +335,19 @@ namespace AES_Emulation.Windows.API
             }
         }
 
+        public static bool SetWindowSize(IntPtr hwnd, int width, int height)
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            try
+            {
+                return SetWindowPos(hwnd, IntPtr.Zero, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static bool IsWindowTopMost(IntPtr hwnd)
         {
             if (hwnd == IntPtr.Zero) return false;

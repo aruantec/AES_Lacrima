@@ -693,11 +693,10 @@
                 </Button>
             </StackPanel>
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="50" Margin="0,0,50,0">
                 <Button Height="60"
                         Width="60"
                         VerticalAlignment="Center"
-                        Margin="0,0,20,0"
                         Cursor="Hand"
                         Command="{Binding ToggleRetroArchErrorOverlayCommand}"
                         IsVisible="{Binding HasRetroArchError}"
@@ -727,7 +726,6 @@
                 <Button Height="60"
                         Width="60"
                         VerticalAlignment="Center"
-                        Margin="0,0,20,0"
                         Cursor="Hand"
                         Command="{Binding ToggleRenderOptionsCommand}"
                         IsVisible="{Binding IsEmulatorRunning}"
@@ -751,7 +749,6 @@
                 <Button Height="60"
                         Width="60"
                         VerticalAlignment="Center"
-                        Margin="0,0,20,0"
                         Cursor="Hand"
                         Command="{Binding CloseEmulatorCommand}"
                         IsVisible="{Binding IsEmulatorRunning}"
