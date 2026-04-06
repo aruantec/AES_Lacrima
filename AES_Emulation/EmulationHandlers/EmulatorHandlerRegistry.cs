@@ -14,7 +14,9 @@ public static class EmulatorHandlerRegistry
         FlyCastHandler.Instance,
         RedreamHandler.Instance,
         RetroArchHandler.Instance,
-        AresHandler.Instance
+        AresHandler.Instance,
+        XeniaHandler.Instance,
+        CemuHandler.Instance
     ];
 
     public static IReadOnlyList<IEmulatorHandler> GetRegisteredHandlers()
