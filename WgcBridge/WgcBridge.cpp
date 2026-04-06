@@ -203,6 +203,24 @@ struct CaptureSession
 
             latestGpuTexture = currentGpu;
 
+            // Interop-only fast path:
+            // when enabled, keep everything on GPU and avoid CPU staging/readback work.
+            if (interopEnabled.load(std::memory_order_relaxed))
+            {
+                width.store(currentW);
+                height.store(currentH);
+                frameCount.fetch_add(1);
+
+                if (swapChain && vrrEnabled)
+                {
+                    // Optional VRR timing signal; keep disabled unless explicitly requested.
+                    swapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
+                }
+
+                frame.Close();
+                return;
+            }
+
             bool frameUpdated = false;
             bool useScaler = (maxWidth > 0 && maxHeight > 0 && (currentW > maxWidth || currentH > maxHeight));
 
@@ -397,9 +415,6 @@ struct CaptureSession
 
                 d3dContext->CopyResource(stagingTexture.get(), currentGpu.get());
 
-                // Ensure GPU copy is finished before Map()
-                d3dContext->Flush();
-
                 D3D11_MAPPED_SUBRESOURCE m;
                 if (SUCCEEDED(d3dContext->Map(stagingTexture.get(), 0, D3D11_MAP_READ, 0, &m)))
                 {
@@ -435,11 +450,11 @@ struct CaptureSession
                 }
             }
 
-            if (swapChain) {
+            if (swapChain && vrrEnabled) {
                 // Presenting on a dedicated swapchain for the current monitor 
                 // tells the DWM/GPU about our desired refresh rate for VRR.
                 // We don't care about the backbuffer content, just the timing.
-                swapChain->Present(0, vrrEnabled ? DXGI_PRESENT_ALLOW_TEARING : 0);
+                swapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
             }
 
         } catch (...) { }

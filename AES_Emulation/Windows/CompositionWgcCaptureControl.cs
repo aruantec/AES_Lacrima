@@ -630,10 +630,22 @@ public class CompositionWgcCaptureControl : Control
             }
         }
 
-        if (_session != nint.Zero)
+        var sessionToDestroy = _session;
+        _session = nint.Zero;
+
+        if (sessionToDestroy != nint.Zero)
         {
-            WgcBridgeApi.DestroyCaptureSession(_session);
-            _session = nint.Zero;
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    WgcBridgeApi.DestroyCaptureSession(sessionToDestroy);
+                }
+                catch (Exception ex)
+                {
+                    LogError($"CompositionWgcCaptureControl failed to destroy capture session 0x{sessionToDestroy.ToInt64():X}.", ex);
+                }
+            });
         }
 
         _activeTargetHwnd = IntPtr.Zero;
@@ -1345,16 +1357,11 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     public override void OnRender(ImmediateDrawingContext context)
     {
-        if (_session == nint.Zero || _visualSize.X < 1 || _visualSize.Y < 1)
+        if (_visualSize.X < 1 || _visualSize.Y < 1)
             return;
 
         try
         {
-            LogDebugOnce(
-                ref _loggedRenderEntry,
-                $"WgcCaptureVisualHandler OnRender entered. session=0x{_session.ToInt64():X}, size={_visualSize.X}x{_visualSize.Y}, " +
-                $"ownerInvalidation={_useOwnerInvalidation}.");
-
             var leaseFeature = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
             if (leaseFeature == null)
             {
@@ -1366,7 +1373,17 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             var canvas = lease.SkCanvas;
             var grContext = lease.GrContext;
 
+            // Always clear the target first.
+            // This ensures the previous captured frame is not left behind when the session is stopped.
             canvas.Clear(SKColors.Black);
+
+            if (_session == nint.Zero)
+                return;
+
+            LogDebugOnce(
+                ref _loggedRenderEntry,
+                $"WgcCaptureVisualHandler OnRender entered. session=0x{_session.ToInt64():X}, size={_visualSize.X}x{_visualSize.Y}, " +
+                $"ownerInvalidation={_useOwnerInvalidation}.");
 
             EnsureGl(context, grContext);
 
