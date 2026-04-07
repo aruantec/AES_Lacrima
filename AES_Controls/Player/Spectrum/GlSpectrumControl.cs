@@ -19,8 +19,8 @@ namespace AES_Controls.Player.Spectrum;
 /// </summary>
 public sealed class GlSpectrumControl : Control, IDisposable
 {
-    private const double MinAdaptiveFrameIntervalMs = 1000.0 / 60.0;
-    private const double MaxAdaptiveFrameIntervalMs = 1000.0 / 24.0;
+    private const double MinAdaptiveFrameIntervalMs = 1000.0 / 120.0;
+    private const double MaxAdaptiveFrameIntervalMs = 1000.0 / 60.0;
     private const double AdaptiveIntervalToleranceMs = 0.25;
     private const double SpectrumDensityFloor = 0.72;
     private const float DefaultPeakThicknessPixels = 2.0f;
@@ -199,7 +199,7 @@ public sealed class GlSpectrumControl : Control, IDisposable
     public GlSpectrumControl()
     {
         ClipToBounds = true;
-        _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(MinAdaptiveFrameIntervalMs), DispatcherPriority.Background, OnRenderTimerTick);
+        _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(MinAdaptiveFrameIntervalMs), DispatcherPriority.Render, OnRenderTimerTick);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -638,7 +638,7 @@ public sealed class GlSpectrumControl : Control, IDisposable
         _averageRenderDurationMs += (_averageRenderDurationMs - renderDurationMs) * -0.18;
 
         double budgetMs = _targetFrameIntervalMs;
-        bool overBudget = _averageRenderDurationMs > budgetMs * 0.72 || renderDurationMs > budgetMs * 0.9;
+        bool overBudget = _averageRenderDurationMs > budgetMs * 0.82 || renderDurationMs > budgetMs * 0.95;
         bool underBudget = _averageRenderDurationMs < budgetMs * 0.45 && _averageFrameDurationMs <= budgetMs * 1.15;
 
         if (overBudget)

@@ -155,6 +155,8 @@ namespace AES_Lacrima.ViewModels
         private readonly HashSet<FolderMediaItem> _subscribedFolders = [];
         private readonly HashSet<MediaItem> _subscribedAlbumChildren = [];
         private readonly Dictionary<FolderMediaItem, AvaloniaList<MediaItem>> _folderChildrenCollections = [];
+        private readonly HashSet<FolderMediaItem> _activeAlbumCoverLoads = [];
+        private readonly object _albumCoverLoadGate = new();
         private bool _isSyncingAlbumSelection;
         private bool _scanMissingStreamDurationsOnLoadedAlbum;
         private bool _isApplyingDeferredAlbumList;
@@ -2145,14 +2147,28 @@ namespace AES_Lacrima.ViewModels
         private void QueueAlbumCoverLoad(FolderMediaItem folder, bool forceUpdate = false, int maxItemsToLoad = int.MaxValue)
         {
             if (AudioPlayer == null || folder.Children.Count == 0) return;
+            if (!TryBeginAlbumCoverLoad(folder)) return;
 
             var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
-            _ = Task.Run(async () => await LoadAlbumCoversAsync(folder, agentInfo, forceUpdate, maxItemsToLoad));
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await LoadAlbumCoversAsync(folder, agentInfo, forceUpdate, maxItemsToLoad);
+                }
+                finally
+                {
+                    EndAlbumCoverLoad(folder);
+                }
+            });
         }
 
         private void QueueLoadedAlbumCoverLoad(FolderMediaItem folder, bool forceUpdate = false)
         {
             if (AudioPlayer == null || folder.Children.Count == 0)
+                return;
+
+            if (!TryBeginAlbumCoverLoad(folder))
                 return;
 
             try
@@ -2208,8 +2224,26 @@ namespace AES_Lacrima.ViewModels
                         folder.IsLoadingCover = folder.Children.Any(child =>
                             NeedsVisibleCoverLoad(child) && child.IsLoadingCover);
                     });
+
+                    EndAlbumCoverLoad(folder);
                 }
             }, ct);
+        }
+
+        private bool TryBeginAlbumCoverLoad(FolderMediaItem folder)
+        {
+            lock (_albumCoverLoadGate)
+            {
+                return _activeAlbumCoverLoads.Add(folder);
+            }
+        }
+
+        private void EndAlbumCoverLoad(FolderMediaItem folder)
+        {
+            lock (_albumCoverLoadGate)
+            {
+                _activeAlbumCoverLoads.Remove(folder);
+            }
         }
 
         public void RefreshLoadedAlbumMetadata()

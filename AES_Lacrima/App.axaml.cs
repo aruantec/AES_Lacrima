@@ -7,6 +7,7 @@ using AES_Lacrima.Mini.ViewModels;
 using AES_Lacrima.ViewModels;
 using AES_Lacrima.Views;
 using AES_Lacrima.Views.Mobile;
+using AES_Lacrima.Services;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -34,6 +35,7 @@ namespace AES_Lacrima
         // needed by the newly‑created window.
         public static bool IsSwitchingMode { get; set; }
         public static bool IsSelfUpdating { get; set; }
+        private WindowsGlobalMediaKeyHook? _globalMediaKeyHook;
 
         private static readonly ILog Logger = AES_Core.Logging.LogHelper.For<App>();
         public override void Initialize()
@@ -76,6 +78,8 @@ namespace AES_Lacrima
                 else
                     desktop.MainWindow = new MainWindow();
 
+                TryInitializeGlobalMediaKeys();
+
                 // Attach closing handler to perform cleanup/save on exit
                 desktop.MainWindow.Closing += MainWindow_Closing;
 
@@ -101,6 +105,81 @@ namespace AES_Lacrima
             }
 
             base.OnFrameworkInitializationCompleted();
+        }
+
+        private void TryInitializeGlobalMediaKeys()
+        {
+            if (!OperatingSystem.IsWindows())
+                return;
+
+            if (_globalMediaKeyHook != null)
+                return;
+
+            try
+            {
+                _globalMediaKeyHook = new WindowsGlobalMediaKeyHook();
+                _globalMediaKeyHook.MediaKeyPressed += OnGlobalMediaKeyPressed;
+                _globalMediaKeyHook.Start();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Failed to initialize global media key hook", ex);
+                _globalMediaKeyHook = null;
+            }
+        }
+
+        private void OnGlobalMediaKeyPressed(GlobalMediaKey key)
+        {
+            if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop || desktop.MainWindow == null)
+                return;
+
+            // When the app is focused, let the window-level KeyDown handlers process media keys.
+            // The global hook is primarily for unfocused/background control.
+            if (desktop.MainWindow.IsActive)
+                return;
+
+            if (desktop.MainWindow.DataContext is MainWindowViewModel mainVm)
+            {
+                var music = mainVm.MusicViewModel;
+                if (music == null)
+                    return;
+
+                switch (key)
+                {
+                    case GlobalMediaKey.Next:
+                        if (music.PlayNextCommand.CanExecute(null))
+                            music.PlayNextCommand.Execute(null);
+                        break;
+                    case GlobalMediaKey.Previous:
+                        if (music.PlayPreviousCommand.CanExecute(null))
+                            music.PlayPreviousCommand.Execute(null);
+                        break;
+                    case GlobalMediaKey.PlayPause:
+                        if (music.TogglePlayCommand.CanExecute(null))
+                            music.TogglePlayCommand.Execute(null);
+                        break;
+                }
+                return;
+            }
+
+            if (desktop.MainWindow.DataContext is MinViewModel minVm)
+            {
+                switch (key)
+                {
+                    case GlobalMediaKey.Next:
+                        if (minVm.NextCommand.CanExecute(null))
+                            minVm.NextCommand.Execute(null);
+                        break;
+                    case GlobalMediaKey.Previous:
+                        if (minVm.PreviousCommand.CanExecute(null))
+                            minVm.PreviousCommand.Execute(null);
+                        break;
+                    case GlobalMediaKey.PlayPause:
+                        if (minVm.PlayPauseCommand.CanExecute(null))
+                            minVm.PlayPauseCommand.Execute(null);
+                        break;
+                }
+            }
         }
 
         private static async Task PerformPostStartupInitializationAsync(Window mainWindow)
@@ -235,6 +314,9 @@ namespace AES_Lacrima
                 // window will be created immediately after the old one closes.
                 if (!IsSwitchingMode)
                 {
+                    _globalMediaKeyHook?.Dispose();
+                    _globalMediaKeyHook = null;
+
                     try
                     {
                         DiLocator.Dispose();
