@@ -83,10 +83,10 @@ namespace AES_Lacrima.Behaviors
 
             if (OperatingSystem.IsMacOS())
             {
-                // On macOS, SystemDecorations.None disables native resizing, and manual BeginResizeDrag
-                // is not supported for borderless windows. Using SystemDecorations.Full with ExtendedClientArea
+                // On macOS, borderless decorations disable native resizing, and manual BeginResizeDrag
+                // is not supported for borderless windows. Using full decorations with ExtendedClientArea
                 // provides natively resizable borderless windows.
-                window.SystemDecorations = SystemDecorations.Full;
+                window.WindowDecorations = WindowDecorations.Full;
                 return;
             }
 

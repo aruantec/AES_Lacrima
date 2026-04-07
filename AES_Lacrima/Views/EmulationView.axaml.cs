@@ -96,7 +96,7 @@ public partial class EmulationView : UserControl
     {
         base.OnAttachedToVisualTree(e);
 
-        if (_portalWindow == null && VisualRoot is Window mainWindow)
+        if (_portalWindow == null && TopLevel.GetTopLevel(this) is Window mainWindow)
         {
             _portalWindow = new PortalWindow();
             _portalWindow.DataContext = DataContext;
@@ -143,7 +143,7 @@ public partial class EmulationView : UserControl
         _captureInitializingSubscription?.Dispose();
         _captureTintSubscription?.Dispose();
         
-        if (VisualRoot is Window mainWindow)
+        if (TopLevel.GetTopLevel(this) is Window mainWindow)
         {
             mainWindow.PositionChanged -= OnMainWindowPositionChanged;
             mainWindow.Activated -= OnMainWindowActivated;
@@ -279,7 +279,7 @@ public partial class EmulationView : UserControl
 
     private void SyncPortalWindow()
     {
-        if (_portalWindow == null || VisualRoot is not Window mainWindow) return;
+        if (_portalWindow == null || TopLevel.GetTopLevel(this) is not Window mainWindow) return;
 
         var portal = this.FindControl<Control>("PortalPortal");
         if (portal == null) return;
@@ -334,7 +334,7 @@ public partial class EmulationView : UserControl
 
     private void UpdateWindowZOrder()
     {
-        if (_portalWindow == null || VisualRoot is not Window mainWindow) return;
+        if (_portalWindow == null || TopLevel.GetTopLevel(this) is not Window mainWindow) return;
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {

@@ -19,8 +19,7 @@
         Width="{Binding WindowWidth, Mode=TwoWay}"
         Height="{Binding WindowHeight, Mode=TwoWay}"
         WindowStartupLocation="Manual"
-        SystemDecorations="None"
-        ExtendClientAreaChromeHints="NoChrome"
+        WindowDecorations="None"
         ExtendClientAreaToDecorationsHint="True">
 
     <!-- Sets the DataContext for the previewer -->

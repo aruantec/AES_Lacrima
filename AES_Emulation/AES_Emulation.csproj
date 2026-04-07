@@ -5,11 +5,12 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <LangVersion>13</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS0618</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.3.10" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.10" />
-    <PackageReference Include="Avalonia.Skia" Version="11.3.10" />
+    <PackageReference Include="Avalonia" Version="12.0.0" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.0" />
+    <PackageReference Include="Avalonia.Skia" Version="12.0.0" />
     <PackageReference Include="log4net" Version="3.2.0" />
   </ItemGroup>
   <ItemGroup>

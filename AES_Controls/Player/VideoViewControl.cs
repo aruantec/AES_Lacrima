@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
@@ -335,7 +336,7 @@ public class VideoViewControl : OpenGlControlBase
         if (!_initialized) InitializeMpvInternal();
         if (Player == null || !_initialized) return;
 
-        var scale = VisualRoot?.RenderScaling ?? 1.0;
+        var scale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
         var width = (int)(Bounds.Width * scale);
         var height = (int)(Bounds.Height * scale);
 

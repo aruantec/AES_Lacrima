@@ -71,7 +71,7 @@ namespace AES_Lacrima.Views
                 vm.IsPrepared = true;
             }
 
-            var renderScale = VisualRoot?.RenderScaling ?? 1.0;
+            var renderScale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
             _lastRenderScale = renderScale;
             if (!vm.SettingsViewModel.HasPersistedScaleFactor)
             {
@@ -104,7 +104,7 @@ namespace AES_Lacrima.Views
         {
             UpdateMainBorderClip();
 
-            var currentScale = VisualRoot?.RenderScaling ?? _lastRenderScale;
+            var currentScale = TopLevel.GetTopLevel(this)?.RenderScaling ?? _lastRenderScale;
             if (double.IsNaN(currentScale) || Math.Abs(currentScale - _lastRenderScale) < 0.01)
                 return;
 
@@ -152,7 +152,7 @@ namespace AES_Lacrima.Views
             if (primary == null)
                 return;
 
-            var renderScale = renderScaleOverride ?? (VisualRoot?.RenderScaling ?? 1.0);
+            var renderScale = renderScaleOverride ?? (TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0);
             var width = (!double.IsNaN(vm.WindowWidth) && vm.WindowWidth > 0) ? vm.WindowWidth : Width;
             var height = (!double.IsNaN(vm.WindowHeight) && vm.WindowHeight > 0) ? vm.WindowHeight : Height;
             if (double.IsNaN(width) || width <= 0 || double.IsNaN(height) || height <= 0)

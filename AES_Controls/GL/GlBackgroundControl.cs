@@ -1,5 +1,6 @@
 ﻿using Avalonia;
 using Avalonia.Collections;
+using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.OpenGL;
@@ -209,7 +210,7 @@ namespace AES_Controls.GL
             gl.ClearColor(0, 0, 0, 0);
             gl.Clear(0x4000);
 
-            double scaling = VisualRoot?.RenderScaling ?? 1.0;
+            double scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
             int w = (int)(Bounds.Width * scaling);
             int h = (int)(Bounds.Height * scaling);
             gl.Viewport(0, 0, w, h);

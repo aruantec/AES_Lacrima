@@ -6,7 +6,7 @@
     x:DataType="vm:EmulationViewModel"
         Title="PortalWindow"
         Background="#0F0F0F"
-        SystemDecorations="None"
+        WindowDecorations="None"
         CanResize="False"
         ShowInTaskbar="False"
         Topmost="False"

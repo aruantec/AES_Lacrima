@@ -831,7 +831,7 @@
             <!-- search + settings panel -->
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="4" Margin="0,0,4,0" Panel.ZIndex="1">
                 <!-- Search box -->
-                <TextBox Watermark="Search"
+                <TextBox PlaceholderText="Search"
                          Text="{Binding SearchText, Mode=TwoWay}"
                          Classes="AlbumSearch"
                          Height="18"
@@ -999,7 +999,7 @@
                          Width="360"
                          Height="40"
                          FontSize="16"
-                         Watermark="Enter Url here"
+                         PlaceholderText="Enter Url here"
                          Background="#CC141414"
                          Foreground="White"
                          BorderBrush="#44FFFFFF"
@@ -1047,7 +1047,7 @@
                          Width="360"
                          Height="40"
                          FontSize="16"
-                         Watermark="Enter Playlist Url here"
+                         PlaceholderText="Enter Playlist Url here"
                          Background="#CC141414"
                          Foreground="White"
                          BorderBrush="#44FFFFFF"

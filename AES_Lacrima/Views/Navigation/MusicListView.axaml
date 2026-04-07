@@ -325,7 +325,7 @@
                 <TextBox HorizontalAlignment="Right"
 				 VerticalAlignment="Top"
 				 Margin="0,-5,30,0"
-				 Watermark="Filter Albums"
+				 PlaceholderText="Filter Albums"
 				 Text="{Binding SearchAlbumText, Mode=TwoWay}"
 				 Classes="AlbumSearch"
 				 ZIndex="100"

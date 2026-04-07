@@ -57,7 +57,7 @@ public class LoadingControl : Control
 
     private void UpdateTimerState()
     {
-        if (IsVisible && VisualRoot != null) StartTimer();
+        if (IsVisible && TopLevel.GetTopLevel(this) != null) StartTimer();
         else StopTimer();
     }
 

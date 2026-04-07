@@ -1,6 +1,7 @@
 using AES_Controls.Helpers;
 using Avalonia;
 using Avalonia.Collections;
+using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
@@ -257,7 +258,7 @@ public class GlWaveformSpectrumControl : OpenGlControlBase, IDisposable
         var glBlendFunc = (delegate* unmanaged[Stdcall]<int, int, void>)gl.GetProcAddress("glBlendFunc");
         if (glBlendFunc != null) glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        var scaling = VisualRoot?.RenderScaling ?? 1.0;
+        var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
         float actualWidth = (float)(Bounds.Width * scaling);
         float actualHeight = (float)(Bounds.Height * scaling);
 

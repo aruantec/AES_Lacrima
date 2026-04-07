@@ -1,6 +1,7 @@
 using AES_Controls.Helpers;
 using Avalonia;
 using Avalonia.Collections;
+using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.OpenGL;
@@ -422,7 +423,7 @@ public unsafe class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
 
         SnapshotSpectrum();
         _isAnimating = UpdatePhysics(delta);
-        float scaling = (float)(VisualRoot?.RenderScaling ?? 1.0);
+        float scaling = (float)(TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0);
         float winAspect = (float)(Bounds.Width / Math.Max(1, Bounds.Height));
 
         gl.Viewport(0, 0, (int)(Bounds.Width * scaling), (int)(Bounds.Height * scaling));

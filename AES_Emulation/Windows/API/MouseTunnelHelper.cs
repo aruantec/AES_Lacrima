@@ -245,7 +245,7 @@ namespace AES_Emulation.Windows.API
         {
             if (!_isCurrentlyVisible) return;
             // If already attached, attach immediately
-            var root = Avalonia.VisualTree.VisualExtensions.GetVisualRoot(_element) as TopLevel;
+            var root = TopLevel.GetTopLevel(_element);
             if (root != null)
             {
                 AttachHandlersToRoot(root);
@@ -273,7 +273,7 @@ namespace AES_Emulation.Windows.API
                 try
                 {
                     _rootAttachAttempts++;
-                    var rt = Avalonia.VisualTree.VisualExtensions.GetVisualRoot(_element) as TopLevel;
+                    var rt = TopLevel.GetTopLevel(_element);
                     if (rt != null)
                     {
                         AttachHandlersToRoot(rt);

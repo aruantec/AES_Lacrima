@@ -714,19 +714,20 @@ namespace AES_Lacrima.ViewModels
         {
             SLog.Info("EmulationViewModel.CloseEmulator requested by the user.");
             _pendingEmulatorLaunchRequest = null;
-            RequestStopEmulatorCapture = true;
-            EmulatorTargetHwnd = IntPtr.Zero;
-            IsEmulatorRunning = false;
             IsRenderOptionsOpen = false;
             ClearRetroArchErrorState();
-            CurrentEmulatorHandler = null;
 
             if (TryGetRunningTrackedEmulatorProcess(out var process))
             {
+                RequestStopEmulatorCapture = true;
                 CloseTrackedEmulatorForPendingLaunch(process);
                 return;
             }
 
+            RequestStopEmulatorCapture = true;
+            EmulatorTargetHwnd = IntPtr.Zero;
+            IsEmulatorRunning = false;
+            CurrentEmulatorHandler = null;
             DetachTrackedEmulatorProcess();
         }
 
@@ -1874,7 +1875,6 @@ namespace AES_Lacrima.ViewModels
             _isClosingActiveEmulatorForRelaunch = true;
             SLog.Info($"EmulationViewModel starting tracked emulator shutdown. pid={process.Id}.");
             RequestStopEmulatorCapture = true;
-            EmulatorTargetHwnd = IntPtr.Zero;
             _ = CloseTrackedEmulatorForPendingLaunchAsync(process);
         }
 
@@ -1882,6 +1882,8 @@ namespace AES_Lacrima.ViewModels
         {
             try
             {
+                await WaitForCaptureStopBeforeClosingProcessAsync().ConfigureAwait(false);
+
                 await Task.Run(() =>
                 {
                     var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
@@ -1962,6 +1964,31 @@ namespace AES_Lacrima.ViewModels
                     TryLaunchPendingEmulatorRequest();
                 }, DispatcherPriority.Background);
             }
+        }
+
+        private async Task WaitForCaptureStopBeforeClosingProcessAsync()
+        {
+            const int maxAttempts = 50;
+            const int delayMs = 50;
+
+            for (var attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                if (!RequestStopEmulatorCapture)
+                    break;
+
+                await Task.Delay(delayMs).ConfigureAwait(false);
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (EmulatorTargetHwnd != IntPtr.Zero)
+                {
+                    SLog.Info($"EmulationViewModel clearing emulator hwnd 0x{EmulatorTargetHwnd.ToInt64():X} after capture stop request.");
+                    EmulatorTargetHwnd = IntPtr.Zero;
+                }
+            }, DispatcherPriority.Background);
+
+            await Task.Delay(150).ConfigureAwait(false);
         }
 
         private void TrackEmulatorProcess(Process? process, string romPath, IEmulatorHandler handler)

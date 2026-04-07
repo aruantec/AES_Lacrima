@@ -32,8 +32,12 @@
     <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
   </PropertyGroup>
   <PropertyGroup Condition="'$(PublishAot)' == 'true'">
-    <NoWarn>$(NoWarn);IL2104;IL3000;IL3053</NoWarn>
+    <NoWarn>$(NoWarn);IL2104;IL3000;IL3053;CS0618</NoWarn>
     <DefineConstants>$(DefineConstants);NATIVE_AOT</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);CS0618</NoWarn>
   </PropertyGroup>
   <ItemGroup Condition="'$(PublishAot)' == 'true'">
     <TrimmerRootAssembly Include="AES_Mpv" />
@@ -47,19 +51,14 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AsyncImageLoader.Avalonia" Version="3.6.0" />
-    <PackageReference Include="Avalonia" Version="11.3.11" />
-    <PackageReference Include="Avalonia.Controls.ColorPicker" Version="11.3.11" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.11" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.11" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.11" />
-    <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.2" />
-    <!--Condition below is needed to remove Avalonia.Diagnostics package from build output in Release configuration.-->
-    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.11">
-      <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
-      <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
-    </PackageReference>
+    <PackageReference Include="Avalonia" Version="12.0.0" />
+    <PackageReference Include="Avalonia.Controls.ColorPicker" Version="12.0.0" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.0" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.0" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.0" />
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.91.1" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
-    <PackageReference Include="Svg.Controls.Skia.Avalonia" Version="11.3.9.2" />
+    <PackageReference Include="Svg.Controls.Skia.Avalonia" Version="12.0.0-rc1" />
     <PackageReference Include="log4net" Version="3.2.0" />
     <PackageReference Include="HotAvalonia" Version="3.*" PrivateAssets="All" Publish="True" Condition="'$(PublishAot)' != 'true'" />
   </ItemGroup>

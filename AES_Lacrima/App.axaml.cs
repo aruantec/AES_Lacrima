@@ -53,7 +53,6 @@ namespace AES_Lacrima
         {
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
-                DisableAvaloniaDataAnnotationValidation();
                 //Initialize DI Locator
                 DiLocator.ConfigureContainer(builder =>
                 {
@@ -86,7 +85,6 @@ namespace AES_Lacrima
             }
             else if (ApplicationLifetime is ISingleViewApplicationLifetime singleView)
             {
-                DisableAvaloniaDataAnnotationValidation();
                 DiLocator.ConfigureContainer();
 
                 var settingsVm = DiLocator.ResolveViewModel<SettingsViewModel>();
@@ -202,20 +200,6 @@ namespace AES_Lacrima
                 }
             }
 #endif
-        }
-
-        [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "This only removes Avalonia's DataAnnotationsValidationPlugin instances and does not depend on trimmed property accessor discovery.")]
-        private void DisableAvaloniaDataAnnotationValidation()
-        {
-            // Get an array of plugins to remove
-            var dataValidationPluginsToRemove =
-                BindingPlugins.DataValidators.OfType<DataAnnotationsValidationPlugin>().ToArray();
-
-            // remove each entry found
-            foreach (var plugin in dataValidationPluginsToRemove)
-            {
-                BindingPlugins.DataValidators.Remove(plugin);
-            }
         }
 
         /// <summary>

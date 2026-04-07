@@ -164,7 +164,7 @@ namespace AES_Controls.Player
         {
             if (_hooksSetup) return;
             _hooksSetup = true;
-            var ie = this.VisualRoot as InputElement;
+            var ie = TopLevel.GetTopLevel(this) as InputElement;
             if (ie != null)
             {
                 ie.AddHandler(InputElement.PointerPressedEvent, GlobalPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -173,7 +173,7 @@ namespace AES_Controls.Player
 
         private void TeardownGlobalHitTest()
         {
-            var ie = this.VisualRoot as InputElement;
+            var ie = TopLevel.GetTopLevel(this) as InputElement;
             if (ie != null)
             {
                 ie.RemoveHandler(InputElement.PointerPressedEvent, GlobalPointerPressed);
