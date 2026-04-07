@@ -1,0 +1,36 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:emulation="using:AES_Emulation.Windows"
+    xmlns:vm="using:AES_Lacrima.ViewModels"
+        x:Class="AES_Lacrima.Views.PortalWindow"
+    x:DataType="vm:EmulationViewModel"
+        Title="PortalWindow"
+        Background="#0F0F0F"
+        SystemDecorations="None"
+        CanResize="False"
+        ShowInTaskbar="False"
+        Topmost="False"
+        TransparencyLevelHint="None"
+        WindowStartupLocation="Manual">
+    <Grid ClipToBounds="True">
+        <Border Background="#0F0F0F"/>
+        <emulation:CompositionWgcCaptureControl x:Name="CaptureControl"
+                                                HorizontalAlignment="Stretch"
+                                                VerticalAlignment="Stretch"
+                                                TargetHwnd="{Binding EmulatorTargetHwnd}"
+                                                RetroarchShaderFile="{Binding SelectedShaderFileItem.Path, Mode=TwoWay}"
+                                                ShowStatisticsOverlay="{Binding ShowStatisticsOverlay, Mode=TwoWay}"
+                                                ShowFrametimeGraph="{Binding ShowFrametimeGraph, Mode=TwoWay}"
+                                                ShowDetailedGpuInfo="{Binding ShowDetailedGpuInfo, Mode=TwoWay}"
+                                                OverlayOpacity="{Binding RenderOverlayOpacity, Mode=TwoWay}"
+                                                Stretch="{Binding SelectedStretch, Mode=TwoWay}"
+                                                UseHostWindowCapture="{Binding UseHostWindowCapture, Mode=TwoWay}"
+                                                ForceUseTargetClientSize="True"
+                                                EnableAutoCrop="True"
+                                                CaptureSessionStartDelayMs="{Binding EmulatorCaptureDelayMs}"
+                                                DisableVSync="{Binding DisableVSync, Mode=TwoWay}"
+                                                Brightness="{Binding RenderBrightness, Mode=TwoWay}"
+                                                Saturation="{Binding RenderSaturation, Mode=TwoWay}"
+                                                RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}" />
+    </Grid>
+</Window>
