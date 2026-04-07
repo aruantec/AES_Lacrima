@@ -182,6 +182,13 @@ namespace AES_Lacrima.Services
 
             ResumeShaderToyIfLeavingMusicView();
 
+            // Deactivate current view immediately so view-specific overlays/windows
+            // can hide at the start of navigation transition.
+            if (View != null)
+            {
+                View.IsActive = false;
+            }
+
             //Set previous view
             _previousViewModel = View;
             //Set current view
