@@ -377,7 +377,7 @@ public sealed class GlSpectrumControl : Control, IDisposable
         _lastTicks = currentTicks;
 
         int targetCount = GetTargetBarCount(logicalWidth);
-        float scaling = (float)(VisualRoot?.RenderScaling ?? 1.0);
+        float scaling = (float)(TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0);
 
         SnapshotSpectrum();
         _isAnimating = UpdatePhysics(targetCount, delta);

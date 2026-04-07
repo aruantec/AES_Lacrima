@@ -61,7 +61,7 @@ public class ScalableDecorator : Decorator
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
-        _hostWindow = e.Root as Window;
+        _hostWindow = TopLevel.GetTopLevel(this) as Window;
 
         if (_hostWindow != null)
         {

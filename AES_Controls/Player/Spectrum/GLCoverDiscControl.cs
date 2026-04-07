@@ -1,5 +1,6 @@
 ﻿using AES_Controls.Helpers;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.OpenGL;
@@ -241,7 +242,8 @@ public class GlCoverDiscControl : OpenGlControlBase
         if (IsLoading) _loadingRotation = (_loadingRotation + (300.0f * delta)) % 360;
 
         gl.BindFramebuffer(0x8D40, fb);
-        gl.Viewport(0, 0, (int)(Bounds.Width * (VisualRoot?.RenderScaling ?? 1.0)), (int)(Bounds.Height * (VisualRoot?.RenderScaling ?? 1.0)));
+        var renderScaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+        gl.Viewport(0, 0, (int)(Bounds.Width * renderScaling), (int)(Bounds.Height * renderScaling));
         gl.ClearColor(0, 0, 0, 0); gl.Clear(0x4000);
         gl.Enable(0x0BE2); _glBlendFunc?.Invoke(1, 0x0303);
         gl.UseProgram(_program);

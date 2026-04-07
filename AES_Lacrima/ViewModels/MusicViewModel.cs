@@ -423,7 +423,7 @@ namespace AES_Lacrima.ViewModels
                     new TaskbarButton { Id = TaskbarButtonId.Next, HIcon = TaskbarProgressHelper.CreateHIconFromCharacter(nextChar, Colors.White), Tooltip = "Next", Flags = THUMBBUTTONFLAGS.Enabled }
                 ];
 
-                if (desktop.MainWindow is Window window && window.SystemDecorations == Avalonia.Controls.SystemDecorations.None)
+                if (desktop.MainWindow is Window window && window.WindowDecorations == Avalonia.Controls.WindowDecorations.None)
                 {
                     // For borderless windows, Windows requires WS_CAPTION or WS_THICKFRAME to show thumbnail toolbar.
                     const int GWL_STYLE = -16;

@@ -501,7 +501,7 @@ public class WgcCaptureControl : OpenGlControlBase
 
         if (RetroarchShaderFile != _currentShaderPath) LoadShaderPreset(gl, RetroarchShaderFile);
 
-        double scaling = VisualRoot?.RenderScaling ?? 1.0;
+        double scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
         int viewW = (int)(Bounds.Width * scaling);
         int viewH = (int)(Bounds.Height * scaling);
 

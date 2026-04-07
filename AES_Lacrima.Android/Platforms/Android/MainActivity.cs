@@ -2,7 +2,6 @@ using Android.App;
 using Android.Content.PM;
 using Android.OS;
 using AES_Core.IO;
-using Avalonia;
 using Avalonia.Android;
 using System.IO;
 
@@ -19,18 +18,8 @@ namespace AES_Lacrima.Android;
                            ConfigChanges.ScreenLayout |
                            ConfigChanges.SmallestScreenSize |
                            ConfigChanges.Density)]
-public class MainActivity : AvaloniaMainActivity<App>
+public class MainActivity : AvaloniaMainActivity
 {
-    protected override AppBuilder CustomizeAppBuilder(AppBuilder builder)
-    {
-        var customizedBuilder = base.CustomizeAppBuilder(builder)
-            .WithInterFont()
-            .With(new SkiaOptions { MaxGpuResourceSizeBytes = 256000000 })
-            .LogToTrace();
-
-        return customizedBuilder;
-    }
-
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         EnsureBundledShadersAvailable();

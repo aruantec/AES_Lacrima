@@ -2,6 +2,7 @@
 using AES_Core.IO;
 using Avalonia;
 using Avalonia.Collections;
+using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.OpenGL;
@@ -362,7 +363,7 @@ public class GlShaderToyControl : OpenGlControlBase
             UpdateCoverTexture(gl);
             _fadeAlpha = Math.Min(1.0f, _fadeAlpha + (float)FadeSpeed);
 
-            float scaling = (float)(VisualRoot?.RenderScaling ?? 1.0);
+            float scaling = (float)(TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0);
             gl.Viewport(0, 0, (int)(Bounds.Width * scaling), (int)(Bounds.Height * scaling));
             gl.ClearColor(0f, 0f, 0f, 0f);
             gl.Clear(0x00004000);

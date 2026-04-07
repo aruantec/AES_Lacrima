@@ -207,7 +207,7 @@ public class WidgetControl : ContentControl
         // disable clipping on ancestor Controls so content can render outside bounds
         DisableAncestorClipping();
 
-        _rootTopLevel = this.GetVisualRoot() as TopLevel;
+        _rootTopLevel = TopLevel.GetTopLevel(this);
 
         // Find container (Canvas or Panel)
         _container = FindPositioningContainer();
@@ -873,7 +873,7 @@ public class WidgetControl : ContentControl
         var pos = e.GetPosition(this);
         if (pos.X < 0 || pos.Y < 0 || pos.X > Bounds.Width || pos.Y > Bounds.Height)
         {
-            try { _rootTopLevel?.FocusManager?.ClearFocus(); } catch { /* ignore */ }
+            try { _rootTopLevel?.FocusManager?.Focus(null, NavigationMethod.Unspecified, KeyModifiers.None); } catch { /* ignore */ }
             SetCursorIfDifferent(StandardCursorType.Arrow);
             InvalidateVisual();
         }

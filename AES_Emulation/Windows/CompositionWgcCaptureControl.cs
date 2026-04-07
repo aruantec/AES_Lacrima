@@ -484,15 +484,6 @@ public class CompositionWgcCaptureControl : Control
 
         IsCaptureInitializing = true;
 
-        try
-        {
-            Win32API.MinimizeWindow(nextTargetHwnd);
-        }
-        catch (Exception ex)
-        {
-            LogInfo($"CompositionWgcCaptureControl StartSession could not minimize target hwnd 0x{nextTargetHwnd.ToInt64():X}: {ex.Message}");
-        }
-
         if (_hostHandle == IntPtr.Zero && !TryResolveHostHandle())
         {
             LogInfo("CompositionWgcCaptureControl StartSession could not resolve host handle.");
@@ -532,15 +523,6 @@ public class CompositionWgcCaptureControl : Control
         _windowHandler.EnableRoundedCorners(44);
         _windowHandler.SetMoveToHost(false);
         _windowHandler.Start(_hostHandle, nextTargetHwnd);
-
-        try
-        {
-            Win32API.RestoreWindow(nextTargetHwnd);
-        }
-        catch (Exception ex)
-        {
-            LogInfo($"CompositionWgcCaptureControl StartSessionDelayedAsync could not restore target hwnd 0x{nextTargetHwnd.ToInt64():X}: {ex.Message}");
-        }
 
         _session = await CreateCaptureSessionWithRetryAsync(nextTargetHwnd, cancellationToken).ConfigureAwait(true);
         if (_session != nint.Zero)
@@ -660,7 +642,7 @@ public class CompositionWgcCaptureControl : Control
             {
                 try
                 {
-                    WgcBridgeApi.DestroyCaptureSession(sessionToDestroy);
+                    DestroyCaptureSessionSafely(sessionToDestroy);
                 }
                 catch (Exception ex)
                 {
@@ -678,6 +660,35 @@ public class CompositionWgcCaptureControl : Control
         {
             _isStoppingSession = false;
         }
+    }
+
+    private static void DestroyCaptureSessionSafely(nint session)
+    {
+        if (session == nint.Zero)
+            return;
+
+        // Give render/release callbacks a brief window to flush before destroying the native session.
+        const int maxWaitIterations = 60;
+        const int waitDelayMs = 16;
+
+        for (var i = 0; i < maxWaitIterations; i++)
+        {
+            try
+            {
+                var readers = WgcBridgeApi.GetReaderCount(session);
+                if (readers <= 0)
+                    break;
+            }
+            catch
+            {
+                // Ignore reader count probe failures; destruction will still be attempted.
+                break;
+            }
+
+            Thread.Sleep(waitDelayMs);
+        }
+
+        WgcBridgeApi.DestroyCaptureSession(session);
     }
 
     private async Task<bool> WaitForCaptureReadyAsync(CancellationToken cancellationToken)
@@ -1409,17 +1420,18 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             // This ensures the previous captured frame is not left behind when the session is stopped.
             canvas.Clear(SKColors.Black);
 
-            if (_session == nint.Zero)
+            var activeSession = _session;
+            if (activeSession == nint.Zero)
                 return;
 
             LogDebugOnce(
                 ref _loggedRenderEntry,
-                $"WgcCaptureVisualHandler OnRender entered. session=0x{_session.ToInt64():X}, size={_visualSize.X}x{_visualSize.Y}, " +
+                $"WgcCaptureVisualHandler OnRender entered. session=0x{activeSession.ToInt64():X}, size={_visualSize.X}x{_visualSize.Y}, " +
                 $"ownerInvalidation={_useOwnerInvalidation}.");
 
             EnsureGl(context, grContext);
 
-        if (WgcBridgeApi.AcquireLatestFrame(_session, out IntPtr ptr, out nuint size, out int w, out int h))
+        if (WgcBridgeApi.AcquireLatestFrame(activeSession, out IntPtr ptr, out nuint size, out int w, out int h))
             {
                 LogDebugOnce(
                     ref _loggedAcquireLatestFrame,
@@ -1464,10 +1476,10 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 }
                 finally
                 {
-                    WgcBridgeApi.ReleaseLatestFrame(_session);
+                    WgcBridgeApi.ReleaseLatestFrame(activeSession);
                 }
             }
-            else if (TryCopyLatestFrame(out ptr, out w, out h))
+            else if (TryCopyLatestFrame(activeSession, out ptr, out w, out h))
             {
                 LogDebugOnce(
                     ref _loggedCopyLatestFrame,
@@ -1519,16 +1531,16 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         }
     }
 
-    private bool TryCopyLatestFrame(out IntPtr ptr, out int width, out int height)
+    private bool TryCopyLatestFrame(nint session, out IntPtr ptr, out int width, out int height)
     {
         ptr = IntPtr.Zero;
         width = 0;
         height = 0;
 
-        if (_session == IntPtr.Zero)
+        if (session == IntPtr.Zero)
             return false;
 
-        if (!WgcBridgeApi.PeekLatestFrame(_session, out int peekWidth, out int peekHeight, out nuint requiredSize) ||
+        if (!WgcBridgeApi.PeekLatestFrame(session, out int peekWidth, out int peekHeight, out nuint requiredSize) ||
             peekWidth <= 0 ||
             peekHeight <= 0 ||
             requiredSize == 0)
@@ -1540,7 +1552,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         if (_frameCopyBuffer == IntPtr.Zero)
             return false;
 
-        if (!WgcBridgeApi.GetLatestFrame(_session, _frameCopyBuffer, _frameCopyBufferSize, out width, out height) ||
+        if (!WgcBridgeApi.GetLatestFrame(session, _frameCopyBuffer, _frameCopyBufferSize, out width, out height) ||
             width <= 0 ||
             height <= 0)
         {

@@ -171,6 +171,7 @@ namespace AES_Controls.Behaviors
         private Canvas? _dragAdornerCanvas;
         private readonly Dictionary<int, Image> _adornerProxies = new();
         private readonly Dictionary<int, TranslateTransform> _adornerTransforms = new();
+        private bool _hasActiveAdornerProxies;
 
         private ScrollViewer? _scrollViewer;
         private Panel? _itemsPanel;
@@ -380,6 +381,7 @@ namespace AES_Controls.Behaviors
         {
             _isDragging = false;
             _hasDragged = false;
+            _hasActiveAdornerProxies = false;
             _dragStartMouseVirtual = default;
             _dragStartItemVirtual = default;
             _currentDraggedIndex = -1;
@@ -642,7 +644,7 @@ namespace AES_Controls.Behaviors
                 if (Math.Abs(dx2) > DragStartThreshold || Math.Abs(dy2) > DragStartThreshold)
                 {
                     _hasDragged = true;
-                    CreateAdornerProxies();
+                    _hasActiveAdornerProxies = CreateAdornerProxies();
                 }
             }
 
@@ -687,7 +689,7 @@ namespace AES_Controls.Behaviors
             if (_currentDragged == null || _dragTransform == null || _itemsPanel == null || _lastPointerScreenPos == null) 
                 return;
 
-            var root = AssociatedObject?.GetVisualRoot() as Visual;
+            var root = AssociatedObject != null ? TopLevel.GetTopLevel(AssociatedObject) as Visual : null;
             if (root == null) return;
 
             var currentMouseVirtual = root.TranslatePoint(_lastPointerScreenPos.Value, _itemsPanel);
@@ -768,7 +770,7 @@ namespace AES_Controls.Behaviors
                     if (child is Control c)
                     {
                         int index = AssociatedObject.IndexFromContainer(c);
-                        if (_draggedIndices.Contains(index))
+                        if (_hasActiveAdornerProxies && _draggedIndices.Contains(index))
                         {
                             c.Opacity = 0;
                         }
@@ -781,58 +783,10 @@ namespace AES_Controls.Behaviors
             }
         }
 
-        private void CreateAdornerProxies()
+        private bool CreateAdornerProxies()
         {
-            if (_itemsPanel == null || AssociatedObject == null) return;
-            var adornerLayer = AdornerLayer.GetAdornerLayer(_itemsPanel);
-            if (adornerLayer == null) return;
-
-            _dragAdornerCanvas = new Canvas { IsHitTestVisible = false };
-            adornerLayer.Children.Add(_dragAdornerCanvas);
-            AdornerLayer.SetAdornedElement(_dragAdornerCanvas, _itemsPanel);
-
-            _adornerProxies.Clear();
-            _adornerTransforms.Clear();
-
-            for (int i = 0; i < _draggedContainers.Count; i++)
-            {
-                var container = _draggedContainers[i];
-                try
-                {
-                    // Temporarily remove transform so RenderTargetBitmap captures it accurately without offsets
-                    var oldTransform = container.RenderTransform;
-                    container.RenderTransform = null;
-
-                    var rtb = new RenderTargetBitmap(new PixelSize((int)Math.Max(1, container.Bounds.Width), (int)Math.Max(1, container.Bounds.Height)), new Vector(96, 96));
-                    rtb.Render(container);
-
-                    container.RenderTransform = oldTransform;
-
-                    var img = new Image
-                    {
-                        Source = rtb,
-                        Width = container.Bounds.Width,
-                        Height = container.Bounds.Height,
-                        Opacity = 1 
-                    };
-
-                    var tt = new TranslateTransform(0, 0);
-                    img.RenderTransform = tt;
-                    _adornerTransforms[i] = tt;
-
-                    Canvas.SetLeft(img, _itemDimensions[_draggedIndices[i]].VirtualPosition.X);
-                    Canvas.SetTop(img, _itemDimensions[_draggedIndices[i]].VirtualPosition.Y);
-
-                    _dragAdornerCanvas.Children.Add(img);
-                    _adornerProxies[i] = img;
-
-                    container.Opacity = 0; // Hide the real container completely!
-                }
-                catch (Exception ex)
-                {
-                    Log.Error("Could not create dragging proxy image", ex);
-                }
-            }
+            _hasActiveAdornerProxies = false;
+            return false;
         }
 
         /// <summary>
@@ -916,6 +870,7 @@ namespace AES_Controls.Behaviors
             _targetAutoScrollSpeed = default;
             _autoScrollSpeed = default;
             _lastPointerScreenPos = null;
+            _hasActiveAdornerProxies = false;
             _currentDraggedIndex = -1;
             _draggedContainers.Clear();
             _draggedIndices.Clear();
@@ -1213,6 +1168,7 @@ namespace AES_Controls.Behaviors
             _dragAdornerCanvas = null;
             _adornerProxies.Clear();
             _adornerTransforms.Clear();
+            _hasActiveAdornerProxies = false;
 
             if (AssociatedObject == null) return;
 
@@ -1311,7 +1267,7 @@ namespace AES_Controls.Behaviors
             }
 
             // Get local position relative to ScrollViewer accurately
-            var root = AssociatedObject.GetVisualRoot() as Visual;
+            var root = TopLevel.GetTopLevel(AssociatedObject) as Visual;
             if (root == null) return;
             
             var localPosToSv = root.TranslatePoint(pointerWindowPos, _scrollViewer);
@@ -1521,7 +1477,7 @@ namespace AES_Controls.Behaviors
             int itemsCount = AssociatedObject.Items.Count;
             if (_itemDimensions.Count != itemsCount) return;
 
-            var root = AssociatedObject.GetVisualRoot() as Visual;
+            var root = TopLevel.GetTopLevel(AssociatedObject) as Visual;
             if (root == null || _lastPointerScreenPos == null) return;
             var currentMouseVirtual = root.TranslatePoint(_lastPointerScreenPos.Value, _itemsPanel);
             if (!currentMouseVirtual.HasValue) return;

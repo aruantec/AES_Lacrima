@@ -524,7 +524,7 @@
                  VerticalAlignment="Top"
                  Margin="0,15,30,0"
                  IsVisible="{Binding IsCarouselVisible}"
-                 Watermark="Search"
+                 PlaceholderText="Search"
                  Text="{Binding SearchText, Mode=TwoWay}"
                  Classes="AlbumSearch"
                  ZIndex="100"

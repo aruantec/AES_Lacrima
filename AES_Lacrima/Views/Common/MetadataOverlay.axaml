@@ -200,7 +200,7 @@
                             <Grid ColumnDefinitions="300,Auto,Auto" ColumnSpacing="8">
                                 <TextBox Grid.Column="0"
                                          Text="{Binding AddImageUrl, Mode=TwoWay}"
-                                         Watermark="Paste image URL..." />
+                                         PlaceholderText="Paste image URL..." />
                                 <Button Grid.Column="1"
                                         Content="Add URL"
                                         Command="{Binding AddImageFromUrlCommand}" />
@@ -211,7 +211,7 @@
                             <Grid ColumnDefinitions="300,Auto,Auto" ColumnSpacing="8">
                                 <TextBox Grid.Column="0"
                                          Text="{Binding ImageSearchQuery, Mode=TwoWay}"
-                                         Watermark="Search cover images..." />
+                                         PlaceholderText="Search cover images..." />
                                 <Button Grid.Column="1"
                                         Content="Search"
                                         Command="{Binding SearchImagesCommand}" />
