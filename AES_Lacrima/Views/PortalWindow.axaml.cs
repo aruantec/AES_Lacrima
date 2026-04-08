@@ -32,7 +32,7 @@ public partial class PortalWindow : Window
         InitializeComponent();
     }
 
-    public CompositionWgcCaptureControl? CaptureHostControl => this.FindControl<CompositionWgcCaptureControl>("CaptureControl");
+    public WgcCaptureControl? CaptureHostControl => this.FindControl<WgcCaptureControl>("CaptureControl");
 
     private void InitializeComponent()
     {
