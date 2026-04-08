@@ -12,6 +12,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Data.Core.Plugins;
+using Avalonia.Threading;
 using Avalonia.Markup.Xaml;
 using log4net;
 using System;
@@ -36,6 +37,10 @@ namespace AES_Lacrima
         public static bool IsSwitchingMode { get; set; }
         public static bool IsSelfUpdating { get; set; }
         private WindowsGlobalMediaKeyHook? _globalMediaKeyHook;
+        private DispatcherTimer? _startupUiProbeTimer;
+        private Stopwatch? _startupUiProbeStopwatch;
+        private long _startupUiProbeLastTickMs;
+        private int _startupUiProbeWarnings;
 
         private static readonly ILog Logger = AES_Core.Logging.LogHelper.For<App>();
         public override void Initialize()
@@ -53,30 +58,46 @@ namespace AES_Lacrima
         /// </summary>
         public override async void OnFrameworkInitializationCompleted()
         {
+            var frameworkInitSw = Stopwatch.StartNew();
+
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
+                Logger.Info("Desktop framework initialization started.");
+                StartStartupUiProbe();
+
                 //Initialize DI Locator
+                var diSw = Stopwatch.StartNew();
                 DiLocator.ConfigureContainer(builder =>
                 {
                     //Register audio player for fresh instances
                     //builder.RegisterType<AudioPlayer>().As<AudioPlayer>().InstancePerDependency();
                 });
+                Logger.Info($"DI container configured in {diSw.ElapsedMilliseconds} ms.");
+
                 // Create the main window.  The user can choose between the stock
                 // AES or a Mini design via the settings.  
                 // We need to resolve and prepare the SettingsViewModel here so the persisted
                 // value is available before we construct the window.
+                var settingsResolveSw = Stopwatch.StartNew();
                 var settingsVm = DiLocator.ResolveViewModel<SettingsViewModel>();
+                Logger.Info($"SettingsViewModel resolved in {settingsResolveSw.ElapsedMilliseconds} ms.");
                 if (settingsVm != null)
                 {
                     var settingsPrepareStopwatch = Stopwatch.StartNew();
                     settingsVm.Prepare();
-                    Logger.Info($"SettingsViewModel.Prepare completed in {settingsPrepareStopwatch.ElapsedMilliseconds} ms.");
+                    var prepareMs = settingsPrepareStopwatch.ElapsedMilliseconds;
+                    if (prepareMs >= 500)
+                        Logger.Warn($"SettingsViewModel.Prepare was slow on UI thread: {prepareMs} ms.");
+                    else
+                        Logger.Info($"SettingsViewModel.Prepare completed in {prepareMs} ms.");
                 }
 
+                var windowCreateSw = Stopwatch.StartNew();
                 if (settingsVm != null && settingsVm.AppMode == 1)
                     desktop.MainWindow = new CustomWindow();
                 else
                     desktop.MainWindow = new MainWindow();
+                Logger.Info($"Main window created in {windowCreateSw.ElapsedMilliseconds} ms. type={desktop.MainWindow.GetType().Name}");
 
                 TryInitializeGlobalMediaKeys();
 
@@ -86,6 +107,8 @@ namespace AES_Lacrima
                 // Finish heavier startup tasks after the window is already available
                 // so release builds don't appear frozen before first render.
                 _ = PerformPostStartupInitializationAsync(desktop.MainWindow);
+
+                Logger.Info($"Desktop framework initialization finished in {frameworkInitSw.ElapsedMilliseconds} ms.");
             }
             else if (ApplicationLifetime is ISingleViewApplicationLifetime singleView)
             {
@@ -105,6 +128,60 @@ namespace AES_Lacrima
             }
 
             base.OnFrameworkInitializationCompleted();
+        }
+
+        private void StartStartupUiProbe()
+        {
+            if (_startupUiProbeTimer != null)
+                return;
+
+            _startupUiProbeStopwatch = Stopwatch.StartNew();
+            _startupUiProbeLastTickMs = 0;
+            _startupUiProbeWarnings = 0;
+
+            _startupUiProbeTimer = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromMilliseconds(250)
+            };
+
+            _startupUiProbeTimer.Tick += (_, _) =>
+            {
+                if (_startupUiProbeStopwatch == null)
+                    return;
+
+                var nowMs = _startupUiProbeStopwatch.ElapsedMilliseconds;
+                if (_startupUiProbeLastTickMs > 0)
+                {
+                    var delta = nowMs - _startupUiProbeLastTickMs;
+                    if (delta > 1200 && _startupUiProbeWarnings < 8)
+                    {
+                        _startupUiProbeWarnings++;
+                        Logger.Warn($"UI thread stall detected during startup. tickGap={delta} ms, uptime={nowMs} ms.");
+                    }
+                }
+
+                _startupUiProbeLastTickMs = nowMs;
+
+                // Keep probe only for early startup.
+                if (nowMs > 30000)
+                    StopStartupUiProbe("timeout");
+            };
+
+            _startupUiProbeTimer.Start();
+            Logger.Info("Startup UI probe started.");
+        }
+
+        private void StopStartupUiProbe(string reason)
+        {
+            if (_startupUiProbeTimer == null)
+                return;
+
+            _startupUiProbeTimer.Stop();
+            _startupUiProbeTimer = null;
+
+            var elapsed = _startupUiProbeStopwatch?.ElapsedMilliseconds ?? 0;
+            _startupUiProbeStopwatch = null;
+            Logger.Info($"Startup UI probe stopped. reason={reason}, elapsed={elapsed} ms, warnings={_startupUiProbeWarnings}.");
         }
 
         private void TryInitializeGlobalMediaKeys()
@@ -182,7 +259,7 @@ namespace AES_Lacrima
             }
         }
 
-        private static async Task PerformPostStartupInitializationAsync(Window mainWindow)
+        private async Task PerformPostStartupInitializationAsync(Window mainWindow)
         {
             // Let the window reach its first frame before any post-startup work runs.
             await Task.Yield();
@@ -227,6 +304,7 @@ namespace AES_Lacrima
             }
 
             Logger.Info($"Post-startup initialization completed in {startupStopwatch.ElapsedMilliseconds} ms.");
+            StopStartupUiProbe("post-startup-complete");
         }
 
         private static async Task PerformInitialToolChecksAsync(Window mainWindow)
@@ -314,6 +392,7 @@ namespace AES_Lacrima
                 // window will be created immediately after the old one closes.
                 if (!IsSwitchingMode)
                 {
+                    StopStartupUiProbe("shutdown");
                     _globalMediaKeyHook?.Dispose();
                     _globalMediaKeyHook = null;
 
