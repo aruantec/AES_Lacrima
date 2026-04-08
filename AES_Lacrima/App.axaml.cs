@@ -366,6 +366,8 @@ namespace AES_Lacrima
         /// </summary>
         private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
         {
+            PortalWindow.SetApplicationShuttingDown();
+
             if (IsSelfUpdating)
             {
                 Logger.Info("Skipping normal shutdown cleanup because a self-update restart is in progress");
