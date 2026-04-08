@@ -188,7 +188,7 @@ namespace AES_Lacrima.Mini.ViewModels
         #region Public properties
         public double DisplayDuration => LoadedMediaItem?.Duration ?? SelectedMediaItem?.Duration ?? 0.0;
 
-        public Bitmap LoadedCoverBitmap => _coverDisplayOverrideItem?.CoverBitmap ?? LoadedMediaItem?.CoverBitmap ?? _defaultCover;
+        public Bitmap LoadedCoverBitmap => LoadedMediaItem?.CoverBitmap ?? _defaultCover;
 
         public bool ShuffleMode
         {
@@ -392,7 +392,7 @@ namespace AES_Lacrima.Mini.ViewModels
                 MusicViewModel.PlaybackQueue = playlistItems;
 
             MusicViewModel.SelectedMediaItem = SelectedMediaItem;
-            var index = MusicViewModel.CoverItems.IndexOf(SelectedMediaItem);
+            var index = playlistItems != null ? playlistItems.IndexOf(SelectedMediaItem) : -1;
             if (index >= 0)
             {
                 MusicViewModel.SelectedIndex = index;
@@ -811,16 +811,13 @@ namespace AES_Lacrima.Mini.ViewModels
 
         private void RefreshCoverPresentation()
         {
-            UpdateLoadedBrush(_coverDisplayOverrideItem ?? LoadedMediaItem);
+            UpdateLoadedBrush(LoadedMediaItem);
             OnPropertyChanged(nameof(LoadedCoverBitmap));
         }
 
         private void SetCoverDisplayOverride(MediaItem? item)
         {
-            if (ReferenceEquals(_coverDisplayOverrideItem, item))
-                return;
-
-            _coverDisplayOverrideItem = item;
+            // Simplified: always defer to LoadedMediaItem for production covers
             RefreshCoverPresentation();
         }
 
@@ -946,16 +943,7 @@ namespace AES_Lacrima.Mini.ViewModels
                 {
                     _pendingTrackLoadItem = null;
                     IsTrackLoadPending = false;
-                    var nextItem = GetUpcomingPlaybackItem();
-                    if (nextItem != null)
-                    {
-                        SetCoverDisplayOverride(nextItem);
-                    }
-                    else
-                    {
-                        SetCoverDisplayOverride(null);
-                        ResetStoppedDisplay();
-                    }
+                    RefreshCoverPresentation();
                 }
                 catch (Exception ex) { Log.Warn("OnAudioPlayerStopped failed", ex); }
             });
@@ -1291,6 +1279,37 @@ namespace AES_Lacrima.Mini.ViewModels
             var playlistItems = GetCurrentPlaylistItems();
             if (playlistItems == null || playlistItems.Count == 0)
                 return;
+
+            if (SettingsViewModel?.SortAlbumsByTrackNameInMiniView == true)
+            {
+                var sorted = playlistItems.OrderBy(item => item.Track).ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase).ToList();
+                if (!playlistItems.SequenceEqual(sorted))
+                {
+                    try
+                    {
+                        UnsubscribeFromCollection(playlistItems);
+                        playlistItems.Clear();
+                        playlistItems.AddRange(sorted);
+
+                        // Ensure MusicViewModel's collections are synced to prevent mismatched cover/tint state
+                        if (MusicViewModel != null)
+                        {
+                            if (!ReferenceEquals(MusicViewModel.CoverItems, playlistItems))
+                            {
+                                MusicViewModel.CoverItems.Clear();
+                                MusicViewModel.CoverItems.AddRange(sorted);
+                            }
+                            MusicViewModel.PlaybackQueue.Clear();
+                            MusicViewModel.PlaybackQueue.AddRange(sorted);
+                        }
+                    }
+                    finally
+                    {
+                        SubscribeToCollection(playlistItems);
+                        UpdateItemIndices();
+                    }
+                }
+            }
 
             if (SelectedMediaItem != null && playlistItems.Contains(SelectedMediaItem))
                 return;

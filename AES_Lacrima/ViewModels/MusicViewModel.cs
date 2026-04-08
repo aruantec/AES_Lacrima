@@ -852,6 +852,17 @@ namespace AES_Lacrima.ViewModels
                 IsVideoViewportDismissed = true;
 
             var selectedAlbum = SelectedAlbum;
+            if (selectedAlbum != null && SettingsViewModel?.SortAlbumsByTrackNameInMiniView == true)
+            {
+                var sorted = selectedAlbum.Children.OrderBy(item => item.Track).ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase).ToList();
+                if (!selectedAlbum.Children.SequenceEqual(sorted))
+                {
+                    selectedAlbum.Children.Clear();
+                    foreach (var item in sorted)
+                        selectedAlbum.Children.Add(item);
+                }
+            }
+
             var isSameAlbum = selectedAlbum != null && ReferenceEquals(LoadedAlbum, selectedAlbum);
             if (!isSameAlbum && ResetPlaybackOnAlbumSwitch)
                 ResetPlaybackStateForAlbumSwitch();

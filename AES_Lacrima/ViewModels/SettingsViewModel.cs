@@ -264,6 +264,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private bool _emulationUseFirstItemCover = false;
 
+    [ObservableProperty]
+    private bool _sortAlbumsByTrackNameInMiniView = false;
+
     public event Action<bool>? EmulationUseFirstItemCoverChanged;
 
     partial void OnEmulationUseFirstItemCoverChanged(bool value)
@@ -2211,6 +2214,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ReplayGainTagsPreampDb = ReadDoubleSetting(section, nameof(ReplayGainTagsPreampDb), ReplayGainTagsPreampDb);
         ReplayGainTagSource = ReadIntSetting(section, nameof(ReplayGainTagSource), ReplayGainTagSource);
         SilenceAdvanceDelayMs = ReadIntSetting(section, nameof(SilenceAdvanceDelayMs), SilenceAdvanceDelayMs);
+        SortAlbumsByTrackNameInMiniView = ReadBoolSetting(section, nameof(SortAlbumsByTrackNameInMiniView), SortAlbumsByTrackNameInMiniView);
     }
 
     /// <summary>
@@ -2294,6 +2298,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ReplayGainTagsPreampDb), ReplayGainTagsPreampDb);
         WriteSetting(section, nameof(ReplayGainTagSource), ReplayGainTagSource);
         WriteSetting(section, nameof(SilenceAdvanceDelayMs), SilenceAdvanceDelayMs);
+        WriteSetting(section, nameof(SortAlbumsByTrackNameInMiniView), SortAlbumsByTrackNameInMiniView);
     }
 
     private void MigrateLegacySectionLauncherPath(string? sectionTitle, string? launcherPath)
