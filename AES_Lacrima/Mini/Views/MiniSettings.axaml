@@ -99,6 +99,9 @@
                                 <CheckBox IsChecked="{Binding LoudnessCompensatedVolume, Mode=TwoWay}" VerticalAlignment="Center">
                                     <TextBlock Text="Loudness compensated volume control" Foreground="WhiteSmoke" VerticalAlignment="Center"/>
                                 </CheckBox>
+                                <CheckBox IsChecked="{Binding SortAlbumsByTrackNameInMiniView, Mode=TwoWay}" VerticalAlignment="Center">
+                                    <TextBlock Text="Sort albums by track name" Foreground="WhiteSmoke" VerticalAlignment="Center"/>
+                                </CheckBox>
                             </StackPanel>
 
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
