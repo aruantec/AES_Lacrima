@@ -16,7 +16,8 @@ public static class EmulatorHandlerRegistry
         RetroArchHandler.Instance,
         AresHandler.Instance,
         XeniaHandler.Instance,
-        CemuHandler.Instance
+        CemuHandler.Instance,
+        Snes9xHandler.Instance
     ];
 
     public static IReadOnlyList<IEmulatorHandler> GetRegisteredHandlers()

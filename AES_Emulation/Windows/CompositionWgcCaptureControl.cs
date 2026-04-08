@@ -39,6 +39,7 @@ public class CompositionWgcCaptureControl : Control
     private bool _isStoppingSession;
     private bool _useOwnerRenderFallback;
     private bool _loggedFallbackRenderPath;
+    private long _lastSettingsLogTickMs;
     private CancellationTokenSource? _sessionStartCts;
     private const int CaptureReadyTimeoutMs = 5000;
 
@@ -314,6 +315,16 @@ public class CompositionWgcCaptureControl : Control
         Trace.WriteLine(message);
     }
 
+    private static void LogDebug(string message)
+    {
+        if (!Log.IsDebugEnabled)
+            return;
+
+        Log.Debug(message);
+        Debug.WriteLine(message);
+        Trace.WriteLine(message);
+    }
+
     private static void LogError(string message, Exception ex)
     {
         Log.Error(message, ex);
@@ -323,6 +334,8 @@ public class CompositionWgcCaptureControl : Control
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
+        TryFocusTargetOnClick();
+
         var pos = e.GetPosition(this);
         // Check if we are interacting with the overlay area (approx 200x110 box)
         float boxW = ShowDetailedGpuInfo ? 350 : 200;
@@ -340,6 +353,40 @@ public class CompositionWgcCaptureControl : Control
             e.Handled = true;
         }
         base.OnPointerPressed(e);
+    }
+
+    public void ForwardFocusToTarget()
+    {
+        TryFocusTargetOnClick();
+    }
+
+    private void TryFocusTargetOnClick()
+    {
+        if (!IsWindowsPlatform)
+            return;
+
+        var target = _activeTargetHwnd != IntPtr.Zero ? _activeTargetHwnd : TargetHwnd;
+        if (target == IntPtr.Zero || !IsWindow(target))
+            return;
+
+        try
+        {
+            if (_hostHandle == IntPtr.Zero)
+                TryResolveHostHandle();
+
+            Win32API.ForceEmulatorFocus(target, _hostHandle, 0);
+
+            // Some emulators ignore the first activation; retry once on input priority.
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (IsWindow(target))
+                    Win32API.ForceEmulatorFocus(target, _hostHandle, 0);
+            }, DispatcherPriority.Input);
+        }
+        catch (Exception ex)
+        {
+            LogError("CompositionWgcCaptureControl failed to focus emulator target on click.", ex);
+        }
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
@@ -503,6 +550,8 @@ public class CompositionWgcCaptureControl : Control
         if (!IsWindowsPlatform)
             return;
 
+        var startupSw = Stopwatch.StartNew();
+
         try
         {
             await Task.Delay(CaptureSessionStartDelayMs, cancellationToken).ConfigureAwait(true);
@@ -519,65 +568,81 @@ public class CompositionWgcCaptureControl : Control
             return;
         }
 
-        _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
-        _windowHandler.EnableRoundedCorners(44);
-        _windowHandler.SetMoveToHost(false);
-        _windowHandler.Start(_hostHandle, nextTargetHwnd);
-
-        _session = await CreateCaptureSessionWithRetryAsync(nextTargetHwnd, cancellationToken).ConfigureAwait(true);
-        if (_session != nint.Zero)
+        try
         {
-            try
-            {
-                Win32API.RemoveWindowDecorations(nextTargetHwnd);
-                Win32API.MoveAway(nextTargetHwnd, false);
-                Win32API.SetWindowOpacity(nextTargetHwnd, 0);
-            }
-            catch (Exception ex)
-            {
-                LogInfo($"CompositionWgcCaptureControl could not fully hide/decorate target hwnd 0x{nextTargetHwnd.ToInt64():X} after session creation: {ex.Message}");
-            }
+            _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
+            _windowHandler.EnableRoundedCorners(44);
+            _windowHandler.SetMoveToHost(false);
+            _windowHandler.Start(_hostHandle, nextTargetHwnd);
 
-            _activeTargetHwnd = nextTargetHwnd;
-            LogInfo(
-                $"CompositionWgcCaptureControl capture session created. session=0x{_session.ToInt64():X}, " +
-                $"target=0x{nextTargetHwnd.ToInt64():X}, useOwnerFallback={_useOwnerRenderFallback}.");
-            if (DisableDownscale)
-                WgcBridgeApi.SetCaptureMaxResolution(_session, 0, 0);
+            _session = await CreateCaptureSessionWithRetryAsync(nextTargetHwnd, cancellationToken).ConfigureAwait(true);
+            if (_session != nint.Zero)
+            {
+                try
+                {
+                    Win32API.RemoveWindowDecorations(nextTargetHwnd);
+                    Win32API.MoveAway(nextTargetHwnd, false);
+                    Win32API.SetWindowOpacity(nextTargetHwnd, 0);
+                }
+                catch (Exception ex)
+                {
+                    LogInfo($"CompositionWgcCaptureControl could not fully hide/decorate target hwnd 0x{nextTargetHwnd.ToInt64():X} after session creation: {ex.Message}");
+                }
+
+                _activeTargetHwnd = nextTargetHwnd;
+                LogInfo(
+                    $"CompositionWgcCaptureControl capture session created. session=0x{_session.ToInt64():X}, " +
+                    $"target=0x{nextTargetHwnd.ToInt64():X}, useOwnerFallback={_useOwnerRenderFallback}, startupMs={startupSw.ElapsedMilliseconds}.");
+                if (DisableDownscale)
+                    WgcBridgeApi.SetCaptureMaxResolution(_session, 0, 0);
+                else
+                    WgcBridgeApi.SetCaptureMaxResolution(_session, 4096, 1080);
+
+                UpdateHandlerSession();
+                UpdateHandlerSettings();
+                UpdateFallbackRenderLoop();
+
+                var captureReady = await WaitForCaptureReadyAsync(cancellationToken).ConfigureAwait(true);
+                if (!captureReady)
+                {
+                    LogInfo($"CompositionWgcCaptureControl capture session did not receive a frame within {CaptureReadyTimeoutMs} ms.");
+                }
+
+                IsCaptureInitializing = false;
+            }
             else
-                WgcBridgeApi.SetCaptureMaxResolution(_session, 4096, 1080);
-
-            UpdateHandlerSession();
-            UpdateHandlerSettings();
-            UpdateFallbackRenderLoop();
-
-            var captureReady = await WaitForCaptureReadyAsync(cancellationToken).ConfigureAwait(true);
-            if (!captureReady)
             {
-                LogInfo($"CompositionWgcCaptureControl capture session did not receive a frame within {CaptureReadyTimeoutMs} ms.");
-            }
+                if (_windowHandler != null)
+                {
+                    _windowHandler.Stop();
+                    _windowHandler = null;
+                }
 
+                Win32API.RestoreWindowDecorations(nextTargetHwnd);
+                Win32API.SetWindowOpacity(nextTargetHwnd, 255);
+                LogInfo($"CompositionWgcCaptureControl failed to create capture session for hwnd 0x{nextTargetHwnd.ToInt64():X}. startupMs={startupSw.ElapsedMilliseconds}.");
+                IsCaptureInitializing = false;
+            }
+        }
+        catch (OperationCanceledException)
+        {
             IsCaptureInitializing = false;
         }
-        else
+        catch (Exception ex)
         {
-            if (_windowHandler != null)
-            {
-                _windowHandler.Stop();
-                _windowHandler = null;
-            }
-
-            Win32API.RestoreWindowDecorations(nextTargetHwnd);
-            Win32API.SetWindowOpacity(nextTargetHwnd, 255);
-            LogInfo($"CompositionWgcCaptureControl failed to create capture session for hwnd 0x{nextTargetHwnd.ToInt64():X}.");
             IsCaptureInitializing = false;
+            LogError(
+                $"CompositionWgcCaptureControl StartSessionDelayedAsync failed. target=0x{nextTargetHwnd.ToInt64():X}, " +
+                $"host=0x{_hostHandle.ToInt64():X}, startupMs={startupSw.ElapsedMilliseconds}.",
+                ex);
         }
     }
 
-    private static async Task<nint> CreateCaptureSessionWithRetryAsync(nint targetHwnd, CancellationToken cancellationToken)
+    private async Task<nint> CreateCaptureSessionWithRetryAsync(nint targetHwnd, CancellationToken cancellationToken)
     {
         const int maxAttempts = 6;
         const int retryDelayMs = 300;
+        var sw = Stopwatch.StartNew();
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
@@ -585,11 +650,18 @@ public class CompositionWgcCaptureControl : Control
 
             var session = WgcBridgeApi.CreateCaptureSession(targetHwnd);
             if (session != nint.Zero)
+            {
+                LogDebug($"CreateCaptureSessionWithRetryAsync succeeded on attempt {attempt}/{maxAttempts} in {sw.ElapsedMilliseconds} ms for target=0x{targetHwnd.ToInt64():X}.");
                 return session;
+            }
+
+            LogDebug($"CreateCaptureSessionWithRetryAsync attempt {attempt}/{maxAttempts} failed for target=0x{targetHwnd.ToInt64():X}. elapsedMs={sw.ElapsedMilliseconds}.");
 
             if (attempt < maxAttempts)
                 await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(true);
         }
+
+        LogInfo($"CreateCaptureSessionWithRetryAsync exhausted retries for target=0x{targetHwnd.ToInt64():X}. totalMs={sw.ElapsedMilliseconds}.");
 
         return nint.Zero;
     }
@@ -698,14 +770,25 @@ public class CompositionWgcCaptureControl : Control
 
         var start = Stopwatch.GetTimestamp();
         var timeoutTicks = CaptureReadyTimeoutMs * Stopwatch.Frequency / 1000;
+        var pollCount = 0;
 
         while (!cancellationToken.IsCancellationRequested)
         {
+            pollCount++;
+
             if (WgcBridgeApi.GetCaptureStatus(_session) > 0)
                 return true;
 
             if (WgcBridgeApi.PeekLatestFrame(_session, out int peekW, out int peekH, out nuint requiredSize) && peekW > 0 && peekH > 0)
                 return true;
+
+            if (Log.IsDebugEnabled && pollCount % 10 == 0)
+            {
+                var elapsedMs = ((Stopwatch.GetTimestamp() - start) * 1000) / Stopwatch.Frequency;
+                LogDebug(
+                    $"WaitForCaptureReadyAsync waiting... session=0x{_session.ToInt64():X}, polls={pollCount}, " +
+                    $"elapsedMs={elapsedMs}, captureStatus={WgcBridgeApi.GetCaptureStatus(_session)}.");
+            }
 
             if ((Stopwatch.GetTimestamp() - start) > timeoutTicks)
                 break;
@@ -731,6 +814,7 @@ public class CompositionWgcCaptureControl : Control
         else if (change.Property == RequestStopSessionProperty)
         {
             try
+
             {
                 var requested = change.NewValue is bool b && b;
                 if (requested && IsWindowsPlatform)
@@ -812,6 +896,7 @@ public class CompositionWgcCaptureControl : Control
 
     private bool TryResolveHostHandle()
     {
+
         var topLevel = TopLevel.GetTopLevel(this);
         if (topLevel?.TryGetPlatformHandle() is not IPlatformHandle platform || platform.Handle == IntPtr.Zero)
         {
@@ -830,6 +915,18 @@ public class CompositionWgcCaptureControl : Control
             return;
 
         var effectiveEnableAutoCrop = EnableAutoCrop && !ForceUseTargetClientSize;
+
+        if (Log.IsDebugEnabled)
+        {
+            var nowMs = Environment.TickCount64;
+            if (nowMs - Volatile.Read(ref _lastSettingsLogTickMs) >= 2000)
+            {
+                Volatile.Write(ref _lastSettingsLogTickMs, nowMs);
+                LogDebug(
+                    $"CompositionWgcCaptureControl UpdateHandlerSettings. stretch={Stretch}, brightness={Brightness:0.00}, " +
+                    $"saturation={Saturation:0.00}, disableVSync={DisableVSync}, autoCrop={effectiveEnableAutoCrop}.");
+            }
+        }
 
         SendHandlerMessage(new WgcSettingsMessage
         {
@@ -1191,12 +1288,10 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _frameCopyBufferSize = 0;
         }
 
-        if (_paint != null)
-        {
-            _paint.ColorFilter?.Dispose();
-            _paint.Dispose();
-            _paint = null!;
-        }
+        // Keep the paint instance alive for the handler lifetime.
+        // Disposing it here can race with in-flight render calls and crash in native Skia.
+        _paint?.ColorFilter?.Dispose();
+        _paint!.ColorFilter = null;
 
         _overlayGraphPath?.Dispose();
         _overlayGraphPath = null;
@@ -1862,18 +1957,20 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
         var info = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
 
-        // Prefer a full SKImage copy path for safety when rendering through Skia.
-        // This avoids lifetime issues and invalid pointer access inside DrawBitmap.
-        using var pixmap = new SKPixmap(info, ptr);
-        using var image = SKImage.FromPixels(pixmap);
+        // Copy the source pixels into Skia-owned memory to avoid lifetime issues with native frame buffers.
+        using var image = SKImage.FromPixelCopy(info, ptr, info.RowBytes);
         if (image == null)
             return;
 
         if (_settingsDirty) { UpdatePaint(); _settingsDirty = false; }
 
+        var paint = _paint;
+        if (paint == null)
+            return;
+
         try
         {
-            canvas.DrawImage(image, srcRect, _cachedDestRect, _paint);
+            canvas.DrawImage(image, srcRect, _cachedDestRect, paint);
         }
         catch (Exception ex)
         {

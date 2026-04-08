@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -53,9 +54,22 @@ public partial class EmulationView : UserControl
     public EmulationView()
     {
         InitializeComponent();
+        var captureHost = this.FindControl<Border>("EmulatorCaptureHost");
+        if (captureHost != null)
+        {
+            captureHost.PointerPressed += OnCaptureHostPointerPressed;
+        }
         DataContextChanged += OnDataContextChanged;
         PortalFallbackOpacity = 1;
         IsPortalSurfaceVisible = false;
+    }
+
+    private void OnCaptureHostPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
+            return;
+
+        _portalWindow?.CaptureHostControl?.ForwardFocusToTarget();
     }
 
     public bool IsPortalCaptureInitializing
