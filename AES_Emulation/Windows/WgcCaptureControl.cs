@@ -164,6 +164,8 @@ public class WgcCaptureControl : OpenGlControlBase
     private long _lastNativeFrameCount = -1;
     private long _lastFrameTicks = 0;
     private long _lastUiUpdateTicks = 0;
+    private readonly double[] _frameTimeHistory = new double[120];
+    private int _frameTimeHistoryPtr = 0;
 
     // internal smoothed values
     private double _smoothedFps = 0.0;
@@ -240,6 +242,33 @@ public class WgcCaptureControl : OpenGlControlBase
 
     public static readonly StyledProperty<bool> ForceUseTargetClientSizeProperty =
         AvaloniaProperty.Register<WgcCaptureControl, bool>(nameof(ForceUseTargetClientSize), false);
+
+    public static readonly StyledProperty<bool> RequestStopSessionProperty =
+        AvaloniaProperty.Register<WgcCaptureControl, bool>(nameof(RequestStopSession), false);
+
+    public static readonly StyledProperty<bool> ShowStatisticsOverlayProperty =
+        AvaloniaProperty.Register<WgcCaptureControl, bool>(nameof(ShowStatisticsOverlay), false);
+
+    public static readonly StyledProperty<bool> ShowFrametimeGraphProperty =
+        AvaloniaProperty.Register<WgcCaptureControl, bool>(nameof(ShowFrametimeGraph), false);
+
+    public static readonly StyledProperty<bool> ShowDetailedGpuInfoProperty =
+        AvaloniaProperty.Register<WgcCaptureControl, bool>(nameof(ShowDetailedGpuInfo), false);
+
+    public static readonly StyledProperty<double> OverlayOpacityProperty =
+        AvaloniaProperty.Register<WgcCaptureControl, double>(nameof(OverlayOpacity), 0.55);
+
+    public static readonly StyledProperty<string> BackendNameProperty =
+        AvaloniaProperty.Register<WgcCaptureControl, string>(nameof(BackendName), "OpenGL");
+
+    public static readonly StyledProperty<string> GpuRendererProperty =
+        AvaloniaProperty.Register<WgcCaptureControl, string>(nameof(GpuRenderer), "Unknown");
+
+    public static readonly StyledProperty<string> GpuVendorProperty =
+        AvaloniaProperty.Register<WgcCaptureControl, string>(nameof(GpuVendor), "Unknown");
+
+    public static readonly StyledProperty<Geometry?> FrametimeGraphGeometryProperty =
+        AvaloniaProperty.Register<WgcCaptureControl, Geometry?>(nameof(FrametimeGraphGeometry), null);
     #endregion
 
 
@@ -253,6 +282,7 @@ public class WgcCaptureControl : OpenGlControlBase
         StretchProperty.Changed.AddClassHandler<WgcCaptureControl>((x, e) => { if (e.NewValue is Stretch s) x.OnStretchChanged(s); });
         RetroarchShaderFileProperty.Changed.AddClassHandler<WgcCaptureControl>((x, e) => x.OnRetroarchShaderFileChanged(e));
         ForceUseTargetClientSizeProperty.Changed.AddClassHandler<WgcCaptureControl>((x, e) => x.OnForceUseTargetClientSizeChanged(e));
+        RequestStopSessionProperty.Changed.AddClassHandler<WgcCaptureControl>((x, e) => x.OnRequestStopSessionChanged(e));
     }
 
 
@@ -296,6 +326,21 @@ public class WgcCaptureControl : OpenGlControlBase
             }
         }
     }
+
+    public void ForwardFocusToTarget()
+    {
+        if (TargetHwnd == IntPtr.Zero || _hostHandle == IntPtr.Zero)
+            return;
+
+        try
+        {
+            Win32API.ForceEmulatorFocus(TargetHwnd, _hostHandle, 200);
+        }
+        catch
+        {
+            // Best effort focus transfer for prototype mode.
+        }
+    }
     #endregion
 
     #region Private/Protected Methods
@@ -320,6 +365,18 @@ public class WgcCaptureControl : OpenGlControlBase
         var shaderInfo = GlHelper.GetShaderVersion(gl);
         string shaderVersion = shaderInfo.Item1;
         _isEs = shaderInfo.Item2;
+
+        BackendName = _isEs ? "OpenGL ES" : "OpenGL";
+        try
+        {
+            GpuRenderer = gl.GetString(0x1F01) ?? "Unknown"; // GL_RENDERER
+            GpuVendor = gl.GetString(0x1F00) ?? "Unknown";   // GL_VENDOR
+        }
+        catch
+        {
+            GpuRenderer = "Unknown";
+            GpuVendor = "Unknown";
+        }
 
         _textureId = gl.GenTexture();
         gl.BindTexture(GlConsts.GL_TEXTURE_2D, _textureId);
@@ -516,6 +573,11 @@ public class WgcCaptureControl : OpenGlControlBase
             double smoothing = Math.Clamp(FpsSmoothingFactor, 0.0, 0.999);
             _smoothedFps = (_smoothedFps <= 0.0) ? instantFps : (_smoothedFps * smoothing) + (instantFps * (1.0 - smoothing));
             _smoothedFrameTimeMs = (_smoothedFrameTimeMs <= 0.0) ? frameMs : (_smoothedFrameTimeMs * smoothing) + (frameMs * (1.0 - smoothing));
+
+            _frameTimeHistory[_frameTimeHistoryPtr] = frameMs;
+            _frameTimeHistoryPtr++;
+            if (_frameTimeHistoryPtr >= _frameTimeHistory.Length)
+                _frameTimeHistoryPtr = 0;
         }
         _lastFrameTicks = nowTicks;
 
@@ -681,10 +743,18 @@ public class WgcCaptureControl : OpenGlControlBase
             if ((double)(now - _lastUiUpdateTicks) / Stopwatch.Frequency >= 0.033)
             {
                 _lastUiUpdateTicks = now;
+                Geometry? frametimeGeometry = null;
+                if (ShowFrametimeGraph)
+                    frametimeGeometry = BuildFrametimeGraphGeometry(220, 56, 50.0);
+
                 Dispatcher.UIThread.Post(() =>
                 {
                     Fps = Math.Round(_smoothedFps, 1);
                     FrameTimeMs = Math.Round(_smoothedFrameTimeMs, 2);
+                    if (ShowFrametimeGraph)
+                        FrametimeGraphGeometry = frametimeGeometry;
+                    else if (FrametimeGraphGeometry != null)
+                        FrametimeGraphGeometry = null;
                     if (_session != nint.Zero)
                     {
                         try
@@ -820,6 +890,46 @@ public class WgcCaptureControl : OpenGlControlBase
         return new PixelRect((viewW - frameW) / 2, (viewH - frameH) / 2, frameW, frameH);
     }
 
+    private Geometry BuildFrametimeGraphGeometry(double width, double height, double maxMs)
+    {
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            int count = _frameTimeHistory.Length;
+            if (count <= 1)
+                return geometry;
+
+            double step = width / (count - 1);
+            int idx = _frameTimeHistoryPtr;
+            bool started = false;
+
+            for (int i = 0; i < count; i++)
+            {
+                double ms = _frameTimeHistory[idx];
+                ms = Math.Clamp(ms, 0.0, maxMs);
+                double x = i * step;
+                double y = height - ((ms / maxMs) * height);
+                var point = new Point(x, y);
+
+                if (!started)
+                {
+                    ctx.BeginFigure(point, false);
+                    started = true;
+                }
+                else
+                {
+                    ctx.LineTo(point);
+                }
+
+                idx++;
+                if (idx >= count)
+                    idx = 0;
+            }
+        }
+
+        return geometry;
+    }
+
     protected override void OnOpenGlDeinit(GlInterface gl)
     {
         _mouseTunnel.Dispose();
@@ -877,6 +987,23 @@ public class WgcCaptureControl : OpenGlControlBase
                 if (_session != nint.Zero) { WgcBridgeApi.DestroyCaptureSession(_session); _session = nint.Zero; }
             }
         }
+    }
+
+    private void OnRequestStopSessionChanged(AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.NewValue is not bool requested || !requested)
+            return;
+
+        lock (_sessionLock)
+        {
+            if (_session != nint.Zero)
+            {
+                WgcBridgeApi.DestroyCaptureSession(_session);
+                _session = nint.Zero;
+            }
+        }
+
+        SetValue(RequestStopSessionProperty, false);
     }
 
     private void WgcCaptureControl_Loaded(object? sender, RoutedEventArgs e)
@@ -1007,23 +1134,26 @@ public class WgcCaptureControl : OpenGlControlBase
                 _shaderPipeline?.Dispose();
                 _shaderPipeline = null;
                 _currentShaderPath = path;
+                Debug.WriteLine("[WGC] Shader preset cleared.");
                 return;
             }
 
             string ext = Path.GetExtension(path).ToLowerInvariant();
 
-            if (ext == ".glsl" || ext == ".glslp" || ext == ".slang" || ext == ".slangp")
+            if (ext == ".glsl" || ext == ".glslp" || ext == ".slang" || ext == ".slangp" || ext == ".cgp")
             {
                 _shaderPipeline?.Dispose();
                 _shaderPipeline = new SlangShaderPipeline(gl);
                 _shaderPipeline.LoadShaderPreset(path);
                 _currentShaderPath = path;
+                Debug.WriteLine($"[WGC] Shader preset loaded: '{path}'.");
             }
             else
             {
                 _shaderPipeline?.Dispose();
                 _shaderPipeline = null;
                 _currentShaderPath = null;
+                Debug.WriteLine($"[WGC] Shader preset ignored due to unsupported extension: '{path}'.");
             }
         }
         catch (Exception ex)
@@ -1351,6 +1481,15 @@ public class WgcCaptureControl : OpenGlControlBase
     public double Saturation { get => GetValue(SaturationProperty); set => SetValue(SaturationProperty, value); }
     public Color ColorTint { get => GetValue(ColorTintProperty); set => SetValue(ColorTintProperty, value); }
     public bool ForceUseTargetClientSize { get => GetValue(ForceUseTargetClientSizeProperty); set => SetValue(ForceUseTargetClientSizeProperty, value); }
+    public bool RequestStopSession { get => GetValue(RequestStopSessionProperty); set => SetValue(RequestStopSessionProperty, value); }
+    public bool ShowStatisticsOverlay { get => GetValue(ShowStatisticsOverlayProperty); set => SetValue(ShowStatisticsOverlayProperty, value); }
+    public bool ShowFrametimeGraph { get => GetValue(ShowFrametimeGraphProperty); set => SetValue(ShowFrametimeGraphProperty, value); }
+    public bool ShowDetailedGpuInfo { get => GetValue(ShowDetailedGpuInfoProperty); set => SetValue(ShowDetailedGpuInfoProperty, value); }
+    public double OverlayOpacity { get => GetValue(OverlayOpacityProperty); set => SetValue(OverlayOpacityProperty, value); }
+    public string BackendName { get => GetValue(BackendNameProperty); private set => SetValue(BackendNameProperty, value); }
+    public string GpuRenderer { get => GetValue(GpuRendererProperty); private set => SetValue(GpuRendererProperty, value); }
+    public string GpuVendor { get => GetValue(GpuVendorProperty); private set => SetValue(GpuVendorProperty, value); }
+    public Geometry? FrametimeGraphGeometry { get => GetValue(FrametimeGraphGeometryProperty); private set => SetValue(FrametimeGraphGeometryProperty, value); }
     public int FrameNumber { get => GetValue(FrameNumberProperty); private set => SetValue(FrameNumberProperty, value); }
 
     public double Fps { get => GetValue(FpsProperty); private set => SetValue(FpsProperty, value); }

@@ -331,12 +331,10 @@ public partial class EmulationView : UserControl
             captureControl.ColorTint = PortalCaptureTint;
         }
 
-        _captureInitializingSubscription = captureControl
-            .GetObservable(CompositionWgcCaptureControl.IsCaptureInitializingProperty)
-            .Subscribe(new SimpleObserver<bool>(value => IsPortalCaptureInitializing = value));
+        IsPortalCaptureInitializing = false;
 
         _captureTintSubscription = captureControl
-            .GetObservable(CompositionWgcCaptureControl.ColorTintProperty)
+            .GetObservable(WgcCaptureControl.ColorTintProperty)
             .Subscribe(new SimpleObserver<Color>(value =>
             {
                 if (_portalCaptureTint != value)

@@ -14,23 +14,60 @@
         WindowStartupLocation="Manual">
     <Grid ClipToBounds="True">
         <Border Background="#0F0F0F"/>
-        <emulation:CompositionWgcCaptureControl x:Name="CaptureControl"
-                                                HorizontalAlignment="Stretch"
-                                                VerticalAlignment="Stretch"
-                                                TargetHwnd="{Binding EmulatorTargetHwnd}"
-                                                RetroarchShaderFile="{Binding SelectedShaderFileItem.Path, Mode=TwoWay}"
-                                                ShowStatisticsOverlay="{Binding ShowStatisticsOverlay, Mode=TwoWay}"
-                                                ShowFrametimeGraph="{Binding ShowFrametimeGraph, Mode=TwoWay}"
-                                                ShowDetailedGpuInfo="{Binding ShowDetailedGpuInfo, Mode=TwoWay}"
-                                                OverlayOpacity="{Binding RenderOverlayOpacity, Mode=TwoWay}"
-                                                Stretch="{Binding SelectedStretch, Mode=TwoWay}"
-                                                UseHostWindowCapture="{Binding UseHostWindowCapture, Mode=TwoWay}"
-                                                ForceUseTargetClientSize="True"
-                                                EnableAutoCrop="True"
-                                                CaptureSessionStartDelayMs="{Binding EmulatorCaptureDelayMs}"
-                                                DisableVSync="{Binding DisableVSync, Mode=TwoWay}"
-                                                Brightness="{Binding RenderBrightness, Mode=TwoWay}"
-                                                Saturation="{Binding RenderSaturation, Mode=TwoWay}"
-                                                RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}" />
+        <emulation:WgcCaptureControl x:Name="CaptureControl"
+                                     HorizontalAlignment="Stretch"
+                                     VerticalAlignment="Stretch"
+                                     TargetHwnd="{Binding EmulatorTargetHwnd}"
+                                     RetroarchShaderFile="{Binding SelectedShaderFileItem.Path, Mode=TwoWay}"
+                                     Stretch="{Binding SelectedStretch, Mode=TwoWay}"
+                                     ForceUseTargetClientSize="True"
+                                     DisableVSync="{Binding DisableVSync, Mode=TwoWay}"
+                                     Brightness="{Binding RenderBrightness, Mode=TwoWay}"
+                                     Saturation="{Binding RenderSaturation, Mode=TwoWay}"
+                                     ShowStatisticsOverlay="{Binding ShowStatisticsOverlay, Mode=TwoWay}"
+                                     ShowFrametimeGraph="{Binding ShowFrametimeGraph, Mode=TwoWay}"
+                                     ShowDetailedGpuInfo="{Binding ShowDetailedGpuInfo, Mode=TwoWay}"
+                                     OverlayOpacity="{Binding RenderOverlayOpacity, Mode=TwoWay}"
+                                     RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}" />
+
+        <Border Margin="16"
+                Padding="12"
+                CornerRadius="8"
+                Background="#AA000000"
+                IsHitTestVisible="False"
+                Opacity="{Binding RenderOverlayOpacity}">
+            <Border.IsVisible>
+                <Binding Path="ShowStatisticsOverlay"/>
+            </Border.IsVisible>
+            <StackPanel Spacing="6">
+                <TextBlock Text="{Binding ElementName=CaptureControl, Path=BackendName, StringFormat='Backend: {0}'}"
+                           Foreground="White"
+                           FontSize="14"/>
+                <TextBlock Text="{Binding ElementName=CaptureControl, Path=Fps, StringFormat='FPS: {0:0.0}'}"
+                           Foreground="White"
+                           FontSize="14"/>
+                <TextBlock Text="{Binding ElementName=CaptureControl, Path=FrameTimeMs, StringFormat='FrameTime: {0:0.00} ms'}"
+                           Foreground="White"
+                           FontSize="14"/>
+                <StackPanel Spacing="4"
+                            IsVisible="{Binding ShowDetailedGpuInfo}">
+                    <TextBlock Text="{Binding ElementName=CaptureControl, Path=GpuRenderer, StringFormat='GPU: {0}'}"
+                               Foreground="#DDDDDD"
+                               FontSize="13"/>
+                    <TextBlock Text="{Binding ElementName=CaptureControl, Path=GpuVendor, StringFormat='Vendor: {0}'}"
+                               Foreground="#DDDDDD"
+                               FontSize="13"/>
+                </StackPanel>
+                <Grid Width="220"
+                      Height="56"
+                      Background="#22000000"
+                      IsVisible="{Binding ShowFrametimeGraph}">
+                    <Path Data="{Binding ElementName=CaptureControl, Path=FrametimeGraphGeometry}"
+                          Stroke="#7FFFFFFF"
+                          StrokeThickness="1.5"
+                          Stretch="Fill"/>
+                </Grid>
+            </StackPanel>
+        </Border>
     </Grid>
 </Window>
