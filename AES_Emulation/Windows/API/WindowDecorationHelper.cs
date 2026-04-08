@@ -24,6 +24,9 @@ namespace AES_Emulation.Windows.API
         public static extern IntPtr SetFocus(IntPtr hWnd);
 
         [DllImport("user32.dll")]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
         public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
         public const uint WM_ACTIVATE = 0x0006;
@@ -265,7 +268,7 @@ namespace AES_Emulation.Windows.API
             }
         }
 
-        // Proper EntryPoint names — use Get/SetWindowLongPtr on x64 and Get/SetWindowLong on x86.
+        // Proper EntryPoint names ï¿½ use Get/SetWindowLongPtr on x64 and Get/SetWindowLong on x86.
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
         private static extern IntPtr GetWindowLongPtrPlatform(IntPtr hWnd, int nIndex);
 
@@ -586,7 +589,7 @@ namespace AES_Emulation.Windows.API
                     try
                     {
                         IntPtr resEx = SetWindowLongPtrCompat(hwnd, GWL_EXSTYLE, savedEx);
-                        // ignore resEx check — best-effort
+                        // ignore resEx check ï¿½ best-effort
                     }
                     catch { }
                 }

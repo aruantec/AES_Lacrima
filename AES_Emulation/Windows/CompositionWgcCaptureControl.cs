@@ -334,8 +334,6 @@ public class CompositionWgcCaptureControl : Control
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
-        TryFocusTargetOnClick();
-
         var pos = e.GetPosition(this);
         // Check if we are interacting with the overlay area (approx 200x110 box)
         float boxW = ShowDetailedGpuInfo ? 350 : 200;
@@ -352,6 +350,13 @@ public class CompositionWgcCaptureControl : Control
             e.Pointer.Capture(this);
             e.Handled = true;
         }
+        else
+        {
+            // Only forward focus if we're NOT dragging the overlay.
+            // This ensures clicking the "portal" (the game area) always focuses the emulator.
+            TryFocusTargetOnClick();
+        }
+
         base.OnPointerPressed(e);
     }
 

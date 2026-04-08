@@ -382,12 +382,19 @@ namespace AES_Emulation.Windows.API
                 // 1. Attach threads so we can share input state
                 Win32Focus.AttachThreadInput(foregroundThreadId, targetThreadId, true);
 
-                // 2. Fake the focus and activation
+                // 2. Set foreground, focus and activation
+                Win32Focus.SetForegroundWindow(targetHwnd);
                 Win32Focus.SetFocus(targetHwnd);
                 Win32Focus.SendMessage(targetHwnd, Win32Focus.WM_ACTIVATE, Win32Focus.WA_CLICKACTIVE, IntPtr.Zero);
 
                 // 3. Detach
                 Win32Focus.AttachThreadInput(foregroundThreadId, targetThreadId, false);
+            }
+            else
+            {
+                // Already same thread context but maybe not foreground.
+                Win32Focus.SetForegroundWindow(targetHwnd);
+                Win32Focus.SetFocus(targetHwnd);
             }
 
             // Do not alter host Z-order here. Caller can manage z-order separately if needed.
