@@ -306,6 +306,7 @@ public class WgcCaptureControl : OpenGlControlBase
             try
             {
                 if (_session != nint.Zero) { WgcBridgeApi.DestroyCaptureSession(_session); _session = nint.Zero; }
+                ResetCaptureFrameState();
                 if (TargetHwnd == IntPtr.Zero) return;
 
                 _lastNativeFrameCount = -1;
@@ -327,6 +328,39 @@ public class WgcCaptureControl : OpenGlControlBase
                 Debug.WriteLine($"[WGC] CRITICAL ERROR in StartCapture: {ex.Message}");
                 _session = nint.Zero;
             }
+        }
+    }
+
+    private void ResetCaptureFrameState()
+    {
+        _lastNativeFrameCount = -1;
+        _texWidth = 0;
+        _texHeight = 0;
+        _dxTexturePtr = IntPtr.Zero;
+        _lastFrameTicks = 0;
+        _lastUiUpdateTicks = 0;
+
+        for (int i = 0; i < _frameTimeHistory.Length; i++)
+            _frameTimeHistory[i] = 0.0;
+        _frameTimeHistoryPtr = 0;
+        _smoothedFps = 0.0;
+        _smoothedFrameTimeMs = 0.0;
+
+        try
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                FrameNumber = 0;
+                LastFrameWidth = 0;
+                LastFrameHeight = 0;
+                Fps = 0.0;
+                FrameTimeMs = 0.0;
+                FrametimeGraphGeometry = null;
+            }, DispatcherPriority.Render);
+        }
+        catch
+        {
+            // Best effort UI reset.
         }
     }
 
@@ -976,6 +1010,7 @@ public class WgcCaptureControl : OpenGlControlBase
 
         if (e.NewValue is IntPtr hwnd && hwnd != IntPtr.Zero)
         {
+            ResetCaptureFrameState();
             try
             {
                 Win32API.MinimizeWindow(hwnd);
@@ -990,6 +1025,7 @@ public class WgcCaptureControl : OpenGlControlBase
             lock (_sessionLock)
             {
                 if (_session != nint.Zero) { WgcBridgeApi.DestroyCaptureSession(_session); _session = nint.Zero; }
+                ResetCaptureFrameState();
             }
         }
     }
@@ -1006,6 +1042,7 @@ public class WgcCaptureControl : OpenGlControlBase
                 WgcBridgeApi.DestroyCaptureSession(_session);
                 _session = nint.Zero;
             }
+            ResetCaptureFrameState();
         }
 
         SetValue(RequestStopSessionProperty, false);
