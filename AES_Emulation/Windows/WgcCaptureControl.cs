@@ -269,6 +269,9 @@ public class WgcCaptureControl : OpenGlControlBase
 
     public static readonly StyledProperty<Geometry?> FrametimeGraphGeometryProperty =
         AvaloniaProperty.Register<WgcCaptureControl, Geometry?>(nameof(FrametimeGraphGeometry), null);
+
+    public static readonly StyledProperty<double> FrametimeGraphWidthProperty =
+        AvaloniaProperty.Register<WgcCaptureControl, double>(nameof(FrametimeGraphWidth), 180);
     #endregion
 
 
@@ -744,13 +747,15 @@ public class WgcCaptureControl : OpenGlControlBase
             {
                 _lastUiUpdateTicks = now;
                 Geometry? frametimeGeometry = null;
+                double graphWidth = ShowDetailedGpuInfo ? 330.0 : 180.0;
                 if (ShowFrametimeGraph)
-                    frametimeGeometry = BuildFrametimeGraphGeometry(220, 56, 50.0);
+                    frametimeGeometry = BuildFrametimeGraphGeometry(graphWidth, 40.0, 50.0);
 
                 Dispatcher.UIThread.Post(() =>
                 {
                     Fps = Math.Round(_smoothedFps, 1);
                     FrameTimeMs = Math.Round(_smoothedFrameTimeMs, 2);
+                    FrametimeGraphWidth = graphWidth;
                     if (ShowFrametimeGraph)
                         FrametimeGraphGeometry = frametimeGeometry;
                     else if (FrametimeGraphGeometry != null)
@@ -1490,6 +1495,7 @@ public class WgcCaptureControl : OpenGlControlBase
     public string GpuRenderer { get => GetValue(GpuRendererProperty); private set => SetValue(GpuRendererProperty, value); }
     public string GpuVendor { get => GetValue(GpuVendorProperty); private set => SetValue(GpuVendorProperty, value); }
     public Geometry? FrametimeGraphGeometry { get => GetValue(FrametimeGraphGeometryProperty); private set => SetValue(FrametimeGraphGeometryProperty, value); }
+    public double FrametimeGraphWidth { get => GetValue(FrametimeGraphWidthProperty); private set => SetValue(FrametimeGraphWidthProperty, value); }
     public int FrameNumber { get => GetValue(FrameNumberProperty); private set => SetValue(FrameNumberProperty, value); }
 
     public double Fps { get => GetValue(FpsProperty); private set => SetValue(FpsProperty, value); }
