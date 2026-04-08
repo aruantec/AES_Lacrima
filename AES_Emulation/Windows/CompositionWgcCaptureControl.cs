@@ -814,7 +814,18 @@ public class CompositionWgcCaptureControl : Control
                 return;
 
             if (IsWindowsPlatform)
-                StartSession();
+            {
+                var nextHwnd = change.NewValue is IntPtr p ? p : IntPtr.Zero;
+                if (nextHwnd == IntPtr.Zero)
+                {
+                    LogInfo("CompositionWgcCaptureControl TargetHwnd cleared, stopping session.");
+                    StopSession();
+                }
+                else
+                {
+                    StartSession();
+                }
+            }
         }
         else if (change.Property == RequestStopSessionProperty)
         {
@@ -1134,6 +1145,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private SlangShaderPipeline? _shaderPipeline;
     private string? _retroarchShaderFile;
     private GlInterface? _gl;
+    private readonly object _renderLock = new();
     private IntPtr _glTexSubImage2DPtr = IntPtr.Zero;
     private int _captureTextureId;
     private int _intermediateFbo;
@@ -1269,34 +1281,37 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     private void Cleanup()
     {
-        _session = nint.Zero;
-        _shaderPipeline?.Dispose();
-        _shaderPipeline = null;
-
-        if (_gl != null && _gl.ContextInfo != null)
+        lock (_renderLock)
         {
-            if (_captureTextureId != 0) _gl.DeleteTexture(_captureTextureId);
-            if (_intermediateTextureId != 0) _gl.DeleteTexture(_intermediateTextureId);
-            if (_intermediateFbo != 0) _gl.DeleteFramebuffer(_intermediateFbo);
-            _captureTextureId = 0;
-            _intermediateTextureId = 0;
-            _intermediateFbo = 0;
-        }
-        _glTexSubImage2DPtr = IntPtr.Zero;
-        _ownerInvalidateQueued = 0;
-        _ownerStatsUpdateQueued = 0;
+            _session = nint.Zero;
+            _shaderPipeline?.Dispose();
+            _shaderPipeline = null;
 
-        if (_frameCopyBuffer != IntPtr.Zero)
-        {
-            Marshal.FreeHGlobal(_frameCopyBuffer);
-            _frameCopyBuffer = IntPtr.Zero;
-            _frameCopyBufferSize = 0;
-        }
+            if (_gl != null && _gl.ContextInfo != null)
+            {
+                if (_captureTextureId != 0) _gl.DeleteTexture(_captureTextureId);
+                if (_intermediateTextureId != 0) _gl.DeleteTexture(_intermediateTextureId);
+                if (_intermediateFbo != 0) _gl.DeleteFramebuffer(_intermediateFbo);
+                _captureTextureId = 0;
+                _intermediateTextureId = 0;
+                _intermediateFbo = 0;
+            }
+            _glTexSubImage2DPtr = IntPtr.Zero;
+            _ownerInvalidateQueued = 0;
+            _ownerStatsUpdateQueued = 0;
 
-        // Keep the paint instance alive for the handler lifetime.
-        // Disposing it here can race with in-flight render calls and crash in native Skia.
-        _paint?.ColorFilter?.Dispose();
-        _paint!.ColorFilter = null;
+            if (_frameCopyBuffer != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(_frameCopyBuffer);
+                _frameCopyBuffer = IntPtr.Zero;
+                _frameCopyBufferSize = 0;
+            }
+
+            // Keep the paint instance alive for the handler lifetime.
+            // Disposing it here can race with in-flight render calls and crash in native Skia.
+            _paint?.ColorFilter?.Dispose();
+            _paint!.ColorFilter = null;
+        }
 
         _overlayGraphPath?.Dispose();
         _overlayGraphPath = null;
@@ -1503,41 +1518,89 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         if (_visualSize.X < 1 || _visualSize.Y < 1)
             return;
 
-        try
+        lock (_renderLock)
         {
-            var leaseFeature = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
-            if (leaseFeature == null)
+            try
             {
-                LogWarnOnce(ref _loggedLeaseMissing, "WgcCaptureVisualHandler OnRender could not get ISkiaSharpApiLeaseFeature.");
-                return;
-            }
-
-            using var lease = leaseFeature.Lease();
-            var canvas = lease.SkCanvas;
-            var grContext = lease.GrContext;
-
-            // Always clear the target first.
-            // This ensures the previous captured frame is not left behind when the session is stopped.
-            canvas.Clear(SKColors.Black);
-
-            var activeSession = _session;
-            if (activeSession == nint.Zero)
-                return;
-
-            LogDebugOnce(
-                ref _loggedRenderEntry,
-                $"WgcCaptureVisualHandler OnRender entered. session=0x{activeSession.ToInt64():X}, size={_visualSize.X}x{_visualSize.Y}, " +
-                $"ownerInvalidation={_useOwnerInvalidation}.");
-
-            EnsureGl(context, grContext);
-
-        if (WgcBridgeApi.AcquireLatestFrame(activeSession, out IntPtr ptr, out nuint size, out int w, out int h))
-            {
-                LogDebugOnce(
-                    ref _loggedAcquireLatestFrame,
-                    $"WgcCaptureVisualHandler acquired latest frame directly. size={w}x{h}, bytes={size}, ptr={(ptr != IntPtr.Zero ? "valid" : "null")}.");
-                try
+                var leaseFeature = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
+                if (leaseFeature == null)
                 {
+                    LogWarnOnce(ref _loggedLeaseMissing, "WgcCaptureVisualHandler OnRender could not get ISkiaSharpApiLeaseFeature.");
+                    return;
+                }
+
+                using var lease = leaseFeature.Lease();
+                var canvas = lease.SkCanvas;
+                var grContext = lease.GrContext;
+
+                // Always clear the target first.
+                // This ensures the previous captured frame is not left behind when the session is stopped.
+                canvas.Clear(SKColors.Black);
+
+                var activeSession = _session;
+                if (activeSession == nint.Zero)
+                    return;
+
+                LogDebugOnce(
+                    ref _loggedRenderEntry,
+                    $"WgcCaptureVisualHandler OnRender entered. session=0x{activeSession.ToInt64():X}, size={_visualSize.X}x{_visualSize.Y}, " +
+                    $"ownerInvalidation={_useOwnerInvalidation}.");
+
+                EnsureGl(context, grContext);
+
+                if (WgcBridgeApi.AcquireLatestFrame(activeSession, out IntPtr ptr, out nuint size, out int w, out int h))
+                {
+                    LogDebugOnce(
+                        ref _loggedAcquireLatestFrame,
+                        $"WgcCaptureVisualHandler acquired latest frame directly. size={w}x{h}, bytes={size}, ptr={(ptr != IntPtr.Zero ? "valid" : "null")}.");
+                    try
+                    {
+                        if (w > 0 && h > 0 && ptr != IntPtr.Zero)
+                        {
+                            AutoDetectPillarboxes(ptr, w, h);
+
+                            if (_rectDirty || _texWidth != w || _texHeight != h)
+                            {
+                                _cachedDestRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, w - _cropLeft - _cropRight, h);
+                                _rectDirty = false;
+                            }
+
+                            if (_gl != null && !_glRenderFailed)
+                            {
+                                try
+                                {
+                                    LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL path.");
+                                    RenderInternal(canvas, ptr, w, h, grContext);
+                                }
+                                catch (Exception glEx)
+                                {
+                                    _glRenderFailed = true;
+                                    Log.Warn($"WgcCaptureVisualHandler GL render failed, falling back to CPU Skia path for this session. {glEx}");
+                                    RenderSimpleFallback(canvas, ptr, w, h);
+                                }
+                            }
+                            else
+                            {
+                                LogDebugOnce(ref _loggedSimpleRenderPath, "WgcCaptureVisualHandler is rendering through the CPU Skia path.");
+                                RenderSimpleFallback(canvas, ptr, w, h);
+                            }
+
+                            if (_showStatisticsOverlay)
+                            {
+                                RenderOverlay(canvas);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        WgcBridgeApi.ReleaseLatestFrame(activeSession);
+                    }
+                }
+                else if (TryCopyLatestFrame(activeSession, out ptr, out w, out h))
+                {
+                    LogDebugOnce(
+                        ref _loggedCopyLatestFrame,
+                        $"WgcCaptureVisualHandler acquired latest frame through copy fallback. size={w}x{h}, ptr={(ptr != IntPtr.Zero ? "valid" : "null")}.");
                     if (w > 0 && h > 0 && ptr != IntPtr.Zero)
                     {
                         AutoDetectPillarboxes(ptr, w, h);
@@ -1569,65 +1632,20 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                         }
 
                         if (_showStatisticsOverlay)
-                        {
                             RenderOverlay(canvas);
-                        }
                     }
                 }
-                finally
+                else
                 {
-                    WgcBridgeApi.ReleaseLatestFrame(activeSession);
+                    LogWarnOnce(ref _loggedNoFrameAvailable, "WgcCaptureVisualHandler could not acquire any frame in OnRender.");
                 }
             }
-            else if (TryCopyLatestFrame(activeSession, out ptr, out w, out h))
+            catch (Exception ex)
             {
-                LogDebugOnce(
-                    ref _loggedCopyLatestFrame,
-                    $"WgcCaptureVisualHandler acquired latest frame through copy fallback. size={w}x{h}, ptr={(ptr != IntPtr.Zero ? "valid" : "null")}.");
-                if (w > 0 && h > 0 && ptr != IntPtr.Zero)
-                {
-                    AutoDetectPillarboxes(ptr, w, h);
-
-                    if (_rectDirty || _texWidth != w || _texHeight != h)
-                    {
-                        _cachedDestRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, w - _cropLeft - _cropRight, h);
-                        _rectDirty = false;
-                    }
-
-                    if (_gl != null && !_glRenderFailed)
-                    {
-                        try
-                        {
-                            LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL path.");
-                            RenderInternal(canvas, ptr, w, h, grContext);
-                        }
-                        catch (Exception glEx)
-                        {
-                            _glRenderFailed = true;
-                            Log.Warn($"WgcCaptureVisualHandler GL render failed, falling back to CPU Skia path for this session. {glEx}");
-                            RenderSimpleFallback(canvas, ptr, w, h);
-                        }
-                    }
-                    else
-                    {
-                        LogDebugOnce(ref _loggedSimpleRenderPath, "WgcCaptureVisualHandler is rendering through the CPU Skia path.");
-                        RenderSimpleFallback(canvas, ptr, w, h);
-                    }
-
-                    if (_showStatisticsOverlay)
-                        RenderOverlay(canvas);
-                }
+                Log.Error("WgcCaptureVisualHandler OnRender failed.", ex);
+                Debug.WriteLine($"WgcCaptureVisualHandler OnRender failed. {ex}");
+                Trace.WriteLine($"WgcCaptureVisualHandler OnRender failed. {ex}");
             }
-            else
-            {
-                LogWarnOnce(ref _loggedNoFrameAvailable, "WgcCaptureVisualHandler could not acquire any frame in OnRender.");
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error("WgcCaptureVisualHandler OnRender failed.", ex);
-            Debug.WriteLine($"WgcCaptureVisualHandler OnRender failed. {ex}");
-            Trace.WriteLine($"WgcCaptureVisualHandler OnRender failed. {ex}");
         }
     }
 
