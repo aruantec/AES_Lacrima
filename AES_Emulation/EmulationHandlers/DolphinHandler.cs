@@ -26,7 +26,12 @@ public sealed class DolphinHandler : EmulatorHandlerBase
 
     public override bool ForceUseTargetClientAreaCapture => true;
 
-    public override int ClientAreaCropRightInset => 4;
+    /// <summary>
+    /// Dolphin's render window often includes thin invisible borders or padding that can cause
+    /// capture artifacts (like a vertical line on the right) when using WGC. 
+    /// Increasing the right inset slightly clips these artifacts.
+    /// </summary>
+    public override int ClientAreaCropRightInset => 16;
 
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
