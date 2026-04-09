@@ -33,7 +33,9 @@ public sealed class CemuHandler : EmulatorHandlerBase
                string.Equals(albumTitle, "WiiU", StringComparison.OrdinalIgnoreCase);
     }
 
-    public override bool HideUntilCaptured => false;
+    public override bool HideUntilCaptured => true;
+
+    public override bool ForceUseTargetClientAreaCapture => true;
 
     public override int CaptureStartupDelayMs => 0;
 
@@ -68,6 +70,8 @@ public sealed class CemuHandler : EmulatorHandlerBase
 
         return hwnd;
     }
+
+    public override void PrepareWindowForCapture(IntPtr hwnd) => HideWindowForCapture(hwnd);
 
     public override IntPtr FindPreferredWindowHandle(Process process)
         => FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: false, isPreferredRenderWindow: null);

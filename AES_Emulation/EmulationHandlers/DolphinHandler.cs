@@ -24,6 +24,10 @@ public sealed class DolphinHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => false;
 
+    public override bool ForceUseTargetClientAreaCapture => true;
+
+    public override int ClientAreaCropRightInset => 4;
+
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
         if (string.IsNullOrWhiteSpace(albumTitle))
@@ -40,7 +44,6 @@ public sealed class DolphinHandler : EmulatorHandlerBase
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
-        startInfo.WindowStyle = ProcessWindowStyle.Minimized;
         startInfo.ArgumentList.Clear();
 
         // Dolphin CLI: -b batch, -e executable/content path, -f fullscreen.
@@ -74,7 +77,7 @@ public sealed class DolphinHandler : EmulatorHandlerBase
     {
         var targetHwnd = await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
         if (targetHwnd != IntPtr.Zero)
-            MinimizeNonTargetDolphinWindows(process, targetHwnd);
+            HideNonTargetDolphinWindows(process, targetHwnd);
 
         return targetHwnd;
     }
@@ -105,6 +108,7 @@ public sealed class DolphinHandler : EmulatorHandlerBase
                 lowerTitle.Contains("temp window") ||
                 lowerTitle.Contains("msctfime ui") ||
                 lowerTitle.Contains("default ime") ||
+                lowerClass.StartsWith("temp_d3d_window", StringComparison.Ordinal) ||
                 lowerClass.Contains("diemwin") ||
                 lowerClass.Contains("ime") ||
                 lowerClass.Contains("screenchangeobserver") ||
@@ -152,6 +156,14 @@ public sealed class DolphinHandler : EmulatorHandlerBase
         if (!string.IsNullOrWhiteSpace(className))
         {
             var lowerClass = className.ToLowerInvariant();
+            if (lowerClass.StartsWith("temp_d3d_window", StringComparison.Ordinal) ||
+                lowerClass.Contains("diemwin") ||
+                lowerClass.Contains("screenchangeobserver") ||
+                lowerClass.Contains("themechangeobserver"))
+            {
+                return false;
+            }
+
             if (lowerClass.Contains("dolphin") && hasCaption && hasThickFrame)
                 looksLikePrimaryUi |= hasCaption && hasThickFrame;
         }
@@ -159,7 +171,7 @@ public sealed class DolphinHandler : EmulatorHandlerBase
         return !looksLikePrimaryUi && (!hasCaption || !string.IsNullOrWhiteSpace(title));
     }
 
-    private static bool ShouldMinimizeDolphinWindow(IntPtr hwnd)
+    private static bool ShouldHideDolphinWindow(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero)
             return false;
@@ -180,11 +192,12 @@ public sealed class DolphinHandler : EmulatorHandlerBase
                 return false;
             }
 
-            if (lowerTitle.Contains("dolphin"))
+            if (lowerTitle.StartsWith("dolphin ", StringComparison.Ordinal) && !lowerTitle.Contains(" | "))
                 return true;
         }
 
         if (className.Contains("ime") ||
+            className.StartsWith("temp_d3d_window", StringComparison.Ordinal) ||
             className.Contains("screenchangeobserver") ||
             className.Contains("themechangeobserver") ||
             className.Contains("diemwin"))
@@ -192,23 +205,22 @@ public sealed class DolphinHandler : EmulatorHandlerBase
             return false;
         }
 
-        // Dolphin top-level windows are typically Qt/wx based.
-        return className.Contains("qt") || className.Contains("wx") || className.Contains("dolphin");
+        return false;
     }
 
-    private static void MinimizeNonTargetDolphinWindows(Process process, IntPtr targetHwnd)
+    private static void HideNonTargetDolphinWindows(Process process, IntPtr targetHwnd)
     {
         foreach (var hwnd in EnumerateProcessTopLevelWindows(process, includeHiddenWindows: true))
         {
             if (hwnd == IntPtr.Zero || hwnd == targetHwnd)
                 continue;
 
-            if (!ShouldMinimizeDolphinWindow(hwnd))
+            if (!ShouldHideDolphinWindow(hwnd))
                 continue;
 
             try
             {
-                Win32API.MinimizeWindow(hwnd);
+                HideWindowForCapture(hwnd);
             }
             catch
             {

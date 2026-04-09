@@ -251,6 +251,16 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private IEmulatorHandler? _currentEmulatorHandler;
 
+        partial void OnCurrentEmulatorHandlerChanged(IEmulatorHandler? value)
+        {
+            OnPropertyChanged(nameof(ForceUseTargetClientAreaCapture));
+            OnPropertyChanged(nameof(HideTargetWindowAfterCaptureStarts));
+            OnPropertyChanged(nameof(ClientAreaCropLeftInset));
+            OnPropertyChanged(nameof(ClientAreaCropTopInset));
+            OnPropertyChanged(nameof(ClientAreaCropRightInset));
+            OnPropertyChanged(nameof(ClientAreaCropBottomInset));
+        }
+
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsEmulatorViewportVisible))]
         [NotifyPropertyChangedFor(nameof(IsGameplayPreviewViewportVisible))]
@@ -264,6 +274,12 @@ namespace AES_Lacrima.ViewModels
         public bool IsSearchOverlayVisible => MetadataService?.IsImageSearchOverlayOpen == true && !IsCompositionCaptureVisible;
         public bool IsGameplayPreviewViewportVisible => IsGameplayPreviewHostVisible && !IsEmulatorViewportVisible;
         public bool IsGameplayVideoSurfaceVisible => IsGameplayVideoVisible && !IsEmulatorViewportVisible;
+        public bool ForceUseTargetClientAreaCapture => CurrentEmulatorHandler?.ForceUseTargetClientAreaCapture == true;
+        public bool HideTargetWindowAfterCaptureStarts => CurrentEmulatorHandler?.HideUntilCaptured != false;
+        public int ClientAreaCropLeftInset => CurrentEmulatorHandler?.ClientAreaCropLeftInset ?? 0;
+        public int ClientAreaCropTopInset => CurrentEmulatorHandler?.ClientAreaCropTopInset ?? 0;
+        public int ClientAreaCropRightInset => CurrentEmulatorHandler?.ClientAreaCropRightInset ?? 0;
+        public int ClientAreaCropBottomInset => CurrentEmulatorHandler?.ClientAreaCropBottomInset ?? 0;
 
         public IReadOnlyList<Stretch> CaptureStretchOptions { get; } = new[] { Stretch.Uniform, Stretch.UniformToFill, Stretch.Fill };
         public IReadOnlyList<ShaderFileItem> ShaderFileItems { get; } = LoadShaderFileItems();
@@ -2260,9 +2276,6 @@ namespace AES_Lacrima.ViewModels
                     SLog.Debug("Failed to confirm emulator process state before applying the capture target.", ex);
                     return false;
                 }
-
-                if (showWindowForCapture)
-                    RevealCaptureWindow(hwnd);
 
                 RestoreAppTopMost();
 

@@ -1,7 +1,10 @@
 using System;
 using System.ComponentModel;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Avalonia;
+using Avalonia.Animation;
+using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -15,8 +18,13 @@ namespace AES_Lacrima.Views;
 
 public partial class EmulationView : UserControl
 {
+    private const double PortalLeftOverlapPixels = 0;
     private const double PortalTopOverlapPixels = 2;
+    private const double PortalRightOverlapPixels = 0;
     private const double PortalBottomOverlapPixels = 2;
+    private const double PortalGraphWidth = 520;
+    private const double PortalGraphHeight = 40;
+    private static readonly TimeSpan AlbumListPortalMaskDuration = TimeSpan.FromMilliseconds(260);
 
     public static readonly DirectProperty<EmulationView, bool> IsPortalCaptureInitializingProperty =
         AvaloniaProperty.RegisterDirect<EmulationView, bool>(
@@ -41,15 +49,97 @@ public partial class EmulationView : UserControl
             o => o.IsPortalSurfaceVisible,
             (o, v) => o.IsPortalSurfaceVisible = v);
 
+    public static readonly DirectProperty<EmulationView, string> PortalStatusTextProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, string>(
+            nameof(PortalStatusText),
+            o => o.PortalStatusText,
+            (o, v) => o.PortalStatusText = v);
+
+    public static readonly DirectProperty<EmulationView, bool> IsPortalDirectCompositionActiveProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, bool>(
+            nameof(IsPortalDirectCompositionActive),
+            o => o.IsPortalDirectCompositionActive,
+            (o, v) => o.IsPortalDirectCompositionActive = v);
+
+    public static readonly DirectProperty<EmulationView, double> PortalCaptureFpsProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, double>(
+            nameof(PortalCaptureFps),
+            o => o.PortalCaptureFps,
+            (o, v) => o.PortalCaptureFps = v);
+
+    public static readonly DirectProperty<EmulationView, double> PortalCaptureFrameTimeMsProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, double>(
+            nameof(PortalCaptureFrameTimeMs),
+            o => o.PortalCaptureFrameTimeMs,
+            (o, v) => o.PortalCaptureFrameTimeMs = v);
+
+    public static readonly DirectProperty<EmulationView, string> PortalGpuRendererProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, string>(
+            nameof(PortalGpuRenderer),
+            o => o.PortalGpuRenderer,
+            (o, v) => o.PortalGpuRenderer = v);
+
+    public static readonly DirectProperty<EmulationView, string> PortalGpuVendorProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, string>(
+            nameof(PortalGpuVendor),
+            o => o.PortalGpuVendor,
+            (o, v) => o.PortalGpuVendor = v);
+
+    public static readonly DirectProperty<EmulationView, Geometry?> PortalFrametimeGraphGeometryProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, Geometry?>(
+            nameof(PortalFrametimeGraphGeometry),
+            o => o.PortalFrametimeGraphGeometry,
+            (o, v) => o.PortalFrametimeGraphGeometry = v);
+
+    public static readonly DirectProperty<EmulationView, bool> IsAlbumListInteractiveProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, bool>(
+            nameof(IsAlbumListInteractive),
+            o => o.IsAlbumListInteractive,
+            (o, v) => o.IsAlbumListInteractive = v);
+
     private PortalWindow? _portalWindow;
     private IDisposable? _boundsSubscription;
     private IDisposable? _mainWindowBoundsSubscription;
     private IDisposable? _captureInitializingSubscription;
-    private IDisposable? _captureTintSubscription;
+    private IDisposable? _captureStatusSubscription;
+    private IDisposable? _captureActiveSubscription;
+    private IDisposable? _captureFpsSubscription;
+    private IDisposable? _captureFrameTimeSubscription;
+    private IDisposable? _captureGpuRendererSubscription;
+    private IDisposable? _captureGpuVendorSubscription;
     private bool _isPortalCaptureInitializing;
     private Color _portalCaptureTint = Colors.White;
     private double _portalFallbackOpacity;
     private bool _isPortalSurfaceVisible;
+    private string _portalStatusText = "DirectComposition idle";
+    private bool _isPortalDirectCompositionActive;
+    private double _portalCaptureFps;
+    private double _portalCaptureFrameTimeMs;
+    private string _portalGpuRenderer = "Unknown";
+    private string _portalGpuVendor = "Unknown";
+    private Geometry? _portalFrametimeGraphGeometry;
+    private bool _isAlbumListInteractive = true;
+    private readonly Queue<double> _portalFrameSamples = new();
+    private const int PortalFrameSampleCount = 180;
+    private readonly Transitions _albumListTransitions =
+    [
+        new DoubleTransition
+        {
+            Property = MaxHeightProperty,
+            Duration = TimeSpan.FromMilliseconds(240),
+            Easing = new CubicEaseOut()
+        },
+        new DoubleTransition
+        {
+            Property = OpacityProperty,
+            Duration = TimeSpan.FromMilliseconds(200),
+            Easing = new CubicEaseOut()
+        }
+    ];
+    private bool _portalSyncPending;
+    private int _portalMaskVersion;
+    private PixelPoint _lastPortalPosition = new(int.MinValue, int.MinValue);
+    private Size _lastPortalSize = new(double.NaN, double.NaN);
 
     public EmulationView()
     {
@@ -62,6 +152,10 @@ public partial class EmulationView : UserControl
         DataContextChanged += OnDataContextChanged;
         PortalFallbackOpacity = 1;
         IsPortalSurfaceVisible = false;
+        PortalStatusText = "DirectComposition idle";
+        PortalGpuRenderer = "Unknown";
+        PortalGpuVendor = "Unknown";
+        IsAlbumListInteractive = true;
     }
 
     private void OnCaptureHostPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -106,6 +200,60 @@ public partial class EmulationView : UserControl
         set => SetAndRaise(IsPortalSurfaceVisibleProperty, ref _isPortalSurfaceVisible, value);
     }
 
+    public string PortalStatusText
+    {
+        get => _portalStatusText;
+        set => SetAndRaise(PortalStatusTextProperty, ref _portalStatusText, value);
+    }
+
+    public bool IsPortalDirectCompositionActive
+    {
+        get => _isPortalDirectCompositionActive;
+        set => SetAndRaise(IsPortalDirectCompositionActiveProperty, ref _isPortalDirectCompositionActive, value);
+    }
+
+    public double PortalCaptureFps
+    {
+        get => _portalCaptureFps;
+        set => SetAndRaise(PortalCaptureFpsProperty, ref _portalCaptureFps, value);
+    }
+
+    public double PortalCaptureFrameTimeMs
+    {
+        get => _portalCaptureFrameTimeMs;
+        set
+        {
+            if (SetAndRaise(PortalCaptureFrameTimeMsProperty, ref _portalCaptureFrameTimeMs, value))
+            {
+                UpdatePortalFrametimeGraph(value);
+            }
+        }
+    }
+
+    public string PortalGpuRenderer
+    {
+        get => _portalGpuRenderer;
+        set => SetAndRaise(PortalGpuRendererProperty, ref _portalGpuRenderer, value);
+    }
+
+    public string PortalGpuVendor
+    {
+        get => _portalGpuVendor;
+        set => SetAndRaise(PortalGpuVendorProperty, ref _portalGpuVendor, value);
+    }
+
+    public Geometry? PortalFrametimeGraphGeometry
+    {
+        get => _portalFrametimeGraphGeometry;
+        set => SetAndRaise(PortalFrametimeGraphGeometryProperty, ref _portalFrametimeGraphGeometry, value);
+    }
+
+    public bool IsAlbumListInteractive
+    {
+        get => _isAlbumListInteractive;
+        set => SetAndRaise(IsAlbumListInteractiveProperty, ref _isAlbumListInteractive, value);
+    }
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -133,7 +281,6 @@ public partial class EmulationView : UserControl
             mainWindow.PositionChanged += OnMainWindowPositionChanged;
             mainWindow.Activated += OnMainWindowActivated;
             mainWindow.Deactivated += OnMainWindowDeactivated;
-            LayoutUpdated += OnLayoutUpdated;
         }
 
         if (DataContext is EmulationViewModel vm)
@@ -155,14 +302,18 @@ public partial class EmulationView : UserControl
         _boundsSubscription?.Dispose();
         _mainWindowBoundsSubscription?.Dispose();
         _captureInitializingSubscription?.Dispose();
-        _captureTintSubscription?.Dispose();
+        _captureStatusSubscription?.Dispose();
+        _captureActiveSubscription?.Dispose();
+        _captureFpsSubscription?.Dispose();
+        _captureFrameTimeSubscription?.Dispose();
+        _captureGpuRendererSubscription?.Dispose();
+        _captureGpuVendorSubscription?.Dispose();
         
         if (TopLevel.GetTopLevel(this) is Window mainWindow)
         {
             mainWindow.PositionChanged -= OnMainWindowPositionChanged;
             mainWindow.Activated -= OnMainWindowActivated;
             mainWindow.Deactivated -= OnMainWindowDeactivated;
-            LayoutUpdated -= OnLayoutUpdated;
         }
 
         if (_portalWindow != null)
@@ -172,6 +323,18 @@ public partial class EmulationView : UserControl
         }
 
         IsPortalCaptureInitializing = false;
+        IsPortalDirectCompositionActive = false;
+        PortalStatusText = "DirectComposition idle";
+        PortalCaptureFps = 0;
+        PortalCaptureFrameTimeMs = 0;
+        PortalGpuRenderer = "Unknown";
+        PortalGpuVendor = "Unknown";
+        _portalFrameSamples.Clear();
+        PortalFrametimeGraphGeometry = null;
+        IsAlbumListInteractive = true;
+        _portalSyncPending = false;
+        _lastPortalPosition = new PixelPoint(int.MinValue, int.MinValue);
+        _lastPortalSize = new Size(double.NaN, double.NaN);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -196,17 +359,26 @@ public partial class EmulationView : UserControl
     {
         if (e.PropertyName == nameof(EmulationViewModel.IsActive) ||
             e.PropertyName == nameof(EmulationViewModel.IsCompositionCaptureVisible) ||
-            e.PropertyName == nameof(EmulationViewModel.IsEmulatorViewportVisible))
+            e.PropertyName == nameof(EmulationViewModel.IsEmulatorViewportVisible) ||
+            e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed))
         {
             if (sender is EmulationViewModel vm)
             {
+                UpdateAlbumListTransitions(vm);
                 UpdatePortalVisibility(vm);
+                if (e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed))
+                {
+                    StartAlbumListPortalMask(vm);
+                    SyncPortalWindow();
+                }
             }
         }
     }
 
     private void UpdatePortalVisibility(EmulationViewModel vm)
     {
+        UpdateAlbumListTransitions(vm);
+
         if (vm.IsCompositionCaptureVisible)
         {
             ShowPortal();
@@ -280,18 +452,20 @@ public partial class EmulationView : UserControl
         _portalWindow?.Hide();
     }
 
-    private void OnLayoutUpdated(object? sender, EventArgs e)
+    private void SyncPortalWindow()
     {
-        if (_portalWindow == null || DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
+        if (_portalSyncPending)
             return;
 
-        if (_portalWindow.IsVisible)
+        _portalSyncPending = true;
+        Dispatcher.UIThread.Post(() =>
         {
-            SyncPortalWindow();
-        }
+            _portalSyncPending = false;
+            SyncPortalWindowCore();
+        }, DispatcherPriority.Render);
     }
 
-    private void SyncPortalWindow()
+    private void SyncPortalWindowCore()
     {
         if (_portalWindow == null || TopLevel.GetTopLevel(this) is not Window mainWindow) return;
 
@@ -303,10 +477,26 @@ public partial class EmulationView : UserControl
         if (topLeft == null || bottomRight == null) return;
 
         var screenTopLeft = mainWindow.PointToScreen(topLeft.Value);
-        var width = Math.Max(0, bottomRight.Value.X - topLeft.Value.X);
-        var height = Math.Max(0, bottomRight.Value.Y - topLeft.Value.Y) + PortalTopOverlapPixels + PortalBottomOverlapPixels;
+        var screenBottomRight = mainWindow.PointToScreen(bottomRight.Value);
+        var widthPixels = Math.Max(0, screenBottomRight.X - screenTopLeft.X) + (int)PortalLeftOverlapPixels + (int)PortalRightOverlapPixels;
+        var heightPixels = Math.Max(0, screenBottomRight.Y - screenTopLeft.Y) + (int)PortalTopOverlapPixels + (int)PortalBottomOverlapPixels;
+        var portalRenderScaling = Math.Max(0.0001, _portalWindow.RenderScaling);
+        var width = widthPixels / portalRenderScaling;
+        var height = heightPixels / portalRenderScaling;
 
-        _portalWindow.Position = new PixelPoint(screenTopLeft.X, screenTopLeft.Y - (int)PortalTopOverlapPixels);
+        var portalPosition = new PixelPoint(
+            screenTopLeft.X - (int)PortalLeftOverlapPixels,
+            screenTopLeft.Y - (int)PortalTopOverlapPixels);
+        var portalSize = new Size(width, height);
+        if (_lastPortalPosition == portalPosition && _lastPortalSize == portalSize)
+        {
+            UpdateWindowZOrder();
+            return;
+        }
+
+        _lastPortalPosition = portalPosition;
+        _lastPortalSize = portalSize;
+        _portalWindow.Position = portalPosition;
         _portalWindow.Width = width;
         _portalWindow.Height = height;
         UpdateWindowZOrder();
@@ -316,32 +506,153 @@ public partial class EmulationView : UserControl
     {
         _captureInitializingSubscription?.Dispose();
         _captureInitializingSubscription = null;
-        _captureTintSubscription?.Dispose();
-        _captureTintSubscription = null;
+        _captureStatusSubscription?.Dispose();
+        _captureStatusSubscription = null;
+        _captureActiveSubscription?.Dispose();
+        _captureActiveSubscription = null;
+        _captureFpsSubscription?.Dispose();
+        _captureFpsSubscription = null;
+        _captureFrameTimeSubscription?.Dispose();
+        _captureFrameTimeSubscription = null;
+        _captureGpuRendererSubscription?.Dispose();
+        _captureGpuRendererSubscription = null;
+        _captureGpuVendorSubscription?.Dispose();
+        _captureGpuVendorSubscription = null;
 
         var captureControl = _portalWindow?.CaptureHostControl;
         if (captureControl == null)
         {
             IsPortalCaptureInitializing = false;
+            IsPortalDirectCompositionActive = false;
+            PortalStatusText = "DirectComposition unavailable";
+            PortalCaptureFps = 0;
+            PortalCaptureFrameTimeMs = 0;
+            PortalGpuRenderer = "Unknown";
+            PortalGpuVendor = "Unknown";
             return;
         }
 
-        if (captureControl.ColorTint != PortalCaptureTint)
+        captureControl.ColorTint = PortalCaptureTint;
+        IsPortalCaptureInitializing = captureControl.IsCaptureInitializing;
+        IsPortalDirectCompositionActive = captureControl.IsDirectCompositionActive;
+        PortalStatusText = captureControl.StatusText;
+        PortalCaptureFps = captureControl.Fps;
+        PortalCaptureFrameTimeMs = captureControl.FrameTimeMs;
+        PortalGpuRenderer = captureControl.GpuRenderer;
+        PortalGpuVendor = captureControl.GpuVendor;
+
+        _captureInitializingSubscription = captureControl
+            .GetObservable(DirectCompositionCaptureHost.IsCaptureInitializingProperty)
+            .Subscribe(new SimpleObserver<bool>(value => IsPortalCaptureInitializing = value));
+
+        _captureStatusSubscription = captureControl
+            .GetObservable(DirectCompositionCaptureHost.StatusTextProperty)
+            .Subscribe(new SimpleObserver<string>(value => PortalStatusText = value));
+
+        _captureActiveSubscription = captureControl
+            .GetObservable(DirectCompositionCaptureHost.IsDirectCompositionActiveProperty)
+            .Subscribe(new SimpleObserver<bool>(value => IsPortalDirectCompositionActive = value));
+
+        _captureFpsSubscription = captureControl
+            .GetObservable(DirectCompositionCaptureHost.FpsProperty)
+            .Subscribe(new SimpleObserver<double>(value => PortalCaptureFps = value));
+
+        _captureFrameTimeSubscription = captureControl
+            .GetObservable(DirectCompositionCaptureHost.FrameTimeMsProperty)
+            .Subscribe(new SimpleObserver<double>(value => PortalCaptureFrameTimeMs = value));
+
+        _captureGpuRendererSubscription = captureControl
+            .GetObservable(DirectCompositionCaptureHost.GpuRendererProperty)
+            .Subscribe(new SimpleObserver<string>(value => PortalGpuRenderer = value));
+
+        _captureGpuVendorSubscription = captureControl
+            .GetObservable(DirectCompositionCaptureHost.GpuVendorProperty)
+            .Subscribe(new SimpleObserver<string>(value => PortalGpuVendor = value));
+    }
+
+    private void UpdatePortalFrametimeGraph(double latestMs)
+    {
+        if (_portalFrameSamples.Count >= PortalFrameSampleCount)
         {
-            captureControl.ColorTint = PortalCaptureTint;
+            _portalFrameSamples.Dequeue();
         }
 
-        IsPortalCaptureInitializing = false;
+        _portalFrameSamples.Enqueue(latestMs);
+        if (_portalFrameSamples.Count < 2)
+        {
+            PortalFrametimeGraphGeometry = null;
+            return;
+        }
 
-        _captureTintSubscription = captureControl
-            .GetObservable(WgcCaptureControl.ColorTintProperty)
-            .Subscribe(new SimpleObserver<Color>(value =>
+        const double maxMs = 50;
+        var samples = _portalFrameSamples.ToArray();
+        var geometry = new StreamGeometry();
+
+        using (var ctx = geometry.Open())
+        {
+            for (var i = 0; i < samples.Length; i++)
             {
-                if (_portalCaptureTint != value)
+                var x = i * (PortalGraphWidth / (samples.Length - 1));
+                var clamped = Math.Clamp(samples[i], 0, maxMs);
+                var y = PortalGraphHeight - (clamped / maxMs * PortalGraphHeight);
+                var point = new Point(x, y);
+                if (i == 0)
                 {
-                    SetAndRaise(PortalCaptureTintProperty, ref _portalCaptureTint, value);
+                    ctx.BeginFigure(point, false);
                 }
-            }));
+                else
+                {
+                    ctx.LineTo(point);
+                }
+            }
+        }
+
+        PortalFrametimeGraphGeometry = geometry;
+    }
+
+    private void UpdateAlbumListTransitions(EmulationViewModel vm)
+    {
+        var albumList = this.FindControl<Control>("AlbumListView");
+        if (albumList == null)
+            return;
+
+        albumList.Transitions = _albumListTransitions;
+    }
+
+    private void StartAlbumListPortalMask(EmulationViewModel vm)
+    {
+        var maskVersion = ++_portalMaskVersion;
+        IsAlbumListInteractive = false;
+
+        if (vm.IsCompositionCaptureVisible && _portalWindow?.IsVisible == true)
+        {
+            PortalFallbackOpacity = 1;
+            IsPortalSurfaceVisible = false;
+        }
+
+        Dispatcher.UIThread.Post(async () =>
+        {
+            await System.Threading.Tasks.Task.Delay(AlbumListPortalMaskDuration).ConfigureAwait(true);
+            if (maskVersion != _portalMaskVersion)
+                return;
+
+            IsAlbumListInteractive = true;
+
+            if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true, IsActive: true } &&
+                _portalWindow?.IsVisible == true)
+            {
+                SyncPortalWindow();
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (maskVersion != _portalMaskVersion)
+                        return;
+
+                    SyncPortalWindow();
+                    IsPortalSurfaceVisible = true;
+                    PortalFallbackOpacity = 0;
+                }, DispatcherPriority.Render);
+            }
+        }, DispatcherPriority.Background);
     }
 
     private void UpdateWindowZOrder()

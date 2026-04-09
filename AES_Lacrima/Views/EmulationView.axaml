@@ -232,6 +232,85 @@
                     ClipToBounds="True">
             </Border>
 
+            <Border Margin="16,16,16,24"
+                    Width="560"
+                    Padding="10"
+                    CornerRadius="8"
+                    Background="#C0000000"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Bottom"
+                    IsVisible="{Binding ShowStatisticsOverlay}"
+                    IsHitTestVisible="False"
+                    Opacity="{Binding RenderOverlayOpacity}"
+                    ZIndex="1500">
+                <StackPanel Spacing="4"
+                            HorizontalAlignment="Left">
+                    <StackPanel Spacing="4"
+                                HorizontalAlignment="Left">
+                        <TextBlock Text="{Binding ElementName=RootView, Path=PortalCaptureFps, StringFormat='FPS: {0:0.0}'}"
+                                   Foreground="White"
+                                   FontSize="16"
+                                   FontFamily="Consolas"/>
+                        <TextBlock Text="{Binding ElementName=RootView, Path=PortalCaptureFrameTimeMs, StringFormat='FrameTime: {0:0.00} ms'}"
+                                   Foreground="White"
+                                   FontSize="16"
+                                   FontFamily="Consolas"/>
+                        <StackPanel Spacing="4"
+                                    HorizontalAlignment="Left"
+                                    IsVisible="{Binding ShowDetailedGpuInfo}">
+                            <TextBlock Text="{Binding ElementName=RootView, Path=PortalGpuRenderer, StringFormat='GPU: {0}'}"
+                                       Foreground="#DDDDDD"
+                                       FontSize="13"
+                                       FontFamily="Consolas"
+                                       HorizontalAlignment="Left"
+                                       TextAlignment="Left"
+                                       TextTrimming="CharacterEllipsis"
+                                       MaxWidth="420"/>
+                            <TextBlock Text="{Binding ElementName=RootView, Path=PortalGpuVendor, StringFormat='Vendor: {0}'}"
+                                       Foreground="#DDDDDD"
+                                       FontSize="13"
+                                       FontFamily="Consolas"
+                                       HorizontalAlignment="Left"
+                                       TextAlignment="Left"/>
+                        </StackPanel>
+                        <StackPanel Spacing="0"
+                                    HorizontalAlignment="Left"
+                                    IsVisible="{Binding ShowFrametimeGraph}">
+                            <Canvas Width="520"
+                                    Height="40"
+                                    HorizontalAlignment="Left"
+                                    Margin="0,5,0,0">
+                                <Border Width="520"
+                                        Height="1"
+                                        Background="#28FFFFFF"
+                                        Canvas.Top="13.36"/>
+                                <Border Width="520"
+                                        Height="1"
+                                        Background="#28FFFFFF"
+                                        Canvas.Top="26.72"/>
+                                <Path Data="{Binding ElementName=RootView, Path=PortalFrametimeGraphGeometry}"
+                                      Stroke="#B400FFFF"
+                                      StrokeThickness="1.5"
+                                      Stretch="None"/>
+                                <TextBlock Text="{Binding ElementName=RootView, Path=PortalCaptureFrameTimeMs, StringFormat='{}{0:0.00} ms'}"
+                                           Foreground="#FF00FFFF"
+                                           FontSize="12"
+                                           FontFamily="Consolas"
+                                           Canvas.Top="-5"
+                                           Canvas.Left="0"/>
+                            </Canvas>
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Text="{Binding ElementName=RootView, Path=PortalStatusText}"
+                               Foreground="{Binding ElementName=RootView, Path=IsPortalDirectCompositionActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#7CFC00,#FFCC66'}}"
+                               FontSize="14"
+                               FontFamily="Consolas"
+                               MaxWidth="520"
+                               Margin="0,4,0,0"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
             <Border x:Name="RenderOptionsOverlay"
                     Background="#B0000000"
                     BorderBrush="DimGray"
@@ -357,7 +436,9 @@
                                         <ComboBox MinWidth="320"
                                                   HorizontalAlignment="Stretch"
                                                   ItemsSource="{Binding ShaderFileItems}"
-                                                  SelectedItem="{Binding SelectedShaderFileItem, Mode=TwoWay}">
+                                                  SelectedItem="{Binding SelectedShaderFileItem, Mode=TwoWay}"
+                                                  IsEnabled="False"
+                                                  Opacity="0.55">
                                             <Interaction.Behaviors>
                                                 <controlBehaviors:ComboBoxPopupScaler/>
                                             </Interaction.Behaviors>
@@ -368,6 +449,11 @@
                                             </ComboBox.ItemTemplate>
                                         </ComboBox>
                                     </StackPanel>
+                                    <TextBlock Text="Shaders are disabled for the DirectComposition test path. The current shader files are GLSL-based and would need an HLSL/D3D path before they can be applied here."
+                                               Foreground="#B8B8B8"
+                                               FontSize="14"
+                                               TextWrapping="Wrap"
+                                               Margin="232,-4,0,0"/>
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>
@@ -793,14 +879,16 @@
 
         <Grid Grid.Row="2">
             <Separator Margin="0" VerticalAlignment="Top"/>
-            <navigation:EmulationListView Opacity="{Binding !IsAlbumListCollapsed, Converter={StaticResource BoolToOpacityConverter}}">
+            <navigation:EmulationListView x:Name="AlbumListView"
+                                          Opacity="{Binding !IsAlbumListCollapsed, Converter={StaticResource BoolToOpacityConverter}}"
+                                          IsHitTestVisible="{Binding ElementName=RootView, Path=IsAlbumListInteractive}">
                 <Interaction.Behaviors>
                     <behaviors:MaxHeightToggleBehavior IsOpen="{Binding IsAlbumListCollapsed}" />
                 </Interaction.Behaviors>
                 <navigation:EmulationListView.Transitions>
                     <Transitions>
-                        <DoubleTransition Property="MaxHeight" Duration="0:0:0.55" Easing="CubicEaseInOut"/>
-                        <DoubleTransition Property="Opacity" Duration="0:0:0.55" Easing="CubicEaseInOut"/>
+                        <DoubleTransition Property="MaxHeight" Duration="0:0:0.24" Easing="CubicEaseOut"/>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.20" Easing="CubicEaseOut"/>
                     </Transitions>
                 </navigation:EmulationListView.Transitions>
             </navigation:EmulationListView>

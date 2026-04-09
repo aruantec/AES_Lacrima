@@ -16,6 +16,7 @@ public static class WgcBridgeApi
     private static bool s_acquireLatestFrameFaulted;
     private static bool s_releaseLatestFrameFaulted;
     private static bool s_loggedCreateCaptureSession;
+    private static bool s_loggedCreateDirectCompositionCaptureSession;
     private static bool s_loggedGetLatestFrame;
     private static bool s_loggedPeekLatestFrame;
     private static bool s_loggedAcquireLatestFrame;
@@ -100,12 +101,36 @@ public static class WgcBridgeApi
     private static CreateCaptureSessionDel? s_createCaptureSession;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate nint CreateDirectCompositionCaptureSessionDel(nint targetHwnd, nint presentationHwnd);
+    private static CreateDirectCompositionCaptureSessionDel? s_createDirectCompositionCaptureSession;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void DestroyCaptureSessionDel(nint session);
     private static DestroyCaptureSessionDel? s_destroyCaptureSession;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int GetCaptureStatusDel(nint session);
     private static GetCaptureStatusDel? s_getCaptureStatus;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int GetDirectCompositionStateDel(nint session);
+    private static GetDirectCompositionStateDel? s_getDirectCompositionState;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int GetDirectCompositionPresentCountDel(nint session);
+    private static GetDirectCompositionPresentCountDel? s_getDirectCompositionPresentCount;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int GetDirectCompositionLastErrorDel(nint session, StringBuilder buffer, int bufferChars);
+    private static GetDirectCompositionLastErrorDel? s_getDirectCompositionLastError;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SetDirectCompositionRenderOptionsDel(nint session, int stretch, float brightness, float saturation, float tintR, float tintG, float tintB, float tintA, int disableVsync);
+    private static SetDirectCompositionRenderOptionsDel? s_setDirectCompositionRenderOptions;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+    private delegate int GetDirectCompositionAdapterInfoDel(nint session, StringBuilder rendererBuffer, int rendererBufferChars, StringBuilder vendorBuffer, int vendorBufferChars);
+    private static GetDirectCompositionAdapterInfoDel? s_getDirectCompositionAdapterInfo;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate bool GetLatestFrameDel(nint session, IntPtr outBuffer, nuint bufferSize, out int width, out int height);
@@ -142,9 +167,15 @@ public static class WgcBridgeApi
 
                 string[] exports = new[] {
                     "CreateCaptureSession",
+                    "CreateDirectCompositionCaptureSession",
                     "GetLatestFrame",
                     "DestroyCaptureSession",
                     "GetCaptureStatus",
+                    "GetDirectCompositionState",
+                    "GetDirectCompositionPresentCount",
+                    "GetDirectCompositionLastError",
+                    "SetDirectCompositionRenderOptions",
+                    "GetDirectCompositionAdapterInfo",
                     "PeekLatestFrame",
                     "SetCaptureMaxResolution",
                     "SetCaptureCropRect",
@@ -189,10 +220,22 @@ public static class WgcBridgeApi
                 // Bind hot-path/core exports to delegates when possible to avoid per-frame P/Invoke overhead
                 if (NativeLibrary.TryGetExport(handle, "CreateCaptureSession", out IntPtr pCreate))
                     s_createCaptureSession = Marshal.GetDelegateForFunctionPointer<CreateCaptureSessionDel>(pCreate);
+                if (NativeLibrary.TryGetExport(handle, "CreateDirectCompositionCaptureSession", out IntPtr pCreateDComp))
+                    s_createDirectCompositionCaptureSession = Marshal.GetDelegateForFunctionPointer<CreateDirectCompositionCaptureSessionDel>(pCreateDComp);
                 if (NativeLibrary.TryGetExport(handle, "DestroyCaptureSession", out IntPtr pDestroy))
                     s_destroyCaptureSession = Marshal.GetDelegateForFunctionPointer<DestroyCaptureSessionDel>(pDestroy);
                 if (NativeLibrary.TryGetExport(handle, "GetCaptureStatus", out IntPtr pStatus))
                     s_getCaptureStatus = Marshal.GetDelegateForFunctionPointer<GetCaptureStatusDel>(pStatus);
+                if (NativeLibrary.TryGetExport(handle, "GetDirectCompositionState", out IntPtr pDCompState))
+                    s_getDirectCompositionState = Marshal.GetDelegateForFunctionPointer<GetDirectCompositionStateDel>(pDCompState);
+                if (NativeLibrary.TryGetExport(handle, "GetDirectCompositionPresentCount", out IntPtr pDCompPresent))
+                    s_getDirectCompositionPresentCount = Marshal.GetDelegateForFunctionPointer<GetDirectCompositionPresentCountDel>(pDCompPresent);
+                if (NativeLibrary.TryGetExport(handle, "GetDirectCompositionLastError", out IntPtr pDCompLastError))
+                    s_getDirectCompositionLastError = Marshal.GetDelegateForFunctionPointer<GetDirectCompositionLastErrorDel>(pDCompLastError);
+                if (NativeLibrary.TryGetExport(handle, "SetDirectCompositionRenderOptions", out IntPtr pDCompOptions))
+                    s_setDirectCompositionRenderOptions = Marshal.GetDelegateForFunctionPointer<SetDirectCompositionRenderOptionsDel>(pDCompOptions);
+                if (NativeLibrary.TryGetExport(handle, "GetDirectCompositionAdapterInfo", out IntPtr pDCompAdapterInfo))
+                    s_getDirectCompositionAdapterInfo = Marshal.GetDelegateForFunctionPointer<GetDirectCompositionAdapterInfoDel>(pDCompAdapterInfo);
                 if (NativeLibrary.TryGetExport(handle, "GetLatestFrame", out IntPtr pGetLatest))
                     s_getLatestFrame = Marshal.GetDelegateForFunctionPointer<GetLatestFrameDel>(pGetLatest);
                 if (NativeLibrary.TryGetExport(handle, "PeekLatestFrame", out IntPtr pPeek))
@@ -216,6 +259,9 @@ public static class WgcBridgeApi
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "CreateCaptureSession")]
     private static extern nint CreateCaptureSessionNative(nint targetHwnd);
 
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "CreateDirectCompositionCaptureSession")]
+    private static extern nint CreateDirectCompositionCaptureSessionNative(nint targetHwnd, nint presentationHwnd);
+
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "GetLatestFrame")]
     private static extern bool GetLatestFrameNative(nint session, nint outBuffer, nuint bufferSize, out int width, out int height);
 
@@ -224,6 +270,21 @@ public static class WgcBridgeApi
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "GetCaptureStatus")]
     private static extern int GetCaptureStatusNative(nint session);
+
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "GetDirectCompositionState")]
+    private static extern int GetDirectCompositionStateNative(nint session);
+
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "GetDirectCompositionPresentCount")]
+    private static extern int GetDirectCompositionPresentCountNative(nint session);
+
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, SetLastError = true, EntryPoint = "GetDirectCompositionLastError")]
+    private static extern int GetDirectCompositionLastErrorNative(nint session, StringBuilder buffer, int bufferChars);
+
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "SetDirectCompositionRenderOptions")]
+    private static extern void SetDirectCompositionRenderOptionsNative(nint session, int stretch, float brightness, float saturation, float tintR, float tintG, float tintB, float tintA, int disableVsync);
+
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "GetDirectCompositionAdapterInfo")]
+    private static extern int GetDirectCompositionAdapterInfoNative(nint session, StringBuilder rendererBuffer, int rendererBufferChars, StringBuilder vendorBuffer, int vendorBufferChars);
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "GetReaderCount")]
     private static extern int GetReaderCountNative(nint session);
@@ -274,6 +335,38 @@ public static class WgcBridgeApi
         }
     }
 
+    public static nint CreateDirectCompositionCaptureSession(nint targetHwnd, nint presentationHwnd)
+    {
+        try
+        {
+            LogDebugOnce(ref s_loggedCreateDirectCompositionCaptureSession, "[WGC] CreateDirectCompositionCaptureSession invoked for the first time.");
+            if (s_createDirectCompositionCaptureSession != null)
+            {
+                var result = s_createDirectCompositionCaptureSession(targetHwnd, presentationHwnd);
+                if (result == nint.Zero)
+                {
+                    LogWarn("[WGC] CreateDirectCompositionCaptureSession (delegate) returned NULL");
+                }
+                else LogInfo($"[WGC] CreateDirectCompositionCaptureSession (delegate) succeeded: 0x{result.ToString("X")}");
+                return result;
+            }
+
+            var res = CreateDirectCompositionCaptureSessionNative(targetHwnd, presentationHwnd);
+            if (res == nint.Zero)
+            {
+                int err = Marshal.GetLastWin32Error();
+                LogWarn($"[WGC] CreateDirectCompositionCaptureSession returned NULL. Win32 error: {err}");
+            }
+            else LogInfo($"[WGC] CreateDirectCompositionCaptureSession succeeded: 0x{res.ToString("X")}");
+            return res;
+        }
+        catch (Exception ex)
+        {
+            LogError("[WGC] Exception CreateDirectCompositionCaptureSession.", ex);
+            return nint.Zero;
+        }
+    }
+
     public static bool GetLatestFrame(nint session, nint outBuffer, nuint bufferSize, out int width, out int height)
     {
         width = 0;
@@ -309,6 +402,52 @@ public static class WgcBridgeApi
     {
         if (s_getCaptureStatus != null) return s_getCaptureStatus(session);
         return GetCaptureStatusNative(session);
+    }
+
+    public static int GetDirectCompositionState(nint session)
+    {
+        if (s_getDirectCompositionState != null) return s_getDirectCompositionState(session);
+        return GetDirectCompositionStateNative(session);
+    }
+
+    public static int GetDirectCompositionPresentCount(nint session)
+    {
+        if (s_getDirectCompositionPresentCount != null) return s_getDirectCompositionPresentCount(session);
+        return GetDirectCompositionPresentCountNative(session);
+    }
+
+    public static string GetDirectCompositionLastError(nint session)
+    {
+        var buffer = new StringBuilder(256);
+        int ok = s_getDirectCompositionLastError != null
+            ? s_getDirectCompositionLastError(session, buffer, buffer.Capacity)
+            : GetDirectCompositionLastErrorNative(session, buffer, buffer.Capacity);
+        return ok != 0 ? buffer.ToString() : string.Empty;
+    }
+
+    public static void SetDirectCompositionRenderOptions(nint session, int stretch, float brightness, float saturation, float tintR, float tintG, float tintB, float tintA, bool disableVsync)
+    {
+        if (s_setDirectCompositionRenderOptions != null)
+        {
+            s_setDirectCompositionRenderOptions(session, stretch, brightness, saturation, tintR, tintG, tintB, tintA, disableVsync ? 1 : 0);
+            return;
+        }
+
+        SetDirectCompositionRenderOptionsNative(session, stretch, brightness, saturation, tintR, tintG, tintB, tintA, disableVsync ? 1 : 0);
+    }
+
+    public static (string Renderer, string Vendor) GetDirectCompositionAdapterInfo(nint session)
+    {
+        var renderer = new StringBuilder(256);
+        var vendor = new StringBuilder(128);
+
+        int ok = s_getDirectCompositionAdapterInfo != null
+            ? s_getDirectCompositionAdapterInfo(session, renderer, renderer.Capacity, vendor, vendor.Capacity)
+            : GetDirectCompositionAdapterInfoNative(session, renderer, renderer.Capacity, vendor, vendor.Capacity);
+
+        return ok != 0
+            ? (renderer.ToString(), vendor.ToString())
+            : (string.Empty, string.Empty);
     }
 
     public static int GetReaderCount(nint session)
@@ -455,7 +594,13 @@ public static class WgcBridgeApi
         sb.AppendLine($"ReleaseLatestFrame delegate: { (s_releaseLatestFrame != null) }");
         sb.AppendLine($"GetReaderCount delegate: { (s_getReaderCount != null) }");
         sb.AppendLine($"CreateCaptureSession delegate: { (s_createCaptureSession != null) }");
+        sb.AppendLine($"CreateDirectCompositionCaptureSession delegate: { (s_createDirectCompositionCaptureSession != null) }");
         sb.AppendLine($"GetLatestFrame delegate: { (s_getLatestFrame != null) }");
+        sb.AppendLine($"GetDirectCompositionState delegate: { (s_getDirectCompositionState != null) }");
+        sb.AppendLine($"GetDirectCompositionPresentCount delegate: { (s_getDirectCompositionPresentCount != null) }");
+        sb.AppendLine($"GetDirectCompositionLastError delegate: { (s_getDirectCompositionLastError != null) }");
+        sb.AppendLine($"SetDirectCompositionRenderOptions delegate: { (s_setDirectCompositionRenderOptions != null) }");
+        sb.AppendLine($"GetDirectCompositionAdapterInfo delegate: { (s_getDirectCompositionAdapterInfo != null) }");
         sb.AppendLine($"PeekLatestFrame delegate: { (s_peekLatestFrame != null) }");
         return sb.ToString();
     }

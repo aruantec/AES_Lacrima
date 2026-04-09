@@ -23,6 +23,10 @@ public sealed class XeniaHandler : EmulatorHandlerBase
 
     public override string DisplayName => "Xenia";
 
+    public override bool HideUntilCaptured => true;
+
+    public override bool ForceUseTargetClientAreaCapture => true;
+
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
         if (string.IsNullOrWhiteSpace(albumTitle))
@@ -65,6 +69,9 @@ public sealed class XeniaHandler : EmulatorHandlerBase
     [SupportedOSPlatform("windows")]
     public override bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle)
         => IsLikelyXeniaRenderWindow(hwnd, mainWindowHandle);
+
+    [SupportedOSPlatform("windows")]
+    public override void PrepareWindowForCapture(IntPtr hwnd) => HideWindowForCapture(hwnd);
 
     [SupportedOSPlatform("windows")]
     private static bool IsLikelyXeniaRenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
