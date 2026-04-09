@@ -436,9 +436,7 @@
                                         <ComboBox MinWidth="320"
                                                   HorizontalAlignment="Stretch"
                                                   ItemsSource="{Binding ShaderFileItems}"
-                                                  SelectedItem="{Binding SelectedShaderFileItem, Mode=TwoWay}"
-                                                  IsEnabled="False"
-                                                  Opacity="0.55">
+                                                  SelectedItem="{Binding SelectedShaderFileItem, Mode=TwoWay}">
                                             <Interaction.Behaviors>
                                                 <controlBehaviors:ComboBoxPopupScaler/>
                                             </Interaction.Behaviors>
@@ -449,11 +447,6 @@
                                             </ComboBox.ItemTemplate>
                                         </ComboBox>
                                     </StackPanel>
-                                    <TextBlock Text="Shaders are disabled for the DirectComposition test path. The current shader files are GLSL-based and would need an HLSL/D3D path before they can be applied here."
-                                               Foreground="#B8B8B8"
-                                               FontSize="14"
-                                               TextWrapping="Wrap"
-                                               Margin="232,-4,0,0"/>
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>

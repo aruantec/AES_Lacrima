@@ -328,8 +328,6 @@ namespace AES_Lacrima.ViewModels
                 return;
             //Save all settings
             settingsService.SaveSettings();
-            //Dispose
-            DiLocator.Dispose();
             //Shutdown application
             AppLifetime.Shutdown();
         }

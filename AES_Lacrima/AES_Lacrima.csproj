@@ -112,10 +112,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
-    <None Include="..\AES_Emulation\Windows\shaders\glsl\**\*.glsl">
+    <None Include="Shaders\hlsl\**\*.hlsl">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <Link>Shaders\glsl\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </None>
     <None Update="Linux\aes-lacrima.desktop">
       <ExcludeFromSingleFile>true</ExcludeFromSingleFile>

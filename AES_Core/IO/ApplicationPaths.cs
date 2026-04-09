@@ -46,25 +46,15 @@ public static class ApplicationPaths
 
     /// <summary>
     /// Directory for shader files used by the application.
+    /// This is a shared writable runtime folder adjacent to the Logs folder,
+    /// so packaged builds can copy bundled shaders out of the app bundle and
+    /// use them consistently from ../Shaders relative to log.txt.
     /// </summary>
-    public static string ShadersDirectory => GetShadersDirectory();
+    public static string ShadersDirectory => GetSharedShadersDirectory();
 
     public static string GetSettingsFile(string fileName) => Path.Combine(SettingsDirectory, fileName);
     public static string GetCacheFile(string fileName) => Path.Combine(CacheDirectory, fileName);
     public static string GetToolFile(string fileName) => Path.Combine(ToolsDirectory, fileName);
-
-    private static string GetShadersDirectory()
-    {
-        // Check if there is a 'Shaders' directory in the application base (dev/portable mode).
-        var localShaders = Path.Combine(AppContext.BaseDirectory, "Shaders");
-        if (Directory.Exists(localShaders))
-        {
-            return localShaders;
-        }
-
-        // Fallback to the standard OS data location.
-        return Path.Combine(DataRootDirectory, "Shaders");
-    }
 
     public static bool IsAppBaseWritable()
     {
@@ -75,6 +65,17 @@ public static class ApplicationPaths
 
         _isAppBaseWritable = IsDirectoryWritable(AppContext.BaseDirectory);
         return _isAppBaseWritable.Value;
+    }
+
+    private static string GetSharedShadersDirectory()
+    {
+        var logsParent = Directory.GetParent(LogsDirectory);
+        if (logsParent is not null)
+        {
+            return Path.Combine(logsParent.FullName, "Shaders");
+        }
+
+        return Path.Combine(DataRootDirectory, "Shaders");
     }
 
     private static string GetUserDataRootDirectory()

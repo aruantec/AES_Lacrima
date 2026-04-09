@@ -228,7 +228,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 #endif
 
     private string _shaderToysDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "Shadertoys");
-    private string _shadersDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "glsl");
     private bool _hasPersistedScaleFactor;
     private bool _hasPersistedMiniScaleFactor;
 
@@ -1976,6 +1975,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     public override void Prepare()
     {
         // Load shader items from the local shaders directory (Linux-safe path resolution).
+        Program.EnsureBundledShaderResources();
         _shaderToysDirectory = ResolveShaderToysDirectory();
         ShaderToys = [.. GetLocalShaders(_shaderToysDirectory, "*.frag")];
         EnsureDefaultSelectedShaderToy();

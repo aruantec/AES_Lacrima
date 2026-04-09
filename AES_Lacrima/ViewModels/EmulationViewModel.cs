@@ -36,7 +36,7 @@ namespace AES_Lacrima.ViewModels
         IntPtr EmulatorTargetHwnd { get; }
     }
 
-    public record ShaderFileItem(string Path, string Name);
+    public record ShaderFileItem(string FilePath, string Name);
 
     public partial class EmulationAlbumItem : FolderMediaItem
     {
@@ -282,29 +282,32 @@ namespace AES_Lacrima.ViewModels
         public int ClientAreaCropBottomInset => CurrentEmulatorHandler?.ClientAreaCropBottomInset ?? 0;
 
         public IReadOnlyList<Stretch> CaptureStretchOptions { get; } = new[] { Stretch.Uniform, Stretch.UniformToFill, Stretch.Fill };
-        public IReadOnlyList<ShaderFileItem> ShaderFileItems { get; } = LoadShaderFileItems();
+
+        [ObservableProperty]
+        private IReadOnlyList<ShaderFileItem> _shaderFileItems = LoadShaderFileItems();
 
         [ObservableProperty]
         private ShaderFileItem _selectedShaderFileItem = new(string.Empty, string.Empty);
 
+        [ObservableProperty]
+        private string _selectedShaderPath = string.Empty;
+
+        [ObservableProperty]
+        private bool _clearShaderWhenPathEmpty = true;
+
         private static IReadOnlyList<ShaderFileItem> LoadShaderFileItems()
         {
-            var shaderDirectories = new[]
-            {
-                Path.Combine(AppContext.BaseDirectory, "Shaders", "glsl"),
-                Path.Combine(ApplicationPaths.ShadersDirectory, "glsl")
-            };
+            var shaderDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "hlsl");
 
-            var files = shaderDirectories
-                .Where(Directory.Exists)
-                .SelectMany(dir => Directory.EnumerateFiles(dir, "*.glsl", SearchOption.TopDirectoryOnly))
+            var files = Directory.Exists(shaderDirectory)
+                ? Directory.EnumerateFiles(shaderDirectory, "*.hlsl", SearchOption.TopDirectoryOnly)
+                : Enumerable.Empty<string>();
+
+            var entries = new List<ShaderFileItem> { new(string.Empty, "None") };
+            entries.AddRange(files
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
-                .Select(path => new ShaderFileItem(path, Path.GetFileName(path)))
-                .ToList();
-
-            var entries = new List<ShaderFileItem> { new(string.Empty, string.Empty) };
-            entries.AddRange(files);
+                .Select(path => new ShaderFileItem(path, Path.GetFileName(path))));
             return entries;
         }
 
@@ -313,6 +316,27 @@ namespace AES_Lacrima.ViewModels
             AlbumList.CollectionChanged += AlbumList_CollectionChanged;
             PropertyChanged += EmulationViewModel_PropertyChanged;
             _selectedShaderFileItem = ShaderFileItems.FirstOrDefault() ?? new(string.Empty, string.Empty);
+            _selectedShaderPath = _selectedShaderFileItem.FilePath;
+            _clearShaderWhenPathEmpty = string.IsNullOrWhiteSpace(_selectedShaderFileItem.FilePath);
+        }
+
+        partial void OnSelectedShaderFileItemChanged(ShaderFileItem value)
+        {
+            SelectedShaderPath = value?.FilePath ?? string.Empty;
+            ClearShaderWhenPathEmpty = string.IsNullOrWhiteSpace(value?.FilePath);
+            AutoSave();
+        }
+
+        partial void OnSelectedShaderPathChanged(string value) => AutoSave();
+
+        private void RefreshShaderFileItems()
+        {
+            var currentPath = SelectedShaderPath;
+            ShaderFileItems = LoadShaderFileItems();
+            SelectedShaderFileItem = ShaderFileItems.FirstOrDefault(item =>
+                string.Equals(item.FilePath, currentPath, StringComparison.OrdinalIgnoreCase))
+                ?? ShaderFileItems.FirstOrDefault()
+                ?? new(string.Empty, string.Empty);
         }
 
         private void EmulationViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -540,6 +564,8 @@ namespace AES_Lacrima.ViewModels
 
             _isPreparing = true;
             base.Prepare();
+            Program.EnsureBundledShaderResources();
+            RefreshShaderFileItems();
             LoadSettings(); // Load lightweight settings (toggles, opacity, etc)
             EnsureSettingsViewModelSubscription();
             EnsureMetadataServiceSubscription();
@@ -747,6 +773,96 @@ namespace AES_Lacrima.ViewModels
             DetachTrackedEmulatorProcess();
         }
 
+        public void ShutdownForApplicationExit()
+        {
+            SLog.Info("EmulationViewModel.ShutdownForApplicationExit started.");
+            _pendingEmulatorLaunchRequest = null;
+            IsRenderOptionsOpen = false;
+            ClearRetroArchErrorState();
+            RequestStopEmulatorCapture = true;
+
+            if (EmulatorTargetHwnd != IntPtr.Zero)
+            {
+                SLog.Info($"EmulationViewModel clearing emulator hwnd 0x{EmulatorTargetHwnd.ToInt64():X} for application shutdown.");
+                EmulatorTargetHwnd = IntPtr.Zero;
+            }
+
+            if (!TryGetRunningTrackedEmulatorProcess(out var process))
+            {
+                IsEmulatorRunning = false;
+                CurrentEmulatorHandler = null;
+                DetachTrackedEmulatorProcess();
+                return;
+            }
+
+            try
+            {
+                var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
+                forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "dolphin", StringComparison.OrdinalIgnoreCase);
+
+                if (!forceKillFirst)
+                {
+                    try
+                    {
+                        forceKillFirst = process.ProcessName.Contains("pcsx2", StringComparison.OrdinalIgnoreCase) ||
+                                         process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                if (forceKillFirst)
+                {
+                    SLog.Info($"EmulationViewModel force-terminating emulator pid={process.Id} during application shutdown.");
+                    process.Kill(true);
+                }
+                else
+                {
+                    var closeMainWindowResult = process.CloseMainWindow();
+                    SLog.Info($"EmulationViewModel CloseMainWindow returned {closeMainWindowResult} for pid={process.Id} during application shutdown.");
+                    if (!closeMainWindowResult)
+                    {
+                        process.Kill(true);
+                    }
+                    else if (!process.WaitForExit(3000))
+                    {
+                        SLog.Info($"EmulationViewModel force-closing emulator pid={process.Id} after graceful shutdown timed out during application shutdown.");
+                        process.Kill(true);
+                    }
+                }
+
+                if (!process.HasExited)
+                {
+                    process.WaitForExit(3000);
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed to stop tracked emulator cleanly during application shutdown.", ex);
+
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(true);
+                        process.WaitForExit(3000);
+                    }
+                }
+                catch (Exception killEx)
+                {
+                    SLog.Debug("Failed to force-close emulator during application shutdown.", killEx);
+                }
+            }
+            finally
+            {
+                IsEmulatorRunning = false;
+                CurrentEmulatorHandler = null;
+                DetachTrackedEmulatorProcess();
+                SLog.Info("EmulationViewModel.ShutdownForApplicationExit finished.");
+            }
+        }
+
         [RelayCommand]
         private void OpenSelectedAlbum()
         {
@@ -802,6 +918,11 @@ namespace AES_Lacrima.ViewModels
             DisableVSync = ReadBoolSetting(section, nameof(DisableVSync), false);
             RenderBrightness = ReadDoubleSetting(section, nameof(RenderBrightness), 1.0);
             RenderSaturation = ReadDoubleSetting(section, nameof(RenderSaturation), 1.0);
+            SelectedShaderPath = ReadStringSetting(section, nameof(SelectedShaderPath), string.Empty) ?? string.Empty;
+            SelectedShaderFileItem = ShaderFileItems.FirstOrDefault(item =>
+                string.Equals(item.FilePath, SelectedShaderPath, StringComparison.OrdinalIgnoreCase))
+                ?? ShaderFileItems.FirstOrDefault()
+                ?? new(string.Empty, string.Empty);
 
             SLog.Info("EmulationViewModel.OnLoadSettings applied lightweight settings on the UI thread.");
         }
@@ -817,6 +938,7 @@ namespace AES_Lacrima.ViewModels
             WriteSetting(section, nameof(DisableVSync), DisableVSync);
             WriteSetting(section, nameof(RenderBrightness), RenderBrightness);
             WriteSetting(section, nameof(RenderSaturation), RenderSaturation);
+            WriteSetting(section, nameof(SelectedShaderPath), SelectedShaderPath);
 
             _pendingAlbumOrder = new AvaloniaList<string>(AlbumList.Select(GetAlbumOrderKey));
             _pendingAlbumRoms = BuildAlbumRomMap();
