@@ -62,7 +62,7 @@ namespace AES_Lacrima.Mini.ViewModels
         private int _pendingSelectedItemIndex = -1;
         private string? _pendingLastPlayedFileName;
         private BitmapColorHelper _colorHelper = new();
-        private MediaItem? _coverDisplayOverrideItem;
+        private MediaItem? _coverDisplayOverrideItem = null;
 
         #endregion
 

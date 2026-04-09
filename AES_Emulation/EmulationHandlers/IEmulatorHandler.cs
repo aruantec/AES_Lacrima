@@ -49,6 +49,16 @@ public interface IEmulatorHandler : INotifyPropertyChanged
 
     bool HideUntilCaptured { get; }
 
+    bool ForceUseTargetClientAreaCapture { get; }
+
+    int ClientAreaCropLeftInset { get; }
+
+    int ClientAreaCropTopInset { get; }
+
+    int ClientAreaCropRightInset { get; }
+
+    int ClientAreaCropBottomInset { get; }
+
     int CaptureStartupDelayMs { get; }
 
     ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null);

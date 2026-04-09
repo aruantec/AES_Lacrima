@@ -20,6 +20,8 @@ public sealed class Snes9xHandler : EmulatorHandlerBase
 
     public override string DisplayName => "Snes9x";
 
+    public override bool HideUntilCaptured => true;
+
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
         if (string.IsNullOrWhiteSpace(albumTitle))
@@ -46,11 +48,15 @@ public sealed class Snes9xHandler : EmulatorHandlerBase
     // Snes9x usually starts quickly but needs a moment for the window to settle.
     public override int CaptureStartupDelayMs => 500;
 
+    public override void PrepareProcessForCapture(Process process) => HideProcessWindowsForCapture(process);
+
+    public override void PrepareWindowForCapture(IntPtr hwnd) => HideWindowForCapture(hwnd);
+
     public override IntPtr FindPreferredWindowHandle(Process process)
     {
         // Snes9x typically uses a single main window for emulation.
         // We can use the default implementation or refine it if needed.
-        return FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: false, isPreferredRenderWindow: IsLikelySnes9xWindow);
+        return FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: true, isPreferredRenderWindow: IsLikelySnes9xWindow);
     }
 
     private static bool IsLikelySnes9xWindow(IntPtr hwnd, IntPtr mainWindowHandle)

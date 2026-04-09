@@ -14,21 +14,21 @@
         WindowStartupLocation="Manual">
     <Grid ClipToBounds="True">
         <Border Background="#0F0F0F"/>
-        <emulation:WgcCaptureControl x:Name="CaptureControl"
-                                     HorizontalAlignment="Stretch"
-                                     VerticalAlignment="Stretch"
-                                     TargetHwnd="{Binding EmulatorTargetHwnd}"
-                                     RetroarchShaderFile="{Binding SelectedShaderFileItem.Path, Mode=TwoWay}"
-                                     Stretch="{Binding SelectedStretch, Mode=TwoWay}"
-                                     ForceUseTargetClientSize="True"
-                                     DisableVSync="{Binding DisableVSync, Mode=TwoWay}"
-                                     Brightness="{Binding RenderBrightness, Mode=TwoWay}"
-                                     Saturation="{Binding RenderSaturation, Mode=TwoWay}"
-                                     ShowStatisticsOverlay="{Binding ShowStatisticsOverlay, Mode=TwoWay}"
-                                     ShowFrametimeGraph="{Binding ShowFrametimeGraph, Mode=TwoWay}"
-                                     ShowDetailedGpuInfo="{Binding ShowDetailedGpuInfo, Mode=TwoWay}"
-                                     OverlayOpacity="{Binding RenderOverlayOpacity, Mode=TwoWay}"
-                                     RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}" />
+        <emulation:DirectCompositionCaptureHost x:Name="CaptureControl"
+                                                HorizontalAlignment="Stretch"
+                                                VerticalAlignment="Stretch"
+                                                TargetHwnd="{Binding EmulatorTargetHwnd}"
+                                                ForceUseTargetClientArea="{Binding ForceUseTargetClientAreaCapture}"
+                                                ClientAreaCropLeftInset="{Binding ClientAreaCropLeftInset}"
+                                                ClientAreaCropTopInset="{Binding ClientAreaCropTopInset}"
+                                                ClientAreaCropRightInset="{Binding ClientAreaCropRightInset}"
+                                                ClientAreaCropBottomInset="{Binding ClientAreaCropBottomInset}"
+                                                HideTargetWindowAfterCaptureStarts="{Binding HideTargetWindowAfterCaptureStarts}"
+                                                Stretch="{Binding SelectedStretch, Mode=TwoWay}"
+                                                Brightness="{Binding RenderBrightness, Mode=TwoWay}"
+                                                Saturation="{Binding RenderSaturation, Mode=TwoWay}"
+                                                DisableVSync="{Binding DisableVSync, Mode=TwoWay}"
+                                                RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}" />
 
         <Border Margin="16"
                 Padding="10"
@@ -38,68 +38,18 @@
                 VerticalAlignment="Top"
                 IsHitTestVisible="False"
                 Opacity="{Binding RenderOverlayOpacity}">
-            <Border.IsVisible>
-                <Binding Path="ShowStatisticsOverlay"/>
-            </Border.IsVisible>
             <StackPanel Spacing="4"
                         HorizontalAlignment="Left">
-                <TextBlock Text="{Binding ElementName=CaptureControl, Path=BackendName, StringFormat='Backend: {0}'}"
+                <TextBlock Text="Portal test: NativeControlHost + DirectComposition"
                            Foreground="White"
                            FontSize="16"
                            FontFamily="Consolas"/>
-                <TextBlock Text="{Binding ElementName=CaptureControl, Path=Fps, StringFormat='FPS: {0:0.0}'}"
-                           Foreground="White"
-                           FontSize="16"
-                           FontFamily="Consolas"/>
-                <TextBlock Text="{Binding ElementName=CaptureControl, Path=FrameTimeMs, StringFormat='FrameTime: {0:0.00} ms'}"
-                           Foreground="White"
-                           FontSize="16"
-                           FontFamily="Consolas"/>
-                <StackPanel Spacing="4"
-                            HorizontalAlignment="Left"
-                            IsVisible="{Binding ShowDetailedGpuInfo}">
-                    <TextBlock Text="{Binding ElementName=CaptureControl, Path=GpuRenderer, StringFormat='GPU: {0}'}"
-                               Foreground="#DDDDDD"
-                               FontSize="13"
-                               FontFamily="Consolas"
-                               HorizontalAlignment="Left"
-                               TextAlignment="Left"
-                               TextTrimming="CharacterEllipsis"
-                               MaxWidth="340"/>
-                    <TextBlock Text="{Binding ElementName=CaptureControl, Path=GpuVendor, StringFormat='Vendor: {0}'}"
-                               Foreground="#DDDDDD"
-                               FontSize="13"
-                               FontFamily="Consolas"
-                               HorizontalAlignment="Left"
-                               TextAlignment="Left"/>
-                </StackPanel>
-                <StackPanel Spacing="0"
-                            HorizontalAlignment="Left"
-                            IsVisible="{Binding ShowFrametimeGraph}">
-                    <Canvas Width="{Binding ElementName=CaptureControl, Path=FrametimeGraphWidth}"
-                            Height="40"
-                            HorizontalAlignment="Left"
-                            Margin="0,5,0,0">
-                        <Border Width="{Binding ElementName=CaptureControl, Path=FrametimeGraphWidth}"
-                                Height="1"
-                                Background="#28FFFFFF"
-                                Canvas.Top="13.36"/>
-                        <Border Width="{Binding ElementName=CaptureControl, Path=FrametimeGraphWidth}"
-                                Height="1"
-                                Background="#28FFFFFF"
-                                Canvas.Top="26.72"/>
-                        <Path Data="{Binding ElementName=CaptureControl, Path=FrametimeGraphGeometry}"
-                              Stroke="#B400FFFF"
-                              StrokeThickness="1.5"
-                              Stretch="None"/>
-                        <TextBlock Text="{Binding ElementName=CaptureControl, Path=FrameTimeMs, StringFormat='{}{0:0.00} ms'}"
-                                   Foreground="#FF00FFFF"
-                                   FontSize="12"
-                                   FontFamily="Consolas"
-                                   Canvas.Top="-5"
-                                   Canvas.Left="0"/>
-                    </Canvas>
-                </StackPanel>
+                <TextBlock Text="{Binding ElementName=CaptureControl, Path=StatusText}"
+                           Foreground="{Binding ElementName=CaptureControl, Path=IsDirectCompositionActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#7CFC00,#FFCC66'}}"
+                           FontSize="14"
+                           FontFamily="Consolas"
+                           MaxWidth="420"
+                           TextWrapping="Wrap"/>
             </StackPanel>
         </Border>
     </Grid>

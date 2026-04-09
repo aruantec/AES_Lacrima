@@ -6,6 +6,7 @@
 
 // DirectX
 #include <d3d11_4.h>
+#include <dcomp.h>
 #include <dxgi1_6.h>
 
 // WinRT
@@ -23,4 +24,5 @@
 #include <mutex>
 
 #pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "dcomp.lib")
 #pragma comment(lib, "windowsapp.lib")

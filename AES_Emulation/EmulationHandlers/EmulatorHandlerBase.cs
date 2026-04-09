@@ -74,6 +74,16 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual bool HideUntilCaptured => false;
 
+    public virtual bool ForceUseTargetClientAreaCapture => false;
+
+    public virtual int ClientAreaCropLeftInset => 0;
+
+    public virtual int ClientAreaCropTopInset => 0;
+
+    public virtual int ClientAreaCropRightInset => 0;
+
+    public virtual int ClientAreaCropBottomInset => 0;
+
     public virtual void Prepare() => IsPrepared = true;
 
     public virtual void OnShowViewModel() => IsActive = true;
@@ -315,7 +325,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
         Win32API.RemoveWindowDecorations(hwnd);
         Win32API.MoveAway(hwnd);
-        Win32API.SetWindowOpacity(hwnd, 255);
+        Win32API.SetWindowOpacity(hwnd, 0);
     }
 
     [SupportedOSPlatform("windows")]

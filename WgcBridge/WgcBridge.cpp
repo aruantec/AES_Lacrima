@@ -5,6 +5,8 @@
 #include <dxgi1_2.h>
 #include <thread>
 #include <chrono>
+#include <cstdio>
+#include <string>
 
 namespace rt = winrt;
 namespace wgc = winrt::Windows::Graphics::Capture;
@@ -36,6 +38,21 @@ namespace d3d = winrt::Windows::Graphics::DirectX::Direct3D11;
 // - Expose simple C-callable functions for managed interop
 struct CaptureSession
 {
+    struct DcompVertex
+    {
+        float x, y, z;
+        float u, v;
+    };
+
+    struct DcompConstants
+    {
+        float brightness;
+        float saturation;
+        float padding0;
+        float padding1;
+        float tint[4];
+    };
+
     wgc::GraphicsCaptureItem item{ nullptr };
     wgc::Direct3D11CaptureFramePool framePool{ nullptr };
     wgc::GraphicsCaptureSession session{ nullptr };
@@ -99,6 +116,478 @@ struct CaptureSession
     // Optional DXGI swapchain used to influence VRR timing
     rt::com_ptr<IDXGISwapChain1> swapChain;
     bool vrrEnabled = false;
+
+    // DirectComposition presentation path for NativeControlHost testing
+    HWND presentationHwnd = nullptr;
+    rt::com_ptr<IDXGIFactory2> dxgiFactory;
+    rt::com_ptr<IDCompositionDevice> dcompDevice;
+    rt::com_ptr<IDCompositionTarget> dcompTarget;
+    rt::com_ptr<IDCompositionVisual> dcompVisual;
+    rt::com_ptr<IDCompositionScaleTransform> dcompScaleTransform;
+    rt::com_ptr<IDXGISwapChain1> dcompSwapChain;
+    rt::com_ptr<ID3D11VertexShader> dcompVertexShader;
+    rt::com_ptr<ID3D11PixelShader> dcompPixelShader;
+    rt::com_ptr<ID3D11InputLayout> dcompInputLayout;
+    rt::com_ptr<ID3D11Buffer> dcompVertexBuffer;
+    rt::com_ptr<ID3D11Buffer> dcompConstantBuffer;
+    rt::com_ptr<ID3D11SamplerState> dcompSamplerState;
+    rt::com_ptr<ID3D11RasterizerState> dcompRasterizerState;
+    int dcompWidth = 0;
+    int dcompHeight = 0;
+    std::atomic<int> dcompState{ 0 }; // 0=disabled, 1=initializing, 2=active, -1=failed
+    std::atomic<int> dcompPresentCount{ 0 };
+    std::atomic<int> dcompStretch{ 2 }; // 0=fill, 1=uniform, 2=uniformToFill
+    std::atomic<float> dcompBrightness{ 1.0f };
+    std::atomic<float> dcompSaturation{ 1.0f };
+    std::atomic<float> dcompTintR{ 1.0f };
+    std::atomic<float> dcompTintG{ 1.0f };
+    std::atomic<float> dcompTintB{ 1.0f };
+    std::atomic<float> dcompTintA{ 1.0f };
+    std::atomic<bool> dcompDisableVsync{ false };
+    std::wstring adapterDescription;
+    std::wstring adapterVendor;
+    std::string dcompLastError;
+    std::mutex dcompErrorMutex;
+
+    void MarkDirectCompositionFailed(char const* message)
+    {
+        dcompState.store(-1);
+        if (message)
+        {
+            {
+                std::lock_guard<std::mutex> lock(dcompErrorMutex);
+                dcompLastError = message;
+            }
+            char buf[256];
+            sprintf_s(buf, "[WGC_NATIVE] DirectComposition failure: %s\n", message);
+            OutputDebugStringA(buf);
+        }
+    }
+
+    bool InitializeDirectComposition()
+    {
+        if (!presentationHwnd)
+            return false;
+
+        dcompState.store(1);
+
+        if (!dxgiFactory || !d3dDevice)
+        {
+            MarkDirectCompositionFailed("missing DXGI factory or D3D11 device");
+            return false;
+        }
+
+        auto dxgiDevice = d3dDevice.as<IDXGIDevice>();
+        HRESULT hr = DCompositionCreateDevice(
+            dxgiDevice.get(),
+            __uuidof(IDCompositionDevice),
+            reinterpret_cast<void**>(dcompDevice.put_void()));
+        if (FAILED(hr) || !dcompDevice)
+        {
+            MarkDirectCompositionFailed("DCompositionCreateDevice failed");
+            return false;
+        }
+
+        hr = dcompDevice->CreateTargetForHwnd(presentationHwnd, TRUE, dcompTarget.put());
+        if (FAILED(hr) || !dcompTarget)
+        {
+            MarkDirectCompositionFailed("CreateTargetForHwnd failed");
+            return false;
+        }
+
+        hr = dcompDevice->CreateVisual(dcompVisual.put());
+        if (FAILED(hr) || !dcompVisual)
+        {
+            MarkDirectCompositionFailed("CreateVisual failed");
+            return false;
+        }
+
+        hr = dcompDevice->CreateScaleTransform(dcompScaleTransform.put());
+        if (FAILED(hr) || !dcompScaleTransform)
+        {
+            MarkDirectCompositionFailed("CreateScaleTransform failed");
+            return false;
+        }
+
+        hr = dcompVisual->SetTransform(dcompScaleTransform.get());
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("SetTransform failed");
+            return false;
+        }
+
+        hr = dcompTarget->SetRoot(dcompVisual.get());
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("SetRoot failed");
+            return false;
+        }
+
+        hr = dcompDevice->Commit();
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("initial Commit failed");
+            return false;
+        }
+
+        OutputDebugStringA("[WGC_NATIVE] DirectComposition initialized\n");
+        return true;
+    }
+
+    bool EnsureDirectCompositionRenderer()
+    {
+        if (dcompVertexShader && dcompPixelShader && dcompInputLayout && dcompVertexBuffer && dcompConstantBuffer && dcompSamplerState && dcompRasterizerState)
+            return true;
+
+        const char* vsSrc =
+            "struct VSIn { float3 pos : POSITION; float2 uv : TEXCOORD; };"
+            "struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD; };"
+            "VSOut main(VSIn input) { VSOut o; o.pos = float4(input.pos, 1.0); o.uv = input.uv; return o; }";
+
+        const char* psSrc =
+            "cbuffer Params : register(b0) { float brightness; float saturation; float4 tint; };"
+            "Texture2D src : register(t0);"
+            "SamplerState samp : register(s0);"
+            "struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD; };"
+            "float4 main(PSIn input) : SV_TARGET {"
+            "  float4 col = src.Sample(samp, input.uv);"
+            "  col.rgb *= brightness;"
+            "  float gray = dot(col.rgb, float3(0.299, 0.587, 0.114));"
+            "  col.rgb = lerp(float3(gray, gray, gray), col.rgb, saturation);"
+            "  col *= tint;"
+            "  return col;"
+            "}";
+
+        rt::com_ptr<ID3DBlob> vsBlob;
+        rt::com_ptr<ID3DBlob> psBlob;
+        rt::com_ptr<ID3DBlob> errBlob;
+
+        HRESULT hr = D3DCompile(vsSrc, (SIZE_T)strlen(vsSrc), nullptr, nullptr, nullptr, "main", "vs_4_0", 0, 0, vsBlob.put(), errBlob.put());
+        if (FAILED(hr) || !vsBlob)
+        {
+            MarkDirectCompositionFailed("vertex shader compile failed");
+            return false;
+        }
+
+        hr = D3DCompile(psSrc, (SIZE_T)strlen(psSrc), nullptr, nullptr, nullptr, "main", "ps_4_0", 0, 0, psBlob.put(), errBlob.put());
+        if (FAILED(hr) || !psBlob)
+        {
+            MarkDirectCompositionFailed("pixel shader compile failed");
+            return false;
+        }
+
+        hr = d3dDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, dcompVertexShader.put());
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("CreateVertexShader failed");
+            return false;
+        }
+
+        hr = d3dDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, dcompPixelShader.put());
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("CreatePixelShader failed");
+            return false;
+        }
+
+        D3D11_INPUT_ELEMENT_DESC elems[] =
+        {
+            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 }
+        };
+
+        hr = d3dDevice->CreateInputLayout(elems, 2, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), dcompInputLayout.put());
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("CreateInputLayout failed");
+            return false;
+        }
+
+        D3D11_BUFFER_DESC vbDesc = {};
+        vbDesc.Usage = D3D11_USAGE_DYNAMIC;
+        vbDesc.ByteWidth = sizeof(DcompVertex) * 4;
+        vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        vbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        hr = d3dDevice->CreateBuffer(&vbDesc, nullptr, dcompVertexBuffer.put());
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("CreateBuffer vertex failed");
+            return false;
+        }
+
+        D3D11_BUFFER_DESC cbDesc = {};
+        cbDesc.Usage = D3D11_USAGE_DEFAULT;
+        cbDesc.ByteWidth = sizeof(DcompConstants);
+        cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        hr = d3dDevice->CreateBuffer(&cbDesc, nullptr, dcompConstantBuffer.put());
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("CreateBuffer constant failed");
+            return false;
+        }
+
+        D3D11_SAMPLER_DESC samplerDesc = {};
+        samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+        samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+        samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+        samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+        samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+        hr = d3dDevice->CreateSamplerState(&samplerDesc, dcompSamplerState.put());
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("CreateSamplerState failed");
+            return false;
+        }
+
+        D3D11_RASTERIZER_DESC rasterizerDesc = {};
+        rasterizerDesc.FillMode = D3D11_FILL_SOLID;
+        rasterizerDesc.CullMode = D3D11_CULL_NONE;
+        rasterizerDesc.FrontCounterClockwise = FALSE;
+        rasterizerDesc.DepthClipEnable = TRUE;
+        rasterizerDesc.ScissorEnable = FALSE;
+        rasterizerDesc.MultisampleEnable = FALSE;
+        rasterizerDesc.AntialiasedLineEnable = FALSE;
+        hr = d3dDevice->CreateRasterizerState(&rasterizerDesc, dcompRasterizerState.put());
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("CreateRasterizerState failed");
+            return false;
+        }
+
+        return true;
+    }
+
+    bool EnsureDirectCompositionSwapChain(int width, int height)
+    {
+        if (!presentationHwnd || !dcompDevice || !dxgiFactory)
+            return false;
+
+        RECT rc{};
+        if (!GetClientRect(presentationHwnd, &rc))
+            return false;
+
+        int clientWidth = static_cast<int>(rc.right - rc.left);
+        int clientHeight = static_cast<int>(rc.bottom - rc.top);
+        int targetWidth = (std::max)(1, clientWidth);
+        int targetHeight = (std::max)(1, clientHeight);
+
+        if (dcompScaleTransform)
+        {
+            dcompScaleTransform->SetScaleX(1.0f);
+            dcompScaleTransform->SetScaleY(1.0f);
+            dcompScaleTransform->SetCenterX(0.0f);
+            dcompScaleTransform->SetCenterY(0.0f);
+        }
+
+        if (dcompSwapChain && dcompWidth == targetWidth && dcompHeight == targetHeight)
+            return true;
+
+        dcompSwapChain = nullptr;
+        dcompWidth = 0;
+        dcompHeight = 0;
+
+        DXGI_SWAP_CHAIN_DESC1 desc = {};
+        desc.Width = targetWidth;
+        desc.Height = targetHeight;
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount = 2;
+        desc.SampleDesc.Count = 1;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+        desc.Scaling = DXGI_SCALING_STRETCH;
+        desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+
+        HRESULT hr = dxgiFactory->CreateSwapChainForComposition(
+            d3dDevice.get(),
+            &desc,
+            nullptr,
+            dcompSwapChain.put());
+        if (FAILED(hr) || !dcompSwapChain)
+        {
+            MarkDirectCompositionFailed("CreateSwapChainForComposition failed");
+            return false;
+        }
+
+        hr = dcompVisual->SetContent(dcompSwapChain.get());
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("SetContent failed");
+            dcompSwapChain = nullptr;
+            return false;
+        }
+
+        hr = dcompDevice->Commit();
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("Commit after swapchain creation failed");
+            dcompSwapChain = nullptr;
+            return false;
+        }
+
+        dcompWidth = targetWidth;
+        dcompHeight = targetHeight;
+        return true;
+    }
+
+    void PresentToDirectComposition(ID3D11Texture2D* texture, int width, int height)
+    {
+        if (!presentationHwnd || !texture || !d3dContext)
+            return;
+
+        if (!EnsureDirectCompositionSwapChain(width, height))
+            return;
+
+        if (!EnsureDirectCompositionRenderer())
+            return;
+
+        rt::com_ptr<ID3D11Texture2D> backBuffer;
+        HRESULT hr = dcompSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), backBuffer.put_void());
+        if (FAILED(hr) || !backBuffer)
+        {
+            MarkDirectCompositionFailed("GetBuffer failed");
+            return;
+        }
+
+        rt::com_ptr<ID3D11RenderTargetView> rtv;
+        hr = d3dDevice->CreateRenderTargetView(backBuffer.get(), nullptr, rtv.put());
+        if (FAILED(hr) || !rtv)
+        {
+            MarkDirectCompositionFailed("CreateRenderTargetView failed");
+            return;
+        }
+
+        D3D11_TEXTURE2D_DESC texDesc{};
+        texture->GetDesc(&texDesc);
+
+        rt::com_ptr<ID3D11ShaderResourceView> srv;
+        hr = d3dDevice->CreateShaderResourceView(texture, nullptr, srv.put());
+        if (FAILED(hr) || !srv)
+        {
+            MarkDirectCompositionFailed("CreateShaderResourceView failed");
+            return;
+        }
+
+        float viewAspect = dcompHeight > 0 ? static_cast<float>(dcompWidth) / static_cast<float>(dcompHeight) : 1.0f;
+        float frameAspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
+        float left = -1.0f;
+        float right = 1.0f;
+        float top = 1.0f;
+        float bottom = -1.0f;
+        float u0 = 0.0f;
+        float v0 = 0.0f;
+        float u1 = 1.0f;
+        float v1 = 1.0f;
+        int stretch = dcompStretch.load();
+
+        if (stretch == 1)
+        {
+            if (frameAspect > viewAspect)
+            {
+                float scaleY = viewAspect / frameAspect;
+                top = scaleY;
+                bottom = -scaleY;
+            }
+            else
+            {
+                float scaleX = frameAspect / viewAspect;
+                left = -scaleX;
+                right = scaleX;
+            }
+        }
+        else if (stretch == 2)
+        {
+            if (frameAspect > viewAspect)
+            {
+                float crop = (1.0f - (viewAspect / frameAspect)) * 0.5f;
+                u0 = crop;
+                u1 = 1.0f - crop;
+            }
+            else
+            {
+                float crop = (1.0f - (frameAspect / viewAspect)) * 0.5f;
+                v0 = crop;
+                v1 = 1.0f - crop;
+            }
+        }
+
+        DcompVertex vertices[4] =
+        {
+            { left,  top,    0.0f, u0, v0 },
+            { right, top,    0.0f, u1, v0 },
+            { left,  bottom, 0.0f, u0, v1 },
+            { right, bottom, 0.0f, u1, v1 }
+        };
+
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        hr = d3dContext->Map(dcompVertexBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("Map vertex buffer failed");
+            return;
+        }
+
+        memcpy(mapped.pData, vertices, sizeof(vertices));
+        d3dContext->Unmap(dcompVertexBuffer.get(), 0);
+
+        DcompConstants constants{};
+        constants.brightness = dcompBrightness.load();
+        constants.saturation = dcompSaturation.load();
+        constants.tint[0] = dcompTintR.load();
+        constants.tint[1] = dcompTintG.load();
+        constants.tint[2] = dcompTintB.load();
+        constants.tint[3] = dcompTintA.load();
+        d3dContext->UpdateSubresource(dcompConstantBuffer.get(), 0, nullptr, &constants, 0, 0);
+
+        D3D11_VIEWPORT viewport{};
+        viewport.Width = static_cast<float>(dcompWidth);
+        viewport.Height = static_cast<float>(dcompHeight);
+        viewport.MinDepth = 0.0f;
+        viewport.MaxDepth = 1.0f;
+
+        float clearColor[4] = { 0, 0, 0, 1 };
+        ID3D11RenderTargetView* rtvPtr = rtv.get();
+        d3dContext->OMSetRenderTargets(1, &rtvPtr, nullptr);
+        d3dContext->ClearRenderTargetView(rtv.get(), clearColor);
+        d3dContext->RSSetState(dcompRasterizerState.get());
+        d3dContext->RSSetViewports(1, &viewport);
+
+        UINT stride = sizeof(DcompVertex);
+        UINT offset = 0;
+        ID3D11Buffer* vb = dcompVertexBuffer.get();
+        ID3D11ShaderResourceView* srvPtr = srv.get();
+        ID3D11SamplerState* samplerPtr = dcompSamplerState.get();
+        ID3D11Buffer* cbPtr = dcompConstantBuffer.get();
+
+        d3dContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        d3dContext->IASetInputLayout(dcompInputLayout.get());
+        d3dContext->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+        d3dContext->VSSetShader(dcompVertexShader.get(), nullptr, 0);
+        d3dContext->PSSetShader(dcompPixelShader.get(), nullptr, 0);
+        d3dContext->PSSetShaderResources(0, 1, &srvPtr);
+        d3dContext->PSSetSamplers(0, 1, &samplerPtr);
+        d3dContext->PSSetConstantBuffers(0, 1, &cbPtr);
+        d3dContext->Draw(4, 0);
+
+        ID3D11ShaderResourceView* nullSrv = nullptr;
+        d3dContext->PSSetShaderResources(0, 1, &nullSrv);
+
+        hr = dcompSwapChain->Present(1, 0);
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("Present failed");
+            return;
+        }
+
+        hr = dcompDevice->Commit();
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("Commit after present failed");
+            return;
+        }
+
+        dcompState.store(2);
+        dcompPresentCount.fetch_add(1);
+    }
 
     // OnFrameArrived
     // Called by the WinRT frame pool when a new frame is available.
@@ -202,6 +691,11 @@ struct CaptureSession
             }
 
             latestGpuTexture = currentGpu;
+
+            if (presentationHwnd)
+            {
+                PresentToDirectComposition(currentGpu.get(), currentW, currentH);
+            }
 
             // Interop-only fast path:
             // when enabled, keep everything on GPU and avoid CPU staging/readback work.
@@ -463,7 +957,7 @@ struct CaptureSession
 };
 
 extern "C" {
-    __declspec(dllexport) void* CreateCaptureSession(HWND targetHwnd)
+    static void* CreateCaptureSessionInternal(HWND targetHwnd, HWND presentationHwnd)
     {
         try
         {
@@ -481,6 +975,7 @@ extern "C" {
             }
 
             auto s = new CaptureSession();
+            s->presentationHwnd = presentationHwnd;
 
             HRESULT hr = D3D11CreateDevice(
                 nullptr,
@@ -521,9 +1016,24 @@ extern "C" {
                 {
                     rt::com_ptr<IDXGIAdapter> adapter;
                     dxgiDevice->GetAdapter(adapter.put());
+                    DXGI_ADAPTER_DESC adapterDesc{};
+                    if (SUCCEEDED(adapter->GetDesc(&adapterDesc)))
+                    {
+                        s->adapterDescription = adapterDesc.Description;
+                        switch (adapterDesc.VendorId)
+                        {
+                        case 0x10DE: s->adapterVendor = L"NVIDIA"; break;
+                        case 0x1002:
+                        case 0x1022: s->adapterVendor = L"AMD"; break;
+                        case 0x8086: s->adapterVendor = L"Intel"; break;
+                        case 0x1414: s->adapterVendor = L"Microsoft"; break;
+                        default: s->adapterVendor = L"Unknown"; break;
+                        }
+                    }
 
                     rt::com_ptr<IDXGIFactory2> factory;
                     adapter->GetParent(rt::guid_of<IDXGIFactory2>(), factory.put_void());
+                    s->dxgiFactory = factory;
 
                     DXGI_SWAP_CHAIN_DESC1 desc = {};
                     desc.Width = 16;
@@ -551,6 +1061,12 @@ extern "C" {
                 OutputDebugStringA("[WGC_NATIVE] CreateDirect3D11DeviceFromDXGIDevice failed\n");
                 delete s;
                 return nullptr;
+            }
+
+            if (s->presentationHwnd)
+            {
+                s->interopEnabled.store(true, std::memory_order_relaxed);
+                s->InitializeDirectComposition();
             }
 
             // Create capture item for the target HWND
@@ -658,6 +1174,16 @@ extern "C" {
         }
     }
 
+    __declspec(dllexport) void* CreateCaptureSession(HWND targetHwnd)
+    {
+        return CreateCaptureSessionInternal(targetHwnd, nullptr);
+    }
+
+    __declspec(dllexport) void* CreateDirectCompositionCaptureSession(HWND targetHwnd, HWND presentationHwnd)
+    {
+        return CreateCaptureSessionInternal(targetHwnd, presentationHwnd);
+    }
+
     __declspec(dllexport) void DestroyCaptureSession(void* ptr) {
         auto s = static_cast<CaptureSession*>(ptr);
         if (!s) return;
@@ -668,6 +1194,12 @@ extern "C" {
             if (s->framePool) {
                 if (s->frameToken) s->framePool.FrameArrived(s->frameToken); // Unregister
                 s->framePool.Close();
+            }
+            if (s->dcompTarget) {
+                s->dcompTarget->SetRoot(nullptr);
+            }
+            if (s->dcompDevice) {
+                s->dcompDevice->Commit();
             }
         } catch (...) {}
         delete s;
@@ -682,6 +1214,61 @@ extern "C" {
     __declspec(dllexport) int GetReaderCount(void* ptr) {
         if (!ptr) return -1;
         return static_cast<CaptureSession*>(ptr)->readers.load();
+    }
+
+    __declspec(dllexport) int GetDirectCompositionState(void* ptr) {
+        if (!ptr) return -1;
+        return static_cast<CaptureSession*>(ptr)->dcompState.load();
+    }
+
+    __declspec(dllexport) int GetDirectCompositionPresentCount(void* ptr) {
+        if (!ptr) return -1;
+        return static_cast<CaptureSession*>(ptr)->dcompPresentCount.load();
+    }
+
+    __declspec(dllexport) int GetDirectCompositionLastError(void* ptr, char* buffer, int bufferChars) {
+        auto s = static_cast<CaptureSession*>(ptr);
+        if (!s || !buffer || bufferChars <= 0) return 0;
+
+        std::lock_guard<std::mutex> lock(s->dcompErrorMutex);
+        if (s->dcompLastError.empty())
+        {
+            buffer[0] = '\0';
+            return 0;
+        }
+
+        strncpy_s(buffer, bufferChars, s->dcompLastError.c_str(), _TRUNCATE);
+        return 1;
+    }
+
+    __declspec(dllexport) void SetDirectCompositionRenderOptions(void* ptr, int stretch, float brightness, float saturation, float tintR, float tintG, float tintB, float tintA, int disableVsync) {
+        auto s = static_cast<CaptureSession*>(ptr);
+        if (!s) return;
+        s->dcompStretch.store(stretch);
+        s->dcompBrightness.store(brightness);
+        s->dcompSaturation.store(saturation);
+        s->dcompTintR.store(tintR);
+        s->dcompTintG.store(tintG);
+        s->dcompTintB.store(tintB);
+        s->dcompTintA.store(tintA);
+        s->dcompDisableVsync.store(disableVsync != 0);
+    }
+
+    __declspec(dllexport) int GetDirectCompositionAdapterInfo(void* ptr, wchar_t* rendererBuffer, int rendererBufferChars, wchar_t* vendorBuffer, int vendorBufferChars) {
+        auto s = static_cast<CaptureSession*>(ptr);
+        if (!s) return 0;
+
+        if (rendererBuffer && rendererBufferChars > 0)
+        {
+            wcsncpy_s(rendererBuffer, rendererBufferChars, s->adapterDescription.c_str(), _TRUNCATE);
+        }
+
+        if (vendorBuffer && vendorBufferChars > 0)
+        {
+            wcsncpy_s(vendorBuffer, vendorBufferChars, s->adapterVendor.c_str(), _TRUNCATE);
+        }
+
+        return 1;
     }
 
     __declspec(dllexport) void SetCaptureMaxResolution(void* ptr, int maxWidth, int maxHeight) {
