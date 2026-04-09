@@ -6,6 +6,9 @@
 #include <thread>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 namespace rt = winrt;
@@ -48,9 +51,13 @@ struct CaptureSession
     {
         float brightness;
         float saturation;
+        float sourceWidth;
+        float sourceHeight;
+        float tint[4];
+        float outputWidth;
+        float outputHeight;
         float padding0;
         float padding1;
-        float tint[4];
     };
 
     wgc::GraphicsCaptureItem item{ nullptr };
@@ -144,23 +151,105 @@ struct CaptureSession
     std::atomic<float> dcompTintB{ 1.0f };
     std::atomic<float> dcompTintA{ 1.0f };
     std::atomic<bool> dcompDisableVsync{ false };
+    std::wstring dcompShaderPath;
+    std::mutex dcompShaderMutex;
+    std::atomic<bool> dcompShaderDirty{ false };
     std::wstring adapterDescription;
     std::wstring adapterVendor;
     std::string dcompLastError;
     std::mutex dcompErrorMutex;
+
+    static std::wstring GetShaderCompilerErrorLogPath()
+    {
+        DWORD required = GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
+        if (required > 1)
+        {
+            std::wstring path(required - 1, L'\0');
+            if (GetEnvironmentVariableW(L"LOCALAPPDATA", path.data(), required) > 0)
+            {
+                path += L"\\AES_Lacrima\\Logs\\shaderCompilerError.txt";
+                return path;
+            }
+        }
+
+        wchar_t modulePath[MAX_PATH] = {};
+        if (GetModuleFileNameW(nullptr, modulePath, static_cast<DWORD>(std::size(modulePath))) > 0)
+        {
+            std::filesystem::path path(modulePath);
+            path = path.parent_path() / L"shaderCompilerError.txt";
+            return path.wstring();
+        }
+
+        return L"shaderCompilerError.txt";
+    }
+
+    static void EnsureParentDirectoryExists(std::wstring const& filePath)
+    {
+        try
+        {
+            std::filesystem::path path(filePath);
+            auto parent = path.parent_path();
+            if (!parent.empty())
+                std::filesystem::create_directories(parent);
+        }
+        catch (...)
+        {
+            auto lastSlash = filePath.find_last_of(L"\\/");
+            if (lastSlash == std::wstring::npos)
+                return;
+
+            std::wstring directory = filePath.substr(0, lastSlash);
+            if (directory.empty())
+                return;
+
+            CreateDirectoryW(directory.c_str(), nullptr);
+        }
+    }
+
+    static void WriteShaderCompilerErrorFile(char const* message)
+    {
+        try
+        {
+            auto path = GetShaderCompilerErrorLogPath();
+            EnsureParentDirectoryExists(path);
+
+            std::ofstream stream(std::filesystem::path(path), std::ios::out | std::ios::trunc | std::ios::binary);
+            if (stream.is_open())
+                stream << (message ? message : "");
+        }
+        catch (...)
+        {
+        }
+    }
+
+    static void ClearShaderCompilerErrorFile()
+    {
+        try
+        {
+            auto path = GetShaderCompilerErrorLogPath();
+            std::error_code ec;
+            std::filesystem::remove(std::filesystem::path(path), ec);
+        }
+        catch (...)
+        {
+        }
+    }
+
+    void SetDirectCompositionStatus(char const* message)
+    {
+        std::lock_guard<std::mutex> lock(dcompErrorMutex);
+        dcompLastError = message ? message : "";
+    }
 
     void MarkDirectCompositionFailed(char const* message)
     {
         dcompState.store(-1);
         if (message)
         {
-            {
-                std::lock_guard<std::mutex> lock(dcompErrorMutex);
-                dcompLastError = message;
-            }
-            char buf[256];
-            sprintf_s(buf, "[WGC_NATIVE] DirectComposition failure: %s\n", message);
-            OutputDebugStringA(buf);
+            SetDirectCompositionStatus(message);
+            OutputDebugStringA("[WGC_NATIVE] DirectComposition failure: ");
+            OutputDebugStringA(message);
+            OutputDebugStringA("\n");
         }
     }
 
@@ -236,16 +325,22 @@ struct CaptureSession
 
     bool EnsureDirectCompositionRenderer()
     {
-        if (dcompVertexShader && dcompPixelShader && dcompInputLayout && dcompVertexBuffer && dcompConstantBuffer && dcompSamplerState && dcompRasterizerState)
+        bool shaderDirty = dcompShaderDirty.exchange(false);
+        if (dcompVertexShader && dcompPixelShader && dcompInputLayout && dcompVertexBuffer && dcompConstantBuffer && dcompSamplerState && dcompRasterizerState && !shaderDirty)
             return true;
+
+        if (shaderDirty)
+        {
+            dcompPixelShader = nullptr;
+        }
 
         const char* vsSrc =
             "struct VSIn { float3 pos : POSITION; float2 uv : TEXCOORD; };"
             "struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD; };"
             "VSOut main(VSIn input) { VSOut o; o.pos = float4(input.pos, 1.0); o.uv = input.uv; return o; }";
 
-        const char* psSrc =
-            "cbuffer Params : register(b0) { float brightness; float saturation; float4 tint; };"
+        const char* psDefaultSrc =
+            "cbuffer Params : register(b0) { float brightness; float saturation; float sourceWidth; float sourceHeight; float4 tint; float outputWidth; float outputHeight; float padding0; float padding1; };"
             "Texture2D src : register(t0);"
             "SamplerState samp : register(s0);"
             "struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD; };"
@@ -262,57 +357,119 @@ struct CaptureSession
         rt::com_ptr<ID3DBlob> psBlob;
         rt::com_ptr<ID3DBlob> errBlob;
 
-        HRESULT hr = D3DCompile(vsSrc, (SIZE_T)strlen(vsSrc), nullptr, nullptr, nullptr, "main", "vs_4_0", 0, 0, vsBlob.put(), errBlob.put());
-        if (FAILED(hr) || !vsBlob)
+        HRESULT hr = S_OK;
+        if (!dcompVertexShader)
         {
-            MarkDirectCompositionFailed("vertex shader compile failed");
-            return false;
+            hr = D3DCompile(vsSrc, (SIZE_T)strlen(vsSrc), nullptr, nullptr, nullptr, "main", "vs_4_0", 0, 0, vsBlob.put(), errBlob.put());
+            if (FAILED(hr) || !vsBlob)
+            {
+                MarkDirectCompositionFailed("vertex shader compile failed");
+                return false;
+            }
+
+            hr = d3dDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, dcompVertexShader.put());
+            if (FAILED(hr))
+            {
+                MarkDirectCompositionFailed("CreateVertexShader failed");
+                return false;
+            }
+
+            D3D11_INPUT_ELEMENT_DESC elems[] =
+            {
+                { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+                { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 }
+            };
+
+            hr = d3dDevice->CreateInputLayout(elems, 2, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), dcompInputLayout.put());
+            if (FAILED(hr))
+            {
+                MarkDirectCompositionFailed("CreateInputLayout failed");
+                return false;
+            }
         }
 
-        hr = D3DCompile(psSrc, (SIZE_T)strlen(psSrc), nullptr, nullptr, nullptr, "main", "ps_4_0", 0, 0, psBlob.put(), errBlob.put());
-        if (FAILED(hr) || !psBlob)
+        if (!dcompPixelShader)
         {
-            MarkDirectCompositionFailed("pixel shader compile failed");
-            return false;
+            std::wstring path;
+            {
+                std::lock_guard<std::mutex> lock(dcompShaderMutex);
+                path = dcompShaderPath;
+            }
+
+            bool compiled = false;
+            if (!path.empty())
+            {
+                std::wstring dbgPath = L"[WGC_NATIVE] Compiling DirectComposition pixel shader from '";
+                dbgPath += path;
+                dbgPath += L"'\n";
+                OutputDebugStringW(dbgPath.c_str());
+
+                hr = D3DCompileFromFile(path.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "ps_4_0", 0, 0, psBlob.put(), errBlob.put());
+                if (SUCCEEDED(hr) && psBlob)
+                {
+                    SetDirectCompositionStatus("Custom DirectComposition shader compile succeeded");
+                    ClearShaderCompilerErrorFile();
+                    OutputDebugStringA("[WGC_NATIVE] DirectComposition pixel shader compile succeeded\n");
+                    compiled = true;
+                }
+                else if (errBlob)
+                {
+                    char const* errMsg = (char const*)errBlob->GetBufferPointer();
+                    std::string fullMsg = "Pixel shader compile error: ";
+                    fullMsg += errMsg;
+                    WriteShaderCompilerErrorFile(fullMsg.c_str());
+                    OutputDebugStringA(fullMsg.c_str());
+                    OutputDebugStringA("\n");
+                    MarkDirectCompositionFailed(fullMsg.c_str());
+                    // Fallback to default
+                }
+                else
+                {
+                    SetDirectCompositionStatus("Custom DirectComposition shader compile failed without compiler error blob");
+                    WriteShaderCompilerErrorFile("Custom DirectComposition shader compile failed without compiler error blob");
+                    OutputDebugStringA("[WGC_NATIVE] DirectComposition pixel shader compile failed without compiler error blob\n");
+                }
+            }
+
+            if (!compiled)
+            {
+                if (path.empty())
+                {
+                    SetDirectCompositionStatus("Using default DirectComposition pixel shader (no custom shader selected)");
+                    ClearShaderCompilerErrorFile();
+                }
+                else if (dcompState.load() != -1)
+                    SetDirectCompositionStatus("Falling back to default DirectComposition pixel shader");
+                OutputDebugStringA("[WGC_NATIVE] Falling back to default DirectComposition pixel shader\n");
+                hr = D3DCompile(psDefaultSrc, (SIZE_T)strlen(psDefaultSrc), nullptr, nullptr, nullptr, "main", "ps_4_0", 0, 0, psBlob.put(), errBlob.put());
+                if (FAILED(hr) || !psBlob)
+                {
+                    MarkDirectCompositionFailed("default pixel shader compile failed");
+                    return false;
+                }
+            }
+
+            hr = d3dDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, dcompPixelShader.put());
+            if (FAILED(hr))
+            {
+                MarkDirectCompositionFailed("CreatePixelShader failed");
+                return false;
+            }
         }
 
-        hr = d3dDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, dcompVertexShader.put());
-        if (FAILED(hr))
+        if (!dcompVertexBuffer)
         {
-            MarkDirectCompositionFailed("CreateVertexShader failed");
-            return false;
-        }
-
-        hr = d3dDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, dcompPixelShader.put());
-        if (FAILED(hr))
-        {
-            MarkDirectCompositionFailed("CreatePixelShader failed");
-            return false;
-        }
-
-        D3D11_INPUT_ELEMENT_DESC elems[] =
-        {
-            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 }
-        };
-
-        hr = d3dDevice->CreateInputLayout(elems, 2, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), dcompInputLayout.put());
-        if (FAILED(hr))
-        {
-            MarkDirectCompositionFailed("CreateInputLayout failed");
-            return false;
-        }
-
-        D3D11_BUFFER_DESC vbDesc = {};
-        vbDesc.Usage = D3D11_USAGE_DYNAMIC;
-        vbDesc.ByteWidth = sizeof(DcompVertex) * 4;
-        vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-        vbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        hr = d3dDevice->CreateBuffer(&vbDesc, nullptr, dcompVertexBuffer.put());
-        if (FAILED(hr))
-        {
-            MarkDirectCompositionFailed("CreateBuffer vertex failed");
-            return false;
+            D3D11_BUFFER_DESC vbDesc = {};
+            vbDesc.ByteWidth = sizeof(DcompVertex) * 4;
+            vbDesc.Usage = D3D11_USAGE_DYNAMIC;
+            vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+            vbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+            hr = d3dDevice->CreateBuffer(&vbDesc, nullptr, dcompVertexBuffer.put());
+            if (FAILED(hr))
+            {
+                MarkDirectCompositionFailed("CreateBuffer vertex failed");
+                return false;
+            }
         }
 
         D3D11_BUFFER_DESC cbDesc = {};
@@ -532,10 +689,14 @@ struct CaptureSession
         DcompConstants constants{};
         constants.brightness = dcompBrightness.load();
         constants.saturation = dcompSaturation.load();
+        constants.sourceWidth = static_cast<float>(width);
+        constants.sourceHeight = static_cast<float>(height);
         constants.tint[0] = dcompTintR.load();
         constants.tint[1] = dcompTintG.load();
         constants.tint[2] = dcompTintB.load();
         constants.tint[3] = dcompTintA.load();
+        constants.outputWidth = static_cast<float>(dcompWidth);
+        constants.outputHeight = static_cast<float>(dcompHeight);
         d3dContext->UpdateSubresource(dcompConstantBuffer.get(), 0, nullptr, &constants, 0, 0);
 
         D3D11_VIEWPORT viewport{};
@@ -1252,6 +1413,30 @@ extern "C" {
         s->dcompTintB.store(tintB);
         s->dcompTintA.store(tintA);
         s->dcompDisableVsync.store(disableVsync != 0);
+    }
+
+    __declspec(dllexport) void SetDirectCompositionShader(void* ptr, const wchar_t* shaderPath) {
+        auto s = static_cast<CaptureSession*>(ptr);
+        if (!s) return;
+        std::lock_guard<std::mutex> lock(s->dcompShaderMutex);
+        if (shaderPath) {
+            s->dcompShaderPath = shaderPath;
+        } else {
+            s->dcompShaderPath.clear();
+        }
+        s->dcompShaderDirty.store(true);
+
+        if (shaderPath && shaderPath[0] != L'\0')
+        {
+            std::wstring dbg = L"[WGC_NATIVE] SetDirectCompositionShader path='";
+            dbg += shaderPath;
+            dbg += L"'\n";
+            OutputDebugStringW(dbg.c_str());
+        }
+        else
+        {
+            OutputDebugStringA("[WGC_NATIVE] SetDirectCompositionShader path='<none>'\n");
+        }
     }
 
     __declspec(dllexport) int GetDirectCompositionAdapterInfo(void* ptr, wchar_t* rendererBuffer, int rendererBufferChars, wchar_t* vendorBuffer, int vendorBufferChars) {

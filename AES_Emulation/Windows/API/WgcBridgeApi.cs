@@ -128,6 +128,10 @@ public static class WgcBridgeApi
     private delegate void SetDirectCompositionRenderOptionsDel(nint session, int stretch, float brightness, float saturation, float tintR, float tintG, float tintB, float tintA, int disableVsync);
     private static SetDirectCompositionRenderOptionsDel? s_setDirectCompositionRenderOptions;
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SetDirectCompositionShaderDel(nint session, [MarshalAs(UnmanagedType.LPWStr)] string? shaderPath);
+    private static SetDirectCompositionShaderDel? s_setDirectCompositionShader;
+
     [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
     private delegate int GetDirectCompositionAdapterInfoDel(nint session, StringBuilder rendererBuffer, int rendererBufferChars, StringBuilder vendorBuffer, int vendorBufferChars);
     private static GetDirectCompositionAdapterInfoDel? s_getDirectCompositionAdapterInfo;
@@ -175,6 +179,7 @@ public static class WgcBridgeApi
                     "GetDirectCompositionPresentCount",
                     "GetDirectCompositionLastError",
                     "SetDirectCompositionRenderOptions",
+                    "SetDirectCompositionShader",
                     "GetDirectCompositionAdapterInfo",
                     "PeekLatestFrame",
                     "SetCaptureMaxResolution",
@@ -234,6 +239,10 @@ public static class WgcBridgeApi
                     s_getDirectCompositionLastError = Marshal.GetDelegateForFunctionPointer<GetDirectCompositionLastErrorDel>(pDCompLastError);
                 if (NativeLibrary.TryGetExport(handle, "SetDirectCompositionRenderOptions", out IntPtr pDCompOptions))
                     s_setDirectCompositionRenderOptions = Marshal.GetDelegateForFunctionPointer<SetDirectCompositionRenderOptionsDel>(pDCompOptions);
+
+                if (NativeLibrary.TryGetExport(handle, "SetDirectCompositionShader", out IntPtr pDCompShader))
+                    s_setDirectCompositionShader = Marshal.GetDelegateForFunctionPointer<SetDirectCompositionShaderDel>(pDCompShader);
+
                 if (NativeLibrary.TryGetExport(handle, "GetDirectCompositionAdapterInfo", out IntPtr pDCompAdapterInfo))
                     s_getDirectCompositionAdapterInfo = Marshal.GetDelegateForFunctionPointer<GetDirectCompositionAdapterInfoDel>(pDCompAdapterInfo);
                 if (NativeLibrary.TryGetExport(handle, "GetLatestFrame", out IntPtr pGetLatest))
@@ -282,6 +291,9 @@ public static class WgcBridgeApi
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "SetDirectCompositionRenderOptions")]
     private static extern void SetDirectCompositionRenderOptionsNative(nint session, int stretch, float brightness, float saturation, float tintR, float tintG, float tintB, float tintA, int disableVsync);
+
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "SetDirectCompositionShader")]
+    private static extern void SetDirectCompositionShaderNative(nint session, [MarshalAs(UnmanagedType.LPWStr)] string? shaderPath);
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "GetDirectCompositionAdapterInfo")]
     private static extern int GetDirectCompositionAdapterInfoNative(nint session, StringBuilder rendererBuffer, int rendererBufferChars, StringBuilder vendorBuffer, int vendorBufferChars);
@@ -434,6 +446,19 @@ public static class WgcBridgeApi
         }
 
         SetDirectCompositionRenderOptionsNative(session, stretch, brightness, saturation, tintR, tintG, tintB, tintA, disableVsync ? 1 : 0);
+    }
+
+    public static void SetDirectCompositionShader(nint session, string? shaderPath)
+    {
+        LogInfo($"[WGC] SetDirectCompositionShader session=0x{session.ToString("X")} path='{shaderPath ?? "<null>"}'");
+
+        if (s_setDirectCompositionShader != null)
+        {
+            s_setDirectCompositionShader(session, shaderPath);
+            return;
+        }
+
+        SetDirectCompositionShaderNative(session, shaderPath);
     }
 
     public static (string Renderer, string Vendor) GetDirectCompositionAdapterInfo(nint session)

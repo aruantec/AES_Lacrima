@@ -28,6 +28,8 @@
                                                 Brightness="{Binding RenderBrightness, Mode=TwoWay}"
                                                 Saturation="{Binding RenderSaturation, Mode=TwoWay}"
                                                 DisableVSync="{Binding DisableVSync, Mode=TwoWay}"
+                                                ShaderPath="{Binding SelectedShaderPath}"
+                                                ClearShaderWhenPathEmpty="{Binding ClearShaderWhenPathEmpty}"
                                                 RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}" />
 
         <Border Margin="16"

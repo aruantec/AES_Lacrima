@@ -380,6 +380,8 @@ namespace AES_Lacrima
                 DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
                 Logger.Info("Settings saved successfully during shutdown");
 
+                DiLocator.ResolveViewModel<EmulationViewModel>()?.ShutdownForApplicationExit();
+
                 // Dispose platform integrations (MPRIS, etc.) before the DI graph is torn down.
                 DiLocator.ResolveViewModel<MusicViewModel>()?.ShutdownPlatformIntegrations();
             }

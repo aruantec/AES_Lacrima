@@ -79,6 +79,8 @@ namespace AES_Lacrima
                 Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
                 Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
                 Directory.CreateDirectory(ApplicationPaths.ShadersDirectory);
+                Directory.CreateDirectory(Path.Combine(ApplicationPaths.ShadersDirectory, "hlsl"));
+                Directory.CreateDirectory(Path.Combine(ApplicationPaths.ShadersDirectory, "Shadertoys"));
                 Directory.CreateDirectory(ApplicationPaths.ToolsDirectory);
 
                 // Ensure libmpv and other native helpers are loaded from the per-user Tools folder
@@ -134,8 +136,14 @@ namespace AES_Lacrima
 
         internal static void EnsureBundledResources()
         {
-            EnsureResourceFolderPresent("Shaders", ApplicationPaths.ShadersDirectory);
+            EnsureBundledShaderResources();
             EnsureResourceFolderPresent("Assets", Path.Combine(ApplicationPaths.DataRootDirectory, "Assets"));
+        }
+
+        internal static void EnsureBundledShaderResources()
+        {
+            EnsureResourceFolderPresent(Path.Combine("Shaders", "hlsl"), Path.Combine(ApplicationPaths.ShadersDirectory, "hlsl"));
+            EnsureResourceFolderPresent(Path.Combine("Shaders", "Shadertoys"), Path.Combine(ApplicationPaths.ShadersDirectory, "Shadertoys"));
         }
 
         private static void WriteFatalStartupLog(Exception ex)

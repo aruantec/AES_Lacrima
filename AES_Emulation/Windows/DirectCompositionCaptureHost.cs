@@ -6,6 +6,7 @@ using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using AES_Emulation.Windows.API;
+using System.Diagnostics;
 
 namespace AES_Emulation.Windows;
 
@@ -39,6 +40,12 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
     public static readonly StyledProperty<bool> DisableVSyncProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, bool>(nameof(DisableVSync), false);
+
+    public static readonly StyledProperty<string?> ShaderPathProperty =
+        AvaloniaProperty.Register<DirectCompositionCaptureHost, string?>(nameof(ShaderPath), null);
+
+    public static readonly StyledProperty<bool> ClearShaderWhenPathEmptyProperty =
+        AvaloniaProperty.Register<DirectCompositionCaptureHost, bool>(nameof(ClearShaderWhenPathEmpty), false);
 
     public static readonly StyledProperty<bool> ForceUseTargetClientAreaProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, bool>(nameof(ForceUseTargetClientArea), false);
@@ -106,6 +113,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
     private double _frameTimeMs;
     private string _gpuRenderer = "Unknown";
     private string _gpuVendor = "Unknown";
+    private int _lastLoggedState = int.MinValue;
+    private string? _lastLoggedDirectCompositionError;
     private int _lastFrameCount;
     private int _lastPresentCount;
     private int _lastCropX = int.MinValue;
@@ -114,6 +123,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
     private int _lastCropHeight = int.MinValue;
     private DateTime _lastFpsSampleUtc = DateTime.UtcNow;
     private DateTime _lastPresentSampleUtc = DateTime.UtcNow;
+    private string? _lastAppliedShaderPath;
 
     public DirectCompositionCaptureHost()
     {
@@ -160,6 +170,18 @@ public class DirectCompositionCaptureHost : NativeControlHost
     {
         get => GetValue(DisableVSyncProperty);
         set => SetValue(DisableVSyncProperty, value);
+    }
+
+    public string? ShaderPath
+    {
+        get => GetValue(ShaderPathProperty);
+        set => SetValue(ShaderPathProperty, value);
+    }
+
+    public bool ClearShaderWhenPathEmpty
+    {
+        get => GetValue(ClearShaderWhenPathEmptyProperty);
+        set => SetValue(ClearShaderWhenPathEmptyProperty, value);
     }
 
     public bool ForceUseTargetClientArea
@@ -277,7 +299,9 @@ public class DirectCompositionCaptureHost : NativeControlHost
                  change.Property == BrightnessProperty ||
                  change.Property == SaturationProperty ||
                  change.Property == ColorTintProperty ||
-                 change.Property == DisableVSyncProperty)
+                 change.Property == DisableVSyncProperty ||
+                 change.Property == ShaderPathProperty ||
+                 change.Property == ClearShaderWhenPathEmptyProperty)
         {
             UpdateSessionRenderOptions();
         }
@@ -483,18 +507,26 @@ public class DirectCompositionCaptureHost : NativeControlHost
         GpuVendor = "Unknown";
         _lastFrameCount = 0;
         _lastPresentCount = 0;
+        _lastLoggedState = int.MinValue;
+        _lastLoggedDirectCompositionError = null;
         _lastCropX = int.MinValue;
         _lastCropY = int.MinValue;
         _lastCropWidth = int.MinValue;
         _lastCropHeight = int.MinValue;
         _lastFpsSampleUtc = DateTime.UtcNow;
         _lastPresentSampleUtc = _lastFpsSampleUtc;
+        _lastAppliedShaderPath = null;
     }
 
     private void UpdateSessionRenderOptions()
     {
         if (_session == IntPtr.Zero)
             return;
+
+        Debug.WriteLine(
+            $"[DCompHost] UpdateSessionRenderOptions session=0x{_session.ToString("X")} " +
+            $"shader='{ShaderPath ?? "<null>"}' stretch={Stretch} brightness={Brightness:0.00} saturation={Saturation:0.00} " +
+            $"tint=({ColorTint.R},{ColorTint.G},{ColorTint.B},{ColorTint.A}) disableVsync={DisableVSync}");
 
         WgcBridgeApi.SetDirectCompositionRenderOptions(
             _session,
@@ -506,6 +538,21 @@ public class DirectCompositionCaptureHost : NativeControlHost
             ColorTint.B / 255f,
             ColorTint.A / 255f,
             DisableVSync);
+
+        var requestedShaderPath = string.IsNullOrWhiteSpace(ShaderPath) ? null : ShaderPath;
+        if (requestedShaderPath == null && !ClearShaderWhenPathEmpty && !string.IsNullOrWhiteSpace(_lastAppliedShaderPath))
+        {
+            Debug.WriteLine(
+                $"[DCompHost] Skipping transient shader clear for session=0x{_session.ToString("X")} " +
+                $"because last applied shader='{_lastAppliedShaderPath}'.");
+            return;
+        }
+
+        if (string.Equals(_lastAppliedShaderPath, requestedShaderPath, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        WgcBridgeApi.SetDirectCompositionShader(_session, requestedShaderPath);
+        _lastAppliedShaderPath = requestedShaderPath;
     }
 
     private void RefreshStatus()
@@ -526,6 +573,12 @@ public class DirectCompositionCaptureHost : NativeControlHost
         var frames = WgcBridgeApi.GetCaptureStatus(_session);
         var presents = WgcBridgeApi.GetDirectCompositionPresentCount(_session);
         var lastError = WgcBridgeApi.GetDirectCompositionLastError(_session);
+        if (state != _lastLoggedState || !string.Equals(lastError, _lastLoggedDirectCompositionError, StringComparison.Ordinal))
+        {
+            Debug.WriteLine($"[DCompHost] RefreshStatus state={state} frames={frames} presents={presents} lastError='{lastError}'");
+            _lastLoggedState = state;
+            _lastLoggedDirectCompositionError = lastError;
+        }
         var now = DateTime.UtcNow;
         var elapsedMs = (now - _lastFpsSampleUtc).TotalMilliseconds;
         if (elapsedMs >= 120)
