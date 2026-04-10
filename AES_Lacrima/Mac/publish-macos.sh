@@ -17,7 +17,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="AES - Lacrima"
 EXECUTABLE_NAME="AES_Lacrima"
 BUNDLE_ID="com.aruantec.aes-lacrima"
-MIN_SYS_VER="10.12"
+MIN_SYS_VER="12.3"
 APP_VERSION="${APP_VERSION:-1.0.0}"
 APP_VERSION="${APP_VERSION#v}"
 

@@ -2,7 +2,8 @@ using System;
 using System.Runtime.InteropServices;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
-using AES_Emulation.Windows;
+using AES_Emulation.Controls;
+using AES_Lacrima.Mac.API;
 
 namespace AES_Lacrima.Views;
 
@@ -30,7 +31,7 @@ public partial class PortalWindow : Window
         InitializeComponent();
     }
 
-    public DirectCompositionCaptureHost? CaptureHostControl => this.FindControl<DirectCompositionCaptureHost>("CaptureControl");
+    public EmulatorCaptureHost? CaptureHostControl => this.FindControl<EmulatorCaptureHost>("CaptureControl");
 
     private void InitializeComponent()
     {
@@ -61,6 +62,12 @@ public partial class PortalWindow : Window
                 int exStyle = GetWindowLong(hWnd.Value, GWL_EXSTYLE);
                 SetWindowLong(hWnd.Value, GWL_EXSTYLE, exStyle | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
             }
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            var handle = TryGetPlatformHandle()?.Handle;
+            if (handle != null && handle != IntPtr.Zero)
+                MacSystemDialogs.ConfigurePortalWindow(handle.Value);
         }
     }
 }

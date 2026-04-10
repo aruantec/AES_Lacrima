@@ -26,6 +26,9 @@ public class DirectCompositionCaptureHost : NativeControlHost
     public static readonly StyledProperty<bool> RequestStopSessionProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, bool>(nameof(RequestStopSession), false);
 
+    public static readonly StyledProperty<string?> TargetWindowTitleHintProperty =
+        AvaloniaProperty.Register<DirectCompositionCaptureHost, string?>(nameof(TargetWindowTitleHint), null);
+
     public static readonly StyledProperty<Stretch> StretchProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, Stretch>(nameof(Stretch), Stretch.UniformToFill);
 
@@ -140,6 +143,12 @@ public class DirectCompositionCaptureHost : NativeControlHost
     {
         get => GetValue(RequestStopSessionProperty);
         set => SetValue(RequestStopSessionProperty, value);
+    }
+
+    public string? TargetWindowTitleHint
+    {
+        get => GetValue(TargetWindowTitleHintProperty);
+        set => SetValue(TargetWindowTitleHintProperty, value);
     }
 
     public Stretch Stretch

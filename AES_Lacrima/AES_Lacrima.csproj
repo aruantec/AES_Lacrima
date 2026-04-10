@@ -129,6 +129,9 @@
       <ExcludeFromSingleFile>false</ExcludeFromSingleFile>
     </None>
   </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <None Include="Mac\Native\AesMacCaptureBridge.m" Visible="false" />
+  </ItemGroup>
   <ItemGroup>
     <Compile Update="Views\Common\MainTopBar.axaml.cs">
       <DependentUpon>MainTopBar.axaml</DependentUpon>
@@ -144,6 +147,14 @@
                      and Exists('$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh')">
     <Message Importance="high" Text="Installing Linux desktop entry for publish output at '$(PublishDir)'" />
     <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh&quot; &quot;$(PublishDir)&quot;" />
+  </Target>
+  <Target Name="BuildMacCaptureBridge" AfterTargets="Build" Condition="$([MSBuild]::IsOSPlatform('OSX')) and Exists('$(MSBuildProjectDirectory)/Mac/Native/AesMacCaptureBridge.m')">
+    <Message Importance="high" Text="Building macOS ScreenCaptureKit bridge into '$(OutDir)libAesMacCaptureBridge.dylib'" />
+    <Exec Command="clang -dynamiclib -fobjc-arc -framework AppKit -framework AVFoundation -framework CoreGraphics -framework CoreMedia -framework QuartzCore -framework ScreenCaptureKit -o &quot;$(OutDir)libAesMacCaptureBridge.dylib&quot; &quot;$(MSBuildProjectDirectory)/Mac/Native/AesMacCaptureBridge.m&quot;" />
+  </Target>
+  <Target Name="BuildMacCaptureBridgeForPublish" AfterTargets="Publish" Condition="$([MSBuild]::IsOSPlatform('OSX')) and Exists('$(MSBuildProjectDirectory)/Mac/Native/AesMacCaptureBridge.m')">
+    <Message Importance="high" Text="Building macOS ScreenCaptureKit bridge into '$(PublishDir)libAesMacCaptureBridge.dylib'" />
+    <Exec Command="clang -dynamiclib -fobjc-arc -framework AppKit -framework AVFoundation -framework CoreGraphics -framework CoreMedia -framework QuartzCore -framework ScreenCaptureKit -o &quot;$(PublishDir)libAesMacCaptureBridge.dylib&quot; &quot;$(MSBuildProjectDirectory)/Mac/Native/AesMacCaptureBridge.m&quot;" />
   </Target>
   <!-- macOS packaging target: creates a .app bundle using the publish directory -->
   <Target Name="CreateMacAppBundleOnPublish" AfterTargets="Publish" Condition="('$(RuntimeIdentifier)' == 'osx-x64' or '$(RuntimeIdentifier)' == 'osx-arm64')
