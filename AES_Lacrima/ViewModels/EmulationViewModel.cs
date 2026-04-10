@@ -233,6 +233,9 @@ namespace AES_Lacrima.ViewModels
         private bool _isRenderOptionsOpen;
 
         [ObservableProperty]
+        private bool _isFullscreen;
+
+        [ObservableProperty]
         private bool _isRetroArchErrorOverlayOpen;
 
         [ObservableProperty]
@@ -733,6 +736,15 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             IsRenderOptionsOpen = !IsRenderOptionsOpen;
+        }
+
+        [RelayCommand]
+        private void ToggleFullscreen()
+        {
+            if (!IsEmulatorRunning)
+                return;
+
+            IsFullscreen = !IsFullscreen;
         }
 
         [RelayCommand]
