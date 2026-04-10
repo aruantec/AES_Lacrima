@@ -23,6 +23,10 @@ public interface IEmulatorHandler : INotifyPropertyChanged
 
     bool HasLauncherPath { get; }
 
+    bool IsLauncherPathValid(string? launcherPath);
+
+    string? NormalizeLauncherPath(string? launcherPath);
+
     ICommand? BrowseLauncherCommand { get; set; }
 
     ICommand? ClearLauncherCommand { get; set; }

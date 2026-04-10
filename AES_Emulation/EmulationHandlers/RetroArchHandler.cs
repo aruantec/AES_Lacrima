@@ -253,7 +253,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         if (string.IsNullOrWhiteSpace(launcherPath))
             return Array.Empty<string>();
 
-        var baseDir = Path.GetDirectoryName(launcherPath);
+        var baseDir = ResolveLauncherWorkingDirectory(launcherPath);
         if (string.IsNullOrWhiteSpace(baseDir))
             return Array.Empty<string>();
 
@@ -306,7 +306,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         if (string.IsNullOrWhiteSpace(launcherPath))
             return null;
 
-        var baseDir = Path.GetDirectoryName(launcherPath);
+        var baseDir = ResolveLauncherWorkingDirectory(launcherPath);
         if (string.IsNullOrWhiteSpace(baseDir))
             return null;
 
@@ -437,7 +437,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
             return true;
 
         var coreName = Path.GetFileName(candidateCorePath)?.ToLowerInvariant() ?? string.Empty;
-        var installDir = Path.GetDirectoryName(launcherPath);
+        var installDir = ResolveLauncherWorkingDirectory(launcherPath);
         if (string.IsNullOrWhiteSpace(installDir))
             return true;
 

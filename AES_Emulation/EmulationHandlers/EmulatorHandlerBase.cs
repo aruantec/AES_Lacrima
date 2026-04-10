@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -39,7 +40,8 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         get => _launcherPath;
         set
         {
-            if (!SetProperty(ref _launcherPath, value))
+            var normalizedPath = NormalizeLauncherPath(value);
+            if (!SetProperty(ref _launcherPath, normalizedPath))
                 return;
 
             OnPropertyChanged(nameof(LauncherDisplayPath));
@@ -52,7 +54,36 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             ? "No executable selected"
             : LauncherPath;
 
-    public bool HasLauncherPath => !string.IsNullOrWhiteSpace(LauncherPath);
+    public bool HasLauncherPath => IsLauncherPathValid(LauncherPath);
+
+    public virtual bool IsLauncherPathValid(string? launcherPath)
+    {
+        var normalizedPath = NormalizeLauncherPath(launcherPath);
+        if (string.IsNullOrWhiteSpace(normalizedPath))
+            return false;
+
+        return File.Exists(normalizedPath) || IsMacAppBundle(normalizedPath);
+    }
+
+    public virtual string? NormalizeLauncherPath(string? launcherPath)
+    {
+        if (string.IsNullOrWhiteSpace(launcherPath))
+            return null;
+
+        var normalizedPath = launcherPath.Trim();
+        try
+        {
+            normalizedPath = Path.GetFullPath(normalizedPath);
+        }
+        catch
+        {
+        }
+
+        if (IsMacAppBundle(normalizedPath))
+            return normalizedPath;
+
+        return File.Exists(normalizedPath) ? normalizedPath : launcherPath.Trim();
+    }
 
     public ICommand? BrowseLauncherCommand { get; set; }
 
@@ -110,15 +141,64 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
+        var executablePath = ResolveLauncherExecutablePath(launcherPath) ?? launcherPath;
+        var workingDirectory = ResolveLauncherWorkingDirectory(launcherPath) ??
+                               Path.GetDirectoryName(executablePath) ??
+                               string.Empty;
+
         var startInfo = new ProcessStartInfo
         {
-            FileName = launcherPath,
+            FileName = executablePath,
             UseShellExecute = false,
-            WorkingDirectory = Path.GetDirectoryName(launcherPath) ?? string.Empty
+            WorkingDirectory = workingDirectory
         };
 
         startInfo.ArgumentList.Add(romPath);
         return startInfo;
+    }
+
+    public static bool IsMacAppBundle(string? launcherPath)
+    {
+        if (!OperatingSystem.IsMacOS() || string.IsNullOrWhiteSpace(launcherPath))
+            return false;
+
+        return launcherPath.EndsWith(".app", StringComparison.OrdinalIgnoreCase) &&
+               Directory.Exists(launcherPath);
+    }
+
+    public static string? ResolveLauncherExecutablePath(string? launcherPath)
+    {
+        if (string.IsNullOrWhiteSpace(launcherPath))
+            return null;
+
+        if (!IsMacAppBundle(launcherPath))
+            return launcherPath;
+
+        var executableDirectory = Path.Combine(launcherPath, "Contents", "MacOS");
+        if (!Directory.Exists(executableDirectory))
+            return null;
+
+        try
+        {
+            var executable = Directory.EnumerateFiles(executableDirectory)
+                .FirstOrDefault(path => IsFileExecutable(path));
+            return executable;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static string? ResolveLauncherWorkingDirectory(string? launcherPath)
+    {
+        if (string.IsNullOrWhiteSpace(launcherPath))
+            return null;
+
+        if (IsMacAppBundle(launcherPath))
+            return Path.Combine(launcherPath, "Contents", "MacOS");
+
+        return Path.GetDirectoryName(launcherPath);
     }
 
     public virtual int CaptureStartupDelayMs => 3000;
@@ -257,6 +337,25 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         catch (Exception ex)
         {
             SLog.Debug("Emulator did not provide an input-idle state; falling back to polling.", ex);
+        }
+    }
+
+    private static bool IsFileExecutable(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+                return false;
+
+            if (OperatingSystem.IsWindows())
+                return true;
+
+            var mode = File.GetUnixFileMode(path);
+            return (mode & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0;
+        }
+        catch
+        {
+            return false;
         }
     }
 

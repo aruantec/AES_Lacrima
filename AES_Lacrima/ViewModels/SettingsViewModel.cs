@@ -12,6 +12,7 @@ using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
 using AES_Emulation.EmulationHandlers;
+using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
 using Avalonia;
 using Avalonia.Collections;
@@ -1421,14 +1422,25 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             return;
         }
 
-        var result = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+        string? localPath = null;
+        if (OperatingSystem.IsMacOS())
         {
-            Title = $"Select Executable for {handler.DisplayName}",
-            AllowMultiple = false,
-            FileTypeFilter = BuildEmulationAppFilePickerFilters()
-        });
+            localPath = MacSystemDialogs.PickEmulatorApplication();
+        }
 
-        var localPath = result.FirstOrDefault()?.TryGetLocalPath();
+        if (string.IsNullOrWhiteSpace(localPath))
+        {
+            var result = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = $"Select Executable for {handler.DisplayName}",
+                AllowMultiple = false,
+                FileTypeFilter = BuildEmulationAppFilePickerFilters()
+            });
+
+            localPath = result.FirstOrDefault()?.TryGetLocalPath();
+        }
+
+        localPath = handler.NormalizeLauncherPath(localPath);
         if (string.IsNullOrWhiteSpace(localPath))
             return;
 

@@ -16,6 +16,7 @@ using AES_Core.IO;
 using AES_Emulation.EmulationHandlers;
 using AES_Emulation.Platform;
 using AES_Emulation.Windows.API;
+using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
 using Avalonia;
 using System.ComponentModel;
@@ -262,6 +263,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ClientAreaCropTopInset));
             OnPropertyChanged(nameof(ClientAreaCropRightInset));
             OnPropertyChanged(nameof(ClientAreaCropBottomInset));
+            OnPropertyChanged(nameof(CurrentEmulatorWindowTitleHint));
         }
 
         [ObservableProperty]
@@ -283,6 +285,26 @@ namespace AES_Lacrima.ViewModels
         public int ClientAreaCropTopInset => CurrentEmulatorHandler?.ClientAreaCropTopInset ?? 0;
         public int ClientAreaCropRightInset => CurrentEmulatorHandler?.ClientAreaCropRightInset ?? 0;
         public int ClientAreaCropBottomInset => CurrentEmulatorHandler?.ClientAreaCropBottomInset ?? 0;
+        public string? CurrentEmulatorWindowTitleHint
+        {
+            get
+            {
+                var handler = CurrentEmulatorHandler;
+                if (handler == null)
+                    return null;
+
+                var launcherPath = handler.LauncherPath;
+                if (!string.IsNullOrWhiteSpace(launcherPath))
+                {
+                    var launcherName = Path.GetFileNameWithoutExtension(
+                        launcherPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                    if (!string.IsNullOrWhiteSpace(launcherName))
+                        return launcherName;
+                }
+
+                return handler.DisplayName;
+            }
+        }
 
         public IReadOnlyList<Stretch> CaptureStretchOptions { get; } = new[] { Stretch.Uniform, Stretch.UniformToFill, Stretch.Fill };
 
@@ -903,7 +925,7 @@ namespace AES_Lacrima.ViewModels
 
             var handler = SettingsViewModel?.GetConfiguredEmulatorHandler(album.Title);
             var launcherPath = handler?.LauncherPath;
-            if (handler == null || string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
+            if (handler == null || !handler.IsLauncherPathValid(launcherPath))
                 return;
 
             var launchSettings = SettingsViewModel?.GetResolvedEmulationSectionLaunchSettings(album.Title);
@@ -1111,22 +1133,31 @@ namespace AES_Lacrima.ViewModels
             if (album == null)
                 return;
 
-            if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop ||
-                desktop.MainWindow?.StorageProvider is not { } storageProvider)
+            string? rootPath;
+            if (OperatingSystem.IsMacOS())
             {
-                return;
+                rootPath = MacSystemDialogs.PickFolder($"Scan Folder for {album.Title} Roms");
+            }
+            else
+            {
+                if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop ||
+                    desktop.MainWindow?.StorageProvider is not { } storageProvider)
+                {
+                    return;
+                }
+
+                var folders = await storageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+                {
+                    Title = $"Scan Folder for {album.Title} Roms",
+                    AllowMultiple = false
+                });
+
+                if (folders.Count == 0)
+                    return;
+
+                rootPath = folders[0].TryGetLocalPath();
             }
 
-            var folders = await storageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-            {
-                Title = $"Scan Folder for {album.Title} Roms",
-                AllowMultiple = false
-            });
-
-            if (folders.Count == 0)
-                return;
-
-            var rootPath = folders[0].TryGetLocalPath();
             if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
                 return;
 
@@ -2256,17 +2287,17 @@ namespace AES_Lacrima.ViewModels
         {
             try
             {
-                var hwnd = await handler.ResolveCaptureTargetAsync(process, CancellationToken.None).ConfigureAwait(false);
+                var hwnd = await ResolveCaptureTargetForCurrentPlatformAsync(process, handler).ConfigureAwait(false);
                 if (hwnd == IntPtr.Zero)
                 {
-                    SLog.Warn($"Failed to resolve emulator HWND for '{romPath}' on first attempt. Retrying...");
+                    SLog.Warn($"Failed to resolve emulator capture target for '{romPath}' on first attempt. Retrying...");
                     await Task.Delay(2000).ConfigureAwait(false);
-                    hwnd = await handler.ResolveCaptureTargetAsync(process, CancellationToken.None).ConfigureAwait(false);
+                    hwnd = await ResolveCaptureTargetForCurrentPlatformAsync(process, handler).ConfigureAwait(false);
                 }
 
                 if (hwnd == IntPtr.Zero)
                 {
-                    SLog.Warn($"Failed to resolve emulator HWND for '{romPath}' after retry.");
+                    SLog.Warn($"Failed to resolve emulator capture target for '{romPath}' after retry.");
                     return;
                 }
 
@@ -2275,12 +2306,123 @@ namespace AES_Lacrima.ViewModels
             }
             catch (OperationCanceledException)
             {
-                SLog.Debug($"Emulator HWND resolution canceled for '{romPath}'.");
+                SLog.Debug($"Emulator capture target resolution canceled for '{romPath}'.");
             }
             catch (Exception ex)
             {
-                SLog.Warn($"Failed to resolve emulator HWND for '{romPath}'.", ex);
+                SLog.Warn($"Failed to resolve emulator capture target for '{romPath}'.", ex);
             }
+        }
+
+        private static async Task<IntPtr> ResolveCaptureTargetForCurrentPlatformAsync(Process process, IEmulatorHandler handler)
+        {
+            if (OperatingSystem.IsWindows())
+                return await handler.ResolveCaptureTargetAsync(process, CancellationToken.None).ConfigureAwait(false);
+
+            if (handler.CaptureStartupDelayMs > 0)
+                await Task.Delay(handler.CaptureStartupDelayMs).ConfigureAwait(false);
+
+            var captureProcess = ResolveCaptureProcessForCurrentPlatform(process, handler);
+            try
+            {
+                captureProcess.Refresh();
+                if (captureProcess.HasExited)
+                    return IntPtr.Zero;
+            }
+            catch
+            {
+                return IntPtr.Zero;
+            }
+
+            return new IntPtr(captureProcess.Id);
+        }
+
+        private static Process ResolveCaptureProcessForCurrentPlatform(Process process, IEmulatorHandler handler)
+        {
+            if (TryGetLiveProcess(process, out var liveProcess))
+                return liveProcess;
+
+            var candidateNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                var startInfoName = Path.GetFileNameWithoutExtension(process.StartInfo?.FileName ?? string.Empty);
+                if (!string.IsNullOrWhiteSpace(startInfoName))
+                    candidateNames.Add(startInfoName);
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                var executablePath = EmulatorHandlerBase.ResolveLauncherExecutablePath(handler.LauncherPath);
+                var executableName = Path.GetFileNameWithoutExtension(executablePath ?? string.Empty);
+                if (!string.IsNullOrWhiteSpace(executableName))
+                    candidateNames.Add(executableName);
+            }
+            catch
+            {
+            }
+
+            var titleHint = handler.LauncherPath is { Length: > 0 }
+                ? Path.GetFileNameWithoutExtension(handler.LauncherPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+                : handler.DisplayName;
+            if (!string.IsNullOrWhiteSpace(titleHint))
+                candidateNames.Add(titleHint);
+
+            Process? bestCandidate = null;
+            DateTime bestStartTime = DateTime.MinValue;
+
+            foreach (var candidateName in candidateNames)
+            {
+                Process[] candidates;
+                try
+                {
+                    candidates = Process.GetProcessesByName(candidateName);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                foreach (var candidate in candidates)
+                {
+                    if (!TryGetLiveProcess(candidate, out var liveCandidate))
+                        continue;
+
+                    try
+                    {
+                        if (liveCandidate.StartTime > bestStartTime)
+                        {
+                            bestStartTime = liveCandidate.StartTime;
+                            bestCandidate = liveCandidate;
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            return bestCandidate ?? process;
+        }
+
+        private static bool TryGetLiveProcess(Process process, out Process liveProcess)
+        {
+            liveProcess = process;
+
+            try
+            {
+                process.Refresh();
+                if (!process.HasExited)
+                    return true;
+            }
+            catch
+            {
+            }
+
+            return false;
         }
 
         private void TryShowRetroArchErrorPrompt(Process process, RetroArchHandler handler)

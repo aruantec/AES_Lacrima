@@ -216,10 +216,16 @@
         </Canvas>
 
         <Grid Grid.Row="0"
-              IsVisible="{Binding IsCompositionCaptureVisible}"
               Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
               IsHitTestVisible="{Binding IsCompositionCaptureVisible}"
               ZIndex="5">
+            <Grid.IsVisible>
+                <MultiBinding Converter="{StaticResource BoolOrConverter}">
+                    <Binding Path="IsCompositionCaptureVisible"/>
+                    <Binding Path="IsEmulatorLaunchInProgress"/>
+                    <Binding ElementName="RootView" Path="IsPortalCaptureInitializing"/>
+                </MultiBinding>
+            </Grid.IsVisible>
             <Grid.Transitions>
                 <Transitions>
                     <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut" />
@@ -231,6 +237,29 @@
                     Background="Transparent"
                     ClipToBounds="True">
             </Border>
+
+            <StackPanel HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="10"
+                        Margin="0,0,0,12"
+                        IsHitTestVisible="False"
+                        ZIndex="1400">
+                <StackPanel.IsVisible>
+                    <MultiBinding Converter="{StaticResource BoolOrConverter}">
+                        <Binding Path="IsEmulatorLaunchInProgress"/>
+                        <Binding ElementName="RootView" Path="IsPortalCaptureInitializing"/>
+                    </MultiBinding>
+                </StackPanel.IsVisible>
+                <controls:LoadingControl Width="80"
+                                         Height="80"
+                                         Foreground="White" />
+                <TextBlock Text="Launching emulator..."
+                           FontSize="22"
+                           FontWeight="SemiBold"
+                           Foreground="White"
+                           HorizontalAlignment="Center"
+                           TextAlignment="Center" />
+            </StackPanel>
 
             <Border Margin="16,16,16,24"
                     Width="560"
@@ -543,27 +572,6 @@
                     Margin="0,360,0,0"
                     Spacing="2"
                     IsHitTestVisible="False">
-            <StackPanel HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Spacing="10"
-                        Margin="0,0,0,12">
-                <StackPanel.IsVisible>
-                    <MultiBinding Converter="{StaticResource BoolOrConverter}">
-                        <Binding Path="IsEmulatorLaunchInProgress"/>
-                        <Binding ElementName="RootView" Path="IsPortalCaptureInitializing"/>
-                    </MultiBinding>
-                </StackPanel.IsVisible>
-                <controls:LoadingControl Width="80"
-                                         Height="80"
-                                         Foreground="White" />
-                <TextBlock Text="Launching emulator..."
-                           FontSize="22"
-                           FontWeight="SemiBold"
-                           Foreground="White"
-                           HorizontalAlignment="Center"
-                           TextAlignment="Center" />
-            </StackPanel>
-
             <StackPanel.Transitions>
                 <Transitions>
                     <DoubleTransition Property="Opacity" Duration="0:0:0.3"/>
