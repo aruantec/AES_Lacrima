@@ -43,6 +43,9 @@ internal static class MacCaptureBridge
     public static extern void aes_mac_capture_set_crop_insets(IntPtr capture, int left, int top, int right, int bottom);
 
     [DllImport(LibraryName)]
+    public static extern void aes_mac_capture_set_capture_behavior(IntPtr capture, int hideTargetWindowAfterCaptureStarts);
+
+    [DllImport(LibraryName)]
     public static extern int aes_mac_capture_is_active(IntPtr capture);
 
     [DllImport(LibraryName)]

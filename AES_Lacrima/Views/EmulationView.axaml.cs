@@ -521,7 +521,7 @@ public partial class EmulationView : UserControl
             }
 
             _portalWindow.Show();
-            SyncPortalWindow();
+            SyncPortalWindowCore();
             UpdateWindowZOrder();
 
             if (!wasSurfaceVisible)
@@ -536,6 +536,7 @@ public partial class EmulationView : UserControl
                 {
                     if (DataContext is EmulationViewModel { IsActive: true } && _portalWindow?.IsVisible == true)
                     {
+                        SyncPortalWindowCore();
                         IsPortalSurfaceVisible = true;
                         PortalFallbackOpacity = 0;
                     }
@@ -653,6 +654,12 @@ public partial class EmulationView : UserControl
     {
         if (UseInlineCaptureHost)
             return;
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            SyncPortalWindowCore();
+            return;
+        }
 
         if (_portalSyncPending)
             return;
@@ -949,6 +956,7 @@ public partial class EmulationView : UserControl
             var portalHandle = _portalWindow.TryGetPlatformHandle()?.Handle;
             if (mainHandle != null && portalHandle != null)
             {
+                MacSystemDialogs.AttachPortalWindow(portalHandle.Value, mainHandle.Value);
                 MacSystemDialogs.OrderWindowBelow(portalHandle.Value, mainHandle.Value);
             }
         }

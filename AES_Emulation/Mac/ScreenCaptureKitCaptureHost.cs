@@ -287,6 +287,7 @@ public class ScreenCaptureKitCaptureHost : NativeControlHost
                  change.Property == BrightnessProperty ||
                  change.Property == SaturationProperty ||
                  change.Property == ColorTintProperty ||
+                 change.Property == HideTargetWindowAfterCaptureStartsProperty ||
                  change.Property == ClientAreaCropLeftInsetProperty ||
                  change.Property == ClientAreaCropTopInsetProperty ||
                  change.Property == ClientAreaCropRightInsetProperty ||
@@ -386,6 +387,9 @@ public class ScreenCaptureKitCaptureHost : NativeControlHost
             ClientAreaCropTopInset,
             ClientAreaCropRightInset,
             ClientAreaCropBottomInset);
+        MacCaptureBridge.aes_mac_capture_set_capture_behavior(
+            _capture,
+            HideTargetWindowAfterCaptureStarts ? 1 : 0);
     }
 
     private void RefreshStatus()
