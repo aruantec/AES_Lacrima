@@ -20,7 +20,10 @@
         Height="{Binding WindowHeight, Mode=TwoWay}"
         WindowStartupLocation="Manual"
         WindowDecorations="None"
-        ExtendClientAreaToDecorationsHint="True">
+        ExtendClientAreaToDecorationsHint="True"
+        TransparencyLevelHint="Transparent"
+        TransparencyBackgroundFallback="Transparent"
+        Background="Transparent">
 
     <!-- Sets the DataContext for the previewer -->
     <Design.DataContext>

@@ -226,6 +226,11 @@ API_AVAILABLE(macos(12.3))
     CGFloat height = MAX(1.0, CGRectGetHeight(window.frame) - self.cropInsets.top - self.cropInsets.bottom);
     configuration.width = width;
     configuration.height = height;
+    configuration.sourceRect = CGRectMake(
+        self.cropInsets.left,
+        self.cropInsets.top,
+        width,
+        height);
 
     NSError *outputError = nil;
     self.stream = [[SCStream alloc] initWithFilter:filter configuration:configuration delegate:nil];
@@ -601,6 +606,8 @@ void aes_mac_configure_portal_window(void *windowHandle)
         [window setHasShadow:NO];
         [window setHidesOnDeactivate:NO];
         [window setExcludedFromWindowsMenu:YES];
+        [window setIgnoresMouseEvents:YES];
+        [window orderFront:nil];
     });
 }
 
@@ -614,6 +621,7 @@ void aes_mac_order_window_below(void *windowHandle, void *siblingWindowHandle)
         NSWindow *window = (__bridge NSWindow *)windowHandle;
         NSWindow *sibling = (__bridge NSWindow *)siblingWindowHandle;
         [window setLevel:sibling.level];
+        [window orderFront:nil];
         [window orderWindow:NSWindowBelow relativeTo:sibling.windowNumber];
     });
 }
@@ -650,8 +658,24 @@ int aes_mac_window_content_to_screen(void *windowHandle, double x, double y, dou
     __block NSPoint screenPoint = NSZeroPoint;
     void (^convertPoint)(void) = ^{
         NSWindow *window = (__bridge NSWindow *)windowHandle;
-        NSPoint localPoint = NSMakePoint((CGFloat)x, (CGFloat)y);
-        screenPoint = [window convertPointToScreen:localPoint];
+        NSView *contentView = window.contentView;
+        if (contentView == nil) {
+            return;
+        }
+
+        // Avalonia coordinates are content-relative with a top-left origin, while AppKit window
+        // coordinates use a lower-left origin. Flip inside the content view first, then promote
+        // the point into window coordinates before converting to screen space.
+        CGFloat contentHeight = NSHeight(contentView.bounds);
+        NSPoint contentPoint = NSMakePoint((CGFloat)x, contentHeight - (CGFloat)y);
+        NSPoint windowPoint = [contentView convertPoint:contentPoint toView:nil];
+        screenPoint = [window convertPointToScreen:windowPoint];
+
+        NSScreen *screen = window.screen ?: NSScreen.mainScreen;
+        if (screen != nil) {
+            CGFloat topLeftY = NSMaxY(screen.frame) - screenPoint.y;
+            screenPoint = NSMakePoint(screenPoint.x, topLeftY);
+        }
     };
 
     if ([NSThread isMainThread]) {
