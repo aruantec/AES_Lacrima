@@ -29,8 +29,7 @@
             Background="Black"
             Opacity="0.8"
             BorderBrush="DimGray"
-            CornerRadius="5,5,0,0"
-            chrome:WindowDecorationProperties.ElementRole="TitleBar">
+            CornerRadius="5,5,0,0">
         <!--Behaviors-->
         <Interaction.Behaviors>
             <behaviors:WindowDragBehavior/>
