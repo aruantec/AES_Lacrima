@@ -7,6 +7,7 @@
         xmlns:controls="using:AES_Controls"
         xmlns:composition="using:AES_Controls.Composition"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:chrome="clr-namespace:Avalonia.Controls.Chrome;assembly=Avalonia.Controls"
         xmlns:vm="using:AES_Lacrima.Mini.ViewModels"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="AES_Lacrima.Mini.Views.CustomWindow"
@@ -46,7 +47,9 @@
 		</Border>
 
 		<!-- Top bar -->
-		<Grid Grid.Row="0" Background="Transparent">
+		<Grid Grid.Row="0"
+              Background="Transparent"
+              chrome:WindowDecorationProperties.ElementRole="TitleBar">
             <!--Behaviors-->
             <Interaction.Behaviors>
                 <behaviors:WindowDragBehavior/>
