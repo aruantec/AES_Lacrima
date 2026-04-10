@@ -46,8 +46,8 @@ namespace AES_Lacrima.Behaviors
             if (!e.GetCurrentPoint(dragArea).Properties.IsLeftButtonPressed)
                 return;
 
-            if (e.Source is Control sourceControl &&
-                sourceControl.GetSelfAndVisualAncestors().OfType<Control>().Any(IsInteractiveElement))
+            if (e.Source is Visual sourceVisual &&
+                sourceVisual.GetSelfAndVisualAncestors().OfType<Control>().Any(IsInteractiveElement))
                 return;
 
             if (TopLevel.GetTopLevel(dragArea) is Window window && window.WindowState != WindowState.FullScreen)
