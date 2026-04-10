@@ -67,6 +67,8 @@ API_AVAILABLE(macos(12.3))
 @property(nonatomic, copy) NSString *gpuVendor;
 @property(nonatomic, assign) NSInteger stretchMode;
 @property(nonatomic, assign) NSEdgeInsets cropInsets;
+@property(nonatomic, assign) BOOL hideTargetWindowAfterCaptureStarts;
+@property(nonatomic, assign) BOOL hostApplicationReactivated;
 @end
 
 API_AVAILABLE(macos(12.3))
@@ -83,6 +85,8 @@ API_AVAILABLE(macos(12.3))
         _targetWindowTitleHint = @"";
         _stretchMode = 2;
         _cropInsets = NSEdgeInsetsMake(0, 0, 0, 0);
+        _hideTargetWindowAfterCaptureStarts = YES;
+        _hostApplicationReactivated = NO;
     }
 
     return self;
@@ -245,6 +249,7 @@ API_AVAILABLE(macos(12.3))
 
     self.lastFrameTimestamp = 0;
     self.frameCount = 0;
+    self.hostApplicationReactivated = NO;
 
     __weak typeof(self) weakSelf = self;
     [self.stream startCaptureWithCompletionHandler:^(NSError *error) {
@@ -285,6 +290,7 @@ API_AVAILABLE(macos(12.3))
     self.active = NO;
     self.fps = 0;
     self.frameTimeMs = 0;
+    self.hostApplicationReactivated = NO;
     self.statusText = @"ScreenCaptureKit idle";
 }
 
@@ -348,6 +354,14 @@ API_AVAILABLE(macos(12.3))
     self.frameCount += 1;
     self.initializing = NO;
     self.active = YES;
+
+    if (self.hideTargetWindowAfterCaptureStarts && !self.hostApplicationReactivated) {
+        self.hostApplicationReactivated = YES;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSApp activateIgnoringOtherApps:YES];
+        });
+    }
+
     self.statusText = [NSString stringWithFormat:@"ScreenCaptureKit active | frames %ld", (long)self.frameCount];
 }
 @end
@@ -451,6 +465,16 @@ void aes_mac_capture_set_crop_insets(void *capture, int left, int top, int right
 
     AesMacCaptureController *controller = (__bridge AesMacCaptureController *)capture;
     controller.cropInsets = NSEdgeInsetsMake(top, left, bottom, right);
+}
+
+void aes_mac_capture_set_capture_behavior(void *capture, int hideTargetWindowAfterCaptureStarts)
+{
+    if (capture == NULL) {
+        return;
+    }
+
+    AesMacCaptureController *controller = (__bridge AesMacCaptureController *)capture;
+    controller.hideTargetWindowAfterCaptureStarts = hideTargetWindowAfterCaptureStarts != 0;
 }
 
 int aes_mac_capture_is_active(void *capture)
@@ -599,7 +623,7 @@ void aes_mac_configure_portal_window(void *windowHandle)
         return;
     }
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+    void (^configureWindow)(void) = ^{
         NSWindow *window = (__bridge NSWindow *)windowHandle;
         [window setLevel:NSNormalWindowLevel];
         [window setOpaque:YES];
@@ -608,7 +632,13 @@ void aes_mac_configure_portal_window(void *windowHandle)
         [window setExcludedFromWindowsMenu:YES];
         [window setIgnoresMouseEvents:YES];
         [window orderFront:nil];
-    });
+    };
+
+    if ([NSThread isMainThread]) {
+        configureWindow();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), configureWindow);
+    }
 }
 
 void aes_mac_order_window_below(void *windowHandle, void *siblingWindowHandle)
@@ -617,13 +647,19 @@ void aes_mac_order_window_below(void *windowHandle, void *siblingWindowHandle)
         return;
     }
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+    void (^orderWindow)(void) = ^{
         NSWindow *window = (__bridge NSWindow *)windowHandle;
         NSWindow *sibling = (__bridge NSWindow *)siblingWindowHandle;
         [window setLevel:sibling.level];
         [window orderFront:nil];
         [window orderWindow:NSWindowBelow relativeTo:sibling.windowNumber];
-    });
+    };
+
+    if ([NSThread isMainThread]) {
+        orderWindow();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), orderWindow);
+    }
 }
 
 void aes_mac_attach_portal_window(void *portalWindowHandle, void *parentWindowHandle)
