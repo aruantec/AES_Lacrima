@@ -1,0 +1,13 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="AES_Lacrima.Views.PortalFullscreenOverlayWindow"
+        Title="PortalFullscreenOverlayWindow"
+        Background="Transparent"
+        WindowDecorations="None"
+        CanResize="False"
+        ShowInTaskbar="False"
+        Topmost="True"
+        TransparencyLevelHint="None"
+        WindowStartupLocation="Manual">
+    <Grid Background="Transparent" />
+</Window>
