@@ -21,6 +21,12 @@ public sealed class FlyCastHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => true;
 
+    public override bool ForceUseTargetClientAreaCapture => true;
+
+    public override int ClientAreaCropTopInset => 28;
+
+    public override int ClientAreaCropBottomInset => 14;
+
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
         if (string.IsNullOrWhiteSpace(albumTitle))

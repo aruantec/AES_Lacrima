@@ -150,7 +150,7 @@ public partial class EmulationView : UserControl
     private Size _portalWindowFullscreenSize;
     private PortalFullscreenOverlayWindow? _portalFullscreenOverlayWindow;
 
-    private static bool UseInlineCaptureHost => OperatingSystem.IsMacOS();
+    private static bool UseInlineCaptureHost => false;
 
     private EmulatorCaptureHostControl? ActiveCaptureHost
         => UseInlineCaptureHost ? _inlineCaptureHost : _portalWindow?.CaptureHostControl;
@@ -417,10 +417,12 @@ public partial class EmulationView : UserControl
         if (e.PropertyName == nameof(EmulationViewModel.IsActive) ||
             e.PropertyName == nameof(EmulationViewModel.IsCompositionCaptureVisible) ||
             e.PropertyName == nameof(EmulationViewModel.IsEmulatorViewportVisible) ||
-            e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed))
+            e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed) ||
+            e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen))
         {
             UpdateAlbumListTransitions(vm);
             UpdatePortalVisibility(vm);
+            UpdateInlineCaptureHostVisibility(vm);
             if (e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed))
             {
                 StartAlbumListPortalMask(vm);
@@ -456,6 +458,8 @@ public partial class EmulationView : UserControl
         {
             HidePortal();
         }
+
+        UpdateInlineCaptureHostVisibility(vm);
     }
 
     private void OnMainWindowPositionChanged(object? sender, PixelPointEventArgs e)
@@ -499,7 +503,9 @@ public partial class EmulationView : UserControl
             if (_inlineCaptureHost == null)
                 return;
 
-            _inlineCaptureHost.IsVisible = true;
+            if (DataContext is EmulationViewModel vm)
+                UpdateInlineCaptureHostVisibility(vm);
+
             PortalFallbackOpacity = 0;
             IsPortalSurfaceVisible = false;
             return;
@@ -517,6 +523,12 @@ public partial class EmulationView : UserControl
             _portalWindow.Show();
             SyncPortalWindow();
             UpdateWindowZOrder();
+
+            if (!wasSurfaceVisible)
+            {
+                IsPortalSurfaceVisible = true;
+                PortalFallbackOpacity = 0;
+            }
 
             if (!wasSurfaceVisible)
             {
@@ -810,6 +822,17 @@ public partial class EmulationView : UserControl
 
         captureHostBorder.Child = captureHost;
         _inlineCaptureHost = captureHost;
+
+        if (DataContext is EmulationViewModel vm)
+            UpdateInlineCaptureHostVisibility(vm);
+    }
+
+    private void UpdateInlineCaptureHostVisibility(EmulationViewModel vm)
+    {
+        if (!UseInlineCaptureHost || _inlineCaptureHost == null)
+            return;
+
+        _inlineCaptureHost.IsVisible = vm.IsCompositionCaptureVisible && !vm.IsRenderOptionsOpen;
     }
 
     private void UpdatePortalFrametimeGraph(double latestMs)
@@ -926,7 +949,6 @@ public partial class EmulationView : UserControl
             var portalHandle = _portalWindow.TryGetPlatformHandle()?.Handle;
             if (mainHandle != null && portalHandle != null)
             {
-                MacSystemDialogs.AttachPortalWindow(portalHandle.Value, mainHandle.Value);
                 MacSystemDialogs.OrderWindowBelow(portalHandle.Value, mainHandle.Value);
             }
         }

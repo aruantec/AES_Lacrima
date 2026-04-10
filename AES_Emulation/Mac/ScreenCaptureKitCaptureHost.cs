@@ -408,8 +408,8 @@ public class ScreenCaptureKitCaptureHost : NativeControlHost
         {
             Stretch.Fill => 0,
             Stretch.Uniform => 1,
-            Stretch.UniformToFill => 2,
-            _ => 2
+            Stretch.UniformToFill => 1,
+            _ => 1
         };
     }
 }
