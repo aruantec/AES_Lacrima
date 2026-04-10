@@ -117,16 +117,11 @@
                           CommandParameter="{Binding PointedIndex}"
                           IsVisible="{Binding IsMetadataEditorVisible}">
                     <MenuItem.Icon>
-                        <Viewbox Width="32" Height="32" Stretch="Uniform">
-                            <Canvas Width="100" Height="100">
-                                <!-- Rounded square frame with gap at top-right -->
-                                <Path Data="M 50,18 H 30 C 20,18 18,20 18,30 V 78 C 18,88 20,92 30,92 H 78 C 88,92 92,88 92,78 V 55"
-                                      Stroke="#CCFFFFFF"
-                                      StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
-                                <!-- Simple diagonal line representing the pen -->
-                                <Line StartPoint="35,80" EndPoint="92,23" Stroke="#CCFFFFFF" StrokeThickness="11" StrokeLineCap="Round" />
-                            </Canvas>
-                        </Viewbox>
+                        <Path Data="M18,34 C18,30.69 20.69,28 24,28 H120 C123.31,28 126,30.69 126,34 C126,37.31 123.31,40 120,40 H24 C20.69,40 18,37.31 18,34 M18,58 C18,54.69 20.69,52 24,52 H120 C123.31,52 126,54.69 126,58 C126,61.31 123.31,64 120,64 H24 C20.69,64 18,61.31 18,58 M18,82 C18,78.69 20.69,76 24,76 H88 C91.31,76 94,78.69 94,82 C94,85.31 91.31,88 88,88 H24 C20.69,88 18,85.31 18,82 M152.4,69.5 L114.7,107.2 C113.1,108.8 110.8,111.9 109.5,114.2 L105.1,122 C103.5,124.9 104,128.5 106.3,130.8 C108.6,133.1 112.2,133.6 115.1,132 L122.9,127.6 C125.2,126.3 128.3,124 129.9,122.4 L167.6,84.7 C169.2,83.1 169.2,80.5 167.6,78.9 L158.2,69.5 C156.6,67.9 154,67.9 152.4,69.5 M147,94.5 C145.4,92.9 145.4,90.3 147,88.7 L150,85.7 C151.6,84.1 154.2,84.1 155.8,85.7 L158.8,88.7 C160.4,90.3 160.4,92.9 158.8,94.5 L147,94.5 Z"
+                              Fill="#CCFFFFFF"
+                              Width="32"
+                              Height="32"
+                              Stretch="Uniform" />
                     </MenuItem.Icon>
                 </MenuItem>
 
