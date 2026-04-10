@@ -268,7 +268,8 @@ namespace AES_Lacrima
             var builder = AppBuilder.Configure<App>()
                 .UsePlatformDetect()
                 .WithInterFont()
-                .With(new SkiaOptions() { MaxGpuResourceSizeBytes = 256000000 });
+                .With(new SkiaOptions() { MaxGpuResourceSizeBytes = 256000000 })
+                .With(new AvaloniaNativePlatformOptions() {  RenderingMode = [AvaloniaNativeRenderingMode.OpenGl] });
 
             if (OperatingSystem.IsLinux())
             {
