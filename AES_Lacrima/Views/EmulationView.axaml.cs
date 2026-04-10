@@ -7,6 +7,7 @@ using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -140,15 +141,16 @@ public partial class EmulationView : UserControl
     private int _portalMaskVersion;
     private PixelPoint _lastPortalPosition = new(int.MinValue, int.MinValue);
     private Size _lastPortalSize = new(double.NaN, double.NaN);
+    private bool _isPortalWindowFullscreen;
+    private PixelPoint _portalWindowFullscreenPosition;
+    private Size _portalWindowFullscreenSize;
+    private PortalFullscreenOverlayWindow? _portalFullscreenOverlayWindow;
 
     public EmulationView()
     {
         InitializeComponent();
         var captureHost = this.FindControl<Border>("EmulatorCaptureHost");
-        if (captureHost != null)
-        {
-            captureHost.PointerPressed += OnCaptureHostPointerPressed;
-        }
+        captureHost?.AddHandler(InputElement.PointerPressedEvent, OnCaptureHostPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
         DataContextChanged += OnDataContextChanged;
         PortalFallbackOpacity = 1;
         IsPortalSurfaceVisible = false;
@@ -160,6 +162,19 @@ public partial class EmulationView : UserControl
 
     private void OnCaptureHostPointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        if (e.ClickCount == 2)
+        {
+            if (DataContext is EmulationViewModel vm)
+            {
+                vm.IsFullscreen = !vm.IsFullscreen;
+            }
+            e.Handled = true;
+            return;
+        }
+
+        if (_isPortalWindowFullscreen)
+            return;
+
         if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
             return;
 
@@ -294,6 +309,9 @@ public partial class EmulationView : UserControl
     {
         base.OnDetachedFromVisualTree(e);
         
+        var captureHost = this.FindControl<Border>("EmulatorCaptureHost");
+        captureHost?.RemoveHandler(InputElement.PointerPressedEvent, OnCaptureHostPointerPressed);
+
         if (DataContext is EmulationViewModel vm)
         {
             vm.PropertyChanged -= OnViewModelPropertyChanged;
@@ -320,6 +338,12 @@ public partial class EmulationView : UserControl
         {
             _portalWindow.Close();
             _portalWindow = null;
+        }
+
+        if (_portalFullscreenOverlayWindow != null)
+        {
+            _portalFullscreenOverlayWindow.Close();
+            _portalFullscreenOverlayWindow = null;
         }
 
         IsPortalCaptureInitializing = false;
@@ -357,20 +381,35 @@ public partial class EmulationView : UserControl
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (sender is not EmulationViewModel vm)
+            return;
+
         if (e.PropertyName == nameof(EmulationViewModel.IsActive) ||
             e.PropertyName == nameof(EmulationViewModel.IsCompositionCaptureVisible) ||
             e.PropertyName == nameof(EmulationViewModel.IsEmulatorViewportVisible) ||
             e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed))
         {
-            if (sender is EmulationViewModel vm)
+            UpdateAlbumListTransitions(vm);
+            UpdatePortalVisibility(vm);
+            if (e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed))
             {
-                UpdateAlbumListTransitions(vm);
-                UpdatePortalVisibility(vm);
-                if (e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed))
-                {
-                    StartAlbumListPortalMask(vm);
-                    SyncPortalWindow();
-                }
+                StartAlbumListPortalMask(vm);
+                SyncPortalWindow();
+            }
+        }
+        else if (e.PropertyName == nameof(EmulationViewModel.IsFullscreen))
+        {
+            var mainWindow = TopLevel.GetTopLevel(this) as Window;
+            if (mainWindow == null)
+                return;
+
+            if (vm.IsFullscreen && !_isPortalWindowFullscreen)
+            {
+                EnterPortalFullscreen(mainWindow);
+            }
+            else if (!vm.IsFullscreen && _isPortalWindowFullscreen)
+            {
+                ExitPortalFullscreen();
             }
         }
     }
@@ -449,7 +488,94 @@ public partial class EmulationView : UserControl
     {
         PortalFallbackOpacity = 1;
         IsPortalSurfaceVisible = false;
+
+        if (_isPortalWindowFullscreen && DataContext is EmulationViewModel vm)
+        {
+            vm.IsFullscreen = false;
+        }
+
         _portalWindow?.Hide();
+        HidePortalFullscreenOverlay();
+        _isPortalWindowFullscreen = false;
+    }
+
+    private void TogglePortalFullscreen()
+    {
+        if (_portalWindow == null || TopLevel.GetTopLevel(this) is not Window mainWindow)
+            return;
+
+        if (_isPortalWindowFullscreen)
+        {
+            ExitPortalFullscreen();
+        }
+        else
+        {
+            EnterPortalFullscreen(mainWindow);
+        }
+    }
+
+    private void EnterPortalFullscreen(Window mainWindow)
+    {
+        if (_portalWindow == null)
+            return;
+
+        _portalWindowFullscreenPosition = _portalWindow.Position;
+        _portalWindowFullscreenSize = new Size(_portalWindow.Width, _portalWindow.Height);
+        var screen = mainWindow.Screens?.ScreenFromWindow(mainWindow) ?? mainWindow.Screens?.Primary;
+        var bounds = screen?.Bounds ?? new PixelRect(0, 0, 0, 0);
+
+        _portalWindow.Position = bounds.Position;
+        _portalWindow.Width = bounds.Width;
+        _portalWindow.Height = bounds.Height;
+        _portalWindow.Topmost = false;
+
+        if (_portalFullscreenOverlayWindow == null)
+        {
+            _portalFullscreenOverlayWindow = new PortalFullscreenOverlayWindow();
+            _portalFullscreenOverlayWindow.DoubleClicked += OnPortalFullscreenOverlayDoubleClicked;
+        }
+
+        _portalFullscreenOverlayWindow.Position = bounds.Position;
+        _portalFullscreenOverlayWindow.Width = bounds.Width;
+        _portalFullscreenOverlayWindow.Height = bounds.Height;
+        _portalFullscreenOverlayWindow.Topmost = true;
+        _portalFullscreenOverlayWindow.Show();
+        _portalFullscreenOverlayWindow.Activate();
+        _portalFullscreenOverlayWindow.Focus();
+
+        _isPortalWindowFullscreen = true;
+    }
+
+    private void ExitPortalFullscreen()
+    {
+        if (_portalWindow == null)
+            return;
+
+        _portalFullscreenOverlayWindow?.Hide();
+
+        _portalWindow.Position = _portalWindowFullscreenPosition;
+        _portalWindow.Width = _portalWindowFullscreenSize.Width;
+        _portalWindow.Height = _portalWindowFullscreenSize.Height;
+        _portalWindow.Topmost = false;
+
+        _isPortalWindowFullscreen = false;
+        SyncPortalWindow();
+    }
+
+    private void OnPortalFullscreenOverlayDoubleClicked(object? sender, EventArgs e)
+    {
+        if (DataContext is EmulationViewModel vm)
+        {
+            vm.IsFullscreen = false;
+        }
+    }
+
+    private void HidePortalFullscreenOverlay()
+    {
+        if (_portalFullscreenOverlayWindow == null)
+            return;
+
+        _portalFullscreenOverlayWindow.Hide();
     }
 
     private void SyncPortalWindow()
@@ -467,7 +593,7 @@ public partial class EmulationView : UserControl
 
     private void SyncPortalWindowCore()
     {
-        if (_portalWindow == null || TopLevel.GetTopLevel(this) is not Window mainWindow) return;
+        if (_portalWindow == null || TopLevel.GetTopLevel(this) is not Window mainWindow || _isPortalWindowFullscreen) return;
 
         var portal = this.FindControl<Control>("PortalPortal");
         if (portal == null) return;
@@ -657,7 +783,7 @@ public partial class EmulationView : UserControl
 
     private void UpdateWindowZOrder()
     {
-        if (_portalWindow == null || TopLevel.GetTopLevel(this) is not Window mainWindow) return;
+        if (_portalWindow == null || TopLevel.GetTopLevel(this) is not Window mainWindow || _isPortalWindowFullscreen) return;
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
