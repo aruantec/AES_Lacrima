@@ -812,6 +812,35 @@
                         Width="60"
                         VerticalAlignment="Center"
                         Cursor="Hand"
+                        Command="{Binding ToggleFullscreenCommand}"
+                        IsVisible="{Binding IsEmulatorRunning}"
+                        ToolTip.Tip="Fullscreen">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform" Opacity="0.9" Margin="1">
+                        <Path Data="M32,48 C23.16,48 16,55.16 16,64 V144 C16,152.84 23.16,160 32,160 H160 C168.84,160 176,152.84 176,144 V64 C176,55.16 168.84,48 160,48 H32 M32,58 H160 C163.31,58 166,60.69 166,64 V144 C166,147.31 163.31,150 160,150 H32 C28.69,150 26,147.31 26,144 V64 C26,60.69 28.69,58 32,58 M104.5,160 L104.5,170 H87.5 C83.36,170 80,173.36 80,177.5 C80,181.64 83.36,185 87.5,185 H104.5 L104.5,185 C108.64,185 112,181.64 112,177.5 L112,160 H104.5 M48,72 L48,84 Q48,96 60,96 L48,96 V72 M144,136 L144,124 Q144,112 132,112 L144,112 V136 Z"
+                              Fill="{Binding IsFullscreen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}">
+                            <Path.Transitions>
+                                <Transitions>
+                                    <BrushTransition Property="Fill" Duration="0:0:0.32" />
+                                </Transitions>
+                            </Path.Transitions>
+                        </Path>
+                    </Viewbox>
+                </Button>
+
+                <Button Height="60"
+                        Width="60"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
                         Command="{Binding ToggleRenderOptionsCommand}"
                         IsVisible="{Binding IsEmulatorRunning}"
                         ToolTip.Tip="Render Options">

@@ -37,7 +37,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <NoWarn>$(NoWarn);CS0618</NoWarn>
+    <NoWarn>$(NoWarn);CS0618;NU1903</NoWarn>
   </PropertyGroup>
   <ItemGroup Condition="'$(PublishAot)' == 'true'">
     <TrimmerRootAssembly Include="AES_Mpv" />
@@ -56,7 +56,7 @@
     <PackageReference Include="Avalonia.Desktop" Version="12.0.0" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.0" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.0" />
-    <PackageReference Include="Tmds.DBus.Protocol" Version="0.91.1" />
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.1" Condition="'$(RuntimeIdentifier)' != '' and !$([System.Text.RegularExpressions.Regex]::IsMatch('$(RuntimeIdentifier)', '^win'))" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Svg.Controls.Skia.Avalonia" Version="12.0.0-rc1" />
     <PackageReference Include="log4net" Version="3.2.0" />
