@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 
@@ -42,6 +43,24 @@ public partial class VisualOverlayWindow : Window
                 }
             }
         }
+    }
+
+    protected override void OnOpened(EventArgs e)
+    {
+        base.OnOpened(e);
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            LinuxWindowPlacement.TryConfigureAsNormalWindow(this);
+        }
+    }
+
+    public void MoveResizeUnconstrained(PixelPoint position, int widthPixels, int heightPixels)
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return;
+
+        LinuxWindowPlacement.TryMoveResize(this, position.X, position.Y, widthPixels, heightPixels);
     }
 
     [DllImport("user32.dll")]

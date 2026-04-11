@@ -206,6 +206,15 @@ namespace AES_Lacrima.Views
             if (!_visualOverlayWindow.IsVisible)
                 _visualOverlayWindow.Show();
 
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                var renderScale = Math.Max(1.0, RenderScaling);
+                _visualOverlayWindow.MoveResizeUnconstrained(
+                    Position,
+                    (int)Math.Round(Bounds.Width * renderScale),
+                    (int)Math.Round(Bounds.Height * renderScale));
+            }
+
             _visualOverlayWindow.MoveToBottomOfStack();
         }
 

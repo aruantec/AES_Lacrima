@@ -7,7 +7,7 @@
         Title="PortalWindow"
         Background="#0F0F0F"
         WindowDecorations="None"
-        CanResize="False"
+        CanResize="True"
         ShowInTaskbar="False"
         Topmost="False"
         TransparencyLevelHint="None"

@@ -4,7 +4,7 @@
         Title="VisualOverlayWindow"
         Background="Transparent"
         WindowDecorations="None"
-        CanResize="False"
+        CanResize="True"
         ShowInTaskbar="False"
         Topmost="False"
         IsHitTestVisible="False"

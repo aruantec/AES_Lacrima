@@ -756,6 +756,10 @@ public partial class EmulationView : UserControl
         var portalSize = new Size(width, height);
         if (_lastPortalPosition == portalPosition && _lastPortalSize == portalSize)
         {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                _portalWindow.MoveResizeUnconstrained(portalPosition, widthPixels, heightPixels);
+            }
             UpdateWindowZOrder();
             return;
         }
@@ -765,6 +769,10 @@ public partial class EmulationView : UserControl
         _portalWindow.Position = portalPosition;
         _portalWindow.Width = width;
         _portalWindow.Height = height;
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            _portalWindow.MoveResizeUnconstrained(portalPosition, widthPixels, heightPixels);
+        }
         UpdateWindowZOrder();
     }
 

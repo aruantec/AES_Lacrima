@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using AES_Emulation.Controls;
@@ -32,6 +33,14 @@ public partial class PortalWindow : Window
     }
 
     public EmulatorCaptureHost? CaptureHostControl => this.FindControl<EmulatorCaptureHost>("CaptureControl");
+
+    public void MoveResizeUnconstrained(PixelPoint position, int widthPixels, int heightPixels)
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return;
+
+        LinuxWindowPlacement.TryMoveResize(this, position.X, position.Y, widthPixels, heightPixels);
+    }
 
     private void InitializeComponent()
     {
@@ -68,6 +77,10 @@ public partial class PortalWindow : Window
             var handle = TryGetPlatformHandle()?.Handle;
             if (handle != null && handle != IntPtr.Zero)
                 MacSystemDialogs.ConfigurePortalWindow(handle.Value);
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            LinuxWindowPlacement.TryConfigureAsNormalWindow(this);
         }
     }
 }
