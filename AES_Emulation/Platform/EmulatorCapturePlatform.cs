@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using AES_Emulation.Linux.API;
 
 namespace AES_Emulation.Platform;
 
@@ -13,6 +14,16 @@ public static class EmulatorCapturePlatform
 
         if (OperatingSystem.IsWindows())
             RevealWindowForCaptureWindows(platformWindowHandle);
+        else if (OperatingSystem.IsLinux())
+            RevealWindowForCaptureLinux(platformWindowHandle);
+    }
+
+    private static void RevealWindowForCaptureLinux(IntPtr platformWindowHandle)
+    {
+        if (platformWindowHandle == IntPtr.Zero)
+            return;
+
+        LinuxCaptureBridge.aes_linux_capture_reveal_window(platformWindowHandle);
     }
 
     [SupportedOSPlatform("windows")]

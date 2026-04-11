@@ -1,0 +1,19 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="AES_Lacrima.Views.VisualOverlayWindow"
+        Title="VisualOverlayWindow"
+        Background="Transparent"
+        WindowDecorations="None"
+        CanResize="False"
+        ShowInTaskbar="False"
+        Topmost="False"
+        IsHitTestVisible="False"
+        TransparencyLevelHint="None"
+        WindowStartupLocation="Manual">
+    <Border CornerRadius="10"
+            Background="#0F0F0F"
+            BorderBrush="Transparent"
+            BorderThickness="0"
+            ClipToBounds="True"
+            IsHitTestVisible="False" />
+</Window>

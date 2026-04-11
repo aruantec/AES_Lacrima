@@ -7,6 +7,7 @@ using log4net;
 using Avalonia.Media;
 using Avalonia.Threading;
 using System;
+using System.Runtime.InteropServices;
 
 namespace AES_Lacrima.Views
 {
@@ -15,6 +16,12 @@ namespace AES_Lacrima.Views
         private static readonly ILog Log = AES_Core.Logging.LogHelper.For<MainWindow>();
         private bool _ignoreSizeChange = true;
         private double _lastRenderScale = double.NaN;
+        private VisualOverlayWindow? _visualOverlayWindow;
+
+        private static readonly IntPtr HWND_BOTTOM = new(1);
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOACTIVATE = 0x0010;
 
         public MainWindow()
         {
@@ -24,6 +31,10 @@ namespace AES_Lacrima.Views
             SizeChanged += OnSizeChanged;
             LayoutUpdated += OnLayoutUpdated;
             KeyDown += OnKeyDown;
+            Closed += OnClosed;
+            PositionChanged += OnPositionChanged;
+            Avalonia.AvaloniaObjectExtensions.GetObservable(this, Window.WindowStateProperty)
+                .Subscribe(new WindowStateObserver(() => SyncVisualOverlayWindow()));
         }
 
         private void OnKeyDown(object? sender, KeyEventArgs e)
@@ -80,6 +91,7 @@ namespace AES_Lacrima.Views
 
             CenterWindow(vm, renderScale);
             UpdateMainBorderClip();
+            EnsureVisualOverlayWindow();
 
             // Allow size change tracking after initial layout settles.
             _ignoreSizeChange = true;
@@ -145,6 +157,83 @@ namespace AES_Lacrima.Views
                 RadiusY = radius
             };
         }
+
+        private void OnClosed(object? sender, EventArgs e)
+        {
+            if (_visualOverlayWindow != null)
+            {
+                _visualOverlayWindow.Close();
+                _visualOverlayWindow = null;
+            }
+        }
+
+        private void OnPositionChanged(object? sender, PixelPointEventArgs e)
+        {
+            SyncVisualOverlayWindow();
+        }
+
+        private void EnsureVisualOverlayWindow()
+        {
+            if (_visualOverlayWindow != null)
+                return;
+
+            _visualOverlayWindow = new VisualOverlayWindow
+            {
+                Position = Position,
+                Width = Bounds.Width,
+                Height = Bounds.Height
+            };
+
+            _visualOverlayWindow.Show();
+            SyncVisualOverlayWindow();
+        }
+
+        private void SyncVisualOverlayWindow()
+        {
+            if (_visualOverlayWindow == null)
+                return;
+
+            if (WindowState == WindowState.Minimized)
+            {
+                _visualOverlayWindow.Hide();
+                return;
+            }
+
+            _visualOverlayWindow.Position = Position;
+            _visualOverlayWindow.Width = Bounds.Width;
+            _visualOverlayWindow.Height = Bounds.Height;
+
+            if (!_visualOverlayWindow.IsVisible)
+                _visualOverlayWindow.Show();
+
+            _visualOverlayWindow.MoveToBottomOfStack();
+        }
+
+        private sealed class WindowStateObserver : IObserver<WindowState>
+        {
+            private readonly Action _callback;
+
+            public WindowStateObserver(Action callback)
+            {
+                _callback = callback;
+            }
+
+            public void OnCompleted() { }
+            public void OnError(Exception error) { }
+            public void OnNext(WindowState value) => _callback();
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+        [DllImport("libX11.so.6")]
+        private static extern IntPtr XOpenDisplay(IntPtr display);
+
+        [DllImport("libX11.so.6")]
+        private static extern int XCloseDisplay(IntPtr display);
+
+        [DllImport("libX11.so.6")]
+        private static extern int XLowerWindow(IntPtr display, IntPtr w);
 
         private void CenterWindow(ViewModels.MainWindowViewModel vm, double? renderScaleOverride = null)
         {

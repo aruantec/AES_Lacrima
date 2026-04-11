@@ -61,7 +61,7 @@
         <Border Background="#0F0F0F" Grid.RowSpan="3"/>
         <!--Removes the background on purpose and forces transparency-->
         <composition:TransparentComposition x:Name="PortalPortal"
-                            IsVisible="{Binding ElementName=RootView, Path=IsPortalSurfaceVisible}"/>
+                            IsVisible="True"/>
         <Border x:Name="PortalFallbackOverlay"
                 Background="#0F0F0F"
                 IsHitTestVisible="False"
@@ -742,7 +742,8 @@
                     </Viewbox>
                 </Button>
 
-                <Button Height="60"
+                <Button Height="66"
+                        Width="66"
                         Cursor="Hand"
                         VerticalAlignment="Center"
                         Command="{Binding ToggleEmulatorViewportCommand}"
@@ -759,22 +760,22 @@
                         </ControlTemplate>
                     </Button.Template>
                     <Viewbox Stretch="Uniform">
-                        <StackPanel Height="100" Orientation="Horizontal" Spacing="15">
-                            <Rectangle Width="8" Height="76" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}">
+                        <StackPanel Height="88" Orientation="Horizontal" Spacing="12">
+                            <Rectangle Width="6" Height="70" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}">
                                 <Rectangle.Transitions>
                                     <Transitions>
                                         <BrushTransition Property="Fill" Duration="0:0:0.32" />
                                     </Transitions>
                                 </Rectangle.Transitions>
                             </Rectangle>
-                            <Rectangle Width="90" Height="80" RadiusX="16" RadiusY="16" StrokeThickness="10" Stroke="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}" Fill="Transparent">
+                            <Rectangle Width="82" Height="74" RadiusX="16" RadiusY="16" StrokeThickness="8" Stroke="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}" Fill="Transparent">
                                 <Rectangle.Transitions>
                                     <Transitions>
                                         <BrushTransition Property="Stroke" Duration="0:0:0.32" />
                                     </Transitions>
                                 </Rectangle.Transitions>
                             </Rectangle>
-                            <Rectangle Width="8" Height="76" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}">
+                            <Rectangle Width="6" Height="70" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}">
                                 <Rectangle.Transitions>
                                     <Transitions>
                                         <BrushTransition Property="Fill" Duration="0:0:0.32" />
@@ -874,8 +875,8 @@
                     </Viewbox>
                 </Button>
 
-                <Button Height="60"
-                        Width="60"
+                <Button Height="58"
+                        Width="58"
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding CloseEmulatorCommand}"
@@ -891,7 +892,7 @@
                             </Border>
                         </ControlTemplate>
                     </Button.Template>
-                    <Viewbox Stretch="Uniform" Opacity="0.9">
+                    <Viewbox Stretch="Uniform" Opacity="0.9" Margin="2">
                         <Path Fill="White"
                               Data="M11,1L11,10L13,10L13,1L11,1ZM3.34,4.72A10,10,0,1,0,20.66,4.72L19.25,6.13A8,8,0,1,1,4.75,6.13L3.34,4.72Z" />
                     </Viewbox>

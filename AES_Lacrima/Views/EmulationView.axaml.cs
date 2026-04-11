@@ -105,6 +105,7 @@ public partial class EmulationView : UserControl
     private EmulatorCaptureHostControl? _inlineCaptureHost;
     private IDisposable? _boundsSubscription;
     private IDisposable? _mainWindowBoundsSubscription;
+    private IDisposable? _mainWindowStateSubscription;
     private IDisposable? _captureInitializingSubscription;
     private IDisposable? _captureStatusSubscription;
     private IDisposable? _captureActiveSubscription;
@@ -307,6 +308,8 @@ public partial class EmulationView : UserControl
                 _mainWindowBoundsSubscription = mainWindow.GetObservable(Visual.BoundsProperty)
                     .Subscribe(new SimpleObserver<Rect>(_ => SyncPortalWindow()));
 
+                _mainWindowStateSubscription = mainWindow.GetObservable(Window.WindowStateProperty)
+                    .Subscribe(new SimpleObserver<WindowState>(OnMainWindowStateChanged));
                 mainWindow.PositionChanged += OnMainWindowPositionChanged;
             }
 
@@ -335,6 +338,7 @@ public partial class EmulationView : UserControl
 
         _boundsSubscription?.Dispose();
         _mainWindowBoundsSubscription?.Dispose();
+        _mainWindowStateSubscription?.Dispose();
         _captureInitializingSubscription?.Dispose();
         _captureStatusSubscription?.Dispose();
         _captureActiveSubscription?.Dispose();
@@ -495,6 +499,24 @@ public partial class EmulationView : UserControl
             UpdateWindowZOrder();
     }
 
+    private void OnMainWindowStateChanged(WindowState state)
+    {
+        if (UseInlineCaptureHost)
+            return;
+
+        if (_portalWindow == null)
+            return;
+
+        if (state == WindowState.Minimized)
+        {
+            _portalWindow.Hide();
+        }
+        else if (DataContext is EmulationViewModel vm && vm.IsCompositionCaptureVisible)
+        {
+            ShowPortal();
+        }
+    }
+
     private void ShowPortal()
     {
         if (UseInlineCaptureHost)
@@ -524,6 +546,11 @@ public partial class EmulationView : UserControl
             SyncPortalWindowCore();
             UpdateWindowZOrder();
 
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && TopLevel.GetTopLevel(this) is Window mainWindow)
+            {
+                mainWindow.Activate();
+            }
+
             if (!wasSurfaceVisible)
             {
                 IsPortalSurfaceVisible = true;
@@ -537,6 +564,10 @@ public partial class EmulationView : UserControl
                     if (DataContext is EmulationViewModel { IsActive: true } && _portalWindow?.IsVisible == true)
                     {
                         SyncPortalWindowCore();
+                        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && TopLevel.GetTopLevel(this) is Window mainWindow)
+                        {
+                            mainWindow.Activate();
+                        }
                         IsPortalSurfaceVisible = true;
                         PortalFallbackOpacity = 0;
                     }
@@ -696,6 +727,16 @@ public partial class EmulationView : UserControl
         {
             screenTopLeft = new PixelPoint((int)Math.Round(topLeftScreenX), (int)Math.Round(topLeftScreenY));
             screenBottomRight = new PixelPoint((int)Math.Round(bottomRightScreenX), (int)Math.Round(bottomRightScreenY));
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            var renderScale = Math.Max(1.0, mainWindow.RenderScaling);
+            screenTopLeft = new PixelPoint(
+                mainWindow.Position.X + (int)Math.Round(topLeft.Value.X * renderScale),
+                mainWindow.Position.Y + (int)Math.Round(topLeft.Value.Y * renderScale));
+            screenBottomRight = new PixelPoint(
+                mainWindow.Position.X + (int)Math.Round(bottomRight.Value.X * renderScale),
+                mainWindow.Position.Y + (int)Math.Round(bottomRight.Value.Y * renderScale));
         }
         else
         {
