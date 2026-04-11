@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Threading;
 
 namespace AES_Lacrima.Views;
 
@@ -9,6 +11,9 @@ internal static class LinuxWindowPlacement
 {
     private const int PropModeReplace = 0;
     private const int XA_ATOM = 4;
+    private static readonly Dictionary<IntPtr, bool> BottomOverflowUnlocked = new();
+    private static readonly Dictionary<IntPtr, long> PlacementVersions = new();
+    private static long _nextPlacementVersion;
 
     public static bool TryConfigureAsNormalWindow(Window window)
     {
@@ -67,16 +72,25 @@ internal static class LinuxWindowPlacement
             width = Math.Max(1, width);
             height = Math.Max(1, height);
 
-            if (ShouldStageThroughRightEdge(window, x, y, width, height, out var stagingX))
+            if (ShouldStageThroughRightEdge(window, handle, x, y, width, height, out var stagingX, out var postFinalMove))
             {
                 XMoveResizeWindow(display, handle, stagingX, y, width, height);
-                XSync(display, false);
-                var changes = new XWindowChanges { x = x };
-                XConfigureWindow(display, handle, CWX, ref changes);
                 XFlush(display);
+                if (postFinalMove)
+                {
+                    ScheduleFinalMoveResize(handle, x, y, width, height);
+                }
+                else
+                {
+                    XSync(display, false);
+                    var changes = new XWindowChanges { x = x };
+                    XConfigureWindow(display, handle, CWX, ref changes);
+                    XFlush(display);
+                }
                 return true;
             }
 
+            MarkPlacementVersion(handle);
             XMoveResizeWindow(
                 display,
                 handle,
@@ -85,6 +99,7 @@ internal static class LinuxWindowPlacement
                 width,
                 height);
             XFlush(display);
+            UpdateBottomOverflowState(window, handle, x, y, width, height);
             return true;
         }
         finally
@@ -118,9 +133,101 @@ internal static class LinuxWindowPlacement
         }
     }
 
-    private static bool ShouldStageThroughRightEdge(Window window, int x, int y, int width, int height, out int stagingX)
+    private static bool ShouldStageThroughRightEdge(
+        Window window,
+        IntPtr handle,
+        int x,
+        int y,
+        int width,
+        int height,
+        out int stagingX,
+        out bool postFinalMove)
     {
         stagingX = x + width + 4096;
+        postFinalMove = false;
+
+        if (!TryGetScreenAreas(window, x, y, width, height, out _, out var workArea))
+            return false;
+
+        stagingX = workArea.X + workArea.Width + 64;
+
+        var overflowLeft = x < workArea.X;
+        var overflowTop = y < workArea.Y;
+        var overflowRight = x + width > workArea.X + workArea.Width;
+        var overflowBottom = y + height > workArea.Y + workArea.Height;
+        var isBottomUnlocked = BottomOverflowUnlocked.TryGetValue(handle, out var unlocked) && unlocked;
+
+        if (overflowBottom)
+        {
+            if (!isBottomUnlocked)
+            {
+                BottomOverflowUnlocked[handle] = true;
+                postFinalMove = true;
+                return true;
+            }
+
+            return overflowLeft || overflowTop || overflowRight;
+        }
+
+        BottomOverflowUnlocked[handle] = false;
+        return overflowLeft || overflowTop || overflowRight;
+    }
+
+    private static void ScheduleFinalMoveResize(IntPtr handle, int x, int y, int width, int height)
+    {
+        var version = MarkPlacementVersion(handle);
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                if (!PlacementVersions.TryGetValue(handle, out var latestVersion) || latestVersion != version)
+                    return;
+
+                TryMoveResizeHandle(handle, x, y, width, height);
+            },
+            DispatcherPriority.Background);
+    }
+
+    private static long MarkPlacementVersion(IntPtr handle)
+    {
+        var version = ++_nextPlacementVersion;
+        PlacementVersions[handle] = version;
+        return version;
+    }
+
+    private static bool TryMoveResizeHandle(IntPtr handle, int x, int y, int width, int height)
+    {
+        if (handle == IntPtr.Zero)
+            return false;
+
+        var display = XOpenDisplay(IntPtr.Zero);
+        if (display == IntPtr.Zero)
+            return false;
+
+        try
+        {
+            XMoveResizeWindow(display, handle, x, y, Math.Max(1, width), Math.Max(1, height));
+            XFlush(display);
+            return true;
+        }
+        finally
+        {
+            XCloseDisplay(display);
+        }
+    }
+
+    private static void UpdateBottomOverflowState(Window window, IntPtr handle, int x, int y, int width, int height)
+    {
+        if (!TryGetScreenAreas(window, x, y, width, height, out _, out var workArea))
+            return;
+
+        if (y + height <= workArea.Y + workArea.Height)
+            BottomOverflowUnlocked[handle] = false;
+    }
+
+    private static bool TryGetScreenAreas(Window window, int x, int y, int width, int height, out PixelRect bounds, out PixelRect workArea)
+    {
+        bounds = default;
+        workArea = default;
 
         var screens = window.Screens;
         var allScreens = screens?.All;
@@ -131,7 +238,7 @@ internal static class LinuxWindowPlacement
         var centerY = y + height / 2;
         foreach (var screen in allScreens)
         {
-            var bounds = screen.Bounds;
+            bounds = screen.Bounds;
             var isOnScreen =
                 centerX >= bounds.X &&
                 centerX <= bounds.X + bounds.Width &&
@@ -140,13 +247,8 @@ internal static class LinuxWindowPlacement
             if (!isOnScreen)
                 continue;
 
-            stagingX = bounds.X + bounds.Width + 64;
-
-            var workArea = screen.WorkingArea;
-            return x < workArea.X ||
-                   y < workArea.Y ||
-                   x + width > workArea.X + workArea.Width ||
-                   y + height > workArea.Y + workArea.Height;
+            workArea = screen.WorkingArea;
+            return true;
         }
 
         return false;
