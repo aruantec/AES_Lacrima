@@ -122,7 +122,7 @@ public class LinuxCaptureHost : NativeControlHost
 
     public LinuxCaptureHost()
     {
-        _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) => RefreshStatus());
+        _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(33), DispatcherPriority.Background, (_, _) => RefreshStatus());
     }
 
     public IntPtr TargetHwnd
@@ -465,15 +465,13 @@ public class LinuxCaptureHost : NativeControlHost
 
         if (!_hasAppliedRenderOptions || _lastDisableVSync != DisableVSync)
         {
-            LinuxCaptureBridge.aes_linux_capture_set_disable_vsync(
-                _capture,
-                DisableVSync ? 1 : 0);
+            LinuxCaptureBridge.TrySetDisableVsync(_capture, DisableVSync);
             _lastDisableVSync = DisableVSync;
         }
 
         if (!_hasAppliedRenderOptions || !string.Equals(_lastShaderPath, shaderPath, StringComparison.Ordinal))
         {
-            LinuxCaptureBridge.aes_linux_capture_set_shader_path(_capture, shaderPath);
+            LinuxCaptureBridge.TrySetShaderPath(_capture, shaderPath);
             _lastShaderPath = shaderPath;
         }
 
@@ -491,13 +489,18 @@ public class LinuxCaptureHost : NativeControlHost
         var isActive = LinuxCaptureBridge.aes_linux_capture_is_active(_capture) != 0;
         IsDirectCompositionActive = isActive;
 
-        var fps = LinuxCaptureBridge.aes_linux_capture_get_fps(_capture);
-        if (fps > 0 || !isActive)
-            Fps = fps;
-
-        var frameTimeMs = LinuxCaptureBridge.aes_linux_capture_get_frame_time_ms(_capture);
-        if (frameTimeMs > 0 || !isActive)
-            FrameTimeMs = frameTimeMs;
+        var nativeFps = LinuxCaptureBridge.aes_linux_capture_get_fps(_capture);
+        var nativeFrameTimeMs = LinuxCaptureBridge.aes_linux_capture_get_frame_time_ms(_capture);
+        if (isActive)
+        {
+            Fps = nativeFps > 0 ? nativeFps : 0;
+            FrameTimeMs = nativeFrameTimeMs > 0 ? nativeFrameTimeMs : 0;
+        }
+        else
+        {
+            Fps = 0;
+            FrameTimeMs = 0;
+        }
 
         if (!string.IsNullOrWhiteSpace(status))
             StatusText = status;

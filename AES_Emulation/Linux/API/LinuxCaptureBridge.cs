@@ -7,6 +7,8 @@ namespace AES_Emulation.Linux.API;
 internal static class LinuxCaptureBridge
 {
     private const string LibraryName = "libAesLinuxCaptureBridge";
+    private static bool _disableVsyncEntryPointAvailable = true;
+    private static bool _shaderPathEntryPointAvailable = true;
 
     [DllImport(LibraryName)]
     public static extern IntPtr aes_linux_capture_create(IntPtr parentWindowHandle);
@@ -53,6 +55,36 @@ internal static class LinuxCaptureBridge
 
     [DllImport(LibraryName)]
     public static extern void aes_linux_capture_set_shader_path(IntPtr capture, string? shaderPath);
+
+    public static void TrySetDisableVsync(IntPtr capture, bool disableVsync)
+    {
+        if (!_disableVsyncEntryPointAvailable)
+            return;
+
+        try
+        {
+            aes_linux_capture_set_disable_vsync(capture, disableVsync ? 1 : 0);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            _disableVsyncEntryPointAvailable = false;
+        }
+    }
+
+    public static void TrySetShaderPath(IntPtr capture, string? shaderPath)
+    {
+        if (!_shaderPathEntryPointAvailable)
+            return;
+
+        try
+        {
+            aes_linux_capture_set_shader_path(capture, shaderPath);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            _shaderPathEntryPointAvailable = false;
+        }
+    }
 
     [DllImport(LibraryName)]
     public static extern void aes_linux_capture_reveal_window(IntPtr platformWindowHandle);

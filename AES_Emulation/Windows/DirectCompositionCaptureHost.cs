@@ -462,8 +462,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
         _lastCropWidth = int.MinValue;
         _lastCropHeight = int.MinValue;
         UpdateCaptureCropRect();
-        _lastFrameCount = 0;
-        _lastPresentCount = 0;
+        _lastFrameCount = Math.Max(0, WgcBridgeApi.GetCaptureStatus(_session));
+        _lastPresentCount = Math.Max(0, WgcBridgeApi.GetDirectCompositionPresentCount(_session));
         _lastFpsSampleUtc = DateTime.UtcNow;
         _lastPresentSampleUtc = _lastFpsSampleUtc;
         UpdateSessionRenderOptions();
@@ -611,22 +611,32 @@ public class DirectCompositionCaptureHost : NativeControlHost
         var deltaPresents = Math.Max(0, presents - _lastPresentCount);
         if (deltaPresents > 0 && presentElapsedMs >= 1)
         {
-            var instantFrameTimeMs = presentElapsedMs / deltaPresents;
-            FrameTimeMs = FrameTimeMs <= 0.01
-                ? instantFrameTimeMs
-                : (FrameTimeMs * 0.82) + (instantFrameTimeMs * 0.18);
+            if (presentElapsedMs > 500)
+            {
+                _lastPresentCount = presents;
+                _lastPresentSampleUtc = now;
+            }
+            else
+            {
+                var instantFrameTimeMs = presentElapsedMs / deltaPresents;
+                FrameTimeMs = FrameTimeMs <= 0.01
+                    ? instantFrameTimeMs
+                    : (FrameTimeMs * 0.82) + (instantFrameTimeMs * 0.18);
 
-            var instantFps = 1000.0 / Math.Max(instantFrameTimeMs, 0.001);
-            Fps = Fps <= 0.01
-                ? instantFps
-                : (Fps * 0.8) + (instantFps * 0.2);
+                var instantFps = 1000.0 / Math.Max(instantFrameTimeMs, 0.001);
+                Fps = Fps <= 0.01
+                    ? instantFps
+                    : (Fps * 0.8) + (instantFps * 0.2);
 
-            _lastPresentCount = presents;
-            _lastPresentSampleUtc = now;
+                _lastPresentCount = presents;
+                _lastPresentSampleUtc = now;
+            }
         }
         else if (presents <= 0 && frames <= 0)
         {
             FrameTimeMs = 0;
+            _lastPresentCount = 0;
+            _lastPresentSampleUtc = now;
         }
 
         IsDirectCompositionActive = state == 2;
