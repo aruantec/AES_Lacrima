@@ -2220,6 +2220,9 @@ namespace AES_Lacrima.ViewModels
 
             IsEmulatorRunning = !process.HasExited;
 
+            if (OperatingSystem.IsLinux() && handler.HideUntilCaptured && !process.HasExited)
+                TryHideLinuxCaptureProcessWindow(process.Id, ResolveCaptureWindowTitleHint(handler));
+
             if (handler is RetroArchHandler retroArchHandler)
                 StartRetroArchLogWatcher(process, retroArchHandler);
 
@@ -2333,8 +2336,26 @@ namespace AES_Lacrima.ViewModels
             if (OperatingSystem.IsWindows())
                 return await handler.ResolveCaptureTargetAsync(process, CancellationToken.None).ConfigureAwait(false);
 
+            var windowTitleHint = ResolveCaptureWindowTitleHint(handler);
+
             if (handler.CaptureStartupDelayMs > 0)
-                await Task.Delay(handler.CaptureStartupDelayMs).ConfigureAwait(false);
+            {
+                var remainingDelayMs = handler.CaptureStartupDelayMs;
+                const int pollIntervalMs = 100;
+
+                while (remainingDelayMs > 0)
+                {
+                    if (OperatingSystem.IsLinux() && handler.HideUntilCaptured)
+                    {
+                        var processToHide = ResolveCaptureProcessForCurrentPlatform(process, handler);
+                        TryHideLinuxCaptureProcessWindow(processToHide.Id, windowTitleHint);
+                    }
+
+                    var delay = Math.Min(pollIntervalMs, remainingDelayMs);
+                    await Task.Delay(delay).ConfigureAwait(false);
+                    remainingDelayMs -= delay;
+                }
+            }
 
             var captureProcess = ResolveCaptureProcessForCurrentPlatform(process, handler);
             try
@@ -2348,7 +2369,44 @@ namespace AES_Lacrima.ViewModels
                 return IntPtr.Zero;
             }
 
+            if (OperatingSystem.IsLinux() && handler.HideUntilCaptured)
+                TryHideLinuxCaptureProcessWindow(captureProcess.Id, windowTitleHint);
+
             return new IntPtr(captureProcess.Id);
+        }
+
+        private static string? ResolveCaptureWindowTitleHint(IEmulatorHandler handler)
+        {
+            var launcherPath = handler.LauncherPath;
+            if (!string.IsNullOrWhiteSpace(launcherPath))
+            {
+                var launcherName = Path.GetFileNameWithoutExtension(
+                    launcherPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                if (!string.IsNullOrWhiteSpace(launcherName))
+                    return launcherName;
+            }
+
+            return handler.DisplayName;
+        }
+
+        private static void TryHideLinuxCaptureProcessWindow(int processId, string? windowTitleHint)
+        {
+            if (!OperatingSystem.IsLinux() || processId <= 0)
+                return;
+
+            try
+            {
+                var windowHandle = EmulatorCapturePlatform.FindWindowByPid(processId, windowTitleHint);
+                if (windowHandle == IntPtr.Zero)
+                    windowHandle = EmulatorCapturePlatform.FindWindowByPid(processId);
+
+                if (windowHandle != IntPtr.Zero)
+                    EmulatorCapturePlatform.HideWindowForCapture(windowHandle);
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to hide Linux emulator window while waiting for embed capture.", ex);
+            }
         }
 
         private static Process ResolveCaptureProcessForCurrentPlatform(Process process, IEmulatorHandler handler)
