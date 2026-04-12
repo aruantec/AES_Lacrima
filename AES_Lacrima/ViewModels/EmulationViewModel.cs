@@ -234,6 +234,9 @@ namespace AES_Lacrima.ViewModels
         private bool _isRenderOptionsOpen;
 
         public bool IsRenderOptionsSupported => true;
+        public bool IsLinuxCaptureRateEstimated => OperatingSystem.IsLinux();
+        public bool SupportsAdvancedRenderProcessing => !OperatingSystem.IsLinux();
+        public bool SupportsPipeWireToggle => false;
 
         [ObservableProperty]
         private bool _isFullscreen;

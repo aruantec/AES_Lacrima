@@ -279,11 +279,23 @@
                         <TextBlock Text="{Binding ElementName=RootView, Path=PortalCaptureFps, StringFormat='FPS: {0:0.0}'}"
                                    Foreground="White"
                                    FontSize="16"
-                                   FontFamily="Consolas"/>
+                                   FontFamily="Consolas"
+                                   IsVisible="{Binding !IsLinuxCaptureRateEstimated}"/>
+                        <TextBlock Text="{Binding ElementName=RootView, Path=PortalCaptureFps, StringFormat='Updates/s (est): {0:0.0}'}"
+                                   Foreground="White"
+                                   FontSize="16"
+                                   FontFamily="Consolas"
+                                   IsVisible="{Binding IsLinuxCaptureRateEstimated}"/>
                         <TextBlock Text="{Binding ElementName=RootView, Path=PortalCaptureFrameTimeMs, StringFormat='FrameTime: {0:0.00} ms'}"
                                    Foreground="White"
                                    FontSize="16"
-                                   FontFamily="Consolas"/>
+                                   FontFamily="Consolas"
+                                   IsVisible="{Binding !IsLinuxCaptureRateEstimated}"/>
+                        <TextBlock Text="{Binding ElementName=RootView, Path=PortalCaptureFrameTimeMs, StringFormat='Update Interval (est): {0:0.00} ms'}"
+                                   Foreground="White"
+                                   FontSize="16"
+                                   FontFamily="Consolas"
+                                   IsVisible="{Binding IsLinuxCaptureRateEstimated}"/>
                         <StackPanel Spacing="4"
                                     HorizontalAlignment="Left"
                                     IsVisible="{Binding ShowDetailedGpuInfo}">
@@ -390,7 +402,10 @@
                                             </ComboBox>
                                         </StackPanel>
 
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="12"
+                                                VerticalAlignment="Center"
+                                                IsVisible="{Binding SupportsAdvancedRenderProcessing}">
                                         <TextBlock Text="Brightness" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                         <Slider Width="280"
                                                 Minimum="0.25"
@@ -405,7 +420,10 @@
                                                    FontSize="16"/>
                                     </StackPanel>
 
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="12"
+                                                VerticalAlignment="Center"
+                                                IsVisible="{Binding SupportsAdvancedRenderProcessing}">
                                         <TextBlock Text="Saturation" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                         <Slider Width="280"
                                                 Minimum="0"
@@ -435,7 +453,10 @@
                                                    FontSize="16"/>
                                     </StackPanel>
 
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="12"
+                                                VerticalAlignment="Center"
+                                                IsVisible="{Binding SupportsAdvancedRenderProcessing}">
                                         <TextBlock Text="Disable VSync" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                         <ToggleSwitch IsChecked="{Binding DisableVSync, Mode=TwoWay}" />
                                     </StackPanel>
@@ -455,17 +476,26 @@
                                         <ToggleSwitch IsChecked="{Binding ShowDetailedGpuInfo, Mode=TwoWay}" />
                                     </StackPanel>
 
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="12"
+                                                VerticalAlignment="Center"
+                                                IsVisible="{Binding SupportsAdvancedRenderProcessing}">
                                         <TextBlock Text="Color Tint" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                         <ColorPicker Width="120" Height="40" Color="{Binding ElementName=RootView, Path=PortalCaptureTint, Mode=TwoWay}"/>
                                     </StackPanel>
 
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="12"
+                                                VerticalAlignment="Center"
+                                                IsVisible="{Binding SupportsPipeWireToggle}">
                                         <TextBlock Text="Prefer PipeWire (Linux)" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                         <ToggleSwitch IsChecked="{Binding PreferPipeWire, Mode=TwoWay}" />
                                     </StackPanel>
 
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="12"
+                                                VerticalAlignment="Center"
+                                                IsVisible="{Binding SupportsAdvancedRenderProcessing}">
                                         <TextBlock Text="Shader File" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                         <ComboBox MinWidth="320"
                                                   HorizontalAlignment="Stretch"
@@ -481,6 +511,12 @@
                                             </ComboBox.ItemTemplate>
                                         </ComboBox>
                                     </StackPanel>
+
+                                    <TextBlock Text="Linux capture backend currently uses X11 embedding. PipeWire ingest and post-processing (brightness/saturation/tint/shader/vsync) are not implemented yet."
+                                               Foreground="#A0A0A0"
+                                               FontSize="13"
+                                               TextWrapping="Wrap"
+                                               IsVisible="{Binding IsLinuxCaptureRateEstimated}" />
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>

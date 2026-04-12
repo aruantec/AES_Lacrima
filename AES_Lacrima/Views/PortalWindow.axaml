@@ -20,6 +20,7 @@
                                        TargetHwnd="{Binding EmulatorTargetHwnd}"
                                        TargetWindowTitleHint="{Binding CurrentEmulatorWindowTitleHint}"
                                        ForceUseTargetClientArea="{Binding ForceUseTargetClientAreaCapture}"
+                                       PreferPipeWire="{Binding PreferPipeWire, Mode=TwoWay}"
                                        ClientAreaCropLeftInset="{Binding ClientAreaCropLeftInset}"
                                        ClientAreaCropTopInset="{Binding ClientAreaCropTopInset}"
                                        ClientAreaCropRightInset="{Binding ClientAreaCropRightInset}"
