@@ -56,6 +56,9 @@ public class EmulatorCaptureHost : ContentControl
     public static readonly StyledProperty<bool> ForceUseTargetClientAreaProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(ForceUseTargetClientArea), false);
 
+    public static readonly StyledProperty<bool> PreferPipeWireProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(PreferPipeWire), true);
+
     public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
 
@@ -187,6 +190,12 @@ public class EmulatorCaptureHost : ContentControl
     {
         get => GetValue(ForceUseTargetClientAreaProperty);
         set => SetValue(ForceUseTargetClientAreaProperty, value);
+    }
+
+    public bool PreferPipeWire
+    {
+        get => GetValue(PreferPipeWireProperty);
+        set => SetValue(PreferPipeWireProperty, value);
     }
 
     public bool HideTargetWindowAfterCaptureStarts
@@ -428,6 +437,7 @@ public class EmulatorCaptureHost : ContentControl
                 linuxBackend.ShaderPath = ShaderPath;
                 linuxBackend.ClearShaderWhenPathEmpty = ClearShaderWhenPathEmpty;
                 linuxBackend.ForceUseTargetClientArea = ForceUseTargetClientArea;
+                linuxBackend.PreferPipeWire = PreferPipeWire;
                 linuxBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
                 linuxBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
                 linuxBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;

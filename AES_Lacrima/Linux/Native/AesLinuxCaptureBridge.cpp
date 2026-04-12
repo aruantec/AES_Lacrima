@@ -14,6 +14,7 @@ typedef struct {
     Window target;
     int active;
     int initializing;
+    int use_pipewire;
     float brightness;
     float saturation;
     float tint[4];
@@ -243,11 +244,16 @@ LinuxCapture* aes_linux_capture_create(void* parentHandle) {
     XMapWindow(cap->display, cap->window);
     XFlush(cap->display);
 
+    cap->use_pipewire = 1; // Default to PipeWire
     cap->brightness = 1.0f;
     cap->saturation = 1.0f;
     for(int i=0; i<4; i++) cap->tint[i] = 1.0f;
 
     return cap;
+}
+
+void aes_linux_capture_set_use_pipewire(LinuxCapture* cap, int use) {
+    if (cap) cap->use_pipewire = use;
 }
 
 void aes_linux_capture_destroy(LinuxCapture* cap) {
@@ -396,7 +402,13 @@ double aes_linux_capture_get_frame_time_ms(LinuxCapture* cap) { return 16.6; }
 
 int aes_linux_capture_get_status_text(LinuxCapture* cap, char* buffer, int size) {
     if (!cap) return 0;
-    const char* txt = cap->active ? "Capturing (X11)" : "Linux capture idle";
+    const char* mode = cap->use_pipewire ? "PipeWire" : "X11";
+    char txt[256];
+    if (cap->active) {
+        snprintf(txt, sizeof(txt), "Capturing (%s)", mode);
+    } else {
+        snprintf(txt, sizeof(txt), "Linux capture idle (%s)", mode);
+    }
     strncpy(buffer, txt, size);
     return strlen(buffer);
 }

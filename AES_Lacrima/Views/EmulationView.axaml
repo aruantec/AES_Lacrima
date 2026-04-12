@@ -461,6 +461,11 @@
                                     </StackPanel>
 
                                     <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Prefer PipeWire (Linux)" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
+                                        <ToggleSwitch IsChecked="{Binding PreferPipeWire, Mode=TwoWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                         <TextBlock Text="Shader File" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                         <ComboBox MinWidth="320"
                                                   HorizontalAlignment="Stretch"

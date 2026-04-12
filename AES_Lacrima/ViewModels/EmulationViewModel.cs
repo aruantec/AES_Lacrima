@@ -233,7 +233,7 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private bool _isRenderOptionsOpen;
 
-        public bool IsRenderOptionsSupported => OperatingSystem.IsWindows();
+        public bool IsRenderOptionsSupported => true;
 
         [ObservableProperty]
         private bool _isFullscreen;
@@ -671,6 +671,11 @@ namespace AES_Lacrima.ViewModels
         partial void OnRenderBrightnessChanged(double value) => AutoSave();
 
         partial void OnRenderSaturationChanged(double value) => AutoSave();
+
+        [ObservableProperty]
+        private bool _preferPipeWire = true;
+
+        partial void OnPreferPipeWireChanged(bool value) => AutoSave();
 
         private void AutoSave()
         {

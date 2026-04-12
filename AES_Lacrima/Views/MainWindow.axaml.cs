@@ -33,8 +33,22 @@ namespace AES_Lacrima.Views
             KeyDown += OnKeyDown;
             Closed += OnClosed;
             PositionChanged += OnPositionChanged;
+            
+            // Re-sync overlay on many events to ensure it stays visible and in correct position
             Avalonia.AvaloniaObjectExtensions.GetObservable(this, Window.WindowStateProperty)
                 .Subscribe(new WindowStateObserver(() => SyncVisualOverlayWindow()));
+            
+            this.GetObservable(Visual.BoundsProperty)
+                .Subscribe(new SimpleBoundsObserver(() => SyncVisualOverlayWindow()));
+        }
+
+        private sealed class SimpleBoundsObserver : IObserver<Rect>
+        {
+            private readonly Action _callback;
+            public SimpleBoundsObserver(Action callback) => _callback = callback;
+            public void OnCompleted() { }
+            public void OnError(Exception error) { }
+            public void OnNext(Rect value) => _callback();
         }
 
         private void OnKeyDown(object? sender, KeyEventArgs e)
@@ -203,9 +217,6 @@ namespace AES_Lacrima.Views
             _visualOverlayWindow.Width = Bounds.Width;
             _visualOverlayWindow.Height = Bounds.Height;
 
-            if (!_visualOverlayWindow.IsVisible)
-                _visualOverlayWindow.Show();
-
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
                 var renderScale = Math.Max(1.0, RenderScaling);
@@ -213,9 +224,21 @@ namespace AES_Lacrima.Views
                     Position,
                     (int)Math.Round(Bounds.Width * renderScale),
                     (int)Math.Round(Bounds.Height * renderScale));
+                
+                // On Linux, the window might need a nudge to stay on top of the stack if it was hidden
+                if (!_visualOverlayWindow.IsVisible)
+                {
+                    _visualOverlayWindow.Show();
+                }
+                
+                // Lower it to the bottom of the stack (behind the main window)
+                _visualOverlayWindow.MoveToBottomOfStack();
             }
-
-            _visualOverlayWindow.MoveToBottomOfStack();
+            else
+            {
+                if (!_visualOverlayWindow.IsVisible)
+                    _visualOverlayWindow.Show();
+            }
         }
 
         private sealed class WindowStateObserver : IObserver<WindowState>

@@ -43,6 +43,9 @@ public class LinuxCaptureHost : NativeControlHost
     public static readonly StyledProperty<bool> ForceUseTargetClientAreaProperty =
         AvaloniaProperty.Register<LinuxCaptureHost, bool>(nameof(ForceUseTargetClientArea), false);
 
+    public static readonly StyledProperty<bool> PreferPipeWireProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, bool>(nameof(PreferPipeWire), true);
+
     public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
         AvaloniaProperty.Register<LinuxCaptureHost, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
 
@@ -175,6 +178,12 @@ public class LinuxCaptureHost : NativeControlHost
         set => SetValue(ForceUseTargetClientAreaProperty, value);
     }
 
+    public bool PreferPipeWire
+    {
+        get => GetValue(PreferPipeWireProperty);
+        set => SetValue(PreferPipeWireProperty, value);
+    }
+
     public bool HideTargetWindowAfterCaptureStarts
     {
         get => GetValue(HideTargetWindowAfterCaptureStartsProperty);
@@ -287,6 +296,7 @@ public class LinuxCaptureHost : NativeControlHost
                  change.Property == BrightnessProperty ||
                  change.Property == SaturationProperty ||
                  change.Property == ColorTintProperty ||
+                 change.Property == PreferPipeWireProperty ||
                  change.Property == HideTargetWindowAfterCaptureStartsProperty ||
                  change.Property == ClientAreaCropLeftInsetProperty ||
                  change.Property == ClientAreaCropTopInsetProperty ||
@@ -390,6 +400,9 @@ public class LinuxCaptureHost : NativeControlHost
         LinuxCaptureBridge.aes_linux_capture_set_capture_behavior(
             _capture,
             HideTargetWindowAfterCaptureStarts ? 1 : 0);
+        LinuxCaptureBridge.aes_linux_capture_set_use_pipewire(
+            _capture,
+            PreferPipeWire ? 1 : 0);
     }
 
     private void RefreshStatus()
