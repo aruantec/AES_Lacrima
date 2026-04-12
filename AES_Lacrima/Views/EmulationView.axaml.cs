@@ -53,6 +53,12 @@ public partial class EmulationView : UserControl
             o => o.IsPortalSurfaceVisible,
             (o, v) => o.IsPortalSurfaceVisible = v);
 
+    public static readonly DirectProperty<EmulationView, bool> IsPortalFallbackLimitedProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, bool>(
+            nameof(IsPortalFallbackLimited),
+            o => o.IsPortalFallbackLimited,
+            (o, v) => o.IsPortalFallbackLimited = v);
+
     public static readonly DirectProperty<EmulationView, string> PortalStatusTextProperty =
         AvaloniaProperty.RegisterDirect<EmulationView, string>(
             nameof(PortalStatusText),
@@ -117,6 +123,7 @@ public partial class EmulationView : UserControl
     private Color _portalCaptureTint = Colors.White;
     private double _portalFallbackOpacity;
     private bool _isPortalSurfaceVisible;
+    private bool _isPortalFallbackLimited;
     private string _portalStatusText = "DirectComposition idle";
     private bool _isPortalDirectCompositionActive;
     private double _portalCaptureFps;
@@ -165,6 +172,7 @@ public partial class EmulationView : UserControl
         DataContextChanged += OnDataContextChanged;
         PortalFallbackOpacity = 1;
         IsPortalSurfaceVisible = false;
+        IsPortalFallbackLimited = OperatingSystem.IsLinux();
         PortalStatusText = "DirectComposition idle";
         PortalGpuRenderer = "Unknown";
         PortalGpuVendor = "Unknown";
@@ -236,6 +244,12 @@ public partial class EmulationView : UserControl
     {
         get => _isPortalSurfaceVisible;
         set => SetAndRaise(IsPortalSurfaceVisibleProperty, ref _isPortalSurfaceVisible, value);
+    }
+
+    public bool IsPortalFallbackLimited
+    {
+        get => _isPortalFallbackLimited;
+        set => SetAndRaise(IsPortalFallbackLimitedProperty, ref _isPortalFallbackLimited, value);
     }
 
     public string PortalStatusText

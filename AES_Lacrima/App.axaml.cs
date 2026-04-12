@@ -28,7 +28,7 @@ namespace AES_Lacrima
     /// configuring dependency injection, creating the main window and
     /// performing application-level initialization tasks.
     /// </summary>
-    public class App : Application
+    public partial class App : Application
     {
         // when true the main window is being replaced as part of a mode switch.
         // the closing handler should avoid disposing the DI locator during this
