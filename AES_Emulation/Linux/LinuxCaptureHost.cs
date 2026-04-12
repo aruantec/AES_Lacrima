@@ -122,7 +122,7 @@ public class LinuxCaptureHost : NativeControlHost
 
     public LinuxCaptureHost()
     {
-        _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(33), DispatcherPriority.Background, (_, _) => RefreshStatus());
+        _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Background, (_, _) => RefreshStatus());
     }
 
     public IntPtr TargetHwnd

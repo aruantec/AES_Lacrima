@@ -236,6 +236,7 @@ namespace AES_Lacrima.ViewModels
         public bool IsRenderOptionsSupported => true;
         public bool IsLinuxCaptureRateEstimated => false;
         public bool SupportsAdvancedRenderProcessing => true;
+        public bool SupportsStretchSetting => !OperatingSystem.IsLinux();
         public bool SupportsPipeWireToggle => false;
 
         [ObservableProperty]

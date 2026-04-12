@@ -396,13 +396,10 @@
                             <TabItem Header="Rendering">
                                 <ScrollViewer>
                                     <StackPanel Margin="0,12,0,0" Spacing="12">
-                                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                            <StackPanel.IsVisible>
-                                                <MultiBinding Converter="{StaticResource BoolAndConverter}">
-                                                    <Binding Path="SupportsAdvancedRenderProcessing"/>
-                                                    <Binding ElementName="RootView" Path="!IsPortalFallbackLimited"/>
-                                                </MultiBinding>
-                                            </StackPanel.IsVisible>
+                                        <StackPanel Orientation="Horizontal"
+                                                    Spacing="12"
+                                                    VerticalAlignment="Center"
+                                                    IsVisible="{Binding SupportsStretchSetting}">
                                             <TextBlock Text="Stretch" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                             <ComboBox MinWidth="220"
                                                       HorizontalAlignment="Stretch"

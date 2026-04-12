@@ -293,7 +293,9 @@ static void SetupDamageTracking(LinuxCapture* cap)
 
     cap->damage_event_base = eventBase;
     cap->damage_error_base = errorBase;
-    cap->damage = XDamageCreate(cap->display, cap->target, XDamageReportNonEmpty);
+    // Raw rectangles avoids coalescing into a single pending damage event
+    // between polls, which can otherwise cap measured FPS to poll frequency.
+    cap->damage = XDamageCreate(cap->display, cap->target, XDamageReportRawRectangles);
     XSync(cap->display, False);
     ResetFrameMetrics(cap);
 }
