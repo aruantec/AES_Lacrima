@@ -65,6 +65,12 @@ public partial class EmulationView : UserControl
             o => o.IsPortalDirectCompositionActive,
             (o, v) => o.IsPortalDirectCompositionActive = v);
 
+    public static readonly DirectProperty<EmulationView, bool> IsPortalFallbackLimitedProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, bool>(
+            nameof(IsPortalFallbackLimited),
+            o => o.IsPortalFallbackLimited,
+            (o, v) => o.IsPortalFallbackLimited = v);
+
     public static readonly DirectProperty<EmulationView, double> PortalCaptureFpsProperty =
         AvaloniaProperty.RegisterDirect<EmulationView, double>(
             nameof(PortalCaptureFps),
@@ -119,6 +125,7 @@ public partial class EmulationView : UserControl
     private bool _isPortalSurfaceVisible;
     private string _portalStatusText = "DirectComposition idle";
     private bool _isPortalDirectCompositionActive;
+    private bool _isPortalFallbackLimited;
     private double _portalCaptureFps;
     private double _portalCaptureFrameTimeMs;
     private string _portalGpuRenderer = "Unknown";
@@ -143,6 +150,7 @@ public partial class EmulationView : UserControl
         }
     ];
     private bool _portalSyncPending;
+    private DateTime _lastLayoutSyncUtc = DateTime.MinValue;
     private int _portalMaskVersion;
     private PixelPoint _lastPortalPosition = new(int.MinValue, int.MinValue);
     private Size _lastPortalSize = new(double.NaN, double.NaN);
@@ -161,6 +169,10 @@ public partial class EmulationView : UserControl
         InitializeComponent();
         var captureHost = this.FindControl<Border>("EmulatorCaptureHost");
         captureHost?.AddHandler(InputElement.PointerPressedEvent, OnCaptureHostPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        var portalSurface = this.FindControl<Control>("PortalPortal");
+        portalSurface?.AddHandler(InputElement.PointerPressedEvent, OnPortalSurfacePointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(InputElement.KeyDownEvent, OnEmulationViewKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+        LayoutUpdated += OnViewLayoutUpdated;
         DataContextChanged += OnDataContextChanged;
         PortalFallbackOpacity = 1;
         IsPortalSurfaceVisible = false;
@@ -168,6 +180,22 @@ public partial class EmulationView : UserControl
         PortalGpuRenderer = "Unknown";
         PortalGpuVendor = "Unknown";
         IsAlbumListInteractive = true;
+    }
+
+    private void OnViewLayoutUpdated(object? sender, EventArgs e)
+    {
+        if (UseInlineCaptureHost || _portalWindow == null || _isPortalWindowFullscreen)
+            return;
+
+        if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
+            return;
+
+        var now = DateTime.UtcNow;
+        if ((now - _lastLayoutSyncUtc).TotalMilliseconds < 120)
+            return;
+
+        _lastLayoutSyncUtc = now;
+        SyncPortalWindow();
     }
 
     private void OnCaptureHostPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -189,6 +217,28 @@ public partial class EmulationView : UserControl
             return;
 
         ActiveCaptureHost?.ForwardFocusToTarget();
+    }
+
+    private void OnPortalSurfacePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
+            return;
+
+        ActiveCaptureHost?.ForwardFocusToTarget();
+    }
+
+    private void OnEmulationViewKeyDown(object? sender, KeyEventArgs e)
+    {
+        // Prevent Avalonia focus traversal while native capture is active.
+        // This avoids layout-feedback loops and keeps input ownership stable.
+        if (e.Key != Key.Tab)
+            return;
+
+        if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
+            return;
+
+        ActiveCaptureHost?.ForwardFocusToTarget();
+        e.Handled = true;
     }
 
     public bool IsPortalCaptureInitializing
@@ -228,13 +278,23 @@ public partial class EmulationView : UserControl
     public string PortalStatusText
     {
         get => _portalStatusText;
-        set => SetAndRaise(PortalStatusTextProperty, ref _portalStatusText, value);
+        set
+        {
+            if (SetAndRaise(PortalStatusTextProperty, ref _portalStatusText, value))
+                UpdatePortalLinuxFallbackState();
+        }
     }
 
     public bool IsPortalDirectCompositionActive
     {
         get => _isPortalDirectCompositionActive;
         set => SetAndRaise(IsPortalDirectCompositionActiveProperty, ref _isPortalDirectCompositionActive, value);
+    }
+
+    public bool IsPortalFallbackLimited
+    {
+        get => _isPortalFallbackLimited;
+        set => SetAndRaise(IsPortalFallbackLimitedProperty, ref _isPortalFallbackLimited, value);
     }
 
     public double PortalCaptureFps
@@ -258,7 +318,11 @@ public partial class EmulationView : UserControl
     public string PortalGpuRenderer
     {
         get => _portalGpuRenderer;
-        set => SetAndRaise(PortalGpuRendererProperty, ref _portalGpuRenderer, value);
+        set
+        {
+            if (SetAndRaise(PortalGpuRendererProperty, ref _portalGpuRenderer, value))
+                UpdatePortalLinuxFallbackState();
+        }
     }
 
     public string PortalGpuVendor
@@ -330,6 +394,10 @@ public partial class EmulationView : UserControl
         
         var captureHost = this.FindControl<Border>("EmulatorCaptureHost");
         captureHost?.RemoveHandler(InputElement.PointerPressedEvent, OnCaptureHostPointerPressed);
+        var portalSurface = this.FindControl<Control>("PortalPortal");
+        portalSurface?.RemoveHandler(InputElement.PointerPressedEvent, OnPortalSurfacePointerPressed);
+        RemoveHandler(InputElement.KeyDownEvent, OnEmulationViewKeyDown);
+        LayoutUpdated -= OnViewLayoutUpdated;
 
         if (DataContext is EmulationViewModel vm)
         {
@@ -385,6 +453,7 @@ public partial class EmulationView : UserControl
         PortalCaptureFrameTimeMs = 0;
         PortalGpuRenderer = "Unknown";
         PortalGpuVendor = "Unknown";
+        IsPortalFallbackLimited = false;
         _portalFrameSamples.Clear();
         PortalFrametimeGraphGeometry = null;
         IsAlbumListInteractive = true;
@@ -431,6 +500,19 @@ public partial class EmulationView : UserControl
             {
                 StartAlbumListPortalMask(vm);
                 SyncPortalWindow();
+            }
+            else if (e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen))
+            {
+                SyncPortalWindow();
+                if (!vm.IsRenderOptionsOpen)
+                {
+                    IsAlbumListInteractive = true;
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
+                            ActiveCaptureHost?.ForwardFocusToTarget();
+                    }, DispatcherPriority.Input);
+                }
             }
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsFullscreen))
@@ -544,6 +626,8 @@ public partial class EmulationView : UserControl
 
             _portalWindow.Show();
             SyncPortalWindowCore();
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                LinuxWindowPlacement.TryConfigureClickThrough(_portalWindow);
             UpdateWindowZOrder();
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && TopLevel.GetTopLevel(this) is Window mainWindow)
@@ -759,6 +843,7 @@ public partial class EmulationView : UserControl
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
                 _portalWindow.MoveResizeUnconstrained(portalPosition, widthPixels, heightPixels);
+                LinuxWindowPlacement.TryConfigureClickThrough(_portalWindow);
             }
             UpdateWindowZOrder();
             return;
@@ -772,6 +857,7 @@ public partial class EmulationView : UserControl
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
             _portalWindow.MoveResizeUnconstrained(portalPosition, widthPixels, heightPixels);
+            LinuxWindowPlacement.TryConfigureClickThrough(_portalWindow);
         }
         UpdateWindowZOrder();
     }
@@ -929,6 +1015,22 @@ public partial class EmulationView : UserControl
         }
 
         PortalFrametimeGraphGeometry = geometry;
+    }
+
+    private void UpdatePortalLinuxFallbackState()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            IsPortalFallbackLimited = false;
+            return;
+        }
+
+        var statusFallback = !string.IsNullOrWhiteSpace(PortalStatusText) &&
+            PortalStatusText.Contains("fallback", StringComparison.OrdinalIgnoreCase);
+        var rendererFallback = !string.IsNullOrWhiteSpace(PortalGpuRenderer) &&
+            PortalGpuRenderer.Contains("fallback", StringComparison.OrdinalIgnoreCase);
+
+        IsPortalFallbackLimited = statusFallback || rendererFallback;
     }
 
     private void UpdateAlbumListTransitions(EmulationViewModel vm)

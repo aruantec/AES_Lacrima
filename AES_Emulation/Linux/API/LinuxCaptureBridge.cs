@@ -49,6 +49,12 @@ internal static class LinuxCaptureBridge
     public static extern void aes_linux_capture_set_use_pipewire(IntPtr capture, int usePipeWire);
 
     [DllImport(LibraryName)]
+    public static extern void aes_linux_capture_set_disable_vsync(IntPtr capture, int disableVsync);
+
+    [DllImport(LibraryName)]
+    public static extern void aes_linux_capture_set_shader_path(IntPtr capture, string? shaderPath);
+
+    [DllImport(LibraryName)]
     public static extern void aes_linux_capture_reveal_window(IntPtr platformWindowHandle);
 
     [DllImport(LibraryName)]
@@ -78,11 +84,11 @@ internal static class LinuxCaptureBridge
     [DllImport(LibraryName)]
     private static extern int aes_linux_capture_get_gpu_vendor(IntPtr capture, StringBuilder buffer, int bufferChars);
 
-    public static string GetStatusText(IntPtr capture) => GetString(capture, aes_linux_capture_get_status_text, "Linux capture idle");
+    public static string GetStatusText(IntPtr capture) => GetString(capture, aes_linux_capture_get_status_text, string.Empty);
 
-    public static string GetGpuRenderer(IntPtr capture) => GetString(capture, aes_linux_capture_get_gpu_renderer, "Unknown");
+    public static string GetGpuRenderer(IntPtr capture) => GetString(capture, aes_linux_capture_get_gpu_renderer, string.Empty);
 
-    public static string GetGpuVendor(IntPtr capture) => GetString(capture, aes_linux_capture_get_gpu_vendor, "Unknown");
+    public static string GetGpuVendor(IntPtr capture) => GetString(capture, aes_linux_capture_get_gpu_vendor, string.Empty);
 
     private static string GetString(IntPtr capture, Func<IntPtr, StringBuilder, int, int> getter, string fallback)
     {

@@ -81,6 +81,7 @@ public partial class PortalWindow : Window
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
             LinuxWindowPlacement.TryConfigureAsNormalWindow(this);
+            LinuxWindowPlacement.TryConfigureClickThrough(this);
         }
     }
 }

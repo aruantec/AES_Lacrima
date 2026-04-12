@@ -234,8 +234,8 @@ namespace AES_Lacrima.ViewModels
         private bool _isRenderOptionsOpen;
 
         public bool IsRenderOptionsSupported => true;
-        public bool IsLinuxCaptureRateEstimated => OperatingSystem.IsLinux();
-        public bool SupportsAdvancedRenderProcessing => !OperatingSystem.IsLinux();
+        public bool IsLinuxCaptureRateEstimated => false;
+        public bool SupportsAdvancedRenderProcessing => true;
         public bool SupportsPipeWireToggle => false;
 
         [ObservableProperty]
@@ -311,7 +311,7 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        public IReadOnlyList<Stretch> CaptureStretchOptions { get; } = new[] { Stretch.Uniform, Stretch.UniformToFill, Stretch.Fill };
+        public IReadOnlyList<Stretch> CaptureStretchOptions { get; } = new[] { Stretch.None, Stretch.Uniform, Stretch.UniformToFill, Stretch.Fill };
 
         [ObservableProperty]
         private IReadOnlyList<ShaderFileItem> _shaderFileItems = LoadShaderFileItems();
@@ -327,11 +327,23 @@ namespace AES_Lacrima.ViewModels
 
         private static IReadOnlyList<ShaderFileItem> LoadShaderFileItems()
         {
-            var shaderDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "hlsl");
+            IEnumerable<string> files = Enumerable.Empty<string>();
 
-            var files = Directory.Exists(shaderDirectory)
-                ? Directory.EnumerateFiles(shaderDirectory, "*.hlsl", SearchOption.TopDirectoryOnly)
-                : Enumerable.Empty<string>();
+            if (OperatingSystem.IsLinux())
+            {
+                var shaderDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "glsl");
+                if (Directory.Exists(shaderDirectory))
+                {
+                    files = Directory.EnumerateFiles(shaderDirectory, "*.glsl", SearchOption.TopDirectoryOnly)
+                        .Concat(Directory.EnumerateFiles(shaderDirectory, "*.frag", SearchOption.TopDirectoryOnly));
+                }
+            }
+            else
+            {
+                var shaderDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, "hlsl");
+                if (Directory.Exists(shaderDirectory))
+                    files = Directory.EnumerateFiles(shaderDirectory, "*.hlsl", SearchOption.TopDirectoryOnly);
+            }
 
             var entries = new List<ShaderFileItem> { new(string.Empty, "None") };
             entries.AddRange(files
@@ -2066,6 +2078,8 @@ namespace AES_Lacrima.ViewModels
             _isClosingActiveEmulatorForRelaunch = true;
             SLog.Info($"EmulationViewModel starting tracked emulator shutdown. pid={process.Id}.");
             RequestStopEmulatorCapture = true;
+            EmulatorTargetHwnd = IntPtr.Zero;
+            IsEmulatorRunning = false;
             _ = CloseTrackedEmulatorForPendingLaunchAsync(process);
         }
 
@@ -2123,8 +2137,8 @@ namespace AES_Lacrima.ViewModels
 
                     try
                     {
-                        SLog.Info($"EmulationViewModel waiting up to 5000 ms for emulator pid={process.Id} to exit.");
-                        process.WaitForExit(5000);
+                        SLog.Info($"EmulationViewModel waiting up to 1500 ms for emulator pid={process.Id} to exit.");
+                        process.WaitForExit(1500);
                     }
                     catch (Exception ex)
                     {
@@ -2137,7 +2151,7 @@ namespace AES_Lacrima.ViewModels
                         {
                             SLog.Info($"EmulationViewModel is force-closing emulator pid={process.Id} after graceful shutdown timed out.");
                             process.Kill(true);
-                            process.WaitForExit(3000);
+                            process.WaitForExit(1500);
                         }
                     }
                     catch (Exception ex)
@@ -2159,17 +2173,6 @@ namespace AES_Lacrima.ViewModels
 
         private async Task WaitForCaptureStopBeforeClosingProcessAsync()
         {
-            const int maxAttempts = 50;
-            const int delayMs = 50;
-
-            for (var attempt = 0; attempt < maxAttempts; attempt++)
-            {
-                if (!RequestStopEmulatorCapture)
-                    break;
-
-                await Task.Delay(delayMs).ConfigureAwait(false);
-            }
-
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (EmulatorTargetHwnd != IntPtr.Zero)
@@ -2179,7 +2182,7 @@ namespace AES_Lacrima.ViewModels
                 }
             }, DispatcherPriority.Background);
 
-            await Task.Delay(150).ConfigureAwait(false);
+            await Task.Delay(30).ConfigureAwait(false);
         }
 
         private void TrackEmulatorProcess(Process? process, string romPath, IEmulatorHandler handler)

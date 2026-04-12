@@ -106,10 +106,23 @@ public class LinuxCaptureHost : NativeControlHost
     private double _frameTimeMs;
     private string _gpuRenderer = "Unknown";
     private string _gpuVendor = "Unknown";
+    private bool _hasAppliedRenderOptions;
+    private int _lastStretch;
+    private double _lastBrightness;
+    private double _lastSaturation;
+    private Color _lastTint;
+    private int _lastCropLeft;
+    private int _lastCropTop;
+    private int _lastCropRight;
+    private int _lastCropBottom;
+    private bool _lastHideTargetWindowAfterCaptureStarts;
+    private bool _lastPreferPipeWire;
+    private bool _lastDisableVSync;
+    private string _lastShaderPath = string.Empty;
 
     public LinuxCaptureHost()
     {
-        _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Background, (_, _) => RefreshStatus());
+        _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) => RefreshStatus());
     }
 
     public IntPtr TargetHwnd
@@ -296,6 +309,9 @@ public class LinuxCaptureHost : NativeControlHost
                  change.Property == BrightnessProperty ||
                  change.Property == SaturationProperty ||
                  change.Property == ColorTintProperty ||
+                 change.Property == DisableVSyncProperty ||
+                 change.Property == ShaderPathProperty ||
+                 change.Property == ClearShaderWhenPathEmptyProperty ||
                  change.Property == PreferPipeWireProperty ||
                  change.Property == HideTargetWindowAfterCaptureStartsProperty ||
                  change.Property == ClientAreaCropLeftInsetProperty ||
@@ -319,6 +335,8 @@ public class LinuxCaptureHost : NativeControlHost
             return base.CreateNativeControlCore(parent);
         }
 
+        _hasAppliedRenderOptions = false;
+
         var view = LinuxCaptureBridge.aes_linux_capture_get_view(_capture);
         if (view == IntPtr.Zero)
         {
@@ -338,6 +356,7 @@ public class LinuxCaptureHost : NativeControlHost
         {
             LinuxCaptureBridge.aes_linux_capture_destroy(_capture);
             _capture = IntPtr.Zero;
+            _hasAppliedRenderOptions = false;
         }
 
         base.DestroyNativeControlCore(control);
@@ -382,27 +401,83 @@ public class LinuxCaptureHost : NativeControlHost
         if (_capture == IntPtr.Zero)
             return;
 
-        LinuxCaptureBridge.aes_linux_capture_set_stretch(_capture, MapStretch(Stretch));
-        LinuxCaptureBridge.aes_linux_capture_set_render_options(
-            _capture,
-            (float)Brightness,
-            (float)Saturation,
-            ColorTint.R / 255f,
-            ColorTint.G / 255f,
-            ColorTint.B / 255f,
-            ColorTint.A / 255f);
-        LinuxCaptureBridge.aes_linux_capture_set_crop_insets(
-            _capture,
-            ClientAreaCropLeftInset,
-            ClientAreaCropTopInset,
-            ClientAreaCropRightInset,
-            ClientAreaCropBottomInset);
-        LinuxCaptureBridge.aes_linux_capture_set_capture_behavior(
-            _capture,
-            HideTargetWindowAfterCaptureStarts ? 1 : 0);
-        LinuxCaptureBridge.aes_linux_capture_set_use_pipewire(
-            _capture,
-            PreferPipeWire ? 1 : 0);
+        var shouldClearShader = string.IsNullOrWhiteSpace(ShaderPath) && ClearShaderWhenPathEmpty;
+        var shaderPath = shouldClearShader ? string.Empty : (ShaderPath ?? string.Empty);
+        var stretch = MapStretch(Stretch);
+
+        if (!_hasAppliedRenderOptions || _lastStretch != stretch)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_stretch(_capture, stretch);
+            _lastStretch = stretch;
+        }
+
+        if (!_hasAppliedRenderOptions ||
+            Math.Abs(_lastBrightness - Brightness) > 0.0001 ||
+            Math.Abs(_lastSaturation - Saturation) > 0.0001 ||
+            _lastTint != ColorTint)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_render_options(
+                _capture,
+                (float)Brightness,
+                (float)Saturation,
+                ColorTint.R / 255f,
+                ColorTint.G / 255f,
+                ColorTint.B / 255f,
+                ColorTint.A / 255f);
+            _lastBrightness = Brightness;
+            _lastSaturation = Saturation;
+            _lastTint = ColorTint;
+        }
+
+        if (!_hasAppliedRenderOptions ||
+            _lastCropLeft != ClientAreaCropLeftInset ||
+            _lastCropTop != ClientAreaCropTopInset ||
+            _lastCropRight != ClientAreaCropRightInset ||
+            _lastCropBottom != ClientAreaCropBottomInset)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_crop_insets(
+                _capture,
+                ClientAreaCropLeftInset,
+                ClientAreaCropTopInset,
+                ClientAreaCropRightInset,
+                ClientAreaCropBottomInset);
+            _lastCropLeft = ClientAreaCropLeftInset;
+            _lastCropTop = ClientAreaCropTopInset;
+            _lastCropRight = ClientAreaCropRightInset;
+            _lastCropBottom = ClientAreaCropBottomInset;
+        }
+
+        if (!_hasAppliedRenderOptions || _lastHideTargetWindowAfterCaptureStarts != HideTargetWindowAfterCaptureStarts)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_capture_behavior(
+                _capture,
+                HideTargetWindowAfterCaptureStarts ? 1 : 0);
+            _lastHideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
+        }
+
+        if (!_hasAppliedRenderOptions || _lastPreferPipeWire != PreferPipeWire)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_use_pipewire(
+                _capture,
+                PreferPipeWire ? 1 : 0);
+            _lastPreferPipeWire = PreferPipeWire;
+        }
+
+        if (!_hasAppliedRenderOptions || _lastDisableVSync != DisableVSync)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_disable_vsync(
+                _capture,
+                DisableVSync ? 1 : 0);
+            _lastDisableVSync = DisableVSync;
+        }
+
+        if (!_hasAppliedRenderOptions || !string.Equals(_lastShaderPath, shaderPath, StringComparison.Ordinal))
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_shader_path(_capture, shaderPath);
+            _lastShaderPath = shaderPath;
+        }
+
+        _hasAppliedRenderOptions = true;
     }
 
     private void RefreshStatus()
@@ -410,13 +485,36 @@ public class LinuxCaptureHost : NativeControlHost
         if (_capture == IntPtr.Zero)
             return;
 
+        var status = LinuxCaptureBridge.GetStatusText(_capture);
+
         IsCaptureInitializing = LinuxCaptureBridge.aes_linux_capture_is_initializing(_capture) != 0;
-        IsDirectCompositionActive = LinuxCaptureBridge.aes_linux_capture_is_active(_capture) != 0;
-        Fps = LinuxCaptureBridge.aes_linux_capture_get_fps(_capture);
-        FrameTimeMs = LinuxCaptureBridge.aes_linux_capture_get_frame_time_ms(_capture);
-        StatusText = LinuxCaptureBridge.GetStatusText(_capture);
-        GpuRenderer = LinuxCaptureBridge.GetGpuRenderer(_capture);
-        GpuVendor = LinuxCaptureBridge.GetGpuVendor(_capture);
+        var isActive = LinuxCaptureBridge.aes_linux_capture_is_active(_capture) != 0;
+        IsDirectCompositionActive = isActive;
+
+        var fps = LinuxCaptureBridge.aes_linux_capture_get_fps(_capture);
+        if (fps > 0 || !isActive)
+            Fps = fps;
+
+        var frameTimeMs = LinuxCaptureBridge.aes_linux_capture_get_frame_time_ms(_capture);
+        if (frameTimeMs > 0 || !isActive)
+            FrameTimeMs = frameTimeMs;
+
+        if (!string.IsNullOrWhiteSpace(status))
+            StatusText = status;
+        else if (!isActive)
+            StatusText = "Linux capture idle";
+
+        var renderer = LinuxCaptureBridge.GetGpuRenderer(_capture);
+        if (!string.IsNullOrWhiteSpace(renderer))
+            GpuRenderer = renderer;
+        else if (!isActive)
+            GpuRenderer = "Unknown";
+
+        var vendor = LinuxCaptureBridge.GetGpuVendor(_capture);
+        if (!string.IsNullOrWhiteSpace(vendor))
+            GpuVendor = vendor;
+        else if (!isActive)
+            GpuVendor = "Unknown";
     }
 
     private static int MapStretch(Stretch stretch)

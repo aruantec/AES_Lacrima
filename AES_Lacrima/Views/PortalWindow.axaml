@@ -10,6 +10,7 @@
         CanResize="True"
         ShowInTaskbar="False"
         Topmost="False"
+        IsHitTestVisible="False"
         TransparencyLevelHint="None"
         WindowStartupLocation="Manual">
     <Grid ClipToBounds="True">

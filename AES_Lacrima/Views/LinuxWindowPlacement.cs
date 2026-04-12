@@ -54,6 +54,43 @@ internal static class LinuxWindowPlacement
         }
     }
 
+    public static bool TryConfigureClickThrough(Window window)
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return false;
+
+        var handle = window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (handle == IntPtr.Zero)
+            return false;
+
+        var display = XOpenDisplay(IntPtr.Zero);
+        if (display == IntPtr.Zero)
+            return false;
+
+        try
+        {
+            // Empty input region => pointer events pass through this window.
+            var region = XFixesCreateRegion(display, IntPtr.Zero, 0);
+            if (region == IntPtr.Zero)
+                return false;
+
+            try
+            {
+                XFixesSetWindowShapeRegion(display, handle, ShapeInput, 0, 0, region);
+                XFlush(display);
+                return true;
+            }
+            finally
+            {
+                XFixesDestroyRegion(display, region);
+            }
+        }
+        finally
+        {
+            XCloseDisplay(display);
+        }
+    }
+
     public static bool TryMoveResize(Window window, int x, int y, int width, int height)
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
@@ -289,6 +326,15 @@ internal static class LinuxWindowPlacement
     [DllImport("libX11.so.6")]
     private static extern int XSync(IntPtr display, bool discard);
 
+    [DllImport("libXfixes.so.3")]
+    private static extern IntPtr XFixesCreateRegion(IntPtr display, IntPtr rectangles, int nrectangles);
+
+    [DllImport("libXfixes.so.3")]
+    private static extern void XFixesSetWindowShapeRegion(IntPtr display, IntPtr window, int shapeKind, int xOffset, int yOffset, IntPtr region);
+
+    [DllImport("libXfixes.so.3")]
+    private static extern void XFixesDestroyRegion(IntPtr display, IntPtr region);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct XWindowChanges
     {
@@ -302,4 +348,5 @@ internal static class LinuxWindowPlacement
     }
 
     private const uint CWX = 1 << 0;
+    private const int ShapeInput = 2;
 }

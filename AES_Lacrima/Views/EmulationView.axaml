@@ -39,6 +39,15 @@
 
     <Grid RowDefinitions="*,Auto,Auto" ClipToBounds="False">
         <Grid.Styles>
+            <Style Selector="Button">
+                <Setter Property="IsTabStop" Value="False" />
+            </Style>
+            <Style Selector="ComboBox">
+                <Setter Property="IsTabStop" Value="False" />
+            </Style>
+            <Style Selector="TabControl">
+                <Setter Property="IsTabStop" Value="False" />
+            </Style>
             <Style Selector="Border#RenderOptionsOverlay">
                 <Setter Property="Transitions">
                     <Setter.Value>
@@ -235,6 +244,7 @@
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch"
                     Background="Transparent"
+                    IsHitTestVisible="False"
                     ClipToBounds="True">
             </Border>
 
@@ -361,6 +371,7 @@
                     VerticalAlignment="Stretch"
                     Margin="0,0,0,0"
                     ZIndex="2100"
+                    IsVisible="{Binding IsRenderOptionsOpen}"
                     Opacity="{Binding IsRenderOptionsOpen, Converter={StaticResource BoolToOpacityConverter}}"
                     IsHitTestVisible="{Binding IsRenderOptionsOpen}">
                 <ScrollViewer Grid.Row="0"
@@ -404,8 +415,13 @@
 
                                     <StackPanel Orientation="Horizontal"
                                                 Spacing="12"
-                                                VerticalAlignment="Center"
-                                                IsVisible="{Binding SupportsAdvancedRenderProcessing}">
+                                                VerticalAlignment="Center">
+                                        <StackPanel.IsVisible>
+                                            <MultiBinding Converter="{StaticResource BoolAndConverter}">
+                                                <Binding Path="SupportsAdvancedRenderProcessing"/>
+                                                <Binding ElementName="RootView" Path="!IsPortalFallbackLimited"/>
+                                            </MultiBinding>
+                                        </StackPanel.IsVisible>
                                         <TextBlock Text="Brightness" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                         <Slider Width="280"
                                                 Minimum="0.25"
@@ -422,8 +438,13 @@
 
                                     <StackPanel Orientation="Horizontal"
                                                 Spacing="12"
-                                                VerticalAlignment="Center"
-                                                IsVisible="{Binding SupportsAdvancedRenderProcessing}">
+                                                VerticalAlignment="Center">
+                                        <StackPanel.IsVisible>
+                                            <MultiBinding Converter="{StaticResource BoolAndConverter}">
+                                                <Binding Path="SupportsAdvancedRenderProcessing"/>
+                                                <Binding ElementName="RootView" Path="!IsPortalFallbackLimited"/>
+                                            </MultiBinding>
+                                        </StackPanel.IsVisible>
                                         <TextBlock Text="Saturation" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                         <Slider Width="280"
                                                 Minimum="0"
@@ -455,8 +476,13 @@
 
                                     <StackPanel Orientation="Horizontal"
                                                 Spacing="12"
-                                                VerticalAlignment="Center"
-                                                IsVisible="{Binding SupportsAdvancedRenderProcessing}">
+                                                VerticalAlignment="Center">
+                                        <StackPanel.IsVisible>
+                                            <MultiBinding Converter="{StaticResource BoolAndConverter}">
+                                                <Binding Path="SupportsAdvancedRenderProcessing"/>
+                                                <Binding ElementName="RootView" Path="!IsPortalFallbackLimited"/>
+                                            </MultiBinding>
+                                        </StackPanel.IsVisible>
                                         <TextBlock Text="Disable VSync" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                         <ToggleSwitch IsChecked="{Binding DisableVSync, Mode=TwoWay}" />
                                     </StackPanel>
@@ -478,8 +504,13 @@
 
                                     <StackPanel Orientation="Horizontal"
                                                 Spacing="12"
-                                                VerticalAlignment="Center"
-                                                IsVisible="{Binding SupportsAdvancedRenderProcessing}">
+                                                VerticalAlignment="Center">
+                                        <StackPanel.IsVisible>
+                                            <MultiBinding Converter="{StaticResource BoolAndConverter}">
+                                                <Binding Path="SupportsAdvancedRenderProcessing"/>
+                                                <Binding ElementName="RootView" Path="!IsPortalFallbackLimited"/>
+                                            </MultiBinding>
+                                        </StackPanel.IsVisible>
                                         <TextBlock Text="Color Tint" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                         <ColorPicker Width="120" Height="40" Color="{Binding ElementName=RootView, Path=PortalCaptureTint, Mode=TwoWay}"/>
                                     </StackPanel>
@@ -494,8 +525,13 @@
 
                                     <StackPanel Orientation="Horizontal"
                                                 Spacing="12"
-                                                VerticalAlignment="Center"
-                                                IsVisible="{Binding SupportsAdvancedRenderProcessing}">
+                                                VerticalAlignment="Center">
+                                        <StackPanel.IsVisible>
+                                            <MultiBinding Converter="{StaticResource BoolAndConverter}">
+                                                <Binding Path="SupportsAdvancedRenderProcessing"/>
+                                                <Binding ElementName="RootView" Path="!IsPortalFallbackLimited"/>
+                                            </MultiBinding>
+                                        </StackPanel.IsVisible>
                                         <TextBlock Text="Shader File" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                         <ComboBox MinWidth="320"
                                                   HorizontalAlignment="Stretch"
@@ -512,11 +548,11 @@
                                         </ComboBox>
                                     </StackPanel>
 
-                                    <TextBlock Text="Linux capture backend currently uses X11 embedding. PipeWire ingest and post-processing (brightness/saturation/tint/shader/vsync) are not implemented yet."
+                                    <TextBlock Text="Linux fallback active: advanced GPU post-processing options are hidden because this session is using X11 reparent fallback."
                                                Foreground="#A0A0A0"
                                                FontSize="13"
                                                TextWrapping="Wrap"
-                                               IsVisible="{Binding IsLinuxCaptureRateEstimated}" />
+                                               IsVisible="{Binding ElementName=RootView, Path=IsPortalFallbackLimited}" />
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>

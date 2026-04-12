@@ -21,11 +21,11 @@ public sealed class FlyCastHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => true;
 
-    public override bool ForceUseTargetClientAreaCapture => true;
+    public override bool ForceUseTargetClientAreaCapture => OperatingSystem.IsWindows();
 
-    public override int ClientAreaCropTopInset => 28;
+    public override int ClientAreaCropTopInset => OperatingSystem.IsWindows() ? 28 : 0;
 
-    public override int ClientAreaCropBottomInset => 14;
+    public override int ClientAreaCropBottomInset => OperatingSystem.IsWindows() ? 14 : 0;
 
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
