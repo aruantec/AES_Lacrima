@@ -49,6 +49,12 @@ internal static class LinuxCaptureBridge
     public static extern void aes_linux_capture_reveal_window(IntPtr platformWindowHandle);
 
     [DllImport(LibraryName)]
+    public static extern void aes_linux_capture_hide_window(IntPtr platformWindowHandle);
+
+    [DllImport(LibraryName)]
+    public static extern IntPtr aes_linux_capture_find_window_by_pid(int pid, string? titleHint);
+
+    [DllImport(LibraryName)]
     public static extern int aes_linux_capture_is_active(IntPtr capture);
 
     [DllImport(LibraryName)]

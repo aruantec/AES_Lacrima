@@ -368,6 +368,24 @@ void aes_linux_capture_reveal_window(void* handle) {
     XCloseDisplay(d);
 }
 
+void aes_linux_capture_hide_window(void* handle) {
+    Display* d = XOpenDisplay(NULL);
+    if (!d) return;
+    Window w = (Window)handle;
+    XUnmapWindow(d, w);
+    XFlush(d);
+    XCloseDisplay(d);
+}
+
+void* aes_linux_capture_find_window_by_pid(int pid, const char* titleHint) {
+    Display* d = XOpenDisplay(NULL);
+    if (!d) return nullptr;
+    Window root = RootWindow(d, DefaultScreen(d));
+    Window found = FindWindowByPid(d, root, pid, titleHint, false);
+    XCloseDisplay(d);
+    return (void*)found;
+}
+
 int aes_linux_capture_is_active(LinuxCapture* cap) { return cap ? cap->active : 0; }
 int aes_linux_capture_is_initializing(LinuxCapture* cap) {
     ResizeTargetToHost(cap);

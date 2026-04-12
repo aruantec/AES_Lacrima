@@ -233,6 +233,8 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private bool _isRenderOptionsOpen;
 
+        public bool IsRenderOptionsSupported => OperatingSystem.IsWindows();
+
         [ObservableProperty]
         private bool _isFullscreen;
 

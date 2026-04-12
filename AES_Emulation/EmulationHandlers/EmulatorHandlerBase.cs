@@ -1,4 +1,5 @@
 using AES_Emulation.Windows.API;
+using AES_Emulation.Platform;
 using AES_Core.Logging;
 using log4net;
 using System;
@@ -374,10 +375,30 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     protected static void HideProcessWindowsForCapture(Process process)
     {
-        if (!OperatingSystem.IsWindows())
-            return;
+        if (OperatingSystem.IsWindows())
+            HideProcessWindowsForCaptureWindows(process);
+        else if (OperatingSystem.IsLinux())
+            HideProcessWindowsForCaptureLinux(process);
+    }
 
-        HideProcessWindowsForCaptureWindows(process);
+    private static void HideProcessWindowsForCaptureLinux(Process process)
+    {
+        try
+        {
+            process.Refresh();
+            if (process.HasExited)
+                return;
+
+            var hwnd = EmulatorCapturePlatform.FindWindowByPid(process.Id);
+            if (hwnd != IntPtr.Zero)
+            {
+                EmulatorCapturePlatform.HideWindowForCapture(hwnd);
+            }
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug("Failed to hide Linux process window for capture.", ex);
+        }
     }
 
     [SupportedOSPlatform("windows")]
@@ -419,12 +440,19 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     protected static void HideWindowForCapture(IntPtr hwnd)
     {
-        if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
+        if (hwnd == IntPtr.Zero)
             return;
 
-        Win32API.RemoveWindowDecorations(hwnd);
-        Win32API.MoveAway(hwnd);
-        Win32API.SetWindowOpacity(hwnd, 0);
+        if (OperatingSystem.IsWindows())
+        {
+            Win32API.RemoveWindowDecorations(hwnd);
+            Win32API.MoveAway(hwnd);
+            Win32API.SetWindowOpacity(hwnd, 0);
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            EmulatorCapturePlatform.HideWindowForCapture(hwnd);
+        }
     }
 
     [SupportedOSPlatform("windows")]

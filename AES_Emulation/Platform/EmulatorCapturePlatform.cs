@@ -18,6 +18,31 @@ public static class EmulatorCapturePlatform
             RevealWindowForCaptureLinux(platformWindowHandle);
     }
 
+    public static void HideWindowForCapture(IntPtr platformWindowHandle)
+    {
+        if (platformWindowHandle == IntPtr.Zero)
+            return;
+
+        if (OperatingSystem.IsLinux())
+            HideWindowForCaptureLinux(platformWindowHandle);
+    }
+
+    private static void HideWindowForCaptureLinux(IntPtr platformWindowHandle)
+    {
+        if (platformWindowHandle == IntPtr.Zero)
+            return;
+
+        LinuxCaptureBridge.aes_linux_capture_hide_window(platformWindowHandle);
+    }
+
+    public static IntPtr FindWindowByPid(int pid, string? titleHint = null)
+    {
+        if (OperatingSystem.IsLinux())
+            return LinuxCaptureBridge.aes_linux_capture_find_window_by_pid(pid, titleHint);
+
+        return IntPtr.Zero;
+    }
+
     private static void RevealWindowForCaptureLinux(IntPtr platformWindowHandle)
     {
         if (platformWindowHandle == IntPtr.Zero)

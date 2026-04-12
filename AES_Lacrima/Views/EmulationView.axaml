@@ -851,8 +851,13 @@
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding ToggleRenderOptionsCommand}"
-                        IsVisible="{Binding IsEmulatorRunning}"
                         ToolTip.Tip="Render Options">
+                    <Button.IsVisible>
+                        <MultiBinding Converter="{StaticResource BoolAndConverter}">
+                            <Binding Path="IsEmulatorRunning"/>
+                            <Binding Path="IsRenderOptionsSupported"/>
+                        </MultiBinding>
+                    </Button.IsVisible>
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">
