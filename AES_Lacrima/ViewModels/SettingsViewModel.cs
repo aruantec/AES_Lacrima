@@ -1986,6 +1986,19 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
     public override void Prepare()
     {
+        // Ensure external tool manager dependencies are resolved before startup.
+        FfmpegManager ??= DiLocator.ResolveViewModel<FFmpegManager>();
+        MpvManager ??= DiLocator.ResolveViewModel<MpvLibraryManager>();
+        YtDlp ??= DiLocator.ResolveViewModel<YtDlpManager>();
+        AppUpdateService ??= DiLocator.ResolveViewModel<AppUpdateService>();
+
+        if (FfmpegManager == null || MpvManager == null || YtDlp == null || AppUpdateService == null)
+        {
+            Log.Warn("One or more external tool managers failed to resolve during SettingsViewModel.Prepare. " +
+                     $"FFmpegManager={(FfmpegManager != null)}, MpvManager={(MpvManager != null)}, " +
+                     $"YtDlp={(YtDlp != null)}, AppUpdateService={(AppUpdateService != null)}");
+        }
+
         // Load shader items from the local shaders directory (Linux-safe path resolution).
         Program.EnsureBundledShaderResources();
         _shaderToysDirectory = ResolveShaderToysDirectory();

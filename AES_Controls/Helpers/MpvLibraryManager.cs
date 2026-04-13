@@ -977,36 +977,63 @@ public partial class MpvLibraryManager : ObservableObject
 
     private async Task<bool> ExecuteCommandAsync(string fileName, string args)
     {
-        var tcs = new TaskCompletionSource<bool>();
-
         var startInfo = new ProcessStartInfo
         {
             FileName = fileName,
             Arguments = args,
-            UseShellExecute = true,
-            CreateNoWindow = false
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
         };
 
         try
         {
             Log.Info($"Starting command: {fileName} {args}");
-            var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-            process.Exited += (_, _) =>
+            using var process = new Process { StartInfo = startInfo };
+            if (!process.Start())
             {
-                _lastInstallerExitCode = process.ExitCode;
-                tcs.TrySetResult(process.ExitCode == 0);
-                process.Dispose();
-            };
+                Log.Warn($"Failed to start command: {fileName} {args}");
+                return false;
+            }
 
-            process.Start();
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            var exitedTask = Task.Run(() => process.WaitForExit());
+
+            var timeout = Task.Delay(TimeSpan.FromMinutes(5));
+            var completedTask = await Task.WhenAny(exitedTask, timeout).ConfigureAwait(false);
+
+            if (completedTask != exitedTask)
+            {
+                try
+                {
+                    process.Kill(true);
+                }
+                catch
+                {
+                    // ignored
+                }
+
+                Log.Warn($"Command timed out: {fileName} {args}");
+                return false;
+            }
+
+            await Task.WhenAll(outputTask, errorTask).ConfigureAwait(false);
+            var exitCode = process.ExitCode;
+            if (exitCode != 0)
+            {
+                Log.Warn($"Command failed: {fileName} {args} ExitCode={exitCode} StdErr={errorTask.Result.Trim()} StdOut={outputTask.Result.Trim()}");
+            }
+
+            _lastInstallerExitCode = exitCode;
+            return exitCode == 0;
         }
         catch (Exception ex)
         {
             Log.Warn($"Failed to start command: {fileName} {args}", ex);
-            tcs.TrySetResult(false);
+            return false;
         }
-
-        return await tcs.Task;
     }
 
     private static bool CommandExists(string command)
