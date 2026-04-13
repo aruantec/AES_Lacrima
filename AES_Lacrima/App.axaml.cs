@@ -65,6 +65,12 @@ namespace AES_Lacrima
                 Logger.Info("Desktop framework initialization started.");
                 StartStartupUiProbe();
 
+                // Ensure referenced assemblies containing auto-registration module initializers are loaded
+                // so DI registrations from AES_Controls are available before the container is built.
+                _ = typeof(FFmpegManager).Assembly;
+                _ = typeof(MpvLibraryManager).Assembly;
+                _ = typeof(YtDlpManager).Assembly;
+
                 //Initialize DI Locator
                 var diSw = Stopwatch.StartNew();
                 DiLocator.ConfigureContainer(builder =>

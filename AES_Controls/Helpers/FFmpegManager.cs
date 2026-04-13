@@ -463,41 +463,60 @@ public partial class FFmpegManager : ObservableObject
     /// <param name="fileName">The executable or command to run (for example, "winget" or "brew").</param>
     /// <param name="args">The arguments to pass to the command.</param>
     /// <returns>A task that resolves to <c>true</c> when the command succeeded.</returns>
-    private Task<bool> ExecuteCommandAsync(string fileName, string args)
+    private async Task<bool> ExecuteCommandAsync(string fileName, string args)
     {
-        var tcs = new TaskCompletionSource<bool>();
-
         var startInfo = new ProcessStartInfo
         {
             FileName = fileName,
             Arguments = args,
-            // UseShellExecute is TRUE so that winget/brew/sudo can 
-            // open their own window for license agreements or passwords.
-            UseShellExecute = true,
-            CreateNoWindow = false,
-            // Run as administrator on Windows to avoid permission issues during installation/update
-            Verb = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "runas" : string.Empty
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
         };
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            startInfo.Verb = "runas";
+        }
 
         try
         {
             Log.Info($"Starting external command: {fileName} {args}");
-            var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-            process.Exited += (_, _) =>
+            using var process = new Process { StartInfo = startInfo };
+            if (!process.Start())
             {
-                _lastExitCode = process.ExitCode;
-                Log.Info($"Command exited: {fileName} {args} ExitCode={_lastExitCode}");
-                tcs.SetResult(process.ExitCode == 0);
-            };
-            process.Start();
+                Log.Warn($"Failed to start external command: {fileName} {args}");
+                return false;
+            }
+
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            var exitedTask = Task.Run(() => process.WaitForExit());
+            var timeout = Task.Delay(TimeSpan.FromMinutes(5));
+
+            var completed = await Task.WhenAny(exitedTask, timeout).ConfigureAwait(false);
+            if (completed != exitedTask)
+            {
+                try { process.Kill(true); } catch { }
+                Log.Warn($"External command timed out: {fileName} {args}");
+                return false;
+            }
+
+            await Task.WhenAll(outputTask, errorTask).ConfigureAwait(false);
+            _lastExitCode = process.ExitCode;
+            if (_lastExitCode != 0)
+            {
+                Log.Warn($"External command failed: {fileName} {args} ExitCode={_lastExitCode} StdErr={errorTask.Result.Trim()} StdOut={outputTask.Result.Trim()}");
+            }
+
+            return _lastExitCode == 0;
         }
         catch (Exception ex)
         {
             Log.Error($"FFmpeg command failed to start: {fileName} {args}", ex);
-            tcs.SetResult(false);
+            return false;
         }
-
-        return tcs.Task;
     }
 
     /// <summary>
