@@ -20,28 +20,25 @@ public partial class VisualOverlayWindow : Window
         AvaloniaXamlLoader.Load(this);
     }
 
-    public void MoveToBottomOfStack()
+    public void MoveBelowWindow(Window siblingWindow)
     {
+        if (siblingWindow == null)
+            return;
+
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             var hWnd = TryGetPlatformHandle()?.Handle;
-            if (hWnd != null && hWnd != IntPtr.Zero)
+            var siblingHandle = siblingWindow.TryGetPlatformHandle()?.Handle;
+            if (hWnd != null && hWnd != IntPtr.Zero && siblingHandle != null && siblingHandle != IntPtr.Zero)
             {
-                SetWindowPos(hWnd.Value, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                SetWindowPos(hWnd.Value, siblingHandle.Value, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             }
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
-            var hWnd = TryGetPlatformHandle()?.Handle;
-            if (hWnd != null && hWnd != IntPtr.Zero)
-            {
-                var display = XOpenDisplay(IntPtr.Zero);
-                if (display != IntPtr.Zero)
-                {
-                    XLowerWindow(display, hWnd.Value);
-                    XCloseDisplay(display);
-                }
-            }
+            LinuxWindowPlacement.TrySetKeepBelow(this, true);
+            LinuxWindowPlacement.TryStackBelow(this, siblingWindow);
+            LinuxWindowPlacement.TryLower(this);
         }
     }
 
@@ -52,6 +49,8 @@ public partial class VisualOverlayWindow : Window
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
             LinuxWindowPlacement.TryConfigureAsNormalWindow(this);
+            LinuxWindowPlacement.TrySetKeepBelow(this, true);
+            LinuxWindowPlacement.TryLower(this);
         }
     }
 
@@ -66,16 +65,6 @@ public partial class VisualOverlayWindow : Window
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
-    [DllImport("libX11.so.6")]
-    private static extern IntPtr XOpenDisplay(IntPtr display);
-
-    [DllImport("libX11.so.6")]
-    private static extern int XCloseDisplay(IntPtr display);
-
-    [DllImport("libX11.so.6")]
-    private static extern int XLowerWindow(IntPtr display, IntPtr w);
-
-    private static readonly IntPtr HWND_BOTTOM = new(1);
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOACTIVATE = 0x0010;

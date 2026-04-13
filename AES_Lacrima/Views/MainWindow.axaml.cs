@@ -1,12 +1,14 @@
 ﻿using AES_Core.DI;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
 using Avalonia.Platform;
 using log4net;
 using Avalonia.Media;
 using Avalonia.Threading;
 using System;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace AES_Lacrima.Views
@@ -17,11 +19,6 @@ namespace AES_Lacrima.Views
         private bool _ignoreSizeChange = true;
         private double _lastRenderScale = double.NaN;
         private VisualOverlayWindow? _visualOverlayWindow;
-
-        private static readonly IntPtr HWND_BOTTOM = new(1);
-        private const uint SWP_NOSIZE = 0x0001;
-        private const uint SWP_NOMOVE = 0x0002;
-        private const uint SWP_NOACTIVATE = 0x0010;
 
         public MainWindow()
         {
@@ -230,9 +227,20 @@ namespace AES_Lacrima.Views
                 {
                     _visualOverlayWindow.Show();
                 }
-                
-                // Lower it to the bottom of the stack (behind the main window)
-                _visualOverlayWindow.MoveToBottomOfStack();
+
+                // Keep stack order on Linux as: visual overlay < capture portal < main window.
+                // If no portal is visible, fall back to keeping visual directly under main.
+                var siblingWindow = this as Window;
+                if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+                {
+                    var visiblePortal = desktop.Windows
+                        .OfType<PortalWindow>()
+                        .FirstOrDefault(window => window.IsVisible);
+                    if (visiblePortal != null)
+                        siblingWindow = visiblePortal;
+                }
+
+                _visualOverlayWindow.MoveBelowWindow(siblingWindow);
             }
             else
             {
@@ -254,18 +262,6 @@ namespace AES_Lacrima.Views
             public void OnError(Exception error) { }
             public void OnNext(WindowState value) => _callback();
         }
-
-        [DllImport("user32.dll")]
-        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
-
-        [DllImport("libX11.so.6")]
-        private static extern IntPtr XOpenDisplay(IntPtr display);
-
-        [DllImport("libX11.so.6")]
-        private static extern int XCloseDisplay(IntPtr display);
-
-        [DllImport("libX11.so.6")]
-        private static extern int XLowerWindow(IntPtr display, IntPtr w);
 
         private void CenterWindow(ViewModels.MainWindowViewModel vm, double? renderScaleOverride = null)
         {

@@ -1,11 +1,13 @@
 using System;
 using System.ComponentModel;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -1058,6 +1060,19 @@ public partial class EmulationView : UserControl
                 MacSystemDialogs.AttachPortalWindow(portalHandle.Value, mainHandle.Value);
                 MacSystemDialogs.OrderWindowBelow(portalHandle.Value, mainHandle.Value);
             }
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                var visualOverlay = desktop.Windows
+                    .OfType<VisualOverlayWindow>()
+                    .FirstOrDefault(window => window.IsVisible);
+                if (visualOverlay != null)
+                    LinuxWindowPlacement.TryStackAbove(_portalWindow, visualOverlay);
+            }
+
+            LinuxWindowPlacement.TryStackBelow(_portalWindow, mainWindow);
         }
     }
 

@@ -170,6 +170,96 @@ internal static class LinuxWindowPlacement
         }
     }
 
+    public static bool TrySetTransientFor(Window window, Window parent)
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return false;
+
+        var handle = window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        var parentHandle = parent.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (handle == IntPtr.Zero || parentHandle == IntPtr.Zero)
+            return false;
+
+        return TrySetTransientFor(handle, parentHandle);
+    }
+
+    public static bool TryStackBelow(Window window, Window sibling)
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return false;
+
+        var handle = window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        var siblingHandle = sibling.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (handle == IntPtr.Zero || siblingHandle == IntPtr.Zero)
+            return false;
+
+        return TryStackRelative(handle, siblingHandle, StackModeBelow);
+    }
+
+    public static bool TryStackAbove(Window window, Window sibling)
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return false;
+
+        var handle = window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        var siblingHandle = sibling.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (handle == IntPtr.Zero || siblingHandle == IntPtr.Zero)
+            return false;
+
+        return TryStackRelative(handle, siblingHandle, StackModeAbove);
+    }
+
+    public static bool TryLower(Window window)
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return false;
+
+        var handle = window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (handle == IntPtr.Zero)
+            return false;
+
+        return TryLowerHandle(handle);
+    }
+
+    public static bool TrySetKeepBelow(Window window, bool keepBelow)
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return false;
+
+        var handle = window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (handle == IntPtr.Zero)
+            return false;
+
+        var display = XOpenDisplay(IntPtr.Zero);
+        if (display == IntPtr.Zero)
+            return false;
+
+        try
+        {
+            var stateAtom = XInternAtom(display, "_NET_WM_STATE", false);
+            var belowAtom = XInternAtom(display, "_NET_WM_STATE_BELOW", false);
+            if (stateAtom == IntPtr.Zero || belowAtom == IntPtr.Zero)
+                return false;
+
+            IntPtr[] atoms = keepBelow ? [belowAtom] : Array.Empty<IntPtr>();
+            XChangeProperty(
+                display,
+                handle,
+                stateAtom,
+                new IntPtr(XA_ATOM),
+                32,
+                PropModeReplace,
+                atoms,
+                atoms.Length);
+            XFlush(display);
+            return true;
+        }
+        finally
+        {
+            XCloseDisplay(display);
+        }
+    }
+
     private static bool ShouldStageThroughRightEdge(
         Window window,
         IntPtr handle,
@@ -252,6 +342,66 @@ internal static class LinuxWindowPlacement
         }
     }
 
+    private static bool TrySetTransientFor(IntPtr handle, IntPtr parentHandle)
+    {
+        var display = XOpenDisplay(IntPtr.Zero);
+        if (display == IntPtr.Zero)
+            return false;
+
+        try
+        {
+            XSetTransientForHint(display, handle, parentHandle);
+            XFlush(display);
+            return true;
+        }
+        finally
+        {
+            XCloseDisplay(display);
+        }
+    }
+
+    private static bool TryStackRelative(IntPtr handle, IntPtr siblingHandle, int stackMode)
+    {
+        var display = XOpenDisplay(IntPtr.Zero);
+        if (display == IntPtr.Zero)
+            return false;
+
+        try
+        {
+            var changes = new XWindowChanges
+            {
+                sibling = siblingHandle,
+                stack_mode = stackMode
+            };
+
+            XConfigureWindow(display, handle, CWSibling | CWStackMode, ref changes);
+            XFlush(display);
+            return true;
+        }
+        finally
+        {
+            XCloseDisplay(display);
+        }
+    }
+
+    private static bool TryLowerHandle(IntPtr handle)
+    {
+        var display = XOpenDisplay(IntPtr.Zero);
+        if (display == IntPtr.Zero)
+            return false;
+
+        try
+        {
+            XLowerWindow(display, handle);
+            XFlush(display);
+            return true;
+        }
+        finally
+        {
+            XCloseDisplay(display);
+        }
+    }
+
     private static void UpdateBottomOverflowState(Window window, IntPtr handle, int x, int y, int width, int height)
     {
         if (!TryGetScreenAreas(window, x, y, width, height, out _, out var workArea))
@@ -321,6 +471,12 @@ internal static class LinuxWindowPlacement
     private static extern int XConfigureWindow(IntPtr display, IntPtr w, uint valueMask, ref XWindowChanges changes);
 
     [DllImport("libX11.so.6")]
+    private static extern int XSetTransientForHint(IntPtr display, IntPtr w, IntPtr propWindow);
+
+    [DllImport("libX11.so.6")]
+    private static extern int XLowerWindow(IntPtr display, IntPtr w);
+
+    [DllImport("libX11.so.6")]
     private static extern int XFlush(IntPtr display);
 
     [DllImport("libX11.so.6")]
@@ -348,5 +504,9 @@ internal static class LinuxWindowPlacement
     }
 
     private const uint CWX = 1 << 0;
+    private const uint CWSibling = 1 << 5;
+    private const uint CWStackMode = 1 << 6;
     private const int ShapeInput = 2;
+    private const int StackModeAbove = 0;
+    private const int StackModeBelow = 1;
 }
