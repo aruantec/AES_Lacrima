@@ -10,6 +10,7 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace AES_Lacrima
 {
@@ -34,6 +35,7 @@ namespace AES_Lacrima
                 {
                     Directory.CreateDirectory(ApplicationPaths.LogsDirectory);
                     ConfigureLogging();
+                    RegisterGlobalExceptionHandlers();
                     Log.Info("Application startup beginning");
                 }
                 catch (Exception ex)
@@ -132,6 +134,37 @@ namespace AES_Lacrima
                 XmlConfigurator.Configure(loggingRepository, new FileInfo("log4net.config"));
             }
 #endif
+        }
+
+        private static void RegisterGlobalExceptionHandlers()
+        {
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            {
+                try
+                {
+                    var ex = e.ExceptionObject as Exception;
+                    Log.Error("Unhandled exception in AppDomain", ex);
+                    WriteFatalStartupLog(ex ?? new Exception("Unhandled exception occurred with non-Exception object."));
+                }
+                catch
+                {
+                    // Ignore failures while logging fatal exceptions.
+                }
+            };
+
+            TaskScheduler.UnobservedTaskException += (_, e) =>
+            {
+                try
+                {
+                    Log.Error("Unhandled task exception", e.Exception);
+                    WriteFatalStartupLog(e.Exception);
+                    e.SetObserved();
+                }
+                catch
+                {
+                    // Ignore failures while logging fatal exceptions.
+                }
+            };
         }
 
         internal static void EnsureBundledResources()

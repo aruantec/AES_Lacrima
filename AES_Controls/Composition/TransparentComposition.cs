@@ -15,6 +15,7 @@ public class TransparentComposition : Control
     public TransparentComposition()
     {
         ClipToBounds = false;
+        IsHitTestVisible = false;
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)

@@ -1405,8 +1405,8 @@ public partial class AppUpdateService : ObservableObject
     {
         try
         {
-            Directory.CreateDirectory(ApplicationPaths.UpdaterLogsDirectory);
-            var logPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, UpdaterLogFileName);
+            Directory.CreateDirectory(ApplicationPaths.LogsDirectory);
+            var logPath = Path.Combine(ApplicationPaths.LogsDirectory, UpdaterLogFileName);
             using var writer = new StreamWriter(logPath, append: true, Encoding.UTF8);
             writer.WriteLine($"[{DateTimeOffset.Now:O}] {message}");
             foreach (var detail in details)

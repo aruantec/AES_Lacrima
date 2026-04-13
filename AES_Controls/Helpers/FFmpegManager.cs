@@ -124,12 +124,14 @@ public partial class FFmpegManager : ObservableObject
     /// <returns>True if successful; otherwise false.</returns>
     public async Task<bool> InstallAsync()
     {
+        Log.Info("FFmpeg install requested.");
         IsBusy = true;
         Status = "FFmpeg not found. Starting installation...";
 
         bool success = await RunPlatformInstaller();
 
         Status = success ? "FFmpeg installation successful." : $"FFmpeg installation failed (Exit code: {_lastExitCode}).";
+        Log.Info($"FFmpeg install completed. Success={success}, ExitCode={_lastExitCode}");
         IsBusy = false;
 
         InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(success, Status));
@@ -141,6 +143,7 @@ public partial class FFmpegManager : ObservableObject
     /// </summary>
     public async Task<bool> UpgradeAsync()
     {
+        Log.Info("FFmpeg upgrade requested.");
         IsBusy = true;
         Status = "Starting FFmpeg upgrade...";
 
@@ -148,24 +151,28 @@ public partial class FFmpegManager : ObservableObject
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-                result = await ExecuteCommandAsync("winget", "upgrade --id Gyan.FFmpeg -e --silent --accept-source-agreements --accept-package-agreements");
-                }
-                else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-                {
-                    result = await ExecuteCommandAsync("brew", "upgrade ffmpeg");
-                }
-                else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-                {
-                    result = await ExecuteCommandAsync("sudo", "apt-get install -y ffmpeg");
-                }
+            Log.Info("Using winget to upgrade FFmpeg.");
+            result = await ExecuteCommandAsync("winget", "upgrade --id Gyan.FFmpeg -e --silent --accept-source-agreements --accept-package-agreements");
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            Log.Info("Using brew to upgrade FFmpeg.");
+            result = await ExecuteCommandAsync("brew", "upgrade ffmpeg");
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            Log.Info("Using apt-get to upgrade FFmpeg.");
+            result = await ExecuteCommandAsync("sudo", "apt-get install -y ffmpeg");
+        }
 
-                IsBusy = false;
-                Status = result ? "FFmpeg upgrade completed." : $"FFmpeg upgrade failed (Exit code: {_lastExitCode}).";
+        IsBusy = false;
+        Status = result ? "FFmpeg upgrade completed." : $"FFmpeg upgrade failed (Exit code: {_lastExitCode}).";
+        Log.Info($"FFmpeg upgrade completed. Result={result}, ExitCode={_lastExitCode}");
 
-                InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(result, Status));
+        InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(result, Status));
 
-                return result;
-            }
+        return result;
+    }
 
     /// <summary>
     /// Checks whether an update is available for FFmpeg through the platform package manager.
@@ -182,6 +189,7 @@ public partial class FFmpegManager : ObservableObject
     /// </summary>
     public async Task<CheckUpdateResult?> CheckForUpdateDetailsAsync()
     {
+        Log.Info("Checking FFmpeg update details.");
         try
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -330,6 +338,7 @@ public partial class FFmpegManager : ObservableObject
     /// </summary>
     public async Task<bool> UninstallAsync()
     {
+        Log.Info("FFmpeg uninstall requested.");
         KillAllFfmpegActivity();
         await Task.Delay(500); // Give processes a moment to terminate
 
@@ -340,20 +349,24 @@ public partial class FFmpegManager : ObservableObject
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
+            Log.Info("Using winget to uninstall FFmpeg.");
             result = await ExecuteCommandAsync("winget", "uninstall --id Gyan.FFmpeg -e --silent");
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
+            Log.Info("Using brew to uninstall FFmpeg.");
             result = await ExecuteCommandAsync("brew", "uninstall ffmpeg");
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
+            Log.Info("Using apt-get to uninstall FFmpeg.");
             result = await ExecuteCommandAsync("sudo", "apt-get remove -y ffmpeg");
         }
 
         IsBusy = false;
 
         Status = result ? "FFmpeg uninstalled." : $"FFmpeg uninstall failed (Exit code: {(_lastExitCode == 0 ? "Unknown" : _lastExitCode)}).";
+        Log.Info($"FFmpeg uninstall completed. Result={result}, ExitCode={_lastExitCode}");
 
         InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(result, Status));
 
@@ -365,10 +378,17 @@ public partial class FFmpegManager : ObservableObject
     /// </summary>
     public async Task<string?> GetCurrentVersionAsync()
     {
+        Log.Debug("Querying current FFmpeg version.");
         var output = await ExecuteCommandCaptureAsync("ffmpeg", "-version");
-        if (string.IsNullOrEmpty(output)) return null;
+        if (string.IsNullOrEmpty(output))
+        {
+            Log.Debug("FFmpeg version query returned no output.");
+            return null;
+        }
         var firstLine = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-        return ExtractVersionFromText(firstLine ?? string.Empty);
+        var version = ExtractVersionFromText(firstLine ?? string.Empty);
+        Log.Debug($"FFmpeg version detected: {version}");
+        return version;
     }
 
     /// <summary>
@@ -391,11 +411,18 @@ public partial class FFmpegManager : ObservableObject
             };
 
             using var process = Process.Start(startInfo);
-            // If we can start the process, ffmpeg exists in PATH
-            return true;
+            if (process != null)
+            {
+                Log.Debug("FFmpeg executable detected in PATH.");
+                return true;
+            }
+
+            Log.Debug("FFmpeg executable not found in PATH.");
+            return false;
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Debug("FFmpeg availability check failed.", ex);
             return false;
         }
     }
@@ -408,19 +435,23 @@ public partial class FFmpegManager : ObservableObject
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
+            Log.Info("Running FFmpeg installer via winget.");
             // Using -e (exact) and gyan builds which are the standard for Windows
             return await ExecuteCommandAsync("winget", "install --id Gyan.FFmpeg -e --silent --accept-source-agreements --accept-package-agreements");
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
+            Log.Info("Running FFmpeg installer via brew.");
             return await ExecuteCommandAsync("brew", "install ffmpeg");
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
+            Log.Info("Running FFmpeg installer via apt-get.");
             // Requires sudo; user will likely see a password prompt in the terminal
             return await ExecuteCommandAsync("sudo", "apt-get install -y ffmpeg");
         }
 
+        Log.Warn("FFmpeg installer is not supported on this platform.");
         return false;
     }
 
@@ -450,17 +481,19 @@ public partial class FFmpegManager : ObservableObject
 
         try
         {
+            Log.Info($"Starting external command: {fileName} {args}");
             var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             process.Exited += (_, _) =>
             {
                 _lastExitCode = process.ExitCode;
+                Log.Info($"Command exited: {fileName} {args} ExitCode={_lastExitCode}");
                 tcs.SetResult(process.ExitCode == 0);
             };
             process.Start();
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Installer error: {ex.Message}");
+            Log.Error($"FFmpeg command failed to start: {fileName} {args}", ex);
             tcs.SetResult(false);
         }
 
@@ -474,6 +507,7 @@ public partial class FFmpegManager : ObservableObject
     {
         try
         {
+            Log.Debug($"Executing command capture: {fileName} {args}");
             var startInfo = new ProcessStartInfo
             {
                 FileName = fileName,
@@ -494,6 +528,12 @@ public partial class FFmpegManager : ObservableObject
 
             await process.WaitForExitAsync();
 
+            Log.Debug($"Command capture finished: {fileName} {args} ExitCode={process.ExitCode}");
+            if (!string.IsNullOrEmpty(output))
+                Log.Debug($"Command output: {output.Trim()}");
+            if (!string.IsNullOrEmpty(error))
+                Log.Debug($"Command error output: {error.Trim()}");
+
             if (!string.IsNullOrEmpty(error) && string.IsNullOrEmpty(output))
             {
                 return error;
@@ -503,7 +543,7 @@ public partial class FFmpegManager : ObservableObject
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"ExecuteCommandCaptureAsync error: {ex.Message}");
+            Log.Error($"FFmpeg command capture failed: {fileName} {args}", ex);
             return null;
         }
     }
