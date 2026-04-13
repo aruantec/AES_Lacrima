@@ -1072,6 +1072,7 @@ public partial class AppUpdateService : ObservableObject
     private static string CreateWindowsUpdateScript(string sourceDirectory, string targetDirectory, string restartExecutable, string stagingRoot)
     {
         Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
+        Directory.CreateDirectory(ApplicationPaths.UpdaterLogsDirectory);
         var scriptPath = Path.Combine(ApplicationPaths.UpdatesDirectory, $"aes-lacrima-update-{Guid.NewGuid():N}.ps1");
         var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
         var sourceDirectoryShort = TryGetWindowsShortPath(sourceDirectory) ?? sourceDirectory;
@@ -1184,6 +1185,7 @@ public partial class AppUpdateService : ObservableObject
     private static string CreateMacUpdateScript(string sourceAppBundle, string targetAppBundle, string stagingRoot)
     {
         Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
+        Directory.CreateDirectory(ApplicationPaths.UpdaterLogsDirectory);
         var scriptPath = Path.Combine(ApplicationPaths.UpdatesDirectory, $"aes-lacrima-update-{Guid.NewGuid():N}.sh");
         var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
         var pid = Environment.ProcessId;
@@ -1228,6 +1230,7 @@ public partial class AppUpdateService : ObservableObject
     private static string CreateLinuxUpdateScript(string sourceFile, string targetFile, string stagingRoot)
     {
         Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
+        Directory.CreateDirectory(ApplicationPaths.UpdaterLogsDirectory);
         var scriptPath = Path.Combine(ApplicationPaths.UpdatesDirectory, $"aes-lacrima-update-{Guid.NewGuid():N}.sh");
         var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
         var pid = Environment.ProcessId;
@@ -1271,10 +1274,10 @@ public partial class AppUpdateService : ObservableObject
     private static void LaunchUpdateScript(string scriptPath)
     {
         ProcessStartInfo startInfo;
+        Directory.CreateDirectory(ApplicationPaths.UpdaterLogsDirectory);
         if (OperatingSystem.IsWindows())
         {
             var powerShellPath = GetWindowsPowerShellPath();
-            Directory.CreateDirectory(ApplicationPaths.UpdaterLogsDirectory);
             startInfo = new ProcessStartInfo
             {
                 FileName = powerShellPath,
@@ -1405,8 +1408,8 @@ public partial class AppUpdateService : ObservableObject
     {
         try
         {
-            Directory.CreateDirectory(ApplicationPaths.LogsDirectory);
             var logPath = Path.Combine(ApplicationPaths.LogsDirectory, UpdaterLogFileName);
+            Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
             using var writer = new StreamWriter(logPath, append: true, Encoding.UTF8);
             writer.WriteLine($"[{DateTimeOffset.Now:O}] {message}");
             foreach (var detail in details)
