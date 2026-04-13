@@ -21,8 +21,9 @@ public static class ApplicationPaths
 
     /// <summary>
     /// Directory where updater-specific log files should be written.
+    /// All updater diagnostics are colocated with the main application logs.
     /// </summary>
-    public static string UpdaterLogsDirectory => Path.Combine(LogsDirectory, "updater");
+    public static string UpdaterLogsDirectory => LogsDirectory;
 
     /// <summary>
     /// Directory for application settings files.

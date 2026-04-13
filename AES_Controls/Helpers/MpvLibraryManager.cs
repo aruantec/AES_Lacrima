@@ -35,7 +35,7 @@ public partial class MpvLibraryManager : ObservableObject
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<MpvLibraryManager>();
     private const string Repo = "zhongfly/mpv-winbuild";
     private readonly string _destFolder = GetDestinationFolder();
-    private static readonly HttpClient Client = new();
+    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(10) };
     private int _lastInstallerExitCode;
 
     private static string GetDestinationFolder()
@@ -198,15 +198,18 @@ public partial class MpvLibraryManager : ObservableObject
     /// <returns>A task that completes when the check and any installation are finished.</returns>
     public async Task EnsureLibraryInstalledAsync()
     {
+        Log.Info("libmpv installation requested.");
         if (OperatingSystem.IsAndroid())
         {
             if (IsLibraryInstalled())
             {
+                Log.Info("Android libmpv is already present.");
                 Status = "Bundled Android libmpv is available.";
                 InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(true, Status));
             }
             else
             {
+                Log.Warn("Android libmpv is missing.");
                 Status = "Bundled Android libmpv was not found. Rebuild APK with Android libmpv.so.";
                 InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(false, Status));
             }
@@ -214,6 +217,7 @@ public partial class MpvLibraryManager : ObservableObject
         }
 
         string libName = GetPlatformLibName();
+        Log.Info($"libmpv expected library name: {libName}, destination folder: {_destFolder}");
 
         // Clear user-requested uninstallation marker if manual install is triggered
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -227,6 +231,7 @@ public partial class MpvLibraryManager : ObservableObject
 
         if (File.Exists(Path.Combine(_destFolder, libName)))
         {
+            Log.Info("libmpv already exists in destination folder.");
             // On macOS, even if the primary library is installed, ensure the alternate name is also present.
             if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && string.Equals(libName, "libmpv.dylib", StringComparison.OrdinalIgnoreCase))
             {
@@ -253,29 +258,35 @@ public partial class MpvLibraryManager : ObservableObject
         IsBusy = true;
         Status = "libmpv not found. Starting automatic setup...";
         DownloadProgress = 0;
+        Log.Info("libmpv missing; beginning automatic setup.");
 
         try
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
+                Log.Info("Windows detected; downloading mpv Windows build.");
                 await DownloadWindowsLgplAsync(libName);
             }
             else
             {
                 if (!CopySystemLibrary(libName))
                 {
+                    Log.Info($"Could not locate libmpv in known system library paths: {libName}");
                     if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
                     {
                         Status = "libmpv not found. Trying to install mpv via package manager...";
+                        Log.Info("Attempting Linux package manager install of mpv.");
                         var packageInstallOk = await InstallLinuxMpvPackageAsync();
                         if (!packageInstallOk || !CopySystemLibrary(libName))
                         {
+                            Log.Error($"Could not install or locate {libName} after package manager install.");
                             throw new InvalidOperationException(
                                 $"Could not install or locate {libName}. Install mpv/libmpv manually, then retry.");
                         }
                     }
                     else
                     {
+                        Log.Error($"Could not locate {libName} on non-Linux system.");
                         throw new InvalidOperationException(
                             $"Could not locate {libName} on the system. Please ensure mpv is installed via your package manager.");
                     }
@@ -978,6 +989,7 @@ public partial class MpvLibraryManager : ObservableObject
 
         try
         {
+            Log.Info($"Starting command: {fileName} {args}");
             var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             process.Exited += (_, _) =>
             {

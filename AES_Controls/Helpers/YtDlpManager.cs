@@ -38,7 +38,7 @@ public partial class YtDlpManager : ObservableObject
         
         private readonly string _destFolder = ApplicationPaths.ToolsDirectory;
 
-    private static readonly HttpClient Client = new();
+    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(10) };
 
     public YtDlpManager()
     {
@@ -83,16 +83,19 @@ public partial class YtDlpManager : ObservableObject
     /// <returns>A task returning true if yt-dlp is locally available; otherwise false.</returns>
     public async Task<bool> EnsureInstalledAsync()
     {
+        Log.Info("yt-dlp installation requested.");
         string binName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp";
         string fullPath = Path.Combine(_destFolder, binName);
         if (File.Exists(fullPath))
         {
             if (await IsExecutableValidAsync(fullPath))
             {
+                Log.Info("yt-dlp executable already present and valid.");
                 Status = "yt-dlp is already installed.";
                 return true;
             }
 
+            Log.Warn("yt-dlp binary is present but invalid for this platform. Reinstalling.");
             Status = "Existing yt-dlp binary is invalid for this platform. Reinstalling...";
             try { File.Delete(fullPath); } catch (Exception ex) { Log.Warn("Failed to remove invalid yt-dlp binary before reinstall.", ex); }
         }
@@ -128,6 +131,7 @@ public partial class YtDlpManager : ObservableObject
     {
         try
         {
+            Log.Debug($"Validating yt-dlp binary: {fullPath}");
             var startInfo = new ProcessStartInfo
             {
                 FileName = fullPath,
@@ -139,13 +143,20 @@ public partial class YtDlpManager : ObservableObject
             };
 
             using var process = Process.Start(startInfo);
-            if (process == null) return false;
+            if (process == null)
+            {
+                Log.Warn($"yt-dlp validation process failed to start: {fullPath}");
+                return false;
+            }
 
             await process.WaitForExitAsync();
-            return process.ExitCode == 0;
+            var valid = process.ExitCode == 0;
+            Log.Debug($"yt-dlp validation result: {valid} (ExitCode={process.ExitCode})");
+            return valid;
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Warn($"yt-dlp validation threw an exception: {fullPath}", ex);
             return false;
         }
     }
@@ -238,10 +249,12 @@ public partial class YtDlpManager : ObservableObject
     /// </summary>
     public async Task<string?> GetLatestVersionAsync()
     {
+        Log.Info("yt-dlp latest version check requested.");
         LoadCache();
 
         if (!string.IsNullOrEmpty(_cache?.LatestVersion) && (DateTime.Now - _cache.LastUpdated).TotalMinutes < 15)
         {
+            Log.Debug($"Using cached yt-dlp version: {_cache.LatestVersion}");
             return _cache.LatestVersion;
         }
 
@@ -350,6 +363,7 @@ public partial class YtDlpManager : ObservableObject
     /// </summary>
     public async Task UpdateAsync()
     {
+        Log.Info("yt-dlp update requested.");
         IsBusy = true;
         Status = "Updating yt-dlp...";
         IsDownloading = true;
@@ -380,6 +394,7 @@ public partial class YtDlpManager : ObservableObject
     /// </summary>
     private async Task DownloadLatestAsync()
     {
+        Log.Info("yt-dlp download requested: fetching latest release metadata.");
         LoadCache();
 
         Client.DefaultRequestHeaders.UserAgent.Clear();
@@ -436,10 +451,11 @@ public partial class YtDlpManager : ObservableObject
 
         if (string.IsNullOrEmpty(json))
         {
-            Log.Warn("GitHub API rate limit exceeded and no cache available. Falling back to default download URL.");
+            Log.Warn("yt-dlp latest release metadata unavailable; falling back to default URL.");
             string[] fallbackAssets = GetPlatformAssetNames();
             string fallbackAssetName = fallbackAssets[0];
             string fallbackUrl = $"https://github.com/yt-dlp/yt-dlp/releases/latest/download/{fallbackAssetName}";
+            Log.Info($"Using fallback yt-dlp asset URL: {fallbackUrl}");
             await DownloadWithProgressAsync(fallbackUrl, fallbackAssetName);
             return;
         }
@@ -468,8 +484,14 @@ public partial class YtDlpManager : ObservableObject
 
         var selectedAssetName = found.Value.GetProperty("name").GetString() ?? targetAssets[0];
         var url = found.Value.GetProperty("browser_download_url").GetString();
-        if (string.IsNullOrEmpty(url)) return;
+        if (string.IsNullOrEmpty(url))
+        {
+            Log.Error($"yt-dlp release asset {selectedAssetName} missing download URL.");
+            return;
+        }
 
+        Log.Info($"Selected yt-dlp asset: {selectedAssetName}");
+        Log.Info($"Downloading yt-dlp from: {url}");
         await DownloadWithProgressAsync(url, selectedAssetName);
     }
 
@@ -478,7 +500,9 @@ public partial class YtDlpManager : ObservableObject
     /// </summary>
     private async Task DownloadWithProgressAsync(string url, string assetName)
     {
+        Log.Info($"Starting yt-dlp download: asset={assetName}, url={url}");
         using var response = await Client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+        Log.Info($"yt-dlp download response: {(int)response.StatusCode} {response.ReasonPhrase}");
         var totalBytes = response.Content.Headers.ContentLength ?? -1L;
 
         string tempFile = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
@@ -544,6 +568,8 @@ public partial class YtDlpManager : ObservableObject
                 }
             }
         }
+
+        Log.Info($"yt-dlp install/extract finished for asset {assetName} into {_destFolder}.");
 
         try { if (File.Exists(tempFile)) File.Delete(tempFile); }
         catch
