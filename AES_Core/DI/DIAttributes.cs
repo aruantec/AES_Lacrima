@@ -12,6 +12,17 @@ namespace AES_Core.DI;
 [AttributeUsage(AttributeTargets.Class)]
 public class AutoRegisterAttribute : Attribute
 {
+    /// <summary>
+    /// Gets or sets the lifetime of the registered service. Defaults to <see cref="DependencyLifetime.Scoped"/>.
+    /// </summary>
+    public DependencyLifetime Lifetime { get; set; } = DependencyLifetime.Scoped;
+
+    public AutoRegisterAttribute() { }
+
+    public AutoRegisterAttribute(DependencyLifetime lifetime)
+    {
+        Lifetime = lifetime;
+    }
 }
 
 /// <summary>

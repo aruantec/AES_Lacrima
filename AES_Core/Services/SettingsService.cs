@@ -13,20 +13,22 @@ namespace AES_Core.Services;
 public partial class SettingsService : ISettingsService
 {
     /// <summary>
-    /// Internal list of registered settings-aware components. Items are
-    /// added by dependency-injected components (the generator produces
-    /// partials that call <c>AddSettingsItem</c> during initialization).
+    /// Internal list of registered settings-aware components.
     /// </summary>
     private List<ISetting> SettingsList { get; } = [];
 
+    private readonly object _lock = new();
+
     /// <summary>
-    /// Register a settings-capable component with the service. The service
-    /// will include the provided item in subsequent save operations.
+    /// Register a settings-capable component with the service.
     /// </summary>
     /// <param name="setting">Settings-aware component to register (not null).</param>
     public void AddSettingsItem(ISetting setting)
     {
-        SettingsList.Add(setting);
+        lock (_lock)
+        {
+            SettingsList.Add(setting);
+        }
     }
     
     /// <summary>
@@ -35,7 +37,13 @@ public partial class SettingsService : ISettingsService
     /// </summary>
     public void SaveSettings()
     {
-        foreach (var setting in SettingsList)
+        List<ISetting> snapshot;
+        lock (_lock)
+        {
+            snapshot = [.. SettingsList];
+        }
+
+        foreach (var setting in snapshot)
         {
             setting.SaveSettings();
         }

@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "ms-dotnettools.csharp",
+    "nromanov.dotrush",
+    "AvaloniaTeam.vscode-avalonia",
+    "nuke.nuke-support"
+  ]
+}

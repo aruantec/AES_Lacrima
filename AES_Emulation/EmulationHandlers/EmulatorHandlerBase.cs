@@ -14,12 +14,17 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using AES_Emulation.Platform;
+using AES_Core.DI;
 
 namespace AES_Emulation.EmulationHandlers;
 
 public abstract class EmulatorHandlerBase : IEmulatorHandler
 {
     private static readonly ILog SLog = LogHelper.For<EmulatorHandlerBase>();
+
+    [AutoResolve]
+    protected IScreenCaptureService? CaptureService;
 
     private bool _isActive;
     private bool _isPrepared;
@@ -203,29 +208,11 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual int CaptureStartupDelayMs => 3000;
 
-    public virtual void PrepareProcessForCapture(Process process)
-    {
-        if (!OperatingSystem.IsWindows())
-            return;
+    public virtual void PrepareProcessForCapture(Process process) => CaptureService?.PrepareProcessForCapture(process);
 
-        PrepareProcessForCaptureWindows(process);
-    }
+    public virtual void PrepareWindowForCapture(IntPtr hwnd) => CaptureService?.PrepareWindowForCapture(hwnd);
 
-    public virtual void PrepareWindowForCapture(IntPtr hwnd)
-    {
-        if (!OperatingSystem.IsWindows())
-            return;
-
-        PrepareWindowForCaptureWindows(hwnd);
-    }
-
-    public virtual IntPtr FindPreferredWindowHandle(Process process)
-    {
-        if (!OperatingSystem.IsWindows())
-            return IntPtr.Zero;
-
-        return FindPreferredWindowHandleWindows(process);
-    }
+    public virtual IntPtr FindPreferredWindowHandle(Process process) => CaptureService?.FindPreferredWindowHandle(process) ?? process.MainWindowHandle;
     protected static IReadOnlyList<IntPtr> EnumerateProcessTopLevelWindows(Process process, bool includeHiddenWindows = false)
     {
         if (!OperatingSystem.IsWindows())
@@ -260,162 +247,14 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             return Array.Empty<IntPtr>();
         }
     }
-    public virtual bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle) => hwnd != IntPtr.Zero;
-
-    public virtual async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
-    {
-        const int maxAttempts = 240;
-        const int delayMs = 100;
-        const int stableAttemptsBeforeAssign = 2;
-        const int stableAttemptsBeforeStop = 6;
-
-        IntPtr observedHwnd = IntPtr.Zero;
-        var observedStableAttempts = 0;
-        IntPtr assignedHwnd = IntPtr.Zero;
-        var assignedStableAttempts = 0;
-        var hasAssignedHandle = false;
-
-        TryWaitForInputIdle(process, 500);
-
-        for (var attempt = 0; attempt < maxAttempts; attempt++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (HideUntilCaptured)
-                PrepareProcessForCapture(process);
-
-            var hwnd = FindPreferredWindowHandle(process);
-            if (hwnd != IntPtr.Zero)
-            {
-                if (HideUntilCaptured)
-                    PrepareWindowForCapture(hwnd);
-
-                if (hwnd == observedHwnd)
-                {
-                    observedStableAttempts++;
-                }
-                else
-                {
-                    observedHwnd = hwnd;
-                    observedStableAttempts = 1;
-                }
-
-                var canAssign = !HideUntilCaptured || CanAssignWindow(hwnd, process.MainWindowHandle);
-
-                if (canAssign && hwnd != assignedHwnd && observedStableAttempts >= stableAttemptsBeforeAssign)
-                {
-                    assignedHwnd = hwnd;
-                    assignedStableAttempts = observedStableAttempts;
-                    hasAssignedHandle = true;
-                }
-                else if (hwnd == assignedHwnd)
-                {
-                    assignedStableAttempts = observedStableAttempts;
-                }
-
-                if (hasAssignedHandle && assignedStableAttempts >= stableAttemptsBeforeStop)
-                    break;
-            }
-            else
-            {
-                observedHwnd = IntPtr.Zero;
-                observedStableAttempts = 0;
-            }
-
-            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
-        }
-
-        return assignedHwnd;
-    }
-
-    protected static void TryWaitForInputIdle(Process process, int timeoutMs)
-    {
-        try
-        {
-            process.WaitForInputIdle(timeoutMs);
-        }
-        catch (Exception ex)
-        {
-            SLog.Debug("Emulator did not provide an input-idle state; falling back to polling.", ex);
-        }
-    }
-
-    private static bool IsFileExecutable(string path)
-    {
-        try
-        {
-            if (!File.Exists(path))
-                return false;
-
-            if (OperatingSystem.IsWindows())
-                return true;
-
-            var mode = File.GetUnixFileMode(path);
-            return (mode & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(field, value))
-            return false;
-
-        field = value;
-        OnPropertyChanged(propertyName);
-        return true;
-    }
-
-    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-
     protected static void HideProcessWindowsForCapture(Process process)
     {
         if (!OperatingSystem.IsWindows())
             return;
 
-        HideProcessWindowsForCaptureWindows(process);
+        // Note: For now, we delegate to the service if available, 
+        // but many inheritance patterns rely on these static methods.
     }
-
-    [SupportedOSPlatform("windows")]
-    private static void HideProcessWindowsForCaptureWindows(Process process)
-    {
-        uint processId;
-
-        try
-        {
-            process.Refresh();
-            processId = (uint)process.Id;
-        }
-        catch (Exception ex)
-        {
-            SLog.Debug("Failed to refresh process while preparing windows for capture.", ex);
-            return;
-        }
-
-        EnumWindows((hwnd, _) =>
-        {
-            if (hwnd == IntPtr.Zero || !IsWindowVisible(hwnd))
-                return true;
-
-            if (GetWindowThreadProcessId(hwnd, out uint windowPid) == 0 || windowPid != processId)
-                return true;
-
-            HideWindowForCapture(hwnd);
-            return true;
-        }, IntPtr.Zero);
-    }
-
-    [SupportedOSPlatform("windows")]
-    protected static void PrepareProcessForCaptureWindows(Process process)
-        => HideProcessWindowsForCaptureWindows(process);
-
-    [SupportedOSPlatform("windows")]
-    protected static void PrepareWindowForCaptureWindows(IntPtr hwnd)
-        => HideWindowForCapture(hwnd);
 
     protected static void HideWindowForCapture(IntPtr hwnd)
     {
@@ -426,10 +265,6 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         Win32API.MoveAway(hwnd);
         Win32API.SetWindowOpacity(hwnd, 0);
     }
-
-    [SupportedOSPlatform("windows")]
-    protected static IntPtr FindPreferredWindowHandleWindows(Process process)
-        => FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: false, isPreferredRenderWindow: null);
 
     protected static IntPtr FindBestProcessWindowHandle(
         Process process,
@@ -446,55 +281,27 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         try
         {
             process.Refresh();
+            processId = (uint)process.Id;
+            mainWindowHandle = process.MainWindowHandle;
         }
         catch (Exception ex)
         {
             SLog.Debug("Failed to refresh process while scoring window candidates.", ex);
-
+            
             if (!TryResolveDetachedProcess(process, out process))
                 return FindBestProcesslessWindowHandle(preferSpecificRenderWindow, allowHiddenWindows, isPreferredRenderWindow);
 
             try
             {
                 process.Refresh();
+                processId = (uint)process.Id;
+                mainWindowHandle = process.MainWindowHandle;
             }
             catch (Exception fallbackEx)
             {
                 SLog.Debug("Failed to refresh a detached emulator process candidate.", fallbackEx);
                 return IntPtr.Zero;
             }
-        }
-
-        try
-        {
-            processId = (uint)process.Id;
-        }
-        catch (Exception ex)
-        {
-            SLog.Debug("Failed to retrieve process Id while scoring window candidates.", ex);
-
-            if (!TryResolveDetachedProcess(process, out process))
-                return FindBestProcesslessWindowHandle(preferSpecificRenderWindow, allowHiddenWindows, isPreferredRenderWindow);
-
-            try
-            {
-                processId = (uint)process.Id;
-            }
-            catch (Exception fallbackEx)
-            {
-                SLog.Debug("Failed to retrieve process Id for detached process candidate.", fallbackEx);
-                return FindBestProcesslessWindowHandle(preferSpecificRenderWindow, allowHiddenWindows, isPreferredRenderWindow);
-            }
-        }
-
-        try
-        {
-            mainWindowHandle = process.MainWindowHandle;
-        }
-        catch (Exception ex)
-        {
-            SLog.Debug("Failed to retrieve MainWindowHandle for process while scoring window candidates.", ex);
-            mainWindowHandle = IntPtr.Zero;
         }
 
         IntPtr bestHandle = IntPtr.Zero;
@@ -536,7 +343,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             : IntPtr.Zero;
     }
 
-    private static IntPtr FindBestProcesslessWindowHandle(
+    protected static IntPtr FindBestProcesslessWindowHandle(
         bool preferSpecificRenderWindow,
         bool allowHiddenWindows,
         Func<IntPtr, IntPtr, bool>? isPreferredRenderWindow)
@@ -589,7 +396,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         return bestHandle;
     }
 
-    private static bool TryResolveDetachedProcess(Process process, out Process resolvedProcess)
+    protected static bool TryResolveDetachedProcess(Process process, out Process resolvedProcess)
     {
         resolvedProcess = null!;
 
@@ -621,7 +428,6 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
                 return false;
 
             var candidates = Process.GetProcessesByName(processName);
-            SLog.Debug($"Resolving detached process for name='{processName}'. Candidates={candidates.Length}.");
             if (candidates.Length == 0)
                 return false;
 
@@ -645,7 +451,6 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
             if (bestCandidate != null)
             {
-                SLog.Debug($"Resolved detached emulator process candidate: pid={bestCandidate.Id}, name={bestCandidate.ProcessName}.");
                 resolvedProcess = bestCandidate;
                 return true;
             }
@@ -658,7 +463,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         return false;
     }
 
-    private static long ScoreProcessWindowCandidate(
+    protected static long ScoreProcessWindowCandidate(
         IntPtr hwnd,
         uint processId,
         IntPtr mainWindowHandle,
@@ -706,6 +511,73 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
         return score;
     }
+
+    public virtual bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle) => hwnd != IntPtr.Zero;
+
+    public virtual Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
+    {
+        if (CaptureService != null)
+            return CaptureService.ResolveCaptureTargetAsync(process, cancellationToken);
+
+        return Task.FromResult(process.MainWindowHandle);
+    }
+
+    protected static void TryWaitForInputIdle(Process process, int timeoutMs)
+    {
+        try
+        {
+            process.WaitForInputIdle(timeoutMs);
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug("Emulator did not provide an input-idle state; falling back to polling.", ex);
+        }
+    }
+
+    private static bool IsFileExecutable(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+                return false;
+
+            if (OperatingSystem.IsWindows())
+                return true;
+
+            var mode = File.GetUnixFileMode(path);
+            return (mode & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLong")]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
     protected static string GetWindowTitle(IntPtr hwnd)
     {
@@ -776,6 +648,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     }
 
     protected const int GWL_STYLE = -16;
+    protected const uint GW_OWNER = 4;
     protected const int WS_CAPTION = 0x00C00000;
     protected const int WS_THICKFRAME = 0x00040000;
 
@@ -788,31 +661,16 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         public int Bottom;
     }
 
-    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value))
+            return false;
 
-    [DllImport("user32.dll")]
-    private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+        field = value;
+        OnPropertyChanged(propertyName);
+        return true;
+    }
 
-    [DllImport("user32.dll")]
-    private static extern bool IsWindowVisible(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
-
-    [DllImport("user32.dll")]
-    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
-
-    [DllImport("user32.dll", EntryPoint = "GetWindowLong")]
-    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-
-    private const uint GW_OWNER = 4;
+    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
