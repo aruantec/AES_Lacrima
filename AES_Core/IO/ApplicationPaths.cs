@@ -120,13 +120,9 @@ public static class ApplicationPaths
                 "Logs");
         }
 
-        if (OperatingSystem.IsMacOS())
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
         {
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.Personal),
-                "Library",
-                "Logs",
-                ApplicationName);
+            return Path.Combine(GetUserDataRootDirectory(), "Logs");
         }
 
         var stateHome = Environment.GetEnvironmentVariable("XDG_STATE_HOME");
