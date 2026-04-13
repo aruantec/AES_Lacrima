@@ -1,4 +1,4 @@
-﻿using AES_Core.Interfaces;
+using AES_Core.Interfaces;
 using AES_Lacrima.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -32,6 +32,18 @@ namespace AES_Lacrima.ViewModels
         public virtual void Prepare()
         {
             // Override if needed
+        }
+
+        /// <summary>
+        /// Perform asynchronous initialization or preparation.
+        /// </summary>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public virtual System.Threading.Tasks.Task PrepareAsync()
+        {
+            // By default, call the sync Prepare method if the user
+            // hasn't overridden PrepareAsync.
+            Prepare();
+            return System.Threading.Tasks.Task.CompletedTask;
         }
 
         /// <summary>

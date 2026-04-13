@@ -14,6 +14,12 @@ public interface IViewModelBase
     void Prepare();
 
     /// <summary>
+    /// Perform asynchronous initialization or preparation.
+    /// </summary>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    System.Threading.Tasks.Task PrepareAsync();
+
+    /// <summary>
     /// Called when the view associated with this view-model is about to be
     /// displayed. Implementations may reset or refresh transient state
     /// necessary for presentation.

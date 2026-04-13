@@ -90,12 +90,12 @@ namespace AES_Lacrima
                 if (settingsVm != null)
                 {
                     var settingsPrepareStopwatch = Stopwatch.StartNew();
-                    settingsVm.Prepare();
+                    await settingsVm.PrepareAsync();
                     var prepareMs = settingsPrepareStopwatch.ElapsedMilliseconds;
                     if (prepareMs >= 500)
-                        Logger.Warn($"SettingsViewModel.Prepare was slow on UI thread: {prepareMs} ms.");
+                        Logger.Warn($"SettingsViewModel.PrepareAsync was slow on UI thread: {prepareMs} ms.");
                     else
-                        Logger.Info($"SettingsViewModel.Prepare completed in {prepareMs} ms.");
+                        Logger.Info($"SettingsViewModel.PrepareAsync completed in {prepareMs} ms.");
                 }
 
                 var windowCreateSw = Stopwatch.StartNew();
@@ -121,12 +121,12 @@ namespace AES_Lacrima
                 DiLocator.ConfigureContainer();
 
                 var settingsVm = DiLocator.ResolveViewModel<SettingsViewModel>();
-                settingsVm?.Prepare();
+                if (settingsVm != null) await settingsVm.PrepareAsync();
 
                 var mainVm = DiLocator.ResolveViewModel<MainWindowViewModel>();
                 if (mainVm is { IsPrepared: false })
                 {
-                    mainVm.Prepare();
+                    await mainVm.PrepareAsync();
                     mainVm.IsPrepared = true;
                 }
 
