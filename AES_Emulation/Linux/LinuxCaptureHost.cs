@@ -109,6 +109,10 @@ public class LinuxCaptureHost : NativeControlHost
     private int _lastCropRight = -1;
     private int _lastCropBottom = -1;
     private bool _lastHideTargetWindowAfterCaptureStarts = false;
+    private string? _lastShaderPath = null;
+    private bool? _lastDisableVSync = null;
+    private bool? _lastPreferPipeWire = null;
+    private int _renderOptionsUpdateCount = 0;
 
     private string _statusText = "Idle";
     private bool _isDirectCompositionActive;
@@ -378,8 +382,8 @@ public class LinuxCaptureHost : NativeControlHost
             return;
         }
 
-        ApplyRenderOptions();
         LinuxCaptureBridge.aes_linux_capture_set_target(_capture, unchecked((int)TargetHwnd.ToInt64()), TargetWindowTitleHint);
+        ApplyRenderOptions();
         RefreshStatus();
     }
 
@@ -451,6 +455,25 @@ public class LinuxCaptureHost : NativeControlHost
             _lastHideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
         }
 
+        if (!_hasAppliedRenderOptions || _lastShaderPath != shaderPath)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_shader_path(_capture, shaderPath);
+            _lastShaderPath = shaderPath;
+        }
+
+        if (!_hasAppliedRenderOptions || _lastDisableVSync != DisableVSync)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_disable_vsync(_capture, DisableVSync ? 1 : 0);
+            _lastDisableVSync = DisableVSync;
+        }
+
+        if (!_hasAppliedRenderOptions || _lastPreferPipeWire != PreferPipeWire)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_use_pipewire(_capture, PreferPipeWire ? 1 : 0);
+            _lastPreferPipeWire = PreferPipeWire;
+        }
+
+        _renderOptionsUpdateCount++;
         _hasAppliedRenderOptions = true;
     }
 
@@ -472,6 +495,9 @@ public class LinuxCaptureHost : NativeControlHost
             return;
 
         var status = LinuxCaptureBridge.GetStatusText(_capture);
+        if (_hasAppliedRenderOptions && !string.IsNullOrEmpty(status))
+            status += $" (RenderOpts v{_renderOptionsUpdateCount})";
+
         if (!string.IsNullOrEmpty(status) && status != StatusText)
             StatusText = status;
 
