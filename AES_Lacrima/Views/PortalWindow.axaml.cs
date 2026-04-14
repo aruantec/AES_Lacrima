@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using AES_Emulation.Controls;
@@ -33,6 +34,19 @@ public partial class PortalWindow : Window
 
     public EmulatorCaptureHost? CaptureHostControl => this.FindControl<EmulatorCaptureHost>("CaptureControl");
 
+    public void MoveResizeUnconstrained(PixelPoint position, int widthPixels, int heightPixels)
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) 
+        {
+            this.Position = position;
+            this.Width = widthPixels / (this.RenderScaling > 0 ? this.RenderScaling : 1);
+            this.Height = heightPixels / (this.RenderScaling > 0 ? this.RenderScaling : 1);
+            return;
+        }
+
+        LinuxWindowPlacement.TryMoveResize(this, position.X, position.Y, widthPixels, heightPixels);
+    }
+
     private void InitializeComponent()
     {
         AvaloniaXamlLoader.Load(this);
@@ -41,7 +55,6 @@ public partial class PortalWindow : Window
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         // Prevent closing unless the application is shutting down.
-        // We handle visibility via Show/Hide/Move instead of closing.
         if (!_isApplicationShuttingDown)
         {
             e.Cancel = true;
@@ -68,6 +81,11 @@ public partial class PortalWindow : Window
             var handle = TryGetPlatformHandle()?.Handle;
             if (handle != null && handle != IntPtr.Zero)
                 MacSystemDialogs.ConfigurePortalWindow(handle.Value);
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            LinuxWindowPlacement.TryConfigureAsNormalWindow(this);
+            LinuxWindowPlacement.TryConfigureClickThrough(this);
         }
     }
 }

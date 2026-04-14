@@ -47,12 +47,12 @@ public sealed class FlyCastHandler : EmulatorHandlerBase
         return startInfo;
     }
 
-    public override void PrepareProcessForCapture(Process process) => HideProcessWindowsForCapture(process);
+    public override void PrepareProcessForCapture(Process process) => HideProcessWindowsForCapture(process, fallbackTitleHint: DisplayName);
 
     public override void PrepareWindowForCapture(IntPtr hwnd) => HideWindowForCapture(hwnd);
 
     public override IntPtr FindPreferredWindowHandle(Process process)
-        => FindBestProcessWindowHandle(process, preferSpecificRenderWindow: true, allowHiddenWindows: true, isPreferredRenderWindow: IsLikelyFlyCastRenderWindow);
+        => FindBestProcessWindowHandle(process, preferSpecificRenderWindow: true, allowHiddenWindows: true, isPreferredRenderWindow: IsLikelyFlyCastRenderWindow, fallbackTitleHint: DisplayName);
 
     public override bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle)
         => IsLikelyFlyCastRenderWindow(hwnd, mainWindowHandle);

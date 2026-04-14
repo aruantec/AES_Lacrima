@@ -158,6 +158,14 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             WorkingDirectory = workingDirectory
         };
 
+        if (OperatingSystem.IsLinux())
+        {
+            startInfo.Environment["SDL_VIDEODRIVER"] = "x11";
+            startInfo.Environment["GDK_BACKEND"] = "x11";
+            startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
+            startInfo.Environment.Remove("WAYLAND_DISPLAY");
+        }
+
         startInfo.ArgumentList.Add(romPath);
         return startInfo;
     }
@@ -213,8 +221,35 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     public virtual void PrepareWindowForCapture(IntPtr hwnd) => CaptureService?.PrepareWindowForCapture(hwnd);
 
     public virtual IntPtr FindPreferredWindowHandle(Process process) => CaptureService?.FindPreferredWindowHandle(process) ?? process.MainWindowHandle;
-    protected static IReadOnlyList<IntPtr> EnumerateProcessTopLevelWindows(Process process, bool includeHiddenWindows = false)
+    protected static IReadOnlyList<IntPtr> EnumerateProcessTopLevelWindows(Process process, bool includeHiddenWindows = false, string? fallbackTitleHint = null)
     {
+        if (OperatingSystem.IsLinux())
+        {
+            var pWindows = new List<IntPtr>();
+            try
+            {
+                process.Refresh();
+                var hwnds = AES_Emulation.Linux.API.LinuxWindowHelper.FindWindowsByPid(process.Id);
+
+                // If PID-based search fails (common with XWayland forks or launcher scripts), fallback to a broad title search
+                if (hwnds.Count == 0 && !string.IsNullOrWhiteSpace(fallbackTitleHint))
+                {
+                    hwnds = AES_Emulation.Linux.API.LinuxWindowHelper.FindWindowsByTitle(fallbackTitleHint);
+                }
+
+                foreach (var hwnd in hwnds)
+                {
+                    if (includeHiddenWindows || AES_Emulation.Linux.API.LinuxWindowHelper.IsWindowVisible(hwnd))
+                        pWindows.Add(hwnd);
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to enumerate Linux process windows.", ex);
+            }
+            return pWindows;
+        }
+
         if (!OperatingSystem.IsWindows())
             return Array.Empty<IntPtr>();
 
@@ -247,8 +282,19 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             return Array.Empty<IntPtr>();
         }
     }
-    protected static void HideProcessWindowsForCapture(Process process)
+
+    protected static void HideProcessWindowsForCapture(Process process, string? fallbackTitleHint = null)
     {
+        if (OperatingSystem.IsLinux())
+        {
+            var svc = new AES_Emulation.Linux.Platform.LinuxScreenCaptureService();
+            foreach (var h in EnumerateProcessTopLevelWindows(process, true, fallbackTitleHint))
+            {
+                svc.PrepareWindowForCapture(h);
+            }
+            return;
+        }
+
         if (!OperatingSystem.IsWindows())
             return;
 
@@ -258,7 +304,17 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     protected static void HideWindowForCapture(IntPtr hwnd)
     {
-        if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
+        if (hwnd == IntPtr.Zero)
+            return;
+
+        if (OperatingSystem.IsLinux())
+        {
+            var svc = new AES_Emulation.Linux.Platform.LinuxScreenCaptureService();
+            svc.PrepareWindowForCapture(hwnd);
+            return;
+        }
+
+        if (!OperatingSystem.IsWindows())
             return;
 
         Win32API.RemoveWindowDecorations(hwnd);
@@ -270,8 +326,31 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         Process process,
         bool preferSpecificRenderWindow,
         bool allowHiddenWindows,
-        Func<IntPtr, IntPtr, bool>? isPreferredRenderWindow)
+        Func<IntPtr, IntPtr, bool>? isPreferredRenderWindow,
+        string? fallbackTitleHint = null)
     {
+        if (OperatingSystem.IsLinux())
+        {
+            var pWindows = EnumerateProcessTopLevelWindows(process, allowHiddenWindows, fallbackTitleHint);
+            IntPtr linuxMain = process.MainWindowHandle;
+            IntPtr linuxBest = IntPtr.Zero;
+
+            foreach (var w1 in pWindows)
+            {
+                if (preferSpecificRenderWindow && isPreferredRenderWindow != null && isPreferredRenderWindow(w1, linuxMain))
+                {
+                    linuxBest = w1;
+                    break;
+                }
+                
+                // If there's no preferred filter, or we haven't matched one yet, grab the first non-zero window we see
+                if (linuxBest == IntPtr.Zero && w1 != IntPtr.Zero)
+                    linuxBest = w1;
+            }
+
+            return linuxBest != IntPtr.Zero ? linuxBest : linuxMain;
+        }
+
         if (!OperatingSystem.IsWindows())
             return IntPtr.Zero;
 
@@ -514,12 +593,55 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle) => hwnd != IntPtr.Zero;
 
-    public virtual Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
+    public virtual async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
-        if (CaptureService != null)
-            return CaptureService.ResolveCaptureTargetAsync(process, cancellationToken);
+        if (OperatingSystem.IsLinux())
+        {
+            const int maxAttempts = 240;
+            const int delayMs = 100;
+            IntPtr observedHwnd = IntPtr.Zero;
+            int stableCount = 0;
 
-        return Task.FromResult(process.MainWindowHandle);
+            var svc = new AES_Emulation.Linux.Platform.LinuxScreenCaptureService();
+
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var hwnd = this.FindPreferredWindowHandle(process);
+
+                if (hwnd != IntPtr.Zero)
+                {
+                    if (hwnd == observedHwnd)
+                    {
+                        stableCount++;
+                        if (stableCount >= 2)
+                        {
+                            svc.PrepareWindowForCapture(hwnd);
+                            return hwnd;
+                        }
+                    }
+                    else
+                    {
+                        observedHwnd = hwnd;
+                        stableCount = 1;
+                    }
+                }
+                else
+                {
+                    observedHwnd = IntPtr.Zero;
+                    stableCount = 0;
+                }
+
+                await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+            }
+
+            return IntPtr.Zero;
+        }
+
+        if (CaptureService != null)
+            return await CaptureService.ResolveCaptureTargetAsync(process, cancellationToken);
+
+        return process.MainWindowHandle;
     }
 
     protected static void TryWaitForInputIdle(Process process, int timeoutMs)
@@ -581,6 +703,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     protected static string GetWindowTitle(IntPtr hwnd)
     {
+        if (OperatingSystem.IsLinux())
+            return AES_Emulation.Linux.API.LinuxWindowHelper.GetWindowTitle(hwnd);
+
         if (!OperatingSystem.IsWindows())
             return string.Empty;
 

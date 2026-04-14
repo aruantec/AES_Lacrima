@@ -10,7 +10,6 @@ namespace AES_Emulation.Platform;
 /// Default no-op or basic implementation of IScreenCaptureService for platforms 
 /// where advanced window capture/preparation is not yet supported or needed.
 /// </summary>
-[AutoRegister(DependencyLifetime.Singleton)]
 public class DefaultScreenCaptureService : IScreenCaptureService
 {
     public bool HideUntilCaptured => false;
