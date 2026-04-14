@@ -2632,11 +2632,13 @@ static void RenderPipeWireFrame(LinuxCapture* cap, struct pw_buffer* pwbuf)
         if (!topLevel) topLevel = cap->target;
         GetWindowExtents(cap->display, topLevel, &extLeft, &extRight, &extTop, &extBottom);
     }
-    
-    // Default coords
+
+    int srcW = std::max(1, (int)cap->pw_width - extLeft - extRight);
+    int srcH = std::max(1, (int)cap->pw_height - extTop - extBottom);
+
     float u0 = 0.0f, u1 = 1.0f;
     float v0 = 0.0f, v1 = 1.0f;
-    
+
     if (cap->pw_width > 0 && cap->pw_height > 0)
     {
         u0 = (float)extLeft / cap->pw_width;
@@ -2644,6 +2646,61 @@ static void RenderPipeWireFrame(LinuxCapture* cap, struct pw_buffer* pwbuf)
         v0 = (float)extTop / cap->pw_height;
         v1 = 1.0f - ((float)extBottom / cap->pw_height);
     }
+
+    int hostW = std::max(1, cap->cached_host_w);
+    int hostH = std::max(1, cap->cached_host_h);
+    int vpX = 0, vpY = 0, vpW = hostW, vpH = hostH;
+
+    const double srcAspect = static_cast<double>(srcW) / static_cast<double>(srcH);
+    const double dstAspect = static_cast<double>(hostW) / static_cast<double>(hostH);
+
+    if (cap->stretch == 0) // None
+    {
+        vpW = std::min(hostW, srcW);
+        vpH = std::min(hostH, srcH);
+        vpX = (hostW - vpW) / 2;
+        vpY = (hostH - vpH) / 2;
+    }
+    else if (cap->stretch == 2) // Uniform
+    {
+        if (srcAspect > dstAspect) {
+            vpW = hostW;
+            vpH = std::max(1, static_cast<int>(hostW / srcAspect));
+        } else {
+            vpH = hostH;
+            vpW = std::max(1, static_cast<int>(hostH * srcAspect));
+        }
+        vpX = (hostW - vpW) / 2;
+        vpY = (hostH - vpH) / 2;
+    }
+    else if (cap->stretch == 3) // UniformToFill
+    {
+        if (srcAspect > dstAspect) {
+            vpH = hostH;
+            vpW = std::max(1, static_cast<int>(hostH * srcAspect));
+        } else {
+            vpW = hostW;
+            vpH = std::max(1, static_cast<int>(hostW / srcAspect));
+        }
+        vpX = (hostW - vpW) / 2;
+        vpY = (hostH - vpH) / 2;
+    }
+
+    glViewport(vpX, vpY, vpW, vpH);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glUseProgram(cap->shader_program);
+
+    if (cap->shader_u_tex >= 0)         glUniform1i(cap->shader_u_tex, 0);
+    if (cap->shader_u_brightness >= 0)  glUniform1f(cap->shader_u_brightness, cap->brightness);
+    if (cap->shader_u_saturation >= 0)  glUniform1f(cap->shader_u_saturation, cap->saturation);
+    if (cap->shader_u_tint >= 0)        glUniform4fv(cap->shader_u_tint, 1, cap->tint);
+    if (cap->shader_u_source_size >= 0) glUniform2f(cap->shader_u_source_size, (float)srcW, (float)srcH);
+    if (cap->shader_u_output_size >= 0) glUniform2f(cap->shader_u_output_size, (float)vpW, (float)vpH);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, cap->egl_texture);
 
     glBegin(GL_TRIANGLE_STRIP);
     glTexCoord2f(u0, v0); glVertex2f(-1.0f,  1.0f);
