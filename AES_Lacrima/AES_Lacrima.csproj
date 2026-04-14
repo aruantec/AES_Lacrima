@@ -148,6 +148,26 @@
     <Message Importance="high" Text="Installing Linux desktop entry for publish output at '$(PublishDir)'" />
     <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh&quot; &quot;$(PublishDir)&quot;" />
   </Target>
+  <Target Name="BuildLinuxCaptureBridge" AfterTargets="Build" Condition="$([MSBuild]::IsOSPlatform('Linux')) and Exists('$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp')">
+    <Message Importance="high" Text="Building Linux capture bridge into '$(OutDir)libAesLinuxCaptureBridge.so'" />
+    <Exec Command="pkg-config --cflags libpipewire-0.3 dbus-1" ConsoleToMSBuild="true" ContinueOnError="true" EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_PwCflags" />
+    </Exec>
+    <Exec Command="pkg-config --libs libpipewire-0.3 dbus-1" ConsoleToMSBuild="true" ContinueOnError="true" EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_PwLibs" />
+    </Exec>
+    <Exec Command="g++ -shared -fPIC -O2 -std=c++17 -Wall -Wextra $(_PwCflags) -o &quot;$(OutDir)libAesLinuxCaptureBridge.so&quot; &quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&quot; -lGL -lEGL -lX11 -lXcomposite -lXdamage -lXfixes -lXext -lpthread $(_PwLibs)" />
+  </Target>
+  <Target Name="BuildLinuxCaptureBridgeForPublish" AfterTargets="Publish" Condition="$([MSBuild]::IsOSPlatform('Linux')) and Exists('$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp')">
+    <Message Importance="high" Text="Building Linux capture bridge into '$(PublishDir)libAesLinuxCaptureBridge.so'" />
+    <Exec Command="pkg-config --cflags libpipewire-0.3 dbus-1" ConsoleToMSBuild="true" ContinueOnError="true" EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_PwCflagsP" />
+    </Exec>
+    <Exec Command="pkg-config --libs libpipewire-0.3 dbus-1" ConsoleToMSBuild="true" ContinueOnError="true" EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_PwLibsP" />
+    </Exec>
+    <Exec Command="g++ -shared -fPIC -O2 -std=c++17 -Wall -Wextra $(_PwCflagsP) -o &quot;$(PublishDir)libAesLinuxCaptureBridge.so&quot; &quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&quot; -lGL -lEGL -lX11 -lXcomposite -lXdamage -lXfixes -lXext -lpthread $(_PwLibsP)" />
+  </Target>
   <Target Name="BuildMacCaptureBridge" AfterTargets="Build" Condition="$([MSBuild]::IsOSPlatform('OSX')) and Exists('$(MSBuildProjectDirectory)/Mac/Native/AesMacCaptureBridge.m')">
     <Message Importance="high" Text="Building macOS ScreenCaptureKit bridge into '$(OutDir)libAesMacCaptureBridge.dylib'" />
     <Exec Command="clang -dynamiclib -fobjc-arc -framework AppKit -framework AVFoundation -framework CoreGraphics -framework CoreMedia -framework QuartzCore -framework ScreenCaptureKit -o &quot;$(OutDir)libAesMacCaptureBridge.dylib&quot; &quot;$(MSBuildProjectDirectory)/Mac/Native/AesMacCaptureBridge.m&quot;" />
