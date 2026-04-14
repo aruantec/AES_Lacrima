@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using AES_Emulation.Mac;
 using AES_Emulation.Windows;
+using AES_Emulation.Linux;
 
 namespace AES_Emulation.Controls;
 
@@ -290,6 +291,9 @@ public class EmulatorCaptureHost : ContentControl
         if (OperatingSystem.IsMacOS())
             return new ScreenCaptureKitCaptureHost();
 
+        if (OperatingSystem.IsLinux())
+            return new LinuxCaptureHost();
+
         return new Border
         {
             Background = Brushes.Black
@@ -305,6 +309,9 @@ public class EmulatorCaptureHost : ContentControl
                 break;
             case ScreenCaptureKitCaptureHost macBackend:
                 BindToMacBackend(macBackend);
+                break;
+            case LinuxCaptureHost linuxBackend:
+                BindToLinuxBackend(linuxBackend);
                 break;
             default:
                 StatusText = "Capture backend unavailable on this platform";
@@ -348,6 +355,24 @@ public class EmulatorCaptureHost : ContentControl
             .Subscribe(new LambdaObserver<string>(value => GpuVendor = value));
     }
 
+    private void BindToLinuxBackend(LinuxCaptureHost backend)
+    {
+        backend.GetObservable(LinuxCaptureHost.IsCaptureInitializingProperty)
+            .Subscribe(new LambdaObserver<bool>(value => IsCaptureInitializing = value));
+        backend.GetObservable(LinuxCaptureHost.StatusTextProperty)
+            .Subscribe(new LambdaObserver<string>(value => StatusText = value));
+        backend.GetObservable(LinuxCaptureHost.IsDirectCompositionActiveProperty)
+            .Subscribe(new LambdaObserver<bool>(value => IsDirectCompositionActive = value));
+        backend.GetObservable(LinuxCaptureHost.FpsProperty)
+            .Subscribe(new LambdaObserver<double>(value => Fps = value));
+        backend.GetObservable(LinuxCaptureHost.FrameTimeMsProperty)
+            .Subscribe(new LambdaObserver<double>(value => FrameTimeMs = value));
+        backend.GetObservable(LinuxCaptureHost.GpuRendererProperty)
+            .Subscribe(new LambdaObserver<string>(value => GpuRenderer = value));
+        backend.GetObservable(LinuxCaptureHost.GpuVendorProperty)
+            .Subscribe(new LambdaObserver<string>(value => GpuVendor = value));
+    }
+
     private void SyncBackendProperties()
     {
         switch (_backend)
@@ -387,6 +412,24 @@ public class EmulatorCaptureHost : ContentControl
                 macBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
                 macBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
                 macBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
+                break;
+            case LinuxCaptureHost linuxBackend:
+                linuxBackend.TargetHwnd = TargetHwnd;
+                linuxBackend.TargetWindowTitleHint = TargetWindowTitleHint;
+                linuxBackend.RequestStopSession = RequestStopSession;
+                linuxBackend.Stretch = Stretch;
+                linuxBackend.Brightness = Brightness;
+                linuxBackend.Saturation = Saturation;
+                linuxBackend.ColorTint = ColorTint;
+                linuxBackend.DisableVSync = DisableVSync;
+                linuxBackend.ShaderPath = ShaderPath;
+                linuxBackend.ClearShaderWhenPathEmpty = ClearShaderWhenPathEmpty;
+                linuxBackend.ForceUseTargetClientArea = ForceUseTargetClientArea;
+                linuxBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
+                linuxBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
+                linuxBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
+                linuxBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
+                linuxBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
                 break;
         }
     }
