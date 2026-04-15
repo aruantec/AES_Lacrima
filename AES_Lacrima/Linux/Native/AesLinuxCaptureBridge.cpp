@@ -100,6 +100,11 @@ typedef struct
     unsigned int target_saved_w;
     unsigned int target_saved_h;
     int target_saved_geometry_valid;
+    Window proxy_window;
+    int last_proxy_x;
+    int last_proxy_y;
+    int last_proxy_w;
+    int last_proxy_h;
     int target_skip_taskbar_applied;
     int target_input_passthrough_applied;
     int disable_vsync;
@@ -209,6 +214,36 @@ extern "C" {
 
 static pthread_once_t g_x11_threads_once = PTHREAD_ONCE_INIT;
 static char g_pw_restore_token[256] = {0};
+static int g_pw_token_loaded = 0;
+
+static void LoadRestoreToken() {
+    if (g_pw_token_loaded) return;
+    const char* home = getenv("HOME");
+    if (!home) return;
+    char path[512];
+    snprintf(path, sizeof(path), "%s/.aes_lacrima_pw_token", home);
+    FILE* f = fopen(path, "r");
+    if (f) {
+        if (fgets(g_pw_restore_token, sizeof(g_pw_restore_token), f)) {
+            size_t len = strlen(g_pw_restore_token);
+            if (len > 0 && g_pw_restore_token[len-1] == '\n') g_pw_restore_token[len-1] = '\0';
+        }
+        fclose(f);
+    }
+    g_pw_token_loaded = 1;
+}
+
+static void SaveRestoreToken() {
+    const char* home = getenv("HOME");
+    if (!home) return;
+    char path[512];
+    snprintf(path, sizeof(path), "%s/.aes_lacrima_pw_token", home);
+    FILE* f = fopen(path, "w");
+    if (f) {
+        fputs(g_pw_restore_token, f);
+        fclose(f);
+    }
+}
 
 static void InitX11ThreadsOnce()
 {
@@ -933,13 +968,21 @@ static void HideTargetOffscreenIfRequested(LinuxCapture* cap)
 
     if (cap->backend_mode == BackendPipeWire || cap->use_pipewire)
     {
-        // PipeWire captures the composited output. If opacity is 0, the capture becomes black.
-        // Off-screen moves are often ignored or restricted by modern Wayland/X11 compositors.
-        // Instead, we simply lower the window behind all other windows (like the Avalonia UI).
-        XLowerWindow(cap->display, hideWindow);
+        if (cap->proxy_window) {
+            Status status = XReparentWindow(cap->display, hideWindow, cap->proxy_window, 0, 0);
+            LogNative("target 0x%lx reparented to proxy_window 0x%lx, status=%d", hideWindow, cap->proxy_window, status);
+            XMapWindow(cap->display, hideWindow);
+            XLowerWindow(cap->display, hideWindow);
+            
+            // Immediately fill the proxy surface using our clean last known dimensions
+            int targetW = cap->last_proxy_w > 0 ? cap->last_proxy_w : 320;
+            int targetH = cap->last_proxy_h > 0 ? cap->last_proxy_h : 240;
+            XMoveResizeWindow(cap->display, hideWindow, 0, 0, targetW, targetH);
+        } else {
+            XLowerWindow(cap->display, hideWindow);
+            LogNative("target 0x%lx lowered (no proxy_window)", hideWindow);
+        }
         cap->target_hidden_offscreen = 1;
-
-        LogNative("target 0x%lx pushed to background (PipeWire mode)", cap->target);
         return;
     }
 
@@ -974,6 +1017,14 @@ static void RestoreTargetFromOffscreenIfNeeded(LinuxCapture* cap)
         cap->target_hidden_offscreen = 0;
         cap->target_saved_geometry_valid = 0;
         return;
+    }
+
+    if (cap->backend_mode == BackendPipeWire || cap->use_pipewire)
+    {
+        if (cap->proxy_window) {
+            Window root = DefaultRootWindow(cap->display);
+            XReparentWindow(cap->display, restoreWindow, root, cap->target_saved_x, cap->target_saved_y);
+        }
     }
 
     if (cap->target_saved_geometry_valid)
@@ -1433,6 +1484,71 @@ static void PumpXEventsLocked(LinuxCapture* cap)
             cap->gpu_frame_pending = 1;
         }
     }
+
+    if (cap->proxy_window != 0 && cap->window != 0)
+    {
+        XWindowAttributes hostAttrs;
+        if (XGetWindowAttributes(cap->display, cap->window, &hostAttrs))
+        {
+            // Sync mapped status (minimize/restore with app)
+            if (hostAttrs.map_state == IsViewable) {
+                XMapWindow(cap->display, cap->proxy_window);
+            } else {
+                XUnmapWindow(cap->display, cap->proxy_window);
+            }
+
+            Window child;
+            int x = 0, y = 0;
+            if (XTranslateCoordinates(cap->display, cap->window, DefaultRootWindow(cap->display), 0, 0, &x, &y, &child))
+            {
+                int w = hostAttrs.width;
+                int h = hostAttrs.height;
+                
+                // Relaxed huge check: only clamp if dimensions are zero or ridiculously huge (> desktop + 4k)
+                int screen_w = DisplayWidth(cap->display, cap->screen);
+                int screen_h = DisplayHeight(cap->display, cap->screen);
+                if (w <= 0 || h <= 0 || w > screen_w + 4096 || h > screen_h + 4096) {
+                    w = 320; h = 240;
+                }
+
+                if (cap->last_proxy_x != x || cap->last_proxy_y != y || 
+                    cap->last_proxy_w != w || cap->last_proxy_h != h)
+                {
+                    // "Bypass Limits" fix: If moving out of bounds (left/bottom), 
+                    // some WMs require a staging move off-screen to allow it.
+                    if (x < 0 || y + h > screen_h) {
+                        XMoveResizeWindow(cap->display, cap->proxy_window, screen_w + 100, y, w, h);
+                        XFlush(cap->display);
+                    }
+
+                    XSizeHints* sh = XAllocSizeHints();
+                    if (sh) {
+                        sh->flags = PPosition | PSize | PMinSize | PMaxSize;
+                        sh->x = x; sh->y = y; sh->width = w; sh->height = h;
+                        sh->min_width = w; sh->min_height = h;
+                        sh->max_width = w; sh->max_height = h;
+                        XSetWMNormalHints(cap->display, cap->proxy_window, sh);
+                        XFree(sh);
+                    }
+
+                    XMoveResizeWindow(cap->display, cap->proxy_window, x, y, w, h);
+                    XLowerWindow(cap->display, cap->proxy_window);
+                    
+                    XFlush(cap->display);
+                    cap->last_proxy_x = x;
+                    cap->last_proxy_y = y;
+                    cap->last_proxy_w = w;
+                    cap->last_proxy_h = h;
+                }
+
+                // FORCE embedded emulator to always match current proxy dimensions, 
+                // even if proxy size hasn't changed (fixes huge window on game relaunch)
+                if (cap->target_hidden_offscreen && cap->hidden_window && (cap->backend_mode == BackendPipeWire || cap->use_pipewire)) {
+                    XMoveResizeWindow(cap->display, cap->hidden_window, 0, 0, w, h);
+                }
+            }
+        }
+    }
 }
 
 // Forward declarations for PipeWire / EGL / D-Bus functions defined later
@@ -1492,6 +1608,7 @@ static void* RenderThreadMain(void* arg)
             glBindTexture(GL_TEXTURE_2D, 0);
         }
         cap->shader_program = 0;
+        cap->shader_dirty = 1;
         LogNative("PipeWire: render thread entered PW mode (GL %s)", glGetString(GL_VERSION));
 
         while (!cap->stop_render_thread && cap->pw_active)
@@ -1577,10 +1694,10 @@ static void* RenderThreadMain(void* arg)
             
             bool pw_ok = InitPipeWireBackend(cap);
             
-            // Now that the portal picker dialog is closed (user made a selection or cancelled),
-            // hide the emulator window if requested.
+            // Portal picker dialog is closed. 
+            // Emulator is already hidden/reparented immediately in set_target.
             pthread_mutex_lock(&cap->mutex);
-            HideTargetOffscreenIfRequested(cap);
+            XFlush(cap->display);
             pthread_mutex_unlock(&cap->mutex);
 
             if (pw_ok)
@@ -1588,6 +1705,7 @@ static void* RenderThreadMain(void* arg)
                 EnterPwRenderLoop();
                 // Return to X11 idle loop once PipeWire stops
                 cap->shader_program = 0;
+                cap->shader_dirty = 1;
                 cap->backend_mode = BackendNone;
                 continue;
             }
@@ -2071,6 +2189,7 @@ static int PortalOpenScreenCast(uint32_t* node_id_out)
         dbus_connection_unref(conn);
         return -1;
     }
+    SaveRestoreToken();
     LogNative("PipeWire: Start succeeded, node_id=%u", node_id);
     *node_id_out = node_id;
 
@@ -2923,6 +3042,8 @@ LinuxCapture* aes_linux_capture_create(void* parentHandle)
     if (!cap)
         return nullptr;
 
+    LoadRestoreToken();
+
     cap->display = XOpenDisplay(nullptr);
     if (!cap->display)
     {
@@ -2962,6 +3083,95 @@ LinuxCapture* aes_linux_capture_create(void* parentHandle)
         SetGpuInfo(cap, "OpenGL (GLX) composite", "Linux/X11");
         SetStatusText(cap, "Linux capture idle");
     }
+
+    int p_w = 320, p_h = 240, p_x = 0, p_y = 0;
+    // Don't trust initial parent size if it's likely uninitialized (fullscreen)
+    if (cap->window) {
+        Window child;
+        if (XTranslateCoordinates(cap->display, cap->window, DefaultRootWindow(cap->display), 0, 0, &p_x, &p_y, &child)) {
+            XWindowAttributes attr;
+            if (XGetWindowAttributes(cap->display, cap->window, &attr)) {
+                int screen_w = DisplayWidth(cap->display, cap->screen);
+                int screen_h = DisplayHeight(cap->display, cap->screen);
+                if (attr.width > 0 && attr.height > 0 && attr.width < screen_w && attr.height < screen_h) {
+                    p_w = attr.width;
+                    p_h = attr.height;
+                }
+            }
+        }
+    }
+    
+    cap->proxy_window = XCreateSimpleWindow(cap->display, DefaultRootWindow(cap->display),
+        p_x, p_y, p_w > 0 ? p_w : 1, p_h > 0 ? p_h : 1, 0,
+        BlackPixel(cap->display, cap->screen),
+        BlackPixel(cap->display, cap->screen));
+    
+    // Prevent focus even when clicked/mapped to avoid jumping to top
+    Atom user_time_atom = XInternAtom(cap->display, "_NET_WM_USER_TIME", False);
+    unsigned long user_time = 0;
+    XChangeProperty(cap->display, cap->proxy_window, user_time_atom, XA_CARDINAL, 32, PropModeReplace, (unsigned char*)&user_time, 1);
+        
+    XSizeHints* initialSizeHints = XAllocSizeHints();
+    if (initialSizeHints) {
+        int w = p_w > 0 ? p_w : 1;
+        int h = p_h > 0 ? p_h : 1;
+        initialSizeHints->flags = PPosition | PSize | PMinSize | PMaxSize;
+        initialSizeHints->x = p_x; initialSizeHints->y = p_y; 
+        initialSizeHints->width = w; initialSizeHints->height = h;
+        initialSizeHints->min_width = w; initialSizeHints->min_height = h;
+        initialSizeHints->max_width = w; initialSizeHints->max_height = h;
+        XSetWMNormalHints(cap->display, cap->proxy_window, initialSizeHints);
+        XFree(initialSizeHints);
+    }
+        
+    struct {
+        unsigned long flags;
+        unsigned long functions;
+        unsigned long decorations;
+        long input_mode;
+        unsigned long status;
+    } hints = {2, 0, 0, 0, 0};
+    Atom motif_hints = XInternAtom(cap->display, "_MOTIF_WM_HINTS", False);
+    XChangeProperty(cap->display, cap->proxy_window, motif_hints, motif_hints, 32, PropModeReplace, (unsigned char*)&hints, 5);
+
+    XClassHint* classHint = XAllocClassHint();
+    if (classHint) {
+        classHint->res_name = (char*)"AES_Lacrima";
+        classHint->res_class = (char*)"AES_Lacrima";
+        XSetClassHint(cap->display, cap->proxy_window, classHint);
+        XFree(classHint);
+    }
+    
+    // Set both legacy WM_NAME and modern _NET_WM_NAME
+    XStoreName(cap->display, cap->proxy_window, "AES Capture Surface");
+    Atom net_wm_name = XInternAtom(cap->display, "_NET_WM_NAME", False);
+    Atom utf8_string = XInternAtom(cap->display, "UTF8_STRING", False);
+    const char* title = "AES Capture Surface";
+    XChangeProperty(cap->display, cap->proxy_window, net_wm_name, utf8_string, 8, PropModeReplace, (const unsigned char*)title, strlen(title));
+
+    // Explicitly set it as a Normal window so the portal definitely lists it
+    Atom window_type = XInternAtom(cap->display, "_NET_WM_WINDOW_TYPE", False);
+    Atom window_type_normal = XInternAtom(cap->display, "_NET_WM_WINDOW_TYPE_NORMAL", False);
+    XChangeProperty(cap->display, cap->proxy_window, window_type, XA_ATOM, 32, PropModeReplace, (unsigned char*)&window_type_normal, 1);
+    
+    // Pin to background and hide from taskbar/pagers
+    Atom wm_state = XInternAtom(cap->display, "_NET_WM_STATE", False);
+    Atom wm_state_below = XInternAtom(cap->display, "_NET_WM_STATE_BELOW", False);
+    Atom wm_state_skip_taskbar = XInternAtom(cap->display, "_NET_WM_STATE_SKIP_TASKBAR", False);
+    Atom wm_state_skip_pager = XInternAtom(cap->display, "_NET_WM_STATE_SKIP_PAGER", False);
+    Atom atoms[] = { wm_state_below, wm_state_skip_taskbar, wm_state_skip_pager };
+    XChangeProperty(cap->display, cap->proxy_window, wm_state, XA_ATOM, 32, PropModeReplace, (unsigned char*)atoms, 3);
+
+    // Restore full opacity as nearly-zero opacity can cause the compositor to skip rendering
+    SetWindowOpacity(cap->display, cap->proxy_window, 0xFFFFFFFFUL);
+
+    XLowerWindow(cap->display, cap->proxy_window);
+    XMapWindow(cap->display, cap->proxy_window);
+    XFlush(cap->display);
+    
+    SetWindowInputPassthrough(cap->display, cap->proxy_window, true);
+    
+    cap->host_geometry_dirty = 1;
 
     cap->use_pipewire = 1; // enabled; actual init happens in render thread when set_target is called
     cap->brightness = 1.0f;
@@ -3032,6 +3242,12 @@ void aes_linux_capture_destroy(LinuxCapture* cap)
             XReparentWindow(cap->display, cap->target, root, 0, 0);
             XMapWindow(cap->display, cap->target);
             XFlush(cap->display);
+        }
+
+        if (cap->proxy_window)
+        {
+            XDestroyWindow(cap->display, cap->proxy_window);
+            cap->proxy_window = 0;
         }
 
         RestoreTargetFromOffscreenIfNeeded(cap);
@@ -3201,6 +3417,7 @@ void aes_linux_capture_set_target(LinuxCapture* cap, int processId, const char* 
         cap->last_present_sample_ns = 0;
         cap->last_render_ns = 0;
         cap->gpu_frame_pending = 1;
+        cap->shader_dirty = 1;
         if (cap->damage != 0)
         {
             XDamageDestroy(cap->display, cap->damage);
@@ -3219,10 +3436,10 @@ void aes_linux_capture_set_target(LinuxCapture* cap, int processId, const char* 
             cap->pw_init_requested = 1;
             LogNative("set_target: PW init requested; portal picker will appear on render thread");
         }
-        else
-        {
-            HideTargetOffscreenIfRequested(cap);
-        }
+
+        HideTargetOffscreenIfRequested(cap);
+        XLowerWindow(cap->display, cap->proxy_window);
+        XFlush(cap->display);
         pthread_mutex_unlock(&cap->mutex);
         return;
     }
@@ -3243,6 +3460,7 @@ void aes_linux_capture_set_target(LinuxCapture* cap, int processId, const char* 
     cap->last_present_sample_ns = 0;
     cap->last_render_ns = 0;
     cap->gpu_frame_pending = 1;
+    cap->shader_dirty = 1;
     cap->has_target_geometry = 0;
     cap->target_hidden_offscreen = 0;
     cap->hidden_window = 0;
@@ -3251,7 +3469,8 @@ void aes_linux_capture_set_target(LinuxCapture* cap, int processId, const char* 
     cap->target_input_passthrough_applied = 0;
 
     XUnmapWindow(cap->display, target);
-    XReparentWindow(cap->display, target, cap->window, 0, 0);
+    Status status = XReparentWindow(cap->display, target, cap->window, 0, 0);
+    LogNative("target 0x%lx reparented to cap->window 0x%lx (fallback), status=%d", target, cap->window, status);
     UpdateFallbackTargetGeometry(cap);
     XMapWindow(cap->display, target);
     XFlush(cap->display);
