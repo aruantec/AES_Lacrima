@@ -20,6 +20,9 @@ public static class X11Interop
     public static extern int XCloseDisplay(IntPtr display);
 
     [DllImport(libX11)]
+    public static extern int XFree(IntPtr data);
+
+    [DllImport(libX11)]
     public static extern int XFreePixmap(IntPtr display, IntPtr pixmap);
 
     [DllImport(libXcomposite)]
@@ -59,6 +62,16 @@ public static class X11Interop
 
     [DllImport(libX11)]
     public static extern int XSync(IntPtr display, bool discard);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct XClassHint
+    {
+        public IntPtr res_name;
+        public IntPtr res_class;
+    }
+
+    [DllImport(libX11)]
+    public static extern int XGetClassHint(IntPtr display, IntPtr w, out XClassHint class_hint_return);
 
     [DllImport(libX11)]
     public static extern int XLowerWindow(IntPtr display, IntPtr window);

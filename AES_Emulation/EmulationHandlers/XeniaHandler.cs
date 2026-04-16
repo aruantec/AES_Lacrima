@@ -27,10 +27,16 @@ public sealed class XeniaHandler : EmulatorHandlerBase
 
     public override bool ForceUseTargetClientAreaCapture => true;
 
+    public override int ClientAreaCropTopInset => OperatingSystem.IsLinux() ? 72 : 0;
+
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
         if (string.IsNullOrWhiteSpace(albumTitle))
             return false;
+
+        var lower = albumTitle.ToLowerInvariant();
+        if (lower.Contains("xenia"))
+            return true;
 
         return string.Equals(albumTitle, SectionTitle, StringComparison.OrdinalIgnoreCase) ||
                string.Equals(albumTitle, SectionKey, StringComparison.OrdinalIgnoreCase) ||
@@ -50,30 +56,29 @@ public sealed class XeniaHandler : EmulatorHandlerBase
         return startInfo;
     }
 
-    [SupportedOSPlatform("windows")]
     public override IntPtr FindPreferredWindowHandle(Process process)
     {
-        if (!OperatingSystem.IsWindows())
-            return IntPtr.Zero;
-
         var topLevel = FindBestProcessWindowHandle(
             process,
             preferSpecificRenderWindow: true,
             allowHiddenWindows: true,
-            isPreferredRenderWindow: IsLikelyXeniaRenderWindow);
+            isPreferredRenderWindow: IsLikelyXeniaRenderWindow,
+            fallbackTitleHint: "xenia");
 
-        var childRenderWindow = FindBestXeniaRenderChildWindow(process, topLevel);
-        return childRenderWindow != IntPtr.Zero ? childRenderWindow : topLevel;
+        if (OperatingSystem.IsWindows())
+        {
+            var childRenderWindow = FindBestXeniaRenderChildWindow(process, topLevel);
+            return childRenderWindow != IntPtr.Zero ? childRenderWindow : topLevel;
+        }
+
+        return topLevel;
     }
 
-    [SupportedOSPlatform("windows")]
     public override bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle)
         => IsLikelyXeniaRenderWindow(hwnd, mainWindowHandle);
 
-    [SupportedOSPlatform("windows")]
     public override void PrepareWindowForCapture(IntPtr hwnd) => HideWindowForCapture(hwnd);
 
-    [SupportedOSPlatform("windows")]
     private static bool IsLikelyXeniaRenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
     {
         if (hwnd == IntPtr.Zero)

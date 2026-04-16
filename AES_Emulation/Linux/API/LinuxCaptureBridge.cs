@@ -21,6 +21,9 @@ internal static class LinuxCaptureBridge
     public static extern void aes_linux_capture_set_target(IntPtr capture, int processId, string? windowTitleHint);
 
     [DllImport(LibraryName)]
+    public static extern void aes_linux_capture_set_target_window(IntPtr capture, IntPtr windowHandle);
+
+    [DllImport(LibraryName)]
     public static extern void aes_linux_capture_stop(IntPtr capture);
 
     [DllImport(LibraryName)]

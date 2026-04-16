@@ -144,6 +144,37 @@ internal static class LinuxWindowHelper
         return string.Empty;
     }
 
+    public static string GetWindowClassName(IntPtr hwnd)
+    {
+        IntPtr display = X11Interop.XOpenDisplay(null);
+        if (display == IntPtr.Zero) return string.Empty;
+
+        try
+        {
+            return GetWindowClassNameInternal(display, hwnd);
+        }
+        finally
+        {
+            X11Interop.XCloseDisplay(display);
+        }
+    }
+
+    private static string GetWindowClassNameInternal(IntPtr display, IntPtr hwnd)
+    {
+        try
+        {
+            if (X11Interop.XGetClassHint(display, hwnd, out var classHint) != 0)
+            {
+                string className = Marshal.PtrToStringAnsi(classHint.res_class) ?? string.Empty;
+                if (classHint.res_name != IntPtr.Zero) X11Interop.XFree(classHint.res_name);
+                if (classHint.res_class != IntPtr.Zero) X11Interop.XFree(classHint.res_class);
+                return className;
+            }
+        }
+        catch { }
+        return string.Empty;
+    }
+
     public static List<IntPtr> FindWindowsByTitle(string titleSubstring)
     {
         var result = new List<IntPtr>();

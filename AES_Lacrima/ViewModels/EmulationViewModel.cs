@@ -2320,7 +2320,7 @@ namespace AES_Lacrima.ViewModels
 
         private static async Task<IntPtr> ResolveCaptureTargetForCurrentPlatformAsync(Process process, IEmulatorHandler handler)
         {
-            if (OperatingSystem.IsWindows())
+            if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
                 return await handler.ResolveCaptureTargetAsync(process, CancellationToken.None).ConfigureAwait(false);
 
             if (handler.CaptureStartupDelayMs > 0)

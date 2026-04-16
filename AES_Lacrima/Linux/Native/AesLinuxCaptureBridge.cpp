@@ -2760,10 +2760,10 @@ static void RenderPipeWireFrame(LinuxCapture* cap, struct pw_buffer* pwbuf)
 
     if (cap->pw_width > 0 && cap->pw_height > 0)
     {
-        u0 = (float)extLeft / cap->pw_width;
-        u1 = 1.0f - ((float)extRight / cap->pw_width);
-        v0 = (float)extTop / cap->pw_height;
-        v1 = 1.0f - ((float)extBottom / cap->pw_height);
+        u0 = (float)(extLeft + cap->crop[0]) / cap->pw_width;
+        u1 = 1.0f - ((float)(extRight + cap->crop[2]) / cap->pw_width);
+        v0 = (float)(extTop + cap->crop[1]) / cap->pw_height;
+        v1 = 1.0f - ((float)(extBottom + cap->crop[3]) / cap->pw_height);
     }
 
     int hostW = std::max(1, cap->cached_host_w);
@@ -3482,10 +3482,112 @@ void aes_linux_capture_set_target(LinuxCapture* cap, int processId, const char* 
     cap->initializing = 0;
     SetGpuInfo(cap, "X11 Reparent (fallback)", "Linux");
     SetStatusText(cap, "Capturing (fallback: X11 reparent, render options limited)");
-    LogNative("set_target fallback: target=0x%lx reason='%s'", target, cap->backend_detail);
+    pthread_mutex_unlock(&cap->mutex);
+}
+
+void aes_linux_capture_set_target_window(LinuxCapture* cap, Window target)
+{
+    if (!cap || !cap->display || target == 0)
+        return;
+
+    pthread_mutex_lock(&cap->mutex);
+
+    if (cap->backend_mode == BackendReparentFallback && cap->target != 0)
+    {
+        RestoreTargetFromOffscreenIfNeeded(cap);
+        if (cap->damage != 0)
+        {
+            XDamageDestroy(cap->display, cap->damage);
+            cap->damage = 0;
+        }
+
+        XReparentWindow(cap->display, cap->target, DefaultRootWindow(cap->display), 0, 0);
+        XMapWindow(cap->display, cap->target);
+        XFlush(cap->display);
+        cap->target = 0;
+        cap->hidden_window = 0;
+    }
+
+    if (cap->backend_mode == BackendGpuComposite)
+    {
+        RestoreTargetFromOffscreenIfNeeded(cap);
+        DestroyCompositeResources(cap);
+        cap->target = 0;
+        cap->hidden_window = 0;
+    }
+
+    cap->active = 0;
+    cap->initializing = 1;
+    cap->backend_mode = BackendNone;
+
+    LogNative("set_target_window: target=0x%lx", target);
+
+    bool gpuOk = false;
+    if (cap->gl_supported)
+        gpuOk = SetupCompositeTarget(cap, target);
+
+    if (gpuOk)
+    {
+        cap->active = 1;
+        cap->initializing = 0;
+        cap->target = target;
+        cap->fps = 0.0;
+        cap->frame_time_ms = 0.0;
+        cap->present_fps = 0.0;
+        cap->present_frame_time_ms = 0.0;
+        cap->fps_window_start_ns = 0;
+        cap->fps_window_frames = 0;
+        cap->source_fps = 0.0;
+        cap->source_frame_time_ms = 0.0;
+        cap->source_last_event_ns = MonotonicNowNs();
+        cap->last_present_sample_ns = 0;
+        cap->last_render_ns = 0;
+        cap->gpu_frame_pending = 1;
+        cap->shader_dirty = 1;
+        if (cap->damage != 0)
+        {
+            XDamageDestroy(cap->display, cap->damage);
+            cap->damage = 0;
+        }
+        if (cap->damage_event_base >= 0)
+            cap->damage = XDamageCreate(cap->display, target, XDamageReportNonEmpty);
+
+        SetStatusText(cap, "Capturing (X11/XWayland GPU composite)");
+        LogNative("set_target_window success: GPU composite target=0x%lx", target);
+
+        if (cap->use_pipewire && !cap->pw_loop && !cap->pw_init_requested)
+        {
+            cap->pw_init_requested = 1;
+            LogNative("set_target_window: PW init requested");
+        }
+
+        HideTargetOffscreenIfRequested(cap);
+        XLowerWindow(cap->display, cap->proxy_window);
+        XFlush(cap->display);
+        pthread_mutex_unlock(&cap->mutex);
+        return;
+    }
+
+    // fallback
+    cap->target = target;
+    cap->backend_mode = BackendReparentFallback;
+    cap->active = 1;
+    cap->initializing = 0;
+    XUnmapWindow(cap->display, target);
+    XReparentWindow(cap->display, target, cap->window, 0, 0);
+    UpdateFallbackTargetGeometry(cap);
+    XMapWindow(cap->display, target);
+    XFlush(cap->display);
+    
+    if (cap->damage_event_base >= 0)
+        cap->damage = XDamageCreate(cap->display, target, XDamageReportNonEmpty);
+
+    SetStatusText(cap, "Capturing (fallback: X11 reparent)");
+    LogNative("set_target_window fallback: target=0x%lx", target);
 
     pthread_mutex_unlock(&cap->mutex);
 }
+
 
 void aes_linux_capture_stop(LinuxCapture* cap)
 {

@@ -382,7 +382,11 @@ public class LinuxCaptureHost : NativeControlHost
             return;
         }
 
-        LinuxCaptureBridge.aes_linux_capture_set_target(_capture, unchecked((int)TargetHwnd.ToInt64()), TargetWindowTitleHint);
+        if (TargetHwnd != IntPtr.Zero)
+            LinuxCaptureBridge.aes_linux_capture_set_target_window(_capture, TargetHwnd);
+        else
+            LinuxCaptureBridge.aes_linux_capture_set_target(_capture, 0, TargetWindowTitleHint);
+
         ApplyRenderOptions();
         RefreshStatus();
     }

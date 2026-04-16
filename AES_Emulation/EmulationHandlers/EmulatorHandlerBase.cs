@@ -164,6 +164,14 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             startInfo.Environment["GDK_BACKEND"] = "x11";
             startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
             startInfo.Environment.Remove("WAYLAND_DISPLAY");
+
+            // If we are launching via a .desktop file, we need to include its base arguments
+            if (launcherPath.EndsWith(".desktop", StringComparison.OrdinalIgnoreCase))
+            {
+                var desktopArgs = ResolveLinuxDesktopArguments(launcherPath);
+                foreach (var arg in desktopArgs)
+                    startInfo.ArgumentList.Add(arg);
+            }
         }
 
         startInfo.ArgumentList.Add(romPath);
@@ -184,6 +192,13 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         if (string.IsNullOrWhiteSpace(launcherPath))
             return null;
 
+        if (OperatingSystem.IsLinux() && launcherPath.EndsWith(".desktop", StringComparison.OrdinalIgnoreCase))
+        {
+            var desktopExec = ResolveLinuxDesktopExecutable(launcherPath);
+            if (!string.IsNullOrWhiteSpace(desktopExec))
+                return desktopExec;
+        }
+
         if (!IsMacAppBundle(launcherPath))
             return launcherPath;
 
@@ -203,6 +218,114 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         }
     }
 
+    private static string? ResolveLinuxDesktopExecutable(string desktopPath)
+    {
+        if (!OperatingSystem.IsLinux() || !File.Exists(desktopPath))
+            return null;
+
+        try
+        {
+            foreach (var line in File.ReadLines(desktopPath))
+            {
+                if (line.StartsWith("Exec=", StringComparison.Ordinal))
+                {
+                    var exec = line.Substring(5).Trim();
+                    if (string.IsNullOrWhiteSpace(exec)) continue;
+
+                    // The executable is the first part, potentially quoted
+                    if (exec.StartsWith("\""))
+                    {
+                        var nextQuote = exec.IndexOf("\"", 1);
+                        if (nextQuote > 1)
+                            return exec.Substring(1, nextQuote - 1);
+                    }
+
+                    var firstSpace = exec.IndexOf(' ');
+                    return firstSpace > 0 ? exec.Substring(0, firstSpace) : exec;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug($"Failed to parse Linux .desktop file executable '{desktopPath}'.", ex);
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<string> ResolveLinuxDesktopArguments(string desktopPath)
+    {
+        var result = new List<string>();
+        if (!OperatingSystem.IsLinux() || !File.Exists(desktopPath))
+            return result;
+
+        try
+        {
+            foreach (var line in File.ReadLines(desktopPath))
+            {
+                if (line.StartsWith("Exec=", StringComparison.Ordinal))
+                {
+                    var exec = line.Substring(5).Trim();
+                    if (string.IsNullOrWhiteSpace(exec)) continue;
+
+                    var parts = SplitCommandLine(exec);
+                    if (parts.Count <= 1) return result;
+
+                    // Skip the first part (executable) and strip % placeholders
+                    for (int i = 1; i < parts.Count; i++)
+                    {
+                        var part = parts[i];
+                        if (part.StartsWith("%")) continue;
+                        result.Add(part);
+                    }
+                    
+                    return result;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug($"Failed to parse Linux .desktop file arguments '{desktopPath}'.", ex);
+        }
+
+        return result;
+    }
+
+    private static List<string> SplitCommandLine(string commandLine)
+    {
+        var parts = new List<string>();
+        if (string.IsNullOrWhiteSpace(commandLine)) return parts;
+
+        var currentPart = new StringBuilder();
+        bool inQuotes = false;
+
+        for (int i = 0; i < commandLine.Length; i++)
+        {
+            char c = commandLine[i];
+            if (c == '\"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (c == ' ' && !inQuotes)
+            {
+                if (currentPart.Length > 0)
+                {
+                    parts.Add(currentPart.ToString());
+                    currentPart.Clear();
+                }
+            }
+            else
+            {
+                currentPart.Append(c);
+            }
+        }
+
+        if (currentPart.Length > 0)
+            parts.Add(currentPart.ToString());
+
+        return parts;
+    }
+
     public static string? ResolveLauncherWorkingDirectory(string? launcherPath)
     {
         if (string.IsNullOrWhiteSpace(launcherPath))
@@ -210,6 +333,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
         if (IsMacAppBundle(launcherPath))
             return Path.Combine(launcherPath, "Contents", "MacOS");
+
+        if (OperatingSystem.IsLinux() && launcherPath.EndsWith(".desktop", StringComparison.OrdinalIgnoreCase))
+            return null; // Don't use /usr/share/applications as CWD
 
         return Path.GetDirectoryName(launcherPath);
     }
@@ -729,6 +855,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     protected static string GetWindowClassName(IntPtr hwnd)
     {
+        if (OperatingSystem.IsLinux())
+            return AES_Emulation.Linux.API.LinuxWindowHelper.GetWindowClassName(hwnd);
+
         if (!OperatingSystem.IsWindows())
             return string.Empty;
 
