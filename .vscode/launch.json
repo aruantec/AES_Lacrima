@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": ".NET Core Launch (AES_Lacrima)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/AES_Lacrima/bin/Debug/net10.0/AES_Lacrima.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/AES_Lacrima",
+      "stopAtEntry": false,
+      "console": "internalConsole",
+      "justMyCode": true
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "build",
+                "${workspaceFolder}/AES_Lacrima/AES_Lacrima.csproj",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary"
+            ],
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "run-app",
+            "command": "${workspaceFolder}/build.sh",
+            "type": "process",
+            "args": [
+                "Run"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}
