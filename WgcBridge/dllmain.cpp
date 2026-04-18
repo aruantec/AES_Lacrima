@@ -42,6 +42,7 @@ static std::wstring MakeInjectionReadyEventName(DWORD pid)
 
 extern "C" void* CreateCaptureSessionInternal(HWND targetHwnd, HWND presentationHwnd);
 extern bool InitializeDirectHookCapture(DWORD pid);
+extern void* s_injectionSession;
 
 static HANDLE CreateInjectionReadyEvent(std::wstring const& name)
 {
@@ -102,6 +103,10 @@ static DWORD WINAPI InjectionWorkerThread(LPVOID lpParameter)
     if (InitializeDirectHookCapture(pid))
     {
         DebugLog("[WGC_NATIVE] Direct D3D11 hook capture initialized, signaling ready event");
+        
+        // Mark session as active for GetCaptureStatus
+        s_injectionSession = (void*)1;
+
         auto readyName = MakeInjectionReadyEventName(pid);
         HANDLE readyEvent = CreateInjectionReadyEvent(readyName);
         if (readyEvent)
