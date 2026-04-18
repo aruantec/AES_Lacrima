@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.Versioning;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -275,7 +276,7 @@ public class EmulatorCaptureHost : ContentControl
         switch (_backend)
         {
             case WgcCaptureControl wgcBackend:
-                wgcBackend.ForwardFocusToTarget();
+                if (OperatingSystem.IsWindows()) wgcBackend.ForwardFocusToTarget();
                 break;
             case DirectCompositionCaptureHost windowsBackend:
                 windowsBackend.ForwardFocusToTarget();
@@ -284,6 +285,36 @@ public class EmulatorCaptureHost : ContentControl
                 macBackend.ForwardFocusToTarget();
                 break;
         }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private void BindToWgcBackend(WgcCaptureControl backend)
+    {
+        StatusText = "Window capture active";
+        IsDirectCompositionActive = true;
+        backend.GetObservable(WgcCaptureControl.FpsProperty)
+            .Subscribe(new LambdaObserver<double>(value => Fps = value));
+        backend.GetObservable(WgcCaptureControl.FrameTimeMsProperty)
+            .Subscribe(new LambdaObserver<double>(value => FrameTimeMs = value));
+        backend.GetObservable(WgcCaptureControl.GpuRendererProperty)
+            .Subscribe(new LambdaObserver<string>(value => GpuRenderer = value));
+        backend.GetObservable(WgcCaptureControl.GpuVendorProperty)
+            .Subscribe(new LambdaObserver<string>(value => GpuVendor = value));
+    }
+
+    [SupportedOSPlatform("windows")]
+    private void SyncWgcProperties(WgcCaptureControl wgcBackend)
+    {
+        wgcBackend.TargetHwnd = TargetHwnd;
+        wgcBackend.TargetProcessId = TargetProcessId;
+        wgcBackend.RequestStopSession = RequestStopSession;
+        wgcBackend.Stretch = Stretch;
+        wgcBackend.Brightness = Brightness;
+        wgcBackend.Saturation = Saturation;
+        wgcBackend.ColorTint = ColorTint;
+        wgcBackend.DisableVSync = DisableVSync;
+        wgcBackend.RetroarchShaderFile = string.IsNullOrWhiteSpace(ShaderPath) && ClearShaderWhenPathEmpty ? null : ShaderPath;
+        wgcBackend.ForceUseTargetClientSize = ForceUseTargetClientArea;
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -317,7 +348,7 @@ public class EmulatorCaptureHost : ContentControl
         switch (_backend)
         {
             case WgcCaptureControl wgcBackend:
-                BindToWgcBackend(wgcBackend);
+                if (OperatingSystem.IsWindows()) BindToWgcBackend(wgcBackend);
                 break;
             case DirectCompositionCaptureHost windowsBackend:
                 BindToWindowsBackend(windowsBackend);
@@ -352,19 +383,7 @@ public class EmulatorCaptureHost : ContentControl
             .Subscribe(new LambdaObserver<string>(value => GpuVendor = value));
     }
 
-    private void BindToWgcBackend(WgcCaptureControl backend)
-    {
-        StatusText = "Window capture active";
-        IsDirectCompositionActive = true;
-        backend.GetObservable(WgcCaptureControl.FpsProperty)
-            .Subscribe(new LambdaObserver<double>(value => Fps = value));
-        backend.GetObservable(WgcCaptureControl.FrameTimeMsProperty)
-            .Subscribe(new LambdaObserver<double>(value => FrameTimeMs = value));
-        backend.GetObservable(WgcCaptureControl.GpuRendererProperty)
-            .Subscribe(new LambdaObserver<string>(value => GpuRenderer = value));
-        backend.GetObservable(WgcCaptureControl.GpuVendorProperty)
-            .Subscribe(new LambdaObserver<string>(value => GpuVendor = value));
-    }
+
 
     private void BindToMacBackend(ScreenCaptureKitCaptureHost backend)
     {
@@ -425,16 +444,7 @@ public class EmulatorCaptureHost : ContentControl
                 windowsBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
                 break;
             case WgcCaptureControl wgcBackend:
-                wgcBackend.TargetHwnd = TargetHwnd;
-                wgcBackend.TargetProcessId = TargetProcessId;
-                wgcBackend.RequestStopSession = RequestStopSession;
-                wgcBackend.Stretch = Stretch;
-                wgcBackend.Brightness = Brightness;
-                wgcBackend.Saturation = Saturation;
-                wgcBackend.ColorTint = ColorTint;
-                wgcBackend.DisableVSync = DisableVSync;
-                wgcBackend.RetroarchShaderFile = string.IsNullOrWhiteSpace(ShaderPath) && ClearShaderWhenPathEmpty ? null : ShaderPath;
-                wgcBackend.ForceUseTargetClientSize = ForceUseTargetClientArea;
+                if (OperatingSystem.IsWindows()) SyncWgcProperties(wgcBackend);
                 break;
             case ScreenCaptureKitCaptureHost macBackend:
                 macBackend.TargetHwnd = TargetHwnd;

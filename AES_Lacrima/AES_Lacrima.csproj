@@ -59,7 +59,7 @@
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.90.3" Condition="'$(RuntimeIdentifier)' != '' and !$([System.Text.RegularExpressions.Regex]::IsMatch('$(RuntimeIdentifier)', '^win'))" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Svg.Controls.Skia.Avalonia" Version="12.0.0-rc1" />
-    <PackageReference Include="log4net" Version="3.2.0" />
+    <PackageReference Include="log4net" Version="3.3.0" />
     <PackageReference Include="HotAvalonia" Version="3.*" PrivateAssets="All" Publish="True" Condition="'$(PublishAot)' != 'true'" />
   </ItemGroup>
   <ItemGroup>
@@ -68,22 +68,30 @@
     <ProjectReference Include="..\AES_Emulation\AES_Emulation.csproj" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <!--
-      WgcBridge is a native C++ project that requires Visual Studio C++ tooling.
-      On environments without MSBuild C++ installed, skip building the native project
-      and rely on prebuilt libs/windows/WgcBridge.dll (from release packaging).
-    -->
-    <BuildWgcBridge Condition="'$(BuildWgcBridge)' == '' and Exists('$(VCTargetsPath)\\Microsoft.Cpp.Default.props')">true</BuildWgcBridge>
-    <BuildWgcBridge Condition="'$(BuildWgcBridge)' == '' and !Exists('$(VCTargetsPath)\\Microsoft.Cpp.Default.props')">false</BuildWgcBridge>
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
+    <!-- Discovery logic for MSBuild.exe across VS 2026 (18) and VS 2022 (17) -->
+    <MsBuildPath Condition="'$(MsBuildPath)' == ''">$(MSBuildBinPath)\..\..\..\Bin\MSBuild.exe</MsBuildPath>
+    <MsBuildPath Condition="!Exists('$(MsBuildPath)')">C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe</MsBuildPath>
+    <MsBuildPath Condition="!Exists('$(MsBuildPath)')">C:\Program Files\Microsoft Visual Studio\18\Professional\MSBuild\Current\Bin\MSBuild.exe</MsBuildPath>
+    <MsBuildPath Condition="!Exists('$(MsBuildPath)')">C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\MSBuild.exe</MsBuildPath>
+    <MsBuildPath Condition="!Exists('$(MsBuildPath)')">C:\Program Files\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\MSBuild.exe</MsBuildPath>
+    <MsBuildPath Condition="!Exists('$(MsBuildPath)')">C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe</MsBuildPath>
+    <MsBuildPath Condition="!Exists('$(MsBuildPath)')">C:\Program Files\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe</MsBuildPath>
+    <MsBuildPath Condition="!Exists('$(MsBuildPath)')">C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe</MsBuildPath>
+    <MsBuildPath Condition="!Exists('$(MsBuildPath)')">C:\Program Files\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe</MsBuildPath>
+    
+    <BuildWgcBridge>true</BuildWgcBridge>
   </PropertyGroup>
 
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(BuildWgcBridge)' == 'true'">
-    <ProjectReference Include="..\WgcBridge\WgcBridge.vcxproj">
-      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
-      <SetPlatform>Platform=x64</SetPlatform>
-    </ProjectReference>
-  </ItemGroup>
+  <!-- 
+    We use a custom target instead of ProjectReference because dotnet build 
+    cannot natively compile .vcxproj files on Windows without throwing MSB4278.
+  -->
+  <Target Name="BuildWgcBridge" BeforeTargets="BeforeBuild" Condition="'$(BuildWgcBridge)' == 'true'">
+    <Error Condition="!Exists('$(MsBuildPath)')" Text="Could not find MSBuild.exe to build WgcBridge. Please ensure Visual Studio 2026 or 2022 C++ workload is installed." />
+    <Message Importance="high" Text="Antigravity: Compiling WgcBridge native library using $(MsBuildPath)..." />
+    <Exec Command="&quot;$(MsBuildPath)&quot; &quot;$(MSBuildProjectDirectory)\..\WgcBridge\WgcBridge.vcxproj&quot; /p:Configuration=$(Configuration) /p:Platform=x64 /m /v:m" />
+  </Target>
 
   <ItemGroup Condition="'$(PublishAot)' != 'true'">
     <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
