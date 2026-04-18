@@ -461,12 +461,25 @@ public class WgcCaptureControl : OpenGlControlBase
         gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GlConsts.GL_TEXTURE_MIN_FILTER, GlConsts.GL_LINEAR);
         gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GlConsts.GL_TEXTURE_MAG_FILTER, GlConsts.GL_LINEAR);
 
-        // Apply Hardware Swizzle to automatically fix BGRA -> RGBA globally.
-        // This is the most efficient way to fix the red/blue swap for all shaders.
-        gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
-        gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_GREEN);
-        gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
-        gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_ALPHA);
+        if (_isEs)
+        {
+            // On OpenGL ES, we typically use GL_RGBA (0x1908) for upload even if source is BGRA.
+            // We use hardware swizzle to fix the color channels if supported.
+            gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
+            gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_GREEN);
+            gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
+            gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_ALPHA);
+        }
+        else
+        {
+            // On Desktop GL, we use GL_BGRA (0x80E1) in glTexSubImage2D which handles the swap.
+            // Ensure swizzle is reset to identity.
+            gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_RED);
+            gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_GREEN);
+            gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_BLUE);
+            gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_ALPHA);
+        }
+
 
         var pixelStoreProc = gl.GetProcAddress("glPixelStorei");
         if (pixelStoreProc != IntPtr.Zero) ((delegate* unmanaged[Stdcall]<int, int, void>)pixelStoreProc)(GL_UNPACK_ALIGNMENT, 1);
@@ -649,7 +662,8 @@ public class WgcCaptureControl : OpenGlControlBase
 
                     frameHeader = localHeader;
                     pixelData = (IntPtr)(basePtr + InjectionHeaderSize);
-                    Debug.WriteLine($"[WGC] Injected frame ready: counter={frameHeader.FrameCounter} size={frameHeader.Width}x{frameHeader.Height}");
+                    if (frameHeader.FrameCounter % 300 == 0)
+                        Debug.WriteLine($"[WGC] Injected frame ready: counter={frameHeader.FrameCounter} size={frameHeader.Width}x{frameHeader.Height}");
                     return true;
                 }
 
@@ -815,12 +829,15 @@ public class WgcCaptureControl : OpenGlControlBase
 
                 if (w != _texWidth || h != _texHeight)
                 {
-                    _texWidth = w;
-                    _texHeight = h;
-                    gl.TexImage2D(GlConsts.GL_TEXTURE_2D, 0, _isEs ? 0x1908 : (int)GlConsts.GL_RGBA, w, h, 0, _isEs ? 0x1908 : 0x80E1, GlConsts.GL_UNSIGNED_BYTE, IntPtr.Zero);
+                    if (w > 0 && h > 0)
+                    {
+                        _texWidth = w;
+                        _texHeight = h;
+                        gl.TexImage2D(GlConsts.GL_TEXTURE_2D, 0, _isEs ? 0x1908 : (int)GlConsts.GL_RGBA, w, h, 0, _isEs ? 0x1908 : 0x80E1, GlConsts.GL_UNSIGNED_BYTE, IntPtr.Zero);
+                    }
                 }
 
-                if (hasFrame)
+                if (hasFrame && w > 0 && h > 0)
                 {
                     var texSub = (delegate* unmanaged[Stdcall]<int, int, int, int, int, int, uint, int, IntPtr, void>)_glTexSubImage2DPtr;
                     texSub(GlConsts.GL_TEXTURE_2D, 0, 0, 0, w, h, _isEs ? 0x1908u : 0x80E1u, GlConsts.GL_UNSIGNED_BYTE, pixelData);
@@ -853,8 +870,8 @@ public class WgcCaptureControl : OpenGlControlBase
 
                 bool isNewFrame = nativeCount > 0 && nativeCount != _lastNativeFrameCount;
 
-                // Log every 100 frames or if stuck for diagnostic purposes
-                if (nativeCount % 100 == 0 || (isNewFrame && nativeCount < 10))
+                // Log every 500 frames or if stuck for diagnostic purposes
+                if (nativeCount % 500 == 0 || (isNewFrame && nativeCount < 5))
                 {
                     Debug.WriteLine($"[WGC] Render loop status: nativeCount={nativeCount}, last={_lastNativeFrameCount}, readers={readerCount}, isNew={isNewFrame}");
                 }
@@ -1006,6 +1023,7 @@ public class WgcCaptureControl : OpenGlControlBase
                         FrametimeGraphGeometry = frametimeGeometry;
                     else if (FrametimeGraphGeometry != null)
                         FrametimeGraphGeometry = null;
+
                     if (_session != nint.Zero)
                     {
                         try
@@ -1020,6 +1038,21 @@ public class WgcCaptureControl : OpenGlControlBase
                         }
                         catch { }
                     }
+
+                    // Update BackendName with current live capture state
+                    string method = _injectionActive ? "Direct Hook (Injected)" : "Windows Graphics Capture (WGC)";
+                    if (!_injectionActive)
+                    {
+                        if (_usingAngleInterop) method += " [ANGLE/DirectX]";
+                        else if (_nativeAcquireSupported) method += " [Native DXGI]";
+                        else method += " [CPU Copy]";
+                    }
+                    else
+                    {
+                        // Update injected stats
+                        FrameNumber = (int)_lastInjectionFrameCount;
+                    }
+                    BackendName = method;
                 }, DispatcherPriority.Background);
             }
 

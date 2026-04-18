@@ -290,7 +290,10 @@ public class EmulatorCaptureHost : ContentControl
     [SupportedOSPlatform("windows")]
     private void BindToWgcBackend(WgcCaptureControl backend)
     {
-        StatusText = "Window capture active";
+        // Observe the backend name to show "Direct Hook (Injected)" or "Windows Graphics Capture (WGC)"
+        backend.GetObservable(WgcCaptureControl.BackendNameProperty)
+            .Subscribe(new LambdaObserver<string>(value => StatusText = value));
+
         IsDirectCompositionActive = true;
         backend.GetObservable(WgcCaptureControl.FpsProperty)
             .Subscribe(new LambdaObserver<double>(value => Fps = value));

@@ -752,18 +752,20 @@ struct CaptureSession
             uint8_t const* srcRow = src + static_cast<size_t>(rowBytes) * y;
             uint8_t* dstRow = g_injectionPixels + dstStride * y;
 
-            if (!isBgra)
+            if (isBgra)
             {
+                // Source is already BGRA, and C# host expects BGRA for OpenGL upload.
                 memcpy(dstRow, srcRow, dstStride);
             }
             else
             {
+                // Source is RGBA, swizzle to BGRA for the host.
                 for (int x = 0; x < width; x++)
                 {
-                    dstRow[0] = srcRow[2];
-                    dstRow[1] = srcRow[1];
-                    dstRow[2] = srcRow[0];
-                    dstRow[3] = srcRow[3];
+                    dstRow[0] = srcRow[2]; // B
+                    dstRow[1] = srcRow[1]; // G
+                    dstRow[2] = srcRow[0]; // R
+                    dstRow[3] = srcRow[3]; // A
                     srcRow += 4;
                     dstRow += 4;
                 }
@@ -998,14 +1000,118 @@ struct CaptureSession
             Sleep(retryDelayMs);
         }
 
+        if (anyHookInstalled)
+        {
+            DebugLog("[WGC_NATIVE] InitializeDirectHookCapture: Graphics hooks installed successfully");
+        }
+        else
+        {
+            DebugLog("[WGC_NATIVE] InitializeDirectHookCapture: No graphics modules found to hook after waiting. Attempting one last install...");
+            anyHookInstalled = InstallGraphicsHooks();
+        }
+        
         if (!anyHookInstalled)
         {
-            DebugLog("[WGC_NATIVE] InstallGraphicsHooks failed after retrying");
+            DebugLog("[WGC_NATIVE] InstallGraphicsHooks failed: No graphics hooks could be placed.");
             return false;
         }
 
-        DebugLog("[WGC_NATIVE] InitializeDirectHookCapture installed graphics hooks and created shared memory");
+        // Try to hook existing swapchains by creating a dummy one to get the vtable
+        DebugLog("[WGC_NATIVE] Attempting to hook existing graphics via dummy swapchain...");
+        if (TryHookExistingGraphics())
+        {
+            DebugLog("[WGC_NATIVE] Successfully hooked existing graphics via dummy swapchain");
+        }
+        else
+        {
+            DebugLog("[WGC_NATIVE] Failed to hook existing graphics via dummy swapchain (might be okay if no swapchain exists yet)");
+        }
+
+        DebugLog("[WGC_NATIVE] InitializeDirectHookCapture: Shared memory and hooks initialized");
         return true;
+    }
+
+    static bool TryHookExistingGraphics()
+    {
+        DebugLog("[WGC_NATIVE] TryHookExistingGraphics: Locating d3d11.dll...");
+        HMODULE d3d11 = GetModuleHandleW(L"d3d11.dll");
+        if (!d3d11) 
+        {
+            DebugLog("[WGC_NATIVE] TryHookExistingGraphics: d3d11.dll not loaded in target process");
+            return false;
+        }
+
+        typedef HRESULT (WINAPI* PFN_D3D11_CREATE_DEVICE)(
+            IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL*, UINT, UINT, ID3D11Device**, D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
+
+        // ALWAYS use the direct GetProcAddress pointer here to avoid any hook/trampoline logic
+        PFN_D3D11_CREATE_DEVICE pCreateDevice = reinterpret_cast<PFN_D3D11_CREATE_DEVICE>(GetProcAddress(d3d11, "D3D11CreateDevice"));
+
+        if (!pCreateDevice) 
+        {
+            DebugLog("[WGC_NATIVE] TryHookExistingGraphics: D3D11CreateDevice function not available");
+            return false;
+        }
+
+        WNDCLASSA wc = {};
+        wc.lpfnWndProc = DefWindowProcA;
+        wc.hInstance = GetModuleHandle(nullptr);
+        wc.lpszClassName = "AES_Dummy_Capture_Class";
+        RegisterClassA(&wc);
+
+        HWND dummyHwnd = CreateWindowA(wc.lpszClassName, "AES_Dummy", 0, 0, 0, 1, 1, nullptr, nullptr, wc.hInstance, nullptr);
+        if (!dummyHwnd)
+        {
+            DebugLog("[WGC_NATIVE] TryHookExistingGraphics: Failed to create dummy window");
+            return false;
+        }
+
+        rt::com_ptr<ID3D11Device> device;
+        rt::com_ptr<ID3D11DeviceContext> context;
+        D3D_FEATURE_LEVEL featureLevel;
+
+        DebugLog("[WGC_NATIVE] TryHookExistingGraphics: Creating D3D11 Device...");
+        HRESULT hr = pCreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, device.put(), &featureLevel, context.put());
+        
+        if (FAILED(hr))
+        {
+            hr = pCreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, device.put(), &featureLevel, context.put());
+        }
+
+        bool hooked = false;
+        if (SUCCEEDED(hr) && device)
+        {
+            rt::com_ptr<IDXGIDevice> dxgiDevice;
+            if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(dxgiDevice.put()))))
+            {
+                rt::com_ptr<IDXGIAdapter> adapter;
+                if (SUCCEEDED(dxgiDevice->GetAdapter(adapter.put())))
+                {
+                    rt::com_ptr<IDXGIFactory> factory;
+                    if (SUCCEEDED(adapter->GetParent(IID_PPV_ARGS(factory.put()))))
+                    {
+                        DXGI_SWAP_CHAIN_DESC desc = {};
+                        desc.BufferCount = 1;
+                        desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+                        desc.OutputWindow = dummyHwnd;
+                        desc.SampleDesc.Count = 1;
+                        desc.Windowed = TRUE;
+
+                        rt::com_ptr<IDXGISwapChain> swapChain;
+                        DebugLog("[WGC_NATIVE] TryHookExistingGraphics: Creating dummy swapchain...");
+                        if (SUCCEEDED(factory->CreateSwapChain(device.get(), &desc, swapChain.put())))
+                        {
+                            DebugLog("[WGC_NATIVE] TryHookExistingGraphics: Dummy swapchain created, hooking vtable...");
+                            hooked = HookSwapChain(swapChain.get());
+                        }
+                    }
+                }
+            }
+        }
+        
+        DestroyWindow(dummyHwnd);
+        return hooked;
     }
 
     void SetDirectCompositionStatus(char const* message)
@@ -1019,138 +1125,16 @@ struct CaptureSession
 
     static bool InstallDxgiHooks()
     {
-        HMODULE dxgi = GetModuleHandleW(L"dxgi.dll");
-        if (!dxgi)
-        {
-            DebugLog("[WGC_NATIVE] dxgi.dll not loaded yet");
-            return false;
-        }
-
-        bool hooked = false;
-        void* createFactory = GetProcAddress(dxgi, "CreateDXGIFactory");
-        if (createFactory && !g_originalCreateDXGIFactory && CreateInlineHook(createFactory, reinterpret_cast<void*>(Hooked_CreateDXGIFactory), &g_originalCreateDXGIFactory))
-        {
-            DebugLog("[WGC_NATIVE] Installed CreateDXGIFactory hook");
-            hooked = true;
-        }
-
-        void* createFactory1 = GetProcAddress(dxgi, "CreateDXGIFactory1");
-        if (createFactory1 && !g_originalCreateDXGIFactory1 && CreateInlineHook(createFactory1, reinterpret_cast<void*>(Hooked_CreateDXGIFactory1), &g_originalCreateDXGIFactory1))
-        {
-            DebugLog("[WGC_NATIVE] Installed CreateDXGIFactory1 hook");
-            hooked = true;
-        }
-
-        void* createFactory2 = GetProcAddress(dxgi, "CreateDXGIFactory2");
-        if (createFactory2 && !g_originalCreateDXGIFactory2 && CreateInlineHook(createFactory2, reinterpret_cast<void*>(Hooked_CreateDXGIFactory2), &g_originalCreateDXGIFactory2))
-        {
-            DebugLog("[WGC_NATIVE] Installed CreateDXGIFactory2 hook");
-            hooked = true;
-        }
-
-        void* createFactoryForHwnd = GetProcAddress(dxgi, "CreateDXGIFactoryForHwnd");
-        if (createFactoryForHwnd)
-        {
-            if (!g_originalCreateDXGIFactoryForHwnd && CreateInlineHook(createFactoryForHwnd, reinterpret_cast<void*>(Hooked_CreateDXGIFactoryForHwnd), &g_originalCreateDXGIFactoryForHwnd))
-            {
-                DebugLog("[WGC_NATIVE] Installed CreateDXGIFactoryForHwnd hook");
-                hooked = true;
-            }
-            else if (!g_originalCreateDXGIFactoryForHwnd)
-            {
-                DebugLog("[WGC_NATIVE] CreateDXGIFactoryForHwnd hook install failed");
-            }
-        }
-        else
-        {
-            DebugLog("[WGC_NATIVE] CreateDXGIFactoryForHwnd export not found");
-        }
-
-        void* createFactoryForCoreWindow = GetProcAddress(dxgi, "CreateDXGIFactoryForCoreWindow");
-        if (createFactoryForCoreWindow)
-        {
-            if (!g_originalCreateDXGIFactoryForCoreWindow && CreateInlineHook(createFactoryForCoreWindow, reinterpret_cast<void*>(Hooked_CreateDXGIFactoryForCoreWindow), &g_originalCreateDXGIFactoryForCoreWindow))
-            {
-                DebugLog("[WGC_NATIVE] Installed CreateDXGIFactoryForCoreWindow hook");
-                hooked = true;
-            }
-            else if (!g_originalCreateDXGIFactoryForCoreWindow)
-            {
-                DebugLog("[WGC_NATIVE] CreateDXGIFactoryForCoreWindow hook install failed");
-            }
-        }
-        else
-        {
-            DebugLog("[WGC_NATIVE] CreateDXGIFactoryForCoreWindow export not found");
-        }
-
-        if (!hooked)
-        {
-            DebugLog("[WGC_NATIVE] No DXGI factory hooks installed");
-        }
-
-        return hooked;
+        // We no longer use inline hooks on CreateDXGIFactory because they are unstable.
+        // VTable hooking via TryHookExistingGraphics is sufficient to catch all swapchains.
+        return true;
     }
 
     static bool InstallD3D11Hooks()
     {
-        HMODULE d3d11 = GetModuleHandleW(L"d3d11.dll");
-        if (!d3d11)
-        {
-            DebugLog("[WGC_NATIVE] d3d11.dll not loaded yet");
-            return false;
-        }
-
-        bool hooked = false;
-        void* createDevice = GetProcAddress(d3d11, "D3D11CreateDevice");
-        if (createDevice && !g_originalD3D11CreateDevice && CreateInlineHook(createDevice, reinterpret_cast<void*>(Hooked_D3D11CreateDevice), &g_originalD3D11CreateDevice))
-        {
-            DebugLog("[WGC_NATIVE] Installed D3D11CreateDevice hook");
-            hooked = true;
-        }
-
-        void* createDeviceAndSwapChain = GetProcAddress(d3d11, "D3D11CreateDeviceAndSwapChain");
-        if (createDeviceAndSwapChain)
-        {
-            if (!g_originalD3D11CreateDeviceAndSwapChain && CreateInlineHook(createDeviceAndSwapChain, reinterpret_cast<void*>(Hooked_D3D11CreateDeviceAndSwapChain), &g_originalD3D11CreateDeviceAndSwapChain))
-            {
-                DebugLog("[WGC_NATIVE] Installed D3D11CreateDeviceAndSwapChain hook");
-                hooked = true;
-            }
-            else if (!g_originalD3D11CreateDeviceAndSwapChain)
-            {
-                DebugLog("[WGC_NATIVE] D3D11CreateDeviceAndSwapChain hook install failed");
-            }
-        }
-        else
-        {
-            DebugLog("[WGC_NATIVE] D3D11CreateDeviceAndSwapChain export not found");
-        }
-
-        void* createDeviceAndSwapChain1 = GetProcAddress(d3d11, "D3D11CreateDeviceAndSwapChain1");
-        if (createDeviceAndSwapChain1)
-        {
-            if (!g_originalD3D11CreateDeviceAndSwapChain1 && CreateInlineHook(createDeviceAndSwapChain1, reinterpret_cast<void*>(Hooked_D3D11CreateDeviceAndSwapChain1), &g_originalD3D11CreateDeviceAndSwapChain1))
-            {
-                DebugLog("[WGC_NATIVE] Installed D3D11CreateDeviceAndSwapChain1 hook");
-                hooked = true;
-            }
-            else if (!g_originalD3D11CreateDeviceAndSwapChain1)
-            {
-                DebugLog("[WGC_NATIVE] D3D11CreateDeviceAndSwapChain1 hook install failed");
-            }
-        }
-        else
-        {
-            DebugLog("[WGC_NATIVE] D3D11CreateDeviceAndSwapChain1 export not found");
-        }
-
-        if (!hooked)
-        {
-            DebugLog("[WGC_NATIVE] No D3D11 creation hooks installed");
-        }
-
-        return hooked;
+        // Inline hooks on D3D11 exports are unstable without a length disassembler.
+        // We rely on VTable hooking via a dummy swapchain instead.
+        return true;
     }
 
     static bool InstallGraphicsHooks()
@@ -2219,7 +2203,7 @@ bool InitializeDirectHookCapture(DWORD pid)
     return CaptureSession::InitializeDirectHookCaptureInternal(pid);
 }
 
-static void* s_injectionSession = nullptr;
+void* s_injectionSession = nullptr;
 
 struct InjectionWindowSearchData
 {
