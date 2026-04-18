@@ -325,15 +325,20 @@ namespace AES_Lacrima.ViewModels
 
         private static IReadOnlyList<ShaderFileItem> LoadShaderFileItems()
         {
-            var isLinux = OperatingSystem.IsLinux();
-            var shaderSubDir = isLinux ? "glsl" : "hlsl";
-            var shaderExt = isLinux ? "*.glsl" : "*.hlsl";
+            var extensions = new[] { "*.glsl", "*.slang", "*.hlsl" };
+            var subDirs = new[] { "glsl", "hlsl" };
             
-            var shaderDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, shaderSubDir);
-
-            var files = Directory.Exists(shaderDirectory)
-                ? Directory.EnumerateFiles(shaderDirectory, shaderExt, SearchOption.TopDirectoryOnly)
-                : Enumerable.Empty<string>();
+            var files = new List<string>();
+            foreach (var subDir in subDirs)
+            {
+                var shaderDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, subDir);
+                if (!Directory.Exists(shaderDirectory)) continue;
+                
+                foreach (var ext in extensions)
+                {
+                    files.AddRange(Directory.EnumerateFiles(shaderDirectory, ext, SearchOption.TopDirectoryOnly));
+                }
+            }
 
             var entries = new List<ShaderFileItem> { new(string.Empty, "None") };
             entries.AddRange(files

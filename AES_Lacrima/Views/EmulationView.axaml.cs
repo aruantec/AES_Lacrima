@@ -975,7 +975,7 @@ public partial class EmulationView : UserControl
         if (!UseInlineCaptureHost || _inlineCaptureHost == null)
             return;
 
-        _inlineCaptureHost.IsVisible = vm.IsCompositionCaptureVisible && !vm.IsRenderOptionsOpen;
+        _inlineCaptureHost.IsVisible = vm.IsCompositionCaptureVisible;
     }
 
     private void UpdatePortalFrametimeGraph(double latestMs)
