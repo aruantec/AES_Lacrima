@@ -10,6 +10,36 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <sddl.h>
+
+static void FileDebugLog(char const* message)
+{
+    char tempPath[MAX_PATH];
+    DWORD len = GetEnvironmentVariableA("TEMP", tempPath, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH)
+        return;
+
+    std::string filePath(tempPath);
+    filePath += "\\aes_injection_";
+    filePath += std::to_string(GetCurrentProcessId());
+    filePath += ".log";
+
+    HANDLE file = CreateFileA(filePath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return;
+
+    SetFilePointer(file, 0, nullptr, FILE_END);
+    DWORD written = 0;
+    WriteFile(file, message, static_cast<DWORD>(strlen(message)), &written, nullptr);
+    WriteFile(file, "\r\n", 2, &written, nullptr);
+    CloseHandle(file);
+}
+
+static void DebugLog(char const* message)
+{
+    OutputDebugStringA(message);
+    FileDebugLog(message);
+}
 
 namespace rt = winrt;
 namespace wgc = winrt::Windows::Graphics::Capture;
@@ -98,6 +128,11 @@ struct CaptureSession
 
     // When true, do not perform CPU staging/readback; rely on GPU-GPU interop
     std::atomic<bool> interopEnabled{ false };
+    struct InjectionFrameHeader;
+    HANDLE injectionMapping{ nullptr };
+    InjectionFrameHeader* injectionHeader{ nullptr };
+    uint8_t* injectionPixels{ nullptr };
+    std::atomic<uint32_t> injectionFrameCounter{ 0 };
 
     // GPU scaler resources (cached)
     rt::com_ptr<ID3D11VertexShader> vs;
@@ -235,10 +270,1020 @@ struct CaptureSession
         }
     }
 
+    static constexpr size_t InjectionMaxFrameBytes = 128ull * 1024ull * 1024ull;
+    static constexpr size_t InjectionHeaderSize = 128;
+    static constexpr uint32_t InjectionMagic = 0x41534145;
+
+#pragma pack(push, 1)
+    struct InjectionFrameHeader
+    {
+        uint32_t Magic;
+        uint32_t Sequence1;
+        uint32_t Sequence2;
+        uint32_t Width;
+        uint32_t Height;
+        uint32_t Stride;
+        uint32_t FrameCounter;
+        uint32_t Reserved0;
+        uint32_t Reserved1;
+        uint32_t Reserved2;
+        uint32_t Reserved3;
+        uint32_t Reserved4;
+        uint32_t Reserved5;
+        uint32_t Reserved6;
+        uint32_t Reserved7;
+        uint32_t Reserved8;
+        uint32_t Reserved9;
+    };
+#pragma pack(pop)
+
+    static std::wstring MakeInjectionRequestEventName(DWORD pid)
+    {
+        return std::wstring(L"Local\\AES_Lacrima_Injector_Request_") + std::to_wstring(pid);
+    }
+
+    static std::wstring MakeInjectionReadyEventName(DWORD pid)
+    {
+        return std::wstring(L"Local\\AES_Lacrima_Injector_Ready_") + std::to_wstring(pid);
+    }
+
+    static std::wstring MakeInjectionSharedMemoryName(DWORD pid)
+    {
+        return std::wstring(L"Local\\AES_Lacrima_Injector_Shared_") + std::to_wstring(pid);
+    }
+
+    static bool CreateInjectionSecurityAttributes(SECURITY_ATTRIBUTES& sa, PSECURITY_DESCRIPTOR& securityDescriptor)
+    {
+        ZeroMemory(&sa, sizeof(sa));
+        sa.nLength = sizeof(sa);
+        sa.bInheritHandle = FALSE;
+        securityDescriptor = nullptr;
+
+        if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                L"D:(A;;GA;;;WD)",
+                SDDL_REVISION_1,
+                &securityDescriptor,
+                nullptr))
+        {
+            OutputDebugStringA("[WGC_NATIVE] ConvertStringSecurityDescriptorToSecurityDescriptorW failed\n");
+            return false;
+        }
+
+        sa.lpSecurityDescriptor = securityDescriptor;
+        return true;
+    }
+
+    struct SwapChainHook
+    {
+        void** vtable{};
+        void** vtable1{};
+        void* originalPresent{};
+        void* originalPresent1{};
+        rt::com_ptr<ID3D11Device> device;
+        rt::com_ptr<ID3D11DeviceContext> context;
+        rt::com_ptr<ID3D11Texture2D> stagingTexture;
+        DXGI_FORMAT format{};
+        int width = 0;
+        int height = 0;
+    };
+
+    static inline std::mutex g_hookMutex;
+    static inline std::vector<SwapChainHook> g_swapChainHooks;
+    static inline void* g_originalD3D11CreateDeviceAndSwapChain = nullptr;
+    static inline void* g_originalD3D11CreateDeviceAndSwapChain1 = nullptr;
+    static inline void* g_originalD3D11CreateDevice = nullptr;
+    static inline void* g_originalCreateDXGIFactory = nullptr;
+    static inline void* g_originalCreateDXGIFactory1 = nullptr;
+    static inline void* g_originalCreateDXGIFactory2 = nullptr;
+    static inline void* g_originalCreateDXGIFactoryForHwnd = nullptr;
+    static inline void* g_originalCreateDXGIFactoryForCoreWindow = nullptr;
+    static inline void* g_originalCreateSwapChain = nullptr;
+    static inline void* g_originalCreateSwapChainForHwnd = nullptr;
+    static inline void* g_originalCreateSwapChainForCoreWindow = nullptr;
+    static inline HANDLE g_injectionMapping = nullptr;
+    static inline InjectionFrameHeader* g_injectionHeader = nullptr;
+    static inline uint8_t* g_injectionPixels = nullptr;
+
+    static bool CreateInlineHook(void* target, void* detour, void** original)
+    {
+        if (!target || !detour || !original)
+            return false;
+
+        constexpr SIZE_T patchSize = 12;
+        uint8_t originalBytes[patchSize]{};
+        DWORD oldProtect = 0;
+        if (!VirtualProtect(target, patchSize, PAGE_EXECUTE_READWRITE, &oldProtect))
+            return false;
+
+        memcpy(originalBytes, target, patchSize);
+
+        void* trampoline = VirtualAlloc(nullptr, patchSize * 2, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+        if (!trampoline)
+        {
+            VirtualProtect(target, patchSize, oldProtect, &oldProtect);
+            return false;
+        }
+
+        memcpy(trampoline, originalBytes, patchSize);
+        uint8_t* jumpBack = reinterpret_cast<uint8_t*>(trampoline) + patchSize;
+        jumpBack[0] = 0x48;
+        jumpBack[1] = 0xB8;
+        *reinterpret_cast<void**>(jumpBack + 2) = reinterpret_cast<void*>(reinterpret_cast<uint8_t*>(target) + patchSize);
+        jumpBack[10] = 0xFF;
+        jumpBack[11] = 0xE0;
+
+        uint8_t detourPatch[patchSize];
+        detourPatch[0] = 0x48;
+        detourPatch[1] = 0xB8;
+        *reinterpret_cast<void**>(detourPatch + 2) = detour;
+        detourPatch[10] = 0xFF;
+        detourPatch[11] = 0xE0;
+
+        memcpy(target, detourPatch, patchSize);
+        FlushInstructionCache(GetCurrentProcess(), target, patchSize);
+        VirtualProtect(target, patchSize, oldProtect, &oldProtect);
+
+        *original = trampoline;
+        return true;
+    }
+
+    static bool HookDxgiFactory(IUnknown* factory)
+    {
+        if (!factory)
+            return false;
+
+        void** vtable = *reinterpret_cast<void***>(factory);
+        if (!vtable)
+            return false;
+
+        bool hooked = false;
+        if (vtable[10] && !g_originalCreateSwapChain)
+        {
+            if (CreateInlineHook(vtable[10], reinterpret_cast<void*>(Hooked_CreateSwapChain), &g_originalCreateSwapChain))
+            {
+                DebugLog("[WGC_NATIVE] Installed IDXGIFactory::CreateSwapChain hook");
+                hooked = true;
+            }
+        }
+
+        if (vtable[14] && !g_originalCreateSwapChainForHwnd)
+        {
+            if (CreateInlineHook(vtable[14], reinterpret_cast<void*>(Hooked_CreateSwapChainForHwnd), &g_originalCreateSwapChainForHwnd))
+            {
+                DebugLog("[WGC_NATIVE] Installed IDXGIFactory2::CreateSwapChainForHwnd hook");
+                hooked = true;
+            }
+        }
+
+        if (vtable[15] && !g_originalCreateSwapChainForCoreWindow)
+        {
+            if (CreateInlineHook(vtable[15], reinterpret_cast<void*>(Hooked_CreateSwapChainForCoreWindow), &g_originalCreateSwapChainForCoreWindow))
+            {
+                DebugLog("[WGC_NATIVE] Installed IDXGIFactory2::CreateSwapChainForCoreWindow hook");
+                hooked = true;
+            }
+        }
+
+        return hooked;
+    }
+
+    static HRESULT WINAPI Hooked_CreateSwapChain(IDXGIFactory* This, IUnknown* pDevice, DXGI_SWAP_CHAIN_DESC* pDesc, IDXGISwapChain** ppSwapChain)
+    {
+        using CreateSwapChainFn = HRESULT(WINAPI*)(IDXGIFactory*, IUnknown*, DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**);
+        auto originalFn = reinterpret_cast<CreateSwapChainFn>(g_originalCreateSwapChain);
+        if (!originalFn)
+            return E_FAIL;
+
+        HRESULT hr = originalFn(This, pDevice, pDesc, ppSwapChain);
+        char buf[256];
+        sprintf_s(buf, "[WGC_NATIVE] Hooked_CreateSwapChain called hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
+        DebugLog(buf);
+        if (SUCCEEDED(hr) && ppSwapChain && *ppSwapChain)
+        {
+            if (HookSwapChain(*ppSwapChain))
+                DebugLog("[WGC_NATIVE] Hooked_CreateSwapChain successfully hooked swapchain\n");
+            else
+                DebugLog("[WGC_NATIVE] Hooked_CreateSwapChain failed to hook swapchain\n");
+        }
+
+        return hr;
+    }
+
+    static HRESULT WINAPI Hooked_CreateSwapChainForHwnd(IDXGIFactory2* This, IUnknown* pDevice, HWND hWnd, DXGI_SWAP_CHAIN_DESC1 const* pDesc, IDXGIOutput* pRestrictToOutput, IDXGISwapChain1** ppSwapChain)
+    {
+        using CreateSwapChainForHwndFn = HRESULT(WINAPI*)(IDXGIFactory2*, IUnknown*, HWND, DXGI_SWAP_CHAIN_DESC1 const*, IDXGIOutput*, IDXGISwapChain1**);
+        auto originalFn = reinterpret_cast<CreateSwapChainForHwndFn>(g_originalCreateSwapChainForHwnd);
+        if (!originalFn)
+            return E_FAIL;
+
+        HRESULT hr = originalFn(This, pDevice, hWnd, pDesc, pRestrictToOutput, ppSwapChain);
+        char buf[256];
+        sprintf_s(buf, "[WGC_NATIVE] Hooked_CreateSwapChainForHwnd called hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
+        DebugLog(buf);
+        if (SUCCEEDED(hr) && ppSwapChain && *ppSwapChain)
+        {
+            if (HookSwapChain(*reinterpret_cast<IDXGISwapChain**>(ppSwapChain)))
+                DebugLog("[WGC_NATIVE] Hooked_CreateSwapChainForHwnd successfully hooked swapchain\n");
+            else
+                DebugLog("[WGC_NATIVE] Hooked_CreateSwapChainForHwnd failed to hook swapchain\n");
+        }
+
+        return hr;
+    }
+
+    static HRESULT WINAPI Hooked_CreateSwapChainForCoreWindow(IDXGIFactory2* This, IUnknown* pDevice, IUnknown* pWindow, DXGI_SWAP_CHAIN_DESC1 const* pDesc, IDXGIOutput* pRestrictToOutput, IDXGISwapChain1** ppSwapChain)
+    {
+        using CreateSwapChainForCoreWindowFn = HRESULT(WINAPI*)(IDXGIFactory2*, IUnknown*, IUnknown*, DXGI_SWAP_CHAIN_DESC1 const*, IDXGIOutput*, IDXGISwapChain1**);
+        auto originalFn = reinterpret_cast<CreateSwapChainForCoreWindowFn>(g_originalCreateSwapChainForCoreWindow);
+        if (!originalFn)
+            return E_FAIL;
+
+        HRESULT hr = originalFn(This, pDevice, pWindow, pDesc, pRestrictToOutput, ppSwapChain);
+        char buf[256];
+        sprintf_s(buf, "[WGC_NATIVE] Hooked_CreateSwapChainForCoreWindow called hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
+        DebugLog(buf);
+        if (SUCCEEDED(hr) && ppSwapChain && *ppSwapChain)
+        {
+            if (HookSwapChain(*reinterpret_cast<IDXGISwapChain**>(ppSwapChain)))
+                DebugLog("[WGC_NATIVE] Hooked_CreateSwapChainForCoreWindow successfully hooked swapchain\n");
+            else
+                DebugLog("[WGC_NATIVE] Hooked_CreateSwapChainForCoreWindow failed to hook swapchain\n");
+        }
+
+        return hr;
+    }
+
+    static HRESULT WINAPI Hooked_D3D11CreateDevice(
+        IDXGIAdapter* pAdapter,
+        D3D_DRIVER_TYPE DriverType,
+        HMODULE Software,
+        UINT Flags,
+        const D3D_FEATURE_LEVEL* pFeatureLevels,
+        UINT FeatureLevels,
+        UINT SDKVersion,
+        ID3D11Device** ppDevice,
+        D3D_FEATURE_LEVEL* pFeatureLevel,
+        ID3D11DeviceContext** ppImmediateContext)
+    {
+        using CreateDeviceFn = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL*, UINT, UINT, ID3D11Device**, D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
+        auto originalFn = reinterpret_cast<CreateDeviceFn>(g_originalD3D11CreateDevice);
+        if (!originalFn)
+            return E_FAIL;
+
+        HRESULT hr = originalFn(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels, SDKVersion, ppDevice, pFeatureLevel, ppImmediateContext);
+        if (SUCCEEDED(hr) && ppDevice && *ppDevice)
+        {
+            rt::com_ptr<IDXGIDevice> dxgiDevice;
+            if (SUCCEEDED((*ppDevice)->QueryInterface(IID_PPV_ARGS(dxgiDevice.put()))))
+            {
+                rt::com_ptr<IDXGIAdapter> adapter;
+                if (SUCCEEDED(dxgiDevice->GetAdapter(adapter.put())))
+                {
+                    rt::com_ptr<IDXGIFactory> factory;
+                    if (SUCCEEDED(adapter->GetParent(IID_PPV_ARGS(factory.put()))))
+                    {
+                        HookDxgiFactory(reinterpret_cast<IUnknown*>(factory.get()));
+                    }
+                }
+            }
+        }
+        return hr;
+    }
+
+    static HRESULT WINAPI Hooked_CreateDXGIFactory(REFIID riid, void** ppFactory)
+    {
+        using CreateDXGIFactoryFn = HRESULT(WINAPI*)(REFIID, void**);
+        auto originalFn = reinterpret_cast<CreateDXGIFactoryFn>(g_originalCreateDXGIFactory);
+        if (!originalFn)
+            return E_FAIL;
+
+        HRESULT hr = originalFn(riid, ppFactory);
+        char buf[256];
+        sprintf_s(buf, "[WGC_NATIVE] Hooked_CreateDXGIFactory called hr=0x%08X factory=%p\n", static_cast<unsigned>(hr), ppFactory ? *ppFactory : nullptr);
+        DebugLog(buf);
+        if (SUCCEEDED(hr) && ppFactory && *ppFactory)
+            HookDxgiFactory(reinterpret_cast<IUnknown*>(*ppFactory));
+
+        return hr;
+    }
+
+    static HRESULT WINAPI Hooked_CreateDXGIFactory1(REFIID riid, void** ppFactory)
+    {
+        using CreateDXGIFactory1Fn = HRESULT(WINAPI*)(REFIID, void**);
+        auto originalFn = reinterpret_cast<CreateDXGIFactory1Fn>(g_originalCreateDXGIFactory1);
+        if (!originalFn)
+            return E_FAIL;
+
+        HRESULT hr = originalFn(riid, ppFactory);
+        char buf[256];
+        sprintf_s(buf, "[WGC_NATIVE] Hooked_CreateDXGIFactory1 called hr=0x%08X factory=%p\n", static_cast<unsigned>(hr), ppFactory ? *ppFactory : nullptr);
+        DebugLog(buf);
+        if (SUCCEEDED(hr) && ppFactory && *ppFactory)
+            HookDxgiFactory(reinterpret_cast<IUnknown*>(*ppFactory));
+
+        return hr;
+    }
+
+    static HRESULT WINAPI Hooked_CreateDXGIFactory2(UINT Flags, REFIID riid, void** ppFactory)
+    {
+        using CreateDXGIFactory2Fn = HRESULT(WINAPI*)(UINT, REFIID, void**);
+        auto originalFn = reinterpret_cast<CreateDXGIFactory2Fn>(g_originalCreateDXGIFactory2);
+        if (!originalFn)
+            return E_FAIL;
+
+        HRESULT hr = originalFn(Flags, riid, ppFactory);
+        char buf[256];
+        sprintf_s(buf, "[WGC_NATIVE] Hooked_CreateDXGIFactory2 called hr=0x%08X factory=%p\n", static_cast<unsigned>(hr), ppFactory ? *ppFactory : nullptr);
+        DebugLog(buf);
+        if (SUCCEEDED(hr) && ppFactory && *ppFactory)
+            HookDxgiFactory(reinterpret_cast<IUnknown*>(*ppFactory));
+
+        return hr;
+    }
+
+    static HRESULT WINAPI Hooked_CreateDXGIFactoryForHwnd(UINT Flags, HWND hWnd, REFIID riid, void** ppFactory)
+    {
+        using CreateDXGIFactoryForHwndFn = HRESULT(WINAPI*)(UINT, HWND, REFIID, void**);
+        auto originalFn = reinterpret_cast<CreateDXGIFactoryForHwndFn>(g_originalCreateDXGIFactoryForHwnd);
+        if (!originalFn)
+            return E_FAIL;
+
+        HRESULT hr = originalFn(Flags, hWnd, riid, ppFactory);
+        if (SUCCEEDED(hr) && ppFactory && *ppFactory)
+            HookDxgiFactory(reinterpret_cast<IUnknown*>(*ppFactory));
+
+        return hr;
+    }
+
+    static HRESULT WINAPI Hooked_CreateDXGIFactoryForCoreWindow(UINT Flags, IUnknown* pWindow, REFIID riid, void** ppFactory)
+    {
+        using CreateDXGIFactoryForCoreWindowFn = HRESULT(WINAPI*)(UINT, IUnknown*, REFIID, void**);
+        auto originalFn = reinterpret_cast<CreateDXGIFactoryForCoreWindowFn>(g_originalCreateDXGIFactoryForCoreWindow);
+        if (!originalFn)
+            return E_FAIL;
+
+        HRESULT hr = originalFn(Flags, pWindow, riid, ppFactory);
+        if (SUCCEEDED(hr) && ppFactory && *ppFactory)
+            HookDxgiFactory(reinterpret_cast<IUnknown*>(*ppFactory));
+
+        return hr;
+    }
+
+    static void* GetOriginalPresentForSwapChain(IDXGISwapChain* swapChain)
+    {
+        if (!swapChain)
+            return nullptr;
+
+        void** vtable = *reinterpret_cast<void***>(swapChain);
+        std::lock_guard<std::mutex> lock(g_hookMutex);
+        for (auto& hook : g_swapChainHooks)
+        {
+            if (hook.vtable == vtable)
+                return hook.originalPresent;
+        }
+
+        return nullptr;
+    }
+
+    static bool HookSwapChain(IDXGISwapChain* swapChain)
+    {
+        if (!swapChain)
+            return false;
+
+        void** vtable = *reinterpret_cast<void***>(swapChain);
+        if (!vtable)
+            return false;
+
+        std::lock_guard<std::mutex> lock(g_hookMutex);
+        for (auto& hook : g_swapChainHooks)
+        {
+            if (hook.vtable == vtable)
+                return true;
+        }
+
+        char buf[256];
+        sprintf_s(buf, "[WGC_NATIVE] HookSwapChain called swapChain=%p\n", swapChain);
+        DebugLog(buf);
+
+        void* originalPresent = vtable[8];
+        if (!originalPresent)
+        {
+            DebugLog("[WGC_NATIVE] HookSwapChain failed: no original Present\n");
+            return false;
+        }
+
+        SwapChainHook hook;
+        hook.vtable = vtable;
+        hook.originalPresent = originalPresent;
+
+        DWORD oldProtect = 0;
+        if (!VirtualProtect(&vtable[8], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect))
+        {
+            DebugLog("[WGC_NATIVE] HookSwapChain failed: VirtualProtect for Present\n");
+            return false;
+        }
+
+        vtable[8] = reinterpret_cast<void*>(Hooked_Present);
+        FlushInstructionCache(GetCurrentProcess(), &vtable[8], sizeof(void*));
+        VirtualProtect(&vtable[8], sizeof(void*), oldProtect, &oldProtect);
+        DebugLog("[WGC_NATIVE] Hooked IDXGISwapChain::Present\n");
+
+        rt::com_ptr<IDXGISwapChain1> swapChain1;
+        if (SUCCEEDED(swapChain->QueryInterface(IID_PPV_ARGS(swapChain1.put()))))
+        {
+            void** vtable1 = *reinterpret_cast<void***>(swapChain1.get());
+            if (vtable1)
+            {
+                void* originalPresent1 = vtable1[21];
+                if (originalPresent1)
+                {
+                    DWORD oldProtect1 = 0;
+                    if (VirtualProtect(&vtable1[21], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect1))
+                    {
+                        vtable1[21] = reinterpret_cast<void*>(Hooked_Present1);
+                        FlushInstructionCache(GetCurrentProcess(), &vtable1[21], sizeof(void*));
+                        VirtualProtect(&vtable1[21], sizeof(void*), oldProtect1, &oldProtect1);
+                        hook.originalPresent1 = originalPresent1;
+                        hook.vtable1 = vtable1;
+                        DebugLog("[WGC_NATIVE] Hooked IDXGISwapChain1::Present1\n");
+                    }
+                    else
+                    {
+                        DebugLog("[WGC_NATIVE] HookSwapChain failed: VirtualProtect for Present1\n");
+                    }
+                }
+                else
+                {
+                    DebugLog("[WGC_NATIVE] HookSwapChain: no original Present1\n");
+                }
+            }
+        }
+        else
+        {
+            DebugLog("[WGC_NATIVE] HookSwapChain: QueryInterface for IDXGISwapChain1 failed\n");
+        }
+
+        g_swapChainHooks.push_back(std::move(hook));
+        return true;
+    }
+
+    static void CopyFrameDataToSharedMemory(uint8_t const* src, size_t rowBytes, int width, int height, DXGI_FORMAT format)
+    {
+        if (!g_injectionHeader || !g_injectionPixels)
+        {
+            DebugLog("[WGC_NATIVE] CopyFrameDataToSharedMemory: No buffer/header!");
+            return;
+        }
+
+        const bool isBgra = format == DXGI_FORMAT_B8G8R8A8_UNORM || format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        const size_t dstStride = static_cast<size_t>(width) * 4;
+
+        g_injectionHeader->Sequence1 = 0;
+        g_injectionHeader->Width = width;
+        g_injectionHeader->Height = height;
+        g_injectionHeader->Stride = static_cast<uint32_t>(dstStride);
+        uint32_t currentCounter = g_injectionHeader->FrameCounter + 1;
+        if (currentCounter == 0) currentCounter = 1;
+        g_injectionHeader->FrameCounter = currentCounter;
+        g_injectionHeader->Magic = InjectionMagic;
+
+        for (int y = 0; y < height; y++)
+        {
+            uint8_t const* srcRow = src + static_cast<size_t>(rowBytes) * y;
+            uint8_t* dstRow = g_injectionPixels + dstStride * y;
+
+            if (!isBgra)
+            {
+                memcpy(dstRow, srcRow, dstStride);
+            }
+            else
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    dstRow[0] = srcRow[2];
+                    dstRow[1] = srcRow[1];
+                    dstRow[2] = srcRow[0];
+                    dstRow[3] = srcRow[3];
+                    srcRow += 4;
+                    dstRow += 4;
+                }
+            }
+        }
+
+        g_injectionHeader->Sequence2 = currentCounter;
+        g_injectionHeader->Sequence1 = currentCounter;
+    }
+
+    static void CaptureSwapChainFrame(IDXGISwapChain* swapChain)
+    {
+        if (!swapChain)
+            return;
+
+        // Skip if we haven't even initialized the shared memory
+        if (!g_injectionHeader)
+            return;
+
+        char buf[256];
+        // Only log swapchain pointer periodically to avoid spamming the log
+        static int logCounter = 0;
+        if (logCounter++ % 60 == 0) {
+            sprintf_s(buf, "[WGC_NATIVE] CaptureSwapChainFrame swapChain=%p\n", swapChain);
+            DebugLog(buf);
+        }
+
+        void** vtable = *reinterpret_cast<void***>(swapChain);
+        std::lock_guard<std::mutex> lock(g_hookMutex);
+        auto it = std::find_if(g_swapChainHooks.begin(), g_swapChainHooks.end(), [vtable](SwapChainHook const& hook)
+        {
+            return hook.vtable == vtable;
+        });
+
+        if (it == g_swapChainHooks.end())
+            return;
+
+        auto& hook = *it;
+        rt::com_ptr<ID3D11Texture2D> backBuffer;
+        HRESULT hr = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.put()));
+        if (FAILED(hr) || !backBuffer)
+        {
+            return;
+        }
+
+        if (!hook.device)
+        {
+            rt::com_ptr<ID3D11Device> d3dDevice;
+            backBuffer->GetDevice(d3dDevice.put());
+            if (!d3dDevice)
+            {
+                DebugLog("[WGC_NATIVE] CaptureSwapChainFrame GetDevice failed\n");
+                return;
+            }
+
+            hook.device = d3dDevice;
+            d3dDevice->GetImmediateContext(hook.context.put());
+            if (!hook.context)
+                return;
+            
+            DebugLog("[WGC_NATIVE] CaptureSwapChainFrame initialized capture hook state for swapChain\n");
+        }
+
+        D3D11_TEXTURE2D_DESC desc = {};
+        backBuffer->GetDesc(&desc);
+        
+        if (desc.SampleDesc.Count > 1)
+        {
+            if (logCounter % 60 == 1) DebugLog("[WGC_NATIVE] CaptureSwapChainFrame unsupported multi-sampled buffer\n");
+            return;
+        }
+
+        if (desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM && desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM &&
+            desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM_SRGB && desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
+        {
+            if (logCounter % 60 == 1) {
+                sprintf_s(buf, "[WGC_NATIVE] CaptureSwapChainFrame unsupported format %u\n", desc.Format);
+                DebugLog(buf);
+            }
+            return;
+        }
+
+        if (!hook.stagingTexture || hook.width != static_cast<int>(desc.Width) || hook.height != static_cast<int>(desc.Height) || hook.format != desc.Format)
+        {
+            hook.stagingTexture = nullptr;
+            hook.format = desc.Format;
+            hook.width = static_cast<int>(desc.Width);
+            hook.height = static_cast<int>(desc.Height);
+
+            D3D11_TEXTURE2D_DESC stagingDesc = desc;
+            stagingDesc.Usage = D3D11_USAGE_STAGING;
+            stagingDesc.BindFlags = 0;
+            stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            stagingDesc.MiscFlags = 0;
+
+            hr = hook.device->CreateTexture2D(&stagingDesc, nullptr, hook.stagingTexture.put());
+            if (FAILED(hr) || !hook.stagingTexture)
+            {
+                sprintf_s(buf, "[WGC_NATIVE] CaptureSwapChainFrame CreateTexture2D failed hr=0x%08X\n", (unsigned)hr);
+                DebugLog(buf);
+                return;
+            }
+        }
+
+        hook.context->CopyResource(hook.stagingTexture.get(), backBuffer.get());
+        D3D11_MAPPED_SUBRESOURCE mapped = {};
+        hr = hook.context->Map(hook.stagingTexture.get(), 0, D3D11_MAP_READ, 0, &mapped);
+        if (FAILED(hr) || !mapped.pData)
+            return;
+
+        CopyFrameDataToSharedMemory(static_cast<uint8_t const*>(mapped.pData), mapped.RowPitch, hook.width, hook.height, hook.format);
+        hook.context->Unmap(hook.stagingTexture.get(), 0);
+    }
+
+    static bool CreateInjectionFileMapping(DWORD pid)
+    {
+        SECURITY_ATTRIBUTES sa{};
+        PSECURITY_DESCRIPTOR sd = nullptr;
+        if (!CreateInjectionSecurityAttributes(sa, sd))
+            return false;
+
+        if (g_injectionMapping && g_injectionHeader && g_injectionPixels)
+        {
+            if (sd) LocalFree(sd);
+            return true;
+        }
+
+        auto mapName = MakeInjectionSharedMemoryName(pid);
+        char buf[256];
+        sprintf_s(buf, "[WGC_NATIVE] InitializeGlobalInjection creating shared memory for PID %lu name=%S\n", pid, mapName.c_str());
+        OutputDebugStringA(buf);
+
+        HANDLE mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, &sa, PAGE_READWRITE, 0, static_cast<DWORD>(InjectionHeaderSize + InjectionMaxFrameBytes), mapName.c_str());
+        if (!mapping)
+        {
+            DWORD err = GetLastError();
+            sprintf_s(buf, "[WGC_NATIVE] InitializeGlobalInjection CreateFileMappingW failed err=%lu\n", err);
+            OutputDebugStringA(buf);
+            if (sd)
+                LocalFree(sd);
+            return false;
+        }
+
+        void* view = MapViewOfFile(mapping, FILE_MAP_WRITE, 0, 0, InjectionHeaderSize + InjectionMaxFrameBytes);
+        if (!view)
+        {
+            DWORD err = GetLastError();
+            sprintf_s(buf, "[WGC_NATIVE] InitializeGlobalInjection MapViewOfFile failed err=%lu\n", err);
+            OutputDebugStringA(buf);
+            CloseHandle(mapping);
+            if (sd)
+                LocalFree(sd);
+            return false;
+        }
+
+        g_injectionMapping = mapping;
+        g_injectionHeader = reinterpret_cast<InjectionFrameHeader*>(view);
+        g_injectionPixels = reinterpret_cast<uint8_t*>(view) + InjectionHeaderSize;
+        
+        // Zero only if clean or contains garbage
+        if (g_injectionHeader->Magic != InjectionMagic)
+        {
+            ZeroMemory(g_injectionHeader, InjectionHeaderSize);
+            g_injectionHeader->Magic = InjectionMagic;
+            g_injectionHeader->Sequence1 = 1;
+            g_injectionHeader->Sequence2 = 1;
+            OutputDebugStringA("[WGC_NATIVE] InitializeGlobalInjection: Initialized new header\n");
+        }
+        else
+        {
+            OutputDebugStringA("[WGC_NATIVE] InitializeGlobalInjection: Attached to existing valid header\n");
+        }
+
+        if (sd)
+            LocalFree(sd);
+
+        OutputDebugStringA("[WGC_NATIVE] InitializeGlobalInjection succeeded\n");
+        return true;
+    }
+
+    static bool InitializeGlobalInjection(DWORD pid)
+    {
+        return CreateInjectionFileMapping(pid);
+    }
+
+    static bool WaitForFirstInjectionFrame(int timeoutMs)
+    {
+        auto start = std::chrono::steady_clock::now();
+        while (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() < timeoutMs)
+        {
+            if (g_injectionHeader && g_injectionHeader->Sequence1 != 0)
+            {
+                uint32_t seq1 = g_injectionHeader->Sequence1;
+                uint32_t seq2 = g_injectionHeader->Sequence2;
+                if (seq1 == seq2 && g_injectionHeader->Magic == InjectionMagic && g_injectionHeader->Width > 0 && g_injectionHeader->Height > 0)
+                    return true;
+            }
+
+            Sleep(50);
+        }
+
+        return false;
+    }
+
+    static bool InitializeDirectHookCaptureInternal(DWORD pid)
+    {
+        if (!InitializeGlobalInjection(pid))
+            return false;
+
+        const int maxWaitMs = 5000;
+        const int retryDelayMs = 100;
+        auto start = std::chrono::steady_clock::now();
+        bool anyHookInstalled = false;
+
+        while (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() < maxWaitMs)
+        {
+            bool installed = InstallGraphicsHooks();
+            anyHookInstalled = anyHookInstalled || installed;
+            if (anyHookInstalled && GetModuleHandleW(L"dxgi.dll") && GetModuleHandleW(L"d3d11.dll"))
+                break;
+
+            if (anyHookInstalled)
+            {
+                // Keep trying while the process continues loading graphics modules.
+                DebugLog("[WGC_NATIVE] Graphics hooks installed, continuing retry loop for late-loading modules");
+            }
+            else
+            {
+                DebugLog("[WGC_NATIVE] Waiting for dxgi/d3d11 modules to load for hook installation");
+            }
+
+            Sleep(retryDelayMs);
+        }
+
+        if (!anyHookInstalled)
+        {
+            DebugLog("[WGC_NATIVE] InstallGraphicsHooks failed after retrying");
+            return false;
+        }
+
+        DebugLog("[WGC_NATIVE] InitializeDirectHookCapture installed graphics hooks and created shared memory");
+        return true;
+    }
+
     void SetDirectCompositionStatus(char const* message)
     {
         std::lock_guard<std::mutex> lock(dcompErrorMutex);
-        dcompLastError = message ? message : "";
+        if (message)
+            dcompLastError = message;
+        else
+            dcompLastError.clear();
+    }
+
+    static bool InstallDxgiHooks()
+    {
+        HMODULE dxgi = GetModuleHandleW(L"dxgi.dll");
+        if (!dxgi)
+        {
+            DebugLog("[WGC_NATIVE] dxgi.dll not loaded yet");
+            return false;
+        }
+
+        bool hooked = false;
+        void* createFactory = GetProcAddress(dxgi, "CreateDXGIFactory");
+        if (createFactory && !g_originalCreateDXGIFactory && CreateInlineHook(createFactory, reinterpret_cast<void*>(Hooked_CreateDXGIFactory), &g_originalCreateDXGIFactory))
+        {
+            DebugLog("[WGC_NATIVE] Installed CreateDXGIFactory hook");
+            hooked = true;
+        }
+
+        void* createFactory1 = GetProcAddress(dxgi, "CreateDXGIFactory1");
+        if (createFactory1 && !g_originalCreateDXGIFactory1 && CreateInlineHook(createFactory1, reinterpret_cast<void*>(Hooked_CreateDXGIFactory1), &g_originalCreateDXGIFactory1))
+        {
+            DebugLog("[WGC_NATIVE] Installed CreateDXGIFactory1 hook");
+            hooked = true;
+        }
+
+        void* createFactory2 = GetProcAddress(dxgi, "CreateDXGIFactory2");
+        if (createFactory2 && !g_originalCreateDXGIFactory2 && CreateInlineHook(createFactory2, reinterpret_cast<void*>(Hooked_CreateDXGIFactory2), &g_originalCreateDXGIFactory2))
+        {
+            DebugLog("[WGC_NATIVE] Installed CreateDXGIFactory2 hook");
+            hooked = true;
+        }
+
+        void* createFactoryForHwnd = GetProcAddress(dxgi, "CreateDXGIFactoryForHwnd");
+        if (createFactoryForHwnd)
+        {
+            if (!g_originalCreateDXGIFactoryForHwnd && CreateInlineHook(createFactoryForHwnd, reinterpret_cast<void*>(Hooked_CreateDXGIFactoryForHwnd), &g_originalCreateDXGIFactoryForHwnd))
+            {
+                DebugLog("[WGC_NATIVE] Installed CreateDXGIFactoryForHwnd hook");
+                hooked = true;
+            }
+            else if (!g_originalCreateDXGIFactoryForHwnd)
+            {
+                DebugLog("[WGC_NATIVE] CreateDXGIFactoryForHwnd hook install failed");
+            }
+        }
+        else
+        {
+            DebugLog("[WGC_NATIVE] CreateDXGIFactoryForHwnd export not found");
+        }
+
+        void* createFactoryForCoreWindow = GetProcAddress(dxgi, "CreateDXGIFactoryForCoreWindow");
+        if (createFactoryForCoreWindow)
+        {
+            if (!g_originalCreateDXGIFactoryForCoreWindow && CreateInlineHook(createFactoryForCoreWindow, reinterpret_cast<void*>(Hooked_CreateDXGIFactoryForCoreWindow), &g_originalCreateDXGIFactoryForCoreWindow))
+            {
+                DebugLog("[WGC_NATIVE] Installed CreateDXGIFactoryForCoreWindow hook");
+                hooked = true;
+            }
+            else if (!g_originalCreateDXGIFactoryForCoreWindow)
+            {
+                DebugLog("[WGC_NATIVE] CreateDXGIFactoryForCoreWindow hook install failed");
+            }
+        }
+        else
+        {
+            DebugLog("[WGC_NATIVE] CreateDXGIFactoryForCoreWindow export not found");
+        }
+
+        if (!hooked)
+        {
+            DebugLog("[WGC_NATIVE] No DXGI factory hooks installed");
+        }
+
+        return hooked;
+    }
+
+    static bool InstallD3D11Hooks()
+    {
+        HMODULE d3d11 = GetModuleHandleW(L"d3d11.dll");
+        if (!d3d11)
+        {
+            DebugLog("[WGC_NATIVE] d3d11.dll not loaded yet");
+            return false;
+        }
+
+        bool hooked = false;
+        void* createDevice = GetProcAddress(d3d11, "D3D11CreateDevice");
+        if (createDevice && !g_originalD3D11CreateDevice && CreateInlineHook(createDevice, reinterpret_cast<void*>(Hooked_D3D11CreateDevice), &g_originalD3D11CreateDevice))
+        {
+            DebugLog("[WGC_NATIVE] Installed D3D11CreateDevice hook");
+            hooked = true;
+        }
+
+        void* createDeviceAndSwapChain = GetProcAddress(d3d11, "D3D11CreateDeviceAndSwapChain");
+        if (createDeviceAndSwapChain)
+        {
+            if (!g_originalD3D11CreateDeviceAndSwapChain && CreateInlineHook(createDeviceAndSwapChain, reinterpret_cast<void*>(Hooked_D3D11CreateDeviceAndSwapChain), &g_originalD3D11CreateDeviceAndSwapChain))
+            {
+                DebugLog("[WGC_NATIVE] Installed D3D11CreateDeviceAndSwapChain hook");
+                hooked = true;
+            }
+            else if (!g_originalD3D11CreateDeviceAndSwapChain)
+            {
+                DebugLog("[WGC_NATIVE] D3D11CreateDeviceAndSwapChain hook install failed");
+            }
+        }
+        else
+        {
+            DebugLog("[WGC_NATIVE] D3D11CreateDeviceAndSwapChain export not found");
+        }
+
+        void* createDeviceAndSwapChain1 = GetProcAddress(d3d11, "D3D11CreateDeviceAndSwapChain1");
+        if (createDeviceAndSwapChain1)
+        {
+            if (!g_originalD3D11CreateDeviceAndSwapChain1 && CreateInlineHook(createDeviceAndSwapChain1, reinterpret_cast<void*>(Hooked_D3D11CreateDeviceAndSwapChain1), &g_originalD3D11CreateDeviceAndSwapChain1))
+            {
+                DebugLog("[WGC_NATIVE] Installed D3D11CreateDeviceAndSwapChain1 hook");
+                hooked = true;
+            }
+            else if (!g_originalD3D11CreateDeviceAndSwapChain1)
+            {
+                DebugLog("[WGC_NATIVE] D3D11CreateDeviceAndSwapChain1 hook install failed");
+            }
+        }
+        else
+        {
+            DebugLog("[WGC_NATIVE] D3D11CreateDeviceAndSwapChain1 export not found");
+        }
+
+        if (!hooked)
+        {
+            DebugLog("[WGC_NATIVE] No D3D11 creation hooks installed");
+        }
+
+        return hooked;
+    }
+
+    static bool InstallGraphicsHooks()
+    {
+        bool dxgiHooked = InstallDxgiHooks();
+        bool d3d11Hooked = InstallD3D11Hooks();
+        return dxgiHooked || d3d11Hooked;
+    }
+
+    static void* GetOriginalPresent1ForSwapChain(IDXGISwapChain* swapChain)
+    {
+        if (!swapChain)
+            return nullptr;
+
+        void** vtable = *reinterpret_cast<void***>(swapChain);
+        std::lock_guard<std::mutex> lock(g_hookMutex);
+        for (auto& hook : g_swapChainHooks)
+        {
+            if (hook.vtable == vtable || hook.vtable1 == vtable)
+                return hook.originalPresent1;
+        }
+
+        return nullptr;
+    }
+
+    static HRESULT WINAPI Hooked_Present(IDXGISwapChain* This, UINT SyncInterval, UINT Flags)
+    {
+        auto original = GetOriginalPresentForSwapChain(This);
+        if (!original)
+            return E_FAIL;
+
+        CaptureSwapChainFrame(This);
+
+        auto originalFn = reinterpret_cast<HRESULT(WINAPI*)(IDXGISwapChain*, UINT, UINT)>(original);
+        return originalFn(This, SyncInterval, Flags);
+    }
+
+    static HRESULT WINAPI Hooked_Present1(IDXGISwapChain* This, UINT SyncInterval, UINT PresentFlags, DXGI_PRESENT_PARAMETERS const* pPresentParameters)
+    {
+        auto original = GetOriginalPresent1ForSwapChain(This);
+        if (!original)
+            return E_FAIL;
+
+        CaptureSwapChainFrame(This);
+
+        auto originalFn = reinterpret_cast<HRESULT(WINAPI*)(IDXGISwapChain*, UINT, UINT, DXGI_PRESENT_PARAMETERS const*)>(original);
+        return originalFn(This, SyncInterval, PresentFlags, pPresentParameters);
+    }
+
+    static HRESULT WINAPI Hooked_D3D11CreateDeviceAndSwapChain(
+        IDXGIAdapter* pAdapter,
+        D3D_DRIVER_TYPE DriverType,
+        HMODULE Software,
+        UINT Flags,
+        const D3D_FEATURE_LEVEL* pFeatureLevels,
+        UINT FeatureLevels,
+        UINT SDKVersion,
+        const DXGI_SWAP_CHAIN_DESC* pSwapChainDesc,
+        IDXGISwapChain** ppSwapChain,
+        ID3D11Device** ppDevice,
+        D3D_FEATURE_LEVEL* pFeatureLevel,
+        ID3D11DeviceContext** ppImmediateContext)
+    {
+        using CreateDeviceAndSwapChainFn = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL*, UINT, UINT, const DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**, ID3D11Device**, D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
+        auto originalFn = reinterpret_cast<CreateDeviceAndSwapChainFn>(g_originalD3D11CreateDeviceAndSwapChain);
+        if (!originalFn)
+            return E_FAIL;
+
+        HRESULT hr = originalFn(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels, SDKVersion, pSwapChainDesc, ppSwapChain, ppDevice, pFeatureLevel, ppImmediateContext);
+        char buf[256];
+        sprintf_s(buf, "[WGC_NATIVE] Hooked_D3D11CreateDeviceAndSwapChain returned hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
+        DebugLog(buf);
+        if (SUCCEEDED(hr) && ppSwapChain && *ppSwapChain)
+        {
+            if (HookSwapChain(*ppSwapChain))
+                DebugLog("[WGC_NATIVE] Hooked_D3D11CreateDeviceAndSwapChain hooked swapchain\n");
+            else
+                DebugLog("[WGC_NATIVE] Hooked_D3D11CreateDeviceAndSwapChain failed to hook swapchain\n");
+
+            // Also ensure factory is hooked if we have a device
+            if (ppDevice && *ppDevice)
+            {
+                rt::com_ptr<IDXGIDevice> dxgiDevice;
+                if (SUCCEEDED((*ppDevice)->QueryInterface(IID_PPV_ARGS(dxgiDevice.put()))))
+                {
+                    rt::com_ptr<IDXGIAdapter> adapter;
+                    if (SUCCEEDED(dxgiDevice->GetAdapter(adapter.put())))
+                    {
+                        rt::com_ptr<IDXGIFactory> factory;
+                        if (SUCCEEDED(adapter->GetParent(IID_PPV_ARGS(factory.put()))))
+                        {
+                            HookDxgiFactory(reinterpret_cast<IUnknown*>(factory.get()));
+                        }
+                    }
+                }
+            }
+        }
+
+        return hr;
+    }
+
+    static HRESULT WINAPI Hooked_D3D11CreateDeviceAndSwapChain1(
+        IDXGIAdapter* pAdapter,
+        D3D_DRIVER_TYPE DriverType,
+        HMODULE Software,
+        UINT Flags,
+        const D3D_FEATURE_LEVEL* pFeatureLevels,
+        UINT FeatureLevels,
+        UINT SDKVersion,
+        const DXGI_SWAP_CHAIN_DESC1* pSwapChainDesc,
+        IDXGISwapChain1** ppSwapChain,
+        ID3D11Device** ppDevice,
+        D3D_FEATURE_LEVEL* pFeatureLevel,
+        ID3D11DeviceContext** ppImmediateContext)
+    {
+        using CreateDeviceAndSwapChain1Fn = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL*, UINT, UINT, const DXGI_SWAP_CHAIN_DESC1*, IDXGISwapChain1**, ID3D11Device**, D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
+        auto originalFn = reinterpret_cast<CreateDeviceAndSwapChain1Fn>(g_originalD3D11CreateDeviceAndSwapChain1);
+        if (!originalFn)
+            return E_FAIL;
+
+        HRESULT hr = originalFn(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels, SDKVersion, pSwapChainDesc, ppSwapChain, ppDevice, pFeatureLevel, ppImmediateContext);
+        char buf[256];
+        sprintf_s(buf, "[WGC_NATIVE] Hooked_D3D11CreateDeviceAndSwapChain1 returned hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
+        DebugLog(buf);
+        if (SUCCEEDED(hr) && ppSwapChain && *ppSwapChain)
+        {
+            if (HookSwapChain(*reinterpret_cast<IDXGISwapChain**>(*ppSwapChain)))
+                DebugLog("[WGC_NATIVE] Hooked_D3D11CreateDeviceAndSwapChain1 hooked swapchain\n");
+            else
+                DebugLog("[WGC_NATIVE] Hooked_D3D11CreateDeviceAndSwapChain1 failed to hook swapchain\n");
+        }
+
+        return hr;
     }
 
     void MarkDirectCompositionFailed(char const* message)
@@ -1016,6 +2061,7 @@ struct CaptureSession
                             int curReaders = readers.load(std::memory_order_acquire);
                             if (curReaders == 0)
                             {
+                                WriteInjectionFrame(backBuffer.data(), ts, targetW, targetH, static_cast<int>(rs));
                                 std::lock_guard<std::mutex> lock(dataMutex);
                                 if (readers.load(std::memory_order_relaxed) == 0)
                                 {
@@ -1093,6 +2139,7 @@ struct CaptureSession
                     // Only swap if no readers are currently looking at the data
                     if (readers.load(std::memory_order_acquire) == 0)
                     {
+                        WriteInjectionFrame(localBuffer.data(), ts, copyW, copyH, static_cast<int>(rs));
                         std::lock_guard<std::mutex> lock(dataMutex);
                         if (readers.load(std::memory_order_relaxed) == 0)
                         {
@@ -1115,10 +2162,146 @@ struct CaptureSession
         } catch (...) { }
         frame.Close();
     }
+
+    bool InitializeInjection(DWORD pid)
+    {
+        if (injectionMapping || injectionHeader)
+            return true;
+
+        auto mapName = MakeInjectionSharedMemoryName(pid);
+        OutputDebugStringA("[WGC_NATIVE] InitializeInjection creating shared memory\n");
+        HANDLE mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, static_cast<DWORD>(InjectionHeaderSize + InjectionMaxFrameBytes), mapName.c_str());
+        if (!mapping)
+        {
+            OutputDebugStringA("[WGC_NATIVE] InitializeInjection CreateFileMappingW failed\n");
+            return false;
+        }
+
+        void* view = MapViewOfFile(mapping, FILE_MAP_WRITE, 0, 0, InjectionHeaderSize + InjectionMaxFrameBytes);
+        if (!view)
+        {
+            OutputDebugStringA("[WGC_NATIVE] InitializeInjection MapViewOfFile failed\n");
+            CloseHandle(mapping);
+            return false;
+        }
+
+        injectionMapping = mapping;
+        injectionHeader = reinterpret_cast<InjectionFrameHeader*>(view);
+        injectionPixels = reinterpret_cast<uint8_t*>(view) + InjectionHeaderSize;
+        ZeroMemory(injectionHeader, InjectionHeaderSize);
+        injectionHeader->Magic = InjectionMagic;
+        OutputDebugStringA("[WGC_NATIVE] InitializeInjection succeeded\n");
+        return true;
+    }
+
+    void WriteInjectionFrame(void const* data, size_t size, int width, int height, int stride)
+    {
+        if (!injectionHeader || !data || size == 0 || width <= 0 || height <= 0)
+            return;
+
+        if (size > InjectionMaxFrameBytes)
+            return;
+
+        uint32_t seq = static_cast<uint32_t>(injectionFrameCounter.fetch_add(1, std::memory_order_relaxed) + 1);
+        InterlockedExchange(reinterpret_cast<volatile LONG*>(&injectionHeader->Sequence1), 0);
+        injectionHeader->Width = static_cast<uint32_t>(width);
+        injectionHeader->Height = static_cast<uint32_t>(height);
+        injectionHeader->Stride = static_cast<uint32_t>(stride);
+        injectionHeader->FrameCounter = seq;
+        memcpy(injectionPixels, data, size);
+        InterlockedExchange(reinterpret_cast<volatile LONG*>(&injectionHeader->Sequence2), seq);
+        InterlockedExchange(reinterpret_cast<volatile LONG*>(&injectionHeader->Sequence1), seq);
+    }
 };
 
+bool InitializeDirectHookCapture(DWORD pid)
+{
+    return CaptureSession::InitializeDirectHookCaptureInternal(pid);
+}
+
+static void* s_injectionSession = nullptr;
+
+struct InjectionWindowSearchData
+{
+    DWORD processId;
+    HWND bestHwnd;
+    long bestScore;
+};
+
+static HWND FindBestCaptureWindowForCurrentProcess()
+{
+    InjectionWindowSearchData data{ GetCurrentProcessId(), nullptr, LONG_MIN };
+
+    EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL
+    {
+        auto searchData = reinterpret_cast<InjectionWindowSearchData*>(lParam);
+        DWORD windowPid = 0;
+        if (!GetWindowThreadProcessId(hwnd, &windowPid) || windowPid != searchData->processId)
+            return TRUE;
+
+        RECT rect;
+        if (!GetWindowRect(hwnd, &rect))
+            return TRUE;
+
+        int width = rect.right - rect.left;
+        int height = rect.bottom - rect.top;
+        if (width <= 0 || height <= 0)
+            return TRUE;
+
+        long score = (long)width * height;
+        if (IsWindowVisible(hwnd))
+            score += 100000;
+        if (GetWindow(hwnd, GW_OWNER) == nullptr)
+            score += 1000000;
+        if (hwnd == GetForegroundWindow())
+            score += 500000;
+
+        if (score > searchData->bestScore)
+        {
+            searchData->bestScore = score;
+            searchData->bestHwnd = hwnd;
+        }
+
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&data));
+
+    return data.bestHwnd;
+}
+
+extern "C" void* CreateCaptureSessionInternal(HWND targetHwnd, HWND presentationHwnd);
+
+static DWORD WINAPI InjectionThreadMain(LPVOID lpParameter)
+{
+    DWORD pid = GetCurrentProcessId();
+    auto requestName = CaptureSession::MakeInjectionRequestEventName(pid);
+    HANDLE requestEvent = OpenEventW(SYNCHRONIZE, FALSE, requestName.c_str());
+    if (!requestEvent)
+        return 0;
+
+    CloseHandle(requestEvent);
+
+    HWND hwnd = FindBestCaptureWindowForCurrentProcess();
+    if (!hwnd)
+        return 0;
+
+    void* session = CreateCaptureSessionInternal(hwnd, nullptr);
+    if (!session)
+        return 0;
+
+    auto readyName = CaptureSession::MakeInjectionReadyEventName(pid);
+    HANDLE readyEvent = CreateEventW(nullptr, TRUE, FALSE, readyName.c_str());
+    if (readyEvent)
+    {
+        SetEvent(readyEvent);
+        CloseHandle(readyEvent);
+    }
+
+    s_injectionSession = session;
+    return 0;
+}
+
 extern "C" {
-    static void* CreateCaptureSessionInternal(HWND targetHwnd, HWND presentationHwnd)
+    void* CreateCaptureSessionInternal(HWND targetHwnd, HWND presentationHwnd)
     {
         try
         {
@@ -1320,6 +2503,13 @@ extern "C" {
                 }
                 catch(...) { OutputDebugStringA("[WGC_NATIVE] IGraphicsCaptureSession3 not available or call failed\n"); }
 
+                if (!s->InitializeInjection(GetCurrentProcessId()))
+                {
+                    OutputDebugStringA("[WGC_NATIVE] InitializeInjection failed\n");
+                    delete s;
+                    return nullptr;
+                }
+
                 s->session.StartCapture();
                 OutputDebugStringA("[WGC_NATIVE] session.StartCapture() called\n");
                 return s;
@@ -1361,6 +2551,15 @@ extern "C" {
             }
             if (s->dcompDevice) {
                 s->dcompDevice->Commit();
+            }
+            if (s->injectionHeader) {
+                UnmapViewOfFile(s->injectionHeader);
+                s->injectionHeader = nullptr;
+                s->injectionPixels = nullptr;
+            }
+            if (s->injectionMapping) {
+                CloseHandle(s->injectionMapping);
+                s->injectionMapping = nullptr;
             }
         } catch (...) {}
         delete s;

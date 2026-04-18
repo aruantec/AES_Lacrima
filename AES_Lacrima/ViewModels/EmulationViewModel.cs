@@ -228,6 +228,9 @@ namespace AES_Lacrima.ViewModels
         private IntPtr _emulatorTargetHwnd;
 
         [ObservableProperty]
+        private int _emulatorTargetProcessId;
+
+        [ObservableProperty]
         private bool _requestStopEmulatorCapture;
 
         [ObservableProperty]
@@ -2185,6 +2188,7 @@ namespace AES_Lacrima.ViewModels
                 SLog.Warn($"Emulator launch for '{romPath}' did not expose a trackable process handle.");
                 RestoreAppTopMost();
                 EmulatorTargetHwnd = IntPtr.Zero;
+                EmulatorTargetProcessId = 0;
                 IsEmulatorLaunchInProgress = false;
                 StopGameplayPreview();
                 return;
@@ -2197,18 +2201,19 @@ namespace AES_Lacrima.ViewModels
             _retroArchLogWatcherCts = null;
 
             _activeEmulatorProcess = process;
+            EmulatorTargetProcessId = process?.Id ?? 0;
 
             try
             {
-                process.EnableRaisingEvents = true;
-                process.Exited += ActiveEmulatorProcess_Exited;
+                process!.EnableRaisingEvents = true;
+                process!.Exited += ActiveEmulatorProcess_Exited;
             }
             catch (Exception ex)
             {
                 SLog.Warn("Failed to subscribe to emulator exit events.", ex);
             }
 
-            IsEmulatorRunning = !process.HasExited;
+            IsEmulatorRunning = !process!.HasExited;
 
             if (handler is RetroArchHandler retroArchHandler)
                 StartRetroArchLogWatcher(process, retroArchHandler);
@@ -2265,6 +2270,7 @@ namespace AES_Lacrima.ViewModels
             if (_activeEmulatorProcess == null)
             {
                 EmulatorTargetHwnd = IntPtr.Zero;
+                EmulatorTargetProcessId = 0;
                 _retroArchLogWatcherCts?.Cancel();
                 _retroArchLogWatcherCts?.Dispose();
                 _retroArchLogWatcherCts = null;
@@ -2284,6 +2290,7 @@ namespace AES_Lacrima.ViewModels
             {
                 _activeEmulatorProcess = null;
                 EmulatorTargetHwnd = IntPtr.Zero;
+                EmulatorTargetProcessId = 0;
             }
         }
 

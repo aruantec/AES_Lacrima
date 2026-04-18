@@ -15,12 +15,17 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
+using System.Runtime.Versioning;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace AES_Emulation.Windows;
 
+[SupportedOSPlatform("windows")]
 public class WgcCaptureControl : OpenGlControlBase
 {
     #region Private Fields
@@ -95,6 +100,37 @@ public class WgcCaptureControl : OpenGlControlBase
     private DispatcherTimer? _uiHeartbeat;
     private bool _dxInteropAvailable = false;
     private bool _usingDxInterop = false;
+    private bool _injectionActive = false;
+    private MemoryMappedFile? _injectionMemoryMappedFile;
+    private MemoryMappedViewAccessor? _injectionAccessor;
+    private long _lastInjectionFrameCount = -1;
+    private int _injectionEmptyReadCount = 0;
+    private const int InjectionHeaderSize = 128;
+    private const int InjectionMaxFrameBytes = 128 * 1024 * 1024;
+    private const uint InjectionMagic = 0x41534145;
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    private struct InjectionFrameHeader
+    {
+        public uint Magic;
+        public uint Sequence1;
+        public uint Sequence2;
+        public uint Width;
+        public uint Height;
+        public uint Stride;
+        public uint FrameCounter;
+        public uint Reserved0;
+        public uint Reserved1;
+        public uint Reserved2;
+        public uint Reserved3;
+        public uint Reserved4;
+        public uint Reserved5;
+        public uint Reserved6;
+        public uint Reserved7;
+        public uint Reserved8;
+        public uint Reserved9;
+    }
+
     private WindowHandler? _windowHandler;
     private TopLevel? _hostTopLevel;
 
@@ -175,6 +211,9 @@ public class WgcCaptureControl : OpenGlControlBase
     #region Styled Properties
     public static readonly StyledProperty<IntPtr> TargetHwndProperty =
         AvaloniaProperty.Register<WgcCaptureControl, IntPtr>(nameof(TargetHwnd));
+
+    public static readonly StyledProperty<int> TargetProcessIdProperty =
+        AvaloniaProperty.Register<WgcCaptureControl, int>(nameof(TargetProcessId), 0);
 
     public static readonly StyledProperty<Stretch> StretchProperty =
         AvaloniaProperty.Register<WgcCaptureControl, Stretch>(nameof(Stretch), Stretch.Uniform);
@@ -280,6 +319,7 @@ public class WgcCaptureControl : OpenGlControlBase
     static WgcCaptureControl()
     {
         TargetHwndProperty.Changed.AddClassHandler<WgcCaptureControl>((x, e) => x.OnTargetHwndChanged(e));
+        TargetProcessIdProperty.Changed.AddClassHandler<WgcCaptureControl>((x, e) => x.OnTargetProcessIdChanged(e));
         LetterBoxBitmapProperty.Changed.AddClassHandler<WgcCaptureControl>((x, e) => x.OnLetterboxBitmapChanged((Bitmap?)e.NewValue));
         LetterBoxColorProperty.Changed.AddClassHandler<WgcCaptureControl>((x, e) => x.OnLetterboxColorChanged(e));
         StretchProperty.Changed.AddClassHandler<WgcCaptureControl>((x, e) => { if (e.NewValue is Stretch s) x.OnStretchChanged(s); });
@@ -394,6 +434,7 @@ public class WgcCaptureControl : OpenGlControlBase
     {
         DetachHostTopLevel();
         _hostHandle = IntPtr.Zero;
+        CleanupInjectionSession();
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -536,6 +577,119 @@ public class WgcCaptureControl : OpenGlControlBase
     private delegate bool wglSwapIntervalEXTDel(int interval);
     private wglSwapIntervalEXTDel? _wglSwapIntervalEXT;
 
+    private bool TryReadInjectedFrame(out InjectionFrameHeader frameHeader, out IntPtr pixelData)
+    {
+        frameHeader = default;
+        pixelData = IntPtr.Zero;
+
+        if (!_injectionActive || _injectionAccessor == null)
+            return false;
+
+        unsafe
+        {
+            byte* basePtr = null;
+            try
+            {
+                _injectionAccessor.SafeMemoryMappedViewHandle.AcquirePointer(ref basePtr);
+                if (basePtr == null)
+                {
+                    Debug.WriteLine("[WGC] Injected frame read failed: could not acquire pointer");
+                    return false;
+                }
+
+                var header = (InjectionFrameHeader*)basePtr;
+                for (int attempt = 0; attempt < 10; attempt++)
+                {
+                    uint seq1 = header->Sequence1;
+                    if (seq1 == 0)
+                    {
+                        // Debug: check first few bytes of basePtr
+                        if (attempt == 0)
+                        {
+                            byte* b = (byte*)basePtr;
+                            Debug.WriteLine($"[WGC] Injected frame raw start: {b[0]:X2} {b[1]:X2} {b[2]:X2} {b[3]:X2} | {b[4]:X2} {b[5]:X2} {b[6]:X2} {b[7]:X2}");
+                            
+                            // Check Magic directly (it's at offset 24)
+                            uint magic = *(uint*)(basePtr + 24);
+                            Debug.WriteLine($"[WGC] Injected frame Magic check: 0x{magic:X8}");
+                        }
+
+                        if (attempt == 9)
+                            Debug.WriteLine("[WGC] Injected frame read failed: sequence1 is 0 after retries");
+                        Thread.Sleep(1);
+                        continue;
+                    }
+
+                    InjectionFrameHeader localHeader = *header;
+                    if (seq1 != localHeader.Sequence2)
+                    {
+                        if (attempt % 5 == 0)
+                            Debug.WriteLine($"[WGC] Injected frame read inconsistent header attempt {attempt}: seq1={seq1} seq2={localHeader.Sequence2}");
+                        Thread.Sleep(1);
+                        continue;
+                    }
+
+                    if (localHeader.Magic != InjectionMagic)
+                    {
+                        Debug.WriteLine($"[WGC] Injected frame read failed: bad magic=0x{localHeader.Magic:X8}");
+                        return false;
+                    }
+
+                    if (localHeader.Width == 0 || localHeader.Height == 0)
+                    {
+                        Debug.WriteLine($"[WGC] Injected frame read failed: invalid dimensions {localHeader.Width}x{localHeader.Height}");
+                        return false;
+                    }
+
+                    if ((ulong)localHeader.Height * localHeader.Stride > InjectionMaxFrameBytes)
+                    {
+                        Debug.WriteLine($"[WGC] Injected frame read failed: frame size too large {localHeader.Width}x{localHeader.Height} stride={localHeader.Stride}");
+                        return false;
+                    }
+
+                    frameHeader = localHeader;
+                    pixelData = (IntPtr)(basePtr + InjectionHeaderSize);
+                    Debug.WriteLine($"[WGC] Injected frame ready: counter={frameHeader.FrameCounter} size={frameHeader.Width}x{frameHeader.Height}");
+                    return true;
+                }
+
+                Debug.WriteLine("[WGC] Injected frame read failed after retries");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WGC] Injected frame read threw: {ex}");
+                return false;
+            }
+            finally
+            {
+                if (basePtr != null)
+                    _injectionAccessor.SafeMemoryMappedViewHandle.ReleasePointer();
+            }
+        }
+
+        return false;
+    }
+
+    private void CleanupInjectionSession()
+    {
+        _injectionActive = false;
+        _lastInjectionFrameCount = -1;
+        _injectionEmptyReadCount = 0;
+        try
+        {
+            _injectionAccessor?.Dispose();
+            _injectionAccessor = null;
+        }
+        catch { }
+
+        try
+        {
+            _injectionMemoryMappedFile?.Dispose();
+            _injectionMemoryMappedFile = null;
+        }
+        catch { }
+    }
+
     private void TryDisableVSync(GlInterface gl)
     {
         try
@@ -627,10 +781,67 @@ public class WgcCaptureControl : OpenGlControlBase
         bool interopSuccess = false;
         int w = 0, h = 0;
 
-        lock (_sessionLock)
+        if (_injectionActive)
         {
-            if (_session != nint.Zero)
+            if (TryReadInjectedFrame(out var frameHeader, out var pixelData))
             {
+                _injectionEmptyReadCount = 0;
+                w = (int)frameHeader.Width;
+                h = (int)frameHeader.Height;
+
+                if (frameHeader.FrameCounter != _lastInjectionFrameCount)
+                {
+                    _lastInjectionFrameCount = frameHeader.FrameCounter;
+
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        FrameNumber = (int)frameHeader.FrameCounter;
+                        LastFrameWidth = w;
+                        LastFrameHeight = h;
+                    }, DispatcherPriority.Render);
+
+                    hasFrame = true;
+                }
+                else
+                {
+                    hasFrame = _texWidth > 0 && _texHeight > 0;
+                }
+
+                if (_glPixelStoreiPtr != IntPtr.Zero && hasFrame)
+                    ((delegate* unmanaged[Stdcall]<int, int, void>)_glPixelStoreiPtr)(GL_UNPACK_ALIGNMENT, 1);
+
+                gl.ActiveTexture(GlConsts.GL_TEXTURE0);
+                gl.BindTexture(GlConsts.GL_TEXTURE_2D, _textureId);
+
+                if (w != _texWidth || h != _texHeight)
+                {
+                    _texWidth = w;
+                    _texHeight = h;
+                    gl.TexImage2D(GlConsts.GL_TEXTURE_2D, 0, _isEs ? 0x1908 : (int)GlConsts.GL_RGBA, w, h, 0, _isEs ? 0x1908 : 0x80E1, GlConsts.GL_UNSIGNED_BYTE, IntPtr.Zero);
+                }
+
+                if (hasFrame)
+                {
+                    var texSub = (delegate* unmanaged[Stdcall]<int, int, int, int, int, int, uint, int, IntPtr, void>)_glTexSubImage2DPtr;
+                    texSub(GlConsts.GL_TEXTURE_2D, 0, 0, 0, w, h, _isEs ? 0x1908u : 0x80E1u, GlConsts.GL_UNSIGNED_BYTE, pixelData);
+                }
+            }
+            else
+            {
+                _injectionEmptyReadCount++;
+                if (_injectionEmptyReadCount >= 60)
+                {
+                    Debug.WriteLine("[WGC] Injection session timed out waiting for first injected frame");
+                    CleanupInjectionSession();
+                }
+            }
+        }
+        else
+        {
+            lock (_sessionLock)
+            {
+                if (_session != nint.Zero)
+                {
                 int nativeCount = 0;
                 int readerCount = 0;
                 try
@@ -770,6 +981,7 @@ public class WgcCaptureControl : OpenGlControlBase
                 }
             }
         }
+    }
 
         // Always render what we have (background + last frame or new frame)
         if (_program != 0)
@@ -1030,6 +1242,60 @@ public class WgcCaptureControl : OpenGlControlBase
         }
     }
 
+    [SupportedOSPlatform("windows")]
+    private void OnTargetProcessIdChanged(AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.OldValue is int oldProcessId && oldProcessId != 0)
+        {
+            Debug.WriteLine($"[WGC] TargetProcessId changed from {oldProcessId} to {e.NewValue}");
+            CleanupInjectionSession();
+        }
+
+        if (e.NewValue is int processId && processId != 0)
+        {
+            Debug.WriteLine($"[WGC] TargetProcessId changed, starting injection for PID {processId}");
+            ResetCaptureFrameState();
+            _ = TryStartInjectionSessionAsync(processId);
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private async Task TryStartInjectionSessionAsync(int processId)
+    {
+        Debug.WriteLine($"[WGC] TryStartInjectionSessionAsync(processId={processId})");
+        CleanupInjectionSession();
+
+        if (TargetHwnd != IntPtr.Zero)
+        {
+            TryAttachTargetWindow();
+        }
+
+        try
+        {
+            MemoryMappedFile? mmf = null;
+            MemoryMappedViewAccessor? accessor = null;
+            var success = await Task.Run(() => InjectionBridgeApi.TryInjectProcess(processId, TimeSpan.FromSeconds(15), out mmf, out accessor));
+            Debug.WriteLine($"[WGC] TryInjectProcess returned {success} for PID {processId}");
+            if (!success)
+            {
+                _injectionActive = false;
+                return;
+            }
+
+            _injectionMemoryMappedFile = mmf;
+            _injectionAccessor = accessor;
+            _injectionActive = true;
+            await Dispatcher.UIThread.InvokeAsync(() => BackendName = "Injected capture");
+            Debug.WriteLine($"[WGC] Injection session established for PID {processId}");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[WGC] TryStartInjectionSessionAsync threw: {ex}");
+            _injectionActive = false;
+            CleanupInjectionSession();
+        }
+    }
+
     private void OnRequestStopSessionChanged(AvaloniaPropertyChangedEventArgs e)
     {
         if (e.NewValue is not bool requested || !requested)
@@ -1044,6 +1310,9 @@ public class WgcCaptureControl : OpenGlControlBase
             }
             ResetCaptureFrameState();
         }
+
+        if (_injectionActive)
+            CleanupInjectionSession();
 
         SetValue(RequestStopSessionProperty, false);
     }
@@ -1512,6 +1781,7 @@ public class WgcCaptureControl : OpenGlControlBase
 
     #region CLR Property Wrappers
     public IntPtr TargetHwnd { get => GetValue(TargetHwndProperty); set => SetValue(TargetHwndProperty, value); }
+    public int TargetProcessId { get => GetValue(TargetProcessIdProperty); set => SetValue(TargetProcessIdProperty, value); }
     public Stretch Stretch { get => GetValue(StretchProperty); set => SetValue(StretchProperty, value); }
     public string? RetroarchShaderFile { get => GetValue(RetroarchShaderFileProperty); set => SetValue(RetroarchShaderFileProperty, value); }
     public int MaxCaptureHeight { get => GetValue(MaxCaptureHeightProperty); set => SetValue(MaxCaptureHeightProperty, value); }
@@ -1541,3 +1811,4 @@ public class WgcCaptureControl : OpenGlControlBase
     public int LastFrameHeight { get => GetValue(LastFrameHeightProperty); private set => SetValue(LastFrameHeightProperty, value); }
     #endregion
 }
+
