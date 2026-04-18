@@ -26,6 +26,9 @@ public class EmulatorCaptureHost : ContentControl
     public static readonly StyledProperty<IntPtr> TargetHwndProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, IntPtr>(nameof(TargetHwnd));
 
+    public static readonly StyledProperty<int> TargetProcessIdProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, int>(nameof(TargetProcessId));
+
     public static readonly StyledProperty<string?> TargetWindowTitleHintProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, string?>(nameof(TargetWindowTitleHint));
 
@@ -127,6 +130,12 @@ public class EmulatorCaptureHost : ContentControl
     {
         get => GetValue(TargetHwndProperty);
         set => SetValue(TargetHwndProperty, value);
+    }
+
+    public int TargetProcessId
+    {
+        get => GetValue(TargetProcessIdProperty);
+        set => SetValue(TargetProcessIdProperty, value);
     }
 
     public string? TargetWindowTitleHint
@@ -265,6 +274,9 @@ public class EmulatorCaptureHost : ContentControl
     {
         switch (_backend)
         {
+            case WgcCaptureControl wgcBackend:
+                wgcBackend.ForwardFocusToTarget();
+                break;
             case DirectCompositionCaptureHost windowsBackend:
                 windowsBackend.ForwardFocusToTarget();
                 break;
@@ -286,7 +298,7 @@ public class EmulatorCaptureHost : ContentControl
     private static Control CreateBackend()
     {
         if (OperatingSystem.IsWindows())
-            return new DirectCompositionCaptureHost();
+            return new WgcCaptureControl();
 
         if (OperatingSystem.IsMacOS())
             return new ScreenCaptureKitCaptureHost();
@@ -304,6 +316,9 @@ public class EmulatorCaptureHost : ContentControl
     {
         switch (_backend)
         {
+            case WgcCaptureControl wgcBackend:
+                BindToWgcBackend(wgcBackend);
+                break;
             case DirectCompositionCaptureHost windowsBackend:
                 BindToWindowsBackend(windowsBackend);
                 break;
@@ -334,6 +349,20 @@ public class EmulatorCaptureHost : ContentControl
         backend.GetObservable(DirectCompositionCaptureHost.GpuRendererProperty)
             .Subscribe(new LambdaObserver<string>(value => GpuRenderer = value));
         backend.GetObservable(DirectCompositionCaptureHost.GpuVendorProperty)
+            .Subscribe(new LambdaObserver<string>(value => GpuVendor = value));
+    }
+
+    private void BindToWgcBackend(WgcCaptureControl backend)
+    {
+        StatusText = "Window capture active";
+        IsDirectCompositionActive = true;
+        backend.GetObservable(WgcCaptureControl.FpsProperty)
+            .Subscribe(new LambdaObserver<double>(value => Fps = value));
+        backend.GetObservable(WgcCaptureControl.FrameTimeMsProperty)
+            .Subscribe(new LambdaObserver<double>(value => FrameTimeMs = value));
+        backend.GetObservable(WgcCaptureControl.GpuRendererProperty)
+            .Subscribe(new LambdaObserver<string>(value => GpuRenderer = value));
+        backend.GetObservable(WgcCaptureControl.GpuVendorProperty)
             .Subscribe(new LambdaObserver<string>(value => GpuVendor = value));
     }
 
@@ -394,6 +423,18 @@ public class EmulatorCaptureHost : ContentControl
                 windowsBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
                 windowsBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
                 windowsBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
+                break;
+            case WgcCaptureControl wgcBackend:
+                wgcBackend.TargetHwnd = TargetHwnd;
+                wgcBackend.TargetProcessId = TargetProcessId;
+                wgcBackend.RequestStopSession = RequestStopSession;
+                wgcBackend.Stretch = Stretch;
+                wgcBackend.Brightness = Brightness;
+                wgcBackend.Saturation = Saturation;
+                wgcBackend.ColorTint = ColorTint;
+                wgcBackend.DisableVSync = DisableVSync;
+                wgcBackend.RetroarchShaderFile = string.IsNullOrWhiteSpace(ShaderPath) && ClearShaderWhenPathEmpty ? null : ShaderPath;
+                wgcBackend.ForceUseTargetClientSize = ForceUseTargetClientArea;
                 break;
             case ScreenCaptureKitCaptureHost macBackend:
                 macBackend.TargetHwnd = TargetHwnd;

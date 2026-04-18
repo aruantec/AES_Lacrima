@@ -159,7 +159,7 @@ public partial class EmulationView : UserControl
     private Size _portalWindowFullscreenSize;
     private PortalFullscreenOverlayWindow? _portalFullscreenOverlayWindow;
 
-    private static bool UseInlineCaptureHost => false;
+    private static bool UseInlineCaptureHost => true;
 
     private EmulatorCaptureHostControl? ActiveCaptureHost
         => UseInlineCaptureHost ? _inlineCaptureHost : _portalWindow?.CaptureHostControl;
@@ -947,6 +947,7 @@ public partial class EmulationView : UserControl
         };
 
         captureHost.Bind(EmulatorCaptureHostControl.TargetHwndProperty, new Binding("EmulatorTargetHwnd"));
+        captureHost.Bind(EmulatorCaptureHostControl.TargetProcessIdProperty, new Binding("EmulatorTargetProcessId"));
         captureHost.Bind(EmulatorCaptureHostControl.TargetWindowTitleHintProperty, new Binding("CurrentEmulatorWindowTitleHint"));
         captureHost.Bind(EmulatorCaptureHostControl.ForceUseTargetClientAreaProperty, new Binding("ForceUseTargetClientAreaCapture"));
         captureHost.Bind(EmulatorCaptureHostControl.ClientAreaCropLeftInsetProperty, new Binding("ClientAreaCropLeftInset"));
