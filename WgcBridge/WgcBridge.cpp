@@ -341,7 +341,8 @@ struct CaptureSession
         void* originalPresent1{};
         rt::com_ptr<ID3D11Device> device;
         rt::com_ptr<ID3D11DeviceContext> context;
-        rt::com_ptr<ID3D11Texture2D> stagingTexture;
+        rt::com_ptr<ID3D11Texture2D> stagingTextures[3];
+        int currentIndex = 0;
         DXGI_FORMAT format{};
         int width = 0;
         int height = 0;
@@ -364,48 +365,6 @@ struct CaptureSession
     static inline InjectionFrameHeader* g_injectionHeader = nullptr;
     static inline uint8_t* g_injectionPixels = nullptr;
 
-    static bool CreateInlineHook(void* target, void* detour, void** original)
-    {
-        if (!target || !detour || !original)
-            return false;
-
-        constexpr SIZE_T patchSize = 12;
-        uint8_t originalBytes[patchSize]{};
-        DWORD oldProtect = 0;
-        if (!VirtualProtect(target, patchSize, PAGE_EXECUTE_READWRITE, &oldProtect))
-            return false;
-
-        memcpy(originalBytes, target, patchSize);
-
-        void* trampoline = VirtualAlloc(nullptr, patchSize * 2, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-        if (!trampoline)
-        {
-            VirtualProtect(target, patchSize, oldProtect, &oldProtect);
-            return false;
-        }
-
-        memcpy(trampoline, originalBytes, patchSize);
-        uint8_t* jumpBack = reinterpret_cast<uint8_t*>(trampoline) + patchSize;
-        jumpBack[0] = 0x48;
-        jumpBack[1] = 0xB8;
-        *reinterpret_cast<void**>(jumpBack + 2) = reinterpret_cast<void*>(reinterpret_cast<uint8_t*>(target) + patchSize);
-        jumpBack[10] = 0xFF;
-        jumpBack[11] = 0xE0;
-
-        uint8_t detourPatch[patchSize];
-        detourPatch[0] = 0x48;
-        detourPatch[1] = 0xB8;
-        *reinterpret_cast<void**>(detourPatch + 2) = detour;
-        detourPatch[10] = 0xFF;
-        detourPatch[11] = 0xE0;
-
-        memcpy(target, detourPatch, patchSize);
-        FlushInstructionCache(GetCurrentProcess(), target, patchSize);
-        VirtualProtect(target, patchSize, oldProtect, &oldProtect);
-
-        *original = trampoline;
-        return true;
-    }
 
     static bool HookDxgiFactory(IUnknown* factory)
     {
@@ -416,30 +375,50 @@ struct CaptureSession
         if (!vtable)
             return false;
 
+        std::lock_guard<std::mutex> lock(g_hookMutex);
         bool hooked = false;
-        if (vtable[10] && !g_originalCreateSwapChain)
+
+        // Offset 10: CreateSwapChain (IDXGIFactory)
+        if (vtable[10] && vtable[10] != Hooked_CreateSwapChain)
         {
-            if (CreateInlineHook(vtable[10], reinterpret_cast<void*>(Hooked_CreateSwapChain), &g_originalCreateSwapChain))
+            if (!g_originalCreateSwapChain) g_originalCreateSwapChain = vtable[10];
+            DWORD oldProtect = 0;
+            if (VirtualProtect(&vtable[10], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect))
             {
-                DebugLog("[WGC_NATIVE] Installed IDXGIFactory::CreateSwapChain hook");
+                vtable[10] = reinterpret_cast<void*>(Hooked_CreateSwapChain);
+                FlushInstructionCache(GetCurrentProcess(), &vtable[10], sizeof(void*));
+                VirtualProtect(&vtable[10], sizeof(void*), oldProtect, &oldProtect);
+                DebugLog("[WGC_NATIVE] VTable patched IDXGIFactory::CreateSwapChain (offset 10)");
                 hooked = true;
             }
         }
 
-        if (vtable[14] && !g_originalCreateSwapChainForHwnd)
+        // Offset 15: CreateSwapChainForHwnd (IDXGIFactory2)
+        if (vtable[15] && vtable[15] != Hooked_CreateSwapChainForHwnd)
         {
-            if (CreateInlineHook(vtable[14], reinterpret_cast<void*>(Hooked_CreateSwapChainForHwnd), &g_originalCreateSwapChainForHwnd))
+            if (!g_originalCreateSwapChainForHwnd) g_originalCreateSwapChainForHwnd = vtable[15];
+            DWORD oldProtect = 0;
+            if (VirtualProtect(&vtable[15], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect))
             {
-                DebugLog("[WGC_NATIVE] Installed IDXGIFactory2::CreateSwapChainForHwnd hook");
+                vtable[15] = reinterpret_cast<void*>(Hooked_CreateSwapChainForHwnd);
+                FlushInstructionCache(GetCurrentProcess(), &vtable[15], sizeof(void*));
+                VirtualProtect(&vtable[15], sizeof(void*), oldProtect, &oldProtect);
+                DebugLog("[WGC_NATIVE] VTable patched IDXGIFactory2::CreateSwapChainForHwnd (offset 15)");
                 hooked = true;
             }
         }
 
-        if (vtable[15] && !g_originalCreateSwapChainForCoreWindow)
+        // Offset 16: CreateSwapChainForCoreWindow (IDXGIFactory2)
+        if (vtable[16] && vtable[16] != Hooked_CreateSwapChainForCoreWindow)
         {
-            if (CreateInlineHook(vtable[15], reinterpret_cast<void*>(Hooked_CreateSwapChainForCoreWindow), &g_originalCreateSwapChainForCoreWindow))
+            if (!g_originalCreateSwapChainForCoreWindow) g_originalCreateSwapChainForCoreWindow = vtable[16];
+            DWORD oldProtect = 0;
+            if (VirtualProtect(&vtable[16], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect))
             {
-                DebugLog("[WGC_NATIVE] Installed IDXGIFactory2::CreateSwapChainForCoreWindow hook");
+                vtable[16] = reinterpret_cast<void*>(Hooked_CreateSwapChainForCoreWindow);
+                FlushInstructionCache(GetCurrentProcess(), &vtable[16], sizeof(void*));
+                VirtualProtect(&vtable[16], sizeof(void*), oldProtect, &oldProtect);
+                DebugLog("[WGC_NATIVE] VTable patched IDXGIFactory2::CreateSwapChainForCoreWindow (offset 16)");
                 hooked = true;
             }
         }
@@ -469,14 +448,14 @@ struct CaptureSession
         return hr;
     }
 
-    static HRESULT WINAPI Hooked_CreateSwapChainForHwnd(IDXGIFactory2* This, IUnknown* pDevice, HWND hWnd, DXGI_SWAP_CHAIN_DESC1 const* pDesc, IDXGIOutput* pRestrictToOutput, IDXGISwapChain1** ppSwapChain)
+    static HRESULT WINAPI Hooked_CreateSwapChainForHwnd(IDXGIFactory2* This, IUnknown* pDevice, HWND hWnd, DXGI_SWAP_CHAIN_DESC1 const* pDesc, DXGI_SWAP_CHAIN_FULLSCREEN_DESC const* pFullscreenDesc, IDXGIOutput* pRestrictToOutput, IDXGISwapChain1** ppSwapChain)
     {
-        using CreateSwapChainForHwndFn = HRESULT(WINAPI*)(IDXGIFactory2*, IUnknown*, HWND, DXGI_SWAP_CHAIN_DESC1 const*, IDXGIOutput*, IDXGISwapChain1**);
+        using CreateSwapChainForHwndFn = HRESULT(WINAPI*)(IDXGIFactory2*, IUnknown*, HWND, DXGI_SWAP_CHAIN_DESC1 const*, DXGI_SWAP_CHAIN_FULLSCREEN_DESC const*, IDXGIOutput*, IDXGISwapChain1**);
         auto originalFn = reinterpret_cast<CreateSwapChainForHwndFn>(g_originalCreateSwapChainForHwnd);
         if (!originalFn)
             return E_FAIL;
 
-        HRESULT hr = originalFn(This, pDevice, hWnd, pDesc, pRestrictToOutput, ppSwapChain);
+        HRESULT hr = originalFn(This, pDevice, hWnd, pDesc, pFullscreenDesc, pRestrictToOutput, ppSwapChain);
         char buf[256];
         sprintf_s(buf, "[WGC_NATIVE] Hooked_CreateSwapChainForHwnd called hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
         DebugLog(buf);
@@ -686,7 +665,6 @@ struct CaptureSession
         vtable[8] = reinterpret_cast<void*>(Hooked_Present);
         FlushInstructionCache(GetCurrentProcess(), &vtable[8], sizeof(void*));
         VirtualProtect(&vtable[8], sizeof(void*), oldProtect, &oldProtect);
-        DebugLog("[WGC_NATIVE] Hooked IDXGISwapChain::Present\n");
 
         rt::com_ptr<IDXGISwapChain1> swapChain1;
         if (SUCCEEDED(swapChain->QueryInterface(IID_PPV_ARGS(swapChain1.put()))))
@@ -694,33 +672,20 @@ struct CaptureSession
             void** vtable1 = *reinterpret_cast<void***>(swapChain1.get());
             if (vtable1)
             {
-                void* originalPresent1 = vtable1[21];
+                void* originalPresent1 = vtable1[22];
                 if (originalPresent1)
                 {
                     DWORD oldProtect1 = 0;
-                    if (VirtualProtect(&vtable1[21], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect1))
+                    if (VirtualProtect(&vtable1[22], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect1))
                     {
-                        vtable1[21] = reinterpret_cast<void*>(Hooked_Present1);
-                        FlushInstructionCache(GetCurrentProcess(), &vtable1[21], sizeof(void*));
-                        VirtualProtect(&vtable1[21], sizeof(void*), oldProtect1, &oldProtect1);
+                        vtable1[22] = reinterpret_cast<void*>(Hooked_Present1);
+                        FlushInstructionCache(GetCurrentProcess(), &vtable1[22], sizeof(void*));
+                        VirtualProtect(&vtable1[22], sizeof(void*), oldProtect1, &oldProtect1);
                         hook.originalPresent1 = originalPresent1;
                         hook.vtable1 = vtable1;
-                        DebugLog("[WGC_NATIVE] Hooked IDXGISwapChain1::Present1\n");
                     }
-                    else
-                    {
-                        DebugLog("[WGC_NATIVE] HookSwapChain failed: VirtualProtect for Present1\n");
-                    }
-                }
-                else
-                {
-                    DebugLog("[WGC_NATIVE] HookSwapChain: no original Present1\n");
                 }
             }
-        }
-        else
-        {
-            DebugLog("[WGC_NATIVE] HookSwapChain: QueryInterface for IDXGISwapChain1 failed\n");
         }
 
         g_swapChainHooks.push_back(std::move(hook));
@@ -730,13 +695,15 @@ struct CaptureSession
     static void CopyFrameDataToSharedMemory(uint8_t const* src, size_t rowBytes, int width, int height, DXGI_FORMAT format)
     {
         if (!g_injectionHeader || !g_injectionPixels)
-        {
-            DebugLog("[WGC_NATIVE] CopyFrameDataToSharedMemory: No buffer/header!");
             return;
-        }
 
         const bool isBgra = format == DXGI_FORMAT_B8G8R8A8_UNORM || format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
         const size_t dstStride = static_cast<size_t>(width) * 4;
+        const size_t totalSize = dstStride * height;
+
+        // CRITICAL: Prevent buffer overrun if resolution is unexpectedly high
+        if (totalSize > InjectionMaxFrameBytes)
+            return;
 
         g_injectionHeader->Sequence1 = 0;
         g_injectionHeader->Width = width;
@@ -747,27 +714,32 @@ struct CaptureSession
         g_injectionHeader->FrameCounter = currentCounter;
         g_injectionHeader->Magic = InjectionMagic;
 
-        for (int y = 0; y < height; y++)
+        if (isBgra && dstStride == rowBytes)
         {
-            uint8_t const* srcRow = src + static_cast<size_t>(rowBytes) * y;
-            uint8_t* dstRow = g_injectionPixels + dstStride * y;
+            memcpy(g_injectionPixels, src, totalSize);
+        }
+        else
+        {
+            for (int y = 0; y < height; y++)
+            {
+                uint8_t const* srcRow = src + static_cast<size_t>(rowBytes) * y;
+                uint8_t* dstRow = g_injectionPixels + dstStride * y;
 
-            if (isBgra)
-            {
-                // Source is already BGRA, and C# host expects BGRA for OpenGL upload.
-                memcpy(dstRow, srcRow, dstStride);
-            }
-            else
-            {
-                // Source is RGBA, swizzle to BGRA for the host.
-                for (int x = 0; x < width; x++)
+                if (isBgra)
                 {
-                    dstRow[0] = srcRow[2]; // B
-                    dstRow[1] = srcRow[1]; // G
-                    dstRow[2] = srcRow[0]; // R
-                    dstRow[3] = srcRow[3]; // A
-                    srcRow += 4;
-                    dstRow += 4;
+                    memcpy(dstRow, srcRow, dstStride);
+                }
+                else
+                {
+                    for (int x = 0; x < width; x++)
+                    {
+                        dstRow[0] = srcRow[2]; // B
+                        dstRow[1] = srcRow[1]; // G
+                        dstRow[2] = srcRow[0]; // R
+                        dstRow[3] = srcRow[3]; // A
+                        srcRow += 4;
+                        dstRow += 4;
+                    }
                 }
             }
         }
@@ -778,26 +750,14 @@ struct CaptureSession
 
     static void CaptureSwapChainFrame(IDXGISwapChain* swapChain)
     {
-        if (!swapChain)
+        if (!swapChain || !g_injectionHeader)
             return;
-
-        // Skip if we haven't even initialized the shared memory
-        if (!g_injectionHeader)
-            return;
-
-        char buf[256];
-        // Only log swapchain pointer periodically to avoid spamming the log
-        static int logCounter = 0;
-        if (logCounter++ % 60 == 0) {
-            sprintf_s(buf, "[WGC_NATIVE] CaptureSwapChainFrame swapChain=%p\n", swapChain);
-            DebugLog(buf);
-        }
 
         void** vtable = *reinterpret_cast<void***>(swapChain);
         std::lock_guard<std::mutex> lock(g_hookMutex);
-        auto it = std::find_if(g_swapChainHooks.begin(), g_swapChainHooks.end(), [vtable](SwapChainHook const& hook)
+        auto it = std::find_if(g_swapChainHooks.begin(), g_swapChainHooks.end(), [vtable](SwapChainHook const& h)
         {
-            return hook.vtable == vtable;
+            return h.vtable == vtable;
         });
 
         if (it == g_swapChainHooks.end())
@@ -805,55 +765,32 @@ struct CaptureSession
 
         auto& hook = *it;
         rt::com_ptr<ID3D11Texture2D> backBuffer;
-        HRESULT hr = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.put()));
-        if (FAILED(hr) || !backBuffer)
-        {
+        if (FAILED(swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.put()))) || !backBuffer)
             return;
-        }
 
         if (!hook.device)
         {
-            rt::com_ptr<ID3D11Device> d3dDevice;
-            backBuffer->GetDevice(d3dDevice.put());
-            if (!d3dDevice)
-            {
-                DebugLog("[WGC_NATIVE] CaptureSwapChainFrame GetDevice failed\n");
-                return;
-            }
-
-            hook.device = d3dDevice;
-            d3dDevice->GetImmediateContext(hook.context.put());
-            if (!hook.context)
-                return;
-            
-            DebugLog("[WGC_NATIVE] CaptureSwapChainFrame initialized capture hook state for swapChain\n");
+            backBuffer->GetDevice(hook.device.put());
+            if (!hook.device) return;
+            hook.device->GetImmediateContext(hook.context.put());
+            if (!hook.context) return;
         }
 
         D3D11_TEXTURE2D_DESC desc = {};
         backBuffer->GetDesc(&desc);
         
-        if (desc.SampleDesc.Count > 1)
-        {
-            if (logCounter % 60 == 1) DebugLog("[WGC_NATIVE] CaptureSwapChainFrame unsupported multi-sampled buffer\n");
-            return;
-        }
-
+        // Basic validation
+        if (desc.SampleDesc.Count > 1) return;
         if (desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM && desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM &&
             desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM_SRGB && desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
-        {
-            if (logCounter % 60 == 1) {
-                sprintf_s(buf, "[WGC_NATIVE] CaptureSwapChainFrame unsupported format %u\n", desc.Format);
-                DebugLog(buf);
-            }
             return;
-        }
 
-        if (!hook.stagingTexture || hook.width != static_cast<int>(desc.Width) || hook.height != static_cast<int>(desc.Height) || hook.format != desc.Format)
+        // Initialize staging textures if resolution changed
+        if (!hook.stagingTextures[0] || hook.width != (int)desc.Width || hook.height != (int)desc.Height || hook.format != desc.Format)
         {
-            hook.stagingTexture = nullptr;
             hook.format = desc.Format;
-            hook.width = static_cast<int>(desc.Width);
-            hook.height = static_cast<int>(desc.Height);
+            hook.width = (int)desc.Width;
+            hook.height = (int)desc.Height;
 
             D3D11_TEXTURE2D_DESC stagingDesc = desc;
             stagingDesc.Usage = D3D11_USAGE_STAGING;
@@ -861,23 +798,28 @@ struct CaptureSession
             stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
             stagingDesc.MiscFlags = 0;
 
-            hr = hook.device->CreateTexture2D(&stagingDesc, nullptr, hook.stagingTexture.put());
-            if (FAILED(hr) || !hook.stagingTexture)
-            {
-                sprintf_s(buf, "[WGC_NATIVE] CaptureSwapChainFrame CreateTexture2D failed hr=0x%08X\n", (unsigned)hr);
-                DebugLog(buf);
-                return;
+            for(int i=0; i<3; i++) {
+                hook.stagingTextures[i] = nullptr;
+                hook.device->CreateTexture2D(&stagingDesc, nullptr, hook.stagingTextures[i].put());
             }
         }
 
-        hook.context->CopyResource(hook.stagingTexture.get(), backBuffer.get());
-        D3D11_MAPPED_SUBRESOURCE mapped = {};
-        hr = hook.context->Map(hook.stagingTexture.get(), 0, D3D11_MAP_READ, 0, &mapped);
-        if (FAILED(hr) || !mapped.pData)
-            return;
+        // 1. Copy current frame to the circular buffer
+        int nextIndex = (hook.currentIndex + 1) % 3;
+        hook.context->CopyResource(hook.stagingTextures[hook.currentIndex].get(), backBuffer.get());
 
-        CopyFrameDataToSharedMemory(static_cast<uint8_t const*>(mapped.pData), mapped.RowPitch, hook.width, hook.height, hook.format);
-        hook.context->Unmap(hook.stagingTexture.get(), 0);
+        // 2. Map the texture from a few frames ago to avoid stalling the render thread
+        // Using D3D11_MAP_FLAG_DO_NOT_WAIT ensures we never block Xenia.
+        D3D11_MAPPED_SUBRESOURCE mapped = {};
+        HRESULT hr = hook.context->Map(hook.stagingTextures[nextIndex].get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped);
+        
+        if (SUCCEEDED(hr) && mapped.pData)
+        {
+            CopyFrameDataToSharedMemory(static_cast<uint8_t const*>(mapped.pData), mapped.RowPitch, hook.width, hook.height, hook.format);
+            hook.context->Unmap(hook.stagingTextures[nextIndex].get(), 0);
+        }
+
+        hook.currentIndex = nextIndex;
     }
 
     static bool CreateInjectionFileMapping(DWORD pid)
@@ -1012,22 +954,10 @@ struct CaptureSession
         
         if (!anyHookInstalled)
         {
-            DebugLog("[WGC_NATIVE] InstallGraphicsHooks failed: No graphics hooks could be placed.");
-            return false;
+            DebugLog("[WGC_NATIVE] InstallGraphicsHooks: No graphics hooks placed (disabled or failed). Handshake will continue.");
         }
 
-        // Try to hook existing swapchains by creating a dummy one to get the vtable
-        DebugLog("[WGC_NATIVE] Attempting to hook existing graphics via dummy swapchain...");
-        if (TryHookExistingGraphics())
-        {
-            DebugLog("[WGC_NATIVE] Successfully hooked existing graphics via dummy swapchain");
-        }
-        else
-        {
-            DebugLog("[WGC_NATIVE] Failed to hook existing graphics via dummy swapchain (might be okay if no swapchain exists yet)");
-        }
-
-        DebugLog("[WGC_NATIVE] InitializeDirectHookCapture: Shared memory and hooks initialized");
+        DebugLog("[WGC_NATIVE] InitializeDirectHookCapture: Shared memory initialized. Handshake complete.");
         return true;
     }
 
@@ -1090,6 +1020,8 @@ struct CaptureSession
                     rt::com_ptr<IDXGIFactory> factory;
                     if (SUCCEEDED(adapter->GetParent(IID_PPV_ARGS(factory.put()))))
                     {
+                        HookDxgiFactory(reinterpret_cast<IUnknown*>(factory.get()));
+                        
                         DXGI_SWAP_CHAIN_DESC desc = {};
                         desc.BufferCount = 1;
                         desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -1139,9 +1071,10 @@ struct CaptureSession
 
     static bool InstallGraphicsHooks()
     {
-        bool dxgiHooked = InstallDxgiHooks();
-        bool d3d11Hooked = InstallD3D11Hooks();
-        return dxgiHooked || d3d11Hooked;
+        // Re-enabling VTable hooking. Inline hooks remain disabled for stability.
+        // TryHookExistingGraphics creates a dummy D3D11 swapchain to find the VTable 
+        // and patches the Present entries.
+        return TryHookExistingGraphics(); 
     }
 
     static void* GetOriginalPresent1ForSwapChain(IDXGISwapChain* swapChain)
@@ -2320,8 +2253,8 @@ extern "C" {
             if (FAILED(hr))
             {
                 char buf[256];
-                sprintf_s(buf, "[WGC_NATIVE] D3D11CreateDevice failed: 0x%08X\n", (unsigned)hr);
-                OutputDebugStringA(buf);
+                sprintf_s(buf, "[WGC_NATIVE] D3D11CreateDevice failed: 0x%08X (Note: Host may need to run as Admin if target is Admin)\n", (unsigned)hr);
+                DebugLog(buf);
                 delete s;
                 return nullptr;
             }
@@ -2412,8 +2345,8 @@ extern "C" {
                 if (FAILED(createHr) || !s->item)
                 {
                     char buf[256];
-                    sprintf_s(buf, "[WGC_NATIVE] CreateForWindow failed: 0x%08X\n", (unsigned)createHr);
-                    OutputDebugStringA(buf);
+                    sprintf_s(buf, "[WGC_NATIVE] CreateForWindow failed: 0x%08X. Ensure target HWND is valid and process has required permissions.\n", (unsigned)createHr);
+                    DebugLog(buf);
                     delete s;
                     return nullptr;
                 }

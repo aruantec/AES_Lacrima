@@ -105,6 +105,8 @@ public class WgcCaptureControl : OpenGlControlBase
     private MemoryMappedViewAccessor? _injectionAccessor;
     private long _lastInjectionFrameCount = -1;
     private int _injectionEmptyReadCount = 0;
+    private int _injectionHeaderReadFailedCount = 0;
+    private long _lastWgcRestartTicks = 0;
     private const int InjectionHeaderSize = 128;
     private const int InjectionMaxFrameBytes = 128 * 1024 * 1024;
     private const uint InjectionMagic = 0x41534145;
@@ -339,7 +341,7 @@ public class WgcCaptureControl : OpenGlControlBase
     #endregion
 
     #region Public Methods
-    public void StartCapture()
+    public void StartCapture(bool forceWgc = false)
     {
         lock (_sessionLock)
         {
@@ -349,6 +351,16 @@ public class WgcCaptureControl : OpenGlControlBase
                 ResetCaptureFrameState();
                 if (TargetHwnd == IntPtr.Zero) return;
 
+                // Only postpone WGC if injection is currently being attempted AND hasn't clearly failed yet.
+                // If forceWgc is true, we skip this check (used for fallbacks).
+                bool injectionAttempting = _injectionActive && _injectionEmptyReadCount < 120;
+                if (!forceWgc && (injectionAttempting || (TargetProcessId != 0 && !_injectionActive && _injectionEmptyReadCount < 120)))
+                {
+                    if (_injectionEmptyReadCount % 60 == 0)
+                        Debug.WriteLine("[WGC] Postponing WGC session start; prioritizing injected hook.");
+                    return;
+                }
+
                 _lastNativeFrameCount = -1;
                 _dxTexturePtr = IntPtr.Zero; // Reset interop pointer
 
@@ -356,12 +368,13 @@ public class WgcCaptureControl : OpenGlControlBase
                     _bufferHandle = GCHandle.Alloc(_pixelBuffer, GCHandleType.Pinned);
 
                 _session = WgcBridgeApi.CreateCaptureSession(TargetHwnd);
-                Debug.WriteLine($"[WGC] Session Start Attempt for HWND: {TargetHwnd} -> Result: {_session}");
-
-                if (_session != nint.Zero)
+                if (_session == nint.Zero)
                 {
-                    WgcBridgeApi.SetCaptureMaxResolution(_session, 4096, MaxCaptureHeight);
+                    Debug.WriteLine($"[WGC] Failed to create capture session for HWND: {TargetHwnd}. Check if target is running with higher privileges.");
+                    return;
                 }
+                
+                WgcBridgeApi.SetCaptureMaxResolution(_session, 4096, MaxCaptureHeight);
             }
             catch (Exception ex)
             {
@@ -565,8 +578,8 @@ public class WgcCaptureControl : OpenGlControlBase
         _heartbeatTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(HeartbeatIntervalMs), DispatcherPriority.Background, (_, _) => RequestNextFrameRendering());
         _heartbeatTimer.Start();
 
-        // High-frequency UI heartbeat to drive composition at > 60 FPS
-        _uiHeartbeat = new DispatcherTimer(TimeSpan.FromMilliseconds(4), DispatcherPriority.Render, (_, _) =>
+        // 16ms heartbeat (60 FPS) is sufficient and much safer for dispatcher stability
+        _uiHeartbeat = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, (_, _) =>
         {
             if (IsVisible) RequestNextFrameRendering();
         });
@@ -605,73 +618,60 @@ public class WgcCaptureControl : OpenGlControlBase
             {
                 _injectionAccessor.SafeMemoryMappedViewHandle.AcquirePointer(ref basePtr);
                 if (basePtr == null)
-                {
-                    Debug.WriteLine("[WGC] Injected frame read failed: could not acquire pointer");
                     return false;
-                }
 
                 var header = (InjectionFrameHeader*)basePtr;
-                for (int attempt = 0; attempt < 10; attempt++)
+                
+                // Retry a few times if we hit a write in progress (Sequence1 == 0)
+                // or a torn frame (Sequence1 != Sequence2)
+                for (int attempt = 0; attempt < 5; attempt++)
                 {
                     uint seq1 = header->Sequence1;
                     if (seq1 == 0)
                     {
-                        // Debug: check first few bytes of basePtr
-                        if (attempt == 0)
-                        {
-                            byte* b = (byte*)basePtr;
-                            Debug.WriteLine($"[WGC] Injected frame raw start: {b[0]:X2} {b[1]:X2} {b[2]:X2} {b[3]:X2} | {b[4]:X2} {b[5]:X2} {b[6]:X2} {b[7]:X2}");
-                            
-                            // Check Magic directly (it's at offset 24)
-                            uint magic = *(uint*)(basePtr + 24);
-                            Debug.WriteLine($"[WGC] Injected frame Magic check: 0x{magic:X8}");
-                        }
-
-                        if (attempt == 9)
-                            Debug.WriteLine("[WGC] Injected frame read failed: sequence1 is 0 after retries");
-                        Thread.Sleep(1);
+                        Thread.Sleep(0); 
                         continue;
                     }
 
                     InjectionFrameHeader localHeader = *header;
-                    if (seq1 != localHeader.Sequence2)
+                    
+                    // Verify consistency: Sequence1 must match Sequence2 for a complete frame
+                    if (localHeader.Sequence1 != localHeader.Sequence2)
                     {
-                        if (attempt % 5 == 0)
-                            Debug.WriteLine($"[WGC] Injected frame read inconsistent header attempt {attempt}: seq1={seq1} seq2={localHeader.Sequence2}");
-                        Thread.Sleep(1);
+                        Thread.Sleep(0);
                         continue;
                     }
 
                     if (localHeader.Magic != InjectionMagic)
                     {
-                        Debug.WriteLine($"[WGC] Injected frame read failed: bad magic=0x{localHeader.Magic:X8}");
+                        // Bad magic usually means memory isn't initialized yet or was corrupted
                         return false;
                     }
 
                     if (localHeader.Width == 0 || localHeader.Height == 0)
                     {
-                        Debug.WriteLine($"[WGC] Injected frame read failed: invalid dimensions {localHeader.Width}x{localHeader.Height}");
                         return false;
                     }
 
                     if ((ulong)localHeader.Height * localHeader.Stride > InjectionMaxFrameBytes)
                     {
-                        Debug.WriteLine($"[WGC] Injected frame read failed: frame size too large {localHeader.Width}x{localHeader.Height} stride={localHeader.Stride}");
+                        Debug.WriteLine($"[WGC] Injected frame size too large {localHeader.Width}x{localHeader.Height}");
                         return false;
                     }
 
                     frameHeader = localHeader;
                     pixelData = (IntPtr)(basePtr + InjectionHeaderSize);
-                    if (frameHeader.FrameCounter % 300 == 0)
-                        Debug.WriteLine($"[WGC] Injected frame ready: counter={frameHeader.FrameCounter} size={frameHeader.Width}x{frameHeader.Height}");
+                    
+                    // Periodic diagnostic log
+                    if (frameHeader.FrameCounter % 1000 == 0)
+                        Debug.WriteLine($"[WGC] Injected frame active: #{frameHeader.FrameCounter} ({frameHeader.Width}x{frameHeader.Height})");
+                        
                     return true;
                 }
-
-                Debug.WriteLine("[WGC] Injected frame read failed after retries");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[WGC] Injected frame read threw: {ex}");
+                Debug.WriteLine($"[WGC] Injected frame read exception: {ex.Message}");
                 return false;
             }
             finally
@@ -799,7 +799,7 @@ public class WgcCaptureControl : OpenGlControlBase
         {
             if (TryReadInjectedFrame(out var frameHeader, out var pixelData))
             {
-                _injectionEmptyReadCount = 0;
+                _injectionHeaderReadFailedCount = 0; // Reset "unreachable" counter
                 w = (int)frameHeader.Width;
                 h = (int)frameHeader.Height;
 
@@ -815,10 +815,31 @@ public class WgcCaptureControl : OpenGlControlBase
                     }, DispatcherPriority.Render);
 
                     hasFrame = true;
+
+                    // If injection is successful, ensure WGC is CLOSED to save resources
+                    if (_session != nint.Zero)
+                    {
+                        lock (_sessionLock)
+                        {
+                            if (_session != nint.Zero)
+                            {
+                                Debug.WriteLine("[WGC] Closing active WGC session because injected hook is providing frames.");
+                                WgcBridgeApi.DestroyCaptureSession(_session);
+                                _session = nint.Zero;
+                            }
+                        }
+                    }
                 }
                 else
                 {
+                    // Frame counter didn't advance - this is a static frame (e.g. loading screen).
+                    // We treat this as a successful read to keep the session alive, but we still 
+                    // track 'silence' for eventual fallback if the game is truly hung.
                     hasFrame = _texWidth > 0 && _texHeight > 0;
+                    
+                    // We only increment this if we haven't seen a NEW frame in a while.
+                    // But we don't reset it here; it just keeps climbing.
+                    _injectionEmptyReadCount++; 
                 }
 
                 if (_glPixelStoreiPtr != IntPtr.Zero && hasFrame)
@@ -845,160 +866,221 @@ public class WgcCaptureControl : OpenGlControlBase
             }
             else
             {
+                _injectionHeaderReadFailedCount++;
                 _injectionEmptyReadCount++;
-                if (_injectionEmptyReadCount >= 60)
+
+                if (_injectionHeaderReadFailedCount >= 1800 && _session == nint.Zero) // 30 seconds at 60fps
                 {
-                    Debug.WriteLine("[WGC] Injection session timed out waiting for first injected frame");
+                    Debug.WriteLine("[WGC] Injection session timed out (No shared memory) after 1800 attempts.");
                     CleanupInjectionSession();
+                }
+                else if (_session != nint.Zero && _injectionEmptyReadCount > 301)
+                {
+                    // If WGC is active, cap the counters so we don't kill the session while waiting
+                    _injectionEmptyReadCount = 301;
+                    _injectionHeaderReadFailedCount = Math.Min(_injectionHeaderReadFailedCount, 301);
                 }
             }
         }
-        else
+
+        // Fallback to WGC if injection is not active OR has no frames yet
+        if (!hasFrame && TargetHwnd != IntPtr.Zero)
         {
+            if (_session == nint.Zero)
+            {
+                // Fallback logic:
+                // 1. injectionFailed: The hook is active but hasn't sent a NEW frame for ~30s (likely hung hook).
+                // 2. injectionSilent: The shared memory is unreachable/garbage for ~5s (hook crashed).
+                // 3. injectionNotWorking: Injection failed to start or process died.
+
+                bool injectionFailed = _injectionActive && _injectionEmptyReadCount > 3600; // ~60s of static frame
+                bool injectionSilent = _injectionActive && _injectionHeaderReadFailedCount > 300; // ~5s of no shared memory
+                bool injectionNotWorking = !_injectionActive && TargetProcessId != 0;
+                bool noInjection = TargetProcessId == 0;
+
+                long nowRestart = Stopwatch.GetTimestamp();
+                if ((injectionFailed || injectionSilent || injectionNotWorking || noInjection) && (double)(nowRestart - _lastWgcRestartTicks) / Stopwatch.Frequency >= 5.0)
+                {
+                    if (injectionFailed)
+                        Debug.WriteLine("[WGC] Injection session static for 60s; falling back to WGC.");
+                    else if (injectionSilent)
+                        Debug.WriteLine("[WGC] Injection shared memory unreachable for 5s; falling back to WGC.");
+                    else if (injectionNotWorking)
+                        Debug.WriteLine("[WGC] Injection not working for target PID; falling back to WGC.");
+
+                    _lastWgcRestartTicks = nowRestart;
+                    Dispatcher.UIThread.Post(() => StartCapture(true), DispatcherPriority.Background);
+                }
+            }
+
             lock (_sessionLock)
             {
                 if (_session != nint.Zero)
                 {
-                int nativeCount = 0;
-                int readerCount = 0;
-                try
-                {
-                    nativeCount = WgcBridgeApi.GetCaptureStatus(_session);
-                    readerCount = WgcBridgeApi.GetReaderCount(_session);
-                }
-                catch { nativeCount = 0; }
-
-                bool isNewFrame = nativeCount > 0 && nativeCount != _lastNativeFrameCount;
-
-                // Log every 500 frames or if stuck for diagnostic purposes
-                if (nativeCount % 500 == 0 || (isNewFrame && nativeCount < 5))
-                {
-                    Debug.WriteLine($"[WGC] Render loop status: nativeCount={nativeCount}, last={_lastNativeFrameCount}, readers={readerCount}, isNew={isNewFrame}");
-                }
-
-                if (isNewFrame)
-                {
-                    if (!_bufferHandle.IsAllocated) EnsureBufferPinned();
-
-                    nuint requiredSize;
-                    bool peekOk = WgcBridgeApi.PeekLatestFrame(_session, out int peekW, out int peekH, out requiredSize);
-
-                    if (peekOk && requiredSize > (nuint)_pixelBuffer.Length)
-                    {
-                        EnsureBufferCapacity((int)requiredSize);
-                    }
-
-                    nint bufferPtr = _bufferHandle.AddrOfPinnedObject();
-                    bool releaseNative = false;
-
+                    int nativeCount = 0;
+                    int readerCount = 0;
                     try
                     {
-                        // 1. Try Native Pointer Acquisition
-                        if (_nativeAcquireSupported)
+                        nativeCount = WgcBridgeApi.GetCaptureStatus(_session);
+                        readerCount = WgcBridgeApi.GetReaderCount(_session);
+                    }
+                    catch { nativeCount = 0; }
+
+                    bool isNewFrame = nativeCount > 0 && nativeCount != _lastNativeFrameCount;
+
+                    // Log every 500 frames or if stuck for diagnostic purposes
+                    if (nativeCount % 500 == 0 || (isNewFrame && nativeCount < 5))
+                    {
+                        Debug.WriteLine($"[WGC] Render loop status: nativeCount={nativeCount}, last={_lastNativeFrameCount}, readers={readerCount}, isNew={isNewFrame}");
+                    }
+
+                    if (isNewFrame)
+                    {
+                        if (!_bufferHandle.IsAllocated) EnsureBufferPinned();
+
+                        nuint requiredSize;
+                        bool peekOk = WgcBridgeApi.PeekLatestFrame(_session, out int peekW, out int peekH, out requiredSize);
+
+                        if (peekOk && requiredSize > (nuint)_pixelBuffer.Length)
                         {
-                            if (WgcBridgeApi.AcquireLatestFrame(_session, out IntPtr nativePtr, out nuint nativeSize, out int frameW, out int frameH))
-                            {
-                                releaseNative = true;
-                                bufferPtr = nativePtr;
-                                w = frameW; h = frameH;
-                                hasFrame = true;
-                            }
+                            EnsureBufferCapacity((int)requiredSize);
                         }
 
-                        // 2. Try ANGLE/EGL Texture Import
-                        if (!hasFrame && _usingAngleInterop && _eglCreateImageKHR != null && _glEGLImageTargetTexture2DOES != null)
+                        nint bufferPtr = _bufferHandle.AddrOfPinnedObject();
+                        bool releaseNative = false;
+
+                        try
                         {
-                            try
+                            // 1. Try Desktop GL DX Interop (NV_DX_interop) - Best for NVIDIA/AMD on Desktop GL
+                            if (!hasFrame && _usingDxInterop && _wglDXLockObjectsNV != null)
                             {
-                                IntPtr shared = WgcBridgeApi.GetSharedHandle(_session);
-                                if (shared != IntPtr.Zero)
+                                try
                                 {
-                                    // Update metadata from native even if interop is used, 
-                                    // to ensure peekW/peekH reflect the actual cropped dimensions.
-                                    WgcBridgeApi.PeekLatestFrame(_session, out peekW, out peekH, out _);
-                                    
-                                    w = peekW; h = peekH;
-                                    if (_currentSharedHandle != shared)
-
+                                    IntPtr dxTex = WgcBridgeApi.GetLatestD3DTexture(_session);
+                                    if (dxTex != IntPtr.Zero)
                                     {
-                                        CleanupAngleInterop(); // Close old EGL image
-
-                                        var dpy = _eglGetCurrentDisplay?.Invoke() ?? IntPtr.Zero;
-                                        var ctx = _eglGetCurrentContext?.Invoke() ?? IntPtr.Zero;
-                                        if (dpy != IntPtr.Zero && ctx != IntPtr.Zero)
+                                        if (_dxTexturePtr != dxTex)
                                         {
-                                            IntPtr img = _eglCreateImageKHR(dpy, ctx, EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE, shared, IntPtr.Zero);
-                                            if (img != IntPtr.Zero)
+                                            if (_wglObjectHandle != IntPtr.Zero) _wglDXUnregisterObjectNV?.Invoke(_wglDeviceHandle, _wglObjectHandle);
+                                            _wglObjectHandle = _wglDXRegisterObjectNV?.Invoke(_wglDeviceHandle, dxTex, (uint)_textureId, (uint)GlConsts.GL_TEXTURE_2D, WGL_ACCESS_READ_ONLY_NV) ?? IntPtr.Zero;
+                                            _dxTexturePtr = dxTex;
+                                        }
+
+                                        if (_wglObjectHandle != IntPtr.Zero)
+                                        {
+                                            if (_wglDXLockObjectsNV(_wglDeviceHandle, 1, new[] { _wglObjectHandle }))
                                             {
-                                                gl.ActiveTexture(GlConsts.GL_TEXTURE0);
-                                                gl.BindTexture(GlConsts.GL_TEXTURE_2D, _textureId);
-                                                _glEGLImageTargetTexture2DOES((uint)GlConsts.GL_TEXTURE_2D, img);
-                                                _eglImage = img;
-                                                _currentSharedHandle = shared;
+                                                _wglDXUnlockObjectsNV?.Invoke(_wglDeviceHandle, 1, new[] { _wglObjectHandle });
+                                                WgcBridgeApi.PeekLatestFrame(_session, out w, out h, out _);
                                                 hasFrame = true;
                                                 interopSuccess = true;
                                             }
                                         }
                                     }
-                                    else
+                                }
+                                catch (Exception ex) { Debug.WriteLine($"[WGC] DX Interop failed: {ex.Message}"); }
+                            }
+
+                            // 2. Try ANGLE/EGL Texture Import - Best for Intel/AMD on ANGLE (EGL)
+                            if (!hasFrame && _usingAngleInterop && _eglCreateImageKHR != null && _glEGLImageTargetTexture2DOES != null)
+                            {
+                                try
+                                {
+                                    IntPtr shared = WgcBridgeApi.GetSharedHandle(_session);
+                                    if (shared != IntPtr.Zero)
                                     {
-                                        hasFrame = true;
-                                        interopSuccess = true;
+                                        WgcBridgeApi.PeekLatestFrame(_session, out int peekW2, out int peekH2, out _);
+                                        w = peekW2; h = peekH2;
+
+                                        if (_currentSharedHandle != shared)
+                                        {
+                                            CleanupAngleInterop();
+                                            var dpy = _eglGetCurrentDisplay?.Invoke() ?? IntPtr.Zero;
+                                            var ctx = _eglGetCurrentContext?.Invoke() ?? IntPtr.Zero;
+                                            if (dpy != IntPtr.Zero && ctx != IntPtr.Zero)
+                                            {
+                                                IntPtr img = _eglCreateImageKHR(dpy, ctx, EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE, shared, IntPtr.Zero);
+                                                if (img != IntPtr.Zero)
+                                                {
+                                                    gl.ActiveTexture(GlConsts.GL_TEXTURE0);
+                                                    gl.BindTexture(GlConsts.GL_TEXTURE_2D, _textureId);
+                                                    _glEGLImageTargetTexture2DOES((uint)GlConsts.GL_TEXTURE_2D, img);
+                                                    _eglImage = img;
+                                                    _currentSharedHandle = shared;
+                                                    hasFrame = true;
+                                                    interopSuccess = true;
+                                                }
+                                            }
+                                        }
+                                        else
+                                        {
+                                            hasFrame = true;
+                                            interopSuccess = true;
+                                        }
                                     }
                                 }
+                                catch (Exception ex) { Debug.WriteLine($"[WGC] Angle Interop failed: {ex.Message}"); }
                             }
-                            catch (Exception ex) { Debug.WriteLine($"[WGC] Angle Interop failed: {ex.Message}"); }
-                        }
 
-                        // 3. Fallback to Copy Buffer
-                        if (!hasFrame)
-                        {
-                            hasFrame = WgcBridgeApi.GetLatestFrame(_session, bufferPtr, (nuint)_pixelBuffer.Length, out w, out h);
-                        }
-
-                        if (hasFrame && w > 0 && h > 0)
-                        {
-                            _lastNativeFrameCount = nativeCount;
-
-                            Dispatcher.UIThread.Post(() =>
+                            // 3. Try Native Pointer Acquisition (CPU Readback but zero-copy to C#)
+                            if (!hasFrame && _nativeAcquireSupported)
                             {
-                                FrameNumber = nativeCount;
-                                LastFrameWidth = w;
-                                LastFrameHeight = h;
-                            }, DispatcherPriority.Render);
-
-                            // CPU fallback upload if no Interop worked
-                            if (!interopSuccess)
-                            {
-                                gl.ActiveTexture(GlConsts.GL_TEXTURE0);
-                                gl.BindTexture(GlConsts.GL_TEXTURE_2D, _textureId);
-                                nuint bufSize = (nuint)(w * h * 4);
-
-                                if (w != _texWidth || h != _texHeight)
+                                if (WgcBridgeApi.AcquireLatestFrame(_session, out IntPtr nativePtr, out nuint nativeSize, out int frameW, out int frameH))
                                 {
-                                    _texWidth = w; _texHeight = h;
-                                    gl.TexImage2D(GlConsts.GL_TEXTURE_2D, 0, _isEs ? 0x1908 : (int)GlConsts.GL_RGBA, w, h, 0, _isEs ? 0x1908 : 0x80E1, GlConsts.GL_UNSIGNED_BYTE, IntPtr.Zero);
+                                    releaseNative = true;
+                                    bufferPtr = nativePtr;
+                                    w = frameW; h = frameH;
+                                    hasFrame = true;
                                 }
+                            }
 
-                                // Upload directly from acquired bufferPtr for maximum reliability
-                                // Bypassing PBO for diagnostic purposes to rule out synchronization bugs
-                                if (_glPixelStoreiPtr != IntPtr.Zero)
-                                    ((delegate* unmanaged[Stdcall]<int, int, void>)_glPixelStoreiPtr)(GL_UNPACK_ALIGNMENT, 1);
+                            // 4. Fallback to Copy Buffer (Worst case: double CPU copy)
+                            if (!hasFrame)
+                            {
+                                hasFrame = WgcBridgeApi.GetLatestFrame(_session, bufferPtr, (nuint)_pixelBuffer.Length, out w, out h);
+                            }
 
-                                var texSub = (delegate* unmanaged[Stdcall]<int, int, int, int, int, int, uint, int, IntPtr, void>)_glTexSubImage2DPtr;
-                                texSub(GlConsts.GL_TEXTURE_2D, 0, 0, 0, w, h, _isEs ? 0x1908u : 0x80E1u, GlConsts.GL_UNSIGNED_BYTE, bufferPtr);
+                            if (hasFrame && w > 0 && h > 0)
+                            {
+                                _lastNativeFrameCount = nativeCount;
+
+                                Dispatcher.UIThread.Post(() =>
+                                {
+                                    FrameNumber = nativeCount;
+                                    LastFrameWidth = w;
+                                    LastFrameHeight = h;
+                                }, DispatcherPriority.Render);
+
+                                // CPU fallback upload if no Interop worked
+                                if (!interopSuccess)
+                                {
+                                    gl.ActiveTexture(GlConsts.GL_TEXTURE0);
+                                    gl.BindTexture(GlConsts.GL_TEXTURE_2D, _textureId);
+
+                                    if (w != _texWidth || h != _texHeight)
+                                    {
+                                        _texWidth = w; _texHeight = h;
+                                        gl.TexImage2D(GlConsts.GL_TEXTURE_2D, 0, _isEs ? 0x1908 : (int)GlConsts.GL_RGBA, w, h, 0, _isEs ? 0x1908 : 0x80E1, GlConsts.GL_UNSIGNED_BYTE, IntPtr.Zero);
+                                    }
+
+                                    // Upload directly from acquired bufferPtr for maximum reliability
+                                    if (_glPixelStoreiPtr != IntPtr.Zero)
+                                        ((delegate* unmanaged[Stdcall]<int, int, void>)_glPixelStoreiPtr)(GL_UNPACK_ALIGNMENT, 1);
+
+                                    var texSub = (delegate* unmanaged[Stdcall]<int, int, int, int, int, int, uint, int, IntPtr, void>)_glTexSubImage2DPtr;
+                                    texSub(GlConsts.GL_TEXTURE_2D, 0, 0, 0, w, h, _isEs ? 0x1908u : 0x80E1u, GlConsts.GL_UNSIGNED_BYTE, bufferPtr);
+                                }
                             }
                         }
-                    }
-                    catch (Exception ex) { Debug.WriteLine($"[WGC] Exception in new frame processing: {ex.Message}"); }
-                    finally
-                    {
-                        if (releaseNative) WgcBridgeApi.ReleaseLatestFrame(_session);
+                        catch (Exception ex) { Debug.WriteLine($"[WGC] Exception in new frame processing: {ex.Message}"); }
+                        finally
+                        {
+                            if (releaseNative) WgcBridgeApi.ReleaseLatestFrame(_session);
+                        }
                     }
                 }
             }
         }
-    }
 
         // Always render what we have (background + last frame or new frame)
         if (_program != 0)
@@ -1040,10 +1122,12 @@ public class WgcCaptureControl : OpenGlControlBase
                     }
 
                     // Update BackendName with current live capture state
-                    string method = _injectionActive ? "Direct Hook (Injected)" : "Windows Graphics Capture (WGC)";
-                    if (!_injectionActive)
+                    bool usingInjected = _injectionActive && hasFrame;
+                    string method = usingInjected ? "Direct Hook (Injected)" : "Windows Graphics Capture (WGC)";
+                    if (!usingInjected)
                     {
-                        if (_usingAngleInterop) method += " [ANGLE/DirectX]";
+                        if (_usingDxInterop) method += " [DX Interop]";
+                        else if (_usingAngleInterop) method += " [ANGLE/DirectX]";
                         else if (_nativeAcquireSupported) method += " [Native DXGI]";
                         else method += " [CPU Copy]";
                     }
@@ -1066,6 +1150,7 @@ public class WgcCaptureControl : OpenGlControlBase
                 _letterboxNeedsUpdate = false;
             }
 
+            gl.Disable(0x0C11); // GL_SCISSOR_TEST
             gl.UseProgram(_program);
             if (_letterboxPixels != null)
             {
@@ -1097,8 +1182,14 @@ public class WgcCaptureControl : OpenGlControlBase
                 {
                     // Calculate target rectangle for aspect-correct rendering
                     var targetRect = CalculateAspectRect(viewW, viewH, currentW, currentH);
-                    gl.Viewport(targetRect.X, targetRect.Y, targetRect.Width, targetRect.Height);
+                    
+                    if (FrameNumber % 1000 == 0)
+                    {
+                        Debug.WriteLine($"[WGC] Render Pass 2: Viewport({targetRect.X}, {targetRect.Y}, {targetRect.Width}, {targetRect.Height}) | View({viewW}x{viewH}) | Frame({currentW}x{currentH})");
+                    }
 
+                    gl.Viewport(targetRect.X, targetRect.Y, targetRect.Width, targetRect.Height);
+                    
                     // Update shader pipeline with current settings
                     _shaderPipeline.Brightness = (float)Brightness;
                     _shaderPipeline.Saturation = (float)Saturation;
@@ -1307,7 +1398,7 @@ public class WgcCaptureControl : OpenGlControlBase
         {
             MemoryMappedFile? mmf = null;
             MemoryMappedViewAccessor? accessor = null;
-            var success = await Task.Run(() => InjectionBridgeApi.TryInjectProcess(processId, TimeSpan.FromSeconds(15), out mmf, out accessor));
+            var success = await Task.Run(() => InjectionBridgeApi.TryInjectProcess(processId, TimeSpan.FromSeconds(30), out mmf, out accessor));
             Debug.WriteLine($"[WGC] TryInjectProcess returned {success} for PID {processId}");
             if (!success)
             {
@@ -1441,9 +1532,23 @@ public class WgcCaptureControl : OpenGlControlBase
         }
         catch { }
 
-        Win32API.RemoveWindowDecorations(TargetHwnd);
-        Win32API.MoveAway(TargetHwnd);
-        Win32API.SetWindowOpacity(TargetHwnd, 0);
+        // Aggressive window manipulations can cause DX12 swapchain creation failures in emulators like Xenia.
+        // We delay these calls to ensure the emulator has finished its initial window setup.
+        IntPtr currentHwnd = TargetHwnd;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(1500); // 1.5s delay for stability
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (TargetHwnd == currentHwnd && currentHwnd != IntPtr.Zero)
+                {
+                    Win32API.RemoveWindowDecorations(currentHwnd);
+                    Win32API.MoveAway(currentHwnd);
+                    Win32API.SetWindowOpacity(currentHwnd, 0);
+                    Debug.WriteLine("[WGC] Applied window decorations and opacity after stability delay.");
+                }
+            });
+        });
 
         StartCapture();
     }
@@ -1486,11 +1591,29 @@ public class WgcCaptureControl : OpenGlControlBase
 
             if (ext == ".glsl" || ext == ".glslp" || ext == ".slang" || ext == ".slangp" || ext == ".cgp")
             {
+                string shaderToLoad = path;
+
+                // For OpenGL compatibility (WgcCaptureControl is an OpenGlControlBase), 
+                // try to redirect .slang to .glsl equivalents if they exist.
+                if (ext.Contains(".slang"))
+                {
+                    string glslExt = ext.Replace(".slang", ".glsl");
+                    string? glslPath = path.Replace(".slang", ".glsl")
+                                          .Replace("\\slang\\", "\\glsl\\")
+                                          .Replace("/slang/", "/glsl/");
+
+                    if (File.Exists(glslPath))
+                    {
+                        Debug.WriteLine($"[WGC] Redirecting .slang shader to .glsl for OpenGL compatibility: {glslPath}");
+                        shaderToLoad = glslPath;
+                    }
+                }
+
                 _shaderPipeline?.Dispose();
                 _shaderPipeline = new SlangShaderPipeline(gl);
-                _shaderPipeline.LoadShaderPreset(path);
-                _currentShaderPath = path;
-                Debug.WriteLine($"[WGC] Shader preset loaded: '{path}'.");
+                _shaderPipeline.LoadShaderPreset(shaderToLoad);
+                _currentShaderPath = path; // Keep original path as current so UI/comparison works
+                Debug.WriteLine($"[WGC] Shader preset loaded: '{shaderToLoad}'.");
             }
             else
             {
@@ -1720,8 +1843,14 @@ public class WgcCaptureControl : OpenGlControlBase
         {
             _wglDeviceHandle = _wglDXOpenDeviceNV?.Invoke(_dxDevicePtr) ?? IntPtr.Zero;
             if (_wglDeviceHandle == IntPtr.Zero) { _usingDxInterop = false; return; }
+            Debug.WriteLine("[WGC] Desktop GL DX Interop (NV_DX_interop) initialized successfully.");
         }
-        catch { _usingDxInterop = false; return; }
+        catch (Exception ex) 
+        { 
+            Debug.WriteLine($"[WGC] Desktop GL DX Interop initialization failed: {ex.Message}");
+            _usingDxInterop = false; 
+            return; 
+        }
         _usingDxInterop = true;
     }
 
@@ -1758,9 +1887,15 @@ public class WgcCaptureControl : OpenGlControlBase
             _eglDisplay = _eglGetCurrentDisplay?.Invoke() ?? IntPtr.Zero;
             _eglContext = _eglGetCurrentContext?.Invoke() ?? IntPtr.Zero;
             if (_eglDisplay == IntPtr.Zero || _eglContext == IntPtr.Zero) { _usingAngleInterop = false; return; }
+            
+            Debug.WriteLine("[WGC] ANGLE/EGL Interop initialized successfully.");
             _usingAngleInterop = true;
         }
-        catch { _usingAngleInterop = false; }
+        catch (Exception ex) 
+        { 
+            Debug.WriteLine($"[WGC] ANGLE/EGL Interop initialization failed: {ex.Message}");
+            _usingAngleInterop = false; 
+        }
     }
 
     private void CleanupAngleInterop()

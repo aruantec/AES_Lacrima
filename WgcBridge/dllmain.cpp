@@ -122,7 +122,7 @@ static DWORD WINAPI InjectionWorkerThread(LPVOID lpParameter)
             sprintf_s(buf, "[WGC_NATIVE] CreateEventW(readyEvent) failed, error=%lu", error);
             DebugLog(buf);
         }
-        return 0;
+        return 1;
     }
 
     DebugLog("[WGC_NATIVE] Direct hook failed, aborting injected capture");

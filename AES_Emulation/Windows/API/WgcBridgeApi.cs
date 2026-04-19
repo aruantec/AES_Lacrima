@@ -1,4 +1,4 @@
-﻿using log4net;
+using log4net;
 using AES_Core.Logging;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
@@ -197,7 +197,9 @@ public static class WgcBridgeApi
                 foreach (var name in exports)
                 {
                     if (NativeLibrary.TryGetExport(handle, name, out IntPtr addr))
-                        LogDebug($"[WGC] Export present: {name}");
+                    {
+                        // Removed LogDebug spam to clean up console output
+                    }
                     else
                         LogWarn($"[WGC] Export MISSING: {name}");
                 }
