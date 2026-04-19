@@ -12,6 +12,8 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using System.Threading;
+using System.Threading.Tasks;
 using AES_Lacrima.ViewModels;
 using AES_Controls.Helpers;
 using AES_Emulation.Controls;
@@ -131,6 +133,7 @@ public partial class EmulationView : UserControl
     private string _portalGpuRenderer = "Unknown";
     private string _portalGpuVendor = "Unknown";
     private Geometry? _portalFrametimeGraphGeometry;
+    private CancellationTokenSource? _portalBrightnessFadeCancellation;
     private bool _isAlbumListInteractive = true;
     private readonly Queue<double> _portalFrameSamples = new();
     private const int PortalFrameSampleCount = 180;
@@ -637,8 +640,10 @@ public partial class EmulationView : UserControl
 
             if (!wasSurfaceVisible)
             {
+                ResetPortalCaptureBrightness();
                 IsPortalSurfaceVisible = true;
                 PortalFallbackOpacity = 0;
+                StartPortalBrightnessFade();
             }
 
             if (!wasSurfaceVisible)
@@ -654,6 +659,7 @@ public partial class EmulationView : UserControl
                         }
                         IsPortalSurfaceVisible = true;
                         PortalFallbackOpacity = 0;
+                        StartPortalBrightnessFade();
                     }
                 }, DispatcherPriority.Background);
             }
@@ -662,6 +668,8 @@ public partial class EmulationView : UserControl
 
     private void HidePortal()
     {
+        _portalBrightnessFadeCancellation?.Cancel();
+
         if (UseInlineCaptureHost)
         {
             PortalFallbackOpacity = 1;
@@ -676,14 +684,66 @@ public partial class EmulationView : UserControl
         PortalFallbackOpacity = 1;
         IsPortalSurfaceVisible = false;
 
-        if (_isPortalWindowFullscreen && DataContext is EmulationViewModel vm)
+        if (DataContext is EmulationViewModel vm)
+            vm.PortalCaptureBrightness = 0;
+
+        if (_isPortalWindowFullscreen && DataContext is EmulationViewModel vmFullscreen)
         {
-            vm.IsFullscreen = false;
+            vmFullscreen.IsFullscreen = false;
         }
 
         _portalWindow?.Hide();
         HidePortalFullscreenOverlay();
         _isPortalWindowFullscreen = false;
+    }
+
+    private void ResetPortalCaptureBrightness()
+    {
+        if (DataContext is EmulationViewModel vm)
+            vm.PortalCaptureBrightness = 0;
+    }
+
+    private void StartPortalBrightnessFade()
+    {
+        if (DataContext is not EmulationViewModel vm)
+            return;
+
+        _portalBrightnessFadeCancellation?.Cancel();
+        _portalBrightnessFadeCancellation = new CancellationTokenSource();
+        var token = _portalBrightnessFadeCancellation.Token;
+
+        _ = FadePortalCaptureBrightnessAsync(vm, token);
+    }
+
+    private async Task FadePortalCaptureBrightnessAsync(EmulationViewModel vm, CancellationToken token)
+    {
+        const int steps = 16;
+        var duration = TimeSpan.FromMilliseconds(320);
+        var delay = TimeSpan.FromMilliseconds(duration.TotalMilliseconds / steps);
+
+        for (var step = 1; step <= steps; step++)
+        {
+            if (token.IsCancellationRequested)
+                return;
+
+            var progress = step / (double)steps;
+            var targetBrightness = vm.RenderBrightness;
+            var nextBrightness = targetBrightness * progress;
+
+            Dispatcher.UIThread.Post(() => vm.PortalCaptureBrightness = nextBrightness);
+
+            try
+            {
+                await Task.Delay(delay, token);
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+        }
+
+        if (!token.IsCancellationRequested)
+            Dispatcher.UIThread.Post(() => vm.PortalCaptureBrightness = vm.RenderBrightness);
     }
 
     private void TogglePortalFullscreen()
@@ -957,7 +1017,7 @@ public partial class EmulationView : UserControl
         captureHost.Bind(EmulatorCaptureHostControl.ClientAreaCropBottomInsetProperty, new Binding("ClientAreaCropBottomInset"));
         captureHost.Bind(EmulatorCaptureHostControl.HideTargetWindowAfterCaptureStartsProperty, new Binding("HideTargetWindowAfterCaptureStarts"));
         captureHost.Bind(EmulatorCaptureHostControl.StretchProperty, new Binding("SelectedStretch") { Mode = BindingMode.TwoWay });
-        captureHost.Bind(EmulatorCaptureHostControl.BrightnessProperty, new Binding("RenderBrightness") { Mode = BindingMode.TwoWay });
+        captureHost.Bind(EmulatorCaptureHostControl.BrightnessProperty, new Binding("PortalCaptureBrightness") { Mode = BindingMode.TwoWay });
         captureHost.Bind(EmulatorCaptureHostControl.SaturationProperty, new Binding("RenderSaturation") { Mode = BindingMode.TwoWay });
         captureHost.Bind(EmulatorCaptureHostControl.DisableVSyncProperty, new Binding("DisableVSync") { Mode = BindingMode.TwoWay });
         captureHost.Bind(EmulatorCaptureHostControl.ShaderPathProperty, new Binding("SelectedShaderPath"));

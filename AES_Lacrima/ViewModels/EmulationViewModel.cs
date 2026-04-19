@@ -163,6 +163,9 @@ namespace AES_Lacrima.ViewModels
         private double _renderBrightness = 1.0;
 
         [ObservableProperty]
+        private double _portalCaptureBrightness = 1.0;
+
+        [ObservableProperty]
         private double _renderSaturation = 1.0;
 
         [ObservableProperty]
@@ -279,6 +282,8 @@ namespace AES_Lacrima.ViewModels
         [NotifyPropertyChangedFor(nameof(IsEmulatorViewportVisible))]
         [NotifyPropertyChangedFor(nameof(IsGameplayPreviewViewportVisible))]
         [NotifyPropertyChangedFor(nameof(IsGameplayVideoSurfaceVisible))]
+        [NotifyPropertyChangedFor(nameof(IsCarouselVisible))]
+        [NotifyPropertyChangedFor(nameof(IsSearchBoxVisible))]
         private bool _isEmulatorViewportDismissed;
 
         public bool IsGameplayPreviewAvailable => IsGameplayAutoplayEnabled && IsYtDlpInstalled && !IsEmulatorRunning;
@@ -286,6 +291,7 @@ namespace AES_Lacrima.ViewModels
         public bool IsCompositionCaptureVisible => IsActive && IsEmulatorViewportVisible;
         public bool IsCarouselVisible => !IsEmulatorViewportVisible;
         public bool IsSearchOverlayVisible => MetadataService?.IsImageSearchOverlayOpen == true && !IsCompositionCaptureVisible;
+        public bool IsSearchBoxVisible => IsCarouselVisible && !(MetadataService?.IsMetadataLoaded == true);
         public bool IsGameplayPreviewViewportVisible => IsGameplayPreviewHostVisible && !IsEmulatorViewportVisible;
         public bool IsGameplayVideoSurfaceVisible => IsGameplayVideoVisible && !IsEmulatorViewportVisible;
         public bool ForceUseTargetClientAreaCapture => CurrentEmulatorHandler?.ForceUseTargetClientAreaCapture == true;
@@ -450,6 +456,7 @@ namespace AES_Lacrima.ViewModels
             _subscribedMetadataService = null;
             EnsureMetadataServiceSubscription();
             OnPropertyChanged(nameof(IsSearchOverlayVisible));
+            OnPropertyChanged(nameof(IsSearchBoxVisible));
         }
 
         private void SettingsViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -492,6 +499,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(IsCompositionCaptureVisible));
             OnPropertyChanged(nameof(IsCarouselVisible));
             OnPropertyChanged(nameof(IsSearchOverlayVisible));
+            OnPropertyChanged(nameof(IsSearchBoxVisible));
             OnPropertyChanged(nameof(IsGameplayPreviewViewportVisible));
             OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
 
@@ -515,6 +523,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(IsCompositionCaptureVisible));
             OnPropertyChanged(nameof(IsCarouselVisible));
             OnPropertyChanged(nameof(IsSearchOverlayVisible));
+            OnPropertyChanged(nameof(IsSearchBoxVisible));
             OnPropertyChanged(nameof(IsGameplayPreviewViewportVisible));
             OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
         }
@@ -555,9 +564,15 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
+            if (e.PropertyName == nameof(MetadataService.IsMetadataLoaded))
+            {
+                OnPropertyChanged(nameof(IsSearchBoxVisible));
+            }
+
             if (e.PropertyName == nameof(MetadataService.IsImageSearchOverlayOpen))
             {
                 OnPropertyChanged(nameof(IsSearchOverlayVisible));
+                OnPropertyChanged(nameof(IsSearchBoxVisible));
             }
 
             if (e.PropertyName == nameof(MetadataService.VideoUrl) &&
@@ -684,7 +699,11 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnDisableVSyncChanged(bool value) => AutoSave();
 
-        partial void OnRenderBrightnessChanged(double value) => AutoSave();
+        partial void OnRenderBrightnessChanged(double value)
+        {
+            AutoSave();
+            PortalCaptureBrightness = value;
+        }
 
         partial void OnRenderSaturationChanged(double value) => AutoSave();
 
