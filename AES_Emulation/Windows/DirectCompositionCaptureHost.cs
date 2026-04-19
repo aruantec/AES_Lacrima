@@ -26,6 +26,9 @@ public class DirectCompositionCaptureHost : NativeControlHost
     public static readonly StyledProperty<bool> RequestStopSessionProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, bool>(nameof(RequestStopSession), false);
 
+    public static readonly StyledProperty<int> TargetProcessIdProperty =
+        AvaloniaProperty.Register<DirectCompositionCaptureHost, int>(nameof(TargetProcessId));
+
     public static readonly StyledProperty<string?> TargetWindowTitleHintProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, string?>(nameof(TargetWindowTitleHint), null);
 
@@ -137,6 +140,12 @@ public class DirectCompositionCaptureHost : NativeControlHost
     {
         get => GetValue(TargetHwndProperty);
         set => SetValue(TargetHwndProperty, value);
+    }
+
+    public int TargetProcessId
+    {
+        get => GetValue(TargetProcessIdProperty);
+        set => SetValue(TargetProcessIdProperty, value);
     }
 
     public bool RequestStopSession
@@ -300,7 +309,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
     {
         base.OnPropertyChanged(change);
 
-        if (change.Property == TargetHwndProperty)
+        if (change.Property == TargetHwndProperty || change.Property == TargetProcessIdProperty)
         {
             EnsureSession();
         }
@@ -466,6 +475,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         _lastPresentCount = 0;
         _lastFpsSampleUtc = DateTime.UtcNow;
         _lastPresentSampleUtc = _lastFpsSampleUtc;
+        WgcBridgeApi.SetInjectionPid(_session, TargetProcessId);
         UpdateSessionRenderOptions();
         RefreshStatus();
     }
@@ -594,9 +604,15 @@ public class DirectCompositionCaptureHost : NativeControlHost
         {
             var deltaFrames = Math.Max(0, frames - _lastFrameCount);
             var fps = deltaFrames * 1000.0 / elapsedMs;
-            if (fps > 0.01)
+            if (deltaFrames > 0)
             {
                 Fps = Fps <= 0.01 ? fps : (Fps * 0.8) + (fps * 0.2);
+            }
+            else if (elapsedMs > 250)
+            {
+                // Decay FPS if we haven't seen a frame for a quarter second
+                Fps = Fps * 0.5;
+                if (Fps < 0.1) Fps = 0;
             }
             else if (frames <= 0 && presents <= 0)
             {
@@ -612,22 +628,43 @@ public class DirectCompositionCaptureHost : NativeControlHost
         if (deltaPresents > 0 && presentElapsedMs >= 1)
         {
             var instantFrameTimeMs = presentElapsedMs / deltaPresents;
-            FrameTimeMs = FrameTimeMs <= 0.01
-                ? instantFrameTimeMs
-                : (FrameTimeMs * 0.82) + (instantFrameTimeMs * 0.18);
+            
+            // If we had a long stall (> 500ms), cap the spike and reset smoothing faster
+            if (presentElapsedMs > 500 && deltaPresents == 1)
+            {
+                FrameTimeMs = Math.Min(instantFrameTimeMs, 500.0);
+                Fps = 1000.0 / Math.Max(FrameTimeMs, 0.001);
+            }
+            else
+            {
+                FrameTimeMs = FrameTimeMs <= 0.01
+                    ? instantFrameTimeMs
+                    : (FrameTimeMs * 0.82) + (instantFrameTimeMs * 0.18);
 
-            var instantFps = 1000.0 / Math.Max(instantFrameTimeMs, 0.001);
-            Fps = Fps <= 0.01
-                ? instantFps
-                : (Fps * 0.8) + (instantFps * 0.2);
+                var instantFps = 1000.0 / Math.Max(instantFrameTimeMs, 0.001);
+                Fps = Fps <= 0.01
+                    ? instantFps
+                    : (Fps * 0.75) + (instantFps * 0.25);
+            }
 
             _lastPresentCount = presents;
             _lastPresentSampleUtc = now;
         }
-        else if (presents <= 0 && frames <= 0)
+        else if (presentElapsedMs > 300)
         {
-            FrameTimeMs = 0;
+            // Stalled
+            if (presents <= 0 && frames <= 0)
+            {
+                FrameTimeMs = 0;
+                Fps = 0;
+            }
+            else
+            {
+                Fps = Fps * 0.5;
+                if (Fps < 0.1) Fps = 0;
+            }
         }
+
 
         IsDirectCompositionActive = state == 2;
         IsCaptureInitializing = state == 1 || (state == 0 && frames <= 0);
@@ -640,6 +677,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
         StatusText = state switch
         {
+            2 when Fps <= 0.01 && (frames > 0 || presents > 0) => $"DirectComposition active (stalled) | frames {frames} | presents {presents}",
             2 => $"DirectComposition active | frames {frames} | presents {presents}",
             1 => $"DirectComposition initializing | frames {frames} | presents {presents}",
             -1 when !string.IsNullOrWhiteSpace(lastError) => $"DirectComposition failed ({lastError}) | frames {frames} | presents {presents}",

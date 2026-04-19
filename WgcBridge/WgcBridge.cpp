@@ -194,6 +194,126 @@ struct CaptureSession
     std::string dcompLastError;
     std::mutex dcompErrorMutex;
 
+    // Injection read path (Host side)
+    std::atomic<int> injectionPid{ 0 };
+    HANDLE injectionReadMapping{ nullptr };
+    InjectionFrameHeader* injectionReadHeader{ nullptr };
+    uint8_t* injectionReadPixels{ nullptr };
+    uint32_t lastReadInjectionSequence = 0;
+    std::thread injectionWorker;
+    std::atomic<bool> injectionWorkerRunning{ false };
+    std::atomic<long long> lastInjectionFrameTime{ 0 };
+    rt::com_ptr<ID3D11Texture2D> injectionGpuTexture;
+    int injectionGpuWidth = 0;
+    int injectionGpuHeight = 0;
+
+    void StartInjectionWorker()
+    {
+        if (injectionWorkerRunning.load()) return;
+        injectionWorkerRunning.store(true);
+        injectionWorker = std::thread([this]() { InjectionWorkerLoop(); });
+    }
+
+    void StopInjectionWorker()
+    {
+        injectionWorkerRunning.store(false);
+        if (injectionWorker.joinable()) injectionWorker.join();
+        
+        if (injectionReadHeader) UnmapViewOfFile(injectionReadHeader);
+        if (injectionReadMapping) CloseHandle(injectionReadMapping);
+        injectionReadHeader = nullptr;
+        injectionReadMapping = nullptr;
+        injectionReadPixels = nullptr;
+    }
+
+    void InjectionWorkerLoop()
+    {
+        while (injectionWorkerRunning.load())
+        {
+            int pid = injectionPid.load();
+            if (pid <= 0)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
+
+            if (!injectionReadMapping)
+            {
+                auto mapName = MakeInjectionSharedMemoryName(pid);
+                injectionReadMapping = OpenFileMappingW(FILE_MAP_READ, FALSE, mapName.c_str());
+                if (injectionReadMapping)
+                {
+                    void* view = MapViewOfFile(injectionReadMapping, FILE_MAP_READ, 0, 0, InjectionHeaderSize + InjectionMaxFrameBytes);
+                    if (view)
+                    {
+                        injectionReadHeader = reinterpret_cast<InjectionFrameHeader*>(view);
+                        injectionReadPixels = reinterpret_cast<uint8_t*>(view) + InjectionHeaderSize;
+                        OutputDebugStringA("[WGC_NATIVE] Injection worker opened shared memory\n");
+                    }
+                    else
+                    {
+                        CloseHandle(injectionReadMapping);
+                        injectionReadMapping = nullptr;
+                    }
+                }
+            }
+
+            if (injectionReadHeader && injectionReadHeader->Magic == InjectionMagic)
+            {
+                uint32_t seq1 = InterlockedExchange(reinterpret_cast<volatile LONG*>(&injectionReadHeader->Sequence1), injectionReadHeader->Sequence1);
+                uint32_t seq2 = InterlockedExchange(reinterpret_cast<volatile LONG*>(&injectionReadHeader->Sequence2), injectionReadHeader->Sequence2);
+
+                if (seq1 > 0 && seq1 == seq2 && seq1 != lastReadInjectionSequence)
+                {
+                    lastReadInjectionSequence = seq1;
+                    int w = (int)injectionReadHeader->Width;
+                    int h = (int)injectionReadHeader->Height;
+                    int stride = (int)injectionReadHeader->Stride;
+
+                    if (w > 0 && h > 0 && w <= 8192 && h <= 8192)
+                    {
+                        if (!injectionGpuTexture || injectionGpuWidth != w || injectionGpuHeight != h)
+                        {
+                            D3D11_TEXTURE2D_DESC td = {};
+                            td.Width = (UINT)w;
+                            td.Height = (UINT)h;
+                            td.MipLevels = 1;
+                            td.ArraySize = 1;
+                            td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+                            td.SampleDesc.Count = 1;
+                            td.Usage = D3D11_USAGE_DEFAULT;
+                            td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+                            
+                            if (SUCCEEDED(d3dDevice->CreateTexture2D(&td, nullptr, injectionGpuTexture.put())))
+                            {
+                                injectionGpuWidth = w;
+                                injectionGpuHeight = h;
+                            }
+                        }
+
+                        if (injectionGpuTexture)
+                        {
+                            d3dContext->UpdateSubresource(injectionGpuTexture.get(), 0, nullptr, injectionReadPixels, stride, 0);
+                            
+                            LARGE_INTEGER qpc;
+                            QueryPerformanceCounter(&qpc);
+                            lastInjectionFrameTime.store(qpc.QuadPart);
+
+                            if (presentationHwnd)
+                            {
+                                PresentToDirectComposition(injectionGpuTexture.get(), w, h);
+                                frameCount.fetch_add(1);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Sleep a tiny bit to avoid saturating a core, but keep it low for latency.
+            std::this_thread::sleep_for(std::chrono::microseconds(500));
+        }
+    }
+
     static std::wstring GetShaderCompilerErrorLogPath()
     {
         DWORD required = GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
@@ -346,6 +466,7 @@ struct CaptureSession
         DXGI_FORMAT format{};
         int width = 0;
         int height = 0;
+        long long lastCaptureTicks = 0;
     };
 
     static inline std::mutex g_hookMutex;
@@ -651,7 +772,7 @@ struct CaptureSession
             return false;
         }
 
-        SwapChainHook hook;
+        SwapChainHook hook{};
         hook.vtable = vtable;
         hook.originalPresent = originalPresent;
 
@@ -764,6 +885,22 @@ struct CaptureSession
             return;
 
         auto& hook = *it;
+
+        // Rate limit injection capture to ~120 FPS to prevent memory bandwidth saturation and crashes.
+        LARGE_INTEGER qpc;
+        QueryPerformanceCounter(&qpc);
+        LARGE_INTEGER freq;
+        QueryPerformanceFrequency(&freq);
+        
+        long long now = qpc.QuadPart;
+        if (hook.lastCaptureTicks > 0)
+        {
+            double elapsed = static_cast<double>(now - hook.lastCaptureTicks) / freq.QuadPart;
+            if (elapsed < (1.0 / 130.0)) // 130 FPS cap to reduce jitter at 120 FPS
+                return;
+        }
+        hook.lastCaptureTicks = now;
+
         rt::com_ptr<ID3D11Texture2D> backBuffer;
         if (FAILED(swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.put()))) || !backBuffer)
             return;
@@ -808,10 +945,10 @@ struct CaptureSession
         int nextIndex = (hook.currentIndex + 1) % 3;
         hook.context->CopyResource(hook.stagingTextures[hook.currentIndex].get(), backBuffer.get());
 
-        // 2. Map the texture from a few frames ago to avoid stalling the render thread
-        // Using D3D11_MAP_FLAG_DO_NOT_WAIT ensures we never block Xenia.
         D3D11_MAPPED_SUBRESOURCE mapped = {};
-        HRESULT hr = hook.context->Map(hook.stagingTextures[nextIndex].get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped);
+        // Removing DO_NOT_WAIT. With 3 staging textures, the oldest should be ready.
+        // If it isn't, we wait to ensure we don't drop frames during high GPU load (shader compilation).
+        HRESULT hr = hook.context->Map(hook.stagingTextures[nextIndex].get(), 0, D3D11_MAP_READ, 0, &mapped);
         
         if (SUCCEEDED(hr) && mapped.pData)
         {
@@ -987,7 +1124,8 @@ struct CaptureSession
         wc.lpfnWndProc = DefWindowProcA;
         wc.hInstance = GetModuleHandle(nullptr);
         wc.lpszClassName = "AES_Dummy_Capture_Class";
-        RegisterClassA(&wc);
+        if (!GetClassInfoA(wc.hInstance, wc.lpszClassName, &wc))
+            RegisterClassA(&wc);
 
         HWND dummyHwnd = CreateWindowA(wc.lpszClassName, "AES_Dummy", 0, 0, 0, 1, 1, nullptr, nullptr, wc.hInstance, nullptr);
         if (!dummyHwnd)
@@ -1043,6 +1181,7 @@ struct CaptureSession
         }
         
         DestroyWindow(dummyHwnd);
+        UnregisterClassA("AES_Dummy_Capture_Class", GetModuleHandle(nullptr));
         return hooked;
     }
 
@@ -1281,7 +1420,7 @@ struct CaptureSession
             return false;
         }
 
-        OutputDebugStringA("[WGC_NATIVE] DirectComposition initialized\n");
+        StartInjectionWorker();
         return true;
     }
 
@@ -1817,7 +1956,19 @@ struct CaptureSession
 
             if (presentationHwnd)
             {
-                PresentToDirectComposition(currentGpu.get(), currentW, currentH);
+                // If we recently had an injection frame, skip WGC presentation to avoid judder/switching.
+                LARGE_INTEGER qpc;
+                QueryPerformanceCounter(&qpc);
+                LARGE_INTEGER freq;
+                QueryPerformanceFrequency(&freq);
+                
+                long long lastInj = lastInjectionFrameTime.load();
+                double elapsedSinceInjection = (double)(qpc.QuadPart - lastInj) / freq.QuadPart;
+                
+                if (lastInj == 0 || elapsedSinceInjection > 0.5) // 500ms fallback
+                {
+                    PresentToDirectComposition(currentGpu.get(), currentW, currentH);
+                }
             }
 
             // Interop-only fast path:
@@ -2479,6 +2630,7 @@ extern "C" {
                 s->injectionMapping = nullptr;
             }
         } catch (...) {}
+        s->StopInjectionWorker();
         delete s;
         OutputDebugStringA("[WGC_NATIVE] DestroyCaptureSession finished\n");
     }
@@ -2616,6 +2768,13 @@ extern "C" {
         s->cropW.store(width);
         s->cropH.store(height);
         char buf[256]; sprintf_s(buf, "[WGC_NATIVE] SetCaptureCropRect: %d,%d %dx%d\n", x, y, width, height); OutputDebugStringA(buf);
+    }
+
+    __declspec(dllexport) void SetInjectionPid(void* ptr, int pid) {
+        auto s = static_cast<CaptureSession*>(ptr);
+        if (!s) return;
+        s->injectionPid.store(pid);
+        char buf[128]; sprintf_s(buf, "[WGC_NATIVE] SetInjectionPid: %d\n", pid); OutputDebugStringA(buf);
     }
 
     __declspec(dllexport) bool GetLatestFrame(void* ptr, unsigned char* outBuffer, size_t bufferSize, int* w, int* h) {

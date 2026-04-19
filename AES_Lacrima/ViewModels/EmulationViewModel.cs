@@ -13,6 +13,7 @@ using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Emulation.Controls;
 using AES_Emulation.EmulationHandlers;
 using AES_Emulation.Platform;
 using AES_Emulation.Windows.API;
@@ -256,10 +257,15 @@ namespace AES_Lacrima.ViewModels
         private int _renderOptionsSelectedTabIndex;
 
         [ObservableProperty]
+        private EmulatorCaptureMode _selectedCaptureMode = EmulatorCaptureMode.DirectComposition;
+
+        [ObservableProperty]
         private IEmulatorHandler? _currentEmulatorHandler;
 
         partial void OnCurrentEmulatorHandlerChanged(IEmulatorHandler? value)
         {
+            SelectedCaptureMode = EmulatorCaptureMode.DirectComposition;
+
             OnPropertyChanged(nameof(ForceUseTargetClientAreaCapture));
             OnPropertyChanged(nameof(HideTargetWindowAfterCaptureStarts));
             OnPropertyChanged(nameof(ClientAreaCropLeftInset));

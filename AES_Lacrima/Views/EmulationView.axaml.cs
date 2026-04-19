@@ -159,7 +159,7 @@ public partial class EmulationView : UserControl
     private Size _portalWindowFullscreenSize;
     private PortalFullscreenOverlayWindow? _portalFullscreenOverlayWindow;
 
-    private static bool UseInlineCaptureHost => true;
+    private static bool UseInlineCaptureHost => false;
 
     private EmulatorCaptureHostControl? ActiveCaptureHost
         => UseInlineCaptureHost ? _inlineCaptureHost : _portalWindow?.CaptureHostControl;
@@ -962,6 +962,7 @@ public partial class EmulationView : UserControl
         captureHost.Bind(EmulatorCaptureHostControl.ShaderPathProperty, new Binding("SelectedShaderPath"));
         captureHost.Bind(EmulatorCaptureHostControl.ClearShaderWhenPathEmptyProperty, new Binding("ClearShaderWhenPathEmpty"));
         captureHost.Bind(EmulatorCaptureHostControl.RequestStopSessionProperty, new Binding("RequestStopEmulatorCapture") { Mode = BindingMode.TwoWay });
+        captureHost.Bind(EmulatorCaptureHostControl.CaptureModeProperty, new Binding("SelectedCaptureMode"));
 
         captureHostBorder.Child = captureHost;
         _inlineCaptureHost = captureHost;

@@ -9,6 +9,12 @@ using AES_Emulation.Linux;
 
 namespace AES_Emulation.Controls;
 
+public enum EmulatorCaptureMode
+{
+    DirectComposition,
+    Injected
+}
+
 public class EmulatorCaptureHost : ContentControl
 {
     private sealed class LambdaObserver<T>(Action<T> onNext) : IObserver<T>
@@ -110,7 +116,10 @@ public class EmulatorCaptureHost : ContentControl
             nameof(GpuVendor),
             o => o.GpuVendor);
 
-    private readonly Control _backend;
+    public static readonly StyledProperty<EmulatorCaptureMode> CaptureModeProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, EmulatorCaptureMode>(nameof(CaptureMode), EmulatorCaptureMode.DirectComposition);
+
+    private Control _backend;
     private string _statusText = "Capture unavailable";
     private bool _isDirectCompositionActive;
     private bool _isCaptureInitializing;
@@ -143,6 +152,12 @@ public class EmulatorCaptureHost : ContentControl
     {
         get => GetValue(TargetWindowTitleHintProperty);
         set => SetValue(TargetWindowTitleHintProperty, value);
+    }
+
+    public EmulatorCaptureMode CaptureMode
+    {
+        get => GetValue(CaptureModeProperty);
+        set => SetValue(CaptureModeProperty, value);
     }
 
     public bool RequestStopSession
@@ -323,16 +338,37 @@ public class EmulatorCaptureHost : ContentControl
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
+        
+        if (change.Property == CaptureModeProperty)
+        {
+            RecreateBackend();
+            return;
+        }
+
         SyncBackendProperties();
 
         if (change.Property == RequestStopSessionProperty && change.GetNewValue<bool>())
             SetCurrentValue(RequestStopSessionProperty, false);
     }
 
-    private static Control CreateBackend()
+    private void RecreateBackend()
+    {
+        Content = null;
+        _backend = CreateBackend();
+        Content = _backend;
+        SyncBackendProperties();
+        HookBackendObservables();
+    }
+
+    private Control CreateBackend()
     {
         if (OperatingSystem.IsWindows())
-            return new WgcCaptureControl();
+        {
+            if (CaptureMode == EmulatorCaptureMode.Injected)
+                return new WgcCaptureControl();
+                
+            return new DirectCompositionCaptureHost();
+        }
 
         if (OperatingSystem.IsMacOS())
             return new ScreenCaptureKitCaptureHost();
@@ -430,6 +466,7 @@ public class EmulatorCaptureHost : ContentControl
         {
             case DirectCompositionCaptureHost windowsBackend:
                 windowsBackend.TargetHwnd = TargetHwnd;
+                windowsBackend.TargetProcessId = TargetProcessId;
                 windowsBackend.TargetWindowTitleHint = TargetWindowTitleHint;
                 windowsBackend.RequestStopSession = RequestStopSession;
                 windowsBackend.Stretch = Stretch;
