@@ -5,7 +5,7 @@
         x:Class="AES_Lacrima.Views.PortalWindow"
     x:DataType="vm:EmulationViewModel"
         Title="PortalWindow"
-        Background="#0F0F0F"
+        Background="#FF000000"
         WindowDecorations="None"
         CanResize="False"
         ShowInTaskbar="False"
@@ -13,7 +13,7 @@
         TransparencyLevelHint="None"
         WindowStartupLocation="Manual">
     <Grid ClipToBounds="True">
-        <Border Background="#0F0F0F"/>
+        <Border Background="#FF000000"/>
         <emulation:EmulatorCaptureHost x:Name="CaptureControl"
                                        HorizontalAlignment="Stretch"
                                        VerticalAlignment="Stretch"
@@ -27,7 +27,7 @@
                                        ClientAreaCropBottomInset="{Binding ClientAreaCropBottomInset}"
                                        HideTargetWindowAfterCaptureStarts="{Binding HideTargetWindowAfterCaptureStarts}"
                                        Stretch="{Binding SelectedStretch, Mode=TwoWay}"
-                                       Brightness="{Binding RenderBrightness, Mode=TwoWay}"
+                                       Brightness="{Binding PortalCaptureBrightness, Mode=TwoWay}"
                                        Saturation="{Binding RenderSaturation, Mode=TwoWay}"
                                        DisableVSync="{Binding DisableVSync, Mode=TwoWay}"
                                        ShaderPath="{Binding SelectedShaderPath}"

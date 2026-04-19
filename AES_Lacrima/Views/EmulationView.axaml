@@ -58,12 +58,19 @@
                 </Setter>
             </Style>
         </Grid.Styles>
-        <Border Background="#0F0F0F" Grid.RowSpan="3"/>
+        <Border Background="#FF000000" Grid.RowSpan="3"/>
         <!--Removes the background on purpose and forces transparency-->
         <composition:TransparentComposition x:Name="PortalPortal"
-                            IsVisible="{Binding ElementName=RootView, Path=IsPortalSurfaceVisible}"/>
+                            IsVisible="{Binding ElementName=RootView, Path=IsPortalSurfaceVisible}"
+                            Opacity="{Binding ElementName=RootView, Path=IsPortalSurfaceVisible, Converter={StaticResource BoolToOpacityConverter}}">
+            <composition:TransparentComposition.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.30" Easing="CubicEaseOut" />
+                </Transitions>
+            </composition:TransparentComposition.Transitions>
+        </composition:TransparentComposition>
         <Border x:Name="PortalFallbackOverlay"
-                Background="#0F0F0F"
+                Background="#FF000000"
                 IsHitTestVisible="False"
                 Opacity="{Binding ElementName=RootView, Path=PortalFallbackOpacity}"/>
 
@@ -610,7 +617,7 @@
         <TextBox HorizontalAlignment="Right"
                  VerticalAlignment="Top"
                  Margin="0,15,30,0"
-                 IsVisible="{Binding IsCarouselVisible}"
+                 IsVisible="{Binding IsSearchBoxVisible}"
                  PlaceholderText="Search"
                  Text="{Binding SearchText, Mode=TwoWay}"
                  Classes="AlbumSearch"
