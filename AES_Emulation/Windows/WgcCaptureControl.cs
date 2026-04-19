@@ -107,6 +107,13 @@ public class WgcCaptureControl : OpenGlControlBase
     private int _injectionEmptyReadCount = 0;
     private int _injectionHeaderReadFailedCount = 0;
     private long _lastWgcRestartTicks = 0;
+    private long _lastInjectionSuccessTicks = 0;
+    private bool _injectionLockIn = false;
+    private int _injectionStableCount = 0;
+    private bool _injectionPermanentlyFailed = false;
+    private long _lastUiUpdateTicks = 0;
+    private double _smoothedFps = 0;
+    private double _smoothedFrameTimeMs = 0;
     private const int InjectionHeaderSize = 128;
     private const int InjectionMaxFrameBytes = 128 * 1024 * 1024;
     private const uint InjectionMagic = 0x41534145;
@@ -201,13 +208,8 @@ public class WgcCaptureControl : OpenGlControlBase
     // frame tracking
     private long _lastNativeFrameCount = -1;
     private long _lastFrameTicks = 0;
-    private long _lastUiUpdateTicks = 0;
     private readonly double[] _frameTimeHistory = new double[120];
     private int _frameTimeHistoryPtr = 0;
-
-    // internal smoothed values
-    private double _smoothedFps = 0.0;
-    private double _smoothedFrameTimeMs = 0.0;
     #endregion
 
     #region Styled Properties
@@ -353,8 +355,8 @@ public class WgcCaptureControl : OpenGlControlBase
 
                 // Only postpone WGC if injection is currently being attempted AND hasn't clearly failed yet.
                 // If forceWgc is true, we skip this check (used for fallbacks).
-                bool injectionAttempting = _injectionActive && _injectionEmptyReadCount < 120;
-                if (!forceWgc && (injectionAttempting || (TargetProcessId != 0 && !_injectionActive && _injectionEmptyReadCount < 120)))
+                bool injectionAttempting = _injectionActive && _injectionEmptyReadCount < 120 && !_injectionPermanentlyFailed;
+                if (!forceWgc && (injectionAttempting || (TargetProcessId != 0 && !_injectionActive && _injectionEmptyReadCount < 120 && !_injectionPermanentlyFailed)))
                 {
                     if (_injectionEmptyReadCount % 60 == 0)
                         Debug.WriteLine("[WGC] Postponing WGC session start; prioritizing injected hook.");
@@ -578,10 +580,11 @@ public class WgcCaptureControl : OpenGlControlBase
         _heartbeatTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(HeartbeatIntervalMs), DispatcherPriority.Background, (_, _) => RequestNextFrameRendering());
         _heartbeatTimer.Start();
 
-        // 16ms heartbeat (60 FPS) is sufficient and much safer for dispatcher stability
-        _uiHeartbeat = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, (_, _) =>
+        // 250ms safety heartbeat is enough when continuous redraw is active.
+        _uiHeartbeat = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) =>
         {
-            if (IsVisible) RequestNextFrameRendering();
+            if (IsVisible && (_session != nint.Zero || _injectionActive))
+                Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Render);
         });
         _uiHeartbeat.Start();
 
@@ -622,25 +625,14 @@ public class WgcCaptureControl : OpenGlControlBase
 
                 var header = (InjectionFrameHeader*)basePtr;
                 
-                // Retry a few times if we hit a write in progress (Sequence1 == 0)
-                // or a torn frame (Sequence1 != Sequence2)
-                for (int attempt = 0; attempt < 5; attempt++)
-                {
-                    uint seq1 = header->Sequence1;
-                    if (seq1 == 0)
-                    {
-                        Thread.Sleep(0); 
-                        continue;
-                    }
+                // Consistency check: Sequence1 must match Sequence2 for a complete frame.
+                // If they don't match, or seq1 is 0, a write is in progress.
+                // We don't sleep here to keep the UI thread responsive.
+                uint seq1 = header->Sequence1;
+                if (seq1 == 0 || seq1 != header->Sequence2)
+                    return false;
 
-                    InjectionFrameHeader localHeader = *header;
-                    
-                    // Verify consistency: Sequence1 must match Sequence2 for a complete frame
-                    if (localHeader.Sequence1 != localHeader.Sequence2)
-                    {
-                        Thread.Sleep(0);
-                        continue;
-                    }
+                InjectionFrameHeader localHeader = *header;
 
                     if (localHeader.Magic != InjectionMagic)
                     {
@@ -668,7 +660,6 @@ public class WgcCaptureControl : OpenGlControlBase
                         
                     return true;
                 }
-            }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[WGC] Injected frame read exception: {ex.Message}");
@@ -726,9 +717,14 @@ public class WgcCaptureControl : OpenGlControlBase
                 {
                     // Use cached display if available
                     IntPtr dpy = _eglGetCurrentDisplay?.Invoke() ?? IntPtr.Zero;
-                    _eglSwapInterval?.Invoke(dpy, 0);
+                    if (_eglSwapInterval?.Invoke(dpy, 0) == 0)
+                        Debug.WriteLine("[WGC] EGL VSync disabled successfully.");
                 }
                 catch (Exception ex) { Debug.WriteLine($"[WGC] eglSwapInterval failed: {ex.Message}"); }
+            }
+            else if (pWglSwap != IntPtr.Zero)
+            {
+                Debug.WriteLine("[WGC] WGL VSync disabled successfully.");
             }
         }
         catch (Exception ex)
@@ -740,6 +736,9 @@ public class WgcCaptureControl : OpenGlControlBase
     private bool _vsyncDisabledOnce = false;
     protected override unsafe void OnOpenGlRender(GlInterface gl, int fb)
     {
+        var renderStart = Stopwatch.GetTimestamp();
+        var renderNowTicks = renderStart;
+
         if (!IsVisible) return;
 
         if (ForceUseTargetClientSize && _session != nint.Zero && TargetHwnd != IntPtr.Zero)
@@ -768,10 +767,10 @@ public class WgcCaptureControl : OpenGlControlBase
         int viewH = (int)(Bounds.Height * scaling);
 
         // COMPOSITION FPS TRACKING: Calculate FPS based on composition rate, not capture arrival
-        var nowTicks = Stopwatch.GetTimestamp();
+        renderNowTicks = Stopwatch.GetTimestamp();
         if (_lastFrameTicks != 0)
         {
-            double dt = (double)(nowTicks - _lastFrameTicks) / Stopwatch.Frequency;
+            double dt = (double)(renderNowTicks - _lastFrameTicks) / Stopwatch.Frequency;
             double instantFps = dt > 0 ? (1.0 / dt) : 0.0;
             double frameMs = dt * 1000.0;
 
@@ -784,7 +783,7 @@ public class WgcCaptureControl : OpenGlControlBase
             if (_frameTimeHistoryPtr >= _frameTimeHistory.Length)
                 _frameTimeHistoryPtr = 0;
         }
-        _lastFrameTicks = nowTicks;
+        _lastFrameTicks = renderNowTicks;
 
         // Pass 1: Background/Clear
         gl.Viewport(0, 0, Math.Max(1, viewW), Math.Max(1, viewH));
@@ -806,24 +805,21 @@ public class WgcCaptureControl : OpenGlControlBase
                 if (frameHeader.FrameCounter != _lastInjectionFrameCount)
                 {
                     _lastInjectionFrameCount = frameHeader.FrameCounter;
-
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        FrameNumber = (int)frameHeader.FrameCounter;
-                        LastFrameWidth = w;
-                        LastFrameHeight = h;
-                    }, DispatcherPriority.Render);
+                    _injectionEmptyReadCount = 0;
+                    _lastInjectionSuccessTicks = renderNowTicks;
+                    _injectionStableCount++;
+                    if (_injectionStableCount > 60) _injectionLockIn = true;
 
                     hasFrame = true;
 
-                    // If injection is successful, ensure WGC is CLOSED to save resources
-                    if (_session != nint.Zero)
+                    // Only close WGC if injection is stable (Locked-in)
+                    if (_session != nint.Zero && _injectionLockIn)
                     {
                         lock (_sessionLock)
                         {
                             if (_session != nint.Zero)
                             {
-                                Debug.WriteLine("[WGC] Closing active WGC session because injected hook is providing frames.");
+                                Debug.WriteLine("[WGC] Closing fallback WGC session; direct hook is now stable.");
                                 WgcBridgeApi.DestroyCaptureSession(_session);
                                 _session = nint.Zero;
                             }
@@ -832,13 +828,8 @@ public class WgcCaptureControl : OpenGlControlBase
                 }
                 else
                 {
-                    // Frame counter didn't advance - this is a static frame (e.g. loading screen).
-                    // We treat this as a successful read to keep the session alive, but we still 
-                    // track 'silence' for eventual fallback if the game is truly hung.
-                    hasFrame = _texWidth > 0 && _texHeight > 0;
-                    
-                    // We only increment this if we haven't seen a NEW frame in a while.
-                    // But we don't reset it here; it just keeps climbing.
+                    // Same frame or torn frame - injection is alive, don't fallback yet
+                    hasFrame = true; 
                     _injectionEmptyReadCount++; 
                 }
 
@@ -883,8 +874,13 @@ public class WgcCaptureControl : OpenGlControlBase
             }
         }
 
-        // Fallback to WGC if injection is not active OR has no frames yet
-        if (!hasFrame && TargetHwnd != IntPtr.Zero)
+        // Fallback to WGC if injection is not active OR has truly timed out.
+        // GRACE PERIOD: Wait at least 2 seconds of inactivity before considering injection "timed out"
+        // to avoid rapid switching during loading screens or static menus.
+        bool injectionTimedOut = _injectionActive && 
+                                (double)(renderNowTicks - _lastInjectionSuccessTicks) / Stopwatch.Frequency >= 2.0;
+                                
+        if (!hasFrame && (!_injectionActive || injectionTimedOut) && TargetHwnd != IntPtr.Zero)
         {
             if (_session == nint.Zero)
             {
@@ -893,22 +889,28 @@ public class WgcCaptureControl : OpenGlControlBase
                 // 2. injectionSilent: The shared memory is unreachable/garbage for ~5s (hook crashed).
                 // 3. injectionNotWorking: Injection failed to start or process died.
 
-                bool injectionFailed = _injectionActive && _injectionEmptyReadCount > 3600; // ~60s of static frame
-                bool injectionSilent = _injectionActive && _injectionHeaderReadFailedCount > 300; // ~5s of no shared memory
+                // If we are Locked-in, we are much more patient with static frames.
+                double timeoutSeconds = _injectionLockIn ? 60.0 : 30.0;
+                bool injectionFailed = _injectionActive && (double)(renderNowTicks - _lastInjectionSuccessTicks) / Stopwatch.Frequency >= timeoutSeconds;
+                bool injectionSilent = _injectionActive && _injectionHeaderReadFailedCount > 600; // Increased to 10s at 60fps equivalent
+                
                 bool injectionNotWorking = !_injectionActive && TargetProcessId != 0;
                 bool noInjection = TargetProcessId == 0;
 
-                long nowRestart = Stopwatch.GetTimestamp();
-                if ((injectionFailed || injectionSilent || injectionNotWorking || noInjection) && (double)(nowRestart - _lastWgcRestartTicks) / Stopwatch.Frequency >= 5.0)
+                // Restrict WGC restarts to once every 10 seconds to prevent session thrashing
+                if ((injectionFailed || injectionSilent || injectionNotWorking || noInjection) && (double)(renderNowTicks - _lastWgcRestartTicks) / Stopwatch.Frequency >= 10.0)
                 {
                     if (injectionFailed)
-                        Debug.WriteLine("[WGC] Injection session static for 60s; falling back to WGC.");
-                    else if (injectionSilent)
-                        Debug.WriteLine("[WGC] Injection shared memory unreachable for 5s; falling back to WGC.");
-                    else if (injectionNotWorking)
-                        Debug.WriteLine("[WGC] Injection not working for target PID; falling back to WGC.");
+                        Debug.WriteLine($"[WGC] Injection session static for {timeoutSeconds}s; falling back to WGC.");
+                    else if (injectionSilent || (_injectionEmptyReadCount > 300 && _session == nint.Zero))
+                    {
+                        Debug.WriteLine("[WGC] Injection shared memory unreachable; falling back to WGC and disabling injection retry.");
+                        _injectionPermanentlyFailed = true;
+                    }
 
-                    _lastWgcRestartTicks = nowRestart;
+                    _lastWgcRestartTicks = renderNowTicks;
+                    _injectionLockIn = false;
+                    _injectionStableCount = 0;
                     Dispatcher.UIThread.Post(() => StartCapture(true), DispatcherPriority.Background);
                 }
             }
@@ -1224,7 +1226,19 @@ public class WgcCaptureControl : OpenGlControlBase
             }
         }
 
-        if (_session != nint.Zero) RequestNextFrameRendering();
+        // CONTINUOUS REDRAW: Request next frame immediately to run as fast as possible.
+        // We do this if either a WGC session is active OR if the injection is active.
+        if (_session != nint.Zero || _injectionActive)
+        {
+            RequestNextFrameRendering();
+        }
+
+        var renderEnd = Stopwatch.GetTimestamp();
+        double renderMs = (renderEnd - renderStart) * 1000.0 / Stopwatch.Frequency;
+        if (renderMs > 20.0)
+        {
+            Debug.WriteLine($"[WGC] SLOW RENDER: {renderMs:F2}ms");
+        }
     }
 
     private PixelRect CalculateAspectRect(int viewW, int viewH, int frameW, int frameH)
@@ -1349,7 +1363,7 @@ public class WgcCaptureControl : OpenGlControlBase
             ResetCaptureFrameState();
             try
             {
-                Win32API.MinimizeWindow(hwnd);
+                Win32API.MoveAway(hwnd);
             }
             catch { }
 
@@ -1378,6 +1392,7 @@ public class WgcCaptureControl : OpenGlControlBase
         if (e.NewValue is int processId && processId != 0)
         {
             Debug.WriteLine($"[WGC] TargetProcessId changed, starting injection for PID {processId}");
+            _injectionPermanentlyFailed = false;
             ResetCaptureFrameState();
             _ = TryStartInjectionSessionAsync(processId);
         }
@@ -1544,8 +1559,7 @@ public class WgcCaptureControl : OpenGlControlBase
                 {
                     Win32API.RemoveWindowDecorations(currentHwnd);
                     Win32API.MoveAway(currentHwnd);
-                    Win32API.SetWindowOpacity(currentHwnd, 0);
-                    Debug.WriteLine("[WGC] Applied window decorations and opacity after stability delay.");
+                    Debug.WriteLine("[WGC] Applied window decorations and moved away after stability delay.");
                 }
             });
         });

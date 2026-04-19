@@ -285,6 +285,11 @@
                                    Foreground="White"
                                    FontSize="16"
                                    FontFamily="Consolas"/>
+                        <TextBlock Text="{Binding ElementName=RootView, Path=PortalStatusText}"
+                                   Foreground="{Binding ElementName=RootView, Path=IsPortalDirectCompositionActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#7CFC00,#FFCC66'}}"
+                                   FontSize="13"
+                                   FontFamily="Consolas"
+                                   Margin="0,2,0,4"/>
                         <StackPanel Spacing="4"
                                     HorizontalAlignment="Left"
                                     IsVisible="{Binding ShowDetailedGpuInfo}">
@@ -331,13 +336,7 @@
                             </Canvas>
                         </StackPanel>
                     </StackPanel>
-                    <TextBlock Text="{Binding ElementName=RootView, Path=PortalStatusText}"
-                               Foreground="{Binding ElementName=RootView, Path=IsPortalDirectCompositionActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#7CFC00,#FFCC66'}}"
-                               FontSize="14"
-                               FontFamily="Consolas"
-                               MaxWidth="520"
-                               Margin="0,4,0,0"
-                               TextWrapping="Wrap"/>
+
                 </StackPanel>
             </Border>
 
@@ -759,23 +758,23 @@
                             </Border>
                         </ControlTemplate>
                     </Button.Template>
-                    <Viewbox Stretch="Uniform">
+                    <Viewbox Stretch="Uniform" Margin="6">
                         <StackPanel Height="100" Orientation="Horizontal" Spacing="15">
-                            <Rectangle Width="8" Height="76" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}">
+                            <Rectangle Width="6" Height="76" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}">
                                 <Rectangle.Transitions>
                                     <Transitions>
                                         <BrushTransition Property="Fill" Duration="0:0:0.32" />
                                     </Transitions>
                                 </Rectangle.Transitions>
                             </Rectangle>
-                            <Rectangle Width="90" Height="80" RadiusX="16" RadiusY="16" StrokeThickness="10" Stroke="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}" Fill="Transparent">
+                            <Rectangle Width="90" Height="80" RadiusX="16" RadiusY="16" StrokeThickness="6" Stroke="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}" Fill="Transparent">
                                 <Rectangle.Transitions>
                                     <Transitions>
                                         <BrushTransition Property="Stroke" Duration="0:0:0.32" />
                                     </Transitions>
                                 </Rectangle.Transitions>
                             </Rectangle>
-                            <Rectangle Width="8" Height="76" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}">
+                            <Rectangle Width="6" Height="76" Fill="{Binding IsEmulatorViewportVisible, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='DimGray,#F0F0F0'}">
                                 <Rectangle.Transitions>
                                     <Transitions>
                                         <BrushTransition Property="Fill" Duration="0:0:0.32" />
@@ -834,7 +833,7 @@
                             </Border>
                         </ControlTemplate>
                     </Button.Template>
-                    <Viewbox Stretch="Uniform" Opacity="0.9" Margin="1">
+                    <Viewbox Stretch="Uniform" Opacity="0.9" Margin="4">
                         <Path Data="M32,48 C23.16,48 16,55.16 16,64 V144 C16,152.84 23.16,160 32,160 H160 C168.84,160 176,152.84 176,144 V64 C176,55.16 168.84,48 160,48 H32 M32,58 H160 C163.31,58 166,60.69 166,64 V144 C166,147.31 163.31,150 160,150 H32 C28.69,150 26,147.31 26,144 V64 C26,60.69 28.69,58 32,58 M104.5,160 L104.5,170 H87.5 C83.36,170 80,173.36 80,177.5 C80,181.64 83.36,185 87.5,185 H104.5 L104.5,185 C108.64,185 112,181.64 112,177.5 L112,160 H104.5 M48,72 L48,84 Q48,96 60,96 L48,96 V72 M144,136 L144,124 Q144,112 132,112 L144,112 V136 Z"
                               Fill="{Binding IsFullscreen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}">
                             <Path.Transitions>
@@ -863,7 +862,7 @@
                             </Border>
                         </ControlTemplate>
                     </Button.Template>
-                    <Viewbox Stretch="Uniform" Opacity="0.9" Margin="6">
+                    <Viewbox Stretch="Uniform" Opacity="0.9" Margin="4">
                         <Path Data="M93.3,130.7c0-10.3,8.4-18.7,18.7-18.7h60.4c6.1-23,27.2-40,52.2-40s46.1,17,52.2,40h121.9c10.3,0,18.7,8.4,18.7,18.7s-8.4,18.7-18.7,18.7H276.8c-6.1,23-27.2,40-52.2,40s-46.1-17-52.2-40H112C101.7,149.3,93.3,141,93.3,130.7z M224.6,150.7c11,0,20-9,20-20s-9-20-20-20s-20,9-20,20S213.6,150.7,224.6,150.7z M93.3,381.3c0-10.3,8.4-18.7,18.7-18.7h171.3c6.1-23,27.2-40,52.2-40s46.1,17,52.2,40h12.4c10.3,0,18.7,8.4,18.7,18.7s-8.4,18.7-18.7,18.7h-12.4c-6.1,23-27.2,40-52.2,40s-46.1-17-52.2-40H112C101.7,400,93.3,391.7,93.3,381.3z M335.5,361.3c-11,0-20,9-20,20s9,20,20,20s20-9,20-20S346.5,361.3,335.5,361.3z"
                               Fill="{Binding IsRenderOptionsOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}">
                             <Path.Transitions>
@@ -892,9 +891,11 @@
                             </Border>
                         </ControlTemplate>
                     </Button.Template>
-                    <Viewbox Stretch="Uniform" Opacity="0.9">
-                        <Path Fill="White"
-                              Data="M11,1L11,10L13,10L13,1L11,1ZM3.34,4.72A10,10,0,1,0,20.66,4.72L19.25,6.13A8,8,0,1,1,4.75,6.13L3.34,4.72Z" />
+                    <Viewbox Stretch="Uniform" Opacity="0.9" Margin="4">
+                        <Grid Width="24" Height="24">
+                            <Path Stroke="White" StrokeThickness="1.5" StrokeLineCap="Round" Fill="Transparent"
+                                  Data="M12,3 L12,11 M6.34,7.34 A8,8 0 1,0 17.66,7.34" />
+                        </Grid>
                     </Viewbox>
                 </Button>
             </StackPanel>

@@ -18,6 +18,7 @@
                                        HorizontalAlignment="Stretch"
                                        VerticalAlignment="Stretch"
                                        TargetHwnd="{Binding EmulatorTargetHwnd}"
+                                       TargetProcessId="{Binding EmulatorTargetProcessId}"
                                        TargetWindowTitleHint="{Binding CurrentEmulatorWindowTitleHint}"
                                        ForceUseTargetClientArea="{Binding ForceUseTargetClientAreaCapture}"
                                        ClientAreaCropLeftInset="{Binding ClientAreaCropLeftInset}"
@@ -31,29 +32,8 @@
                                        DisableVSync="{Binding DisableVSync, Mode=TwoWay}"
                                        ShaderPath="{Binding SelectedShaderPath}"
                                        ClearShaderWhenPathEmpty="{Binding ClearShaderWhenPathEmpty}"
-                                       RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}" />
+                                       RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}"
+                                       CaptureMode="{Binding SelectedCaptureMode}" />
 
-        <Border Margin="16"
-                Padding="10"
-                CornerRadius="8"
-                Background="#C0000000"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Top"
-                IsHitTestVisible="False"
-                Opacity="{Binding RenderOverlayOpacity}">
-            <StackPanel Spacing="4"
-                        HorizontalAlignment="Left">
-                <TextBlock Text="Portal test: NativeControlHost + DirectComposition"
-                           Foreground="White"
-                           FontSize="16"
-                           FontFamily="Consolas"/>
-                <TextBlock Text="{Binding ElementName=CaptureControl, Path=StatusText}"
-                           Foreground="{Binding ElementName=CaptureControl, Path=IsDirectCompositionActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#7CFC00,#FFCC66'}}"
-                           FontSize="14"
-                           FontFamily="Consolas"
-                           MaxWidth="420"
-                           TextWrapping="Wrap"/>
-            </StackPanel>
-        </Border>
     </Grid>
 </Window>
