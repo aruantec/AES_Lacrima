@@ -218,7 +218,8 @@
         <Grid Grid.Row="0"
               Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
               IsHitTestVisible="{Binding IsCompositionCaptureVisible}"
-              ZIndex="5">
+              ZIndex="5"
+              Margin="{Binding IsRenderOptionsOpen, Converter={StaticResource BoolToValueConverter}, ConverterParameter='0,0,660,0'}">
             <Grid.IsVisible>
                 <MultiBinding Converter="{StaticResource BoolOrConverter}">
                     <Binding Path="IsCompositionCaptureVisible"/>
