@@ -23,9 +23,9 @@ namespace AES_Lacrima.Views;
 public partial class EmulationView : UserControl
 {
     private const double PortalLeftOverlapPixels = 0;
-    private const double PortalTopOverlapPixels = 2;
+    private const double PortalTopOverlapPixels = 0;
     private const double PortalRightOverlapPixels = 0;
-    private const double PortalBottomOverlapPixels = 2;
+    private const double PortalBottomOverlapPixels = 0;
     private const double PortalGraphWidth = 520;
     private const double PortalGraphHeight = 40;
     private static readonly TimeSpan AlbumListPortalMaskDuration = TimeSpan.FromMilliseconds(260);
@@ -391,7 +391,7 @@ public partial class EmulationView : UserControl
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
-        
+
         var captureHost = this.FindControl<Border>("EmulatorCaptureHost");
         captureHost?.RemoveHandler(InputElement.PointerPressedEvent, OnCaptureHostPointerPressed);
         var portalSurface = this.FindControl<Control>("PortalPortal");
@@ -414,7 +414,7 @@ public partial class EmulationView : UserControl
         _captureFrameTimeSubscription?.Dispose();
         _captureGpuRendererSubscription?.Dispose();
         _captureGpuVendorSubscription?.Dispose();
-        
+
         if (TopLevel.GetTopLevel(this) is Window mainWindow)
         {
             if (!UseInlineCaptureHost)
@@ -828,15 +828,16 @@ public partial class EmulationView : UserControl
             screenBottomRight = mainWindow.PointToScreen(bottomRight.Value);
         }
 
-        var widthPixels = Math.Max(0, screenBottomRight.X - screenTopLeft.X) + (int)PortalLeftOverlapPixels + (int)PortalRightOverlapPixels;
-        var heightPixels = Math.Max(0, screenBottomRight.Y - screenTopLeft.Y) + (int)PortalTopOverlapPixels + (int)PortalBottomOverlapPixels;
-        var portalRenderScaling = Math.Max(0.0001, _portalWindow.RenderScaling);
-        var width = widthPixels / portalRenderScaling;
-        var height = heightPixels / portalRenderScaling;
+        const int portalExpansionPixels = 1;
+        var widthPixels = Math.Max(0, screenBottomRight.X - screenTopLeft.X) + (int)PortalLeftOverlapPixels + (int)PortalRightOverlapPixels + portalExpansionPixels * 2;
+        var heightPixels = Math.Max(0, screenBottomRight.Y - screenTopLeft.Y) + (int)PortalTopOverlapPixels + (int)PortalBottomOverlapPixels + portalExpansionPixels * 2;
+        var portalRenderScaling = Math.Max(0.0001, _portalWindow.RenderScaling > 0 ? _portalWindow.RenderScaling : mainWindow.RenderScaling);
+        var width = Math.Ceiling(widthPixels / portalRenderScaling);
+        var height = Math.Ceiling(heightPixels / portalRenderScaling);
 
         var portalPosition = new PixelPoint(
-            screenTopLeft.X - (int)PortalLeftOverlapPixels,
-            screenTopLeft.Y - (int)PortalTopOverlapPixels);
+            screenTopLeft.X - (int)PortalLeftOverlapPixels - portalExpansionPixels,
+            screenTopLeft.Y - (int)PortalTopOverlapPixels - portalExpansionPixels);
         var portalSize = new Size(width, height);
         if (_lastPortalPosition == portalPosition && _lastPortalSize == portalSize)
         {

@@ -982,7 +982,8 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             {
                 Log.Warn("MPV queue processing terminated", ex);
             }
-        }) { IsBackground = true, Name = "mpv-worker" };
+        })
+        { IsBackground = true, Name = "mpv-worker" };
         _mpvThread.Start();
     }
 
@@ -1035,7 +1036,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             SetProperty("replaygain", "no"); // Disable internal mpv replaygain as we apply it manually
             SetProperty("demuxer-max-bytes", $"{CacheSize}M");
             SetProperty("demuxer-readahead-secs", "10");
-            
+
             // Explicitly point MPV to the bundled yt-dlp to fix macOS sandbox path issues
             var ytdlBin = OperatingSystem.IsWindows() ? "yt-dlp.exe" : "yt-dlp";
             var ytdlPath = ApplicationPaths.GetToolFile(ytdlBin);
@@ -1121,7 +1122,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                     var totalPreampDb = _preampDb + _replayGainAdjustmentDb;
 
                     // Clamp total preamp to avoid extreme boost causing digital clipping.
-                    const double MaxTotalPreampDb = 15.0; 
+                    const double MaxTotalPreampDb = 15.0;
                     const double MinTotalPreampDb = -40.0;
                     if (totalPreampDb > MaxTotalPreampDb) totalPreampDb = MaxTotalPreampDb;
                     if (totalPreampDb < MinTotalPreampDb) totalPreampDb = MinTotalPreampDb;
@@ -1147,7 +1148,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                         inputVolume = Math.Pow(inputVolume / 100.0, 1.0 / 1.5) * 100.0;
                     }
 
-                    var effective = inputVolume * gain; 
+                    var effective = inputVolume * gain;
 
                     // Apply effective volume to mpv. We set volume-max to 200 during init to allow this boost.
                     const double MaxEffectiveVolume = 200.0;
@@ -1782,7 +1783,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             maxSecondsToAnalyze = cached?.MaxSecondsAnalyzed > 0
                 ? cached.MaxSecondsAnalyzed
                 : (isRemote ? Math.Min(duration, 600) : duration);
-                
+
             // PERFORMANCE: Use 16kHz for faster processing as visual waveform doesn't need 44.1kHz
             const int internalSampleRate = 16000;
             const int readBufferSize = 65536; // Larger buffer for better I/O performance
@@ -1796,7 +1797,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             var startArg = resumeSeconds > 0
                 ? $"-ss {resumeSeconds.ToString(CultureInfo.InvariantCulture)}"
                 : string.Empty;
-                
+
             // FIXED: Using a more robust probesize and hide_banner/loglevel to prevent pipe deadlock
             var args = $"-hide_banner -loglevel error -probesize 1000000 -analyzeduration 1500000 {startArg} -i \"{path}\" {timeLimitArg} -vn -sn -dn -ac 1 -ar {internalSampleRate} -f s16le -";
 
@@ -1850,7 +1851,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             while ((bytesRead = await output.ReadAsync(buffer.AsMemory(0, buffer.Length), token).ConfigureAwait(false)) > 0)
             {
                 if (token.IsCancellationRequested) break;
-                    
+
                 // PERFORMANCE: Use Span and MemoryMarshal for fast sample conversion
                 var samples = MemoryMarshal.Cast<byte, short>(buffer.AsSpan(0, bytesRead));
 
@@ -1882,7 +1883,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                             var normalizedBatch = NormalizeWaveform(batch, globalMax);
                             _syncContext?.Post(_ => Waveform.AddRange(normalizedBatch), null);
                             batchCounter = 0;
-                                
+
 
                             // Gradually increase batch size for efficiency after initial data is shown
                             if (currentBatchSize < 128) currentBatchSize += 16;
@@ -1890,7 +1891,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                         if (currentBucket >= buckets) break;
                     }
                 }
-                    if (currentBucket >= buckets) break;
+                if (currentBucket >= buckets) break;
 
                 // Persist progress periodically so we can resume after switching tracks or restart
                 var nowTicks = Stopwatch.GetTimestamp();
@@ -1935,34 +1936,35 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                     lastUiNormalizeBucket = currentBucket;
                     lastUiNormalizeTicks = nowTicks;
                 }
-                }
+            }
 
-                // Handle partial bucket and remaining batch items at end of file
-                if (currentBucket < buckets && samplesInBucket > 0)
-                {
-                    waveformData[currentBucket] = bucketPeak;
-                    if (bucketPeak > globalMax) globalMax = bucketPeak;
-                    currentBucket++;
-                    batchCounter++;
-                }
+            // Handle partial bucket and remaining batch items at end of file
+            if (currentBucket < buckets && samplesInBucket > 0)
+            {
+                waveformData[currentBucket] = bucketPeak;
+                if (bucketPeak > globalMax) globalMax = bucketPeak;
+                currentBucket++;
+                batchCounter++;
+            }
 
-                if (batchCounter > 0)
-                {
-                    int count = batchCounter;
-                    var batch = new float[count];
-                    Array.Copy(waveformData, currentBucket - count, batch, 0, count);
-                    var normalizedBatch = NormalizeWaveform(batch, globalMax);
-                    _syncContext?.Post(_ => Waveform.AddRange(normalizedBatch), null);
-                }
+            if (batchCounter > 0)
+            {
+                int count = batchCounter;
+                var batch = new float[count];
+                Array.Copy(waveformData, currentBucket - count, batch, 0, count);
+                var normalizedBatch = NormalizeWaveform(batch, globalMax);
+                _syncContext?.Post(_ => Waveform.AddRange(normalizedBatch), null);
+            }
 
-                // Padding to ensure exactly 'buckets' items to avoid gaps in UI
-                if (currentBucket < buckets)
+            // Padding to ensure exactly 'buckets' items to avoid gaps in UI
+            if (currentBucket < buckets)
+            {
+                int remaining = buckets - currentBucket;
+                _syncContext?.Post(_ =>
                 {
-                    int remaining = buckets - currentBucket;
-                    _syncContext?.Post(_ => {
-                        for (int i = 0; i < remaining; i++) Waveform.Add(0f);
-                    }, null);
-                }
+                    for (int i = 0; i < remaining; i++) Waveform.Add(0f);
+                }, null);
+            }
 
             bool analysisComplete = currentBucket >= buckets;
 
@@ -1998,7 +2000,8 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
 
             // Final normalization for consistency
             waveformData ??= new float[buckets];
-            _syncContext?.Post(_ => {
+            _syncContext?.Post(_ =>
+            {
                 var normalized = NormalizeWaveform(waveformData, globalMax);
                 Waveform.Clear();
                 Waveform.AddRange(normalized);
@@ -2228,36 +2231,37 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         _seekRestartCts = new CancellationTokenSource();
         var token = _seekRestartCts.Token;
 
-        Task.Run(async () => {
-            try 
+        Task.Run(async () =>
+        {
+            try
             {
-                    // shorter debounce helps spectrum restart sooner on fast seeks
-                    await Task.Delay(200, token);
-                    if (token.IsCancellationRequested) return;
+                // shorter debounce helps spectrum restart sooner on fast seeks
+                await Task.Delay(200, token);
+                if (token.IsCancellationRequested) return;
 
-                    if (!_disposed)
-                    {
-                        // update the analyzer start position and force a restart if it
-                        // is currently running.  this handles the common case where the
-                        // analyzer is active while the user seeks; without restarting the
-                        // internal ffmpeg process it will continue decoding from the old
-                        // offset and the spectrum will remain stuck until something else
-                        // (eg. pause/play) restarts it.
-                        _spectrumAnalyzer.SetStartPosition(pos, true);
-                    }
-
-                    // clear the seeking flag before attempting to start the analyzer so
-                    // subsequent events (e.g. Playing) are not suppressed.
-                    _isSeeking = false;
-
-                    // make sure the analyzer is running now that we've left the seek
-                    // state.  CheckAndStartFfmpegTasks handles the usual enable/playing
-                    // logic (and also restarts waveform if required).
-                    CheckAndStartFfmpegTasks();
+                if (!_disposed)
+                {
+                    // update the analyzer start position and force a restart if it
+                    // is currently running.  this handles the common case where the
+                    // analyzer is active while the user seeks; without restarting the
+                    // internal ffmpeg process it will continue decoding from the old
+                    // offset and the spectrum will remain stuck until something else
+                    // (eg. pause/play) restarts it.
+                    _spectrumAnalyzer.SetStartPosition(pos, true);
                 }
-                catch (OperationCanceledException) { }
-            });
-        }
+
+                // clear the seeking flag before attempting to start the analyzer so
+                // subsequent events (e.g. Playing) are not suppressed.
+                _isSeeking = false;
+
+                // make sure the analyzer is running now that we've left the seek
+                // state.  CheckAndStartFfmpegTasks handles the usual enable/playing
+                // logic (and also restarts waveform if required).
+                CheckAndStartFfmpegTasks();
+            }
+            catch (OperationCanceledException) { }
+        });
+    }
 
     /// <summary>
     /// Temporarily stops playback so the caller can perform editing operations.

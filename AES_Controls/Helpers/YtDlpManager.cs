@@ -35,8 +35,8 @@ public partial class YtDlpManager : ObservableObject
 {
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<YtDlpManager>();
     private const string Repo = "yt-dlp/yt-dlp";
-        
-        private readonly string _destFolder = ApplicationPaths.ToolsDirectory;
+
+    private readonly string _destFolder = ApplicationPaths.ToolsDirectory;
 
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(10) };
 
@@ -347,9 +347,9 @@ public partial class YtDlpManager : ObservableObject
             var json = File.ReadAllText(_cachePath);
             _cache = JsonSerializer.Deserialize(json, YtDlpJsonContext.Default.YtDlpCacheEntry) ?? new YtDlpCacheEntry();
         }
-        catch (Exception ex) 
-        { 
-            Log.Warn("Failed to load yt-dlp cache from disk", ex); 
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to load yt-dlp cache from disk", ex);
             _cache = new YtDlpCacheEntry();
         }
     }
@@ -435,10 +435,10 @@ public partial class YtDlpManager : ObservableObject
                     _cache.LatestReleaseJson = json;
                     _cache.ETag = responseMessage.Headers.ETag?.Tag;
                     _cache.LastUpdated = DateTime.Now;
-                    
+
                     if (JsonDocument.Parse(json).RootElement.TryGetProperty("tag_name", out var tagProp))
                         _cache.LatestVersion = tagProp.GetString();
-                        
+
                     SaveCache();
                 }
             }
@@ -533,10 +533,10 @@ public partial class YtDlpManager : ObservableObject
             foreach (var entry in archive.Entries.Where(e => !e.IsDirectory))
             {
                 // Preserve folder structure (important for _internal)
-                entry.WriteToDirectory(_destFolder, new SharpCompress.Common.ExtractionOptions 
-                { 
-                    ExtractFullPath = true, 
-                    Overwrite = true 
+                entry.WriteToDirectory(_destFolder, new SharpCompress.Common.ExtractionOptions
+                {
+                    ExtractFullPath = true,
+                    Overwrite = true
                 });
             }
         }
@@ -545,7 +545,7 @@ public partial class YtDlpManager : ObservableObject
             // For single-file binary downloads (Linux/macOS)
             string finalName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp";
             string destPath = Path.Combine(_destFolder, finalName);
-            
+
             if (File.Exists(destPath)) File.Delete(destPath);
             File.Move(tempFile, destPath);
 

@@ -20,6 +20,7 @@ namespace AES_Emulation.Windows.API
         private bool _lastMoveToHost = true;
         private RECT _savedTargetRect;
         private bool _haveSavedTargetRect = false;
+        private bool _targetIsChildWindow = false;
 
         private System.Timers.Timer? _timer;
         private System.Timers.ElapsedEventHandler? _elapsedHandler;
@@ -127,6 +128,8 @@ namespace AES_Emulation.Windows.API
                 }
             }
             catch { }
+
+            _targetIsChildWindow = IsChildWindow(_target);
 
             // Initialize last host rect using full window rect
             GetWindowRectSafe(_host, out _lastHostRect);
@@ -281,17 +284,16 @@ namespace AES_Emulation.Windows.API
                 }
                 else
                 {
-                    bool sizeChanged = _lastTargetRect.Right != FixedCaptureWidth || _lastTargetRect.Bottom != FixedCaptureHeight;
-                    if (sizeChanged || _lastMoveToHost != MoveToHost)
+                    if (!_targetIsChildWindow)
                     {
-                        // Ensure the hidden/moved-away target uses the fixed capture resolution.
-                        try { SetWindowPos(_target, IntPtr.Zero, 0, 0, FixedCaptureWidth, FixedCaptureHeight, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE); } catch { }
-                        
-                        // Move away the target but keep its size synchronized for capture.
+                        if (_lastMoveToHost != MoveToHost)
+                        {
+                            try { Win32API.MoveAway(_target, false); } catch { }
+                        }
+                    }
+                    else if (_lastMoveToHost != MoveToHost)
+                    {
                         try { Win32API.MoveAway(_target, false); } catch { }
-                        
-                        _lastTargetRect.Right = FixedCaptureWidth;
-                        _lastTargetRect.Bottom = FixedCaptureHeight;
                     }
 
                     if (_lastOpacity != 255)
@@ -362,6 +364,18 @@ namespace AES_Emulation.Windows.API
             catch { return false; }
         }
 
+        private static bool IsChildWindow(IntPtr hwnd)
+        {
+            try
+            {
+                return (GetWindowLong(hwnd, GWL_STYLE) & WS_CHILD) != 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public void Dispose()
         {
             Stop();
@@ -388,7 +402,7 @@ namespace AES_Emulation.Windows.API
                             SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, width, height, SWP_NOACTIVATE);
                             if (_applyRoundedCorners) ApplyRoundedRegion();
                         }
-                        else
+                        else if (!_targetIsChildWindow)
                         {
                             // Even when not moved behind host, ensure the hidden target uses fixed capture size.
                             try { SetWindowPos(_target, IntPtr.Zero, 0, 0, FixedCaptureWidth, FixedCaptureHeight, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE); } catch { }
@@ -427,12 +441,17 @@ namespace AES_Emulation.Windows.API
         private const uint SWP_NOACTIVATE = 0x0010;
         private const int SW_SHOW = 5;
         private const int SW_HIDE = 0;
+        private const int GWL_STYLE = -16;
+        private const uint WS_CHILD = 0x40000000;
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -526,37 +545,38 @@ namespace AES_Emulation.Windows.API
             {
                 if (moveToHost)
                 {
-                    // Ensure the target is placed behind the host and made visible
-                    if (GetWindowRectSafe(_host, out RECT hostRect))
+                    if (!_targetIsChildWindow)
                     {
-                        int width = FixedCaptureWidth;
-                        int height = FixedCaptureHeight;
-                        // When positioning behind host, ensure position matches window origin; keep fixed capture size
-                        SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, width, height, SWP_NOACTIVATE);
-                        // Restore opacity so the emulator is visible to the user
+                        // Ensure the target is placed behind the host and made visible
+                        if (GetWindowRectSafe(_host, out RECT hostRect))
+                        {
+                            int width = FixedCaptureWidth;
+                            int height = FixedCaptureHeight;
+                            // When positioning behind host, ensure position matches window origin; keep fixed capture size
+                            SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, width, height, SWP_NOACTIVATE);
+                            // Restore opacity so the emulator is visible to the user
+                            try { Win32API.SetWindowOpacity(_target, 255); } catch { }
+                            if (_applyRoundedCorners) ApplyRoundedRegion();
+                        }
+                    }
+                    else
+                    {
+                        // Preserve child window size and layout for emulator-managed resizing.
                         try { Win32API.SetWindowOpacity(_target, 255); } catch { }
-                        if (_applyRoundedCorners) ApplyRoundedRegion();
                     }
                 }
                 else
                 {
-                    // Ensure target size matches host client before moving away so capture sees correct size.
-                    try
+                    if (!_targetIsChildWindow)
                     {
-                        if (GetWindowRectSafe(_host, out RECT hostRect))
-                        {
-                            try { SetWindowPos(_target, IntPtr.Zero, 0, 0, FixedCaptureWidth, FixedCaptureHeight, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE); } catch { }
-                        }
+                        // Keep the target at its current size when moving away so capture preserves the actual emulator window dimensions.
+                        try { Win32API.MoveAway(_target, false); } catch { }
                     }
-                    catch { }
-
-                    // Move away off-screen and keep the window opaque so WGC can capture it reliably.
-                    try { Win32API.MoveAway(_target, false); } catch { }
-                    try { Win32API.SetWindowOpacity(_target, 255); } catch { }
                 }
             }
             catch { }
         }
+
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }

@@ -148,7 +148,7 @@ namespace AES_Lacrima.ViewModels
         private double _renderOverlayOpacity = 0.55;
 
         [ObservableProperty]
-        private Stretch _selectedStretch = Stretch.UniformToFill;
+        private Stretch _selectedStretch = Stretch.Uniform;
 
         [ObservableProperty]
         private bool _useHostWindowCapture;
@@ -333,13 +333,13 @@ namespace AES_Lacrima.ViewModels
         {
             var extensions = new[] { "*.glsl", "*.slang", "*.hlsl" };
             var subDirs = new[] { "glsl", "hlsl" };
-            
+
             var files = new List<string>();
             foreach (var subDir in subDirs)
             {
                 var shaderDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, subDir);
                 if (!Directory.Exists(shaderDirectory)) continue;
-                
+
                 foreach (var ext in extensions)
                 {
                     files.AddRange(Directory.EnumerateFiles(shaderDirectory, ext, SearchOption.TopDirectoryOnly));
@@ -964,9 +964,9 @@ namespace AES_Lacrima.ViewModels
             ShowFrametimeGraph = ReadBoolSetting(section, nameof(ShowFrametimeGraph), false);
             ShowDetailedGpuInfo = ReadBoolSetting(section, nameof(ShowDetailedGpuInfo), false);
             RenderOverlayOpacity = ReadDoubleSetting(section, nameof(RenderOverlayOpacity), 0.55);
-            SelectedStretch = ReadStringSetting(section, nameof(SelectedStretch), "UniformToFill") is string stretchString && Enum.TryParse<Stretch>(stretchString, out var stretchValue)
+            SelectedStretch = ReadStringSetting(section, nameof(SelectedStretch), "Uniform") is string stretchString && Enum.TryParse<Stretch>(stretchString, out var stretchValue)
                 ? stretchValue
-                : Stretch.UniformToFill;
+                : Stretch.Uniform;
             DisableVSync = ReadBoolSetting(section, nameof(DisableVSync), false);
             RenderBrightness = ReadDoubleSetting(section, nameof(RenderBrightness), 1.0);
             RenderSaturation = ReadDoubleSetting(section, nameof(RenderSaturation), 1.0);

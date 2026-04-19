@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -95,10 +95,13 @@ namespace AES_Emulation.Windows.API
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
-        [DllImport("user32.dll")]
-        private static extern bool EnumChildWindows(IntPtr hWndParent, EnumChildProc lpEnumFunc, IntPtr lParam);
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string? lpszClass, string? lpszWindow);
 
-        private delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
+        [DllImport("user32.dll")]
+        public static extern bool EnumChildWindows(IntPtr hWndParent, EnumChildProc lpEnumFunc, IntPtr lParam);
+
+        public delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
 
         [DllImport("user32.dll")]
         private static extern bool IsWindowVisible(IntPtr hWnd);
@@ -480,7 +483,7 @@ namespace AES_Emulation.Windows.API
                     if ((d.StateFlags & 4) != 0)
                     {
                         renderer = d.DeviceString;
-                        
+
                         // Parse vendor from DeviceID if possible: PCI\VEN_1002...
                         if (!string.IsNullOrEmpty(d.DeviceID) && d.DeviceID.Contains("VEN_"))
                         {
@@ -501,7 +504,7 @@ namespace AES_Emulation.Windows.API
                                 }
                             }
                         }
-                        
+
                         // If vendor parsing failed but renderer has name, try simple matches
                         if (vendor == "Unknown")
                         {
