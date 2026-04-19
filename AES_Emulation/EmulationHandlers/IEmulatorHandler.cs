@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using AES_Emulation.Controls;
 
 namespace AES_Emulation.EmulationHandlers;
 
@@ -64,6 +65,8 @@ public interface IEmulatorHandler : INotifyPropertyChanged
     int ClientAreaCropBottomInset { get; }
 
     int CaptureStartupDelayMs { get; }
+    
+    EmulatorCaptureMode PreferredCaptureMode { get; }
 
     ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null);
 

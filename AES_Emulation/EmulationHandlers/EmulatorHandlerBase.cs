@@ -16,6 +16,7 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using AES_Emulation.Platform;
 using AES_Core.DI;
+using AES_Emulation.Controls;
 
 namespace AES_Emulation.EmulationHandlers;
 
@@ -119,6 +120,8 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     public virtual int ClientAreaCropRightInset => 0;
 
     public virtual int ClientAreaCropBottomInset => 0;
+    
+    public virtual EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.DirectComposition;
 
     public virtual void Prepare() => IsPrepared = true;
 
@@ -342,7 +345,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
                     linuxBest = w1;
                     break;
                 }
-                
+
                 // If there's no preferred filter, or we haven't matched one yet, grab the first non-zero window we see
                 if (linuxBest == IntPtr.Zero && w1 != IntPtr.Zero)
                     linuxBest = w1;
@@ -366,7 +369,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         catch (Exception ex)
         {
             SLog.Debug("Failed to refresh process while scoring window candidates.", ex);
-            
+
             if (!TryResolveDetachedProcess(process, out process))
                 return FindBestProcesslessWindowHandle(preferSpecificRenderWindow, allowHiddenWindows, isPreferredRenderWindow);
 

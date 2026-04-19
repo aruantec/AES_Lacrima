@@ -39,8 +39,9 @@ public partial class PortalWindow : Window
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) 
         {
             this.Position = position;
-            this.Width = widthPixels / (this.RenderScaling > 0 ? this.RenderScaling : 1);
-            this.Height = heightPixels / (this.RenderScaling > 0 ? this.RenderScaling : 1);
+            var scaling = this.RenderScaling > 0 ? this.RenderScaling : 1;
+            this.Width = Math.Ceiling(widthPixels / scaling);
+            this.Height = Math.Ceiling(heightPixels / scaling);
             return;
         }
 

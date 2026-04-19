@@ -33,7 +33,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         AvaloniaProperty.Register<DirectCompositionCaptureHost, string?>(nameof(TargetWindowTitleHint), null);
 
     public static readonly StyledProperty<Stretch> StretchProperty =
-        AvaloniaProperty.Register<DirectCompositionCaptureHost, Stretch>(nameof(Stretch), Stretch.UniformToFill);
+        AvaloniaProperty.Register<DirectCompositionCaptureHost, Stretch>(nameof(Stretch), Stretch.Uniform);
 
     public static readonly StyledProperty<double> BrightnessProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, double>(nameof(Brightness), 1.0);
@@ -485,8 +485,9 @@ public class DirectCompositionCaptureHost : NativeControlHost
         if (!OperatingSystem.IsWindows() || _childHwnd == IntPtr.Zero)
             return;
 
-        var width = Math.Max(1, (int)Math.Ceiling(size.Width));
-        var height = Math.Max(1, (int)Math.Ceiling(size.Height));
+        var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+        var width = Math.Max(1, (int)Math.Ceiling(size.Width * scaling));
+        var height = Math.Max(1, (int)Math.Ceiling(size.Height * scaling));
         SetWindowPos(_childHwnd, IntPtr.Zero, 0, 0, width, height, SwpNoZOrder | SwpNoActivate);
     }
 

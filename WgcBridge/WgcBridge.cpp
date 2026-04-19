@@ -462,7 +462,7 @@ struct CaptureSession
         rt::com_ptr<ID3D11Device> device;
         rt::com_ptr<ID3D11DeviceContext> context;
         rt::com_ptr<ID3D11Texture2D> stagingTextures[3];
-        int currentIndex = 0;
+        int currentIndex = -1;
         DXGI_FORMAT format{};
         int width = 0;
         int height = 0;
@@ -941,19 +941,21 @@ struct CaptureSession
             }
         }
 
-        // 1. Copy current frame to the circular buffer
+        // 1. Copy current frame into the next staging buffer.
         int nextIndex = (hook.currentIndex + 1) % 3;
-        hook.context->CopyResource(hook.stagingTextures[hook.currentIndex].get(), backBuffer.get());
+        hook.context->CopyResource(hook.stagingTextures[nextIndex].get(), backBuffer.get());
 
         D3D11_MAPPED_SUBRESOURCE mapped = {};
         // Removing DO_NOT_WAIT. With 3 staging textures, the oldest should be ready.
         // If it isn't, we wait to ensure we don't drop frames during high GPU load (shader compilation).
-        HRESULT hr = hook.context->Map(hook.stagingTextures[nextIndex].get(), 0, D3D11_MAP_READ, 0, &mapped);
-        
-        if (SUCCEEDED(hr) && mapped.pData)
+        if (hook.currentIndex >= 0)
         {
-            CopyFrameDataToSharedMemory(static_cast<uint8_t const*>(mapped.pData), mapped.RowPitch, hook.width, hook.height, hook.format);
-            hook.context->Unmap(hook.stagingTextures[nextIndex].get(), 0);
+            HRESULT hr = hook.context->Map(hook.stagingTextures[hook.currentIndex].get(), 0, D3D11_MAP_READ, 0, &mapped);
+            if (SUCCEEDED(hr) && mapped.pData)
+            {
+                CopyFrameDataToSharedMemory(static_cast<uint8_t const*>(mapped.pData), mapped.RowPitch, hook.width, hook.height, hook.format);
+                hook.context->Unmap(hook.stagingTextures[hook.currentIndex].get(), 0);
+            }
         }
 
         hook.currentIndex = nextIndex;
