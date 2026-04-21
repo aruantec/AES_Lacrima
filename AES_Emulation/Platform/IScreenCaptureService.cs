@@ -29,7 +29,7 @@ public interface IScreenCaptureService
     /// <summary>
     /// Resolves the final capture target handle asynchronously, accounting for window stability.
     /// </summary>
-    Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken);
+    Task<IntPtr> ResolveCaptureTargetAsync(Process process, AES_Emulation.EmulationHandlers.IEmulatorHandler handler, CancellationToken cancellationToken);
     
     /// <summary>
     /// Gets a value indicating whether the window should be hidden from the desktop view until it is captured.

@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using AES_Emulation.EmulationHandlers;
 using AES_Core.DI;
 
 namespace AES_Emulation.Platform;
@@ -20,8 +21,8 @@ public class DefaultScreenCaptureService : IScreenCaptureService
 
     public void PrepareWindowForCapture(IntPtr hwnd) { }
 
-    public Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
+    public Task<IntPtr> ResolveCaptureTargetAsync(Process process, IEmulatorHandler handler, CancellationToken cancellationToken)
     {
-        return Task.FromResult(process.MainWindowHandle);
+        return Task.FromResult(handler.FindPreferredWindowHandle(process));
     }
 }
