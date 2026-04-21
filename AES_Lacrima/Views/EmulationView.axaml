@@ -881,8 +881,9 @@
                     </Viewbox>
                 </Button>
 
-                <Button Height="60"
-                        Width="60"
+                <Button Height="64"
+                        Width="64"
+                        Margin="0,2,0,0"
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding CloseEmulatorCommand}"

@@ -60,7 +60,7 @@ namespace AES_Controls.Helpers
 
         // Default timeout and instance-level HttpClient/Throttle
         private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
-        private static readonly SemaphoreSlim SharedThrottle = new(3);
+        private static readonly SemaphoreSlim SharedThrottle = new(Environment.ProcessorCount * 2);
         private readonly AvaloniaList<MediaItem> _playlist;
 
         /// <summary>The collection of media items to track.</summary>
@@ -117,20 +117,37 @@ namespace AES_Controls.Helpers
                 try { SharedHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd(agentInfo); }
                 catch (Exception ex) { Log.Warn($"Failed to parse User-Agent: {agentInfo}", ex); }
             }
-            // Enqueue initial load for existing items in the playlist with incremental delays to avoid UI stutters
+            // Enqueue initial load for existing items in the playlist using multiple concurrent loads
+            // for local files to ensure they appear instantly without waiting for each other.
             _ = Task.Run(async () =>
             {
                 var items = _playlist.ToArray();
+                var tasks = new List<Task>();
+
                 for (int i = 0; i < items.Length; i++)
                 {
-                    bool didNetwork;
-                    if (forceUpdate) didNetwork = await LoadMetadataForItemAsync(items[i], null, true);
-                    else didNetwork = await EnqueueLoadFor(items[i]);
+                    var item = items[i];
+                    
+                    // We execute local metadata loads in parallel to avoid head-of-line blocking.
+                    // The internal SharedThrottle still protects against excessive disk/CPU usage.
+                    var loadTask = Task.Run(async () =>
+                    {
+                        bool didNetwork;
+                        if (forceUpdate) didNetwork = await LoadMetadataForItemAsync(item, null, true);
+                        else didNetwork = await EnqueueLoadFor(item);
 
-                    // Delay slightly only if we actually did a network request OR every 5 items to allow UI thread breathing room
-                    if (didNetwork) await Task.Delay(500);
-                    else if (items.Length > 15 && i % 5 == 0) await Task.Delay(10);
+                        // If it was a network request, we still want a small delay to respect provider rate limits,
+                        // but we handle it within the individual task.
+                        if (didNetwork) await Task.Delay(500);
+                    });
+
+                    tasks.Add(loadTask);
+                    
+                    // Small throttle on task creation to avoid overwhelming the thread pool
+                    if (i % 10 == 0) await Task.Delay(5);
                 }
+
+                await Task.WhenAll(tasks);
             });
             // Subscribe to playlist changes to handle new items and removals
             _playlist.CollectionChanged += Playlist_CollectionChanged;
@@ -225,6 +242,22 @@ namespace AES_Controls.Helpers
                 await Dispatcher.UIThread.InvokeAsync(() => mi.IsLoadingCover = true);
 
                 bool isLocalFile = File.Exists(key);
+                bool isStream = !isLocalFile && (key.StartsWith("http", StringComparison.OrdinalIgnoreCase));
+
+                if (!isLocalFile && !isStream)
+                {
+                    Log.Warn($"MetadataScrapper: File not found and not a valid stream URL: {key}");
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (mi.CoverBitmap == null || mi.CoverBitmap == _defaultCover)
+                        {
+                            mi.CoverBitmap = _defaultCover;
+                        }
+                        mi.CoverFound = true; // Mark as "found" (processed) even if failed to stop re-loading
+                    });
+                    return false;
+                }
+
                 string cacheId = BinaryMetadataHelper.GetCacheId(key);
                 string cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
 
@@ -332,7 +365,7 @@ namespace AES_Controls.Helpers
                     mi.Genre = tagResult.ge;
                     mi.Comment = tagResult.co;
                     mi.Lyrics = tagResult.ly;
-                    try { if (tagResult.duration > 0) mi.Duration = tagResult.duration; } catch { }
+                    try { if (tagResult.duration > 0 || (mi.Duration <= 0 && tagResult.duration >= 0)) mi.Duration = tagResult.duration; } catch { }
                 }, DispatcherPriority.Background);
 
                 // Small yield to UI thread
@@ -383,7 +416,11 @@ namespace AES_Controls.Helpers
             }
             finally
             {
-                await Dispatcher.UIThread.InvokeAsync(() => mi.IsLoadingCover = false);
+                await Dispatcher.UIThread.InvokeAsync(() => 
+                {
+                    mi.IsLoadingCover = false;
+                    mi.MetadataProcessed = true;
+                });
                 _loadingCts.TryRemove(key, out _);
                 SharedThrottle.Release();
             }
@@ -893,7 +930,12 @@ namespace AES_Controls.Helpers
                 // If not found and we had an artist, try searching with just the title
                 if (!found && !string.IsNullOrWhiteSpace(cleanArtist))
                 {
-                    await TryFetchAppleInternal(mi, cleanTitle, key, token);
+                    found = await TryFetchAppleInternal(mi, cleanTitle, key, token);
+                }
+
+                if (!found)
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() => mi.CoverFound = true); // Mark as processed
                 }
             }
             catch (Exception ex) { Log.Error($"Error fetching Apple metadata for {key}", ex); }
@@ -917,7 +959,10 @@ namespace AES_Controls.Helpers
                 string itunesQuery = Uri.EscapeDataString(query.Trim());
                 string url = $"https://itunes.apple.com/search?term={itunesQuery}&entity=song&limit=1";
 
-                var response = await SharedHttpClient.GetStringAsync(url, token).ConfigureAwait(false);
+                var responseMessage = await SharedHttpClient.GetAsync(url, token).ConfigureAwait(false);
+                if (!responseMessage.IsSuccessStatusCode) return false;
+
+                var response = await responseMessage.Content.ReadAsStringAsync(token).ConfigureAwait(false);
                 using var doc = JsonDocument.Parse(response);
                 var results = doc.RootElement.GetProperty("results");
 

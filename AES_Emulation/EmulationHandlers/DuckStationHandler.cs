@@ -28,7 +28,9 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
 
         return string.Equals(albumTitle, SectionTitle, StringComparison.OrdinalIgnoreCase) ||
                string.Equals(albumTitle, SectionKey, StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(albumTitle, "PS1", StringComparison.OrdinalIgnoreCase);
+               string.Equals(albumTitle, "PS1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(albumTitle, "PlayStation", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(albumTitle, "PlayStation 1", StringComparison.OrdinalIgnoreCase);
     }
 
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
@@ -63,45 +65,49 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
         if (hwnd == IntPtr.Zero)
             return false;
 
-        var title = GetWindowTitle(hwnd);
+        var title = GetWindowTitle(hwnd).Trim();
         var className = GetWindowClassName(hwnd);
         var style = GetWindowStyle(hwnd);
+        var lowerTitle = title.ToLowerInvariant();
+        var lowerClass = className.ToLowerInvariant();
 
         var hasCaption = (style & WS_CAPTION) == WS_CAPTION;
         var hasThickFrame = (style & WS_THICKFRAME) == WS_THICKFRAME;
         var looksLikePrimaryUi = hwnd == mainWindowHandle;
-        var normalizedTitle = title.Trim();
 
-        if (!string.IsNullOrWhiteSpace(normalizedTitle))
+        if (!string.IsNullOrWhiteSpace(lowerTitle))
         {
-            if (normalizedTitle.Contains("DuckStation", StringComparison.OrdinalIgnoreCase) ||
-                normalizedTitle.Contains("settings", StringComparison.OrdinalIgnoreCase) ||
-                normalizedTitle.Contains("game list", StringComparison.OrdinalIgnoreCase) ||
-                normalizedTitle.Contains("controller", StringComparison.OrdinalIgnoreCase) ||
-                normalizedTitle.Contains("memory card", StringComparison.OrdinalIgnoreCase) ||
-                normalizedTitle.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
-                normalizedTitle.Contains("achievement", StringComparison.OrdinalIgnoreCase) ||
-                normalizedTitle.Contains("tools", StringComparison.OrdinalIgnoreCase) ||
-                normalizedTitle.Contains("view", StringComparison.OrdinalIgnoreCase) ||
-                normalizedTitle.Contains("help", StringComparison.OrdinalIgnoreCase))
-            {
+            var titleLooksLikeUi =
+                lowerTitle.Contains("duckstation") ||
+                lowerTitle.Contains("settings") ||
+                lowerTitle.Contains("audio") ||
+                lowerTitle.Contains("video") ||
+                lowerTitle.Contains("input") ||
+                lowerTitle.Contains("controller") ||
+                lowerTitle.Contains("memory card") ||
+                lowerTitle.Contains("cheat") ||
+                lowerTitle.Contains("achievement") ||
+                lowerTitle.Contains("tools") ||
+                lowerTitle.Contains("view") ||
+                lowerTitle.Contains("help") ||
+                lowerTitle.Contains("shader") ||
+                lowerTitle.Contains("about");
+
+            if (titleLooksLikeUi)
                 looksLikePrimaryUi = true;
-            }
-
-            if (!normalizedTitle.Contains("DuckStation", StringComparison.OrdinalIgnoreCase) &&
-                normalizedTitle.Length >= 3)
-            {
-                looksLikePrimaryUi = false;
-            }
+            else if (lowerTitle.Length >= 2)
+                return true;
         }
 
-        if (!string.IsNullOrWhiteSpace(className) &&
-            (className.Contains("QWindow", StringComparison.OrdinalIgnoreCase) ||
-             className.Contains("Qt", StringComparison.OrdinalIgnoreCase)))
+        if (!string.IsNullOrWhiteSpace(lowerClass) && lowerClass.Contains("qt"))
         {
-            looksLikePrimaryUi |= hasCaption && hasThickFrame;
+            if (!looksLikePrimaryUi && !lowerTitle.Contains("duckstation"))
+                return true;
+
+            if (!looksLikePrimaryUi && !hasCaption)
+                return true;
         }
 
-        return !looksLikePrimaryUi && (!hasCaption || !string.IsNullOrWhiteSpace(normalizedTitle));
+        return !looksLikePrimaryUi && (!hasCaption || !string.IsNullOrWhiteSpace(title));
     }
 }

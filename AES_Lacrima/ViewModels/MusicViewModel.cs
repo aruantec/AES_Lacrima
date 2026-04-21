@@ -870,6 +870,17 @@ namespace AES_Lacrima.ViewModels
             _scanMissingStreamDurationsOnLoadedAlbum = true;
             LoadedAlbum = selectedAlbum;
 
+            if (selectedAlbum != null)
+            {
+                // Reset the processed flag for the new album so we can re-evaluate its items.
+                // This ensures that if we switch back and forth, the scrapper will check
+                // for missing metadata again if it wasn't successfully retrieved before.
+                foreach (var child in selectedAlbum.Children)
+                {
+                    child.MetadataProcessed = false;
+                }
+            }
+
             if (isSameAlbum && selectedAlbum != null)
             {
                 QueueLoadedAlbumCoverLoad(selectedAlbum);
@@ -2347,11 +2358,11 @@ namespace AES_Lacrima.ViewModels
 
         private bool NeedsCoverLoad(MediaItem item)
         {
+            if (item.MetadataProcessed) return false;
             if (item.CoverBitmap == null) return true;
             if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
-            return item.CoverBitmap == DefaultFolderCover
-                || string.IsNullOrWhiteSpace(item.Title)
-                || item.Duration <= 0;
+            return (item.CoverBitmap == DefaultFolderCover && !item.CoverFound)
+                || string.IsNullOrWhiteSpace(item.Title);
         }
 
         private bool NeedsVisibleCoverLoad(MediaItem item)
@@ -2440,7 +2451,18 @@ namespace AES_Lacrima.ViewModels
                 forceUpdate: forceUpdate,
                 allowOnlineLookup: allowOnlineForBatch);
 
-            await WaitForAlbumCoversAsync(orderedItems);
+            // Do not await the scrapper completion before showing covers.
+            // Items update their properties on the UI thread as they load.
+            // We only need to wait if we need to perform logic AFTER all covers are settled.
+            _ = Task.Run(async () =>
+            {
+                await WaitForAlbumCoversAsync(orderedItems);
+                
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    folder.IsLoadingCover = false;
+                });
+            });
 
             var unresolvedFastThumbCandidates = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 itemsToLoad
@@ -2460,11 +2482,6 @@ namespace AES_Lacrima.ViewModels
             // Re-evaluate stream durations after the album metadata/cover pass settles so
             // online items that still lack a duration are queued from the final album state.
             QueueOpenedAlbumStreamDurationScan(folder);
-
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                folder.IsLoadingCover = false;
-            });
         }
 
         private async Task LoadPriorityAlbumCoversAsync(FolderMediaItem folder, string agentInfo, bool forceUpdate, CancellationToken ct)
@@ -2552,8 +2569,11 @@ namespace AES_Lacrima.ViewModels
             // Allow the scrapper to flip IsLoadingCover before we start polling.
             await Task.Delay(50);
 
+            // Wait until no items are marked as loading anymore.
+            // Items that fail or are skipped must have their IsLoadingCover set to false
+            // by the scrapper or the load logic to ensure we don't hang here.
             while (await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                       items.Any(i => NeedsVisibleCoverLoad(i) && i.IsLoadingCover)))
+                       items.Any(i => i.IsLoadingCover)))
             {
                 await Task.Delay(150);
             }
