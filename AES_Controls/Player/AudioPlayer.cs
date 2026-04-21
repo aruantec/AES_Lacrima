@@ -840,9 +840,15 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             OnPropertyChanged(nameof(RepeatMode));
             OnPropertyChanged(nameof(Loop));
             OnPropertyChanged(nameof(IsRepeatOne));
+            OnPropertyChanged(nameof(IsShuffle));
+            OnPropertyChanged(nameof(IsNotShuffle));
         }
     }
     private RepeatMode _repeatMode = RepeatMode.Off;
+
+    public bool IsShuffle => RepeatMode == RepeatMode.Shuffle;
+
+    public bool IsNotShuffle => RepeatMode != RepeatMode.Shuffle;
 
     /// <summary>
     /// When true the player will loop the current file or playlist.

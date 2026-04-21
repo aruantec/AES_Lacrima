@@ -148,10 +148,18 @@ public partial class MediaItem : ObservableObject, IDisposable
 
     // Runtime-only flags and resources (not serialized)
     private bool _isLoadingCover;
+    private bool _metadataProcessed;
     private bool _coverFound;
     private bool _isRenaming;
     private bool _isNameInvalid;
     private string? _nameInvalidMessage;
+
+    [JsonIgnore]
+    public bool MetadataProcessed
+    {
+        get => _metadataProcessed;
+        set => SetProperty(ref _metadataProcessed, value);
+    }
 
     [JsonIgnore]
     public bool IsLoadingCover
