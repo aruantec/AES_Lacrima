@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AES_Core.DI;
 using AES_Core.Logging;
+using AES_Emulation.EmulationHandlers;
 using AES_Emulation.Windows.API;
 using log4net;
 
@@ -39,7 +40,7 @@ public class WindowsScreenCaptureService : AES_Emulation.Platform.IScreenCapture
         Win32API.SetWindowOpacity(hwnd, 0);
     }
 
-    public async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
+    public async Task<IntPtr> ResolveCaptureTargetAsync(Process process, IEmulatorHandler handler, CancellationToken cancellationToken)
     {
         const int maxAttempts = 240;
         const int delayMs = 100;
@@ -59,13 +60,21 @@ public class WindowsScreenCaptureService : AES_Emulation.Platform.IScreenCapture
             cancellationToken.ThrowIfCancellationRequested();
 
             if (HideUntilCaptured)
-                PrepareProcessForCapture(process);
+                handler.PrepareProcessForCapture(process);
 
-            var hwnd = FindPreferredWindowHandle(process);
+            var hwnd = handler.FindPreferredWindowHandle(process);
             if (hwnd != IntPtr.Zero)
             {
                 if (HideUntilCaptured)
-                    PrepareWindowForCapture(hwnd);
+                    handler.PrepareWindowForCapture(hwnd);
+
+                if (!handler.CanAssignWindow(hwnd, process.MainWindowHandle))
+                {
+                    observedHwnd = IntPtr.Zero;
+                    observedStableAttempts = 0;
+                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
 
                 if (hwnd == observedHwnd)
                 {
@@ -77,10 +86,7 @@ public class WindowsScreenCaptureService : AES_Emulation.Platform.IScreenCapture
                     observedStableAttempts = 1;
                 }
 
-                // Standard scoring check (CanAssignWindow simplified here)
-                bool canAssign = true; 
-
-                if (canAssign && hwnd != assignedHwnd && observedStableAttempts >= stableAttemptsBeforeAssign)
+                if (hwnd != assignedHwnd && observedStableAttempts >= stableAttemptsBeforeAssign)
                 {
                     assignedHwnd = hwnd;
                     assignedStableAttempts = observedStableAttempts;

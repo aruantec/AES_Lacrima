@@ -642,7 +642,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         }
 
         if (CaptureService != null)
-            return await CaptureService.ResolveCaptureTargetAsync(process, cancellationToken);
+            return await CaptureService.ResolveCaptureTargetAsync(process, this, cancellationToken);
 
         return process.MainWindowHandle;
     }

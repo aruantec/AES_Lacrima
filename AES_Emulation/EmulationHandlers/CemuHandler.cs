@@ -65,7 +65,49 @@ public sealed class CemuHandler : EmulatorHandlerBase
 
     public override IntPtr FindPreferredWindowHandle(Process process)
     {
-        return FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: false, isPreferredRenderWindow: null);
+        var preferredHwnd = FindBestProcessWindowHandle(
+            process,
+            preferSpecificRenderWindow: true,
+            allowHiddenWindows: true,
+            isPreferredRenderWindow: IsLikelyCemuRenderWindow);
+
+        return preferredHwnd != IntPtr.Zero
+            ? preferredHwnd
+            : FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: true, isPreferredRenderWindow: null);
+    }
+
+    private static bool IsLikelyCemuRenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
+    {
+        if (hwnd == IntPtr.Zero)
+            return false;
+
+        var title = GetWindowTitle(hwnd).Trim();
+        var className = GetWindowClassName(hwnd);
+        var lowerTitle = title.ToLowerInvariant();
+        var lowerClass = className.ToLowerInvariant();
+
+        if (lowerClass.Contains("cemu"))
+            return true;
+
+        if (lowerTitle.Contains("cemu") && !lowerTitle.Contains("cemu hook"))
+            return true;
+
+        if (!string.IsNullOrWhiteSpace(title) &&
+            !lowerTitle.Contains("settings") &&
+            !lowerTitle.Contains("graphics") &&
+            !lowerTitle.Contains("audio") &&
+            !lowerTitle.Contains("input") &&
+            !lowerTitle.Contains("about") &&
+            !lowerTitle.Contains("profile") &&
+            !lowerTitle.Contains("update"))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(lowerClass) && lowerClass.Contains("qwindow") && hwnd != mainWindowHandle)
+            return true;
+
+        return false;
     }
 
 }

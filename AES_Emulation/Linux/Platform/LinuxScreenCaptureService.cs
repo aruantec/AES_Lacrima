@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using AES_Core.DI;
 using AES_Core.Logging;
+using AES_Emulation.EmulationHandlers;
 using AES_Emulation.Linux.API;
 using log4net;
 using Avalonia.OpenGL;
@@ -69,7 +70,7 @@ public class LinuxScreenCaptureService : AES_Emulation.Platform.IScreenCaptureSe
         }
     }
 
-    public async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
+    public async Task<IntPtr> ResolveCaptureTargetAsync(Process process, IEmulatorHandler handler, CancellationToken cancellationToken)
     {
         const int maxAttempts = 240;
         const int delayMs = 100;
@@ -83,7 +84,7 @@ public class LinuxScreenCaptureService : AES_Emulation.Platform.IScreenCaptureSe
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var hwnd = FindPreferredWindowHandle(process);
+            var hwnd = handler.FindPreferredWindowHandle(process);
             
             // Try to find via main window handle if our PID traversal didn't work immediately
             if (hwnd == IntPtr.Zero)
@@ -96,7 +97,7 @@ public class LinuxScreenCaptureService : AES_Emulation.Platform.IScreenCaptureSe
             if (hwnd != IntPtr.Zero)
             {
                 if (HideUntilCaptured)
-                    PrepareWindowForCapture(hwnd);
+                    handler.PrepareWindowForCapture(hwnd);
 
                 if (hwnd == assignedHwnd)
                 {
