@@ -81,6 +81,9 @@ namespace AES_Emulation.Windows.API
         private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
 
         [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool AdjustWindowRectEx(ref RECT lpRect, int dwStyle, bool bMenu, int dwExStyle);
+
+        [DllImport("user32.dll", SetLastError = true)]
         private static extern int GetSystemMetrics(int nIndex);
 
         [DllImport("user32.dll", SetLastError = true)]
@@ -191,6 +194,25 @@ namespace AES_Emulation.Windows.API
                     if (!_savedRects.ContainsKey(hwnd))
                     {
                         if (GetWindowRect(hwnd, out RECT r)) _savedRects[hwnd] = r;
+                    }
+                }
+                catch { }
+
+                // Preserve current client size when removing the window frame, otherwise the client area can grow/shrink
+                // and produce a mismatched aspect ratio for the emulator render surface.
+                try
+                {
+                    if (GetClientRect(hwnd, out RECT clientRect))
+                    {
+                        var preserveRect = clientRect;
+                        var exStyle = GetWindowLongPtrCompat(hwnd, GWL_EXSTYLE).ToInt64();
+                        if (AdjustWindowRectEx(ref preserveRect, (int)newStyle, false, (int)exStyle))
+                        {
+                            int width = Math.Max(0, preserveRect.Right - preserveRect.Left);
+                            int height = Math.Max(0, preserveRect.Bottom - preserveRect.Top);
+                            SetWindowPos(hwnd, IntPtr.Zero, 0, 0, width, height,
+                                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
+                        }
                     }
                 }
                 catch { }
