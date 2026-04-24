@@ -330,7 +330,26 @@ public class LinuxCaptureHost : NativeControlHost
         if (!OperatingSystem.IsLinux())
             return base.CreateNativeControlCore(parent);
 
-        _capture = LinuxCaptureBridge.aes_linux_capture_create(parent.Handle);
+        try
+        {
+            _capture = LinuxCaptureBridge.aes_linux_capture_create(parent.Handle);
+        }
+        catch (DllNotFoundException ex)
+        {
+            StatusText = $"Linux capture bridge not found: {ex.Message}";
+            return base.CreateNativeControlCore(parent);
+        }
+        catch (EntryPointNotFoundException ex)
+        {
+            StatusText = $"Linux capture bridge mismatch: {ex.Message}";
+            return base.CreateNativeControlCore(parent);
+        }
+        catch (BadImageFormatException ex)
+        {
+            StatusText = $"Linux capture bridge invalid binary: {ex.Message}";
+            return base.CreateNativeControlCore(parent);
+        }
+
         if (_capture == IntPtr.Zero)
         {
             StatusText = "Linux capture host creation failed";
