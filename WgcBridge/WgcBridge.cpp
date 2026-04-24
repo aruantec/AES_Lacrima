@@ -2,6 +2,7 @@
 #include <d3dcompiler.h>
 #include <atomic>
 #include <algorithm>
+#include <condition_variable>
 #include <dxgi1_2.h>
 #include <thread>
 #include <chrono>
@@ -167,6 +168,7 @@ struct CaptureSession
     rt::com_ptr<IDCompositionVisual> dcompVisual;
     rt::com_ptr<IDCompositionScaleTransform> dcompScaleTransform;
     rt::com_ptr<IDXGISwapChain1> dcompSwapChain;
+    rt::com_ptr<ID3D11RenderTargetView> dcompRenderTargetView;
     rt::com_ptr<ID3D11VertexShader> dcompVertexShader;
     rt::com_ptr<ID3D11PixelShader> dcompPixelShader;
     rt::com_ptr<ID3D11InputLayout> dcompInputLayout;
@@ -193,6 +195,14 @@ struct CaptureSession
     std::wstring adapterVendor;
     std::string dcompLastError;
     std::mutex dcompErrorMutex;
+    std::mutex dcompWorkerMutex;
+    std::condition_variable dcompWorkerCv;
+    std::thread dcompWorker;
+    std::atomic<bool> dcompWorkerRunning{ false };
+    rt::com_ptr<ID3D11Texture2D> dcompPendingTexture;
+    int dcompPendingWidth = 0;
+    int dcompPendingHeight = 0;
+    bool dcompHasPendingFrame = false;
 
     // Injection read path (Host side)
     std::atomic<int> injectionPid{ 0 };
@@ -301,7 +311,7 @@ struct CaptureSession
 
                             if (presentationHwnd)
                             {
-                                PresentToDirectComposition(injectionGpuTexture.get(), w, h);
+                                QueueDirectCompositionFrame(injectionGpuTexture.get(), w, h);
                                 frameCount.fetch_add(1);
                             }
                         }
@@ -1422,8 +1432,108 @@ struct CaptureSession
             return false;
         }
 
+        StartDirectCompositionWorker();
+        if (!dcompWorkerRunning.load())
+            return false;
+
         StartInjectionWorker();
         return true;
+    }
+
+    void StartDirectCompositionWorker()
+    {
+        if (!presentationHwnd)
+            return;
+
+        bool expected = false;
+        if (!dcompWorkerRunning.compare_exchange_strong(expected, true))
+            return;
+
+        try
+        {
+            dcompWorker = std::thread([this]() { DirectCompositionWorkerLoop(); });
+        }
+        catch (...)
+        {
+            dcompWorkerRunning.store(false);
+            MarkDirectCompositionFailed("failed to start DirectComposition worker thread");
+        }
+    }
+
+    void StopDirectCompositionWorker()
+    {
+        bool wasRunning = dcompWorkerRunning.exchange(false);
+        if (wasRunning)
+        {
+            dcompWorkerCv.notify_all();
+        }
+
+        if (dcompWorker.joinable())
+            dcompWorker.join();
+
+        std::lock_guard<std::mutex> lock(dcompWorkerMutex);
+        dcompPendingTexture = nullptr;
+        dcompPendingWidth = 0;
+        dcompPendingHeight = 0;
+        dcompHasPendingFrame = false;
+    }
+
+    void QueueDirectCompositionFrame(ID3D11Texture2D* texture, int width, int height)
+    {
+        if (!presentationHwnd || !texture || !dcompWorkerRunning.load())
+            return;
+
+        {
+            std::lock_guard<std::mutex> lock(dcompWorkerMutex);
+            dcompPendingTexture.copy_from(texture);
+            dcompPendingWidth = width;
+            dcompPendingHeight = height;
+            dcompHasPendingFrame = true;
+        }
+
+        dcompWorkerCv.notify_one();
+    }
+
+    void DirectCompositionWorkerLoop()
+    {
+        while (dcompWorkerRunning.load())
+        {
+            rt::com_ptr<ID3D11Texture2D> texture;
+            int width = 0;
+            int height = 0;
+            bool hadFrame = false;
+
+            {
+                std::unique_lock<std::mutex> lock(dcompWorkerMutex);
+                dcompWorkerCv.wait(lock, [this]()
+                {
+                    return !dcompWorkerRunning.load() || dcompHasPendingFrame || dcompShaderDirty.load();
+                });
+
+                if (!dcompWorkerRunning.load())
+                    break;
+
+                hadFrame = dcompHasPendingFrame;
+                if (hadFrame)
+                {
+                    texture = dcompPendingTexture;
+                    width = dcompPendingWidth;
+                    height = dcompPendingHeight;
+                    dcompHasPendingFrame = false;
+                }
+            }
+
+            if (dcompShaderDirty.load())
+            {
+                if (!EnsureDirectCompositionRenderer())
+                    continue;
+            }
+
+            if (hadFrame && texture)
+            {
+                PresentToDirectComposition(texture.get(), width, height);
+            }
+        }
     }
 
     bool EnsureDirectCompositionRenderer()
@@ -1643,6 +1753,7 @@ struct CaptureSession
             return true;
 
         dcompSwapChain = nullptr;
+        dcompRenderTargetView = nullptr;
         dcompWidth = 0;
         dcompHeight = 0;
 
@@ -1681,6 +1792,26 @@ struct CaptureSession
         {
             MarkDirectCompositionFailed("Commit after swapchain creation failed");
             dcompSwapChain = nullptr;
+            dcompRenderTargetView = nullptr;
+            return false;
+        }
+
+        rt::com_ptr<ID3D11Texture2D> backBuffer;
+        hr = dcompSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), backBuffer.put_void());
+        if (FAILED(hr) || !backBuffer)
+        {
+            MarkDirectCompositionFailed("GetBuffer for cached RTV failed");
+            dcompSwapChain = nullptr;
+            dcompRenderTargetView = nullptr;
+            return false;
+        }
+
+        hr = d3dDevice->CreateRenderTargetView(backBuffer.get(), nullptr, dcompRenderTargetView.put());
+        if (FAILED(hr) || !dcompRenderTargetView)
+        {
+            MarkDirectCompositionFailed("CreateRenderTargetView for cached RTV failed");
+            dcompSwapChain = nullptr;
+            dcompRenderTargetView = nullptr;
             return false;
         }
 
@@ -1700,21 +1831,13 @@ struct CaptureSession
         if (!EnsureDirectCompositionRenderer())
             return;
 
-        rt::com_ptr<ID3D11Texture2D> backBuffer;
-        HRESULT hr = dcompSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), backBuffer.put_void());
-        if (FAILED(hr) || !backBuffer)
+        if (!dcompRenderTargetView)
         {
-            MarkDirectCompositionFailed("GetBuffer failed");
+            MarkDirectCompositionFailed("cached render target view missing");
             return;
         }
 
-        rt::com_ptr<ID3D11RenderTargetView> rtv;
-        hr = d3dDevice->CreateRenderTargetView(backBuffer.get(), nullptr, rtv.put());
-        if (FAILED(hr) || !rtv)
-        {
-            MarkDirectCompositionFailed("CreateRenderTargetView failed");
-            return;
-        }
+        HRESULT hr = S_OK;
 
         D3D11_TEXTURE2D_DESC texDesc{};
         texture->GetDesc(&texDesc);
@@ -1809,9 +1932,9 @@ struct CaptureSession
         viewport.MaxDepth = 1.0f;
 
         float clearColor[4] = { 0, 0, 0, 1 };
-        ID3D11RenderTargetView* rtvPtr = rtv.get();
+        ID3D11RenderTargetView* rtvPtr = dcompRenderTargetView.get();
         d3dContext->OMSetRenderTargets(1, &rtvPtr, nullptr);
-        d3dContext->ClearRenderTargetView(rtv.get(), clearColor);
+        d3dContext->ClearRenderTargetView(dcompRenderTargetView.get(), clearColor);
         d3dContext->RSSetState(dcompRasterizerState.get());
         d3dContext->RSSetViewports(1, &viewport);
 
@@ -1958,19 +2081,7 @@ struct CaptureSession
 
             if (presentationHwnd)
             {
-                // If we recently had an injection frame, skip WGC presentation to avoid judder/switching.
-                LARGE_INTEGER qpc;
-                QueryPerformanceCounter(&qpc);
-                LARGE_INTEGER freq;
-                QueryPerformanceFrequency(&freq);
-                
-                long long lastInj = lastInjectionFrameTime.load();
-                double elapsedSinceInjection = (double)(qpc.QuadPart - lastInj) / freq.QuadPart;
-                
-                if (lastInj == 0 || elapsedSinceInjection > 0.5) // 500ms fallback
-                {
-                    PresentToDirectComposition(currentGpu.get(), currentW, currentH);
-                }
+                QueueDirectCompositionFrame(currentGpu.get(), currentW, currentH);
             }
 
             // Interop-only fast path:
@@ -2610,6 +2721,7 @@ extern "C" {
         if (!s) return;
         s->closing.store(true);
         try {
+            s->StopDirectCompositionWorker();
             if (s->session) s->session.Close();
             if (s->item && s->closeToken) s->item.Closed(s->closeToken);
             if (s->framePool) {
@@ -2707,6 +2819,8 @@ extern "C" {
         {
             OutputDebugStringA("[WGC_NATIVE] SetDirectCompositionShader path='<none>'\n");
         }
+
+        s->dcompWorkerCv.notify_one();
     }
 
     __declspec(dllexport) int GetDirectCompositionAdapterInfo(void* ptr, wchar_t* rendererBuffer, int rendererBufferChars, wchar_t* vendorBuffer, int vendorBufferChars) {

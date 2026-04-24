@@ -130,10 +130,11 @@ public class DirectCompositionCaptureHost : NativeControlHost
     private DateTime _lastFpsSampleUtc = DateTime.UtcNow;
     private DateTime _lastPresentSampleUtc = DateTime.UtcNow;
     private string? _lastAppliedShaderPath;
+    private string _lastStatusText = string.Empty;
 
     public DirectCompositionCaptureHost()
     {
-        _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Background, (_, _) => RefreshStatus());
+        _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) => RefreshStatus());
     }
 
     public IntPtr TargetHwnd
@@ -581,7 +582,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         {
             if (TargetHwnd == IntPtr.Zero)
             {
-                StatusText = "Waiting for emulator HWND";
+                SetStatusText("Waiting for emulator HWND");
             }
 
             return;
@@ -676,7 +677,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
             IsCaptureInitializing = false;
         }
 
-        StatusText = state switch
+        var statusText = state switch
         {
             2 when Fps <= 0.01 && (frames > 0 || presents > 0) => $"DirectComposition active (stalled) | frames {frames} | presents {presents}",
             2 => $"DirectComposition active | frames {frames} | presents {presents}",
@@ -685,6 +686,17 @@ public class DirectCompositionCaptureHost : NativeControlHost
             -1 => $"DirectComposition failed | frames {frames} | presents {presents}",
             _ => $"DirectComposition waiting | frames {frames} | presents {presents}"
         };
+
+        SetStatusText(statusText);
+    }
+
+    private void SetStatusText(string value)
+    {
+        if (string.Equals(_lastStatusText, value, StringComparison.Ordinal))
+            return;
+
+        _lastStatusText = value;
+        StatusText = value;
     }
 
     private void UpdateCaptureCropRect()
