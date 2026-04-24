@@ -15,7 +15,6 @@ namespace AES_Emulation.Windows.API
         private IntPtr _target = IntPtr.Zero;
 
         private RECT _lastHostRect;
-        private RECT _lastTargetRect;
         private int _lastOpacity = -1;
         private bool _lastMoveToHost = true;
         private RECT _savedTargetRect;

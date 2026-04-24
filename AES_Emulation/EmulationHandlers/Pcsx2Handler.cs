@@ -52,6 +52,8 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
 
     public override int CaptureStartupDelayMs => 900;
 
+    public override bool ForceUseTargetClientAreaCapture => true;
+
     public override void PrepareProcessForCapture(Process process)
     {
         // Intentionally no-op for PCSX2.

@@ -72,7 +72,7 @@ public class LinuxScreenCaptureService : AES_Emulation.Platform.IScreenCaptureSe
 
     public async Task<IntPtr> ResolveCaptureTargetAsync(Process process, IEmulatorHandler handler, CancellationToken cancellationToken)
     {
-        const int maxAttempts = 240;
+        const int maxAttempts = 300;
         const int delayMs = 100;
         const int stableAttemptsBeforeStop = 6;
 

@@ -671,8 +671,6 @@ public class WgcCaptureControl : OpenGlControlBase
                     _injectionAccessor.SafeMemoryMappedViewHandle.ReleasePointer();
             }
         }
-
-        return false;
     }
 
     private void CleanupInjectionSession()

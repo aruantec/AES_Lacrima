@@ -42,7 +42,7 @@ public class WindowsScreenCaptureService : AES_Emulation.Platform.IScreenCapture
 
     public async Task<IntPtr> ResolveCaptureTargetAsync(Process process, IEmulatorHandler handler, CancellationToken cancellationToken)
     {
-        const int maxAttempts = 240;
+        const int maxAttempts = 300;
         const int delayMs = 100;
         const int stableAttemptsBeforeAssign = 2;
         const int stableAttemptsBeforeStop = 6;
@@ -54,6 +54,18 @@ public class WindowsScreenCaptureService : AES_Emulation.Platform.IScreenCapture
         var hasAssignedHandle = false;
 
         TryWaitForInputIdle(process, 500);
+
+        if (handler.CaptureStartupDelayMs > 0)
+        {
+            try
+            {
+                await Task.Delay(handler.CaptureStartupDelayMs, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+        }
 
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
