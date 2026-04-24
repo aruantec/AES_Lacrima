@@ -280,7 +280,6 @@ public class CompositionWgcCaptureControl : Control
     public CompositionWgcCaptureControl()
     {
         PreserveAotDependencies();
-        ClipToBounds = true;
         LogInfo(
             $"CompositionWgcCaptureControl constructed. " +
 #if NATIVE_AOT
