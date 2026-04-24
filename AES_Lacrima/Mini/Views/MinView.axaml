@@ -581,7 +581,8 @@
                  ItemsSource="{Binding MusicViewModel.CoverItems}"
                  SelectedItem="{Binding SelectedMediaItem}"
                  SelectedIndex="{Binding SelectedPlaylistIndex, Mode=TwoWay}"
-                 SelectionMode="Single"
+                 SelectedItems="{Binding SelectedItems, Mode=TwoWay}"
+                 SelectionMode="Multiple"
                  BorderBrush="DimGray"
                  BorderThickness="0.5,0,0,0.5"
                  Padding="5"
@@ -596,6 +597,8 @@
                     <MenuItem Header="Reload Metadata" CornerRadius="8"
                               Command="{Binding ReloadPlaylistItemMetadataCommand}"
                               CommandParameter="{Binding SelectedMediaItem}" />
+                    <MenuItem Header="Invert Selection" CornerRadius="8"
+                              Command="{Binding InvertSelectionCommand}" />
                     <MenuItem Header="Delete" CornerRadius="8"
                               Command="{Binding DeletePlaylistItemCommand}"
                               CommandParameter="{Binding SelectedMediaItem}" />
@@ -616,6 +619,8 @@
                             <MenuItem Header="Reload Metadata" CornerRadius="8"
                                       Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).ReloadPlaylistItemMetadataCommand}"
                                       CommandParameter="{Binding}" />
+                            <MenuItem Header="Invert Selection" CornerRadius="8"
+                                      Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).InvertSelectionCommand}" />
                             <MenuItem Header="Delete" CornerRadius="8"
                                       Command="{Binding $parent[ListBox].((vm:MinViewModel)DataContext).DeletePlaylistItemCommand}"
                                       CommandParameter="{Binding}" />
