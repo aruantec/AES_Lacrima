@@ -556,6 +556,28 @@ namespace AES_Lacrima.Mini.ViewModels
             UpdateTotalDuration();
         }
 
+        [RelayCommand]
+        private void InvertSelection()
+        {
+            var playlistItems = GetCurrentPlaylistItems();
+            if (playlistItems == null)
+                return;
+
+            var selectedItems = SelectedItems ?? [];
+            var invertedItems = new AvaloniaList<MediaItem>();
+
+            foreach (var item in playlistItems)
+            {
+                if (!selectedItems.Contains(item))
+                {
+                    invertedItems.Add(item);
+                }
+            }
+
+            SelectedItems = invertedItems;
+            SelectedMediaItem = invertedItems.Count > 0 ? invertedItems[0] : null;
+        }
+
         #endregion
 
         #region Constructor / Prepare
