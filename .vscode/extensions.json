@@ -1,8 +1,11 @@
 {
   "recommendations": [
     "ms-dotnettools.csharp",
+    "ms-dotnettools.csdevkit",
+    "ms-dotnettools.vscode-dotnet-runtime",
+    "ms-dotnettools.dotnet-maui",
+    "ms-vscode.cpptools",
     "nromanov.dotrush",
-    "AvaloniaTeam.vscode-avalonia",
-    "nuke.nuke-support"
+    "AvaloniaTeam.vscode-avalonia"
   ]
 }

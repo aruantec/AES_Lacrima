@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace AES_Controls.Helpers;
 
@@ -114,6 +115,7 @@ public static class YtDlpMetadata
 
         try
         {
+            AddCommonYtDlpArgs(psi);
             psi.ArgumentList.Add("--no-playlist");
             psi.ArgumentList.Add("--output-na-placeholder");
             psi.ArgumentList.Add(string.Empty);
@@ -146,6 +148,7 @@ public static class YtDlpMetadata
         catch
         {
             psi.Arguments =
+                BuildCommonYtDlpArgsForCommandLine() + " " +
                 "--no-playlist --output-na-placeholder \"\" " +
                 "--print id --print title --print duration --print artist --print uploader --print channel " +
                 "--print album --print track --print track_number --print release_year --print genre --print thumbnail " +
@@ -194,13 +197,15 @@ public static class YtDlpMetadata
         // Prefer safe argument passing when supported
         try
         {
+            AddCommonYtDlpArgs(psi);
+            psi.ArgumentList.Add("--no-playlist");
             psi.ArgumentList.Add("-J");
             psi.ArgumentList.Add(videoUrl);
         }
         catch
         {
             // Fall back to quoted arguments for runtimes that don't support ArgumentList
-            psi.Arguments = "-J \"" + videoUrl.Replace("\"", "\\\"") + "\"";
+            psi.Arguments = BuildCommonYtDlpArgsForCommandLine() + " --no-playlist -J \"" + videoUrl.Replace("\"", "\\\"") + "\"";
         }
 
         var json = await RunAndCollectOutputAsync(psi, exePath, cancellationToken).ConfigureAwait(false);
@@ -308,7 +313,23 @@ public static class YtDlpMetadata
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Failed to start yt-dlp ('{exePath}'). Make sure yt-dlp is installed and on PATH. Error: {ex.Message}");
+            var fallbackName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp";
+            if (!string.Equals(psi.FileName, fallbackName, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var fallbackPsi = CreateFallbackStartInfo(psi, fallbackName);
+                    process = Process.Start(fallbackPsi);
+                }
+                catch (Exception fallbackEx)
+                {
+                    throw new InvalidOperationException($"Failed to start yt-dlp ('{exePath}') and PATH fallback ('{fallbackName}'). Primary: {ex.Message}. Fallback: {fallbackEx.Message}");
+                }
+            }
+            else
+            {
+                throw new InvalidOperationException($"Failed to start yt-dlp ('{exePath}'). Make sure yt-dlp is installed and on PATH. Error: {ex.Message}");
+            }
         }
 
         if (process == null)
@@ -323,6 +344,101 @@ public static class YtDlpMetadata
             throw new InvalidOperationException($"yt-dlp failed:\n{error}");
 
         return output;
+    }
+
+    private static ProcessStartInfo CreateFallbackStartInfo(ProcessStartInfo source, string fallbackFileName)
+    {
+        var fallback = new ProcessStartInfo
+        {
+            FileName = fallbackFileName,
+            RedirectStandardOutput = source.RedirectStandardOutput,
+            RedirectStandardError = source.RedirectStandardError,
+            UseShellExecute = source.UseShellExecute,
+            CreateNoWindow = source.CreateNoWindow,
+            WorkingDirectory = source.WorkingDirectory
+        };
+
+        if (source.ArgumentList.Count > 0)
+        {
+            foreach (var arg in source.ArgumentList)
+            {
+                fallback.ArgumentList.Add(arg);
+            }
+        }
+        else
+        {
+            fallback.Arguments = source.Arguments;
+        }
+
+        return fallback;
+    }
+
+    private static void AddCommonYtDlpArgs(ProcessStartInfo psi)
+    {
+        // Reduce YouTube extraction failures in headless/Linux environments.
+        psi.ArgumentList.Add("--extractor-args");
+        psi.ArgumentList.Add("youtube:player_client=android,web_safari,tv;player_skip=webpage,configs");
+
+        var runtimeList = GetJsRuntimeList();
+        if (!string.IsNullOrWhiteSpace(runtimeList))
+        {
+            psi.ArgumentList.Add("--js-runtimes");
+            psi.ArgumentList.Add(runtimeList);
+        }
+
+        var cookiesFile = Environment.GetEnvironmentVariable("AES_YTDLP_COOKIES_FILE");
+        if (!string.IsNullOrWhiteSpace(cookiesFile) && File.Exists(cookiesFile))
+        {
+            psi.ArgumentList.Add("--cookies");
+            psi.ArgumentList.Add(cookiesFile);
+            return;
+        }
+
+        var cookiesFromBrowser = Environment.GetEnvironmentVariable("AES_YTDLP_COOKIES_FROM_BROWSER");
+        if (!string.IsNullOrWhiteSpace(cookiesFromBrowser))
+        {
+            psi.ArgumentList.Add("--cookies-from-browser");
+            psi.ArgumentList.Add(cookiesFromBrowser);
+        }
+    }
+
+    private static string BuildCommonYtDlpArgsForCommandLine()
+    {
+        var args = new StringBuilder();
+        args.Append("--extractor-args \"youtube:player_client=android,web_safari,tv;player_skip=webpage,configs\"");
+
+        var runtimeList = GetJsRuntimeList();
+        if (!string.IsNullOrWhiteSpace(runtimeList))
+        {
+            args.Append(" --js-runtimes ").Append(QuoteArg(runtimeList));
+        }
+
+        var cookiesFile = Environment.GetEnvironmentVariable("AES_YTDLP_COOKIES_FILE");
+        if (!string.IsNullOrWhiteSpace(cookiesFile) && File.Exists(cookiesFile))
+        {
+            args.Append(" --cookies ").Append(QuoteArg(cookiesFile));
+            return args.ToString();
+        }
+
+        var cookiesFromBrowser = Environment.GetEnvironmentVariable("AES_YTDLP_COOKIES_FROM_BROWSER");
+        if (!string.IsNullOrWhiteSpace(cookiesFromBrowser))
+        {
+            args.Append(" --cookies-from-browser ").Append(QuoteArg(cookiesFromBrowser));
+        }
+
+        return args.ToString();
+    }
+
+    private static string? GetJsRuntimeList()
+    {
+        var candidates = new[] { "node", "deno", "bun" };
+        var available = candidates.Where(cmd => FindExecutable(cmd) is not null).ToArray();
+        return available.Length > 0 ? string.Join(',', available) : null;
+    }
+
+    private static string QuoteArg(string value)
+    {
+        return "\"" + value.Replace("\"", "\\\"") + "\"";
     }
 
     private static async Task<string> RequireYtDlpPathAsync()
@@ -390,9 +506,19 @@ public static class YtDlpMetadata
     private static string? _resolvedYtDlpPath = null;
     private static bool _ytDlpResolved = false;
 
+    internal static void InvalidateResolvedPathCache()
+    {
+        _resolvedYtDlpPath = null;
+        _ytDlpResolved = false;
+    }
+
     private static async Task<string?> ResolveYtDlpPathAsync()
     {
-        if (_ytDlpResolved) return _resolvedYtDlpPath;
+        if (_ytDlpResolved && !string.IsNullOrWhiteSpace(_resolvedYtDlpPath) && File.Exists(_resolvedYtDlpPath))
+            return _resolvedYtDlpPath;
+
+        _ytDlpResolved = false;
+        _resolvedYtDlpPath = null;
 
         string preferred = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp.exe" : "yt-dlp";
         string fallback = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "yt-dlp" : "yt-dlp.exe";
@@ -400,28 +526,25 @@ public static class YtDlpMetadata
         string? systemPath = FindExecutable(preferred, fallback);
         string? localPath = FindLocalExecutable(preferred, fallback);
 
-        if (systemPath != null && localPath != null)
-        {
-            string? sysVersion = await GetVersionAsync(systemPath);
-            string? locVersion = await GetVersionAsync(localPath);
+        bool localUsable = localPath is not null && await GetVersionAsync(localPath).ConfigureAwait(false) is not null;
+        bool systemUsable = systemPath is not null && await GetVersionAsync(systemPath).ConfigureAwait(false) is not null;
 
-            if (sysVersion != null && locVersion != null && string.Compare(sysVersion, locVersion) < 0)
-            {
-                // Local is newer, try updating system. If it fails, fallback to local
-                bool updated = await TryUpdateYtDlpAsync(systemPath);
-                _resolvedYtDlpPath = updated ? systemPath : localPath;
-            }
-            else
-            {
-                _resolvedYtDlpPath = systemPath;
-            }
+        if (localUsable)
+        {
+            // Prefer the app-managed binary when it is usable.
+            _resolvedYtDlpPath = localPath;
+        }
+        else if (systemUsable)
+        {
+            _resolvedYtDlpPath = systemPath;
         }
         else
         {
-            _resolvedYtDlpPath = systemPath ?? localPath;
+            // Fallback for diagnostics: return any candidate even if not immediately verifiable.
+            _resolvedYtDlpPath = localPath ?? systemPath;
         }
 
-        _ytDlpResolved = true;
+        _ytDlpResolved = !string.IsNullOrWhiteSpace(_resolvedYtDlpPath);
         return _resolvedYtDlpPath;
     }
 

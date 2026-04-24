@@ -108,6 +108,7 @@ public partial class YtDlpManager : ObservableObject
         try
         {
             await DownloadLatestAsync();
+            YtDlpMetadata.InvalidateResolvedPathCache();
             Status = "yt-dlp installation successful.";
             InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(true, Status));
             return true;
@@ -188,6 +189,7 @@ public partial class YtDlpManager : ObservableObject
                 }
 
                 File.Delete(fullPath);
+                YtDlpMetadata.InvalidateResolvedPathCache();
                 Status = "yt-dlp uninstalled.";
                 InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(true, Status));
                 return true;
@@ -372,6 +374,7 @@ public partial class YtDlpManager : ObservableObject
         try
         {
             await DownloadLatestAsync();
+            YtDlpMetadata.InvalidateResolvedPathCache();
             Status = "yt-dlp update successful.";
             InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(true, Status));
         }
