@@ -52,7 +52,18 @@ namespace AES_Lacrima.Services
                 const int targetHeight = 1080;
 
                 var currentUrl = YouTubeThumbnail.GetCleanVideoLink(url);
-                var info = await YtDlpMetadata.GetMetaDataAsync(currentUrl).ConfigureAwait(false);
+                MediaInfo info;
+                try
+                {
+                    info = await YtDlpMetadata.GetMetaDataAsync(currentUrl).ConfigureAwait(false);
+                }
+                catch (Exception cleanedUrlError) when (!string.Equals(currentUrl, url, StringComparison.Ordinal))
+                {
+                    AES_Core.Logging.LogHelper.For<MediaUrlService>().Warn(
+                        $"yt-dlp metadata failed for normalized URL. Retrying with original URL. Normalized='{currentUrl}', Original='{url}'",
+                        cleanedUrlError);
+                    info = await YtDlpMetadata.GetMetaDataAsync(url).ConfigureAwait(false);
+                }
 
                 var bestMuxed = info.MuxedFormats
                     .Where(m => !string.IsNullOrWhiteSpace(m.Url) && (m.Height ?? 0) > 0)
@@ -98,7 +109,11 @@ namespace AES_Lacrima.Services
                 }
 
                 if (string.IsNullOrWhiteSpace(videoUrl) && string.IsNullOrWhiteSpace(audioUrl))
+                {
+                    AES_Core.Logging.LogHelper.For<MediaUrlService>().Warn(
+                        $"yt-dlp returned no usable media formats for URL '{url}'. VideoFormats={info.VideoFormats.Count}, AudioFormats={info.AudioFormats.Count}, MuxedFormats={info.MuxedFormats.Count}");
                     return null;
+                }
 
                 double? aspectRatio = width > 0 && height > 0
                     ? Math.Round(width.Value / (double)height.Value, 4)

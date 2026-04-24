@@ -164,14 +164,21 @@
     <Message Importance="high" Text="Building macOS ScreenCaptureKit bridge into '$(PublishDir)libAesMacCaptureBridge.dylib'" />
     <Exec Command="clang -dynamiclib -fobjc-arc -framework AppKit -framework AVFoundation -framework CoreGraphics -framework CoreMedia -framework QuartzCore -framework ScreenCaptureKit -o &quot;$(PublishDir)libAesMacCaptureBridge.dylib&quot; &quot;$(MSBuildProjectDirectory)/Mac/Native/AesMacCaptureBridge.m&quot;" />
   </Target>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <LinuxCppCompiler>/usr/bin/g++</LinuxCppCompiler>
+  </PropertyGroup>
   
-  <Target Name="BuildLinuxCaptureBridge" AfterTargets="Build" Condition="$([MSBuild]::IsOSPlatform('Linux')) and Exists('$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp')">
+  <Target Name="BuildLinuxCaptureBridge" AfterTargets="Build" Condition="$([MSBuild]::IsOSPlatform('Linux')) and Exists('$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp') and Exists('$(LinuxCppCompiler)')">
     <Message Importance="high" Text="Building Linux X11 capture bridge into '$(OutDir)libAesLinuxCaptureBridge.so'" />
-    <Exec Command="g++ -shared -fPIC -o &quot;$(OutDir)libAesLinuxCaptureBridge.so&quot; &quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&quot; -lX11 -lXcomposite -lXdamage -lXfixes -lGL -lpthread" />
+    <Exec Command="&quot;$(LinuxCppCompiler)&quot; -shared -fPIC -o &quot;$(OutDir)libAesLinuxCaptureBridge.so&quot; &quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&quot; -lX11 -lXcomposite -lXdamage -lXfixes -lGL -lpthread" />
   </Target>
-  <Target Name="BuildLinuxCaptureBridgeForPublish" AfterTargets="Publish" Condition="$([MSBuild]::IsOSPlatform('Linux')) and Exists('$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp')">
+  <Target Name="BuildLinuxCaptureBridgeForPublish" AfterTargets="Publish" Condition="$([MSBuild]::IsOSPlatform('Linux')) and Exists('$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp') and Exists('$(LinuxCppCompiler)')">
     <Message Importance="high" Text="Building Linux X11 capture bridge into '$(PublishDir)libAesLinuxCaptureBridge.so'" />
-    <Exec Command="g++ -shared -fPIC -o &quot;$(PublishDir)libAesLinuxCaptureBridge.so&quot; &quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&quot; -lX11 -lXcomposite -lXdamage -lXfixes -lGL -lpthread" />
+    <Exec Command="&quot;$(LinuxCppCompiler)&quot; -shared -fPIC -o &quot;$(PublishDir)libAesLinuxCaptureBridge.so&quot; &quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&quot; -lX11 -lXcomposite -lXdamage -lXfixes -lGL -lpthread" />
+  </Target>
+  <Target Name="WarnMissingLinuxCppCompiler" AfterTargets="Build;Publish" Condition="$([MSBuild]::IsOSPlatform('Linux')) and Exists('$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp') and !Exists('$(LinuxCppCompiler)')">
+    <Warning Text="Skipping Linux X11 capture bridge build because $(LinuxCppCompiler) was not found. Install g++ and libx11-dev/libxcomposite-dev/libxdamage-dev/libxfixes-dev/libgl1-mesa-dev to build the native bridge." />
   </Target>
 
   <!-- macOS packaging target: creates a .app bundle using the publish directory -->
