@@ -167,10 +167,77 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             startInfo.Environment["GDK_BACKEND"] = "x11";
             startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
             startInfo.Environment.Remove("WAYLAND_DISPLAY");
+
+            // Let AppImage binaries run on systems without functional FUSE mounts,
+            // but avoid forcing extraction when FUSE appears to be available.
+            if (IsAppImagePath(executablePath) && !HasLikelyFuseSupport())
+            {
+                startInfo.Environment["APPIMAGE_EXTRACT_AND_RUN"] = "1";
+            }
         }
 
         startInfo.ArgumentList.Add(romPath);
         return startInfo;
+    }
+
+    private static bool IsAppImagePath(string? executablePath)
+    {
+        if (string.IsNullOrWhiteSpace(executablePath))
+            return false;
+
+        return executablePath.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasLikelyFuseSupport()
+    {
+        if (!OperatingSystem.IsLinux())
+            return false;
+
+        try
+        {
+            if (!File.Exists("/dev/fuse"))
+                return false;
+
+            return IsCommandAvailable("fusermount3") || IsCommandAvailable("fusermount");
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsCommandAvailable(string command)
+    {
+        if (string.IsNullOrWhiteSpace(command))
+            return false;
+
+        if (OperatingSystem.IsWindows())
+            return false;
+
+        var path = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        var pathEntries = path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var entry in pathEntries)
+        {
+            try
+            {
+                var candidate = Path.Combine(entry, command);
+                if (!File.Exists(candidate))
+                    continue;
+
+                var mode = File.GetUnixFileMode(candidate);
+                if ((mode & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0)
+                    return true;
+            }
+            catch
+            {
+                // Ignore inaccessible path entries.
+            }
+        }
+
+        return false;
     }
 
     public static bool IsMacAppBundle(string? launcherPath)

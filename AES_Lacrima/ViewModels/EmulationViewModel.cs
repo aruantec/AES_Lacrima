@@ -2045,6 +2045,8 @@ namespace AES_Lacrima.ViewModels
                     request.LaunchSettings?.StartFullscreen == true,
                     request.AlbumTitle,
                     request.LaunchSettings?.SelectedRetroArchCore);
+
+                PrepareLinuxAppImageStartInfo(startInfo);
                 var process = Process.Start(startInfo);
 
                 if (process != null)
@@ -2060,6 +2062,30 @@ namespace AES_Lacrima.ViewModels
                 RestoreAppTopMost();
                 IsEmulatorLaunchInProgress = false;
             }
+        }
+
+        private static void PrepareLinuxAppImageStartInfo(ProcessStartInfo startInfo)
+        {
+            if (!OperatingSystem.IsLinux())
+                return;
+
+            if (string.IsNullOrWhiteSpace(startInfo.FileName) ||
+                !startInfo.FileName.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var appImagePath = startInfo.FileName;
+            var originalArgs = startInfo.ArgumentList.ToArray();
+
+            startInfo.FileName = "env";
+            startInfo.ArgumentList.Clear();
+            startInfo.ArgumentList.Add("APPIMAGE_EXTRACT_AND_RUN=1");
+            startInfo.ArgumentList.Add(appImagePath);
+            startInfo.ArgumentList.Add("--appimage-extract-and-run");
+
+            foreach (var arg in originalArgs)
+                startInfo.ArgumentList.Add(arg);
         }
 
         private bool TryGetRunningTrackedEmulatorProcess(out Process process)
