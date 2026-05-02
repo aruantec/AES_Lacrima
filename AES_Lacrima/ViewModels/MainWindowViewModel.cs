@@ -245,6 +245,21 @@ namespace AES_Lacrima.ViewModels
         }
 
         /// <summary>
+        /// Shows a prompt in the main window overlay, queueing it if another prompt is already visible.
+        /// </summary>
+        public bool TryShowPrompt(ViewModelBase prompt)
+        {
+            if (PromptView == null)
+            {
+                PromptView = prompt;
+                return true;
+            }
+
+            _pendingPromptFactory = () => prompt;
+            return false;
+        }
+
+        /// <summary>
         /// Displays the application update prompt, or queues it if another prompt is already active.
         /// </summary>
         public void ShowAppUpdatePrompt(AppReleaseInfo release)

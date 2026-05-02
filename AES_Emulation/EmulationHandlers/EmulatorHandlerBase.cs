@@ -93,6 +93,8 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public ICommand? BrowseLauncherCommand { get; set; }
 
+    public ICommand? SelectFlatpakLauncherCommand { get; set; }
+
     public ICommand? ClearLauncherCommand { get; set; }
 
     public bool IsActive
@@ -149,6 +151,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
+        if (OperatingSystem.IsLinux() && TryBuildLinuxDesktopEntryStartInfo(launcherPath, romPath, out var desktopStartInfo))
+            return desktopStartInfo;
+
         var executablePath = ResolveLauncherExecutablePath(launcherPath) ?? launcherPath;
         var workingDirectory = ResolveLauncherWorkingDirectory(launcherPath) ??
                                Path.GetDirectoryName(executablePath) ??
@@ -161,23 +166,116 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             WorkingDirectory = workingDirectory
         };
 
-        if (OperatingSystem.IsLinux())
-        {
-            startInfo.Environment["SDL_VIDEODRIVER"] = "x11";
-            startInfo.Environment["GDK_BACKEND"] = "x11";
-            startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
-            startInfo.Environment.Remove("WAYLAND_DISPLAY");
-
-            // Let AppImage binaries run on systems without functional FUSE mounts,
-            // but avoid forcing extraction when FUSE appears to be available.
-            if (IsAppImagePath(executablePath) && !HasLikelyFuseSupport())
-            {
-                startInfo.Environment["APPIMAGE_EXTRACT_AND_RUN"] = "1";
-            }
-        }
+        ApplyLinuxLaunchEnvironment(startInfo, executablePath);
 
         startInfo.ArgumentList.Add(romPath);
         return startInfo;
+    }
+
+    private static bool TryBuildLinuxDesktopEntryStartInfo(string? launcherPath, string romPath, out ProcessStartInfo startInfo)
+    {
+        startInfo = null!;
+
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(launcherPath))
+            return false;
+
+        var normalizedLauncherPath = launcherPath.Trim();
+        if (!normalizedLauncherPath.EndsWith(".desktop", StringComparison.OrdinalIgnoreCase) || !File.Exists(normalizedLauncherPath))
+            return false;
+
+        if (!TryParseDesktopExecLine(normalizedLauncherPath, out var execLine))
+            return false;
+
+        if (!TryTokenizeDesktopExecLine(execLine, normalizedLauncherPath, romPath, out var fileName, out var arguments, out var hasFieldCode))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(fileName))
+            return false;
+
+        startInfo = new ProcessStartInfo
+        {
+            FileName = fileName,
+            UseShellExecute = false,
+            WorkingDirectory = ResolveLauncherWorkingDirectory(normalizedLauncherPath) ?? string.Empty
+        };
+
+        ApplyLinuxLaunchEnvironment(startInfo, fileName);
+
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        ApplyLinuxSandboxLaunchOverrides(startInfo);
+
+        if (!hasFieldCode && !string.IsNullOrWhiteSpace(romPath))
+            startInfo.ArgumentList.Add(romPath);
+
+        return true;
+    }
+
+    private static void ApplyLinuxSandboxLaunchOverrides(ProcessStartInfo startInfo)
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(startInfo.FileName))
+            return;
+
+        var executableName = Path.GetFileName(startInfo.FileName);
+        if (string.IsNullOrWhiteSpace(executableName))
+            return;
+
+        var arguments = startInfo.ArgumentList.ToArray();
+
+        if (string.Equals(executableName, "flatpak", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(executableName, "flatpak-spawn", StringComparison.OrdinalIgnoreCase))
+        {
+            InjectFlatpakEnvironmentArguments(startInfo.ArgumentList, 1);
+            return;
+        }
+
+        if (!string.Equals(executableName, "env", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            var argumentName = Path.GetFileName(arguments[i]);
+            if (string.Equals(argumentName, "flatpak", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(argumentName, "flatpak-spawn", StringComparison.OrdinalIgnoreCase))
+            {
+                InjectFlatpakEnvironmentArguments(startInfo.ArgumentList, i + 2);
+                return;
+            }
+        }
+    }
+
+    private static void InjectFlatpakEnvironmentArguments(System.Collections.ObjectModel.Collection<string> argumentList, int insertIndex)
+    {
+        var environmentArguments = new[]
+        {
+            "--env=GDK_BACKEND=x11",
+            "--env=SDL_VIDEODRIVER=x11",
+            "--env=QT_QPA_PLATFORM=xcb"
+        };
+
+        foreach (var environmentArgument in environmentArguments)
+        {
+            argumentList.Insert(insertIndex++, environmentArgument);
+        }
+    }
+
+    private static void ApplyLinuxLaunchEnvironment(ProcessStartInfo startInfo, string executablePath)
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        startInfo.Environment["SDL_VIDEODRIVER"] = "x11";
+        startInfo.Environment["GDK_BACKEND"] = "x11";
+        startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
+        startInfo.Environment.Remove("WAYLAND_DISPLAY");
+
+        // Let AppImage binaries run on systems without functional FUSE mounts,
+        // but avoid forcing extraction when FUSE appears to be available.
+        if (IsAppImagePath(executablePath) && !HasLikelyFuseSupport())
+        {
+            startInfo.Environment["APPIMAGE_EXTRACT_AND_RUN"] = "1";
+        }
     }
 
     private static bool IsAppImagePath(string? executablePath)
@@ -254,6 +352,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         if (string.IsNullOrWhiteSpace(launcherPath))
             return null;
 
+        if (TryResolveLinuxDesktopEntryExecutablePath(launcherPath, out var desktopExecutablePath))
+            return desktopExecutablePath;
+
         if (!IsMacAppBundle(launcherPath))
             return launcherPath;
 
@@ -284,21 +385,273 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         return Path.GetDirectoryName(launcherPath);
     }
 
+    private static bool TryResolveLinuxDesktopEntryExecutablePath(string launcherPath, out string executablePath)
+    {
+        executablePath = string.Empty;
+
+        if (!OperatingSystem.IsLinux() ||
+            string.IsNullOrWhiteSpace(launcherPath) ||
+            !launcherPath.EndsWith(".desktop", StringComparison.OrdinalIgnoreCase) ||
+            !File.Exists(launcherPath))
+        {
+            return false;
+        }
+
+        if (!TryParseDesktopExecLine(launcherPath, out var execLine))
+            return false;
+
+        if (!TryTokenizeDesktopExecLine(execLine, launcherPath, string.Empty, out var fileName, out _, out _))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(fileName))
+            return false;
+
+        executablePath = fileName;
+        return true;
+    }
+
+    private static bool TryParseDesktopExecLine(string desktopFilePath, out string execLine)
+    {
+        execLine = string.Empty;
+
+        try
+        {
+            var inDesktopEntrySection = false;
+            foreach (var rawLine in File.ReadLines(desktopFilePath))
+            {
+                var line = rawLine.Trim();
+                if (line.Length == 0 || line.StartsWith("#", StringComparison.Ordinal))
+                    continue;
+
+                if (line.Equals("[Desktop Entry]", StringComparison.OrdinalIgnoreCase))
+                {
+                    inDesktopEntrySection = true;
+                    continue;
+                }
+
+                if (line.StartsWith("[", StringComparison.Ordinal) && line.EndsWith("]", StringComparison.Ordinal))
+                {
+                    if (inDesktopEntrySection)
+                        break;
+
+                    continue;
+                }
+
+                if (!inDesktopEntrySection || !line.StartsWith("Exec=", StringComparison.Ordinal))
+                    continue;
+
+                execLine = line.Substring("Exec=".Length).Trim();
+                return !string.IsNullOrWhiteSpace(execLine);
+            }
+        }
+        catch
+        {
+        }
+
+        return false;
+    }
+
+    private static bool TryTokenizeDesktopExecLine(
+        string execLine,
+        string launcherPath,
+        string romPath,
+        out string fileName,
+        out List<string> arguments,
+        out bool hasFieldCode)
+    {
+        fileName = string.Empty;
+        arguments = new List<string>();
+        hasFieldCode = false;
+
+        var tokens = new List<string>();
+        var token = new StringBuilder();
+        var quoteChar = '\0';
+
+        for (var i = 0; i < execLine.Length; i++)
+        {
+            var current = execLine[i];
+
+            if (current == '\\' && i + 1 < execLine.Length)
+            {
+                token.Append(execLine[++i]);
+                continue;
+            }
+
+            if (quoteChar != '\0')
+            {
+                if (current == quoteChar)
+                {
+                    quoteChar = '\0';
+                    continue;
+                }
+
+                token.Append(current);
+                continue;
+            }
+
+            if (current == '"' || current == '\'')
+            {
+                quoteChar = current;
+                continue;
+            }
+
+            if (char.IsWhiteSpace(current))
+            {
+                if (token.Length > 0)
+                {
+                    tokens.Add(token.ToString());
+                    token.Clear();
+                }
+
+                continue;
+            }
+
+            token.Append(current);
+        }
+
+        if (token.Length > 0)
+            tokens.Add(token.ToString());
+
+        if (tokens.Count == 0)
+            return false;
+
+        foreach (var rawToken in tokens)
+        {
+            var expandedToken = ExpandDesktopExecToken(rawToken, launcherPath, romPath, out var tokenUsedFieldCode);
+            hasFieldCode |= tokenUsedFieldCode;
+
+            if (string.IsNullOrWhiteSpace(expandedToken))
+                continue;
+
+            if (string.IsNullOrWhiteSpace(fileName))
+                fileName = expandedToken;
+            else
+                arguments.Add(expandedToken);
+        }
+
+        return !string.IsNullOrWhiteSpace(fileName);
+    }
+
+    private static string ExpandDesktopExecToken(string token, string launcherPath, string romPath, out bool usedFieldCode)
+    {
+        usedFieldCode = false;
+
+        if (string.IsNullOrWhiteSpace(token))
+            return string.Empty;
+
+        var result = new StringBuilder();
+        for (var i = 0; i < token.Length; i++)
+        {
+            var current = token[i];
+            if (current != '%')
+            {
+                result.Append(current);
+                continue;
+            }
+
+            if (i + 1 >= token.Length)
+            {
+                result.Append(current);
+                continue;
+            }
+
+            var code = token[++i];
+            switch (code)
+            {
+                case '%':
+                    result.Append('%');
+                    break;
+                case 'f':
+                case 'F':
+                    usedFieldCode = true;
+                    result.Append(romPath);
+                    break;
+                case 'u':
+                case 'U':
+                    usedFieldCode = true;
+                    result.Append(BuildFileUriArgument(romPath));
+                    break;
+                case 'k':
+                    result.Append(launcherPath);
+                    break;
+                case 'c':
+                    result.Append(Path.GetFileNameWithoutExtension(launcherPath));
+                    break;
+                case 'i':
+                    break;
+                default:
+                    result.Append('%').Append(code);
+                    break;
+            }
+        }
+
+        return result.ToString();
+    }
+
+    private static string BuildFileUriArgument(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return string.Empty;
+
+        try
+        {
+            return new Uri(Path.GetFullPath(path)).AbsoluteUri;
+        }
+        catch
+        {
+            return path;
+        }
+    }
+
     public virtual int CaptureStartupDelayMs => 3000;
 
     public virtual void PrepareProcessForCapture(Process process) => CaptureService?.PrepareProcessForCapture(process);
 
     public virtual void PrepareWindowForCapture(IntPtr hwnd) => CaptureService?.PrepareWindowForCapture(hwnd);
 
-    public virtual IntPtr FindPreferredWindowHandle(Process process) => CaptureService?.FindPreferredWindowHandle(process) ?? process.MainWindowHandle;
+    public virtual IntPtr FindPreferredWindowHandle(Process process)
+        => CaptureService?.FindPreferredWindowHandle(process) ?? (TryGetMainWindowHandle(process, out var mainWindowHandle) ? mainWindowHandle : IntPtr.Zero);
+
+    protected static bool IsProcessAlive(Process process)
+    {
+        try
+        {
+            return !process.HasExited;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    protected static bool TryGetMainWindowHandle(Process process, out IntPtr mainWindowHandle)
+    {
+        mainWindowHandle = IntPtr.Zero;
+
+        if (!IsProcessAlive(process))
+            return false;
+
+        try
+        {
+            process.Refresh();
+            mainWindowHandle = process.MainWindowHandle;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug("Failed to read process main window handle.", ex);
+            return false;
+        }
+    }
+
     protected static IReadOnlyList<IntPtr> EnumerateProcessTopLevelWindows(Process process, bool includeHiddenWindows = false, string? fallbackTitleHint = null)
     {
         if (OperatingSystem.IsLinux())
         {
             var pWindows = new List<IntPtr>();
+
             try
             {
-                process.Refresh();
                 var hwnds = AES_Emulation.Linux.API.LinuxWindowHelper.FindWindowsByPid(process.Id);
 
                 // If PID-based search fails (common with XWayland forks or launcher scripts), fallback to a broad title search
@@ -401,8 +754,13 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     {
         if (OperatingSystem.IsLinux())
         {
+            if (!TryGetMainWindowHandle(process, out var linuxMain))
+            {
+                if (!TryResolveDetachedProcess(process, out process) || !TryGetMainWindowHandle(process, out linuxMain))
+                    return FindBestProcesslessWindowHandle(preferSpecificRenderWindow, allowHiddenWindows, isPreferredRenderWindow);
+            }
+
             var pWindows = EnumerateProcessTopLevelWindows(process, allowHiddenWindows, fallbackTitleHint);
-            IntPtr linuxMain = process.MainWindowHandle;
             IntPtr linuxBest = IntPtr.Zero;
 
             foreach (var w1 in pWindows)
@@ -677,6 +1035,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             for (int attempt = 0; attempt < maxAttempts; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (!IsProcessAlive(process))
+                    return IntPtr.Zero;
+
                 var hwnd = this.FindPreferredWindowHandle(process);
 
                 if (hwnd != IntPtr.Zero)
@@ -799,6 +1160,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     protected static string GetWindowClassName(IntPtr hwnd)
     {
+        if (OperatingSystem.IsLinux())
+            return AES_Emulation.Linux.API.LinuxWindowHelper.GetWindowClassName(hwnd);
+
         if (!OperatingSystem.IsWindows())
             return string.Empty;
 

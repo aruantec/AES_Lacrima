@@ -183,7 +183,13 @@
     </PropertyGroup>
     <Warning Condition="'$(LinuxCaptureCompilerToUse)' == ''" Text="Skipping Linux X11 capture bridge build because neither '$(LinuxCppCompiler)' nor fallback '$(LinuxCppCompilerFallback)' was found on PATH. Install g++ (or c++) and libx11-dev/libxcomposite-dev/libxdamage-dev/libxfixes-dev/libgl1-mesa-dev to build the native bridge." />
     <Message Importance="high" Condition="'$(LinuxCaptureCompilerToUse)' != ''" Text="Building Linux X11 capture bridge into '$(OutDir)libAesLinuxCaptureBridge.so' using '$(LinuxCaptureCompilerToUse)'" />
-    <Exec Condition="'$(LinuxCaptureCompilerToUse)' != ''" Command="&quot;$(LinuxCaptureCompilerToUse)&quot; -shared -fPIC -o &quot;$(OutDir)libAesLinuxCaptureBridge.so&quot; &quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&quot; -lX11 -lXcomposite -lXdamage -lXfixes -lGL -lpthread" />
+    <Exec Condition="'$(LinuxCaptureCompilerToUse)' != ''" Command="pkg-config --cflags libpipewire-0.3 dbus-1" ConsoleToMSBuild="true" ContinueOnError="true" EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_PwCflags" />
+    </Exec>
+    <Exec Condition="'$(LinuxCaptureCompilerToUse)' != ''" Command="pkg-config --libs libpipewire-0.3 dbus-1" ConsoleToMSBuild="true" ContinueOnError="true" EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_PwLibs" />
+    </Exec>
+    <Exec Condition="'$(LinuxCaptureCompilerToUse)' != ''" Command="&quot;$(LinuxCaptureCompilerToUse)&quot; -shared -fPIC -O2 -std=c++17 -Wall -Wextra $(_PwCflags) -o &quot;$(OutDir)libAesLinuxCaptureBridge.so&quot; &quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&quot; -lGL -lEGL -lX11 -lXcomposite -lXdamage -lXfixes -lXext -lpthread $(_PwLibs)" />
     <MakeDir Condition="'$(LinuxCaptureCompilerToUse)' != ''" Directories="$(OutDir)runtimes/linux-x64/native" />
     <Copy Condition="'$(LinuxCaptureCompilerToUse)' != ''" SourceFiles="$(OutDir)libAesLinuxCaptureBridge.so" DestinationFolder="$(OutDir)runtimes/linux-x64/native" SkipUnchangedFiles="true" />
   </Target>
@@ -200,7 +206,13 @@
     </PropertyGroup>
     <Warning Condition="'$(LinuxCapturePublishCompilerToUse)' == ''" Text="Skipping Linux X11 capture bridge publish build because neither '$(LinuxCppCompiler)' nor fallback '$(LinuxCppCompilerFallback)' was found on PATH. Install g++ (or c++) and libx11-dev/libxcomposite-dev/libxdamage-dev/libxfixes-dev/libgl1-mesa-dev to build the native bridge." />
     <Message Importance="high" Condition="'$(LinuxCapturePublishCompilerToUse)' != ''" Text="Building Linux X11 capture bridge into '$(PublishDir)libAesLinuxCaptureBridge.so' using '$(LinuxCapturePublishCompilerToUse)'" />
-    <Exec Condition="'$(LinuxCapturePublishCompilerToUse)' != ''" Command="&quot;$(LinuxCapturePublishCompilerToUse)&quot; -shared -fPIC -o &quot;$(PublishDir)libAesLinuxCaptureBridge.so&quot; &quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&quot; -lX11 -lXcomposite -lXdamage -lXfixes -lGL -lpthread" />
+    <Exec Condition="'$(LinuxCapturePublishCompilerToUse)' != ''" Command="pkg-config --cflags libpipewire-0.3 dbus-1" ConsoleToMSBuild="true" ContinueOnError="true" EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_PwCflagsP" />
+    </Exec>
+    <Exec Condition="'$(LinuxCapturePublishCompilerToUse)' != ''" Command="pkg-config --libs libpipewire-0.3 dbus-1" ConsoleToMSBuild="true" ContinueOnError="true" EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_PwLibsP" />
+    </Exec>
+    <Exec Condition="'$(LinuxCapturePublishCompilerToUse)' != ''" Command="&quot;$(LinuxCapturePublishCompilerToUse)&quot; -shared -fPIC -O2 -std=c++17 -Wall -Wextra $(_PwCflagsP) -o &quot;$(PublishDir)libAesLinuxCaptureBridge.so&quot; &quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&quot; -lGL -lEGL -lX11 -lXcomposite -lXdamage -lXfixes -lXext -lpthread $(_PwLibsP)" />
   </Target>
 
   <!-- macOS packaging target: creates a .app bundle using the publish directory -->

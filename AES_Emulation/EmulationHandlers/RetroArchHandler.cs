@@ -4,6 +4,9 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using AES_Core.Logging;
 using log4net;
 
@@ -28,6 +31,8 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
     public override string DisplayName => "RetroArch";
 
     public override bool HideUntilCaptured => true;
+
+    public override int CaptureStartupDelayMs => 0;
 
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
@@ -64,47 +69,101 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
+        Log.Info($"[RetroArch] Building StartInfo: launcher={launcherPath}, rom={romPath}");
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
+        
+        Log.Info($"[RetroArch] Base StartInfo: FileName={startInfo.FileName}, Args={string.Join(" ", startInfo.ArgumentList)}");
+        
+        RemoveQtPlatformOverride(startInfo);
+        
+        if (OperatingSystem.IsLinux())
+        {
+            // Aggressively force X11 at every level
+            startInfo.EnvironmentVariables["SDL_VIDEODRIVER"] = "x11";
+            startInfo.EnvironmentVariables["GDK_BACKEND"] = "x11";
+            startInfo.EnvironmentVariables["XDG_SESSION_TYPE"] = "x11";
+            startInfo.EnvironmentVariables["QT_QPA_PLATFORM"] = "xcb";
+            
+            // Some AppImages need this to not try to use the integrated display server
+            startInfo.EnvironmentVariables["APPIMAGE_EXIT_AFTER_PULL"] = "no";
+            
+            // Ensure we don't accidentally use a flatpak or bubblewrap that hides windows
+            startInfo.EnvironmentVariables["BWRAP_ARGS"] = "--share-net --dev-bind / / --setenv SDL_VIDEODRIVER x11";
+        }
+
         var corePath = FindRetroArchCore(launcherPath, romPath, sectionTitle, selectedRetroArchCore);
         var logFilePath = GetRetroArchLogFilePath(launcherPath);
 
         if (!string.IsNullOrWhiteSpace(corePath))
         {
             Log.Debug($"RetroArch core selected: {corePath}");
-            startInfo.ArgumentList.Clear();
-
-            if (startFullscreen)
-            {
-                startInfo.ArgumentList.Add("--fullscreen");
-            }
-
-            var focusConfigPath = GetRetroArchFocusOverrideConfigPath();
-            if (!string.IsNullOrWhiteSpace(focusConfigPath))
-            {
-                startInfo.ArgumentList.Add("--appendconfig");
-                startInfo.ArgumentList.Add(focusConfigPath);
-            }
-
-            if (!string.IsNullOrWhiteSpace(logFilePath))
-            {
-                startInfo.ArgumentList.Add("--verbose");
-                startInfo.ArgumentList.Add("--log-file");
-                startInfo.ArgumentList.Add(logFilePath);
-            }
-
-            startInfo.ArgumentList.Add("-L");
-            startInfo.ArgumentList.Add(corePath);
-            startInfo.ArgumentList.Add(romPath);
+            ConfigureRetroArchLaunchArguments(startInfo, startFullscreen, GetRetroArchFocusOverrideConfigPath(), logFilePath, corePath, romPath);
 
             Log.Info($"RetroArch launch: launcher={launcherPath}, rom={romPath}, startFullscreen={startFullscreen}, selectedCore={selectedRetroArchCore}, args={string.Join(' ', startInfo.ArgumentList)}");
             return startInfo;
         }
 
         Log.Warn($"RetroArch core not found for launcher path '{launcherPath}'. Launching RetroArch without a core path to avoid init_libretro_symbols() errors.");
+
+        ConfigureRetroArchLaunchArguments(startInfo, startFullscreen, null, logFilePath, null, null);
+
+        Log.Info($"RetroArch launch (no core): launcher={launcherPath}, rom={romPath}, startFullscreen={startFullscreen}, args={string.Join(' ', startInfo.ArgumentList)}");
+        return startInfo;
+    }
+
+    private static void RemoveQtPlatformOverride(ProcessStartInfo startInfo)
+    {
+        startInfo.Environment.Remove("QT_QPA_PLATFORM");
+
+        if (startInfo.ArgumentList.Count == 0)
+            return;
+
+        var arguments = startInfo.ArgumentList.ToArray();
         startInfo.ArgumentList.Clear();
+
+        foreach (var argument in arguments)
+        {
+            if (string.Equals(argument, "--env=QT_QPA_PLATFORM=xcb", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            startInfo.ArgumentList.Add(argument);
+        }
+    }
+
+    private static void ConfigureRetroArchLaunchArguments(
+        ProcessStartInfo startInfo,
+        bool startFullscreen,
+        string? focusConfigPath,
+        string? logFilePath,
+        string? corePath,
+        string? romPath)
+    {
+        var existingArguments = startInfo.ArgumentList.ToArray();
+        if (TryGetFlatpakLaunchPrefixLength(startInfo, existingArguments, out var launchPrefixLength))
+        {
+            startInfo.ArgumentList.Clear();
+            for (var i = 0; i < launchPrefixLength; i++)
+                startInfo.ArgumentList.Add(existingArguments[i]);
+        }
+        else
+        {
+            startInfo.ArgumentList.Clear();
+        }
 
         if (startFullscreen)
             startInfo.ArgumentList.Add("--fullscreen");
+
+        // Force X11/GL for embedding compatibility
+        startInfo.EnvironmentVariables["SDL_VIDEODRIVER"] = "x11";
+        startInfo.EnvironmentVariables["GDK_BACKEND"] = "x11";
+        startInfo.EnvironmentVariables["XDG_SESSION_TYPE"] = "x11";
+        startInfo.EnvironmentVariables["QT_QPA_PLATFORM"] = "xcb";
+
+        if (!string.IsNullOrWhiteSpace(focusConfigPath))
+        {
+            startInfo.ArgumentList.Add("--appendconfig");
+            startInfo.ArgumentList.Add(focusConfigPath);
+        }
 
         if (!string.IsNullOrWhiteSpace(logFilePath))
         {
@@ -113,10 +172,74 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
             startInfo.ArgumentList.Add(logFilePath);
         }
 
-        Log.Info($"RetroArch launch (no core): launcher={launcherPath}, rom={romPath}, startFullscreen={startFullscreen}, args={string.Join(' ', startInfo.ArgumentList)}");
-        // Avoid passing the ROM directly when no core is available, as RetroArch will fail with
-        // "Frontend is built for dynamic libretro cores, but path is not set" when launched this way.
-        return startInfo;
+        if (!string.IsNullOrWhiteSpace(corePath))
+        {
+            startInfo.ArgumentList.Add("-L");
+            startInfo.ArgumentList.Add(corePath);
+        }
+
+        if (!string.IsNullOrWhiteSpace(romPath))
+            startInfo.ArgumentList.Add(romPath);
+    }
+
+    private static bool TryGetFlatpakLaunchPrefixLength(ProcessStartInfo startInfo, IReadOnlyList<string> existingArguments, out int launchPrefixLength)
+    {
+        launchPrefixLength = 0;
+
+        if (existingArguments.Count == 0)
+            return false;
+
+        var executableName = Path.GetFileName(startInfo.FileName);
+        var flatpakArgumentIndex = -1;
+
+        if (!IsFlatpakLauncherExecutable(executableName))
+        {
+            for (var i = 0; i < existingArguments.Count; i++)
+            {
+                if (IsFlatpakLauncherExecutable(Path.GetFileName(existingArguments[i])))
+                {
+                    flatpakArgumentIndex = i;
+                    break;
+                }
+            }
+
+            if (flatpakArgumentIndex < 0)
+                return false;
+        }
+
+        var runIndex = flatpakArgumentIndex < 0 ? 0 : flatpakArgumentIndex + 1;
+        if (runIndex >= existingArguments.Count)
+            return false;
+
+        var runArgumentIndex = -1;
+        for (var i = runIndex; i < existingArguments.Count; i++)
+        {
+            if (string.Equals(existingArguments[i], "run", StringComparison.OrdinalIgnoreCase))
+            {
+                runArgumentIndex = i;
+                break;
+            }
+        }
+
+        if (runArgumentIndex < 0)
+            return false;
+
+        for (var i = runArgumentIndex + 1; i < existingArguments.Count; i++)
+        {
+            if (existingArguments[i].StartsWith("-", StringComparison.Ordinal))
+                continue;
+
+            launchPrefixLength = i + 1;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsFlatpakLauncherExecutable(string? executableName)
+    {
+        return string.Equals(executableName, "flatpak", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(executableName, "flatpak-spawn", StringComparison.OrdinalIgnoreCase);
     }
 
     public static string? GetRetroArchLogFilePath(string? launcherPath)
@@ -140,15 +263,16 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         try
         {
             var path = Path.Combine(Path.GetTempPath(), "aes-lacrima-retroarch-focus.cfg");
-            if (!File.Exists(path))
+            // Always rewrite to ensure we have the latest X11-forcing settings
+            File.WriteAllLines(path, new[]
             {
-                File.WriteAllLines(path, new[]
-                {
-                    "pause_nonactive = \"false\"",
-                    "input_auto_game_focus = \"0\"",
-                    "video_fullscreen = \"false\""
-                });
-            }
+                "pause_nonactive = \"false\"",
+                "input_auto_game_focus = \"0\"",
+                "video_fullscreen = \"false\"",
+                "video_driver = \"sdl2\"",
+                "video_context_driver = \"x11\"",
+                "menu_driver = \"xmb\""
+            });
 
             return path;
         }
@@ -250,30 +374,13 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
     public static IReadOnlyList<string> GetRetroArchCores(string? launcherPath)
     {
-        if (string.IsNullOrWhiteSpace(launcherPath))
-            return Array.Empty<string>();
-
-        var baseDir = ResolveLauncherWorkingDirectory(launcherPath);
-        if (string.IsNullOrWhiteSpace(baseDir))
-            return Array.Empty<string>();
-
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-
-        var candidateDirectories = new[]
-        {
-            baseDir,
-            Path.Combine(baseDir, "cores"),
-            Path.Combine(baseDir, "libretro"),
-            Path.Combine(baseDir, "cores", "32bit"),
-            Path.Combine(baseDir, "cores", "64bit"),
-            Path.Combine(baseDir, "..", "cores"),
-            Path.Combine(appData, "RetroArch", "cores"),
-            Path.Combine(commonAppData, "RetroArch", "cores")
-        };
+        var candidateDirectories = GetRetroArchSearchDirectories(launcherPath);
 
         var extensions = GetSupportedRetroArchCoreExtensions();
         var foundCores = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Add detailed logging to see where it searches
+        Log.Info($"[RetroArch] Searching for cores in {candidateDirectories.Count} locations...");
 
         foreach (var directory in candidateDirectories)
         {
@@ -282,48 +389,130 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
             try
             {
-                foreach (var file in Directory.EnumerateFiles(directory, "*libretro*", SearchOption.AllDirectories))
+                Log.Debug($"[RetroArch] Enumerating directory: {directory}");
+                foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
                 {
-                    if (!extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
+                    var extension = Path.GetExtension(file);
+                    if (!extensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
                         continue;
 
                     var fileName = Path.GetFileName(file);
-                    if (!string.IsNullOrWhiteSpace(fileName))
-                        foundCores.Add(fileName);
+                    // Standard core naming: *_libretro.so
+                    if (fileName.Contains("libretro", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (foundCores.Add(fileName))
+                        {
+                            Log.Debug($"[RetroArch] Discovered core: {fileName} in {directory}");
+                        }
+                    }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // ignore invalid directories
+                Log.Debug($"[RetroArch] Failed to scan directory {directory}: {ex.Message}");
             }
         }
 
         return foundCores.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static string? FindRetroArchCore(string? launcherPath, string? romPath, string? sectionTitle, string? selectedRetroArchCore)
+    private static IReadOnlyList<string> GetRetroArchSearchDirectories(string? launcherPath)
     {
-        if (string.IsNullOrWhiteSpace(launcherPath))
-            return null;
+        var searchDirectories = new List<string>();
+        var seenDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var baseDir = ResolveLauncherWorkingDirectory(launcherPath);
-        if (string.IsNullOrWhiteSpace(baseDir))
-            return null;
+        void AddDirectory(string? directory)
+        {
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory) || !seenDirectories.Add(directory))
+                return;
+
+            searchDirectories.Add(directory);
+        }
+
+        void AddSearchRoot(string? rootDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(rootDirectory))
+                return;
+
+            AddDirectory(rootDirectory);
+            AddDirectory(Path.Combine(rootDirectory, "cores"));
+            AddDirectory(Path.Combine(rootDirectory, "libretro"));
+            AddDirectory(Path.Combine(rootDirectory, "cores", "32bit"));
+            AddDirectory(Path.Combine(rootDirectory, "cores", "64bit"));
+        }
+
+        AddSearchRoot(ResolveLauncherWorkingDirectory(launcherPath));
 
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         var commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        AddSearchRoot(Path.Combine(appData, "RetroArch"));
+        AddSearchRoot(Path.Combine(commonAppData, "RetroArch"));
 
-        var candidateDirectories = new[]
+        if (OperatingSystem.IsLinux())
         {
-            baseDir,
-            Path.Combine(baseDir, "cores"),
-            Path.Combine(baseDir, "libretro"),
-            Path.Combine(baseDir, "cores", "32bit"),
-            Path.Combine(baseDir, "cores", "64bit"),
-            Path.Combine(baseDir, "..", "cores"),
-            Path.Combine(appData, "RetroArch", "cores"),
-            Path.Combine(commonAppData, "RetroArch", "cores")
-        };
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+            // ALWAYS add standard user directories first
+            AddSearchRoot(Path.Combine(userProfile, ".config", "retroarch"));
+            AddSearchRoot(Path.Combine(userProfile, ".config", "libretro"));
+            AddSearchRoot(Path.Combine(userProfile, ".local", "share", "retroarch"));
+            AddSearchRoot(Path.Combine(userProfile, ".local", "share", "libretro"));
+
+            // If we are using a Flatpak, ALSO add Flatpak directories
+            bool isFlatpak = launcherPath?.Contains("flatpak", StringComparison.OrdinalIgnoreCase) == true;
+            if (isFlatpak)
+            {
+                foreach (var flatpakRoot in EnumerateLinuxFlatpakRetroArchRoots(userProfile))
+                    AddSearchRoot(flatpakRoot);
+            }
+
+            AddSearchRoot("/usr/lib/libretro");
+            AddSearchRoot("/usr/lib/retroarch");
+            AddSearchRoot("/usr/lib64/libretro");
+            AddSearchRoot("/usr/lib64/retroarch");
+            AddSearchRoot("/usr/lib/x86_64-linux-gnu/libretro");
+            AddSearchRoot("/usr/local/lib/libretro");
+            AddSearchRoot("/usr/local/share/libretro");
+            AddSearchRoot("/usr/share/libretro");
+            AddSearchRoot("/usr/share/retroarch");
+            AddSearchRoot("/lib/libretro");
+            AddSearchRoot("/lib64/libretro");
+        }
+
+        return searchDirectories;
+    }
+
+    private static IReadOnlyList<string> EnumerateLinuxFlatpakRetroArchRoots(string? userProfile)
+    {
+        var roots = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(userProfile))
+            return roots;
+
+        var flatpakApplicationsDirectory = Path.Combine(userProfile, ".var", "app");
+        if (!Directory.Exists(flatpakApplicationsDirectory))
+            return roots;
+
+        try
+        {
+            foreach (var appDirectory in Directory.EnumerateDirectories(flatpakApplicationsDirectory))
+            {
+                roots.Add(Path.Combine(appDirectory, "config", "retroarch"));
+                roots.Add(Path.Combine(appDirectory, "config", "libretro"));
+                roots.Add(Path.Combine(appDirectory, "data", "retroarch"));
+                roots.Add(Path.Combine(appDirectory, "data", "libretro"));
+            }
+        }
+        catch
+        {
+        }
+
+        return roots;
+    }
+
+    private static string? FindRetroArchCore(string? launcherPath, string? romPath, string? sectionTitle, string? selectedRetroArchCore)
+    {
+        var candidateDirectories = GetRetroArchSearchDirectories(launcherPath);
 
         var platform = GetRetroArchPlatform(sectionTitle, romPath);
 
@@ -398,7 +587,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         };
     }
 
-    private static string? ResolveRetroArchCorePath(string[] candidateDirectories, string selectedRetroArchCore)
+    private static string? ResolveRetroArchCorePath(IEnumerable<string> candidateDirectories, string selectedRetroArchCore)
     {
         if (Path.IsPathRooted(selectedRetroArchCore))
         {
@@ -928,6 +1117,195 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         return Array.Empty<string>();
     }
 
+    public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
+    {
+        Log.Info($"[RetroArch Linux] Entering ResolveCaptureTargetAsync for process {process?.Id}");
+
+        if (OperatingSystem.IsLinux())
+        {
+            const int maxAttempts = 120; // 12 seconds total
+            const int delayMs = 100;
+            IntPtr observedHwnd = IntPtr.Zero;
+            int stableCount = 0;
+
+            Log.Info("[RetroArch Linux] Starting aggressive window resolution loop...");
+
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // 1. Force a global process scan for "retroarch"
+                IntPtr hwnd = FindRetroArchWindowLinuxAggressive();
+
+                if (hwnd != IntPtr.Zero)
+                {
+                    Log.Info($"[RetroArch Linux] HWND found: 0x{hwnd.ToInt64():X}. Attempt {attempt}.");
+                    if (hwnd == observedHwnd)
+                    {
+                        stableCount++;
+                        if (stableCount >= 2)
+                        {
+                            var title = GetWindowTitle(hwnd);
+                            var className = GetWindowClassName(hwnd);
+                            Log.Info($"[RetroArch Linux] Success! Returning HWND 0x{hwnd.ToInt64():X} (Title: '{title}', Class: '{className}')");
+                            return hwnd;
+                        }
+                    }
+                    else
+                    {
+                        var title = GetWindowTitle(hwnd);
+                        var className = GetWindowClassName(hwnd);
+                        Log.Info($"[RetroArch Linux] Found potential candidate 0x{hwnd.ToInt64():X} (Title: '{title}', Class: '{className}'). Waiting for stability...");
+                        observedHwnd = hwnd;
+                        stableCount = 1;
+                    }
+                }
+                else
+                {
+                    if (attempt % 10 == 0) // Log more frequently
+                        Log.Debug($"[RetroArch Linux] Still searching... (Attempt {attempt}/{maxAttempts})");
+                    
+                    observedHwnd = IntPtr.Zero;
+                    stableCount = 0;
+                }
+
+                await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+            }
+
+            Log.Warn("[RetroArch Linux] TIMEOUT: Failed to find a suitable window handle.");
+            return IntPtr.Zero;
+        }
+
+        Log.Warn("[RetroArch Linux] Not on Linux, falling back to base.");
+        return await base.ResolveCaptureTargetAsync(process, cancellationToken);
+    }
+
+    private static IntPtr FindRetroArchWindowLinuxAggressive()
+    {
+        Log.Info("[RetroArch Linux] Performing global X11 window tree scan...");
+        
+        var discoveredWindows = new List<IntPtr>();
+        
+        // 1. Scan for Class/Title globally
+        var classes = AES_Emulation.Linux.API.LinuxWindowHelper.FindWindowsByClass("retroarch");
+        var libretroClasses = AES_Emulation.Linux.API.LinuxWindowHelper.FindWindowsByClass("libretro");
+        var titles = AES_Emulation.Linux.API.LinuxWindowHelper.FindWindowsByTitle("RetroArch");
+
+        discoveredWindows.AddRange(classes);
+        discoveredWindows.AddRange(libretroClasses);
+        discoveredWindows.AddRange(titles);
+
+        foreach (var hwnd in discoveredWindows.Distinct())
+        {
+            var isVisible = AES_Emulation.Linux.API.LinuxWindowHelper.IsWindowVisible(hwnd);
+            var title = GetWindowTitle(hwnd);
+            var className = GetWindowClassName(hwnd);
+            
+            Log.Info($"[RetroArch Linux] Global Scan Found: 0x{hwnd.ToInt64():X} (Title='{title}', Class='{className}', Visible={isVisible})");
+
+            if (isVisible)
+            {
+                Log.Info($"[RetroArch Linux] Selecting visible window 0x{hwnd.ToInt64():X}");
+                return hwnd;
+            }
+        }
+
+        // 3. Fallback: Log ALL windows in the tree to find the culprit
+        Log.Debug("[RetroArch Linux] No matching window found yet. Listing ALL top-level windows...");
+        var display = AES_Emulation.Linux.API.X11Interop.XOpenDisplay(null);
+        if (display != IntPtr.Zero)
+        {
+            try {
+                var root = AES_Emulation.Linux.API.X11Interop.XDefaultRootWindow(display);
+                if (AES_Emulation.Linux.API.X11Interop.XQueryTree(display, root, out _, out _, out IntPtr children_ptr, out int nchildren) != 0)
+                {
+                    if (children_ptr != IntPtr.Zero)
+                    {
+                        var children = new IntPtr[nchildren];
+                        Marshal.Copy(children_ptr, children, 0, nchildren);
+                        AES_Emulation.Linux.API.X11Interop.XFree(children_ptr);
+                        
+                        foreach (var child in children)
+                        {
+                            var t = GetWindowTitle(child);
+                            var c = GetWindowClassName(child);
+                            if (!string.IsNullOrEmpty(t) || !string.IsNullOrEmpty(c))
+                                Log.Debug($"[RetroArch Linux]   Window 0x{child.ToInt64():X}: Title='{t}', Class='{c}'");
+                        }
+                    }
+                }
+            } finally { AES_Emulation.Linux.API.X11Interop.XCloseDisplay(display); }
+        }
+
+        // 2. Fallback: Systematic PID search
+        var discoveredPids = new HashSet<int>();
+        foreach (var p in Process.GetProcesses())
+        {
+            try
+            {
+                var name = p.ProcessName.ToLowerInvariant();
+                if (name.Contains("retroarch") || name.Contains("libretro"))
+                {
+                    Log.Info($"[RetroArch Linux] Found matching process: {p.ProcessName} (PID: {p.Id})");
+                    discoveredPids.Add(p.Id);
+                }
+            }
+            catch { }
+            finally { p.Dispose(); }
+        }
+
+        // If no named process, check /proc cmdline for hidden/flatpak names
+        if (discoveredPids.Count == 0)
+        {
+            Log.Info("[RetroArch Linux] No direct process name match. Checking /proc/*/cmdline...");
+            foreach (var procDir in Directory.GetDirectories("/proc"))
+            {
+                if (!int.TryParse(Path.GetFileName(procDir), out var pid)) continue;
+                try
+                {
+                    var cmdline = File.ReadAllText(Path.Combine(procDir, "cmdline")).Replace('\0', ' ').ToLowerInvariant();
+                    if (cmdline.Contains("retroarch"))
+                    {
+                        Log.Info($"[RetroArch Linux] Found matching cmdline for PID {pid}: {cmdline}");
+                        discoveredPids.Add(pid);
+                    }
+                }
+                catch { }
+            }
+        }
+
+        foreach (var pid in discoveredPids)
+        {
+            var windows = AES_Emulation.Linux.API.LinuxWindowHelper.FindWindowsByPid(pid);
+            Log.Info($"[RetroArch Linux] PID {pid} has {windows.Count} windows.");
+            
+            foreach (var hwnd in windows)
+            {
+                var title = GetWindowTitle(hwnd);
+                var className = GetWindowClassName(hwnd);
+                var isVisible = AES_Emulation.Linux.API.LinuxWindowHelper.IsWindowVisible(hwnd);
+                
+                Log.Info($"[RetroArch Linux] Checking HWND 0x{hwnd.ToInt64():X}: Title='{title}', Class='{className}', Visible={isVisible}");
+
+                // Be extremely permissive: if it's visible or has RetroArch in title/class, take it.
+                if (isVisible || 
+                    className.Contains("retroarch", StringComparison.OrdinalIgnoreCase) || 
+                    title.Contains("RetroArch", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log.Info($"[RetroArch Linux] HWND 0x{hwnd.ToInt64():X} matches criteria. Selecting it.");
+                    return hwnd;
+                }
+            }
+        }
+
+        // Final fallback: Global Title Search
+        Log.Info("[RetroArch Linux] No windows found for PIDs. Trying global title/class scan...");
+        var allWindows = AES_Emulation.Linux.API.LinuxWindowHelper.FindWindowsByTitle("RetroArch");
+        if (allWindows.Count > 0) return allWindows[0];
+
+        return IntPtr.Zero;
+    }
+
     public override void PrepareProcessForCapture(Process process)
     {
         // RetroArch uses Vulkan/DX and can fail to render if its window is hidden before capture.
@@ -940,13 +1318,12 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
     }
 
     public override IntPtr FindPreferredWindowHandle(Process process)
-    {
-        var preferredHandle = FindBestProcessWindowHandle(process, preferSpecificRenderWindow: true, allowHiddenWindows: true, isPreferredRenderWindow: IsLikelyRetroArchRenderWindow);
-        if (preferredHandle != IntPtr.Zero)
-            return preferredHandle;
-
-        return FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: true, isPreferredRenderWindow: null);
-    }
+        => FindBestProcessWindowHandle(
+            process,
+            preferSpecificRenderWindow: true,
+            allowHiddenWindows: true,
+            isPreferredRenderWindow: IsLikelyRetroArchRenderWindow,
+            fallbackTitleHint: DisplayName);
 
     private static bool IsLikelyRetroArchRenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
     {

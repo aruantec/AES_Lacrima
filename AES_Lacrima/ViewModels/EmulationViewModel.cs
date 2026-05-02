@@ -2051,7 +2051,16 @@ namespace AES_Lacrima.ViewModels
 
                 if (process != null)
                 {
-                    SLog.Info($"Emulator process launched: pid={process.Id}, name={process.ProcessName}, hasExited={process.HasExited}.");
+                    var launchedProcessId = 0;
+                    try
+                    {
+                        launchedProcessId = process.Id;
+                    }
+                    catch
+                    {
+                    }
+
+                    SLog.Info($"Emulator process launched: pid={launchedProcessId}, file={startInfo.FileName}.");
                 }
 
                 TrackEmulatorProcess(process, request.RomPath, handler);
@@ -2117,7 +2126,16 @@ namespace AES_Lacrima.ViewModels
             }
 
             _isClosingActiveEmulatorForRelaunch = true;
-            SLog.Info($"EmulationViewModel starting tracked emulator shutdown. pid={process.Id}.");
+            var processId = 0;
+            try
+            {
+                processId = process.Id;
+            }
+            catch
+            {
+            }
+
+            SLog.Info($"EmulationViewModel starting tracked emulator shutdown. pid={processId}.");
             RequestStopEmulatorCapture = true;
             _ = CloseTrackedEmulatorForPendingLaunchAsync(process);
         }
@@ -2132,18 +2150,6 @@ namespace AES_Lacrima.ViewModels
                 {
                     var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "dolphin", StringComparison.OrdinalIgnoreCase);
-                    if (!forceKillFirst)
-                    {
-                        try
-                        {
-                            forceKillFirst = process.ProcessName.Contains("pcsx2", StringComparison.OrdinalIgnoreCase) ||
-                                             process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
-                        }
-                        catch
-                        {
-                            // ignore and keep current value
-                        }
-                    }
 
                     try
                     {
@@ -2389,19 +2395,7 @@ namespace AES_Lacrima.ViewModels
             if (handler.CaptureStartupDelayMs > 0)
                 await Task.Delay(handler.CaptureStartupDelayMs).ConfigureAwait(false);
 
-            var captureProcess = ResolveCaptureProcessForCurrentPlatform(process, handler);
-            try
-            {
-                captureProcess.Refresh();
-                if (captureProcess.HasExited)
-                    return IntPtr.Zero;
-            }
-            catch
-            {
-                return IntPtr.Zero;
-            }
-
-            return new IntPtr(captureProcess.Id);
+            return await handler.ResolveCaptureTargetAsync(process, CancellationToken.None).ConfigureAwait(false);
         }
 
         private static Process ResolveCaptureProcessForCurrentPlatform(Process process, IEmulatorHandler handler)
@@ -2526,8 +2520,24 @@ namespace AES_Lacrima.ViewModels
 
                 var lastLineCount = 0;
                 var startTime = DateTime.UtcNow;
-                while (!token.IsCancellationRequested && !process.HasExited && DateTime.UtcNow - startTime < TimeSpan.FromSeconds(12))
+                var processId = 0;
+                try { processId = process.Id; } catch { }
+
+                while (!token.IsCancellationRequested && DateTime.UtcNow - startTime < TimeSpan.FromSeconds(12))
                 {
+                    bool hasExited;
+                    try
+                    {
+                        using var p = Process.GetProcessById(processId);
+                        hasExited = p.HasExited;
+                    }
+                    catch
+                    {
+                        hasExited = true;
+                    }
+
+                    if (hasExited) break;
+
                     try
                     {
                         if (!File.Exists(logFilePath))
@@ -2623,7 +2633,14 @@ namespace AES_Lacrima.ViewModels
                 RestoreAppTopMost();
 
                 if (EmulatorTargetHwnd != hwnd)
+                {
+                    SLog.Info($"[EmulationViewModel] Applying EmulatorTargetHwnd: 0x{hwnd.ToInt64():X}");
                     EmulatorTargetHwnd = hwnd;
+                }
+                else
+                {
+                    SLog.Info($"[EmulationViewModel] EmulatorTargetHwnd already matches: 0x{hwnd.ToInt64():X}");
+                }
 
                 IsEmulatorLaunchInProgress = false;
 

@@ -30,6 +30,8 @@ public interface IEmulatorHandler : INotifyPropertyChanged
 
     ICommand? BrowseLauncherCommand { get; set; }
 
+    ICommand? SelectFlatpakLauncherCommand { get; set; }
+
     ICommand? ClearLauncherCommand { get; set; }
 
     bool IsActive { get; }

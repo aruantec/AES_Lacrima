@@ -395,7 +395,7 @@ public class EmulatorCaptureHost : ContentControl
             case ScreenCaptureKitCaptureHost macBackend:
                 BindToMacBackend(macBackend);
                 break;
-            case LinuxCaptureHost linuxBackend:
+            case LinuxCaptureHost linuxBackend when OperatingSystem.IsLinux():
                 BindToLinuxBackend(linuxBackend);
                 break;
             default:
@@ -442,6 +442,7 @@ public class EmulatorCaptureHost : ContentControl
             .Subscribe(new LambdaObserver<string>(value => GpuVendor = value));
     }
 
+    [SupportedOSPlatform("linux")]
     private void BindToLinuxBackend(LinuxCaptureHost backend)
     {
         backend.GetObservable(LinuxCaptureHost.IsCaptureInitializingProperty)
@@ -458,6 +459,27 @@ public class EmulatorCaptureHost : ContentControl
             .Subscribe(new LambdaObserver<string>(value => GpuRenderer = value));
         backend.GetObservable(LinuxCaptureHost.GpuVendorProperty)
             .Subscribe(new LambdaObserver<string>(value => GpuVendor = value));
+    }
+
+    [SupportedOSPlatform("linux")]
+    private void SyncLinuxBackendProperties(LinuxCaptureHost linuxBackend)
+    {
+        linuxBackend.TargetHwnd = TargetHwnd;
+        linuxBackend.TargetWindowTitleHint = TargetWindowTitleHint;
+        linuxBackend.RequestStopSession = RequestStopSession;
+        linuxBackend.Stretch = Stretch;
+        linuxBackend.Brightness = Brightness;
+        linuxBackend.Saturation = Saturation;
+        linuxBackend.ColorTint = ColorTint;
+        linuxBackend.DisableVSync = DisableVSync;
+        linuxBackend.ShaderPath = ShaderPath;
+        linuxBackend.ClearShaderWhenPathEmpty = ClearShaderWhenPathEmpty;
+        linuxBackend.ForceUseTargetClientArea = ForceUseTargetClientArea;
+        linuxBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
+        linuxBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
+        linuxBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
+        linuxBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
+        linuxBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
     }
 
     private void SyncBackendProperties()
@@ -504,23 +526,8 @@ public class EmulatorCaptureHost : ContentControl
                 macBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
                 macBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
                 break;
-            case LinuxCaptureHost linuxBackend:
-                linuxBackend.TargetHwnd = TargetHwnd;
-                linuxBackend.TargetWindowTitleHint = TargetWindowTitleHint;
-                linuxBackend.RequestStopSession = RequestStopSession;
-                linuxBackend.Stretch = Stretch;
-                linuxBackend.Brightness = Brightness;
-                linuxBackend.Saturation = Saturation;
-                linuxBackend.ColorTint = ColorTint;
-                linuxBackend.DisableVSync = DisableVSync;
-                linuxBackend.ShaderPath = ShaderPath;
-                linuxBackend.ClearShaderWhenPathEmpty = ClearShaderWhenPathEmpty;
-                linuxBackend.ForceUseTargetClientArea = ForceUseTargetClientArea;
-                linuxBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
-                linuxBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
-                linuxBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
-                linuxBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
-                linuxBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
+            case LinuxCaptureHost linuxBackend when OperatingSystem.IsLinux():
+                SyncLinuxBackendProperties(linuxBackend);
                 break;
         }
     }

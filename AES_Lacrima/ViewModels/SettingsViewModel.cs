@@ -14,6 +14,7 @@ using AES_Core.IO;
 using AES_Emulation.EmulationHandlers;
 using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
+using AES_Lacrima.ViewModels.Prompts;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -63,7 +64,11 @@ public sealed class EmulationHandlerAppItem : ObservableObject
 
     public ICommand? BrowseLauncherCommand => Handler.BrowseLauncherCommand;
 
+    public ICommand? SelectFlatpakLauncherCommand => Handler.SelectFlatpakLauncherCommand;
+
     public ICommand? ClearLauncherCommand => Handler.ClearLauncherCommand;
+
+    public bool IsFlatpakSelectorVisible => OperatingSystem.IsLinux();
 
     public ICommand SetDefaultHandlerCommand { get; }
 
@@ -90,6 +95,7 @@ public sealed class EmulationHandlerAppItem : ObservableObject
             e.PropertyName != nameof(IEmulatorHandler.LauncherDisplayPath) &&
             e.PropertyName != nameof(IEmulatorHandler.HasLauncherPath) &&
             e.PropertyName != nameof(IEmulatorHandler.BrowseLauncherCommand) &&
+            e.PropertyName != nameof(IEmulatorHandler.SelectFlatpakLauncherCommand) &&
             e.PropertyName != nameof(IEmulatorHandler.ClearLauncherCommand))
         {
             return;
@@ -98,6 +104,7 @@ public sealed class EmulationHandlerAppItem : ObservableObject
         OnPropertyChanged(nameof(LauncherDisplayPath));
         OnPropertyChanged(nameof(HasLauncherPath));
         OnPropertyChanged(nameof(BrowseLauncherCommand));
+        OnPropertyChanged(nameof(SelectFlatpakLauncherCommand));
         OnPropertyChanged(nameof(ClearLauncherCommand));
     }
 }
@@ -1448,6 +1455,37 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         SaveSettings();
     }
 
+    private async Task SelectFlatpakLauncherAsync(IEmulatorHandler handler)
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        var mainWindowViewModel = GetMainWindowViewModel();
+        if (mainWindowViewModel == null)
+        {
+            Log.Warn("Unable to open the Flatpak application selector because the main window view-model is unavailable.");
+            return;
+        }
+
+        var applications = await Task.Run(DiscoverFlatpakApplications);
+        var prompt = new FlatpakApplicationSelectorPromptViewModel(applications, selectedApplication =>
+        {
+            if (selectedApplication == null)
+                return;
+
+            handler.LauncherPath = selectedApplication.DesktopFilePath;
+            SaveSettings();
+        });
+
+        prompt.RequestClose += () =>
+        {
+            if (ReferenceEquals(mainWindowViewModel.PromptView, prompt))
+                mainWindowViewModel.PromptView = null;
+        };
+
+        mainWindowViewModel.TryShowPrompt(prompt);
+    }
+
     private void ClearEmulatorHandlerBinary(IEmulatorHandler handler)
     {
         if (string.IsNullOrWhiteSpace(handler.LauncherPath))
@@ -1465,6 +1503,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         foreach (var handler in EmulatorHandlerRegistry.GetRegisteredHandlers())
         {
             handler.BrowseLauncherCommand = new AsyncRelayCommand(() => BrowseEmulatorHandlerBinaryAsync(handler));
+            handler.SelectFlatpakLauncherCommand = new AsyncRelayCommand(() => SelectFlatpakLauncherAsync(handler));
             handler.ClearLauncherCommand = new RelayCommand(() => ClearEmulatorHandlerBinary(handler));
             handler.PropertyChanged += OnEmulatorHandlerPropertyChanged;
         }
@@ -1624,6 +1663,102 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         }
 
         return availableCores.FirstOrDefault();
+    }
+
+    private static MainWindowViewModel? GetMainWindowViewModel()
+    {
+        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return null;
+
+        return desktop.MainWindow?.DataContext as MainWindowViewModel;
+    }
+
+    private static IReadOnlyList<FlatpakApplicationItem> DiscoverFlatpakApplications()
+    {
+        var applications = new Dictionary<string, FlatpakApplicationItem>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var applicationsDirectory in GetFlatpakApplicationDirectories())
+        {
+            if (!Directory.Exists(applicationsDirectory))
+                continue;
+
+            try
+            {
+                foreach (var desktopFilePath in Directory.EnumerateFiles(applicationsDirectory, "*.desktop", SearchOption.TopDirectoryOnly))
+                {
+                    var applicationId = Path.GetFileNameWithoutExtension(desktopFilePath);
+                    if (string.IsNullOrWhiteSpace(applicationId) || applications.ContainsKey(applicationId))
+                        continue;
+
+                    var displayName = TryReadDesktopEntryName(desktopFilePath) ?? applicationId;
+                    applications[applicationId] = new FlatpakApplicationItem(applicationId, displayName, desktopFilePath);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        return applications.Values
+            .OrderBy(application => application.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(application => application.ApplicationId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IEnumerable<string> GetFlatpakApplicationDirectories()
+    {
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(userProfile))
+        {
+            yield return Path.Combine(userProfile, ".local", "share", "flatpak", "exports", "share", "applications");
+        }
+
+        yield return "/var/lib/flatpak/exports/share/applications";
+    }
+
+    private static string? TryReadDesktopEntryName(string desktopFilePath)
+    {
+        try
+        {
+            var inDesktopEntry = false;
+
+            foreach (var rawLine in File.ReadLines(desktopFilePath))
+            {
+                var line = rawLine.Trim();
+                if (line.Length == 0 || line.StartsWith("#", StringComparison.Ordinal))
+                    continue;
+
+                if (line.Equals("[Desktop Entry]", StringComparison.OrdinalIgnoreCase))
+                {
+                    inDesktopEntry = true;
+                    continue;
+                }
+
+                if (line.StartsWith("[", StringComparison.Ordinal) && line.EndsWith("]", StringComparison.Ordinal))
+                {
+                    if (inDesktopEntry)
+                        break;
+
+                    continue;
+                }
+
+                if (!inDesktopEntry || !line.StartsWith("Name", StringComparison.Ordinal))
+                    continue;
+
+                var separatorIndex = line.IndexOf('=');
+                if (separatorIndex < 0 || separatorIndex == line.Length - 1)
+                    continue;
+
+                var displayName = line[(separatorIndex + 1)..].Trim();
+                if (!string.IsNullOrWhiteSpace(displayName))
+                    return displayName;
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
     }
 
     private static bool IsRetroArch3DSSection(string? sectionKey, string? sectionTitle)

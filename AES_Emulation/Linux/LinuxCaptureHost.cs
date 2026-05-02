@@ -1,17 +1,23 @@
 using System;
+using System.Runtime.Versioning;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using AES_Emulation.Controls;
 using AES_Emulation.Linux.API;
 
 namespace AES_Emulation.Linux;
 
+[SupportedOSPlatform("linux")]
 public class LinuxCaptureHost : NativeControlHost
 {
     public static readonly StyledProperty<IntPtr> TargetHwndProperty =
         AvaloniaProperty.Register<LinuxCaptureHost, IntPtr>(nameof(TargetHwnd));
+
+    public static readonly StyledProperty<int> TargetProcessIdProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, int>(nameof(TargetProcessId), 0);
 
     public static readonly StyledProperty<string?> TargetWindowTitleHintProperty =
         AvaloniaProperty.Register<LinuxCaptureHost, string?>(nameof(TargetWindowTitleHint), null);
@@ -42,6 +48,9 @@ public class LinuxCaptureHost : NativeControlHost
 
     public static readonly StyledProperty<bool> ForceUseTargetClientAreaProperty =
         AvaloniaProperty.Register<LinuxCaptureHost, bool>(nameof(ForceUseTargetClientArea), false);
+
+    public static readonly StyledProperty<EmulatorCaptureMode> CaptureModeProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, EmulatorCaptureMode>(nameof(CaptureMode), EmulatorCaptureMode.DirectComposition);
 
     public static readonly StyledProperty<bool> PreferPipeWireProperty =
         AvaloniaProperty.Register<LinuxCaptureHost, bool>(nameof(PreferPipeWire), true);
@@ -97,22 +106,14 @@ public class LinuxCaptureHost : NativeControlHost
             o => o.GpuVendor);
 
     private readonly DispatcherTimer _statusTimer;
-    private IntPtr _capture;
+    private IntPtr _display;
+    private IntPtr _hostWindow;
+    private IntPtr _embeddedTargetWindow;
+    private IntPtr _embeddedTargetPreviousParent;
+    private bool _embeddedTargetWasVisible;
     private bool _isAttached;
-    private bool _hasAppliedRenderOptions;
-    private double _lastBrightness = -1;
-    private double _lastSaturation = -1;
-    private Color _lastTint = Colors.Transparent;
-    private int _lastStretch = -1;
-    private int _lastCropLeft = -1;
-    private int _lastCropTop = -1;
-    private int _lastCropRight = -1;
-    private int _lastCropBottom = -1;
-    private bool _lastHideTargetWindowAfterCaptureStarts = false;
-    private string? _lastShaderPath = null;
-    private bool? _lastDisableVSync = null;
-    private bool? _lastPreferPipeWire = null;
-    private int _renderOptionsUpdateCount = 0;
+    private double _lastEmbeddedWidth = -1;
+    private double _lastEmbeddedHeight = -1;
 
     private string _statusText = "Idle";
     private bool _isDirectCompositionActive;
@@ -124,13 +125,19 @@ public class LinuxCaptureHost : NativeControlHost
 
     public LinuxCaptureHost()
     {
-        _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Background, (_, _) => RefreshStatus());
+        _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Background, (_, _) => RefreshStatus());
     }
 
     public IntPtr TargetHwnd
     {
         get => GetValue(TargetHwndProperty);
         set => SetValue(TargetHwndProperty, value);
+    }
+
+    public int TargetProcessId
+    {
+        get => GetValue(TargetProcessIdProperty);
+        set => SetValue(TargetProcessIdProperty, value);
     }
 
     public string? TargetWindowTitleHint
@@ -191,6 +198,12 @@ public class LinuxCaptureHost : NativeControlHost
     {
         get => GetValue(ForceUseTargetClientAreaProperty);
         set => SetValue(ForceUseTargetClientAreaProperty, value);
+    }
+
+    public EmulatorCaptureMode CaptureMode
+    {
+        get => GetValue(CaptureModeProperty);
+        set => SetValue(CaptureModeProperty, value);
     }
 
     public bool PreferPipeWire
@@ -273,14 +286,24 @@ public class LinuxCaptureHost : NativeControlHost
 
     public void ForwardFocusToTarget()
     {
-        if (_capture != IntPtr.Zero)
-            LinuxCaptureBridge.aes_linux_capture_forward_focus(_capture);
+        if (_display == IntPtr.Zero || _embeddedTargetWindow == IntPtr.Zero)
+            return;
+
+        X11Interop.RunWithIgnoredXErrors(_display, () =>
+        {
+            X11Interop.XRaiseWindow(_display, _embeddedTargetWindow);
+            X11Interop.XSetInputFocus(_display, _embeddedTargetWindow, X11Interop.RevertToParent, X11Interop.CurrentTime);
+            X11Interop.XFlush(_display);
+        });
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
         _isAttached = true;
+        
+        AES_Core.Logging.LogHelper.For<LinuxCaptureHost>().Info($"[LinuxCaptureHost] Attached to tree. Host HWND: 0x{_hostWindow.ToInt64():X}, Target HWND: 0x{TargetHwnd.ToInt64():X}");
+        
         EnsureCaptureSession();
         _statusTimer.Start();
     }
@@ -297,10 +320,22 @@ public class LinuxCaptureHost : NativeControlHost
     {
         base.OnPropertyChanged(change);
 
-        if (change.Property == TargetHwndProperty ||
-            change.Property == TargetWindowTitleHintProperty)
+        if (change.Property == TargetHwndProperty)
+        {
+            AES_Core.Logging.LogHelper.For<LinuxCaptureHost>().Info($"[LinuxCaptureHost] TargetHwnd changed: 0x{change.GetOldValue<IntPtr>().ToInt64():X} -> 0x{change.GetNewValue<IntPtr>().ToInt64():X}");
+            EnsureCaptureSession();
+        }
+        else if (change.Property == TargetWindowTitleHintProperty)
         {
             EnsureCaptureSession();
+        }
+        else if (change.Property == BoundsProperty)
+        {
+            ResizeEmbeddedTarget();
+        }
+        else if (change.Property == IsVisibleProperty)
+        {
+            UpdateEmbeddedTargetMapping();
         }
         else if (change.Property == RequestStopSessionProperty && change.GetNewValue<bool>())
         {
@@ -332,52 +367,52 @@ public class LinuxCaptureHost : NativeControlHost
 
         try
         {
-            _capture = LinuxCaptureBridge.aes_linux_capture_create(parent.Handle);
+            _display = X11Interop.XOpenDisplay(null);
         }
-        catch (DllNotFoundException ex)
+        catch (Exception ex)
         {
-            StatusText = $"Linux capture bridge not found: {ex.Message}";
-            return base.CreateNativeControlCore(parent);
-        }
-        catch (EntryPointNotFoundException ex)
-        {
-            StatusText = $"Linux capture bridge mismatch: {ex.Message}";
-            return base.CreateNativeControlCore(parent);
-        }
-        catch (BadImageFormatException ex)
-        {
-            StatusText = $"Linux capture bridge invalid binary: {ex.Message}";
+            StatusText = $"Linux X11 display unavailable: {ex.Message}";
             return base.CreateNativeControlCore(parent);
         }
 
-        if (_capture == IntPtr.Zero)
+        if (_display == IntPtr.Zero)
         {
-            StatusText = "Linux capture host creation failed";
+            StatusText = "Linux X11 display creation failed";
             return base.CreateNativeControlCore(parent);
         }
 
-        _hasAppliedRenderOptions = false;
-
-        var view = LinuxCaptureBridge.aes_linux_capture_get_view(_capture);
-        if (view == IntPtr.Zero)
+        _hostWindow = CreateHostWindow(parent.Handle);
+        if (_hostWindow == IntPtr.Zero)
         {
-            StatusText = "Linux capture Window creation failed";
+            StatusText = "Linux embedded host creation failed";
+            X11Interop.XCloseDisplay(_display);
+            _display = IntPtr.Zero;
             return base.CreateNativeControlCore(parent);
         }
 
-        ApplyRenderOptions();
-        return new PlatformHandle(view, "X11Window");
+        EnsureCaptureSession();
+        return new PlatformHandle(_hostWindow, "X11Window");
     }
 
     protected override void DestroyNativeControlCore(IPlatformHandle control)
     {
         StopSession();
 
-        if (_capture != IntPtr.Zero)
+        if (_hostWindow != IntPtr.Zero && _display != IntPtr.Zero)
         {
-            LinuxCaptureBridge.aes_linux_capture_destroy(_capture);
-            _capture = IntPtr.Zero;
-            _hasAppliedRenderOptions = false;
+            X11Interop.RunWithIgnoredXErrors(_display, () =>
+            {
+                X11Interop.XDestroyWindow(_display, _hostWindow);
+                X11Interop.XFlush(_display);
+            });
+
+            _hostWindow = IntPtr.Zero;
+        }
+
+        if (_display != IntPtr.Zero)
+        {
+            X11Interop.XCloseDisplay(_display);
+            _display = IntPtr.Zero;
         }
 
         base.DestroyNativeControlCore(control);
@@ -387,157 +422,286 @@ public class LinuxCaptureHost : NativeControlHost
     {
         if (!OperatingSystem.IsLinux())
         {
-            StatusText = "Linux capture is Linux-only";
+            StatusText = "Linux embedded host is Linux-only";
             return;
         }
 
-        if (!_isAttached || _capture == IntPtr.Zero)
+        AES_Core.Logging.LogHelper.For<LinuxCaptureHost>().Info($"[LinuxCaptureHost] EnsureCaptureSession: Attached={_isAttached}, Display={_display != IntPtr.Zero}, HostHwnd={_hostWindow != IntPtr.Zero}, TargetHwnd=0x{TargetHwnd.ToInt64():X}");
+
+        if (!_isAttached || _display == IntPtr.Zero || _hostWindow == IntPtr.Zero)
             return;
 
         if (TargetHwnd == IntPtr.Zero)
         {
-            StopSession();
+            DetachEmbeddedTarget();
+            IsCaptureInitializing = true;
+            IsDirectCompositionActive = false;
             StatusText = "Waiting for emulator process";
             return;
         }
 
-        LinuxCaptureBridge.aes_linux_capture_set_target(_capture, unchecked((int)TargetHwnd.ToInt64()), TargetWindowTitleHint);
-        ApplyRenderOptions();
+        AttachEmbeddedTarget(TargetHwnd);
         RefreshStatus();
     }
 
     private void StopSession()
     {
-        if (_capture != IntPtr.Zero)
-            LinuxCaptureBridge.aes_linux_capture_stop(_capture);
+        DetachEmbeddedTarget();
 
         IsCaptureInitializing = false;
         IsDirectCompositionActive = false;
         Fps = 0;
         FrameTimeMs = 0;
+        StatusText = "Idle";
     }
 
     private void ApplyRenderOptions()
     {
-        if (_capture == IntPtr.Zero)
-            return;
-
-        var shouldClearShader = string.IsNullOrWhiteSpace(ShaderPath) && ClearShaderWhenPathEmpty;
-        var shaderPath = shouldClearShader ? string.Empty : (ShaderPath ?? string.Empty);
-        var stretch = MapStretch(Stretch);
-
-        if (!_hasAppliedRenderOptions || _lastStretch != stretch)
-        {
-            LinuxCaptureBridge.aes_linux_capture_set_stretch(_capture, stretch);
-            _lastStretch = stretch;
-        }
-
-        if (!_hasAppliedRenderOptions ||
-            Math.Abs(_lastBrightness - Brightness) > 0.0001 ||
-            Math.Abs(_lastSaturation - Saturation) > 0.0001 ||
-            _lastTint != ColorTint)
-        {
-            LinuxCaptureBridge.aes_linux_capture_set_render_options(
-                _capture,
-                (float)Brightness,
-                (float)Saturation,
-                ColorTint.R / 255f,
-                ColorTint.G / 255f,
-                ColorTint.B / 255f,
-                ColorTint.A / 255f);
-            _lastBrightness = Brightness;
-            _lastSaturation = Saturation;
-            _lastTint = ColorTint;
-        }
-
-        if (!_hasAppliedRenderOptions ||
-            _lastCropLeft != ClientAreaCropLeftInset ||
-            _lastCropTop != ClientAreaCropTopInset ||
-            _lastCropRight != ClientAreaCropRightInset ||
-            _lastCropBottom != ClientAreaCropBottomInset)
-        {
-            LinuxCaptureBridge.aes_linux_capture_set_crop_insets(
-                _capture,
-                ClientAreaCropLeftInset,
-                ClientAreaCropTopInset,
-                ClientAreaCropRightInset,
-                ClientAreaCropBottomInset);
-            _lastCropLeft = ClientAreaCropLeftInset;
-            _lastCropTop = ClientAreaCropTopInset;
-            _lastCropRight = ClientAreaCropRightInset;
-            _lastCropBottom = ClientAreaCropBottomInset;
-        }
-
-        if (!_hasAppliedRenderOptions || _lastHideTargetWindowAfterCaptureStarts != HideTargetWindowAfterCaptureStarts)
-        {
-            LinuxCaptureBridge.aes_linux_capture_set_capture_behavior(_capture, HideTargetWindowAfterCaptureStarts ? 1 : 0);
-            _lastHideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
-        }
-
-        if (!_hasAppliedRenderOptions || _lastShaderPath != shaderPath)
-        {
-            LinuxCaptureBridge.aes_linux_capture_set_shader_path(_capture, shaderPath);
-            _lastShaderPath = shaderPath;
-        }
-
-        if (!_hasAppliedRenderOptions || _lastDisableVSync != DisableVSync)
-        {
-            LinuxCaptureBridge.aes_linux_capture_set_disable_vsync(_capture, DisableVSync ? 1 : 0);
-            _lastDisableVSync = DisableVSync;
-        }
-
-        if (!_hasAppliedRenderOptions || _lastPreferPipeWire != PreferPipeWire)
-        {
-            LinuxCaptureBridge.aes_linux_capture_set_use_pipewire(_capture, PreferPipeWire ? 1 : 0);
-            _lastPreferPipeWire = PreferPipeWire;
-        }
-
-        _renderOptionsUpdateCount++;
-        _hasAppliedRenderOptions = true;
+        ResizeEmbeddedTarget();
     }
 
-    private int MapStretch(Stretch stretch)
+    private IntPtr CreateHostWindow(IntPtr parentHandle)
     {
-        return stretch switch
+        if (_display == IntPtr.Zero || parentHandle == IntPtr.Zero)
+            return IntPtr.Zero;
+
+        IntPtr hostWindow = IntPtr.Zero;
+        X11Interop.RunWithIgnoredXErrors(_display, () =>
         {
-            Stretch.None => 0,
-            Stretch.Fill => 1,
-            Stretch.Uniform => 2,
-            Stretch.UniformToFill => 3,
-            _ => 3
-        };
+            hostWindow = X11Interop.XCreateSimpleWindow(_display, parentHandle, 0, 0, 1, 1, 0, 0, 0);
+            if (hostWindow != IntPtr.Zero)
+            {
+                X11Interop.XMapWindow(_display, hostWindow);
+                X11Interop.XFlush(_display);
+            }
+        });
+
+        return hostWindow;
+    }
+
+    private void AttachEmbeddedTarget(IntPtr targetWindow)
+    {
+        if (_display == IntPtr.Zero || _hostWindow == IntPtr.Zero)
+            return;
+
+        if (_embeddedTargetWindow == targetWindow)
+        {
+            UpdateEmbeddedTargetMapping();
+            ResizeEmbeddedTarget();
+            return;
+        }
+
+        DetachEmbeddedTarget();
+
+        _embeddedTargetWasVisible = LinuxWindowHelper.IsWindowVisible(targetWindow);
+        _embeddedTargetPreviousParent = GetWindowParent(targetWindow);
+
+        var title = LinuxWindowHelper.GetWindowTitle(targetWindow);
+        var className = LinuxWindowHelper.GetWindowClassName(targetWindow);
+        AES_Core.Logging.LogHelper.For<LinuxCaptureHost>().Info($"[LinuxCaptureHost] Attaching target 0x{targetWindow.ToInt64():X} (Title: '{title}', Class: '{className}') to host 0x{_hostWindow.ToInt64():X}");
+
+        X11Interop.RunWithIgnoredXErrors(_display, () =>
+        {
+            AES_Core.Logging.LogHelper.For<LinuxCaptureHost>().Info($"[LinuxCaptureHost] Executing XReparentWindow: child=0x{targetWindow.ToInt64():X}, parent=0x{_hostWindow.ToInt64():X}");
+            
+            X11Interop.XUnmapWindow(_display, targetWindow);
+            int result = X11Interop.XReparentWindow(_display, targetWindow, _hostWindow, 0, 0);
+            
+            AES_Core.Logging.LogHelper.For<LinuxCaptureHost>().Info($"[LinuxCaptureHost] XReparentWindow result: {result}");
+
+            if (IsVisible && _embeddedTargetWasVisible)
+            {
+                AES_Core.Logging.LogHelper.For<LinuxCaptureHost>().Info($"[LinuxCaptureHost] Mapping window 0x{targetWindow.ToInt64():X}");
+                X11Interop.XMapWindow(_display, targetWindow);
+            }
+
+            X11Interop.XFlush(_display);
+        });
+
+        _embeddedTargetWindow = targetWindow;
+        IsCaptureInitializing = false;
+        IsDirectCompositionActive = true;
+        StatusText = BuildStatusText();
+        ResizeEmbeddedTarget();
+    }
+
+    private void DetachEmbeddedTarget()
+    {
+        if (_display == IntPtr.Zero || _embeddedTargetWindow == IntPtr.Zero)
+        {
+            _embeddedTargetWindow = IntPtr.Zero;
+            _embeddedTargetPreviousParent = IntPtr.Zero;
+            _embeddedTargetWasVisible = false;
+            _lastEmbeddedWidth = -1;
+            _lastEmbeddedHeight = -1;
+            return;
+        }
+
+        var targetWindow = _embeddedTargetWindow;
+        var previousParent = _embeddedTargetPreviousParent != IntPtr.Zero
+            ? _embeddedTargetPreviousParent
+            : X11Interop.XDefaultRootWindow(_display);
+
+        X11Interop.RunWithIgnoredXErrors(_display, () =>
+        {
+            X11Interop.XUnmapWindow(_display, targetWindow);
+
+            if (previousParent != IntPtr.Zero)
+            {
+                X11Interop.XReparentWindow(_display, targetWindow, previousParent, 0, 0);
+
+                if (_embeddedTargetWasVisible)
+                    X11Interop.XMapWindow(_display, targetWindow);
+            }
+
+            X11Interop.XFlush(_display);
+        });
+
+        _embeddedTargetWindow = IntPtr.Zero;
+        _embeddedTargetPreviousParent = IntPtr.Zero;
+        _embeddedTargetWasVisible = false;
+        _lastEmbeddedWidth = -1;
+        _lastEmbeddedHeight = -1;
+    }
+
+    private void UpdateEmbeddedTargetMapping()
+    {
+        if (_display == IntPtr.Zero || _embeddedTargetWindow == IntPtr.Zero)
+            return;
+
+        X11Interop.RunWithIgnoredXErrors(_display, () =>
+        {
+            if (IsVisible)
+            {
+                X11Interop.XMapWindow(_display, _embeddedTargetWindow);
+                ResizeEmbeddedTarget();
+            }
+            else
+            {
+                X11Interop.XUnmapWindow(_display, _embeddedTargetWindow);
+            }
+
+            X11Interop.XFlush(_display);
+        });
+    }
+
+    private void ResizeEmbeddedTarget()
+    {
+        if (_display == IntPtr.Zero || _embeddedTargetWindow == IntPtr.Zero || _hostWindow == IntPtr.Zero)
+            return;
+
+        var width = 0;
+        var height = 0;
+
+        var hasHostSize = X11Interop.RunWithIgnoredXErrors(_display, () =>
+        {
+            if (X11Interop.XGetWindowAttributes(_display, _hostWindow, out var attrs) == 0)
+                return false;
+
+            width = attrs.width;
+            height = attrs.height;
+            return width > 1 && height > 1;
+        }, false);
+
+        if (!hasHostSize)
+        {
+            var topLevel = TopLevel.GetTopLevel(this);
+            var renderScaling = topLevel?.RenderScaling > 0 ? topLevel.RenderScaling : 1.0;
+            width = Math.Max(1, (int)Math.Round(Bounds.Width * renderScaling));
+            height = Math.Max(1, (int)Math.Round(Bounds.Height * renderScaling));
+        }
+
+        if (Math.Abs(_lastEmbeddedWidth - width) < 0.5 && Math.Abs(_lastEmbeddedHeight - height) < 0.5)
+            return;
+
+        _lastEmbeddedWidth = width;
+        _lastEmbeddedHeight = height;
+
+        AES_Core.Logging.LogHelper.For<LinuxCaptureHost>().Debug($"[LinuxCaptureHost] Resizing embedded window 0x{_embeddedTargetWindow.ToInt64():X} to {width}x{height}");
+
+        X11Interop.RunWithIgnoredXErrors(_display, () =>
+        {
+            X11Interop.XMoveResizeWindow(_display, _embeddedTargetWindow, 0, 0, (uint)width, (uint)height);
+            X11Interop.XRaiseWindow(_display, _embeddedTargetWindow);
+            X11Interop.XFlush(_display);
+        });
+    }
+
+    private IntPtr GetWindowParent(IntPtr window)
+    {
+        if (_display == IntPtr.Zero || window == IntPtr.Zero)
+            return IntPtr.Zero;
+
+        return X11Interop.RunWithIgnoredXErrors(_display, () =>
+        {
+            if (X11Interop.XQueryTree(_display, window, out _, out var parent, out var children, out _) == 0)
+                return X11Interop.XDefaultRootWindow(_display);
+
+            if (children != IntPtr.Zero)
+                X11Interop.XFree(children);
+
+            return parent != IntPtr.Zero ? parent : X11Interop.XDefaultRootWindow(_display);
+        }, IntPtr.Zero);
+    }
+
+    private string BuildStatusText()
+    {
+        var targetLabel = string.IsNullOrWhiteSpace(TargetWindowTitleHint)
+            ? "emulator"
+            : TargetWindowTitleHint.Trim();
+
+        return _embeddedTargetWindow != IntPtr.Zero
+            ? $"Embedded {targetLabel}"
+            : $"Waiting for {targetLabel}";
     }
 
     private void RefreshStatus()
     {
-        if (_capture == IntPtr.Zero)
+        if (!_isAttached)
             return;
 
-        var status = LinuxCaptureBridge.GetStatusText(_capture);
-        if (_hasAppliedRenderOptions && !string.IsNullOrEmpty(status))
-            status += $" (RenderOpts v{_renderOptionsUpdateCount})";
+        if (_embeddedTargetWindow != IntPtr.Zero)
+        {
+            ResizeEmbeddedTarget();
 
-        if (!string.IsNullOrEmpty(status) && status != StatusText)
-            StatusText = status;
+            var status = BuildStatusText();
+            if (status != StatusText)
+                StatusText = status;
 
-        var isActive = LinuxCaptureBridge.IsCaptureActive(_capture);
-        if (isActive != IsDirectCompositionActive)
-            IsDirectCompositionActive = isActive;
+            IsDirectCompositionActive = true;
+            IsCaptureInitializing = false;
 
-        var isInit = LinuxCaptureBridge.IsCaptureInitializing(_capture);
-        if (isInit != IsCaptureInitializing)
-            IsCaptureInitializing = isInit;
+            Fps = 0;
+            FrameTimeMs = 0;
 
-        var fps = LinuxCaptureBridge.aes_linux_capture_get_fps(_capture);
-        Fps = isActive ? fps : 0;
+            if (string.IsNullOrWhiteSpace(GpuRenderer) || GpuRenderer == "Unknown")
+                GpuRenderer = "Embedded X11";
 
-        var ft = LinuxCaptureBridge.aes_linux_capture_get_frame_time_ms(_capture);
-        FrameTimeMs = isActive ? ft : 0;
+            if (string.IsNullOrWhiteSpace(GpuVendor) || GpuVendor == "Unknown")
+                GpuVendor = "Linux";
 
-        if (string.IsNullOrEmpty(GpuRenderer) || GpuRenderer == "Unknown")
-            GpuRenderer = LinuxCaptureBridge.GetGpuRenderer(_capture);
+            return;
+        }
 
-        if (string.IsNullOrEmpty(GpuVendor) || GpuVendor == "Unknown")
-            GpuVendor = LinuxCaptureBridge.GetGpuVendor(_capture);
+        if (TargetHwnd != IntPtr.Zero)
+        {
+            IsCaptureInitializing = true;
+            IsDirectCompositionActive = false;
+
+            var status = BuildStatusText();
+            if (status != StatusText)
+                StatusText = status;
+        }
+        else
+        {
+            IsCaptureInitializing = false;
+            IsDirectCompositionActive = false;
+
+            if (StatusText != "Waiting for emulator process")
+                StatusText = "Waiting for emulator process";
+        }
+
+        Fps = 0;
+        FrameTimeMs = 0;
     }
 }

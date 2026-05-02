@@ -46,7 +46,7 @@ internal static class LinuxWindowHelper
             IntPtr netWmPidAtom = XInternAtom(display, "_NET_WM_PID", true);
             if (netWmPidAtom == IntPtr.Zero) return result;
 
-            SearchTree(display, root, netWmPidAtom, pid, result);
+            X11Interop.RunWithIgnoredXErrors(display, () => SearchTree(display, root, netWmPidAtom, pid, result));
         }
         finally
         {
@@ -96,6 +96,52 @@ internal static class LinuxWindowHelper
         return 0;
     }
 
+    public static string GetWindowClassName(IntPtr hwnd)
+    {
+        IntPtr display = X11Interop.XOpenDisplay(null);
+        if (display == IntPtr.Zero) return string.Empty;
+
+        try
+        {
+            return X11Interop.RunWithIgnoredXErrors(display, () => GetWindowClassNameInternal(display, hwnd), string.Empty);
+        }
+        finally
+        {
+            X11Interop.XCloseDisplay(display);
+        }
+    }
+
+    private static string GetWindowClassNameInternal(IntPtr display, IntPtr hwnd)
+    {
+        try
+        {
+            IntPtr wmClass = XInternAtom(display, "WM_CLASS", true);
+            if (wmClass != IntPtr.Zero)
+            {
+                if (XGetWindowProperty(display, hwnd, wmClass, IntPtr.Zero, (IntPtr)1024, false, IntPtr.Zero, out _, out int format, out IntPtr nitems, out _, out IntPtr propReturn) == 0)
+                {
+                    if (propReturn != IntPtr.Zero)
+                    {
+                        if ((long)nitems > 0)
+                        {
+                            // WM_CLASS is "res_name\0res_class\0"
+                            // We return the class which is usually the second string if present
+                            string classes = Marshal.PtrToStringAnsi(propReturn) ?? string.Empty;
+                            int firstNull = classes.IndexOf('\0');
+                            string resClass = Marshal.PtrToStringAnsi(propReturn + (firstNull + 1)) ?? string.Empty;
+
+                            XFree(propReturn);
+                            return string.IsNullOrEmpty(resClass) ? classes : resClass;
+                        }
+                        XFree(propReturn);
+                    }
+                }
+            }
+        }
+        catch { }
+        return string.Empty;
+    }
+
     public static string GetWindowTitle(IntPtr hwnd)
     {
         IntPtr display = X11Interop.XOpenDisplay(null);
@@ -103,7 +149,7 @@ internal static class LinuxWindowHelper
 
         try
         {
-            return GetWindowTitleInternal(display, hwnd);
+            return X11Interop.RunWithIgnoredXErrors(display, () => GetWindowTitleInternal(display, hwnd), string.Empty);
         }
         finally
         {
@@ -144,6 +190,51 @@ internal static class LinuxWindowHelper
         return string.Empty;
     }
 
+    public static List<IntPtr> FindWindowsByClass(string classSubstring)
+    {
+        var result = new List<IntPtr>();
+        IntPtr display = X11Interop.XOpenDisplay(null);
+        if (display == IntPtr.Zero) return result;
+
+        try
+        {
+            IntPtr root = XDefaultRootWindow(display);
+            if (root != IntPtr.Zero)
+            {
+                string lowerHint = classSubstring.ToLowerInvariant();
+                X11Interop.RunWithIgnoredXErrors(display, () => SearchTreeForClass(display, root, lowerHint, result));
+            }
+        }
+        finally
+        {
+            X11Interop.XCloseDisplay(display);
+        }
+        return result;
+    }
+
+    private static void SearchTreeForClass(IntPtr display, IntPtr window, string lowerHint, List<IntPtr> result)
+    {
+        if (window == IntPtr.Zero) return;
+
+        string className = GetWindowClassNameInternal(display, window).ToLowerInvariant();
+        if (!string.IsNullOrEmpty(className) && className.Contains(lowerHint))
+        {
+            result.Add(window);
+        }
+
+        if (XQueryTree(display, window, out _, out _, out IntPtr children_ptr, out int nchildren) != 0 && nchildren > 0 && children_ptr != IntPtr.Zero)
+        {
+            var children = new IntPtr[nchildren];
+            Marshal.Copy(children_ptr, children, 0, nchildren);
+            XFree(children_ptr);
+
+            foreach (var child in children)
+            {
+                SearchTreeForClass(display, child, lowerHint, result);
+            }
+        }
+    }
+
     public static List<IntPtr> FindWindowsByTitle(string titleSubstring)
     {
         var result = new List<IntPtr>();
@@ -156,7 +247,7 @@ internal static class LinuxWindowHelper
             if (root != IntPtr.Zero)
             {
                 string lowerHint = titleSubstring.ToLowerInvariant();
-                SearchTreeForTitle(display, root, lowerHint, result);
+                X11Interop.RunWithIgnoredXErrors(display, () => SearchTreeForTitle(display, root, lowerHint, result));
             }
         }
         finally
@@ -196,16 +287,43 @@ internal static class LinuxWindowHelper
 
         try
         {
-            if (XGetWindowAttributes(display, hwnd, out var attrs) != 0)
+            return X11Interop.RunWithIgnoredXErrors(display, () =>
             {
-                // map_state: 0 = IsUnmapped, 1 = IsUnviewable, 2 = IsViewable
-                return attrs.map_state == 2;
-            }
+                if (XGetWindowAttributes(display, hwnd, out var attrs) != 0)
+                {
+                    // map_state: 0 = IsUnmapped, 1 = IsUnviewable, 2 = IsViewable
+                    return attrs.map_state == 2;
+                }
+
+                return false;
+            }, false);
         }
         finally
         {
             X11Interop.XCloseDisplay(display);
         }
-        return false;
+    }
+
+    private static void SearchTreeByClass(IntPtr display, IntPtr window, string lowerHint, List<IntPtr> result)
+    {
+        if (window == IntPtr.Zero) return;
+
+        string currentClass = GetWindowClassNameInternal(display, window).ToLowerInvariant();
+        if (!string.IsNullOrEmpty(currentClass) && currentClass.Contains(lowerHint))
+        {
+            result.Add(window);
+        }
+
+        if (XQueryTree(display, window, out _, out _, out IntPtr children_ptr, out int nchildren) != 0 && nchildren > 0 && children_ptr != IntPtr.Zero)
+        {
+            var children = new IntPtr[nchildren];
+            Marshal.Copy(children_ptr, children, 0, nchildren);
+            XFree(children_ptr);
+
+            foreach (var child in children)
+            {
+                SearchTreeByClass(display, child, lowerHint, result);
+            }
+        }
     }
 }

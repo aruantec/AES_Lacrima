@@ -61,7 +61,10 @@ public class LinuxScreenCaptureService : AES_Emulation.Platform.IScreenCaptureSe
             {
                 // Lower window to the bottom of the Z-order so it is hidden behind our UI.
                 // We avoid moving it extremely offscreen because some Compositors freeze XComposite updates for offscreen windows.
-                XLowerWindow(display, hwnd);
+                X11Interop.RunWithIgnoredXErrors(display, () =>
+                {
+                    XLowerWindow(display, hwnd);
+                });
             }
             finally
             {
@@ -84,14 +87,16 @@ public class LinuxScreenCaptureService : AES_Emulation.Platform.IScreenCaptureSe
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            if (!IsProcessAlive(process))
+                return IntPtr.Zero;
+
             var hwnd = handler.FindPreferredWindowHandle(process);
             
             // Try to find via main window handle if our PID traversal didn't work immediately
             if (hwnd == IntPtr.Zero)
             {
-                process.Refresh();
-                if (process.MainWindowHandle != IntPtr.Zero)
-                    hwnd = process.MainWindowHandle;
+                if (TryGetMainWindowHandle(process, out var mainWindowHandle))
+                    hwnd = mainWindowHandle;
             }
 
             if (hwnd != IntPtr.Zero)
@@ -118,5 +123,36 @@ public class LinuxScreenCaptureService : AES_Emulation.Platform.IScreenCaptureSe
         }
 
         return assignedHwnd;
+    }
+
+    private static bool IsProcessAlive(Process process)
+    {
+        try
+        {
+            return !process.HasExited;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetMainWindowHandle(Process process, out IntPtr mainWindowHandle)
+    {
+        mainWindowHandle = IntPtr.Zero;
+
+        if (!IsProcessAlive(process))
+            return false;
+
+        try
+        {
+            process.Refresh();
+            mainWindowHandle = process.MainWindowHandle;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

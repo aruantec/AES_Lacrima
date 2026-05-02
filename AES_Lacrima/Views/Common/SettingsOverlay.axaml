@@ -213,7 +213,7 @@
                                                                     CornerRadius="8"
                                                                     Padding="12">
                                                                 <StackPanel>
-                                                                    <Grid ColumnDefinitions="180,*,Auto,Auto,Auto" ColumnSpacing="12">
+                                                                    <Grid ColumnDefinitions="180,*,Auto,Auto,Auto,Auto" ColumnSpacing="12">
                                                                         <TextBlock Text="{Binding DisplayName}"
                                                                                VerticalAlignment="Center"
                                                                                FontSize="18"
@@ -246,6 +246,13 @@
                                                                                 Padding="14,8"
                                                                                 MinWidth="100"/>
                                                                         <Button Grid.Column="4"
+                                                                            Content="Flatpak apps"
+                                                                            Command="{Binding SelectFlatpakLauncherCommand}"
+                                                                            IsVisible="{Binding IsFlatpakSelectorVisible}"
+                                                                            Padding="14,8"
+                                                                            MinWidth="120"
+                                                                            ToolTip.Tip="Select from installed Flatpak applications"/>
+                                                                        <Button Grid.Column="5"
                                                                                 Content="Clear"
                                                                                 Command="{Binding ClearLauncherCommand}"
                                                                                 IsVisible="{Binding HasLauncherPath}"

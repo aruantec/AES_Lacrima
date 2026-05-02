@@ -72,6 +72,7 @@
         <Border x:Name="PortalFallbackOverlay"
                 Background="#FF000000"
                 IsHitTestVisible="False"
+            IsVisible="{Binding ElementName=RootView, Path=IsPortalFallbackOverlayVisible}"
                 Opacity="{Binding ElementName=RootView, Path=PortalFallbackOpacity}"/>
 
         <composition:CompositionCarouselControl x:Name="RomCarousel"
@@ -356,6 +357,7 @@
                     VerticalAlignment="Stretch"
                     Margin="0,0,0,0"
                     ZIndex="2100"
+                    IsVisible="{Binding ElementName=RootView, Path=IsRenderOptionsUiVisible}"
                     Opacity="{Binding IsRenderOptionsOpen, Converter={StaticResource BoolToOpacityConverter}}"
                     IsHitTestVisible="{Binding IsRenderOptionsOpen}">
                 <ScrollViewer Grid.Row="0"
@@ -857,8 +859,13 @@
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding ToggleRenderOptionsCommand}"
-                        IsVisible="{Binding IsEmulatorRunning}"
                         ToolTip.Tip="Render Options">
+                    <Button.IsVisible>
+                        <MultiBinding Converter="{StaticResource BoolAndConverter}">
+                            <Binding Path="IsEmulatorRunning"/>
+                            <Binding ElementName="RootView" Path="IsRenderOptionsUiVisible"/>
+                        </MultiBinding>
+                    </Button.IsVisible>
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">

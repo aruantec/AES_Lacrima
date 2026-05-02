@@ -15,7 +15,7 @@ internal static class LinuxWindowPlacement
     private static readonly Dictionary<IntPtr, long> PlacementVersions = new();
     private static long _nextPlacementVersion;
 
-    public static bool TryConfigureAsNormalWindow(Window window)
+    public static bool TryConfigureAsNonTaskbarWindow(Window window)
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             return false;
@@ -31,11 +31,14 @@ internal static class LinuxWindowPlacement
         try
         {
             var windowType = XInternAtom(display, "_NET_WM_WINDOW_TYPE", false);
-            var normalType = XInternAtom(display, "_NET_WM_WINDOW_TYPE_NORMAL", false);
-            if (windowType == IntPtr.Zero || normalType == IntPtr.Zero)
+            var utilityType = XInternAtom(display, "_NET_WM_WINDOW_TYPE_UTILITY", false);
+            var stateAtom = XInternAtom(display, "_NET_WM_STATE", false);
+            var skipTaskbar = XInternAtom(display, "_NET_WM_STATE_SKIP_TASKBAR", false);
+            var skipPager = XInternAtom(display, "_NET_WM_STATE_SKIP_PAGER", false);
+            if (windowType == IntPtr.Zero || utilityType == IntPtr.Zero || stateAtom == IntPtr.Zero || skipTaskbar == IntPtr.Zero || skipPager == IntPtr.Zero)
                 return false;
 
-            var atoms = new[] { normalType };
+            var atoms = new[] { utilityType };
             XChangeProperty(
                 display,
                 handle,
@@ -45,6 +48,59 @@ internal static class LinuxWindowPlacement
                 PropModeReplace,
                 atoms,
                 atoms.Length);
+
+            var stateAtoms = new[] { skipTaskbar, skipPager };
+            XChangeProperty(
+                display,
+                handle,
+                stateAtom,
+                new IntPtr(XA_ATOM),
+                32,
+                PropModeReplace,
+                stateAtoms,
+                stateAtoms.Length);
+
+            XFlush(display);
+            return true;
+        }
+        finally
+        {
+            XCloseDisplay(display);
+        }
+    }
+
+    public static bool TryConfigureAsBelowWindow(Window window)
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return false;
+
+        var handle = window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (handle == IntPtr.Zero)
+            return false;
+
+        var display = XOpenDisplay(IntPtr.Zero);
+        if (display == IntPtr.Zero)
+            return false;
+
+        try
+        {
+            var stateAtom = XInternAtom(display, "_NET_WM_STATE", false);
+            var belowAtom = XInternAtom(display, "_NET_WM_STATE_BELOW", false);
+            if (stateAtom == IntPtr.Zero || belowAtom == IntPtr.Zero)
+                return false;
+
+            var stateAtoms = new[] { belowAtom };
+            XChangeProperty(
+                display,
+                handle,
+                stateAtom,
+                new IntPtr(XA_ATOM),
+                32,
+                PropModeReplace,
+                stateAtoms,
+                stateAtoms.Length);
+
+            XLowerWindow(display, handle);
             XFlush(display);
             return true;
         }
@@ -273,6 +329,9 @@ internal static class LinuxWindowPlacement
     private static extern int XCloseDisplay(IntPtr display);
 
     [DllImport("libX11.so.6")]
+    private static extern int XLowerWindow(IntPtr display, IntPtr w);
+
+    [DllImport("libX11.so.6")]
     private static extern IntPtr XInternAtom(IntPtr display, string atomName, bool onlyIfExists);
 
     [DllImport("libX11.so.6")]
@@ -307,7 +366,6 @@ internal static class LinuxWindowPlacement
     [DllImport("libXfixes.so.3")]
     private static extern void XFixesDestroyRegion(IntPtr display, IntPtr region);
 
-    [StructLayout(LayoutKind.Sequential)]
     private struct XWindowChanges
     {
         public int x;
