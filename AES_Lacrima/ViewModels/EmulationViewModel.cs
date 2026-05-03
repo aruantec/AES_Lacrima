@@ -1198,14 +1198,18 @@ namespace AES_Lacrima.ViewModels
             if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
                 return;
 
-            var scanPatterns = EmulationConsoleCatalog.GetScanPatterns(album.Title);
-            var paths = await Task.Run(() => ScanFolderForRomPaths(rootPath, scanPatterns));
+            var paths = await Task.Run(() => IsPlayStation4Album(album.Title)
+                ? ScanFolderForPs4RomPaths(rootPath)
+                : ScanFolderForRomPaths(rootPath, EmulationConsoleCatalog.GetScanPatterns(album.Title)));
             bool addedAny = ImportRomPaths(album, paths);
 
             if (!addedAny)
                 return;
 
-            FinalizeRomImport(album);
+            await Dispatcher.UIThread.InvokeAsync(() => FinalizeRomImport(album), DispatcherPriority.Background);
+
+            if (IsPlayStation4Album(album.Title) && MetadataService != null)
+                _ = PopulatePlayStation4MetadataAsync(album);
         }
 
         [RelayCommand(CanExecute = nameof(CanOpenMetadata))]
@@ -1516,6 +1520,169 @@ namespace AES_Lacrima.ViewModels
                 .ToArray();
         }
 
+        private static IReadOnlyList<string> ScanFolderForPs4RomPaths(string rootPath)
+        {
+            var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            ScanPs4FolderCandidates(rootPath, candidates, visited);
+
+            return candidates
+                .Where(candidate => !candidates.Any(other =>
+                    !string.Equals(candidate, other, StringComparison.OrdinalIgnoreCase) &&
+                    IsDescendantPath(candidate, other)))
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        private static (bool HasEboot, bool HasIcon) ScanPs4FolderCandidates(
+            string currentDirectory,
+            ISet<string> candidates,
+            ISet<string> visited)
+        {
+            if (!visited.Add(currentDirectory))
+                return (false, false);
+
+            bool hasEboot = false;
+            bool hasIcon = false;
+
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(currentDirectory))
+                {
+                    if (ShouldSkipFilesystemEntry(file))
+                        continue;
+
+                    var fileName = Path.GetFileName(file);
+                    if (string.Equals(fileName, "eboot.bin", StringComparison.OrdinalIgnoreCase))
+                        hasEboot = true;
+                    else if (string.Equals(fileName, "icon0.png", StringComparison.OrdinalIgnoreCase))
+                        hasIcon = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to inspect PS4 folder '{currentDirectory}' for marker files.", ex);
+            }
+
+            try
+            {
+                foreach (var directory in Directory.EnumerateDirectories(currentDirectory))
+                {
+                    if (ShouldSkipFilesystemEntry(directory))
+                        continue;
+
+                    var childResult = ScanPs4FolderCandidates(directory, candidates, visited);
+                    hasEboot |= childResult.HasEboot;
+                    hasIcon |= childResult.HasIcon;
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to enumerate PS4 subdirectories in '{currentDirectory}'.", ex);
+            }
+
+            if (hasEboot && hasIcon)
+                candidates.Add(currentDirectory);
+
+            return (hasEboot, hasIcon);
+        }
+
+        private static bool IsDescendantPath(string ancestorPath, string candidatePath)
+        {
+            if (string.IsNullOrWhiteSpace(ancestorPath) || string.IsNullOrWhiteSpace(candidatePath))
+                return false;
+
+            if (string.Equals(ancestorPath, candidatePath, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            try
+            {
+                var relativePath = Path.GetRelativePath(ancestorPath, candidatePath);
+                return !relativePath.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(relativePath);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string? FindPs4Icon0Path(string rootPath)
+        {
+            try
+            {
+                var sceSysIconPath = FindPs4SceSysIcon0Path(rootPath);
+                if (!string.IsNullOrWhiteSpace(sceSysIconPath))
+                    return sceSysIconPath;
+
+                foreach (var file in Directory.EnumerateFiles(rootPath))
+                {
+                    if (ShouldSkipFilesystemEntry(file))
+                        continue;
+
+                    if (string.Equals(Path.GetFileName(file), "icon0.png", StringComparison.OrdinalIgnoreCase))
+                        return file;
+                }
+
+                foreach (var directory in Directory.EnumerateDirectories(rootPath))
+                {
+                    if (ShouldSkipFilesystemEntry(directory))
+                        continue;
+
+                    var iconPath = FindPs4Icon0Path(directory);
+                    if (!string.IsNullOrWhiteSpace(iconPath))
+                        return iconPath;
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to locate PS4 icon0.png under '{rootPath}'.", ex);
+            }
+
+            return null;
+        }
+
+        private static string? FindPs4SceSysIcon0Path(string rootPath)
+        {
+            try
+            {
+                var directSceSysIconPath = Path.Combine(rootPath, "sce_sys", "icon0.png");
+                if (File.Exists(directSceSysIconPath))
+                    return directSceSysIconPath;
+
+                foreach (var directory in Directory.EnumerateDirectories(rootPath, "sce_sys", SearchOption.AllDirectories))
+                {
+                    if (ShouldSkipFilesystemEntry(directory))
+                        continue;
+
+                    var iconPath = Path.Combine(directory, "icon0.png");
+                    if (File.Exists(iconPath))
+                        return iconPath;
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to locate PS4 sce_sys icon0.png under '{rootPath}'.", ex);
+            }
+
+            return null;
+        }
+
+        private static Bitmap? TryLoadBitmapFromPath(string path)
+        {
+            try
+            {
+                return File.Exists(path) ? new Bitmap(path) : null;
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to load bitmap from '{path}'.", ex);
+                return null;
+            }
+        }
+
+        private static bool IsPlayStation4Album(string? albumTitle)
+            => string.Equals(EmulationConsoleCatalog.GetDisplayName(albumTitle), "PlayStation 4", StringComparison.OrdinalIgnoreCase);
+
         private static IReadOnlyCollection<string> CollapseDiscImageArtifacts(IEnumerable<string> paths)
         {
             var distinctPaths = paths
@@ -1767,19 +1934,35 @@ namespace AES_Lacrima.ViewModels
 
         private static MediaItem CreateRomItem(string filePath, FolderMediaItem album)
         {
-            var title = GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(filePath));
-            return new MediaItem
+            var title = GetNormalizedRomTitle(Directory.Exists(filePath)
+                ? Path.GetFileName(filePath)
+                : Path.GetFileNameWithoutExtension(filePath));
+
+            var item = new MediaItem
             {
                 FileName = filePath,
                 Title = title,
                 Album = album.Title,
                 CoverBitmap = album.CoverBitmap
             };
+
+            if (Directory.Exists(filePath) && IsPlayStation4Album(album.Title))
+            {
+                var iconPath = FindPs4Icon0Path(filePath);
+                if (!string.IsNullOrWhiteSpace(iconPath))
+                {
+                    item.LocalCoverPath = iconPath;
+                    item.CoverBitmap = TryLoadBitmapFromPath(iconPath) ?? item.CoverBitmap;
+                }
+            }
+
+            return item;
         }
 
         private static MediaItem CloneRomItem(MediaItem source, string? albumTitle, Bitmap? previewBitmap)
         {
             var fileName = source.FileName;
+            var localCoverBitmap = TryLoadBitmapFromPath(source.LocalCoverPath ?? string.Empty) ?? previewBitmap;
             return new MediaItem
             {
                 FileName = fileName,
@@ -1796,8 +1979,32 @@ namespace AES_Lacrima.ViewModels
                 Comment = source.Comment,
                 LocalCoverPath = source.LocalCoverPath,
                 VideoUrl = source.VideoUrl,
-                CoverBitmap = previewBitmap
+                CoverBitmap = localCoverBitmap
             };
+        }
+
+        private async Task PopulatePlayStation4MetadataAsync(FolderMediaItem album)
+        {
+            if (MetadataService == null)
+                return;
+
+            foreach (var item in album.Children)
+            {
+                if (string.IsNullOrWhiteSpace(item.FileName) || string.IsNullOrWhiteSpace(item.LocalCoverPath))
+                    continue;
+
+                if (!File.Exists(item.LocalCoverPath))
+                    continue;
+
+                try
+                {
+                    await MetadataService.TryPopulatePs4MetadataAsync(item, album.Title).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn($"Failed to populate PS4 metadata for '{item.FileName}'.", ex);
+                }
+            }
         }
 
         private static void NormalizeAlbumRomTitles(FolderMediaItem album)
@@ -1872,7 +2079,16 @@ namespace AES_Lacrima.ViewModels
         private static bool NeedsCoverLookup(MediaItem item, FolderMediaItem album)
         {
             if (item.CoverBitmap == null)
+            {
+                if (!string.IsNullOrWhiteSpace(item.LocalCoverPath))
+                {
+                    item.CoverBitmap = TryLoadBitmapFromPath(item.LocalCoverPath);
+                    if (item.CoverBitmap != null)
+                        return false;
+                }
+
                 return true;
+            }
 
             return ReferenceEquals(item.CoverBitmap, album.CoverBitmap);
         }

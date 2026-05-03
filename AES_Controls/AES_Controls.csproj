@@ -11,6 +11,9 @@
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)Generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="obj/Generated/**/*.cs" />
+  </ItemGroup>
   <PropertyGroup>
     <EnableWindowsTaskbarSupport Condition="'$(RuntimeIdentifier)' != '' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(RuntimeIdentifier)', '^win'))">true</EnableWindowsTaskbarSupport>
     <EnableWindowsTaskbarSupport Condition="'$(EnableWindowsTaskbarSupport)' == '' and '$(OS)' == 'Windows_NT'">true</EnableWindowsTaskbarSupport>

@@ -67,11 +67,14 @@ namespace AES_Lacrima.Services
         private static readonly Regex GoogleQuotedHttpUrlRegex = new(@"""(?<url>https?:\\?/\\?/[^""'\s<>]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex BingJsonImageUrlRegex = new(@"""(?:murl|imgurl|turl|thumb|thumbnailUrl)""\s*:\s*""(?<url>https?:\\?/\\?/[^""]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex BingHtmlEncodedImageUrlRegex = new(@"(?:murl|imgurl|turl|thumb|thumbnailUrl)&quot;:&quot;(?<url>https?:[^""'<>]+?)&quot;", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex BingSearchTitleRegex = new(@"<h2>\s*<a[^>]*>(?<title>.*?)</a>", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        private static readonly Regex HtmlTagRegex = new(@"<[^>]+>", RegexOptions.Compiled);
         private static readonly Regex DdgJsonImageUrlRegex = new(@"""(?:image|thumbnail)""\s*:\s*""(?<url>https?:\\?/\\?/[^""]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex DirectImageUrlRegex = new(@"https?://[^""'\s<>\\]+?\.(?:jpg|jpeg|png|webp|gif|bmp|avif)(?:\?[^""'\s<>\\]*)?", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex RomDumpTokenRegex = new(@"\b(?:rev\s*\d+|beta|proto|prototype|demo|sample|unl|hack|translated?|translation|usa|europe|japan|world)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex RomReleaseTokenRegex = new(@"\b(?:complete|fixed|fix|patched?|update(?:d)?|release|final)\b|\bv(?:ersion)?\s*\d+(?:[._-]\d+)*(?:\s+\d+)*\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex CoverSearchTokenRegex = new(@"\b(?:cover(?:\s+art)?|album\s+cover|box\s*art)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex Ps4GameIdRegex = new(@"^[A-Z]{4,5}\d{5}$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly SemaphoreSlim AutoCoverLookupThrottle = new(2, 2);
         private const string GoogleConsentCookie = "CONSENT=YES+cb.20210328-17-p0.en+FX+471";
         private static readonly string[] NoiseTokens =
@@ -1810,7 +1813,8 @@ namespace AES_Lacrima.Services
             await ApplyCoverBytesToItemAsync(item, cover.Data, cover.MimeType ?? GuessMimeTypeFromBytes(cover.Data), cancellationToken, cachePath)
                 .ConfigureAwait(false);
 
-            if (string.IsNullOrWhiteSpace(item.Title) && !string.IsNullOrWhiteSpace(metadata?.Title))
+            if (!string.IsNullOrWhiteSpace(metadata?.Title) &&
+                (string.IsNullOrWhiteSpace(item.Title) || LooksLikePs4GameId(item.Title)))
             {
                 await Dispatcher.UIThread.InvokeAsync(() => item.Title = metadata!.Title);
             }
@@ -1823,11 +1827,141 @@ namespace AES_Lacrima.Services
             return true;
         }
 
+        public async Task<bool> TryPopulatePs4MetadataAsync(MediaItem item, string? albumName, CancellationToken cancellationToken = default)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.FileName) || string.IsNullOrWhiteSpace(item.LocalCoverPath))
+                return false;
+
+            if (!File.Exists(item.LocalCoverPath))
+                return false;
+
+            var sourceCoverPath = item.LocalCoverPath;
+            var cachePath = GetMetadataCachePath(item.FileName);
+            var resolvedTitle = await ResolvePs4GameTitleAsync(item.FileName, albumName, cancellationToken).ConfigureAwait(false);
+            var metadata = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath), cancellationToken).ConfigureAwait(false) ?? new CustomMetadata();
+
+            if (string.IsNullOrWhiteSpace(resolvedTitle) || LooksLikePs4GameId(resolvedTitle))
+                resolvedTitle = metadata.Title;
+
+            if (string.IsNullOrWhiteSpace(resolvedTitle) || LooksLikePs4GameId(resolvedTitle))
+                resolvedTitle = item.Title;
+
+            if (!string.IsNullOrWhiteSpace(resolvedTitle) && !LooksLikePs4GameId(resolvedTitle))
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => item.Title = resolvedTitle);
+                metadata.Title = resolvedTitle;
+            }
+
+            if (!string.IsNullOrWhiteSpace(albumName))
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => item.Album = albumName);
+                metadata.Album = albumName;
+            }
+            else if (string.IsNullOrWhiteSpace(metadata.Album))
+            {
+                metadata.Album = item.Album ?? string.Empty;
+            }
+
+            var bytes = await File.ReadAllBytesAsync(item.LocalCoverPath, cancellationToken).ConfigureAwait(false);
+            var mimeType = GuessMimeTypeFromUrl(item.LocalCoverPath);
+            if (!mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                mimeType = "image/png";
+
+            await ApplyCoverBytesToItemAsync(item, bytes, mimeType, cancellationToken, cachePath).ConfigureAwait(false);
+            await Dispatcher.UIThread.InvokeAsync(() => item.LocalCoverPath = sourceCoverPath);
+            await SaveCoverToMetadataCacheAsync(item, bytes, mimeType).ConfigureAwait(false);
+
+            return true;
+        }
+
         private static string GetMetadataCachePath(string? filePath)
         {
             var cacheId = BinaryMetadataHelper.GetCacheId(filePath ?? string.Empty);
             return ApplicationPaths.GetCacheFile(cacheId + ".meta");
         }
+
+        private async Task<string?> ResolvePs4GameTitleAsync(string filePath, string? albumName, CancellationToken cancellationToken)
+        {
+            var gameId = Path.GetFileName(filePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.IsNullOrWhiteSpace(gameId) || !LooksLikePs4GameId(gameId))
+                return null;
+
+            var queries = new List<string>();
+            AddDistinctQuery(queries, gameId, "title");
+            AddDistinctQuery(queries, gameId, albumName, "title");
+            AddDistinctQuery(queries, gameId, albumName, "PlayStation 4", "title");
+            AddDistinctQuery(queries, gameId, albumName, "PlayStation 4");
+            AddDistinctQuery(queries, gameId, "PS4");
+            AddDistinctQuery(queries, gameId);
+
+            foreach (var query in queries)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var url = $"https://www.bing.com/search?q={Uri.EscapeDataString(query)}&setlang=en-US";
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
+                request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
+                request.Headers.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
+                request.Headers.Referrer = new Uri("https://www.bing.com/");
+
+                using var response = await ImageHttpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                    continue;
+
+                var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var resolvedTitle = ExtractPs4SearchTitle(html);
+                if (!string.IsNullOrWhiteSpace(resolvedTitle))
+                    return resolvedTitle;
+            }
+
+            return null;
+        }
+
+        private static string? ExtractPs4SearchTitle(string html)
+        {
+            var match = BingSearchTitleRegex.Match(html);
+            if (!match.Success)
+                return null;
+
+            var title = HtmlTagRegex.Replace(WebUtility.HtmlDecode(match.Groups["title"].Value), " ");
+            title = MultiSpaceRegex.Replace(title, " ").Trim();
+            title = CleanPs4SearchTitle(title);
+            return string.IsNullOrWhiteSpace(title) ? null : title;
+        }
+
+        private static string CleanPs4SearchTitle(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+                return string.Empty;
+
+            var cleaned = title.Trim();
+            var suffixes = new[]
+            {
+                " - Wikipedia",
+                " - PlayStation",
+                " | PlayStation",
+                " - PlayStation Store",
+                " - MobyGames",
+                " - GameFAQs",
+                " - IGN",
+                " | IGN"
+            };
+
+            foreach (var suffix in suffixes)
+            {
+                if (cleaned.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    cleaned = cleaned[..^suffix.Length].Trim();
+                    break;
+                }
+            }
+
+            return MultiSpaceRegex.Replace(cleaned, " ").Trim();
+        }
+
+        private static bool LooksLikePs4GameId(string? value)
+            => !string.IsNullOrWhiteSpace(value) && Ps4GameIdRegex.IsMatch(value);
 
         public async Task ClearCacheForItemsAsync(IEnumerable<MediaItem> items)
         {

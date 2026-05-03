@@ -106,6 +106,15 @@
             <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:EmulationAlbumItem">
                     <Border CornerRadius="12" Margin="0" ClipToBounds="False" Background="Transparent">
+                        <Border.ContextMenu>
+                            <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+                                         x:DataType="vm:EmulationViewModel">
+                                <MenuItem Header="Add Roms"
+                                          Command="{Binding AddRomsCommand}" />
+                                <MenuItem Header="Scan Folder"
+                                          Command="{Binding ScanFolderCommand}" />
+                            </ContextMenu>
+                        </Border.ContextMenu>
                         <Grid Width="240" Height="220">
                             <Border CornerRadius="12"
                                     Background="#111111"
