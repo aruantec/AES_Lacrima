@@ -66,6 +66,8 @@ public interface IEmulatorHandler : INotifyPropertyChanged
 
     int CaptureStartupDelayMs { get; }
     
+    bool IsWindowEmbeddingSupported { get; }
+
     EmulatorCaptureMode PreferredCaptureMode { get; }
 
     ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null);
@@ -77,6 +79,8 @@ public interface IEmulatorHandler : INotifyPropertyChanged
     IntPtr FindPreferredWindowHandle(Process process);
 
     bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle);
+
+    Task<Process?> ResolveRuntimeProcessAsync(Process process, CancellationToken cancellationToken);
 
     Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken);
 }

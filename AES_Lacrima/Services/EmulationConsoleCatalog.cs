@@ -172,6 +172,14 @@ namespace AES_Lacrima.Services
             return definition.SearchAliases;
         }
 
+        public static bool SupportsFolderImport(string? consoleName)
+        {
+            if (!TryGetDefinition(consoleName, out var definition))
+                return false;
+
+            return string.Equals(definition.Key, "PS4", StringComparison.OrdinalIgnoreCase);
+        }
+
         public static IReadOnlyList<string> GetSearchQueryTerms(string? consoleName)
         {
             if (!TryGetDefinition(consoleName, out var definition))

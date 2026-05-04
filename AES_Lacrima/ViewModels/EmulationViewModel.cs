@@ -222,6 +222,9 @@ namespace AES_Lacrima.ViewModels
         private double _gameplayPreviewTargetAspectRatio;
 
         public string AlbumListToggleText => IsAlbumListCollapsed ? "Show Albums" : "Hide Albums";
+
+        public bool CanShowRenderOptions => IsEmulatorRunning && !(CurrentEmulatorHandler?.IsWindowEmbeddingSupported == true);
+
         [ObservableProperty]
         private bool _isEmulatorRunning;
 
@@ -494,6 +497,7 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnIsEmulatorRunningChanged(bool value)
         {
+            OnPropertyChanged(nameof(CanShowRenderOptions));
             OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
             OnPropertyChanged(nameof(IsEmulatorViewportVisible));
             OnPropertyChanged(nameof(IsCompositionCaptureVisible));
@@ -1139,6 +1143,31 @@ namespace AES_Lacrima.ViewModels
                 return;
             }
 
+            if (EmulationConsoleCatalog.SupportsFolderImport(album.Title))
+            {
+                var folders = await storageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+                {
+                    Title = $"Add items to {album.Title}",
+                    AllowMultiple = true
+                });
+
+                if (folders.Count == 0)
+                    return;
+
+                var folderPaths = folders
+                    .Select(folder => folder.TryGetLocalPath())
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .Cast<string>();
+
+                bool addedAnyFromFolders = ImportRomPaths(album, folderPaths);
+
+                if (!addedAnyFromFolders)
+                    return;
+
+                FinalizeRomImport(album);
+                return;
+            }
+
             var files = await storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
                 Title = $"Add Roms to {album.Title}",
@@ -1199,7 +1228,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var scanPatterns = EmulationConsoleCatalog.GetScanPatterns(album.Title);
-            var paths = await Task.Run(() => ScanFolderForRomPaths(rootPath, scanPatterns));
+            var paths = await Task.Run(() => ScanFolderForRomPaths(rootPath, album.Title, scanPatterns));
             bool addedAny = ImportRomPaths(album, paths);
 
             if (!addedAny)
@@ -1462,6 +1491,9 @@ namespace AES_Lacrima.ViewModels
         }
 
         private static IReadOnlyList<string> ScanFolderForRomPaths(string rootPath, IReadOnlyList<string> patterns)
+            => ScanFolderForRomPaths(rootPath, null, patterns);
+
+        private static IReadOnlyList<string> ScanFolderForRomPaths(string rootPath, string? consoleName, IReadOnlyList<string> patterns)
         {
             var results = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var directories = new Stack<string>();
@@ -1470,6 +1502,13 @@ namespace AES_Lacrima.ViewModels
             while (directories.Count > 0)
             {
                 var currentDirectory = directories.Pop();
+
+                if (EmulationConsoleCatalog.SupportsFolderImport(consoleName) &&
+                    Ps4InstalledGameHelper.IsInstalledGameFolder(currentDirectory))
+                {
+                    results.Add(currentDirectory);
+                    continue;
+                }
 
                 if (IsWiiUPackageFolder(currentDirectory))
                 {
@@ -2021,10 +2060,10 @@ namespace AES_Lacrima.ViewModels
             }
 
             _pendingEmulatorLaunchRequest = null;
-            LaunchEmulator(request);
+            _ = LaunchEmulatorAsync(request);
         }
 
-        private void LaunchEmulator(PendingEmulatorLaunchRequest request)
+        private async Task LaunchEmulatorAsync(PendingEmulatorLaunchRequest request)
         {
             try
             {
@@ -2032,7 +2071,16 @@ namespace AES_Lacrima.ViewModels
 
                 var handler = request.Handler;
                 CurrentEmulatorHandler = handler;
-                EmulatorCaptureDelayMs = handler.CaptureStartupDelayMs;
+                
+                if (handler.IsWindowEmbeddingSupported)
+                {
+                    EmulatorCaptureDelayMs = 0;
+                    SelectedCaptureMode = EmulatorCaptureMode.Injected;
+                }
+                else
+                {
+                    EmulatorCaptureDelayMs = handler.CaptureStartupDelayMs;
+                }
 
                 if (!handler.IsPrepared)
                     handler.Prepare();
@@ -2054,7 +2102,40 @@ namespace AES_Lacrima.ViewModels
                     SLog.Info($"Emulator process launched: pid={process.Id}, name={process.ProcessName}, hasExited={process.HasExited}.");
                 }
 
-                TrackEmulatorProcess(process, request.RomPath, handler);
+                Process? runtimeProcess = process;
+                if (process != null)
+                {
+                    try
+                    {
+                        runtimeProcess = await handler.ResolveRuntimeProcessAsync(process, CancellationToken.None).ConfigureAwait(false) ?? process;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        runtimeProcess = process;
+                    }
+                    catch (Exception ex)
+                    {
+                        SLog.Warn($"Failed to resolve emulator runtime process for '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
+                        runtimeProcess = process;
+                    }
+                }
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (process != null && runtimeProcess != null && !ReferenceEquals(process, runtimeProcess))
+                    {
+                        try
+                        {
+                            SLog.Info($"Emulator runtime process resolved: launcherPid={process.Id}, runtimePid={runtimeProcess.Id}, runtimeName={runtimeProcess.ProcessName}.");
+                        }
+                        catch
+                        {
+                            SLog.Info("Emulator runtime process resolved to a spawned process.");
+                        }
+                    }
+
+                    TrackEmulatorProcess(runtimeProcess, request.RomPath, handler);
+                }, DispatcherPriority.Background);
             }
             catch (Exception ex)
             {

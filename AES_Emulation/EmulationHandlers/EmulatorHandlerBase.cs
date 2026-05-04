@@ -286,6 +286,8 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual int CaptureStartupDelayMs => 3000;
 
+    public virtual bool IsWindowEmbeddingSupported => false;
+
     public virtual void PrepareProcessForCapture(Process process) => CaptureService?.PrepareProcessForCapture(process);
 
     public virtual void PrepareWindowForCapture(IntPtr hwnd) => CaptureService?.PrepareWindowForCapture(hwnd);
@@ -663,6 +665,23 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle) => hwnd != IntPtr.Zero;
 
+    public virtual Task<Process?> ResolveRuntimeProcessAsync(Process process, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        try
+        {
+            _ = process.Id;
+            if (!process.HasExited)
+                return Task.FromResult<Process?>(process);
+        }
+        catch
+        {
+        }
+
+        return Task.FromResult<Process?>(process);
+    }
+
     public virtual async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
         if (OperatingSystem.IsLinux())
@@ -709,9 +728,31 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         }
 
         if (CaptureService != null)
-            return await CaptureService.ResolveCaptureTargetAsync(process, this, cancellationToken);
+        {
+            try
+            {
+                return await CaptureService.ResolveCaptureTargetAsync(process, this, cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex)
+            {
+                SLog.Debug("Capture service target resolution failed because the process is no longer associated.", ex);
+                return IntPtr.Zero;
+            }
+        }
 
-        return process.MainWindowHandle;
+        try
+        {
+            process.Refresh();
+            if (process.HasExited)
+                return IntPtr.Zero;
+
+            return process.MainWindowHandle;
+        }
+        catch (InvalidOperationException ex)
+        {
+            SLog.Debug("Fallback main window lookup failed because the process is no longer associated.", ex);
+            return IntPtr.Zero;
+        }
     }
 
     protected static void TryWaitForInputIdle(Process process, int timeoutMs)
