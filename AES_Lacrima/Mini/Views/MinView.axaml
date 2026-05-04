@@ -45,10 +45,17 @@
 							   MaxLines="1"
                                TextTrimming="CharacterEllipsis"/>
                     <TextBlock FontSize="14"
-                               Foreground="White">
-                        <Run Text="{Binding MusicViewModel.AudioPlayer.Position, Converter={StaticResource TimeSpanConverter}, FallbackValue='00:00'}" />
-                        <Run Text=" / " />
-                        <Run Text="{Binding LoadedMediaItem.Duration, Converter={StaticResource TimeSpanConverter}, ConverterParameter=UnknownAsDashes, FallbackValue='--:--'}" />
+                               Foreground="White"
+                               HorizontalAlignment="Left"
+                               MaxWidth="150"
+                               TextWrapping="NoWrap"
+                               TextTrimming="CharacterEllipsis">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0} / {1}">
+                                <Binding Path="MusicViewModel.AudioPlayer.Position" Converter="{StaticResource TimeSpanConverter}" FallbackValue="00:00" />
+                                <Binding Path="LoadedMediaItem.Duration" Converter="{StaticResource TimeSpanConverter}" ConverterParameter="UnknownAsDashes" FallbackValue="--:--" />
+                            </MultiBinding>
+                        </TextBlock.Text>
                     </TextBlock>
 				</StackPanel>
             </Grid>
@@ -359,15 +366,16 @@
                     </Grid>
                     
                     <!-- Player slider -->
-                    <composition:CompositionSlider Height="23"
+                    <composition:CompositionSlider Height="25"
+                                                   MaxWidth="280"
                                                    Minimum="0"
                                                    Maximum="{Binding MusicViewModel.AudioPlayer.Duration, FallbackValue=1}"
                                                    Value="{Binding MusicViewModel.AudioPlayer.Position, Mode=TwoWay}"
                                                    SetValueCommand="{Binding SetPositionCommand}"
                                                    ExecuteDuringDrag="True"
-                                                   SliderTrackHeight="13"
+                                                   SliderTrackHeight="14"
                                                    PlayedAreaBrush="{Binding ControlsBrush, TargetNullValue=#007DF9}"
-                                                   Margin="-10,0,-5,0"/>
+                                                   Margin="0,0,0,0"/>
                 </StackPanel>
             </StackPanel>
         </Grid>
@@ -719,14 +727,15 @@
 
         <!-- Footer -->
         <Grid Grid.Row="3" Height="28">
-            <!-- three columns: left controls, search+settings area, resize grip -->
+            <!-- four columns: left controls, centered count, search+settings area, resize grip -->
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" BorderBrush="DimGray" BorderThickness="0,0.6,0,0" Margin="1,0,1,0" Grid.ColumnSpan="3"/>
+            <Border Grid.Column="0" BorderBrush="DimGray" BorderThickness="0,0.6,0,0" Margin="1,0,1,0" Grid.ColumnSpan="4"/>
 
             <StackPanel Grid.Column="0" Margin="5,2,0,2" Spacing="5" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left" Panel.ZIndex="1">
 
@@ -834,7 +843,7 @@
             </StackPanel>
 
             <!-- search + settings panel -->
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="4" Margin="0,0,4,0" Panel.ZIndex="1">
+            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="4" Margin="0,0,4,0" Panel.ZIndex="1">
                 <!-- Search box -->
                 <TextBox PlaceholderText="Search"
                          Text="{Binding SearchText, Mode=TwoWay}"
@@ -956,7 +965,7 @@
             </StackPanel>
 
             <!-- count/total info stays centered across first two columns -->
-            <TextBlock Grid.ColumnSpan="2" IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#BDBDBD" FontSize="12">
+            <TextBlock Grid.Column="1" IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#BDBDBD" FontSize="12" TextAlignment="Center" TextTrimming="CharacterEllipsis" Margin="8,0,8,0">
                 <Run Text="{Binding LoadedMediaItem.Index, FallbackValue=0}" />
                 <Run Text=" of " />
                 <Run Text="{Binding VisibleItemCount, FallbackValue=0}" />
@@ -965,7 +974,7 @@
             </TextBlock>
 
             <!-- Resize grip dots at bottom-right - triangular (pointing to bottom-right) -->
-            <Canvas Grid.Column="2" HorizontalAlignment="Right" Margin="0,0,0,7" VerticalAlignment="Bottom" Width="24" Height="18" IsHitTestVisible="False">
+            <Canvas Grid.Column="3" HorizontalAlignment="Right" Margin="0,0,0,7" VerticalAlignment="Bottom" Width="24" Height="18" IsHitTestVisible="False">
                 <!-- Top row (single dot, near right) -->
                 <Ellipse Width="3" Height="3" Fill="#BDBDBD" Canvas.Left="16" Canvas.Top="3" />
 

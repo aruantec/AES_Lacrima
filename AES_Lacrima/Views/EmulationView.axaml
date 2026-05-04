@@ -857,7 +857,7 @@
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding ToggleRenderOptionsCommand}"
-                        IsVisible="{Binding IsEmulatorRunning}"
+                        IsVisible="{Binding CanShowRenderOptions}"
                         ToolTip.Tip="Render Options">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">

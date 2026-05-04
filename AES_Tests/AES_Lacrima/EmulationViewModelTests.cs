@@ -1,6 +1,9 @@
 using System.Reflection;
+using System.Diagnostics;
 using Avalonia.Collections;
 using AES_Controls.Player.Models;
+using AES_Emulation.EmulationHandlers;
+using AES_Lacrima.Services;
 using AES_Lacrima.ViewModels;
 
 namespace AES_Lacrima.Tests;
@@ -17,7 +20,9 @@ public sealed class EmulationViewModelTests
         Directory.CreateDirectory(Path.Combine(wiiuDir, "content"));
         Directory.CreateDirectory(Path.Combine(wiiuDir, "meta"));
 
-        var method = typeof(EmulationViewModel).GetMethod("ScanFolderForRomPaths", BindingFlags.Static | BindingFlags.NonPublic);
+        var method = typeof(EmulationViewModel)
+            .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+            .Single(m => m.Name == "ScanFolderForRomPaths" && m.GetParameters().Length == 2);
         Assert.NotNull(method);
 
         var result = method!.Invoke(null, new object?[] { tempDir.Path, new string[] { "*.wud" } });
@@ -25,6 +30,27 @@ public sealed class EmulationViewModelTests
 
         var paths = Assert.IsAssignableFrom<System.Collections.Generic.IReadOnlyList<string>>(result);
         Assert.Contains(wiiuDir, paths, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ScanFolderForRomPaths_Ps4InstalledGameDirectory_ReturnsFolderPath()
+    {
+        using var tempDir = new TempDirectory();
+        var ps4Dir = Path.Combine(tempDir.Path, "CUSA00001");
+        Directory.CreateDirectory(ps4Dir);
+        Directory.CreateDirectory(Path.Combine(ps4Dir, "sce_sys"));
+        File.WriteAllText(Path.Combine(ps4Dir, "eboot.bin"), "test");
+        File.WriteAllText(Path.Combine(ps4Dir, "sce_sys", "icon0.png"), "png");
+
+        var method = typeof(EmulationViewModel)
+            .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+            .Single(m => m.Name == "ScanFolderForRomPaths" && m.GetParameters().Length == 3);
+
+        var result = method.Invoke(null, new object?[] { tempDir.Path, "PlayStation 4", new string[] { "*.pkg" } });
+        Assert.NotNull(result);
+
+        var paths = Assert.IsAssignableFrom<System.Collections.Generic.IReadOnlyList<string>>(result);
+        Assert.Contains(ps4Dir, paths, StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -64,6 +90,59 @@ public sealed class EmulationViewModelTests
         var restored = Assert.IsType<AvaloniaList<MediaItem>>(restoreMethod!.Invoke(vm, new object?[] { "test-console.png", "Test Console", null })!);
         Assert.Single(restored);
         Assert.Equal("C:\\Roms\\game1.nes", restored[0].FileName);
+    }
+
+    [Fact]
+    public void GetPreferredIconPath_PrefersSceSysIconForPs4InstalledGame()
+    {
+        using var tempDir = new TempDirectory();
+        var ps4Dir = Path.Combine(tempDir.Path, "CUSA00002");
+        var sceSysDir = Path.Combine(ps4Dir, "sce_sys");
+        Directory.CreateDirectory(sceSysDir);
+        File.WriteAllText(Path.Combine(ps4Dir, "eboot.bin"), "test");
+
+        var rootIcon = Path.Combine(ps4Dir, "icon0.png");
+        var sceSysIcon = Path.Combine(sceSysDir, "icon0.png");
+        File.WriteAllText(rootIcon, "root");
+        File.WriteAllText(sceSysIcon, "sce_sys");
+
+        var iconPath = Ps4InstalledGameHelper.GetPreferredIconPath(ps4Dir);
+
+        Assert.Equal(sceSysIcon, iconPath, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void EmulatorHandlerRegistry_PlayStation4_IncludesShadPs4Handler()
+    {
+        var handlers = EmulatorHandlerRegistry.GetHandlersForSection("PlayStation 4");
+
+        Assert.Contains(handlers, handler => string.Equals(handler.HandlerId, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ShadPs4Handler_BuildStartInfo_UsesQtLauncherDefaultVersionAndGamePath()
+    {
+        var tempExe = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".exe");
+        File.WriteAllText(tempExe, string.Empty);
+
+        try
+        {
+            var gamePath = @"C:\Games\PS4\CUSA00900";
+            ProcessStartInfo startInfo = ShadPs4Handler.Instance.BuildStartInfo(tempExe, gamePath, false);
+
+            Assert.Equal(tempExe, startInfo.FileName);
+            Assert.Equal(["-d", "-g", gamePath], startInfo.ArgumentList);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(tempExe);
+            }
+            catch
+            {
+            }
+        }
     }
 }
 

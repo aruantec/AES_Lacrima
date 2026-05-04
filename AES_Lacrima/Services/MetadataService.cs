@@ -844,6 +844,9 @@ namespace AES_Lacrima.Services
                 if (await TryApplyCoverFromLocalMetadataAsync(item, cancellationToken).ConfigureAwait(false))
                     return true;
 
+                if (await TryApplyCoverFromPs4InstalledGameAsync(item, cancellationToken).ConfigureAwait(false))
+                    return true;
+
                 var searchQueries = BuildAutoCoverQueries(item, albumName)
                     .Take(MaxAutoCoverQueries)
                     .ToList();
@@ -1820,6 +1823,41 @@ namespace AES_Lacrima.Services
                 await Dispatcher.UIThread.InvokeAsync(() => item.Album = metadata!.Album);
             }
 
+            return true;
+        }
+
+        private async Task<bool> TryApplyCoverFromPs4InstalledGameAsync(MediaItem item, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var iconPath = Ps4InstalledGameHelper.GetPreferredIconPath(item.FileName);
+            if (string.IsNullOrWhiteSpace(iconPath))
+                return false;
+
+            byte[] bytes;
+            try
+            {
+                bytes = await File.ReadAllBytesAsync(iconPath, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to read PS4 installed-game icon '{iconPath}'.", ex);
+                return false;
+            }
+
+            if (bytes.Length == 0)
+                return false;
+
+            var mimeType = GuessMimeTypeFromUrl(iconPath);
+            if (!mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                mimeType = GuessMimeTypeFromBytes(bytes);
+
+            await ApplyCoverBytesToItemAsync(item, bytes, mimeType, cancellationToken).ConfigureAwait(false);
+            await SaveCoverToMetadataCacheAsync(item, bytes, mimeType).ConfigureAwait(false);
             return true;
         }
 
