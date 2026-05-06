@@ -144,6 +144,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
     private string? _lastLoggedDirectCompositionError;
     private int _lastFrameCount;
     private int _lastPresentCount;
+    private IntPtr _hostHwnd;
     private int _lastCropX = int.MinValue;
     private int _lastCropY = int.MinValue;
     private int _lastCropWidth = int.MinValue;
@@ -455,11 +456,6 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
     public void ForwardFocusToTarget()
     {
-        var target = _activeTargetHwnd != IntPtr.Zero ? _activeTargetHwnd : TargetHwnd;
-        if (OperatingSystem.IsWindows() && target != IntPtr.Zero)
-        {
-            Win32API.ForceEmulatorFocus(target, _childHwnd, 0);
-        }
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -535,6 +531,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
             return base.CreateNativeControlCore(parent);
         }
 
+        _hostHwnd = parent.Handle;
+
         return new PlatformHandle(_childHwnd, "HWND");
     }
 
@@ -547,6 +545,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
             DestroyWindow(_childHwnd);
             _childHwnd = IntPtr.Zero;
         }
+
+        _hostHwnd = IntPtr.Zero;
 
         base.DestroyNativeControlCore(control);
     }
@@ -590,6 +590,13 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
             ApplyRenderOptionsCore(settings);
             ApplyCropRectCore(settings);
+            try
+            {
+                Win32API.SetWindowOpacity(settings.TargetHwnd, 0);
+            }
+            catch
+            {
+            }
             RefreshStatusCore();
             return;
         }
@@ -599,9 +606,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
         try
         {
             _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
-            _windowHandler.EnableRoundedCorners(44);
-            _windowHandler.SetMoveToHost(false);
-            _windowHandler.Start(_childHwnd, settings.TargetHwnd);
+            _windowHandler.SetMoveToHost(true);
+            _windowHandler.Start(_hostHwnd != IntPtr.Zero ? _hostHwnd : _childHwnd, settings.TargetHwnd);
         }
         catch
         {
@@ -630,12 +636,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
         try
         {
-            if (settings.HideTargetWindowAfterCaptureStarts)
-            {
-                Win32API.RemoveWindowDecorations(settings.TargetHwnd);
-                Win32API.MoveAway(settings.TargetHwnd, false);
-                Win32API.SetWindowOpacity(settings.TargetHwnd, 0);
-            }
+            Win32API.RemoveWindowDecorations(settings.TargetHwnd);
+            Win32API.SetWindowOpacity(settings.TargetHwnd, 0);
         }
         catch
         {
@@ -690,6 +692,16 @@ public class DirectCompositionCaptureHost : NativeControlHost
                 try
                 {
                     Win32API.RestoreWindowDecorations(targetToRestore);
+                    Win32API.SetWindowOpacity(targetToRestore, 255);
+                }
+                catch
+                {
+                }
+            }
+            else if (targetToRestore != IntPtr.Zero)
+            {
+                try
+                {
                     Win32API.SetWindowOpacity(targetToRestore, 255);
                 }
                 catch

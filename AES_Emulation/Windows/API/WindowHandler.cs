@@ -254,25 +254,31 @@ namespace AES_Emulation.Windows.API
             if (!_running) return;
             if (_host == IntPtr.Zero || _target == IntPtr.Zero) return;
 
-            // Use full window rect for sizing so capture matches visible window including decorations
-            if (!GetWindowRectSafe(_host, out RECT hostRect)) return;
+            // Use the host client rect so the target matches the visible portal surface.
+            if (!GetClientRectScreen(_host, out RECT hostRect)) return;
 
             // Always maintain the target size to match the host, unless the flag says to move away.
             try
             {
-                int hostWidth = Math.Max(0, hostRect.Right - hostRect.Left);
-                int hostHeight = Math.Max(0, hostRect.Bottom - hostRect.Top);
+                int hostClientWidth = Math.Max(0, hostRect.Right - hostRect.Left);
+                int hostClientHeight = Math.Max(0, hostRect.Bottom - hostRect.Top);
+
+                uint swpFlags = SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS | SWP_NOCOPYBITS;
 
                 if (MoveToHost)
                 {
                     bool stateChanged = !RectsEqual(hostRect, _lastHostRect) || _lastMoveToHost != MoveToHost;
+                    
+                    // Force host to TOPMOST with each tick to ensure it stays above the target.
+                    SetWindowPos(_host, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+
+                    // Place target right AFTER the host in Z-order. 
+                    // We use SWP_ASYNCWINDOWPOS and SWP_NOCOPYBITS to minimize lag and artifacts during movement.
+                    SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, hostClientWidth, hostClientHeight, swpFlags);
+
+                    if (stateChanged && _applyRoundedCorners) ApplyRoundedRegion();
                     if (stateChanged)
-                    {
-                        // Place target right AFTER the host in Z-order so the target stays behind the host.
-                        try { SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, hostWidth, hostHeight, SWP_NOACTIVATE); } catch { }
-                        if (_applyRoundedCorners) ApplyRoundedRegion();
                         _lastHostRect = hostRect;
-                    }
 
                     if (_lastOpacity != 255)
                     {
@@ -283,17 +289,8 @@ namespace AES_Emulation.Windows.API
                 }
                 else
                 {
-                    if (!_targetIsChildWindow)
-                    {
-                        if (_lastMoveToHost != MoveToHost)
-                        {
-                            try { Win32API.MoveAway(_target, false); } catch { }
-                        }
-                    }
-                    else if (_lastMoveToHost != MoveToHost)
-                    {
-                        try { Win32API.MoveAway(_target, false); } catch { }
-                    }
+                    SetWindowPos(_host, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+                    SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, hostClientWidth, hostClientHeight, swpFlags);
 
                     if (_lastOpacity != 255)
                     {
@@ -305,21 +302,6 @@ namespace AES_Emulation.Windows.API
                 _lastMoveToHost = MoveToHost;
             }
             catch { }
-            //if (!RectsEqual(hostRect, _lastHostRect))
-            //{
-            //    _lastHostRect = hostRect;
-            //    try
-            //    {
-            //        int width = Math.Max(0, hostRect.Right - hostRect.Left);
-            //        int height = Math.Max(0, hostRect.Bottom - hostRect.Top);
-
-            //        // Place target right AFTER the host in Z-order so the target stays behind the host.
-            //        // Using host HWND as hWndInsertAfter places the target just below the host.
-            //        SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, width, height, SWP_NOACTIVATE);
-            //        if (_applyRoundedCorners) ApplyRoundedRegion();
-            //    }
-            //    catch { }
-            //}
         }
 
         private static bool RectsEqual(RECT a, RECT b)
@@ -388,23 +370,25 @@ namespace AES_Emulation.Windows.API
                 // If host moved/resized, mirror immediately
                 if (hwnd == _host)
                 {
-                    if (GetWindowRectSafe(_host, out RECT hostRect))
+                    if (GetClientRectScreen(_host, out RECT hostRect))
                     {
                         // Always update last host rect
                         _lastHostRect = hostRect;
                         // Only move/resize target when MoveToHost is true
                         if (MoveToHost)
                         {
-                            int width = FixedCaptureWidth;
-                            int height = FixedCaptureHeight;
-                            // When positioning behind host, ensure position matches window origin; keep fixed capture size
-                            SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, width, height, SWP_NOACTIVATE);
+                            int width = Math.Max(0, hostRect.Right - hostRect.Left);
+                            int height = Math.Max(0, hostRect.Bottom - hostRect.Top);
+                            SetWindowPos(_host, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+                            // When positioning behind host, ensure position and size match the host window.
+                            SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, width, height, SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
                             if (_applyRoundedCorners) ApplyRoundedRegion();
                         }
                         else if (!_targetIsChildWindow)
                         {
-                            // Even when not moved behind host, ensure the hidden target uses fixed capture size.
-                            try { SetWindowPos(_target, IntPtr.Zero, 0, 0, FixedCaptureWidth, FixedCaptureHeight, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE); } catch { }
+                            // Keep the target aligned with the host-sized capture surface.
+                            SetWindowPos(_host, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+                            SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, Math.Max(0, hostRect.Right - hostRect.Left), Math.Max(0, hostRect.Bottom - hostRect.Top), SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
                         }
                     }
                 }
@@ -416,11 +400,13 @@ namespace AES_Emulation.Windows.API
                         if (MoveToHost)
                         {
                             // Bring host to top, then re-place target behind
-                            SetWindowPos(_host, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-                            SetWindowPos(_host, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-                            if (GetWindowRectSafe(_host, out RECT hostRect))
+                            SetWindowPos(_host, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+                            SetForegroundWindow(_host);
+                            if (GetClientRectScreen(_host, out RECT hostRect))
                             {
-                                SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, FixedCaptureWidth, FixedCaptureHeight, SWP_NOACTIVATE);
+                                int width = Math.Max(0, hostRect.Right - hostRect.Left);
+                                int height = Math.Max(0, hostRect.Bottom - hostRect.Top);
+                                SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, width, height, SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
                             }
                         }
                     }
@@ -438,6 +424,8 @@ namespace AES_Emulation.Windows.API
         private const uint SWP_NOMOVE = 0x0002;
         private const uint SWP_NOZORDER = 0x0004;
         private const uint SWP_NOACTIVATE = 0x0010;
+        private const uint SWP_ASYNCWINDOWPOS = 0x4000;
+        private const uint SWP_NOCOPYBITS = 0x0100;
         private const int SW_SHOW = 5;
         private const int SW_HIDE = 0;
         private const int GWL_STYLE = -16;
@@ -547,12 +535,12 @@ namespace AES_Emulation.Windows.API
                     if (!_targetIsChildWindow)
                     {
                         // Ensure the target is placed behind the host and made visible
-                        if (GetWindowRectSafe(_host, out RECT hostRect))
+                        if (GetClientRectScreen(_host, out RECT hostRect))
                         {
-                            int width = FixedCaptureWidth;
-                            int height = FixedCaptureHeight;
-                            // When positioning behind host, ensure position matches window origin; keep fixed capture size
-                            SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, width, height, SWP_NOACTIVATE);
+                            int width = Math.Max(0, hostRect.Right - hostRect.Left);
+                            int height = Math.Max(0, hostRect.Bottom - hostRect.Top);
+                            // When positioning behind host, ensure position and size match the host window.
+                            SetWindowPos(_target, _host, hostRect.Left, hostRect.Top, width, height, SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
                             // Restore opacity so the emulator is visible to the user
                             try { Win32API.SetWindowOpacity(_target, 255); } catch { }
                             if (_applyRoundedCorners) ApplyRoundedRegion();
@@ -566,10 +554,12 @@ namespace AES_Emulation.Windows.API
                 }
                 else
                 {
-                    if (!_targetIsChildWindow)
+                    if (GetClientRectScreen(_host, out RECT hostBounds))
                     {
-                        // Keep the target at its current size when moving away so capture preserves the actual emulator window dimensions.
-                        try { Win32API.MoveAway(_target, false); } catch { }
+                        int width = Math.Max(0, hostBounds.Right - hostBounds.Left);
+                        int height = Math.Max(0, hostBounds.Bottom - hostBounds.Top);
+                        SetWindowPos(_host, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+                        SetWindowPos(_target, _host, hostBounds.Left, hostBounds.Top, width, height, SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
                     }
                 }
             }

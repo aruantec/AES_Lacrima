@@ -288,18 +288,6 @@ public class EmulatorCaptureHost : ContentControl
 
     public void ForwardFocusToTarget()
     {
-        switch (_backend)
-        {
-            case WgcCaptureControl wgcBackend:
-                if (OperatingSystem.IsWindows()) wgcBackend.ForwardFocusToTarget();
-                break;
-            case DirectCompositionCaptureHost windowsBackend:
-                windowsBackend.ForwardFocusToTarget();
-                break;
-            case ScreenCaptureKitCaptureHost macBackend:
-                macBackend.ForwardFocusToTarget();
-                break;
-        }
     }
 
     [SupportedOSPlatform("windows")]

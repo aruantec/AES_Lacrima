@@ -1462,7 +1462,6 @@ public class WgcCaptureControl : OpenGlControlBase
 
     private void Mw_PointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        Win32API.ForceEmulatorFocus(TargetHwnd, _hostHandle, 200);
     }
 
     private void CleanupTargetWindow(IntPtr hwnd)
