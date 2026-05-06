@@ -223,7 +223,10 @@ namespace AES_Lacrima.ViewModels
 
         public string AlbumListToggleText => IsAlbumListCollapsed ? "Show Albums" : "Hide Albums";
 
-        public bool CanShowRenderOptions => IsEmulatorRunning && !(CurrentEmulatorHandler?.IsWindowEmbeddingSupported == true);
+        public bool CanShowRenderOptions =>
+            IsEmulatorRunning &&
+            (SelectedCaptureMode == EmulatorCaptureMode.DirectComposition ||
+             CurrentEmulatorHandler?.IsWindowEmbeddingSupported != true);
 
         [ObservableProperty]
         private bool _isEmulatorRunning;
@@ -272,6 +275,7 @@ namespace AES_Lacrima.ViewModels
         {
             SelectedCaptureMode = EmulatorCaptureMode.DirectComposition;
 
+            OnPropertyChanged(nameof(CanShowRenderOptions));
             OnPropertyChanged(nameof(ForceUseTargetClientAreaCapture));
             OnPropertyChanged(nameof(HideTargetWindowAfterCaptureStarts));
             OnPropertyChanged(nameof(ClientAreaCropLeftInset));
@@ -280,6 +284,9 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ClientAreaCropBottomInset));
             OnPropertyChanged(nameof(CurrentEmulatorWindowTitleHint));
         }
+
+        partial void OnSelectedCaptureModeChanged(EmulatorCaptureMode value)
+            => OnPropertyChanged(nameof(CanShowRenderOptions));
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsEmulatorViewportVisible))]
@@ -2072,15 +2079,12 @@ namespace AES_Lacrima.ViewModels
                 var handler = request.Handler;
                 CurrentEmulatorHandler = handler;
                 
-                if (handler.IsWindowEmbeddingSupported)
-                {
-                    EmulatorCaptureDelayMs = 0;
-                    SelectedCaptureMode = EmulatorCaptureMode.Injected;
-                }
-                else
-                {
-                    EmulatorCaptureDelayMs = handler.CaptureStartupDelayMs;
-                }
+                SelectedCaptureMode = handler.PreferredCaptureMode;
+                EmulatorCaptureDelayMs = handler.IsWindowEmbeddingSupported
+                    ? 0
+                    : handler.CaptureStartupDelayMs;
+
+                SLog.Info($"Selected capture mode for '{handler.HandlerId}' is {SelectedCaptureMode}.");
 
                 if (!handler.IsPrepared)
                     handler.Prepare();
@@ -2213,12 +2217,14 @@ namespace AES_Lacrima.ViewModels
                 {
                     var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "dolphin", StringComparison.OrdinalIgnoreCase);
+                    forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase);
                     if (!forceKillFirst)
                     {
                         try
                         {
                             forceKillFirst = process.ProcessName.Contains("pcsx2", StringComparison.OrdinalIgnoreCase) ||
                                              process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
+                            forceKillFirst |= process.ProcessName.Contains("shadps4", StringComparison.OrdinalIgnoreCase);
                         }
                         catch
                         {
@@ -2340,6 +2346,8 @@ namespace AES_Lacrima.ViewModels
             _activeEmulatorProcess = process;
             EmulatorTargetProcessId = process?.Id ?? 0;
 
+            CancelAppTopmostRestoreTimeout();
+
             try
             {
                 process!.EnableRaisingEvents = true;
@@ -2388,6 +2396,7 @@ namespace AES_Lacrima.ViewModels
 
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
+            RequestStopEmulatorCapture = false;
             RestoreAppTopMost();
 
             if (CurrentEmulatorHandler is RetroArchHandler retroArchHandler)
@@ -2446,6 +2455,8 @@ namespace AES_Lacrima.ViewModels
                 if (hwnd == IntPtr.Zero)
                 {
                     SLog.Warn($"Failed to resolve emulator capture target for '{romPath}' after retry.");
+                    RestoreAppTopMost();
+                    await Dispatcher.UIThread.InvokeAsync(() => IsEmulatorLaunchInProgress = false);
                     return;
                 }
 
@@ -2459,6 +2470,8 @@ namespace AES_Lacrima.ViewModels
             catch (Exception ex)
             {
                 SLog.Warn($"Failed to resolve emulator capture target for '{romPath}'.", ex);
+                RestoreAppTopMost();
+                await Dispatcher.UIThread.InvokeAsync(() => IsEmulatorLaunchInProgress = false);
             }
         }
 
@@ -2789,6 +2802,13 @@ namespace AES_Lacrima.ViewModels
             }, token);
         }
 
+        private void CancelAppTopmostRestoreTimeout()
+        {
+            _appTopmostRestoreCts?.Cancel();
+            _appTopmostRestoreCts?.Dispose();
+            _appTopmostRestoreCts = null;
+        }
+
         private void RestoreAppTopMost()
         {
             if (!_appTopmostOverride)
@@ -2797,9 +2817,7 @@ namespace AES_Lacrima.ViewModels
             if (_appWindowHandleBeforeEmulatorLaunch == IntPtr.Zero)
                 return;
 
-            _appTopmostRestoreCts?.Cancel();
-            _appTopmostRestoreCts?.Dispose();
-            _appTopmostRestoreCts = null;
+            CancelAppTopmostRestoreTimeout();
 
             Win32API.SetWindowNotTopMost(_appWindowHandleBeforeEmulatorLaunch);
             _appTopmostOverride = false;

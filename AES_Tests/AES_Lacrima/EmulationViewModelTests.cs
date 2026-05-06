@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Diagnostics;
 using Avalonia.Collections;
 using AES_Controls.Player.Models;
+using AES_Emulation.Controls;
 using AES_Emulation.EmulationHandlers;
 using AES_Lacrima.Services;
 using AES_Lacrima.ViewModels;
@@ -143,6 +144,14 @@ public sealed class EmulationViewModelTests
             {
             }
         }
+    }
+
+    [Fact]
+    public void ShadPs4Handler_PrefersDirectCompositionCapture()
+    {
+        Assert.Equal(EmulatorCaptureMode.DirectComposition, ShadPs4Handler.Instance.PreferredCaptureMode);
+        Assert.True(ShadPs4Handler.Instance.ForceUseTargetClientAreaCapture);
+        Assert.True(ShadPs4Handler.Instance.IsWindowEmbeddingSupported);
     }
 }
 

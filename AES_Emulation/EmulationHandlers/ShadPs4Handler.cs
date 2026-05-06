@@ -31,9 +31,15 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     public override bool ForceUseTargetClientAreaCapture => true;
 
-    public override int CaptureStartupDelayMs => IsWindowEmbeddingSupported ? 0 : 1200;
+    public override int CaptureStartupDelayMs => 3500;
 
     public override bool IsWindowEmbeddingSupported => true;
+
+    public override bool IsLauncherPathValid(string? launcherPath)
+        => !string.IsNullOrWhiteSpace(ResolveShadPs4LauncherPath(launcherPath));
+
+    public override string? NormalizeLauncherPath(string? launcherPath)
+        => ResolveShadPs4LauncherPath(launcherPath) ?? base.NormalizeLauncherPath(launcherPath);
 
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
@@ -51,18 +57,141 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
         startInfo.ArgumentList.Clear();
 
-        startInfo.ArgumentList.Add("-d");
+        var resolvedGamePath = ResolveShadPs4GamePath(romPath);
+        var executableName = Path.GetFileNameWithoutExtension(startInfo.FileName);
+        var useQtLauncherArguments = executableName.Contains("qtlauncher", StringComparison.OrdinalIgnoreCase);
+
+        if (useQtLauncherArguments)
+        {
+            startInfo.ArgumentList.Add("-d");
+        }
+
         startInfo.ArgumentList.Add("-g");
-        startInfo.ArgumentList.Add(romPath);
+        startInfo.ArgumentList.Add(resolvedGamePath);
 
         if (startFullscreen)
         {
-            startInfo.ArgumentList.Add("--");
+            if (useQtLauncherArguments)
+            {
+                startInfo.ArgumentList.Add("--");
+            }
+
             startInfo.ArgumentList.Add("--fullscreen");
             startInfo.ArgumentList.Add("true");
         }
 
         return startInfo;
+    }
+
+    private static string? ResolveShadPs4LauncherPath(string? launcherPath)
+    {
+        if (string.IsNullOrWhiteSpace(launcherPath))
+            return null;
+
+        var normalizedPath = launcherPath.Trim();
+        try
+        {
+            normalizedPath = Path.GetFullPath(normalizedPath);
+        }
+        catch
+        {
+        }
+
+        if (File.Exists(normalizedPath))
+            return normalizedPath;
+
+        if (!Directory.Exists(normalizedPath))
+            return null;
+
+        var executableNames = new[]
+        {
+            "shadPS4.exe",
+            "shadps4.exe",
+            "shadPS4QtLauncher.exe",
+            "shadps4qtlauncher.exe"
+        };
+
+        foreach (var executableName in executableNames)
+        {
+            var candidate = Path.Combine(normalizedPath, executableName);
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        try
+        {
+            var coreCandidate = Directory.EnumerateFiles(normalizedPath, "*.exe", SearchOption.AllDirectories)
+                .FirstOrDefault(path =>
+                {
+                    var fileName = Path.GetFileNameWithoutExtension(path);
+                    return string.Equals(fileName, CoreProcessName, StringComparison.OrdinalIgnoreCase);
+                });
+
+            if (coreCandidate != null)
+                return coreCandidate;
+
+            var launcherCandidate = Directory.EnumerateFiles(normalizedPath, "*.exe", SearchOption.AllDirectories)
+                .FirstOrDefault(path =>
+                {
+                    var fileName = Path.GetFileNameWithoutExtension(path);
+                    return fileName.Contains("qtlauncher", StringComparison.OrdinalIgnoreCase) ||
+                           fileName.Contains("launcher", StringComparison.OrdinalIgnoreCase) ||
+                           string.Equals(fileName, CoreProcessName, StringComparison.OrdinalIgnoreCase);
+                });
+
+            if (launcherCandidate != null)
+                return launcherCandidate;
+
+            var exeFiles = Directory.EnumerateFiles(normalizedPath, "*.exe", SearchOption.AllDirectories).ToArray();
+            if (exeFiles.Length == 1)
+                return exeFiles[0];
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
+
+    private static string ResolveShadPs4GamePath(string romPath)
+    {
+        if (string.IsNullOrWhiteSpace(romPath))
+            return romPath;
+
+        var normalizedPath = romPath.Trim();
+        try
+        {
+            normalizedPath = Path.GetFullPath(normalizedPath);
+        }
+        catch
+        {
+        }
+
+        if (File.Exists(Path.Combine(normalizedPath, "sce_sys", "param.sfo")))
+            return normalizedPath;
+
+        if (!Directory.Exists(normalizedPath))
+            return romPath;
+
+        try
+        {
+            foreach (var candidate in Directory.EnumerateDirectories(normalizedPath, "*", SearchOption.TopDirectoryOnly))
+            {
+                if (File.Exists(Path.Combine(candidate, "sce_sys", "param.sfo")))
+                    return candidate;
+            }
+
+            foreach (var candidate in Directory.EnumerateDirectories(normalizedPath, "*", SearchOption.AllDirectories))
+            {
+                if (File.Exists(Path.Combine(candidate, "sce_sys", "param.sfo")))
+                    return candidate;
+            }
+        }
+        catch
+        {
+        }
+
+        return romPath;
     }
 
     public override void PrepareProcessForCapture(Process process)
@@ -100,7 +229,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         var launcherStartTimeUtc = GetProcessStartTimeUtc(process);
         var launcherProcessId = TryGetProcessId(process);
 
-        for (var attempt = 0; attempt < 80; attempt++)
+        for (var attempt = 0; attempt < 160; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -116,8 +245,33 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
-        await Task.Delay(CaptureStartupDelayMs, cancellationToken).ConfigureAwait(false);
-        return await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
+        if (CaptureStartupDelayMs > 0)
+            await Task.Delay(CaptureStartupDelayMs, cancellationToken).ConfigureAwait(false);
+
+        const int maxAttempts = 180;
+        const int delayMs = 100;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var preferredHwnd = FindPreferredWindowHandle(process);
+            if (preferredHwnd != IntPtr.Zero)
+                return preferredHwnd;
+
+            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+        }
+
+        var fallbackHwnd = FindBestProcessWindowHandle(
+            process,
+            preferSpecificRenderWindow: false,
+            allowHiddenWindows: true,
+            isPreferredRenderWindow: null,
+            fallbackTitleHint: CoreProcessName);
+
+        return fallbackHwnd != IntPtr.Zero
+            ? fallbackHwnd
+            : await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
     }
 
     private static bool IsLikelyShadPs4RenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
