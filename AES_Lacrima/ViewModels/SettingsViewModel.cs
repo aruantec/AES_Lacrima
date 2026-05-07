@@ -1953,10 +1953,16 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     {
         var settings = new EmulationSectionLaunchSettings();
 
-        if (IsPlayStationSection(sectionKey, sectionTitle))
+        if (IsPlayStation4Section(sectionKey, sectionTitle))
             settings.StartFullscreen = true;
 
         return settings;
+    }
+
+    private static bool IsPlayStation4Section(string? sectionKey, string? sectionTitle)
+    {
+        return string.Equals(sectionTitle, "PlayStation 4", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(sectionKey, "ps4", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsPlayStationSection(string? sectionKey, string? sectionTitle)
@@ -1964,9 +1970,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         return string.Equals(sectionTitle, "PlayStation", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(sectionTitle, "PSX", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(sectionTitle, "PS1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(sectionTitle, "PlayStation 3", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(sectionTitle, "PlayStation 4", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(sectionKey, "playstation", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(sectionKey, "psx", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(sectionKey, "ps1", StringComparison.OrdinalIgnoreCase);
+               string.Equals(sectionKey, "ps1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(sectionKey, "ps3", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(sectionKey, "ps4", StringComparison.OrdinalIgnoreCase);
     }
 
     private void EnsureDefaultSelectedShaderToy()

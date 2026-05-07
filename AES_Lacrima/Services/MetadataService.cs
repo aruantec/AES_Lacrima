@@ -844,6 +844,9 @@ namespace AES_Lacrima.Services
                 if (await TryApplyCoverFromLocalMetadataAsync(item, cancellationToken).ConfigureAwait(false))
                     return true;
 
+                if (await TryApplyCoverFromPs3InstalledGameAsync(item, cancellationToken).ConfigureAwait(false))
+                    return true;
+
                 if (await TryApplyCoverFromPs4InstalledGameAsync(item, cancellationToken).ConfigureAwait(false))
                     return true;
 
@@ -1826,6 +1829,70 @@ namespace AES_Lacrima.Services
             return true;
         }
 
+        private async Task<bool> TryApplyCoverFromPs3InstalledGameAsync(MediaItem item, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var iconPath = Ps3InstalledGameHelper.GetPreferredIconPath(item.FileName);
+            if (string.IsNullOrWhiteSpace(iconPath))
+                return false;
+
+            byte[] iconBytes;
+            try
+            {
+                iconBytes = await File.ReadAllBytesAsync(iconPath, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to read PS3 installed-game icon '{iconPath}'.", ex);
+                return false;
+            }
+
+            if (iconBytes.Length == 0)
+                return false;
+
+            byte[]? backCoverBytes = null;
+            string? backCoverMimeType = null;
+            var backCoverPath = Ps3InstalledGameHelper.GetPreferredBackCoverPath(item.FileName);
+            if (!string.IsNullOrWhiteSpace(backCoverPath) && !string.Equals(backCoverPath, iconPath, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    backCoverBytes = await File.ReadAllBytesAsync(backCoverPath, cancellationToken).ConfigureAwait(false);
+                    if (backCoverBytes.Length == 0)
+                    {
+                        backCoverBytes = null;
+                    }
+                    else
+                    {
+                        backCoverMimeType = GuessMimeTypeFromUrl(backCoverPath);
+                        if (!backCoverMimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                            backCoverMimeType = GuessMimeTypeFromBytes(backCoverBytes);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn($"Failed to read PS3 installed-game back cover '{backCoverPath}'.", ex);
+                }
+            }
+
+            var mimeType = GuessMimeTypeFromUrl(iconPath);
+            if (!mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                mimeType = GuessMimeTypeFromBytes(iconBytes);
+
+            await ApplyCoverBytesToItemAsync(item, iconBytes, mimeType, cancellationToken).ConfigureAwait(false);
+            await SaveCoverToMetadataCacheAsync(item, iconBytes, mimeType, backCoverBytes, backCoverMimeType).ConfigureAwait(false);
+            return true;
+        }
+
         private async Task<bool> TryApplyCoverFromPs4InstalledGameAsync(MediaItem item, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -2011,7 +2078,7 @@ namespace AES_Lacrima.Services
             return (bytes, mimeType);
         }
 
-        private async Task SaveCoverToMetadataCacheAsync(MediaItem item, byte[] bytes, string mimeType)
+        private async Task SaveCoverToMetadataCacheAsync(MediaItem item, byte[] bytes, string mimeType, byte[]? backCoverBytes = null, string? backCoverMimeType = null)
         {
             if (string.IsNullOrWhiteSpace(item.FileName))
                 return;
@@ -2036,13 +2103,23 @@ namespace AES_Lacrima.Services
                 metadata.ReplayGainTrackGain = item.ReplayGainTrackGain;
                 metadata.ReplayGainAlbumGain = item.ReplayGainAlbumGain;
                 metadata.Images ??= [];
-                metadata.Images.RemoveAll(image => image.Kind == TagImageKind.Cover);
+                metadata.Images.RemoveAll(image => image.Kind == TagImageKind.Cover || image.Kind == TagImageKind.BackCover);
                 metadata.Images.Insert(0, new ImageData
                 {
                     Data = bytes,
                     MimeType = mimeType,
                     Kind = TagImageKind.Cover
                 });
+
+                if (backCoverBytes is { Length: > 0 })
+                {
+                    metadata.Images.Insert(1, new ImageData
+                    {
+                        Data = backCoverBytes,
+                        MimeType = backCoverMimeType ?? GuessMimeTypeFromBytes(backCoverBytes),
+                        Kind = TagImageKind.BackCover
+                    });
+                }
 
                 BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
             }).ConfigureAwait(false);

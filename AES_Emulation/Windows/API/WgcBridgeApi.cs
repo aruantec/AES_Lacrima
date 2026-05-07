@@ -144,10 +144,6 @@ public static class WgcBridgeApi
     private delegate bool PeekLatestFrameDel(nint session, out int width, out int height, out nuint requiredSize);
     private static PeekLatestFrameDel? s_peekLatestFrame;
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate void SetInjectionPidDel(nint session, int pid);
-    private static SetInjectionPidDel? s_setInjectionPid;
-
     static WgcBridgeApi()
     {
         try
@@ -188,7 +184,6 @@ public static class WgcBridgeApi
                     "PeekLatestFrame",
                     "SetCaptureMaxResolution",
                     "SetCaptureCropRect",
-                    "SetInjectionPid",
                     "GetD3D11Device",
                     "GetLatestD3DTexture",
                     "SetInteropEnabled",
@@ -256,9 +251,6 @@ public static class WgcBridgeApi
                     s_getLatestFrame = Marshal.GetDelegateForFunctionPointer<GetLatestFrameDel>(pGetLatest);
                 if (NativeLibrary.TryGetExport(handle, "PeekLatestFrame", out IntPtr pPeek))
                     s_peekLatestFrame = Marshal.GetDelegateForFunctionPointer<PeekLatestFrameDel>(pPeek);
-                if (NativeLibrary.TryGetExport(handle, "SetInjectionPid", out IntPtr pSetInj))
-                    s_setInjectionPid = Marshal.GetDelegateForFunctionPointer<SetInjectionPidDel>(pSetInj);
-
                 // Do not free the handle here - we need to keep the native module loaded
                 // while delegates are in use by the managed code.
             }
@@ -322,9 +314,6 @@ public static class WgcBridgeApi
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "SetBorderRequired")]
     private static extern void SetBorderRequiredNative(nint session, int required);
-
-    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "SetInjectionPid")]
-    private static extern void SetInjectionPidNative(nint session, int pid);
 
     // Public wrappers that add diagnostics/logging
     public static nint CreateCaptureSession(nint targetHwnd)
@@ -531,12 +520,6 @@ public static class WgcBridgeApi
 
     public static void SetBorderRequired(nint session, bool required) => s_setBorderRequired?.Invoke(session, required ? 1 : 0);
     public static void SetVrrEnabled(nint session, bool enabled) => s_setVrrEnabled?.Invoke(session, enabled ? 1 : 0);
-
-    public static void SetInjectionPid(nint session, int pid)
-    {
-        if (s_setInjectionPid != null) { s_setInjectionPid(session, pid); return; }
-        SetInjectionPidNative(session, pid);
-    }
 
     // Optional exports - wrappers that use delegates when available
     public static nint GetD3D11Device(nint session)
