@@ -1,5 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using AES_Emulation.Windows.API;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,6 +10,18 @@ namespace AES_Emulation.EmulationHandlers;
 
 public sealed class DolphinHandler : EmulatorHandlerBase
 {
+    private static readonly string[] DolphinExecutableNames =
+    [
+        "Dolphin.exe",
+        "dolphin.exe",
+        "DolphinQt2.exe",
+        "dolphinqt2.exe",
+        "DolphinWx.exe",
+        "dolphinwx.exe",
+        "Dolphin-emu.exe",
+        "dolphin-emu.exe"
+    ];
+
     public static DolphinHandler Instance { get; } = new();
 
     private DolphinHandler()
@@ -25,6 +39,12 @@ public sealed class DolphinHandler : EmulatorHandlerBase
     public override bool HideUntilCaptured => false;
 
     public override bool ForceUseTargetClientAreaCapture => true;
+
+    public override bool IsLauncherPathValid(string? launcherPath)
+        => !string.IsNullOrWhiteSpace(ResolveDolphinLauncherPath(launcherPath));
+
+    public override string? NormalizeLauncherPath(string? launcherPath)
+        => ResolveDolphinLauncherPath(launcherPath) ?? base.NormalizeLauncherPath(launcherPath);
 
     /// <summary>
     /// Dolphin's render window often includes thin invisible borders or padding that can cause
@@ -80,16 +100,25 @@ public sealed class DolphinHandler : EmulatorHandlerBase
 
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
-        var targetHwnd = await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
-        if (targetHwnd == IntPtr.Zero)
+        for (var attempt = 0; attempt < 200; attempt++)
         {
-            targetHwnd = FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: true, isPreferredRenderWindow: null);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var preferred = FindPreferredWindowHandle(process);
+            if (preferred != IntPtr.Zero)
+            {
+                HideNonTargetDolphinWindows(process, preferred);
+                return preferred;
+            }
+
+            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
         }
 
-        if (targetHwnd != IntPtr.Zero)
-            HideNonTargetDolphinWindows(process, targetHwnd);
+        var fallback = FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: true, isPreferredRenderWindow: null);
+        if (fallback != IntPtr.Zero)
+            HideNonTargetDolphinWindows(process, fallback);
 
-        return targetHwnd;
+        return fallback;
     }
 
     public override bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle)
@@ -220,5 +249,56 @@ public sealed class DolphinHandler : EmulatorHandlerBase
         }
 
         return false;
+    }
+
+    private static string? ResolveDolphinLauncherPath(string? launcherPath)
+    {
+        if (string.IsNullOrWhiteSpace(launcherPath))
+            return null;
+
+        var normalizedPath = launcherPath.Trim();
+        try
+        {
+            normalizedPath = System.IO.Path.GetFullPath(normalizedPath);
+        }
+        catch
+        {
+        }
+
+        if (System.IO.File.Exists(normalizedPath))
+            return normalizedPath;
+
+        if (!System.IO.Directory.Exists(normalizedPath))
+            return null;
+
+        foreach (var executableName in DolphinExecutableNames)
+        {
+            var candidate = System.IO.Path.Combine(normalizedPath, executableName);
+            if (System.IO.File.Exists(candidate))
+                return candidate;
+        }
+
+        try
+        {
+            var launcherCandidate = System.IO.Directory.EnumerateFiles(normalizedPath, "*", System.IO.SearchOption.AllDirectories)
+                .FirstOrDefault(path =>
+                {
+                    var fileName = System.IO.Path.GetFileNameWithoutExtension(path);
+                    return string.Equals(fileName, "dolphin", StringComparison.OrdinalIgnoreCase) ||
+                           fileName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
+                });
+
+            if (launcherCandidate != null)
+                return launcherCandidate;
+
+            var files = System.IO.Directory.EnumerateFiles(normalizedPath, "*", System.IO.SearchOption.AllDirectories).ToArray();
+            if (files.Length == 1)
+                return files[0];
+        }
+        catch
+        {
+        }
+
+        return null;
     }
 }
