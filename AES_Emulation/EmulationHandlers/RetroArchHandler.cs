@@ -325,29 +325,25 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
             Path.Combine(commonAppData, "RetroArch", "cores")
         };
 
-        var platform = GetRetroArchPlatform(sectionTitle, romPath);
-
         if (!string.IsNullOrWhiteSpace(selectedRetroArchCore))
         {
             var explicitPath = ResolveRetroArchCorePath(candidateDirectories, selectedRetroArchCore);
-            if (!string.IsNullOrWhiteSpace(explicitPath))
+            if (string.IsNullOrWhiteSpace(explicitPath))
             {
-                var explicitCoreName = Path.GetFileName(explicitPath);
-                if (!IsRetroArchCoreCompatibleWithPlatform(explicitCoreName, platform))
-                {
-                    Log.Warn($"Selected RetroArch core '{selectedRetroArchCore}' is incompatible with platform '{platform}' (section='{sectionTitle}', rom='{romPath}'). Falling back to platform defaults.");
-                }
-                else
-                {
-                if (IsRetroArchCoreUsable(explicitPath, launcherPath))
-                    return explicitPath;
-
-                    var explicitCoreNameNormalized = explicitCoreName?.ToLowerInvariant() ?? string.Empty;
-                    if (explicitCoreNameNormalized.Contains("pcsx2"))
-                        return explicitPath;
-                }
+                Log.Warn($"Selected RetroArch core '{selectedRetroArchCore}' could not be resolved for launcher '{launcherPath}' (section='{sectionTitle}', rom='{romPath}').");
+                throw new FileNotFoundException($"Selected RetroArch core '{selectedRetroArchCore}' could not be found.", selectedRetroArchCore);
             }
+
+            if (!IsRetroArchCoreUsable(explicitPath, launcherPath))
+            {
+                Log.Warn($"Selected RetroArch core '{selectedRetroArchCore}' was resolved to '{explicitPath}' but is not usable for launcher '{launcherPath}' (section='{sectionTitle}', rom='{romPath}').");
+                throw new FileNotFoundException($"Selected RetroArch core '{selectedRetroArchCore}' is not usable.", explicitPath);
+            }
+
+            return explicitPath;
         }
+
+        var platform = GetRetroArchPlatform(sectionTitle, romPath);
 
         foreach (var directory in candidateDirectories)
         {
@@ -368,34 +364,6 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
         Log.Warn($"No RetroArch core found in candidate directories for launcher '{launcherPath}' and section '{sectionTitle}'.");
         return null;
-    }
-
-    private static bool IsRetroArchCoreCompatibleWithPlatform(string? coreFileName, RetroArchPlatform platform)
-    {
-        if (platform == RetroArchPlatform.Unknown)
-            return true;
-
-        if (string.IsNullOrWhiteSpace(coreFileName))
-            return false;
-
-        var name = coreFileName.ToLowerInvariant();
-        return platform switch
-        {
-            RetroArchPlatform._3DS => name.Contains("citra"),
-            RetroArchPlatform.GameCube => name.Contains("dolphin"),
-            RetroArchPlatform.Wii => name.Contains("dolphin"),
-            RetroArchPlatform.N64 => name.Contains("mupen") || name.Contains("parallel_n64") || name.Contains("angrylion"),
-            RetroArchPlatform.SNES => name.Contains("snes") || name.Contains("bsnes") || name.Contains("higan"),
-            RetroArchPlatform.NES => name.Contains("nestopia") || name.Contains("fceumm") || name.Contains("quicknes"),
-            RetroArchPlatform.Dreamcast => name.Contains("flycast") || name.Contains("nulldc"),
-            RetroArchPlatform.PlayStation2 => name.Contains("pcsx2"),
-            RetroArchPlatform.PlayStation => name.Contains("beetle_psx") || name.Contains("mednafen_psx") || name.Contains("pcsx_rearmed"),
-            _ => name.Contains("fbneo") ||
-                 name.Contains("mame") ||
-                 name.Contains("fbalpha") ||
-                 name.Contains("finalburn") ||
-                 name.Contains("neogeo")
-        };
     }
 
     private static string? ResolveRetroArchCorePath(string[] candidateDirectories, string selectedRetroArchCore)

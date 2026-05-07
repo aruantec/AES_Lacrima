@@ -811,14 +811,14 @@
                             </Border>
                         </ControlTemplate>
                     </Button.Template>
-                    <Viewbox Stretch="Uniform">
+                    <Viewbox Stretch="Uniform" Margin="0,2,0,0">
                         <Canvas Width="100" Height="100">
-                            <Ellipse Canvas.Left="10" Canvas.Top="10" Width="80" Height="80"
-                                     Stroke="White"
-                                     StrokeThickness="10"
+                            <Ellipse Canvas.Left="11" Canvas.Top="11" Width="78" Height="78"
+                                     Stroke="DimGray"
+                                     StrokeThickness="7"
                                      Fill="Transparent"/>
-                            <Rectangle Canvas.Left="47" Canvas.Top="22" Width="6" Height="42" Fill="#FFC107" RadiusX="3" RadiusY="3"/>
-                            <Ellipse Canvas.Left="47" Canvas.Top="68" Width="6" Height="6" Fill="#FFC107"/>
+                            <Rectangle Canvas.Left="47" Canvas.Top="24" Width="6" Height="40" Fill="#FFC107" RadiusX="3" RadiusY="3"/>
+                            <Ellipse Canvas.Left="47" Canvas.Top="69" Width="6" Height="6" Fill="#FFC107"/>
                         </Canvas>
                     </Viewbox>
                 </Button>
