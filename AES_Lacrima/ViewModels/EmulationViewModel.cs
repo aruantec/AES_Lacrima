@@ -2097,7 +2097,8 @@ namespace AES_Lacrima.ViewModels
 
                 var handler = request.Handler;
                 CurrentEmulatorHandler = handler;
-                SetSessionCaptureStretchOverride(string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase)
+                SetSessionCaptureStretchOverride(string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase) ||
+                                                 string.Equals(handler.HandlerId, "cemu", StringComparison.OrdinalIgnoreCase)
                     ? Stretch.UniformToFill
                     : null);
                 
@@ -2110,6 +2111,9 @@ namespace AES_Lacrima.ViewModels
 
                 if (!handler.IsPrepared)
                     handler.Prepare();
+
+                if (handler is CemuHandler cemuHandler)
+                    cemuHandler.ApplyFullscreenScalingWorkaround(handler.LauncherPath ?? string.Empty);
 
                 EnsureAppTopMostBeforeLaunch();
 
@@ -2166,6 +2170,8 @@ namespace AES_Lacrima.ViewModels
             catch (Exception ex)
             {
                 SLog.Warn($"Failed to launch emulator for '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
+                if (request.Handler is CemuHandler cemuHandler)
+                    cemuHandler.RestoreFullscreenScalingWorkaround(request.Handler.LauncherPath ?? string.Empty);
                 ClearSessionCaptureStretchOverride();
                 RestoreAppTopMost();
                 IsEmulatorLaunchInProgress = false;
@@ -2368,6 +2374,8 @@ namespace AES_Lacrima.ViewModels
             if (process == null)
             {
                 SLog.Warn($"Emulator launch for '{romPath}' did not expose a trackable process handle.");
+                if (handler is CemuHandler cemuHandler)
+                    cemuHandler.RestoreFullscreenScalingWorkaround(handler.LauncherPath ?? string.Empty);
                 RestoreAppTopMost();
                 EmulatorTargetHwnd = IntPtr.Zero;
                 EmulatorTargetProcessId = 0;
@@ -2418,6 +2426,8 @@ namespace AES_Lacrima.ViewModels
 
         private void HandleTrackedEmulatorExited(Process process)
         {
+            var currentHandler = CurrentEmulatorHandler;
+
             if (!ReferenceEquals(_activeEmulatorProcess, process))
             {
                 try
@@ -2437,6 +2447,8 @@ namespace AES_Lacrima.ViewModels
             IsEmulatorRunning = false;
             RequestStopEmulatorCapture = false;
             ClearSessionCaptureStretchOverride();
+            if (currentHandler is CemuHandler cemuHandler)
+                cemuHandler.RestoreFullscreenScalingWorkaround(currentHandler.LauncherPath ?? string.Empty);
             RestoreAppTopMost();
 
             if (CurrentEmulatorHandler is RetroArchHandler retroArchHandler)
