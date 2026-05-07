@@ -177,7 +177,8 @@ namespace AES_Lacrima.Services
             if (!TryGetDefinition(consoleName, out var definition))
                 return false;
 
-            return string.Equals(definition.Key, "PS4", StringComparison.OrdinalIgnoreCase);
+            return string.Equals(definition.Key, "PS3", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(definition.Key, "PS4", StringComparison.OrdinalIgnoreCase);
         }
 
         public static IReadOnlyList<string> GetSearchQueryTerms(string? consoleName)

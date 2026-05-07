@@ -10,6 +10,7 @@ public static class EmulatorHandlerRegistry
     [
         DuckStationHandler.Instance,
         Pcsx2Handler.Instance,
+        Rpcs3Handler.Instance,
         ShadPs4Handler.Instance,
         DolphinHandler.Instance,
         FlyCastHandler.Instance,

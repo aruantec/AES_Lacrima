@@ -150,6 +150,8 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private Stretch _selectedStretch = Stretch.Uniform;
 
+        private Stretch? _sessionCaptureStretchOverride;
+
         [ObservableProperty]
         private bool _useHostWindowCapture;
 
@@ -283,6 +285,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ClientAreaCropRightInset));
             OnPropertyChanged(nameof(ClientAreaCropBottomInset));
             OnPropertyChanged(nameof(CurrentEmulatorWindowTitleHint));
+            OnPropertyChanged(nameof(CurrentCaptureStretch));
         }
 
         partial void OnSelectedCaptureModeChanged(EmulatorCaptureMode value)
@@ -310,6 +313,7 @@ namespace AES_Lacrima.ViewModels
         public int ClientAreaCropTopInset => CurrentEmulatorHandler?.ClientAreaCropTopInset ?? 0;
         public int ClientAreaCropRightInset => CurrentEmulatorHandler?.ClientAreaCropRightInset ?? 0;
         public int ClientAreaCropBottomInset => CurrentEmulatorHandler?.ClientAreaCropBottomInset ?? 0;
+        public Stretch CurrentCaptureStretch => _sessionCaptureStretchOverride ?? SelectedStretch;
         public string? CurrentEmulatorWindowTitleHint
         {
             get
@@ -706,7 +710,11 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnRenderOverlayOpacityChanged(double value) => AutoSave();
 
-        partial void OnSelectedStretchChanged(Stretch value) => AutoSave();
+        partial void OnSelectedStretchChanged(Stretch value)
+        {
+            OnPropertyChanged(nameof(CurrentCaptureStretch));
+            AutoSave();
+        }
 
         partial void OnDisableVSyncChanged(bool value) => AutoSave();
 
@@ -873,6 +881,7 @@ namespace AES_Lacrima.ViewModels
             {
                 IsEmulatorRunning = false;
                 CurrentEmulatorHandler = null;
+                ClearSessionCaptureStretchOverride();
                 DetachTrackedEmulatorProcess();
                 return;
             }
@@ -881,6 +890,7 @@ namespace AES_Lacrima.ViewModels
             {
                 var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
                 forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "dolphin", StringComparison.OrdinalIgnoreCase);
+                forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase);
 
                 if (!forceKillFirst)
                 {
@@ -888,6 +898,7 @@ namespace AES_Lacrima.ViewModels
                     {
                         forceKillFirst = process.ProcessName.Contains("pcsx2", StringComparison.OrdinalIgnoreCase) ||
                                          process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
+                        forceKillFirst |= process.ProcessName.Contains("rpcs3", StringComparison.OrdinalIgnoreCase);
                     }
                     catch
                     {
@@ -940,6 +951,7 @@ namespace AES_Lacrima.ViewModels
             {
                 IsEmulatorRunning = false;
                 CurrentEmulatorHandler = null;
+                ClearSessionCaptureStretchOverride();
                 DetachTrackedEmulatorProcess();
                 SLog.Info("EmulationViewModel.ShutdownForApplicationExit finished.");
             }
@@ -1511,6 +1523,13 @@ namespace AES_Lacrima.ViewModels
                 var currentDirectory = directories.Pop();
 
                 if (EmulationConsoleCatalog.SupportsFolderImport(consoleName) &&
+                    Ps3InstalledGameHelper.IsInstalledGameFolder(currentDirectory))
+                {
+                    results.Add(currentDirectory);
+                    continue;
+                }
+
+                if (EmulationConsoleCatalog.SupportsFolderImport(consoleName) &&
                     Ps4InstalledGameHelper.IsInstalledGameFolder(currentDirectory))
                 {
                     results.Add(currentDirectory);
@@ -2078,6 +2097,9 @@ namespace AES_Lacrima.ViewModels
 
                 var handler = request.Handler;
                 CurrentEmulatorHandler = handler;
+                SetSessionCaptureStretchOverride(string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase)
+                    ? Stretch.UniformToFill
+                    : null);
                 
                 SelectedCaptureMode = handler.PreferredCaptureMode;
                 EmulatorCaptureDelayMs = handler.IsWindowEmbeddingSupported
@@ -2144,9 +2166,24 @@ namespace AES_Lacrima.ViewModels
             catch (Exception ex)
             {
                 SLog.Warn($"Failed to launch emulator for '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
+                ClearSessionCaptureStretchOverride();
                 RestoreAppTopMost();
                 IsEmulatorLaunchInProgress = false;
             }
+        }
+
+        private void SetSessionCaptureStretchOverride(Stretch? stretch)
+        {
+            if (_sessionCaptureStretchOverride == stretch)
+                return;
+
+            _sessionCaptureStretchOverride = stretch;
+            OnPropertyChanged(nameof(CurrentCaptureStretch));
+        }
+
+        private void ClearSessionCaptureStretchOverride()
+        {
+            SetSessionCaptureStretchOverride(null);
         }
 
         private static void PrepareLinuxAppImageStartInfo(ProcessStartInfo startInfo)
@@ -2218,6 +2255,7 @@ namespace AES_Lacrima.ViewModels
                     var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "dolphin", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase);
+                    forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase);
                     if (!forceKillFirst)
                     {
                         try
@@ -2225,6 +2263,7 @@ namespace AES_Lacrima.ViewModels
                             forceKillFirst = process.ProcessName.Contains("pcsx2", StringComparison.OrdinalIgnoreCase) ||
                                              process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
                             forceKillFirst |= process.ProcessName.Contains("shadps4", StringComparison.OrdinalIgnoreCase);
+                            forceKillFirst |= process.ProcessName.Contains("rpcs3", StringComparison.OrdinalIgnoreCase);
                         }
                         catch
                         {
@@ -2397,6 +2436,7 @@ namespace AES_Lacrima.ViewModels
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
             RequestStopEmulatorCapture = false;
+            ClearSessionCaptureStretchOverride();
             RestoreAppTopMost();
 
             if (CurrentEmulatorHandler is RetroArchHandler retroArchHandler)

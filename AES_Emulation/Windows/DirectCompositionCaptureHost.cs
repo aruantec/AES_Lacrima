@@ -580,14 +580,6 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
         if (_session != IntPtr.Zero && _activeTargetHwnd == settings.TargetHwnd)
         {
-            try
-            {
-                WgcBridgeApi.SetInjectionPid(_session, settings.TargetProcessId);
-            }
-            catch
-            {
-            }
-
             ApplyRenderOptionsCore(settings);
             ApplyCropRectCore(settings);
             try
@@ -657,7 +649,6 @@ public class DirectCompositionCaptureHost : NativeControlHost
         _lastPresentCount = 0;
         _lastFpsSampleUtc = DateTime.UtcNow;
         _lastPresentSampleUtc = _lastFpsSampleUtc;
-        WgcBridgeApi.SetInjectionPid(_session, settings.TargetProcessId);
         ApplyRenderOptionsCore(settings);
         RefreshStatusCore();
     }

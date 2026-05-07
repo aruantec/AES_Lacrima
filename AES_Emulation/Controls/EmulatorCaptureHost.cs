@@ -352,9 +352,6 @@ public class EmulatorCaptureHost : ContentControl
     {
         if (OperatingSystem.IsWindows())
         {
-            if (CaptureMode == EmulatorCaptureMode.Injected)
-                return new WgcCaptureControl();
-                
             return new DirectCompositionCaptureHost();
         }
 
@@ -374,9 +371,6 @@ public class EmulatorCaptureHost : ContentControl
     {
         switch (_backend)
         {
-            case WgcCaptureControl wgcBackend:
-                if (OperatingSystem.IsWindows()) BindToWgcBackend(wgcBackend);
-                break;
             case DirectCompositionCaptureHost windowsBackend:
                 BindToWindowsBackend(windowsBackend);
                 break;
@@ -470,9 +464,6 @@ public class EmulatorCaptureHost : ContentControl
                 windowsBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
                 windowsBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
                 windowsBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
-                break;
-            case WgcCaptureControl wgcBackend:
-                if (OperatingSystem.IsWindows()) SyncWgcProperties(wgcBackend);
                 break;
             case ScreenCaptureKitCaptureHost macBackend:
                 macBackend.TargetHwnd = TargetHwnd;

@@ -113,6 +113,8 @@ namespace AES_Lacrima
             var logsDirectory = ApplicationPaths.LogsDirectory;
             Directory.CreateDirectory(logsDirectory);
 
+            Environment.SetEnvironmentVariable("AES_LACRIMA_LOG_FILE", Path.Combine(logsDirectory, "log.txt"));
+
             var layout = new PatternLayout { ConversionPattern = "%date %-5level %logger - %message%newline%exception" };
             layout.ActivateOptions();
 

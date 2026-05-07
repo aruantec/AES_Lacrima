@@ -326,6 +326,16 @@ namespace AES_Lacrima.ViewModels
         {
             if (AppLifetime == null || DiLocator.ResolveViewModel<ISettingsService>() is not { } settingsService)
                 return;
+
+            if (PromptView is RestartPromptViewModel restartPrompt)
+            {
+                restartPrompt.SkipCommand.Execute(null);
+            }
+            else if (PromptView is ComponentSetupPromptViewModel setupPrompt)
+            {
+                setupPrompt.SkipCommand.Execute(null);
+            }
+
             //Save all settings
             settingsService.SaveSettings();
             //Shutdown application

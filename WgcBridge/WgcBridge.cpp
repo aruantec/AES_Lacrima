@@ -15,6 +15,22 @@
 
 static void FileDebugLog(char const* message)
 {
+    char logPath[MAX_PATH];
+    DWORD logLen = GetEnvironmentVariableA("AES_LACRIMA_LOG_FILE", logPath, MAX_PATH);
+    if (logLen > 0 && logLen < MAX_PATH)
+    {
+        HANDLE logFile = CreateFileA(logPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (logFile != INVALID_HANDLE_VALUE)
+        {
+            SetFilePointer(logFile, 0, nullptr, FILE_END);
+            DWORD written = 0;
+            WriteFile(logFile, message, static_cast<DWORD>(strlen(message)), &written, nullptr);
+            WriteFile(logFile, "\r\n", 2, &written, nullptr);
+            CloseHandle(logFile);
+            return;
+        }
+    }
+
     char tempPath[MAX_PATH];
     DWORD len = GetEnvironmentVariableA("TEMP", tempPath, MAX_PATH);
     if (len == 0 || len >= MAX_PATH)
@@ -203,126 +219,6 @@ struct CaptureSession
     int dcompPendingWidth = 0;
     int dcompPendingHeight = 0;
     bool dcompHasPendingFrame = false;
-
-    // Injection read path (Host side)
-    std::atomic<int> injectionPid{ 0 };
-    HANDLE injectionReadMapping{ nullptr };
-    InjectionFrameHeader* injectionReadHeader{ nullptr };
-    uint8_t* injectionReadPixels{ nullptr };
-    uint32_t lastReadInjectionSequence = 0;
-    std::thread injectionWorker;
-    std::atomic<bool> injectionWorkerRunning{ false };
-    std::atomic<long long> lastInjectionFrameTime{ 0 };
-    rt::com_ptr<ID3D11Texture2D> injectionGpuTexture;
-    int injectionGpuWidth = 0;
-    int injectionGpuHeight = 0;
-
-    void StartInjectionWorker()
-    {
-        if (injectionWorkerRunning.load()) return;
-        injectionWorkerRunning.store(true);
-        injectionWorker = std::thread([this]() { InjectionWorkerLoop(); });
-    }
-
-    void StopInjectionWorker()
-    {
-        injectionWorkerRunning.store(false);
-        if (injectionWorker.joinable()) injectionWorker.join();
-        
-        if (injectionReadHeader) UnmapViewOfFile(injectionReadHeader);
-        if (injectionReadMapping) CloseHandle(injectionReadMapping);
-        injectionReadHeader = nullptr;
-        injectionReadMapping = nullptr;
-        injectionReadPixels = nullptr;
-    }
-
-    void InjectionWorkerLoop()
-    {
-        while (injectionWorkerRunning.load())
-        {
-            int pid = injectionPid.load();
-            if (pid <= 0)
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                continue;
-            }
-
-            if (!injectionReadMapping)
-            {
-                auto mapName = MakeInjectionSharedMemoryName(pid);
-                injectionReadMapping = OpenFileMappingW(FILE_MAP_READ, FALSE, mapName.c_str());
-                if (injectionReadMapping)
-                {
-                    void* view = MapViewOfFile(injectionReadMapping, FILE_MAP_READ, 0, 0, InjectionHeaderSize + InjectionMaxFrameBytes);
-                    if (view)
-                    {
-                        injectionReadHeader = reinterpret_cast<InjectionFrameHeader*>(view);
-                        injectionReadPixels = reinterpret_cast<uint8_t*>(view) + InjectionHeaderSize;
-                        OutputDebugStringA("[WGC_NATIVE] Injection worker opened shared memory\n");
-                    }
-                    else
-                    {
-                        CloseHandle(injectionReadMapping);
-                        injectionReadMapping = nullptr;
-                    }
-                }
-            }
-
-            if (injectionReadHeader && injectionReadHeader->Magic == InjectionMagic)
-            {
-                uint32_t seq1 = InterlockedExchange(reinterpret_cast<volatile LONG*>(&injectionReadHeader->Sequence1), injectionReadHeader->Sequence1);
-                uint32_t seq2 = InterlockedExchange(reinterpret_cast<volatile LONG*>(&injectionReadHeader->Sequence2), injectionReadHeader->Sequence2);
-
-                if (seq1 > 0 && seq1 == seq2 && seq1 != lastReadInjectionSequence)
-                {
-                    lastReadInjectionSequence = seq1;
-                    int w = (int)injectionReadHeader->Width;
-                    int h = (int)injectionReadHeader->Height;
-                    int stride = (int)injectionReadHeader->Stride;
-
-                    if (w > 0 && h > 0 && w <= 8192 && h <= 8192)
-                    {
-                        if (!injectionGpuTexture || injectionGpuWidth != w || injectionGpuHeight != h)
-                        {
-                            D3D11_TEXTURE2D_DESC td = {};
-                            td.Width = (UINT)w;
-                            td.Height = (UINT)h;
-                            td.MipLevels = 1;
-                            td.ArraySize = 1;
-                            td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-                            td.SampleDesc.Count = 1;
-                            td.Usage = D3D11_USAGE_DEFAULT;
-                            td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-                            
-                            if (SUCCEEDED(d3dDevice->CreateTexture2D(&td, nullptr, injectionGpuTexture.put())))
-                            {
-                                injectionGpuWidth = w;
-                                injectionGpuHeight = h;
-                            }
-                        }
-
-                        if (injectionGpuTexture)
-                        {
-                            d3dContext->UpdateSubresource(injectionGpuTexture.get(), 0, nullptr, injectionReadPixels, stride, 0);
-                            
-                            LARGE_INTEGER qpc;
-                            QueryPerformanceCounter(&qpc);
-                            lastInjectionFrameTime.store(qpc.QuadPart);
-
-                            if (presentationHwnd)
-                            {
-                                QueueDirectCompositionFrame(injectionGpuTexture.get(), w, h);
-                                frameCount.fetch_add(1);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Sleep a tiny bit to avoid saturating a core, but keep it low for latency.
-            std::this_thread::sleep_for(std::chrono::microseconds(500));
-        }
-    }
 
     static std::wstring GetShaderCompilerErrorLogPath()
     {
@@ -1361,6 +1257,7 @@ struct CaptureSession
         {
             SetDirectCompositionStatus(message);
             OutputDebugStringA("[WGC_NATIVE] DirectComposition failure: ");
+            FileDebugLog(message);
             OutputDebugStringA(message);
             OutputDebugStringA("\n");
         }
@@ -1436,7 +1333,6 @@ struct CaptureSession
         if (!dcompWorkerRunning.load())
             return false;
 
-        StartInjectionWorker();
         return true;
     }
 
@@ -2344,37 +2240,6 @@ struct CaptureSession
         frame.Close();
     }
 
-    bool InitializeInjection(DWORD pid)
-    {
-        if (injectionMapping || injectionHeader)
-            return true;
-
-        auto mapName = MakeInjectionSharedMemoryName(pid);
-        OutputDebugStringA("[WGC_NATIVE] InitializeInjection creating shared memory\n");
-        HANDLE mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, static_cast<DWORD>(InjectionHeaderSize + InjectionMaxFrameBytes), mapName.c_str());
-        if (!mapping)
-        {
-            OutputDebugStringA("[WGC_NATIVE] InitializeInjection CreateFileMappingW failed\n");
-            return false;
-        }
-
-        void* view = MapViewOfFile(mapping, FILE_MAP_WRITE, 0, 0, InjectionHeaderSize + InjectionMaxFrameBytes);
-        if (!view)
-        {
-            OutputDebugStringA("[WGC_NATIVE] InitializeInjection MapViewOfFile failed\n");
-            CloseHandle(mapping);
-            return false;
-        }
-
-        injectionMapping = mapping;
-        injectionHeader = reinterpret_cast<InjectionFrameHeader*>(view);
-        injectionPixels = reinterpret_cast<uint8_t*>(view) + InjectionHeaderSize;
-        ZeroMemory(injectionHeader, InjectionHeaderSize);
-        injectionHeader->Magic = InjectionMagic;
-        OutputDebugStringA("[WGC_NATIVE] InitializeInjection succeeded\n");
-        return true;
-    }
-
     void WriteInjectionFrame(void const* data, size_t size, int width, int height, int stride)
     {
         if (!injectionHeader || !data || size == 0 || width <= 0 || height <= 0)
@@ -2394,13 +2259,6 @@ struct CaptureSession
         InterlockedExchange(reinterpret_cast<volatile LONG*>(&injectionHeader->Sequence1), seq);
     }
 };
-
-bool InitializeDirectHookCapture(DWORD pid)
-{
-    return CaptureSession::InitializeDirectHookCaptureInternal(pid);
-}
-
-void* s_injectionSession = nullptr;
 
 struct InjectionWindowSearchData
 {
@@ -2447,38 +2305,6 @@ static HWND FindBestCaptureWindowForCurrentProcess()
     }, reinterpret_cast<LPARAM>(&data));
 
     return data.bestHwnd;
-}
-
-extern "C" void* CreateCaptureSessionInternal(HWND targetHwnd, HWND presentationHwnd);
-
-static DWORD WINAPI InjectionThreadMain(LPVOID lpParameter)
-{
-    DWORD pid = GetCurrentProcessId();
-    auto requestName = CaptureSession::MakeInjectionRequestEventName(pid);
-    HANDLE requestEvent = OpenEventW(SYNCHRONIZE, FALSE, requestName.c_str());
-    if (!requestEvent)
-        return 0;
-
-    CloseHandle(requestEvent);
-
-    HWND hwnd = FindBestCaptureWindowForCurrentProcess();
-    if (!hwnd)
-        return 0;
-
-    void* session = CreateCaptureSessionInternal(hwnd, nullptr);
-    if (!session)
-        return 0;
-
-    auto readyName = CaptureSession::MakeInjectionReadyEventName(pid);
-    HANDLE readyEvent = CreateEventW(nullptr, TRUE, FALSE, readyName.c_str());
-    if (readyEvent)
-    {
-        SetEvent(readyEvent);
-        CloseHandle(readyEvent);
-    }
-
-    s_injectionSession = session;
-    return 0;
 }
 
 extern "C" {
@@ -2594,6 +2420,25 @@ extern "C" {
                 s->InitializeDirectComposition();
             }
 
+            HWND captureTargetHwnd = targetHwnd;
+            HWND rootOwnerHwnd = GetAncestor(targetHwnd, GA_ROOTOWNER);
+            HWND rootHwnd = GetAncestor(targetHwnd, GA_ROOT);
+            if (rootOwnerHwnd && rootOwnerHwnd != targetHwnd)
+            {
+                captureTargetHwnd = rootOwnerHwnd;
+            }
+            else if (rootHwnd && rootHwnd != targetHwnd)
+            {
+                captureTargetHwnd = rootHwnd;
+            }
+
+            if (captureTargetHwnd != targetHwnd)
+            {
+                char normalizedBuf[256];
+                sprintf_s(normalizedBuf, "[WGC_NATIVE] Normalized capture target from HWND=%p to root HWND=%p\n", targetHwnd, captureTargetHwnd);
+                OutputDebugStringA(normalizedBuf);
+            }
+
             // Create capture item for the target HWND
             try
             {
@@ -2605,11 +2450,35 @@ extern "C" {
                     return nullptr;
                 }
 
-                HRESULT createHr = factory->CreateForWindow(targetHwnd, rt::guid_of<ABI::Windows::Graphics::Capture::IGraphicsCaptureItem>(), rt::put_abi(s->item));
+                char hwndBuf[256];
+                wchar_t titleBuf[256]{};
+                wchar_t classBuf[128]{};
+                GetWindowTextW(targetHwnd, titleBuf, static_cast<int>(std::size(titleBuf)));
+                GetClassNameW(targetHwnd, classBuf, static_cast<int>(std::size(classBuf)));
+                sprintf_s(hwndBuf, "[WGC_NATIVE] Target HWND=%p title='%ls' class='%ls' visible=%d iconic=%d\n",
+                    targetHwnd,
+                    titleBuf,
+                    classBuf,
+                    IsWindowVisible(targetHwnd) ? 1 : 0,
+                    IsIconic(targetHwnd) ? 1 : 0);
+                OutputDebugStringA(hwndBuf);
+
+                HRESULT createHr = E_FAIL;
+                for (int attempt = 0; attempt < 20; ++attempt)
+                {
+                    s->item = nullptr;
+                    createHr = factory->CreateForWindow(captureTargetHwnd, rt::guid_of<ABI::Windows::Graphics::Capture::IGraphicsCaptureItem>(), rt::put_abi(s->item));
+                    if (SUCCEEDED(createHr) && s->item)
+                        break;
+
+                    if (attempt < 19)
+                        Sleep(100);
+                }
+
                 if (FAILED(createHr) || !s->item)
                 {
                     char buf[256];
-                    sprintf_s(buf, "[WGC_NATIVE] CreateForWindow failed: 0x%08X. Ensure target HWND is valid and process has required permissions.\n", (unsigned)createHr);
+                    sprintf_s(buf, "[WGC_NATIVE] CreateForWindow failed: 0x%08X for HWND=%p (normalized=%p). Ensure the RPCS3 renderer window is ready.\n", (unsigned)createHr, targetHwnd, captureTargetHwnd);
                     DebugLog(buf);
                     delete s;
                     return nullptr;
@@ -2684,13 +2553,6 @@ extern "C" {
                 }
                 catch(...) { OutputDebugStringA("[WGC_NATIVE] IGraphicsCaptureSession3 not available or call failed\n"); }
 
-                if (!s->InitializeInjection(GetCurrentProcessId()))
-                {
-                    OutputDebugStringA("[WGC_NATIVE] InitializeInjection failed\n");
-                    delete s;
-                    return nullptr;
-                }
-
                 s->session.StartCapture();
                 OutputDebugStringA("[WGC_NATIVE] session.StartCapture() called\n");
                 return s;
@@ -2734,17 +2596,7 @@ extern "C" {
             if (s->dcompDevice) {
                 s->dcompDevice->Commit();
             }
-            if (s->injectionHeader) {
-                UnmapViewOfFile(s->injectionHeader);
-                s->injectionHeader = nullptr;
-                s->injectionPixels = nullptr;
-            }
-            if (s->injectionMapping) {
-                CloseHandle(s->injectionMapping);
-                s->injectionMapping = nullptr;
-            }
         } catch (...) {}
-        s->StopInjectionWorker();
         delete s;
         OutputDebugStringA("[WGC_NATIVE] DestroyCaptureSession finished\n");
     }
@@ -2884,13 +2736,6 @@ extern "C" {
         s->cropW.store(width);
         s->cropH.store(height);
         char buf[256]; sprintf_s(buf, "[WGC_NATIVE] SetCaptureCropRect: %d,%d %dx%d\n", x, y, width, height); OutputDebugStringA(buf);
-    }
-
-    __declspec(dllexport) void SetInjectionPid(void* ptr, int pid) {
-        auto s = static_cast<CaptureSession*>(ptr);
-        if (!s) return;
-        s->injectionPid.store(pid);
-        char buf[128]; sprintf_s(buf, "[WGC_NATIVE] SetInjectionPid: %d\n", pid); OutputDebugStringA(buf);
     }
 
     __declspec(dllexport) bool GetLatestFrame(void* ptr, unsigned char* outBuffer, size_t bufferSize, int* w, int* h) {

@@ -55,6 +55,27 @@ public sealed class EmulationViewModelTests
     }
 
     [Fact]
+    public void ScanFolderForRomPaths_Ps3InstalledGameDirectory_ReturnsFolderPath()
+    {
+        using var tempDir = new TempDirectory();
+        var ps3Dir = Path.Combine(tempDir.Path, "BLES00001");
+        var ps3GameDir = Path.Combine(ps3Dir, "PS3_GAME");
+        Directory.CreateDirectory(ps3GameDir);
+        File.WriteAllText(Path.Combine(ps3GameDir, "ICON0.PNG"), "icon");
+        File.WriteAllText(Path.Combine(ps3GameDir, "PIC1.PNG"), "back");
+
+        var method = typeof(EmulationViewModel)
+            .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+            .Single(m => m.Name == "ScanFolderForRomPaths" && m.GetParameters().Length == 3);
+
+        var result = method.Invoke(null, new object?[] { tempDir.Path, "PlayStation 3", new string[] { "*.iso" } });
+        Assert.NotNull(result);
+
+        var paths = Assert.IsAssignableFrom<System.Collections.Generic.IReadOnlyList<string>>(result);
+        Assert.Contains(ps3Dir, paths, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void BuildAndRestoreAlbumRomMap_PersistsByImageFileName()
     {
         var vm = new EmulationViewModel();
@@ -113,6 +134,23 @@ public sealed class EmulationViewModelTests
     }
 
     [Fact]
+    public void GetPreferredIconPath_PrefersPs3GameFolderArtwork()
+    {
+        using var tempDir = new TempDirectory();
+        var ps3Dir = Path.Combine(tempDir.Path, "BLES00002");
+        var ps3GameDir = Path.Combine(ps3Dir, "PS3_GAME");
+        Directory.CreateDirectory(ps3GameDir);
+
+        var iconPath = Path.Combine(ps3GameDir, "ICON0.PNG");
+        var backCoverPath = Path.Combine(ps3GameDir, "PIC1.PNG");
+        File.WriteAllText(iconPath, "icon");
+        File.WriteAllText(backCoverPath, "back");
+
+        Assert.Equal(iconPath, Ps3InstalledGameHelper.GetPreferredIconPath(ps3Dir), StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(backCoverPath, Ps3InstalledGameHelper.GetPreferredBackCoverPath(ps3Dir), StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void EmulatorHandlerRegistry_PlayStation4_IncludesShadPs4Handler()
     {
         var handlers = EmulatorHandlerRegistry.GetHandlersForSection("PlayStation 4");
@@ -121,9 +159,17 @@ public sealed class EmulationViewModelTests
     }
 
     [Fact]
+    public void EmulatorHandlerRegistry_PlayStation3_IncludesRpcs3Handler()
+    {
+        var handlers = EmulatorHandlerRegistry.GetHandlersForSection("PlayStation 3");
+
+        Assert.Contains(handlers, handler => string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void ShadPs4Handler_BuildStartInfo_UsesQtLauncherDefaultVersionAndGamePath()
     {
-        var tempExe = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".exe");
+        var tempExe = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + "QtLauncher.exe");
         File.WriteAllText(tempExe, string.Empty);
 
         try
@@ -152,6 +198,46 @@ public sealed class EmulationViewModelTests
         Assert.Equal(EmulatorCaptureMode.DirectComposition, ShadPs4Handler.Instance.PreferredCaptureMode);
         Assert.True(ShadPs4Handler.Instance.ForceUseTargetClientAreaCapture);
         Assert.True(ShadPs4Handler.Instance.IsWindowEmbeddingSupported);
+    }
+
+    [Fact]
+    public void Rpcs3Handler_BuildStartInfo_UsesNoGuiBootFlags()
+    {
+        var tempExe = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".exe");
+        File.WriteAllText(tempExe, string.Empty);
+
+        try
+        {
+            var gamePath = @"C:\Games\PS3\BLES00001";
+            ProcessStartInfo startInfo = Rpcs3Handler.Instance.BuildStartInfo(tempExe, gamePath, true);
+
+            Assert.Equal(tempExe, startInfo.FileName);
+            Assert.Equal("--no-gui", startInfo.ArgumentList[0]);
+            Assert.Equal("--config", startInfo.ArgumentList[1]);
+            Assert.True(File.Exists(startInfo.ArgumentList[2]));
+            Assert.Equal(gamePath, startInfo.ArgumentList[3]);
+
+            var configText = File.ReadAllText(startInfo.ArgumentList[2]);
+            Assert.Contains("Stretch To Display Area: true", configText, StringComparison.Ordinal);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(tempExe);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void Rpcs3Handler_PrefersDirectCompositionCapture()
+    {
+        Assert.Equal(EmulatorCaptureMode.DirectComposition, Rpcs3Handler.Instance.PreferredCaptureMode);
+        Assert.True(Rpcs3Handler.Instance.HideUntilCaptured);
+        Assert.True(Rpcs3Handler.Instance.IsWindowEmbeddingSupported);
     }
 }
 

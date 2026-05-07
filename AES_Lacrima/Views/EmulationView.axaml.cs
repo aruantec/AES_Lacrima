@@ -1016,7 +1016,7 @@ public partial class EmulationView : UserControl
         captureHost.Bind(EmulatorCaptureHostControl.ClientAreaCropRightInsetProperty, new Binding("ClientAreaCropRightInset"));
         captureHost.Bind(EmulatorCaptureHostControl.ClientAreaCropBottomInsetProperty, new Binding("ClientAreaCropBottomInset"));
         captureHost.Bind(EmulatorCaptureHostControl.HideTargetWindowAfterCaptureStartsProperty, new Binding("HideTargetWindowAfterCaptureStarts"));
-        captureHost.Bind(EmulatorCaptureHostControl.StretchProperty, new Binding("SelectedStretch") { Mode = BindingMode.TwoWay });
+        captureHost.Bind(EmulatorCaptureHostControl.StretchProperty, new Binding("CurrentCaptureStretch"));
         captureHost.Bind(EmulatorCaptureHostControl.BrightnessProperty, new Binding("PortalCaptureBrightness") { Mode = BindingMode.TwoWay });
         captureHost.Bind(EmulatorCaptureHostControl.SaturationProperty, new Binding("RenderSaturation") { Mode = BindingMode.TwoWay });
         captureHost.Bind(EmulatorCaptureHostControl.DisableVSyncProperty, new Binding("DisableVSync") { Mode = BindingMode.TwoWay });
