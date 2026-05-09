@@ -888,9 +888,14 @@ namespace AES_Lacrima.ViewModels
 
             try
             {
+                if (string.Equals(CurrentEmulatorHandler?.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase))
+                {
+                    TryRequestRpcs3Shutdown(process);
+                    return;
+                }
+
                 var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
                 forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "dolphin", StringComparison.OrdinalIgnoreCase);
-                forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase);
 
                 if (!forceKillFirst)
                 {
@@ -898,7 +903,6 @@ namespace AES_Lacrima.ViewModels
                     {
                         forceKillFirst = process.ProcessName.Contains("pcsx2", StringComparison.OrdinalIgnoreCase) ||
                                          process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
-                        forceKillFirst |= process.ProcessName.Contains("rpcs3", StringComparison.OrdinalIgnoreCase);
                     }
                     catch
                     {
@@ -1862,7 +1866,10 @@ namespace AES_Lacrima.ViewModels
 
         private static MediaItem CreateRomItem(string filePath, FolderMediaItem album)
         {
-            var title = GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(filePath));
+            var title = Ps3InstalledGameHelper.GetTitleName(filePath);
+            if (string.IsNullOrWhiteSpace(title))
+                title = GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(filePath));
+
             return new MediaItem
             {
                 FileName = filePath,
@@ -1899,9 +1906,19 @@ namespace AES_Lacrima.ViewModels
         {
             foreach (var item in album.Children)
             {
+                var ps3Title = Ps3InstalledGameHelper.GetTitleName(item.FileName);
                 var normalized = GetNormalizedRomTitle(item.Title);
                 if (string.IsNullOrWhiteSpace(normalized) && !string.IsNullOrWhiteSpace(item.FileName))
                     normalized = GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(item.FileName));
+
+                if (!string.IsNullOrWhiteSpace(ps3Title) &&
+                    (string.IsNullOrWhiteSpace(item.Title) ||
+                     string.Equals(item.Title, normalized, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(item.Title, Path.GetFileNameWithoutExtension(item.FileName), StringComparison.OrdinalIgnoreCase)))
+                {
+                    item.Title = ps3Title;
+                    continue;
+                }
 
                 if (!string.IsNullOrWhiteSpace(normalized) &&
                     !string.Equals(item.Title, normalized, StringComparison.Ordinal))
@@ -2144,12 +2161,25 @@ namespace AES_Lacrima.ViewModels
 
                 if (handler is CemuHandler cemuHandler)
                     cemuHandler.ApplyFullscreenScalingWorkaround(handler.LauncherPath ?? string.Empty);
+                var rpcs3TitleId = string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase)
+                    ? Ps3InstalledGameHelper.GetTitleId(request.RomPath)
+                    : null;
+                if (!string.IsNullOrWhiteSpace(rpcs3TitleId))
+                    SLog.Info($"EmulationViewModel resolved RPCS3 title id '{rpcs3TitleId}' for '{request.RomPath}'.");
 
                 EnsureAppTopMostBeforeLaunch();
 
+                var launchRomPath = request.RomPath;
+                if (string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(rpcs3TitleId))
+                {
+                    launchRomPath = Rpcs3Handler.BuildGameIdBootPath(rpcs3TitleId);
+                    SLog.Info($"EmulationViewModel booting RPCS3 by GAMEID using '{launchRomPath}'.");
+                }
+
                 var startInfo = handler.BuildStartInfo(
                     handler.LauncherPath ?? string.Empty,
-                    request.RomPath,
+                    launchRomPath,
                     request.LaunchSettings?.StartFullscreen == true,
                     request.AlbumTitle,
                     request.LaunchSettings?.SelectedRetroArchCore);
@@ -2161,6 +2191,8 @@ namespace AES_Lacrima.ViewModels
                 {
                     SLog.Info($"Emulator process launched: pid={process.Id}, name={process.ProcessName}, hasExited={process.HasExited}.");
                 }
+
+                RestoreHostWindowFocus();
 
                 Process? runtimeProcess = process;
                 if (process != null)
@@ -2204,6 +2236,7 @@ namespace AES_Lacrima.ViewModels
                     cemuHandler.RestoreFullscreenScalingWorkaround(request.Handler.LauncherPath ?? string.Empty);
                 ClearSessionCaptureStretchOverride();
                 RestoreAppTopMost();
+                RestoreHostWindowFocus();
                 IsEmulatorLaunchInProgress = false;
             }
         }
@@ -2266,6 +2299,101 @@ namespace AES_Lacrima.ViewModels
             return true;
         }
 
+        private bool TryRequestRpcs3Shutdown(Process process)
+        {
+            if (!string.Equals(CurrentEmulatorHandler?.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var mainWindowHandle = ResolveProcessMainWindowHandle(process);
+            if (mainWindowHandle == IntPtr.Zero)
+            {
+                SLog.Info($"EmulationViewModel could not resolve the RPCS3 main window handle for pid={process.Id}.");
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug($"EmulationViewModel failed to force-close RPCS3 pid={process.Id} after it could not resolve the main window.", ex);
+                }
+
+                return true;
+            }
+
+            var sent = Win32API.TrySendControlS(mainWindowHandle);
+            if (sent)
+            {
+                SLog.Info($"EmulationViewModel sent the RPCS3 stop shortcut to pid={process.Id}.");
+
+                try
+                {
+                    SLog.Info($"EmulationViewModel waiting up to 5000 ms for RPCS3 pid={process.Id} to exit after sending the stop shortcut.");
+                    process.WaitForExit(5000);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Timed wait for RPCS3 shutdown failed; continuing with final state checks.", ex);
+                }
+
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        SLog.Info($"EmulationViewModel is force-closing RPCS3 pid={process.Id} after the stop shortcut timed out.");
+                        process.Kill(true);
+                        process.WaitForExit(3000);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Final forced RPCS3 shutdown hit a process race.", ex);
+                }
+
+                return true;
+            }
+
+            SLog.Info($"EmulationViewModel failed to send the RPCS3 stop shortcut to pid={process.Id}; forcing termination without closing the window.");
+
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(true);
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug($"EmulationViewModel failed to force-close RPCS3 pid={process.Id} after the stop shortcut could not be sent.", ex);
+            }
+
+            return true;
+        }
+
+        private static IntPtr ResolveProcessMainWindowHandle(Process process, int maxAttempts = 20, int delayMs = 100)
+        {
+            for (var attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                try
+                {
+                    process.Refresh();
+                    var hwnd = process.MainWindowHandle;
+                    if (hwnd != IntPtr.Zero)
+                        return hwnd;
+                }
+                catch
+                {
+                    // Ignore and keep polling for the main window.
+                }
+
+                Thread.Sleep(delayMs);
+            }
+
+            return IntPtr.Zero;
+        }
+
         private void CloseTrackedEmulatorForPendingLaunch(Process process)
         {
             if (_isClosingActiveEmulatorForRelaunch)
@@ -2286,12 +2414,16 @@ namespace AES_Lacrima.ViewModels
             {
                 await WaitForCaptureStopBeforeClosingProcessAsync().ConfigureAwait(false);
 
+                if (TryRequestRpcs3Shutdown(process))
+                {
+                    return;
+                }
+
                 await Task.Run(() =>
                 {
                     var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "dolphin", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase);
-                    forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase);
                     if (!forceKillFirst)
                     {
                         try
@@ -2299,7 +2431,6 @@ namespace AES_Lacrima.ViewModels
                             forceKillFirst = process.ProcessName.Contains("pcsx2", StringComparison.OrdinalIgnoreCase) ||
                                              process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
                             forceKillFirst |= process.ProcessName.Contains("shadps4", StringComparison.OrdinalIgnoreCase);
-                            forceKillFirst |= process.ProcessName.Contains("rpcs3", StringComparison.OrdinalIgnoreCase);
                         }
                         catch
                         {
@@ -2407,6 +2538,7 @@ namespace AES_Lacrima.ViewModels
                 if (handler is CemuHandler cemuHandler)
                     cemuHandler.RestoreFullscreenScalingWorkaround(handler.LauncherPath ?? string.Empty);
                 RestoreAppTopMost();
+                RestoreHostWindowFocus();
                 EmulatorTargetHwnd = IntPtr.Zero;
                 EmulatorTargetProcessId = 0;
                 IsEmulatorLaunchInProgress = false;
@@ -2444,6 +2576,8 @@ namespace AES_Lacrima.ViewModels
                 HandleTrackedEmulatorExited(process);
             else
                 _ = ResolveEmulatorTargetHwndAsync(process, romPath, handler);
+
+            RestoreHostWindowFocus();
         }
 
         private void ActiveEmulatorProcess_Exited(object? sender, EventArgs e)
@@ -2801,6 +2935,7 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 RestoreAppTopMost();
+                RestoreHostWindowFocus();
 
                 if (EmulatorTargetHwnd != hwnd)
                     EmulatorTargetHwnd = hwnd;
@@ -2908,6 +3043,18 @@ namespace AES_Lacrima.ViewModels
             Win32API.SetWindowNotTopMost(_appWindowHandleBeforeEmulatorLaunch);
             _appTopmostOverride = false;
             _appWindowHandleBeforeEmulatorLaunch = IntPtr.Zero;
+        }
+
+        private static void RestoreHostWindowFocus()
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop &&
+                    desktop.MainWindow is { } mainWindow)
+                {
+                    mainWindow.Activate();
+                }
+            }, DispatcherPriority.Background);
         }
 
         private static IntPtr GetHostWindowHandle()

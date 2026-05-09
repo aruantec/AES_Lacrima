@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Reflection;
 using System.Diagnostics;
 using Avalonia.Collections;
@@ -151,6 +152,31 @@ public sealed class EmulationViewModelTests
     }
 
     [Fact]
+    public void GetTitleId_ReadsTitleIdFromParamSfo()
+    {
+        using var tempDir = new TempDirectory();
+        var ps3Dir = Path.Combine(tempDir.Path, "BLES12345", "PS3_GAME");
+        Directory.CreateDirectory(ps3Dir);
+
+        File.WriteAllBytes(Path.Combine(ps3Dir, "PARAM.SFO"), CreateParamSfo("BLES12345"));
+
+        Assert.Equal("BLES12345", Ps3InstalledGameHelper.GetTitleId(Path.Combine(tempDir.Path, "BLES12345")));
+        Assert.True(Ps3InstalledGameHelper.IsInstalledGameFolder(Path.Combine(tempDir.Path, "BLES12345")));
+    }
+
+    [Fact]
+    public void GetTitleName_ReadsTitleNameFromParamSfo()
+    {
+        using var tempDir = new TempDirectory();
+        var ps3Dir = Path.Combine(tempDir.Path, "BLES12345", "PS3_GAME");
+        Directory.CreateDirectory(ps3Dir);
+
+        File.WriteAllBytes(Path.Combine(ps3Dir, "PARAM.SFO"), CreateParamSfo("BLES12345", "Metal Gear Solid 4"));
+
+        Assert.Equal("Metal Gear Solid 4", Ps3InstalledGameHelper.GetTitleName(Path.Combine(tempDir.Path, "BLES12345")));
+    }
+
+    [Fact]
     public void EmulatorHandlerRegistry_PlayStation4_IncludesShadPs4Handler()
     {
         var handlers = EmulatorHandlerRegistry.GetHandlersForSection("PlayStation 4");
@@ -299,12 +325,7 @@ public sealed class EmulationViewModelTests
 
             Assert.Equal(tempExe, startInfo.FileName);
             Assert.Equal("--no-gui", startInfo.ArgumentList[0]);
-            Assert.Equal("--config", startInfo.ArgumentList[1]);
-            Assert.True(File.Exists(startInfo.ArgumentList[2]));
-            Assert.Equal(gamePath, startInfo.ArgumentList[3]);
-
-            var configText = File.ReadAllText(startInfo.ArgumentList[2]);
-            Assert.Contains("Stretch To Display Area: true", configText, StringComparison.Ordinal);
+            Assert.Equal(gamePath, startInfo.ArgumentList[1]);
         }
         finally
         {
@@ -324,6 +345,66 @@ public sealed class EmulationViewModelTests
         Assert.Equal(EmulatorCaptureMode.DirectComposition, Rpcs3Handler.Instance.PreferredCaptureMode);
         Assert.True(Rpcs3Handler.Instance.HideUntilCaptured);
         Assert.True(Rpcs3Handler.Instance.IsWindowEmbeddingSupported);
+    }
+
+    private static byte[] CreateParamSfo(string titleId, string? titleName = null)
+    {
+        const uint magic = 0x46535000;
+        const uint version = 0x00000101;
+        const uint headerSize = 20;
+        var entries = new List<(string Key, string Value)>
+        {
+            ("TITLE_ID", titleId),
+        };
+
+        if (!string.IsNullOrWhiteSpace(titleName))
+        {
+            entries.Add(("TITLE", titleName));
+        }
+
+        var keyBytes = new List<byte>();
+        var dataBytes = new List<byte>();
+        var serializedEntries = new List<(ushort KeyOffset, uint DataLength, uint DataOffset)>();
+
+        foreach (var entry in entries)
+        {
+            var keyOffset = (ushort)keyBytes.Count;
+            keyBytes.AddRange(System.Text.Encoding.ASCII.GetBytes(entry.Key + "\0"));
+
+            var valueBytes = System.Text.Encoding.UTF8.GetBytes(entry.Value + "\0");
+            var dataOffset = (uint)dataBytes.Count;
+            dataBytes.AddRange(valueBytes);
+
+            serializedEntries.Add((keyOffset, (uint)valueBytes.Length, dataOffset));
+        }
+
+        var keyTableOffset = headerSize + (uint)(serializedEntries.Count * 16);
+        var dataTableOffset = keyTableOffset + (uint)keyBytes.Count;
+
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write(magic);
+            writer.Write(version);
+            writer.Write(keyTableOffset);
+            writer.Write(dataTableOffset);
+            writer.Write((uint)serializedEntries.Count);
+
+            foreach (var entry in serializedEntries)
+            {
+                writer.Write(entry.KeyOffset);
+                writer.Write((byte)0x04);
+                writer.Write((byte)0);
+                writer.Write(entry.DataLength);
+                writer.Write(entry.DataLength);
+                writer.Write(entry.DataOffset);
+            }
+
+            writer.Write(keyBytes.ToArray());
+            writer.Write(dataBytes.ToArray());
+        }
+
+        return stream.ToArray();
     }
 }
 

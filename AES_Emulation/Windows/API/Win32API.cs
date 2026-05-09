@@ -7,6 +7,11 @@ namespace AES_Emulation.Windows.API
 {
     public static class Win32API
     {
+        private const uint INPUT_KEYBOARD = 1;
+        private const uint KEYEVENTF_KEYUP = 0x0002;
+        private const ushort VK_CONTROL = 0x11;
+        private const ushort VK_S = 0x53;
+
         private const int GWL_STYLE = -16;
         private const int GWL_EXSTYLE = -20;
 
@@ -44,6 +49,29 @@ namespace AES_Emulation.Windows.API
 
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct INPUT
+        {
+            public uint type;
+            public INPUTUNION u;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct INPUTUNION
+        {
+            [FieldOffset(0)] public KEYBDINPUT ki;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct KEYBDINPUT
+        {
+            public ushort wVk;
+            public ushort wScan;
+            public uint dwFlags;
+            public uint time;
+            public UIntPtr dwExtraInfo;
+        }
 
         [StructLayout(LayoutKind.Sequential)]
         public struct POINT { public int X; public int Y; }
@@ -111,6 +139,9 @@ namespace AES_Emulation.Windows.API
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint SendInput(uint nInputs, [MarshalAs(UnmanagedType.LPArray), In] INPUT[] pInputs, int cbSize);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = false)]
         private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
@@ -423,6 +454,50 @@ namespace AES_Emulation.Windows.API
             }
 
             // Do not alter host Z-order here. Caller can manage z-order separately if needed.
+        }
+
+        public static bool TrySendControlS(IntPtr targetHwnd)
+        {
+            if (targetHwnd == IntPtr.Zero)
+                return false;
+
+            try
+            {
+                ForceEmulatorFocus(targetHwnd);
+
+                var inputs = new[]
+                {
+                    CreateKeyInput(VK_CONTROL, 0),
+                    CreateKeyInput(VK_S, 0),
+                    CreateKeyInput(VK_S, KEYEVENTF_KEYUP),
+                    CreateKeyInput(VK_CONTROL, KEYEVENTF_KEYUP)
+                };
+
+                return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>()) == inputs.Length;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static INPUT CreateKeyInput(ushort virtualKey, uint flags)
+        {
+            return new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = virtualKey,
+                        wScan = 0,
+                        dwFlags = flags,
+                        time = 0,
+                        dwExtraInfo = UIntPtr.Zero
+                    }
+                }
+            };
         }
 
         /// <summary>
