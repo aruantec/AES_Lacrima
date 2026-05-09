@@ -215,6 +215,8 @@ struct CaptureSession
     std::condition_variable dcompWorkerCv;
     std::thread dcompWorker;
     std::atomic<bool> dcompWorkerRunning{ false };
+    std::atomic<bool> dcompFrameQueued{ false };
+    std::atomic<uint32_t> dcompFrameOverwriteCount{ 0 };
     rt::com_ptr<ID3D11Texture2D> dcompPendingTexture;
     int dcompPendingWidth = 0;
     int dcompPendingHeight = 0;
@@ -1372,6 +1374,7 @@ struct CaptureSession
         dcompPendingWidth = 0;
         dcompPendingHeight = 0;
         dcompHasPendingFrame = false;
+        dcompFrameQueued.store(false);
     }
 
     void QueueDirectCompositionFrame(ID3D11Texture2D* texture, int width, int height)
@@ -1379,15 +1382,23 @@ struct CaptureSession
         if (!presentationHwnd || !texture || !dcompWorkerRunning.load())
             return;
 
+        bool shouldNotify = false;
         {
             std::lock_guard<std::mutex> lock(dcompWorkerMutex);
+            if (dcompHasPendingFrame)
+                dcompFrameOverwriteCount.fetch_add(1, std::memory_order_relaxed);
+
             dcompPendingTexture.copy_from(texture);
             dcompPendingWidth = width;
             dcompPendingHeight = height;
             dcompHasPendingFrame = true;
+
+            if (!dcompFrameQueued.exchange(true, std::memory_order_acq_rel))
+                shouldNotify = true;
         }
 
-        dcompWorkerCv.notify_one();
+        if (shouldNotify)
+            dcompWorkerCv.notify_one();
     }
 
     void DirectCompositionWorkerLoop()
@@ -1428,6 +1439,7 @@ struct CaptureSession
             if (hadFrame && texture)
             {
                 PresentToDirectComposition(texture.get(), width, height);
+                dcompFrameQueued.store(false, std::memory_order_release);
             }
         }
     }
@@ -1758,7 +1770,7 @@ struct CaptureSession
         float v1 = 1.0f;
         int stretch = dcompStretch.load();
 
-        if (stretch == 1)
+        if (stretch == 1 || stretch == 2)
         {
             if (frameAspect > viewAspect)
             {
@@ -1771,21 +1783,6 @@ struct CaptureSession
                 float scaleX = frameAspect / viewAspect;
                 left = -scaleX;
                 right = scaleX;
-            }
-        }
-        else if (stretch == 2)
-        {
-            if (frameAspect > viewAspect)
-            {
-                float crop = (1.0f - (viewAspect / frameAspect)) * 0.5f;
-                u0 = crop;
-                u1 = 1.0f - crop;
-            }
-            else
-            {
-                float crop = (1.0f - (frameAspect / viewAspect)) * 0.5f;
-                v0 = crop;
-                v1 = 1.0f - crop;
             }
         }
 
@@ -2619,6 +2616,11 @@ extern "C" {
     __declspec(dllexport) int GetDirectCompositionPresentCount(void* ptr) {
         if (!ptr) return -1;
         return static_cast<CaptureSession*>(ptr)->dcompPresentCount.load();
+    }
+
+    __declspec(dllexport) unsigned int GetDirectCompositionFrameOverwriteCount(void* ptr) {
+        if (!ptr) return 0;
+        return static_cast<CaptureSession*>(ptr)->dcompFrameOverwriteCount.load(std::memory_order_relaxed);
     }
 
     __declspec(dllexport) int GetDirectCompositionLastError(void* ptr, char* buffer, int bufferChars) {
