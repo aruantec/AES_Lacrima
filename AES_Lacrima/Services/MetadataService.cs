@@ -148,6 +148,9 @@ namespace AES_Lacrima.Services
             var resolvedPath = item.FileName;
             FilePath = resolvedPath;
             IsOnlineMedia = false;
+            
+            await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
+            
 
             try
             {
@@ -282,6 +285,9 @@ namespace AES_Lacrima.Services
 
             _currentSelectedMedia = item;
             FilePath = item.FileName;
+            
+            await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
+            
             Title = item.Title;
             Artists = item.Artist;
             Album = item.Album;
@@ -293,9 +299,6 @@ namespace AES_Lacrima.Services
             VideoUrl = string.Empty;
             ReplayGainTrackGain = item.ReplayGainTrackGain;
             ReplayGainAlbumGain = item.ReplayGainAlbumGain;
-
-            foreach (var old in Images)
-                old.Dispose();
 
             Images.Clear();
 
@@ -843,6 +846,8 @@ namespace AES_Lacrima.Services
 
                 if (await TryApplyCoverFromLocalMetadataAsync(item, cancellationToken).ConfigureAwait(false))
                     return true;
+
+                await TryApplyTitleFromPs3InstalledGameAsync(item, cancellationToken).ConfigureAwait(false);
 
                 if (await TryApplyCoverFromPs3InstalledGameAsync(item, cancellationToken).ConfigureAwait(false))
                     return true;
@@ -1772,18 +1777,42 @@ namespace AES_Lacrima.Services
             var cachePath = GetMetadataCachePath(item.FileName);
             var metadata = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath), cancellationToken).ConfigureAwait(false);
             var cover = metadata?.Images?.FirstOrDefault(image => image.Kind == TagImageKind.Cover && image.Data.Length > 0);
+
+            var shouldApplyTitle = !string.IsNullOrWhiteSpace(metadata?.Title) &&
+                                   (string.IsNullOrWhiteSpace(item.Title) ||
+                                    string.Equals(item.Title.Trim(), Path.GetFileNameWithoutExtension(item.FileName), StringComparison.OrdinalIgnoreCase));
+
+            var shouldApplyAlbum = !string.IsNullOrWhiteSpace(metadata?.Album) &&
+                                   (string.IsNullOrWhiteSpace(item.Album) ||
+                                    string.Equals(item.Album.Trim(), Path.GetFileNameWithoutExtension(item.FileName), StringComparison.OrdinalIgnoreCase));
+
             if (cover == null)
-                return false;
+            {
+                if (!shouldApplyTitle && !shouldApplyAlbum)
+                    return false;
+
+                if (shouldApplyTitle)
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() => item.Title = metadata!.Title);
+                }
+
+                if (shouldApplyAlbum)
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() => item.Album = metadata!.Album);
+                }
+
+                return true;
+            }
 
             await ApplyCoverBytesToItemAsync(item, cover.Data, cover.MimeType ?? GuessMimeTypeFromBytes(cover.Data), cancellationToken, cachePath)
                 .ConfigureAwait(false);
 
-            if (string.IsNullOrWhiteSpace(item.Title) && !string.IsNullOrWhiteSpace(metadata?.Title))
+            if (shouldApplyTitle)
             {
                 await Dispatcher.UIThread.InvokeAsync(() => item.Title = metadata!.Title);
             }
 
-            if (string.IsNullOrWhiteSpace(item.Album) && !string.IsNullOrWhiteSpace(metadata?.Album))
+            if (shouldApplyAlbum)
             {
                 await Dispatcher.UIThread.InvokeAsync(() => item.Album = metadata!.Album);
             }
@@ -1794,6 +1823,8 @@ namespace AES_Lacrima.Services
         private async Task<bool> TryApplyCoverFromPs3InstalledGameAsync(MediaItem item, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            await TryApplyTitleFromPs3InstalledGameAsync(item, cancellationToken).ConfigureAwait(false);
 
             var iconPath = Ps3InstalledGameHelper.GetPreferredIconPath(item.FileName);
             if (string.IsNullOrWhiteSpace(iconPath))
@@ -1852,7 +1883,61 @@ namespace AES_Lacrima.Services
 
             await ApplyCoverBytesToItemAsync(item, iconBytes, mimeType, cancellationToken).ConfigureAwait(false);
             await SaveCoverToMetadataCacheAsync(item, iconBytes, mimeType, backCoverBytes, backCoverMimeType).ConfigureAwait(false);
+
             return true;
+        }
+
+        private async Task<bool> TryApplyTitleFromPs3InstalledGameAsync(MediaItem item, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (string.IsNullOrWhiteSpace(item.FileName))
+                return false;
+
+            var ps3TitleName = Ps3InstalledGameHelper.GetTitleName(item.FileName);
+            if (string.IsNullOrWhiteSpace(ps3TitleName))
+                return false;
+
+            var normalizedFileName = item.FileName.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var folderName = string.IsNullOrWhiteSpace(normalizedFileName) ? string.Empty : Path.GetFileName(normalizedFileName);
+            var shouldUpdateTitle = string.IsNullOrWhiteSpace(item.Title) || string.Equals(item.Title.Trim(), folderName, StringComparison.OrdinalIgnoreCase);
+            var shouldUpdateAlbum = string.IsNullOrWhiteSpace(item.Album) || string.Equals(item.Album.Trim(), folderName, StringComparison.OrdinalIgnoreCase);
+
+            if (!shouldUpdateTitle && !shouldUpdateAlbum)
+                return false;
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (shouldUpdateTitle)
+                    item.Title = ps3TitleName;
+
+                if (shouldUpdateAlbum)
+                    item.Album = ps3TitleName;
+            }, DispatcherPriority.Background);
+
+            await SavePs3TitleToMetadataCacheAsync(item, ps3TitleName, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        private async Task SavePs3TitleToMetadataCacheAsync(MediaItem item, string titleName, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(item.FileName) || string.IsNullOrWhiteSpace(titleName))
+                return;
+
+            var cachePath = GetMetadataCachePath(item.FileName);
+            var cacheDirectory = Path.GetDirectoryName(cachePath);
+            if (!string.IsNullOrWhiteSpace(cacheDirectory) && !Directory.Exists(cacheDirectory))
+                Directory.CreateDirectory(cacheDirectory);
+
+            await Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                metadata.Title = string.IsNullOrWhiteSpace(item.Title) ? titleName : item.Title;
+                metadata.Album = string.IsNullOrWhiteSpace(item.Album) ? titleName : item.Album;
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            }, cancellationToken).ConfigureAwait(false);
         }
 
         private async Task<bool> TryApplyCoverFromPs4InstalledGameAsync(MediaItem item, CancellationToken cancellationToken)

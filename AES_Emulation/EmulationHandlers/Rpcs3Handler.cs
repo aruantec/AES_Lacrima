@@ -11,8 +11,9 @@ namespace AES_Emulation.EmulationHandlers;
 
 public sealed class Rpcs3Handler : EmulatorHandlerBase
 {
+    public const string GameIdBootPrefix = "%RPCS3_GAMEID%:";
+
     private const uint WS_CHILD = 0x40000000;
-    private const string StretchConfigFileName = "aes-lacrima-rpcs3-stretch.yml";
 
     public static Rpcs3Handler Instance { get; } = new();
 
@@ -63,12 +64,13 @@ public sealed class Rpcs3Handler : EmulatorHandlerBase
         // RPCS3 supports direct CLI boot. Using no-GUI mode avoids the launcher/game-list shell
         // and gets us to the actual render window faster.
         startInfo.ArgumentList.Add("--no-gui");
-        startInfo.ArgumentList.Add("--config");
-        startInfo.ArgumentList.Add(GetStretchConfigPath());
 
         startInfo.ArgumentList.Add(romPath);
         return startInfo;
     }
+
+    public static string BuildGameIdBootPath(string titleId)
+        => GameIdBootPrefix + titleId;
 
     public override void PrepareProcessForCapture(Process process)
     {
@@ -217,29 +219,6 @@ public sealed class Rpcs3Handler : EmulatorHandlerBase
             return true;
 
         return false;
-    }
-
-    private static string GetStretchConfigPath()
-    {
-        var configPath = Path.Combine(Path.GetTempPath(), StretchConfigFileName);
-        var configText = string.Join(Environment.NewLine, new[]
-        {
-            "Video:",
-            "  Stretch To Display Area: true"
-        }) + Environment.NewLine;
-
-        try
-        {
-            if (!File.Exists(configPath) || !string.Equals(File.ReadAllText(configPath), configText, StringComparison.Ordinal))
-            {
-                File.WriteAllText(configPath, configText);
-            }
-        }
-        catch
-        {
-        }
-
-        return configPath;
     }
 
     [DllImport("user32.dll")]
