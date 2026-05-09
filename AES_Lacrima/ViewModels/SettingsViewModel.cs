@@ -450,7 +450,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     // ReplayGain / loudness normalization settings
     /// <summary>
     /// Master toggle for applying replay gain / loudness normalization at playback.
-    /// </summary>
+    /// </summary]
     [ObservableProperty]
     private bool _replayGainEnabled = false;
 
@@ -641,7 +641,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
     /// <summary>
     /// Gets or sets a value indicating whether yt-dlp is currently installed.
-    /// </summary>
+    /// </summary]
     [ObservableProperty]
     private bool _isYtDlpInstalled;
 
@@ -1479,7 +1479,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 LaunchSettings = CreateDefaultEmulationSectionLaunchSettings(sectionKey, sectionTitle)
             };
 
-            foreach (var handler in EmulatorHandlerRegistry.GetHandlersForSection(sectionTitle))
+            var handlers = EmulatorHandlerRegistry.GetHandlersForSection(sectionTitle);
+            if (handlers.Count == 0 && sectionKey.Contains("FBN", StringComparison.OrdinalIgnoreCase))
+            {
+                handlers = [RetroArchHandler.Instance];
+            }
+
+            foreach (var handler in handlers)
                 item.Handlers.Add(new EmulationHandlerAppItem(handler, item));
 
             if (item.Handlers.Count == 1)
@@ -1510,8 +1516,11 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (_isLoadingSettings)
             return;
 
-        if (string.Equals(e.PropertyName, nameof(EmulationSectionItem.SelectedRetroArchCore), StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(e.PropertyName, nameof(EmulationSectionItem.SelectedRetroArchCore), StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(e.PropertyName, nameof(EmulationSectionItem.SelectedHandlerId), StringComparison.OrdinalIgnoreCase))
+        {
             SaveSettings();
+        }
     }
 
     private void RefreshRetroArchCores()
@@ -1615,26 +1624,28 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             }
         }
 
-        var arcadePreference = new[] { "fbneo", "mame", "finalburn", "fbalpha", "neogeo" };
-        foreach (var keyword in arcadePreference)
+        if (IsRetroArchArcadeSection(section.SectionKey, section.SectionTitle))
         {
-            var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
-            if (match != null)
-                return match;
+            var arcadePreference = new[] { "fbneo", "mame", "finalburn", "fbalpha", "neogeo" };
+            foreach (var keyword in arcadePreference)
+            {
+                var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    return match;
+            }
         }
 
         return availableCores.FirstOrDefault();
     }
 
+    private static bool IsRetroArchArcadeSection(string? sectionKey, string? sectionTitle)
+    {
+        return IsRetroArchSection(sectionKey, sectionTitle, "arcade", "mame", "fbneo", "finalburn neo", "fbn");
+    }
+
     private static bool IsRetroArch3DSSection(string? sectionKey, string? sectionTitle)
     {
-        if (!string.IsNullOrWhiteSpace(sectionTitle) && sectionTitle.IndexOf("3ds", StringComparison.OrdinalIgnoreCase) >= 0)
-            return true;
-
-        if (!string.IsNullOrWhiteSpace(sectionKey) && sectionKey.IndexOf("3ds", StringComparison.OrdinalIgnoreCase) >= 0)
-            return true;
-
-        return false;
+        return IsRetroArchSection(sectionKey, sectionTitle, "3ds", "nintendo 3ds");
     }
 
     private static bool IsRetroArchGameCubeSection(string? sectionKey, string? sectionTitle)

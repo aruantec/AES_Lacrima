@@ -153,6 +153,19 @@
                                   Stretch="Uniform" />
                         </MenuItem.Icon>
                     </MenuItem>
+                    <MenuItem Header="Delete Item"
+                              CornerRadius="8"
+                              Command="{Binding DeleteItemCommand}"
+                              CommandParameter="{Binding PointedIndex}"
+                              IsVisible="{Binding IsItemPointed}">
+                        <MenuItem.Icon>
+                            <Path Data="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19V4M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"
+                                  Fill="#CCFFFFFF"
+                                  Width="32"
+                                  Height="32"
+                                  Stretch="Uniform"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
                     <MenuItem Header="Clear Album Cache"
                               CornerRadius="8"
                               Command="{Binding ClearAlbumCacheCommand}"
@@ -293,7 +306,7 @@
                                    FontSize="16"
                                    FontFamily="Consolas"/>
                         <TextBlock Text="{Binding ElementName=RootView, Path=PortalStatusText}"
-                                   Foreground="{Binding ElementName=RootView, Path=IsPortalDirectCompositionActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#7CFC00,#FFCC66'}}"
+                                   Foreground="{Binding ElementName=RootView, Path=IsPortalDirectCompositionActive, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#7CFC00,#FFCC66'}"
                                    FontSize="13"
                                    FontFamily="Consolas"
                                    Margin="0,2,0,4"/>

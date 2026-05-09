@@ -121,7 +121,17 @@ namespace AES_Lacrima.Services
                 ["Xbox 360"],
                 ["*.iso", "*.xex"],
                 "XBOX 360",
-                "X360")
+                "X360"),
+            new(
+                "FBN",
+                "Final Burn Neo",
+                ["Final Burn Neo", "FBNeo", "FBN"],
+                ["*.zip", "*.7z", "*.dat"]),
+            new(
+                "PSP",
+                "PlayStation Portable",
+                ["PlayStation Portable", "PSP"],
+                ["*.iso", "*.cso", "*.pbp", "*.chd"])
         ];
 
         private static readonly Dictionary<string, EmulationConsoleDefinition> DefinitionsByLookupKey = BuildDefinitionsByLookupKey();
@@ -211,7 +221,15 @@ namespace AES_Lacrima.Services
         public static string GetPreferredBoxArtSearchLabel(string? consoleName)
         {
             if (TryGetDefinition(consoleName, out var definition))
+            {
+                if (string.Equals(definition.Key, "FBN", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(definition.Key, "ARCADE", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "cps";
+                }
+
                 return definition.DisplayName;
+            }
 
             return string.IsNullOrWhiteSpace(consoleName)
                 ? string.Empty

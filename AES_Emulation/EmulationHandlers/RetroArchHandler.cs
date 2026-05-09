@@ -29,18 +29,32 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => true;
 
+    public override bool ForceUseTargetClientAreaCapture => true;
+
+    public override int CaptureStartupDelayMs => 5000;
+
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
         if (string.IsNullOrWhiteSpace(albumTitle))
             return false;
 
         var normalized = NormalizeSectionString(albumTitle);
-        return string.Equals(normalized, NormalizeSectionString(SectionTitle), StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(normalized, NormalizeSectionString(SectionKey), StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("arcade", StringComparison.OrdinalIgnoreCase) ||
+        if (string.Equals(normalized, NormalizeSectionString(SectionTitle), StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, NormalizeSectionString(SectionKey), StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Handle Final Burn Neo specifically
+        if (normalized.Contains("finalburn neo", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("fbneo", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("fbn", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return normalized.Contains("arcade", StringComparison.OrdinalIgnoreCase) ||
                normalized.Contains("mame", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("finalburn neo", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("fbneo", StringComparison.OrdinalIgnoreCase) ||
                normalized.Contains("3ds", StringComparison.OrdinalIgnoreCase) ||
                normalized.Contains("nintendo 3ds", StringComparison.OrdinalIgnoreCase) ||
                normalized.Contains("gamecube", StringComparison.OrdinalIgnoreCase) ||
@@ -65,6 +79,8 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
+        startInfo.CreateNoWindow = true; // This hides the console log window
+        startInfo.WindowStyle = ProcessWindowStyle.Hidden; // Additional hint for some versions of Windows/RetroArch
         var corePath = FindRetroArchCore(launcherPath, romPath, sectionTitle, selectedRetroArchCore);
         var logFilePath = GetRetroArchLogFilePath(launcherPath);
 
@@ -487,6 +503,9 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         if (IsRetroArchSection(sectionTitle, "playstation", "ps1", "psx"))
             return RetroArchPlatform.PlayStation;
 
+        if (IsRetroArchSection(sectionTitle, "arcade", "mame", "finalburn neo", "fbneo"))
+            return RetroArchPlatform.Arcade;
+
         // Fallback to ROM-based detection only when section metadata is unavailable.
         if (IsRetroArch3DSRom(romPath))
             return RetroArchPlatform._3DS;
@@ -591,6 +610,11 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
             if (OperatingSystem.IsMacOS()) return new[] { "beetle_psx_libretro.dylib", "pcsx_rearmed_libretro.dylib", "mednafen_psx_libretro.dylib" };
         }
 
+        if (platform == RetroArchPlatform.Arcade)
+        {
+            return GetRetroArchArcadeCoreFileNames();
+        }
+
         return GetRetroArchArcadeCoreFileNames();
     }
 
@@ -628,7 +652,8 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         Dreamcast,
         Wii,
         PlayStation,
-        PlayStation2
+        PlayStation2,
+        Arcade
     }
 
     private static string? FindRetroArchCoreByKeyword(string directory, RetroArchPlatform platform)
