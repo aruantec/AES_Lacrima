@@ -110,7 +110,7 @@ namespace AES_Lacrima.Services
             new(
                 "ARCADE",
                 "Arcade",
-                ["Arcade", "Arcade Machine", "Arcade Machines", "MAME", "FinalBurn Neo", "FBNeo"],
+                ["Arcade", "Arcade Machine", "Arcade Machines", "MAME", "Final Burn Neo", "FBNeo"],
                 ["*.chd", "*.zip", "*.7z"],
                 "MAME",
                 "FBNEO",

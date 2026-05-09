@@ -167,6 +167,84 @@ public sealed class EmulationViewModelTests
     }
 
     [Fact]
+    public void EmulatorHandlerRegistry_FinalBurnNeo_IncludesFbNeoHandler()
+    {
+        var handlers = EmulatorHandlerRegistry.GetHandlersForSection("Final Burn Neo");
+
+        Assert.Contains(handlers, handler => string.Equals(handler.HandlerId, "fbneo", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void EmulatorHandlerRegistry_FinalBurnNeo_IncludesRetroArchHandler()
+    {
+        var handlers = EmulatorHandlerRegistry.GetHandlersForSection("Final Burn Neo");
+
+        Assert.Contains(handlers, handler => string.Equals(handler.HandlerId, "retroarch", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void FbNeoHandler_BuildStartInfo_UsesGameNameFromZipPath()
+    {
+        var tempExe = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".exe");
+        File.WriteAllText(tempExe, string.Empty);
+
+        try
+        {
+            var romPath = @"C:\Games\FBN\game.zip";
+            var startInfo = FbNeoHandler.Instance.BuildStartInfo(tempExe, romPath, false);
+
+            Assert.Equal(tempExe, startInfo.FileName);
+            Assert.Equal(["game", "-w"], startInfo.ArgumentList);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(tempExe);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void FbNeoHandler_BuildStartInfo_UsesGameNameFromDirectoryPath()
+    {
+        var tempExe = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".exe");
+        var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(tempDir);
+        File.WriteAllText(tempExe, string.Empty);
+        File.WriteAllText(Path.Combine(tempDir, "game.zip"), string.Empty);
+
+        try
+        {
+            var startInfo = FbNeoHandler.Instance.BuildStartInfo(tempExe, tempDir, true);
+
+            Assert.Equal(tempExe, startInfo.FileName);
+            Assert.Equal(["game", "-w"], startInfo.ArgumentList);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(tempExe);
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
     public void ShadPs4Handler_BuildStartInfo_UsesQtLauncherDefaultVersionAndGamePath()
     {
         var tempExe = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + "QtLauncher.exe");
