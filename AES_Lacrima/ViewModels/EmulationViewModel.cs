@@ -1256,6 +1256,36 @@ namespace AES_Lacrima.ViewModels
             FinalizeRomImport(album);
         }
 
+        [RelayCommand(CanExecute = nameof(CanDeleteItem))]
+        private void DeleteItem(object? parameter)
+        {
+            var target = parameter switch
+            {
+                MediaItem mi => mi,
+                int idx when idx >= 0 && idx < CoverItems.Count => CoverItems[idx],
+                _ => HighlightedItem
+            };
+
+            if (target == null)
+                return;
+
+            var album = LoadedAlbum ?? SelectedAlbum;
+            if (album == null)
+                return;
+
+            if (album.Children.Remove(target))
+            {
+                ApplyFilter();
+                UpdatePreviewItems(album as EmulationAlbumItem);
+                SaveSettings();
+            }
+        }
+
+        private bool CanDeleteItem(object? parameter) =>
+            (parameter is MediaItem) ||
+            (parameter is int idx && idx >= 0 && idx < CoverItems.Count) ||
+            (HighlightedItem != null && !string.IsNullOrEmpty(HighlightedItem.FileName));
+
         [RelayCommand(CanExecute = nameof(CanOpenMetadata))]
         private async Task OpenMetadata(object? parameter)
         {
@@ -2499,9 +2529,13 @@ namespace AES_Lacrima.ViewModels
                 var hwnd = await ResolveCaptureTargetForCurrentPlatformAsync(process, handler).ConfigureAwait(false);
                 if (hwnd == IntPtr.Zero)
                 {
-                    SLog.Warn($"Failed to resolve emulator capture target for '{romPath}' on first attempt. Retrying...");
-                    await Task.Delay(2000).ConfigureAwait(false);
-                    hwnd = await ResolveCaptureTargetForCurrentPlatformAsync(process, handler).ConfigureAwait(false);
+                    var maxRetries = handler is RetroArchHandler ? 4 : 1;
+                    for (int i = 0; i < maxRetries && hwnd == IntPtr.Zero; i++)
+                    {
+                        SLog.Warn($"Failed to resolve emulator capture target for '{romPath}' (attempt {i + 1}). Retrying...");
+                        await Task.Delay(2000).ConfigureAwait(false);
+                        hwnd = await ResolveCaptureTargetForCurrentPlatformAsync(process, handler).ConfigureAwait(false);
+                    }
                 }
 
                 if (hwnd == IntPtr.Zero)
