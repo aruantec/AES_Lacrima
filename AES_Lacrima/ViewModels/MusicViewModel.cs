@@ -2848,14 +2848,87 @@ namespace AES_Lacrima.ViewModels
             IsTrackLoadPending = true;
             EnsureMediaItemCoverIsLoaded(item);
 
-            // Check if the item is a URL and resolve it if necessary
-            if (item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase) || item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            if (!await TryPlayMediaItemAsync(item).ConfigureAwait(false))
             {
-                if (_mediaUrlService == null) return;
-                await _mediaUrlService.OpenMediaItemAsync(AudioPlayer, item, IsVideoMode);
+                await SkipInvalidItemsAsync(item).ConfigureAwait(false);
             }
-            else
-                await AudioPlayer.PlayFile(item, IsVideoMode);
+        }
+
+        private async Task<bool> TryPlayMediaItemAsync(MediaItem item)
+        {
+            if (AudioPlayer == null || item.FileName == null)
+                return false;
+
+            if (item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase) ||
+                item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_mediaUrlService == null)
+                    return false;
+
+                try
+                {
+                    return await _mediaUrlService.OpenMediaItemAsync(AudioPlayer, item, IsVideoMode).ConfigureAwait(false);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            if (!System.IO.File.Exists(item.FileName))
+                return false;
+
+            try
+            {
+                await AudioPlayer.PlayFile(item, IsVideoMode).ConfigureAwait(false);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task SkipInvalidItemsAsync(MediaItem failedItem)
+        {
+            if (PlaybackQueue.Count == 0)
+                return;
+
+            var currentIndex = PlaybackQueue.IndexOf(failedItem);
+            if (currentIndex < 0)
+                return;
+
+            var total = PlaybackQueue.Count;
+            for (var offset = 1; offset < total; offset++)
+            {
+                var nextIndex = currentIndex + offset;
+                if (nextIndex >= total)
+                {
+                    if (AudioPlayer?.RepeatMode == RepeatMode.All)
+                        nextIndex %= total;
+                    else
+                        break;
+                }
+
+                var nextItem = PlaybackQueue[nextIndex];
+                _pendingTrackLoadItem = nextItem;
+                IsTrackLoadPending = true;
+                await InvokeOnUiAsync(() =>
+                {
+                    SelectedMediaItem = nextItem;
+                    var coverIndex = CoverItems.IndexOf(nextItem);
+                    if (coverIndex >= 0)
+                        SelectedIndex = coverIndex;
+                }).ConfigureAwait(false);
+
+                if (await TryPlayMediaItemAsync(nextItem).ConfigureAwait(false))
+                {
+                    return;
+                }
+            }
+
+            _pendingTrackLoadItem = null;
+            IsTrackLoadPending = false;
         }
 
         private bool GetCurrentIndex(out int currentIndex)

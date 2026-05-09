@@ -32,17 +32,33 @@ namespace AES_Lacrima.Services
         /// <param name="audioPlayer">The audio player instance to use for playback.</param>
         /// <param name="item">The media item to open and play.</param>
         /// <param name="preferVideo">When true, uses the resolved video stream for playback.</param>
-        public async Task OpenMediaItemAsync(AudioPlayer audioPlayer, MediaItem item, bool preferVideo = false)
+        public async Task<bool> OpenMediaItemAsync(AudioPlayer audioPlayer, MediaItem item, bool preferVideo = false)
         {
-            if (item.FileName == null) return;
+            if (item.FileName == null)
+                return false;
+
             // Notify the UI instantly that media loading has started
             audioPlayer.IsLoadingMedia = true;
 
-            // Load online urls
             var resolvedSource = await ResolveMediaSourceAsync(item.FileName, preferVideo).ConfigureAwait(false);
-            item.OnlineUrls = resolvedSource?.OnlineUrls;
-            // Play media (audio by default, video when requested)
-            await audioPlayer.PlayFile(item, preferVideo).ConfigureAwait(false);
+            if (resolvedSource == null)
+            {
+                audioPlayer.IsLoadingMedia = false;
+                return false;
+            }
+
+            item.OnlineUrls = resolvedSource.OnlineUrls;
+            try
+            {
+                await audioPlayer.PlayFile(item, preferVideo).ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                AES_Core.Logging.LogHelper.For<MediaUrlService>().Warn($"Failed to play resolved online media for '{item.FileName}'", ex);
+                audioPlayer.IsLoadingMedia = false;
+                return false;
+            }
         }
 
         internal async Task<ResolvedMediaSource?> ResolveMediaSourceAsync(string url, bool preferVideo)

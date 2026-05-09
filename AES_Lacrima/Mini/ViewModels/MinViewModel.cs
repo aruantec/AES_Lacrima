@@ -432,9 +432,13 @@ namespace AES_Lacrima.Mini.ViewModels
                 item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase))
             {
                 if (_mediaUrlService != null)
+                {
                     await _mediaUrlService.OpenMediaItemAsync(MusicViewModel.AudioPlayer, item);
+                }
                 else
+                {
                     await MusicViewModel.AudioPlayer.PlayFile(item);
+                }
             }
             else
             {
