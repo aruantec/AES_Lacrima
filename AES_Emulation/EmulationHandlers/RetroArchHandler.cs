@@ -46,7 +46,8 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         }
 
         // Handle Final Burn Neo specifically
-        if (normalized.Contains("finalburn neo", StringComparison.OrdinalIgnoreCase) ||
+        if (normalized.Contains("final burn neo", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("finalburn neo", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("fbneo", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("fbn", StringComparison.OrdinalIgnoreCase))
         {
@@ -503,7 +504,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         if (IsRetroArchSection(sectionTitle, "playstation", "ps1", "psx"))
             return RetroArchPlatform.PlayStation;
 
-        if (IsRetroArchSection(sectionTitle, "arcade", "mame", "finalburn neo", "fbneo"))
+        if (IsRetroArchSection(sectionTitle, "arcade", "mame", "final burn neo", "fbneo"))
             return RetroArchPlatform.Arcade;
 
         // Fallback to ROM-based detection only when section metadata is unavailable.

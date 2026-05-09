@@ -1480,7 +1480,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             };
 
             var handlers = EmulatorHandlerRegistry.GetHandlersForSection(sectionTitle);
-            if (handlers.Count == 0 && sectionKey.Contains("FBN", StringComparison.OrdinalIgnoreCase))
+            if (sectionKey.Contains("FBN", StringComparison.OrdinalIgnoreCase) &&
+                !handlers.Any(handler => string.Equals(handler.HandlerId, RetroArchHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase)))
+            {
+                handlers = [..handlers, RetroArchHandler.Instance];
+            }
+            else if (handlers.Count == 0 && sectionKey.Contains("FBN", StringComparison.OrdinalIgnoreCase))
             {
                 handlers = [RetroArchHandler.Instance];
             }
@@ -1640,7 +1645,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
     private static bool IsRetroArchArcadeSection(string? sectionKey, string? sectionTitle)
     {
-        return IsRetroArchSection(sectionKey, sectionTitle, "arcade", "mame", "fbneo", "finalburn neo", "fbn");
+        return IsRetroArchSection(sectionKey, sectionTitle, "arcade", "mame", "fbneo", "final burn neo", "fbn");
     }
 
     private static bool IsRetroArch3DSSection(string? sectionKey, string? sectionTitle)
