@@ -71,13 +71,13 @@ public class WindowsScreenCaptureService : AES_Emulation.Platform.IScreenCapture
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (HideUntilCaptured)
+            if (HideUntilCaptured && handler.HideUntilCaptured)
                 handler.PrepareProcessForCapture(process);
 
             var hwnd = handler.FindPreferredWindowHandle(process);
             if (hwnd != IntPtr.Zero)
             {
-                if (HideUntilCaptured)
+                if (HideUntilCaptured && handler.HideUntilCaptured)
                     handler.PrepareWindowForCapture(hwnd);
 
                 if (!handler.CanAssignWindow(hwnd, process.MainWindowHandle))

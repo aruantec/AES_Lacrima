@@ -1,6 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using AES_Core.Logging;
 using log4net;
 using AES_Emulation.Controls;
@@ -30,6 +35,8 @@ public sealed class EdenHandler : EmulatorHandlerBase
 
     public override EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.DirectComposition;
 
+    public override int CaptureStartupDelayMs => 6000;
+
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
         if (string.IsNullOrWhiteSpace(albumTitle))
@@ -44,46 +51,273 @@ public sealed class EdenHandler : EmulatorHandlerBase
 
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
-        var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
-        startInfo.ArgumentList.Clear();
+            EnsureEdenConfigOverrides();
 
-        if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
-            Log.Warn($"Eden launcher path does not exist: '{launcherPath}'");
+            var resolvedLauncherPath = launcherPath;
+            if (!string.IsNullOrWhiteSpace(launcherPath) && string.Equals(Path.GetFileName(launcherPath), "eden.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                var cliCandidate = Path.Combine(Path.GetDirectoryName(launcherPath) ?? string.Empty, "eden-cli.exe");
+                if (File.Exists(cliCandidate))
+                {
+                    resolvedLauncherPath = cliCandidate;
+                    Log.Info($"EdenHandler: switching from eden.exe to eden-cli.exe for capture: '{resolvedLauncherPath}'");
+                }
+            }
 
-        if (string.IsNullOrWhiteSpace(romPath) || !File.Exists(romPath))
-            Log.Warn($"Eden ROM path does not exist: '{romPath}'");
+            var startInfo = base.BuildStartInfo(resolvedLauncherPath, romPath, startFullscreen, sectionTitle);
+            startInfo.ArgumentList.Clear();
 
-        var launcherName = Path.GetFileNameWithoutExtension(launcherPath)?.ToLowerInvariant() ?? string.Empty;
-        var isCli = launcherName.Contains("eden-cli") || launcherName.Contains("edencli");
+            if (string.IsNullOrWhiteSpace(resolvedLauncherPath) || !File.Exists(resolvedLauncherPath))
+                Log.Warn($"Eden launcher path does not exist: '{resolvedLauncherPath}'");
 
-        if (isCli)
-        {
-            startInfo.RedirectStandardOutput = true;
-            startInfo.RedirectStandardError = true;
+            if (string.IsNullOrWhiteSpace(romPath) || !File.Exists(romPath))
+                Log.Warn($"Eden ROM path does not exist: '{romPath}'");
+
+            var launcherName = Path.GetFileNameWithoutExtension(resolvedLauncherPath)?.ToLowerInvariant() ?? string.Empty;
+            var isCli = launcherName.Contains("eden-cli") || launcherName.Contains("edencli");
+
+            if (isCli)
+            {
+                startInfo.RedirectStandardOutput = true;
+                startInfo.RedirectStandardError = true;
+            }
+
+            if (isCli)
+            {
+                startInfo.ArgumentList.Add("--config");
+                startInfo.ArgumentList.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "eden", "config", "qt-config.ini"));
+
+                if (startFullscreen)
+                    startInfo.ArgumentList.Add("--fullscreen");
+
+                startInfo.ArgumentList.Add("-g");
+                startInfo.ArgumentList.Add(romPath);
+            }
+            else
+            {
+                if (startFullscreen)
+                    startInfo.ArgumentList.Add("-f");
+
+                startInfo.ArgumentList.Add("-g");
+                startInfo.ArgumentList.Add(romPath);
+            }
+
+            Log.Debug($"Eden start info: FileName='{startInfo.FileName}', WorkingDirectory='{startInfo.WorkingDirectory}', Arguments='{string.Join(' ', startInfo.ArgumentList)}', UseShellExecute={startInfo.UseShellExecute}");
+            return startInfo;
         }
 
-        if (isCli)
+        public override async Task<Process?> ResolveRuntimeProcessAsync(Process process, CancellationToken cancellationToken)
         {
-            if (startFullscreen)
-                startInfo.ArgumentList.Add("--fullscreen");
+            if (process == null)
+                return null;
 
-            startInfo.ArgumentList.Add("--game");
-            startInfo.ArgumentList.Add(romPath);
+            try
+            {
+                if (!process.HasExited)
+                    return process;
+            }
+            catch
+            {
+                // ignored
+            }
+
+            if (TryResolveChildProcess(process, out var childProcess))
+                return childProcess;
+
+            if (TryResolveDetachedProcess(process, out process))
+                return process;
+
+            return process;
         }
-        else
+
+        private static bool TryResolveChildProcess(Process process, out Process? childProcess)
         {
-            if (startFullscreen)
-                startInfo.ArgumentList.Add("-f");
+            childProcess = null;
+            if (process == null || process.Id == 0 || !OperatingSystem.IsWindows())
+                return false;
 
-            startInfo.ArgumentList.Add("-g");
-            startInfo.ArgumentList.Add(romPath);
+            var descendants = EnumerateDescendantProcesses(process.Id);
+            if (descendants.Count == 0)
+                return false;
+
+            var candidate = descendants
+                .OrderByDescending(entry => entry.ProcessId)
+                .FirstOrDefault();
+
+            if (candidate.ProcessId == 0)
+                return false;
+
+            try
+            {
+                var resolved = Process.GetProcessById((int)candidate.ProcessId);
+                if (!resolved.HasExited)
+                {
+                    childProcess = resolved;
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
         }
 
-        Log.Debug($"Eden start info: FileName='{startInfo.FileName}', WorkingDirectory='{startInfo.WorkingDirectory}', Arguments='{string.Join(' ', startInfo.ArgumentList)}', UseShellExecute={startInfo.UseShellExecute}");
-        return startInfo;
-    }
+        private static List<ProcessEntry> EnumerateDescendantProcesses(int rootProcessId)
+        {
+            var descendants = new List<ProcessEntry>();
+            IntPtr snapshot = IntPtr.Zero;
+            try
+            {
+                snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+                if (snapshot == INVALID_HANDLE_VALUE)
+                    return descendants;
 
-    public override int CaptureStartupDelayMs => 0;
+                var entry = new PROCESSENTRY32 { dwSize = (uint)Marshal.SizeOf<PROCESSENTRY32>() };
+                if (!Process32First(snapshot, ref entry))
+                    return descendants;
+
+                var allEntries = new List<ProcessEntry>();
+                do
+                {
+                    allEntries.Add(new ProcessEntry(entry.th32ProcessID, entry.th32ParentProcessID, entry.szExeFile));
+                    entry.dwSize = (uint)Marshal.SizeOf<PROCESSENTRY32>();
+                }
+                while (Process32Next(snapshot, ref entry));
+
+                var byParent = allEntries
+                    .GroupBy(e => e.ParentProcessId)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                var queue = new Queue<uint>();
+                queue.Enqueue((uint)rootProcessId);
+                var visited = new HashSet<uint> { (uint)rootProcessId };
+
+                while (queue.Count > 0)
+                {
+                    var parentId = queue.Dequeue();
+                    if (!byParent.TryGetValue(parentId, out var children))
+                        continue;
+
+                    foreach (var child in children)
+                    {
+                        if (!visited.Add(child.ProcessId))
+                            continue;
+
+                        descendants.Add(child);
+                        queue.Enqueue(child.ProcessId);
+                    }
+                }
+            }
+            finally
+            {
+                if (snapshot != IntPtr.Zero && snapshot != INVALID_HANDLE_VALUE)
+                    CloseHandle(snapshot);
+            }
+
+            return descendants;
+        }
+
+        private readonly record struct ProcessEntry(uint ProcessId, uint ParentProcessId, string ExeName);
+
+        private const uint TH32CS_SNAPPROCESS = 0x00000002;
+        private static readonly IntPtr INVALID_HANDLE_VALUE = new(-1);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool Process32First(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool Process32Next(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr hObject);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct PROCESSENTRY32
+        {
+            public uint dwSize;
+            public uint cntUsage;
+            public uint th32ProcessID;
+            public IntPtr th32DefaultHeapID;
+            public uint th32ModuleID;
+            public uint cntThreads;
+            public uint th32ParentProcessID;
+            public int pcPriClassBase;
+            public uint dwFlags;
+
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string szExeFile;
+        }
+
+        private static void EnsureEdenConfigOverrides()
+        {
+            try
+            {
+                var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                var configPath = Path.Combine(appData, "eden", "config", "qt-config.ini");
+                var configDir = Path.GetDirectoryName(configPath);
+                if (!string.IsNullOrWhiteSpace(configDir))
+                    Directory.CreateDirectory(configDir);
+
+                var desiredValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["fullscreen\\default"] = "false",
+                    ["fullscreen"] = "false",
+                    ["showStatusBar\\default"] = "false",
+                    ["showStatusBar"] = "false"
+                };
+
+                if (!File.Exists(configPath))
+                {
+                    File.WriteAllLines(configPath, desiredValues.Select(kvp => $"{kvp.Key}={kvp.Value}"));
+                    return;
+                }
+
+                var lines = File.ReadAllLines(configPath);
+                var updated = false;
+                var normalizedLines = lines.Select(line => line.Replace('\r', ' ').Replace('\n', ' ')).ToArray();
+
+                for (int i = 0; i < normalizedLines.Length; i++)
+                {
+                    var line = normalizedLines[i].Trim();
+                    if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#") || !line.Contains("="))
+                        continue;
+
+                    var parts = line.Split('=', 2);
+                    var key = parts[0].Trim();
+                    if (desiredValues.TryGetValue(key, out var targetValue))
+                    {
+                        var newLine = $"{key}={targetValue}";
+                        if (!string.Equals(normalizedLines[i], newLine, StringComparison.Ordinal))
+                        {
+                            normalizedLines[i] = newLine;
+                            updated = true;
+                        }
+                        desiredValues.Remove(key);
+                    }
+                }
+
+                if (desiredValues.Count > 0)
+                {
+                    using var writer = File.AppendText(configPath);
+                    foreach (var kvp in desiredValues)
+                    {
+                        writer.WriteLine($"{kvp.Key}={kvp.Value}");
+                    }
+                    return;
+                }
+
+                if (updated)
+                    File.WriteAllLines(configPath, normalizedLines);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Failed to update Eden qt-config.ini settings", ex);
+            }
+        }
 
     public override void PrepareProcessForCapture(Process process)
     {

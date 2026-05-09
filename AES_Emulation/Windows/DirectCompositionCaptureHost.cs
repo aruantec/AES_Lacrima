@@ -129,6 +129,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
     private readonly Thread _rendererThread;
     private int _rendererThreadId;
     private IntPtr _childHwnd;
+    private CaptureSessionSettings? _lastAppliedRenderSettings;
     private IntPtr _session;
     private IntPtr _activeTargetHwnd;
     private bool _isAttached;
@@ -295,8 +296,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
     private void RequestRenderOptionsUpdate()
     {
-        var settings = CaptureSettingsSnapshot();
-        EnqueueRenderer(() => ApplyRenderOptionsCore(settings));
+        ApplyRenderOptionsCore(CaptureSettingsSnapshot());
     }
 
     private void RequestCropRectUpdate()
@@ -719,6 +719,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         _lastFpsSampleUtc = DateTime.UtcNow;
         _lastPresentSampleUtc = _lastFpsSampleUtc;
         _lastAppliedShaderPath = null;
+        _lastAppliedRenderSettings = null;
     }
 
     private void ApplyRenderOptionsCore(CaptureSessionSettings settings)
@@ -728,36 +729,41 @@ public class DirectCompositionCaptureHost : NativeControlHost
         if (_session == IntPtr.Zero)
             return;
 
-        Debug.WriteLine(
-            $"[DCompHost] UpdateSessionRenderOptions session=0x{_session.ToString("X")} " +
-            $"shader='{settings.ShaderPath ?? "<null>"}' stretch={settings.Stretch} brightness={settings.Brightness:0.00} saturation={settings.Saturation:0.00} " +
-            $"tint=({settings.ColorTint.R},{settings.ColorTint.G},{settings.ColorTint.B},{settings.ColorTint.A}) disableVsync={settings.DisableVSync}");
-
-        WgcBridgeApi.SetDirectCompositionRenderOptions(
-            _session,
-            MapStretch(settings.Stretch),
-            (float)settings.Brightness,
-            (float)settings.Saturation,
-            settings.ColorTint.R / 255f,
-            settings.ColorTint.G / 255f,
-            settings.ColorTint.B / 255f,
-            settings.ColorTint.A / 255f,
-            settings.DisableVSync);
-
         var requestedShaderPath = string.IsNullOrWhiteSpace(settings.ShaderPath) ? null : settings.ShaderPath;
-        if (requestedShaderPath == null && !settings.ClearShaderWhenPathEmpty && !string.IsNullOrWhiteSpace(_lastAppliedShaderPath))
+        bool renderOptionsChanged = !_lastAppliedRenderSettings.HasValue || !_lastAppliedRenderSettings.Value.Equals(settings);
+        bool shaderPathChanged = !string.Equals(_lastAppliedShaderPath, requestedShaderPath, StringComparison.OrdinalIgnoreCase);
+
+        if (!renderOptionsChanged && !shaderPathChanged)
+            return;
+
+        if (renderOptionsChanged)
         {
             Debug.WriteLine(
-                $"[DCompHost] Skipping transient shader clear for session=0x{_session.ToString("X")} " +
-                $"because last applied shader='{_lastAppliedShaderPath}'.");
+                $"[DCompHost] UpdateSessionRenderOptions session=0x{_session.ToString("X")} " +
+                $"shader='{requestedShaderPath ?? "<null>"}' stretch={settings.Stretch} brightness={settings.Brightness:0.00} saturation={settings.Saturation:0.00} " +
+                $"tint=({settings.ColorTint.R},{settings.ColorTint.G},{settings.ColorTint.B},{settings.ColorTint.A}) disableVsync={settings.DisableVSync}");
+
+            WgcBridgeApi.SetDirectCompositionRenderOptions(
+                _session,
+                MapStretch(settings.Stretch),
+                (float)settings.Brightness,
+                (float)settings.Saturation,
+                settings.ColorTint.R / 255f,
+                settings.ColorTint.G / 255f,
+                settings.ColorTint.B / 255f,
+                settings.ColorTint.A / 255f,
+                settings.DisableVSync);
+        }
+
+        if (!shaderPathChanged)
+        {
+            _lastAppliedRenderSettings = settings;
             return;
         }
 
-        if (string.Equals(_lastAppliedShaderPath, requestedShaderPath, StringComparison.OrdinalIgnoreCase))
-            return;
-
         WgcBridgeApi.SetDirectCompositionShader(_session, requestedShaderPath);
         _lastAppliedShaderPath = requestedShaderPath;
+        _lastAppliedRenderSettings = settings;
     }
 
     private void RefreshStatusCore()
