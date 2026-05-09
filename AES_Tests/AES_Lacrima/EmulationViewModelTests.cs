@@ -167,6 +167,14 @@ public sealed class EmulationViewModelTests
     }
 
     [Fact]
+    public void EmulatorHandlerRegistry_NintendoSwitch_IncludesEdenHandler()
+    {
+        var handlers = EmulatorHandlerRegistry.GetHandlersForSection("Nintendo Switch");
+
+        Assert.Contains(handlers, handler => string.Equals(handler.HandlerId, "eden", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void EmulatorHandlerRegistry_FinalBurnNeo_IncludesFbNeoHandler()
     {
         var handlers = EmulatorHandlerRegistry.GetHandlersForSection("Final Burn Neo");
