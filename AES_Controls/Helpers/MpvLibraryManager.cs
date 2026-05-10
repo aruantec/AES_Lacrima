@@ -3,7 +3,6 @@ using AES_Core.IO;
 using AES_Mpv.Native;
 using CommunityToolkit.Mvvm.ComponentModel;
 using SharpCompress.Archives;
-using SharpCompress.Archives.SevenZip;
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
@@ -787,41 +786,7 @@ public partial class MpvLibraryManager : ObservableObject
         }
 
         // Extraction Logic
-        using (var archive = SevenZipArchive.Open(tempFile))
-        {
-            var entry = archive.Entries.FirstOrDefault(e => e.Key?.EndsWith(libName, StringComparison.OrdinalIgnoreCase) == true);
-            if (entry != null)
-            {
-                // Verify if we need to write to a temporary name if target was locked
-                string targetPath = Path.Combine(_destFolder, libName);
-                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && File.Exists(targetPath))
-                {
-                    // Attempt the rename trick to replace the locked DLL immediately
-                    if (!TryDeleteFile(targetPath))
-                    {
-                        // If rename failed (permissions? volume boundary?), fallback to .update staging
-                        string updatePath = targetPath + ".update";
-                        try
-                        {
-                            if (File.Exists(updatePath)) File.Delete(updatePath);
-                            using (var fs = File.Create(updatePath))
-                            {
-                                         entry.WriteTo(fs);
-                                    }
-                                    IsPendingRestart = true;
-                                    Status = "The update is staged as .update and will be applied on the next application restart.";
-                                    return;
-                                }
-                        catch (Exception ex)
-                        {
-                            throw new IOException($"Could not prepare update: {ex.Message}. Please try restarting the app first.", ex);
-                        }
-                    }
-                }
-
-                entry.WriteToDirectory(_destFolder, new SharpCompress.Common.ExtractionOptions { ExtractFullPath = false, Overwrite = true });
-            }
-        }
+        System.IO.Compression.ZipFile.ExtractToDirectory(tempFile, _destFolder, true);
 
         // On macOS some consumers expect the SONAME/lib name to be 'libmpv.2.dylib'.
         // If we just extracted 'libmpv.dylib', create a copy named 'libmpv.2.dylib' so

@@ -532,16 +532,7 @@ public partial class YtDlpManager : ObservableObject
 
         if (assetName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
         {
-            using var archive = SharpCompress.Archives.Zip.ZipArchive.Open(tempFile);
-            foreach (var entry in archive.Entries.Where(e => !e.IsDirectory))
-            {
-                // Preserve folder structure (important for _internal)
-                entry.WriteToDirectory(_destFolder, new SharpCompress.Common.ExtractionOptions
-                {
-                    ExtractFullPath = true,
-                    Overwrite = true
-                });
-            }
+            System.IO.Compression.ZipFile.ExtractToDirectory(tempFile, _destFolder, true);
         }
         else
         {

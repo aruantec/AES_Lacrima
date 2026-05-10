@@ -11,5 +11,7 @@
 
   <ItemGroup>
     <PackageReference Include="Nuke.Common" Version="10.1.0" />
+    <PackageReference Include="NuGet.Packaging" Version="6.12.5" />
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="9.0.15" />
   </ItemGroup>
 </Project>
