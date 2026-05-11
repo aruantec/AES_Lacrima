@@ -286,11 +286,24 @@ public sealed class EmulationViewModelTests
 
         try
         {
-            var gamePath = @"C:\Games\PS4\CUSA00900";
+            using var tempGameDir = new TempDirectory();
+            var gamePath = Path.Combine(tempGameDir.Path, "CUSA00900");
+            Directory.CreateDirectory(Path.Combine(gamePath, "sce_sys"));
+            File.WriteAllText(Path.Combine(gamePath, "eboot.bin"), string.Empty);
+            File.WriteAllText(Path.Combine(gamePath, "sce_sys", "param.sfo"), string.Empty);
+
             ProcessStartInfo startInfo = ShadPs4Handler.Instance.BuildStartInfo(tempExe, gamePath, false);
 
-            Assert.Equal(tempExe, startInfo.FileName);
-            Assert.Equal(["-d", "-g", gamePath], startInfo.ArgumentList);
+            Assert.Equal("cmd.exe", startInfo.FileName);
+            Assert.StartsWith("/d /c call \"", startInfo.Arguments);
+
+            var scriptPathStart = "/d /c call \"".Length;
+            var scriptPathEnd = startInfo.Arguments!.LastIndexOf('"');
+            Assert.True(scriptPathEnd > scriptPathStart);
+
+            var scriptPath = startInfo.Arguments.Substring(scriptPathStart, scriptPathEnd - scriptPathStart);
+            var scriptText = File.ReadAllText(scriptPath);
+            Assert.Contains("1> \"%SHADPS4_TRANSCRIPT%\" 2>&1", scriptText);
         }
         finally
         {

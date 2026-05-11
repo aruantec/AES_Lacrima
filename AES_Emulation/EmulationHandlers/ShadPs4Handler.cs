@@ -7,15 +7,23 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
+using AES_Core.Logging;
+using log4net;
 
 namespace AES_Emulation.EmulationHandlers;
 
 public sealed class ShadPs4Handler : EmulatorHandlerBase
 {
+    private static readonly ILog Log = LogHelper.For<ShadPs4Handler>();
+
     private const string CoreProcessName = "shadPS4";
+    private const string CoreLinkerOutputToken = "[Core.Linker]";
     private const string QtLauncherTitleToken = "qtlauncher";
+    private const string CmdExecutableName = "cmd.exe";
 
     public static ShadPs4Handler Instance { get; } = new();
+
+    private string? _launchTranscriptPath;
 
     private ShadPs4Handler()
     {
@@ -31,7 +39,9 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     public override bool ForceUseTargetClientAreaCapture => true;
 
-    public override int CaptureStartupDelayMs => 3500;
+    public override bool HideUntilCaptured => true;
+
+    public override int CaptureStartupDelayMs => 0;
 
     public override bool IsWindowEmbeddingSupported => true;
 
@@ -54,33 +64,66 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
-        var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
-        startInfo.ArgumentList.Clear();
-
+        var resolvedExecutablePath = ResolveShadPs4ExecutablePath(launcherPath);
         var resolvedGamePath = ResolveShadPs4GamePath(romPath);
-        var executableName = Path.GetFileNameWithoutExtension(startInfo.FileName);
-        var useQtLauncherArguments = executableName.Contains("qtlauncher", StringComparison.OrdinalIgnoreCase);
+        var launchTranscriptPath = CreateLaunchTranscriptPath(resolvedExecutablePath);
+        _launchTranscriptPath = launchTranscriptPath;
+        var launchScriptPath = CreateLaunchScriptPath(resolvedExecutablePath, resolvedGamePath, launchTranscriptPath);
 
-        if (useQtLauncherArguments)
+        var startInfo = new ProcessStartInfo
         {
-            startInfo.ArgumentList.Add("-d");
-        }
+            FileName = CmdExecutableName,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            WorkingDirectory = ResolveShadPs4WorkingDirectory(resolvedExecutablePath)
+        };
 
-        startInfo.ArgumentList.Add("-g");
-        startInfo.ArgumentList.Add(resolvedGamePath);
+        startInfo.Arguments = $"/d /c call \"{launchScriptPath}\"";
 
-        if (startFullscreen)
-        {
-            if (useQtLauncherArguments)
-            {
-                startInfo.ArgumentList.Add("--");
-            }
-
-            startInfo.ArgumentList.Add("--fullscreen");
-            startInfo.ArgumentList.Add("true");
-        }
-
+        Log.Debug($"shadPS4 start info: FileName='{startInfo.FileName}', WorkingDirectory='{startInfo.WorkingDirectory}', Arguments='{startInfo.Arguments}', UseShellExecute={startInfo.UseShellExecute}, TranscriptPath='{launchTranscriptPath}', ScriptPath='{launchScriptPath}'");
         return startInfo;
+    }
+
+    public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
+    {
+        await WaitForCoreLinkerOutputAsync(process, _launchTranscriptPath, cancellationToken).ConfigureAwait(false);
+
+        return await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string CreateLaunchTranscriptPath(string executablePath)
+    {
+        var workingDirectory = ResolveShadPs4WorkingDirectory(executablePath);
+        if (string.IsNullOrWhiteSpace(workingDirectory))
+            workingDirectory = Path.GetTempPath();
+
+        var transcriptDirectory = Path.Combine(workingDirectory, "user", "log");
+        Directory.CreateDirectory(transcriptDirectory);
+        return Path.Combine(transcriptDirectory, $"shadps4_launch_{Guid.NewGuid():N}.log");
+    }
+
+    private static string CreateLaunchScriptPath(string executablePath, string gamePath, string transcriptPath)
+    {
+        var scriptDirectory = Path.Combine(Path.GetTempPath(), "AES_Lacrima", "ShadPs4");
+        Directory.CreateDirectory(scriptDirectory);
+
+        var scriptPath = Path.Combine(scriptDirectory, $"launch_{Guid.NewGuid():N}.cmd");
+        var escapedGamePath = gamePath.Replace("\"", "\"\"");
+        var escapedTranscriptPath = transcriptPath.Replace("\"", "\"\"");
+        var escapedExecutablePath = executablePath.Replace("\"", "\"\"");
+        var escapedWorkingDirectory = ResolveShadPs4WorkingDirectory(executablePath).Replace("\"", "\"\"");
+
+        var scriptContents = string.Join(Environment.NewLine, new[]
+        {
+            "@echo off",
+            $"set \"SHADPS4_TRANSCRIPT={escapedTranscriptPath}\"",
+            $"cd /d \"{escapedWorkingDirectory}\"",
+            $"\"{escapedExecutablePath}\" -g \"{escapedGamePath}\" -f false 1> \"%SHADPS4_TRANSCRIPT%\" 2>&1"
+        });
+
+        File.WriteAllText(scriptPath, scriptContents);
+        return scriptPath;
     }
 
     private static string? ResolveShadPs4LauncherPath(string? launcherPath)
@@ -153,6 +196,128 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         return null;
     }
 
+    private static string ResolveShadPs4ExecutablePath(string? launcherPath)
+    {
+        var resolvedLauncherPath = ResolveShadPs4LauncherPath(launcherPath);
+        if (string.IsNullOrWhiteSpace(resolvedLauncherPath))
+            return launcherPath?.Trim() ?? string.Empty;
+
+        var fileName = Path.GetFileNameWithoutExtension(resolvedLauncherPath);
+        if (string.Equals(fileName, CoreProcessName, StringComparison.OrdinalIgnoreCase))
+            return resolvedLauncherPath;
+
+        var directory = Path.GetDirectoryName(resolvedLauncherPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            foreach (var executableName in new[] { "shadPS4.exe", "shadps4.exe" })
+            {
+                var candidate = Path.Combine(directory, executableName);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+
+        return resolvedLauncherPath;
+    }
+
+    private static string ResolveShadPs4WorkingDirectory(string? executablePath)
+    {
+        if (string.IsNullOrWhiteSpace(executablePath))
+            return string.Empty;
+
+        try
+        {
+            return Path.GetDirectoryName(Path.GetFullPath(executablePath.Trim())) ?? string.Empty;
+        }
+        catch
+        {
+            return Path.GetDirectoryName(executablePath.Trim()) ?? string.Empty;
+        }
+    }
+
+    private static async Task WaitForCoreLinkerOutputAsync(Process process, string? transcriptPath, CancellationToken cancellationToken)
+    {
+        if (process == null)
+            return;
+
+        try
+        {
+            if (process.HasExited)
+                return;
+        }
+        catch
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(transcriptPath))
+            return;
+
+        var deadline = DateTime.UtcNow.AddSeconds(45);
+        var coreLinkerToken = "Core.Linker";
+        long lastObservedLength = 0;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!File.Exists(transcriptPath))
+            {
+                await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            try
+            {
+                using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                if (stream.Length < lastObservedLength)
+                    lastObservedLength = 0;
+
+                if (stream.Length == lastObservedLength)
+                {
+                    await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                stream.Position = lastObservedLength;
+                using var reader = new StreamReader(stream);
+                var remainingText = await reader.ReadToEndAsync().ConfigureAwait(false);
+                lastObservedLength = stream.Position;
+
+                if (string.IsNullOrWhiteSpace(remainingText))
+                {
+                    await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                foreach (var line in remainingText.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    Log.Info($"shadPS4 output: {line}");
+                    if (line.Contains(CoreLinkerOutputToken, StringComparison.OrdinalIgnoreCase) ||
+                        line.Contains(coreLinkerToken, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+                }
+            }
+            catch (IOException)
+            {
+            }
+
+            try
+            {
+                await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+        }
+
+
+        Log.Warn("Timed out waiting for shadPS4 to emit [Core.Linker]; continuing with capture target resolution.");
+    }
+
     private static string ResolveShadPs4GamePath(string romPath)
     {
         if (string.IsNullOrWhiteSpace(romPath))
@@ -167,7 +332,8 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         {
         }
 
-        if (File.Exists(Path.Combine(normalizedPath, "sce_sys", "param.sfo")))
+        var directParamSfoPath = Path.Combine(normalizedPath, "sce_sys", "param.sfo");
+        if (File.Exists(normalizedPath) || File.Exists(directParamSfoPath))
             return normalizedPath;
 
         if (!Directory.Exists(normalizedPath))
@@ -177,13 +343,17 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         {
             foreach (var candidate in Directory.EnumerateDirectories(normalizedPath, "*", SearchOption.TopDirectoryOnly))
             {
-                if (File.Exists(Path.Combine(candidate, "sce_sys", "param.sfo")))
+                var candidateParamSfoPath = Path.Combine(candidate, "sce_sys", "param.sfo");
+
+                if (File.Exists(candidateParamSfoPath))
                     return candidate;
             }
 
             foreach (var candidate in Directory.EnumerateDirectories(normalizedPath, "*", SearchOption.AllDirectories))
             {
-                if (File.Exists(Path.Combine(candidate, "sce_sys", "param.sfo")))
+                var candidateParamSfoPath = Path.Combine(candidate, "sce_sys", "param.sfo");
+
+                if (File.Exists(candidateParamSfoPath))
                     return candidate;
             }
         }
@@ -241,37 +411,6 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         }
 
         return await base.ResolveRuntimeProcessAsync(process, cancellationToken).ConfigureAwait(false);
-    }
-
-    public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
-    {
-        if (CaptureStartupDelayMs > 0)
-            await Task.Delay(CaptureStartupDelayMs, cancellationToken).ConfigureAwait(false);
-
-        const int maxAttempts = 180;
-        const int delayMs = 100;
-
-        for (var attempt = 0; attempt < maxAttempts; attempt++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var preferredHwnd = FindPreferredWindowHandle(process);
-            if (preferredHwnd != IntPtr.Zero)
-                return preferredHwnd;
-
-            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
-        }
-
-        var fallbackHwnd = FindBestProcessWindowHandle(
-            process,
-            preferSpecificRenderWindow: false,
-            allowHiddenWindows: true,
-            isPreferredRenderWindow: null,
-            fallbackTitleHint: CoreProcessName);
-
-        return fallbackHwnd != IntPtr.Zero
-            ? fallbackHwnd
-            : await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
     }
 
     private static bool IsLikelyShadPs4RenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
