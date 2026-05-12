@@ -12,6 +12,7 @@ namespace AES_Emulation.EmulationHandlers;
 
 public sealed class CemuHandler : EmulatorHandlerBase
 {
+    private const string ReadyOutputToken = "------- Run title -------";
     private const int StretchFullscreenScaling = 1;
 
     private string? _fullscreenScalingSettingsPath;
@@ -62,7 +63,7 @@ public sealed class CemuHandler : EmulatorHandlerBase
 
     public override bool ForceUseTargetClientAreaCapture => true;
 
-    public override int CaptureStartupDelayMs => 2000;
+    public override int CaptureStartupDelayMs => 0;
 
     public override EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.DirectComposition;
 
@@ -84,9 +85,6 @@ public sealed class CemuHandler : EmulatorHandlerBase
     {
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
         startInfo.ArgumentList.Clear();
-
-        if (startFullscreen)
-            startInfo.ArgumentList.Add("--fullscreen");
 
         startInfo.ArgumentList.Add("-g");
         startInfo.ArgumentList.Add(romPath);
@@ -201,6 +199,8 @@ public sealed class CemuHandler : EmulatorHandlerBase
 
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
+        await WaitForRenderReadyLogAsync(process, cancellationToken).ConfigureAwait(false);
+
         for (var attempt = 0; attempt < 200; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -213,6 +213,67 @@ public sealed class CemuHandler : EmulatorHandlerBase
         }
 
         return IntPtr.Zero;
+    }
+
+    private static async Task WaitForRenderReadyLogAsync(Process process, CancellationToken cancellationToken)
+    {
+        if (process == null)
+            return;
+
+        var logFilePath = ResolveCemuLogFilePath(process.StartInfo?.FileName);
+        if (string.IsNullOrWhiteSpace(logFilePath))
+            return;
+
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                if (File.Exists(logFilePath))
+                {
+                    var logText = await File.ReadAllTextAsync(logFilePath, cancellationToken).ConfigureAwait(false);
+                    if (logText.Contains(ReadyOutputToken, StringComparison.OrdinalIgnoreCase))
+                        return;
+                }
+            }
+            catch
+            {
+            }
+
+            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static string? ResolveCemuLogFilePath(string? launcherPath)
+    {
+        if (string.IsNullOrWhiteSpace(launcherPath))
+            return null;
+
+        try
+        {
+            var executablePath = Path.GetFullPath(launcherPath.Trim());
+            var executableDirectory = Path.GetDirectoryName(executablePath);
+            if (string.IsNullOrWhiteSpace(executableDirectory))
+                return null;
+
+            var portableDirectory = Path.Combine(executableDirectory, "portable");
+            var portableLogPath = Path.Combine(portableDirectory, "log.txt");
+            if (Directory.Exists(portableDirectory))
+                return portableLogPath;
+
+            var portableSettingsLogPath = Path.Combine(executableDirectory, "log.txt");
+            if (File.Exists(Path.Combine(executableDirectory, "settings.xml")))
+                return portableSettingsLogPath;
+
+            var roamingPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Cemu", "log.txt");
+            return roamingPath;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public override void PrepareWindowForCapture(IntPtr hwnd) => HideWindowForCapture(hwnd);
