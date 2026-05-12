@@ -16,6 +16,7 @@ namespace AES_Emulation.EmulationHandlers;
 public sealed class EdenHandler : EmulatorHandlerBase
 {
     private static readonly ILog Log = LogHelper.For<EdenHandler>();
+    private const string RenderReadyOutputToken = "RenderReady";
 
     public static EdenHandler Instance { get; } = new();
 
@@ -33,7 +34,11 @@ public sealed class EdenHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => false;
 
+    public override bool ForceUseTargetClientAreaCapture => true;
+
     public override EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.DirectComposition;
+
+    public override int ClientAreaCropBottomInset => 0;
 
     public override int CaptureStartupDelayMs => 6000;
 
@@ -106,29 +111,111 @@ public sealed class EdenHandler : EmulatorHandlerBase
             return startInfo;
         }
 
-        public override async Task<Process?> ResolveRuntimeProcessAsync(Process process, CancellationToken cancellationToken)
+    public override async Task<Process?> ResolveRuntimeProcessAsync(Process process, CancellationToken cancellationToken)
+    {
+        if (process == null)
+            return null;
+
+        try
         {
-            if (process == null)
-                return null;
-
-            try
-            {
-                if (!process.HasExited)
-                    return process;
-            }
-            catch
-            {
-                // ignored
-            }
-
-            if (TryResolveChildProcess(process, out var childProcess))
-                return childProcess;
-
-            if (TryResolveDetachedProcess(process, out process))
+            if (!process.HasExited)
                 return process;
-
-            return process;
         }
+        catch
+        {
+            // ignored
+        }
+
+        if (TryResolveChildProcess(process, out var childProcess))
+            return childProcess;
+
+        if (TryResolveDetachedProcess(process, out process))
+            return process;
+
+        return process;
+    }
+
+    public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
+    {
+        await WaitForRenderReadyOutputAsync(process, cancellationToken).ConfigureAwait(false);
+        return await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task WaitForRenderReadyOutputAsync(Process process, CancellationToken cancellationToken)
+    {
+        if (process == null)
+            return;
+
+        try
+        {
+            if (process.HasExited)
+                return;
+        }
+        catch
+        {
+            return;
+        }
+
+        if (!process.StartInfo.RedirectStandardOutput && !process.StartInfo.RedirectStandardError)
+            return;
+
+        var deadline = DateTime.UtcNow.AddSeconds(45);
+        var readers = new List<Task<bool>>();
+
+        if (process.StartInfo.RedirectStandardOutput)
+            readers.Add(WaitForTokenAsync(process.StandardOutput, RenderReadyOutputToken, cancellationToken));
+
+        if (process.StartInfo.RedirectStandardError)
+            readers.Add(WaitForTokenAsync(process.StandardError, RenderReadyOutputToken, cancellationToken));
+
+        if (readers.Count == 0)
+            return;
+
+        while (DateTime.UtcNow < deadline && readers.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var remaining = deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+                break;
+
+            var delayTask = Task.Delay(remaining, cancellationToken);
+            var completed = await Task.WhenAny(readers.Cast<Task>().Append(delayTask)).ConfigureAwait(false);
+            if (ReferenceEquals(completed, delayTask))
+                break;
+
+            var tokenTask = readers.FirstOrDefault(task => ReferenceEquals(task, completed));
+            if (tokenTask != null)
+            {
+                if (await tokenTask.ConfigureAwait(false))
+                    return;
+
+                readers.Remove(tokenTask);
+            }
+        }
+
+        Log.Warn($"Timed out waiting for Eden to emit '{RenderReadyOutputToken}'; continuing with capture target resolution.");
+    }
+
+    private static async Task<bool> WaitForTokenAsync(StreamReader reader, string token, CancellationToken cancellationToken)
+    {
+        if (reader == null)
+            return false;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync().ConfigureAwait(false);
+            if (line == null)
+                return false;
+
+            Log.Info($"Eden output: {line}");
+            if (line.Contains(token, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return false;
+    }
 
         private static bool TryResolveChildProcess(Process process, out Process? childProcess)
         {
@@ -350,27 +437,28 @@ public sealed class EdenHandler : EmulatorHandlerBase
         var hasThickFrame = (style & WS_THICKFRAME) == WS_THICKFRAME;
         var looksLikePrimaryUi = hwnd == mainWindowHandle;
 
+        if (hasCaption && hasThickFrame)
+            return false;
+
         if (!string.IsNullOrWhiteSpace(lowerTitle))
         {
-            if (lowerTitle.Contains("eden") && !lowerTitle.Contains("settings") && !lowerTitle.Contains("audio") && !lowerTitle.Contains("video") && !lowerTitle.Contains("input") && !lowerTitle.Contains("controller") && !lowerTitle.Contains("cheat") && !lowerTitle.Contains("shader") && !lowerTitle.Contains("about"))
-            {
-                looksLikePrimaryUi = false;
-            }
-
             if (lowerTitle.Contains("settings") || lowerTitle.Contains("audio") || lowerTitle.Contains("video") || lowerTitle.Contains("input") || lowerTitle.Contains("controller") || lowerTitle.Contains("cheat") || lowerTitle.Contains("shader") || lowerTitle.Contains("about"))
             {
                 looksLikePrimaryUi = true;
             }
+
+            if (lowerTitle.Contains("eden"))
+                return false;
         }
 
         if (!string.IsNullOrWhiteSpace(lowerClass))
         {
-            if ((lowerClass.Contains("sdl") || lowerClass.Contains("glfw") || lowerClass.Contains("qt") || lowerClass.Contains("eden")) && hasCaption && hasThickFrame)
+            if (lowerClass.Contains("sdl") || lowerClass.Contains("glfw") || lowerClass.Contains("qt") || lowerClass.Contains("eden"))
             {
-                looksLikePrimaryUi |= true;
+                return true;
             }
         }
 
-        return !looksLikePrimaryUi && (!hasCaption || !string.IsNullOrWhiteSpace(lowerTitle));
+        return !looksLikePrimaryUi && (!hasCaption || string.IsNullOrWhiteSpace(lowerTitle));
     }
 }

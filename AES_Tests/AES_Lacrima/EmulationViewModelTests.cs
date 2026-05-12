@@ -201,6 +201,32 @@ public sealed class EmulationViewModelTests
     }
 
     [Fact]
+    public void EdenHandler_BuildStartInfo_UsesCliRedirectsForCapture()
+    {
+        using var tempDir = new TempDirectory();
+        var launcherPath = Path.Combine(tempDir.Path, "eden-cli.exe");
+        var romPath = Path.Combine(tempDir.Path, "rom.nsp");
+        File.WriteAllText(launcherPath, string.Empty);
+        File.WriteAllText(romPath, string.Empty);
+
+        var startInfo = EdenHandler.Instance.BuildStartInfo(launcherPath, romPath, false);
+
+        Assert.Equal(launcherPath, startInfo.FileName);
+        Assert.False(startInfo.UseShellExecute);
+        Assert.True(startInfo.RedirectStandardOutput);
+        Assert.True(startInfo.RedirectStandardError);
+        Assert.Contains("-g", startInfo.ArgumentList);
+        Assert.Contains(romPath, startInfo.ArgumentList);
+    }
+
+    [Fact]
+    public void EdenHandler_UsesBottomClientAreaCropToRemoveBanding()
+    {
+        Assert.Equal(0, EdenHandler.Instance.ClientAreaCropBottomInset);
+        Assert.True(EdenHandler.Instance.ForceUseTargetClientAreaCapture);
+    }
+
+    [Fact]
     public void EmulatorHandlerRegistry_FinalBurnNeo_IncludesFbNeoHandler()
     {
         var handlers = EmulatorHandlerRegistry.GetHandlersForSection("Final Burn Neo");

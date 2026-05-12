@@ -155,6 +155,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
     private string? _lastAppliedShaderPath;
     private string _lastStatusText = string.Empty;
     private CaptureSessionSettings _currentSettings;
+    private bool _pendingRenderOptionsRefreshAfterActive;
 
     public DirectCompositionCaptureHost()
     {
@@ -650,6 +651,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         _lastFpsSampleUtc = DateTime.UtcNow;
         _lastPresentSampleUtc = _lastFpsSampleUtc;
         ApplyRenderOptionsCore(settings);
+        _pendingRenderOptionsRefreshAfterActive = true;
         RefreshStatusCore();
     }
 
@@ -720,6 +722,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         _lastPresentSampleUtc = _lastFpsSampleUtc;
         _lastAppliedShaderPath = null;
         _lastAppliedRenderSettings = null;
+        _pendingRenderOptionsRefreshAfterActive = false;
     }
 
     private void ApplyRenderOptionsCore(CaptureSessionSettings settings)
@@ -866,6 +869,12 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
         RunOnUiThread(() => IsDirectCompositionActive = state == 2);
         RunOnUiThread(() => IsCaptureInitializing = state == 1 || (state == 0 && frames <= 0));
+
+        if (_pendingRenderOptionsRefreshAfterActive && state == 2)
+        {
+            _pendingRenderOptionsRefreshAfterActive = false;
+            ApplyRenderOptionsCore(_currentSettings);
+        }
 
         if (!IsDirectCompositionActive && state != -1 && (presents > 0 || frames > 0))
         {
