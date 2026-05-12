@@ -33,6 +33,8 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
     public override int CaptureStartupDelayMs => 5000;
 
+    public override bool UsesRetroArchCores => true;
+
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
         if (string.IsNullOrWhiteSpace(albumTitle))
@@ -43,6 +45,16 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
             string.Equals(normalized, NormalizeSectionString(SectionKey), StringComparison.OrdinalIgnoreCase))
         {
             return true;
+        }
+
+        // Avoid overlapping with dedicated section handlers.
+        if (normalized.Contains("game boy advance", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("gba", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("genesis", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("mega drive", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("saturn", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
         }
 
         // Handle Final Burn Neo specifically
@@ -78,8 +90,14 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
     }
 
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
+        => BuildRetroArchStartInfo(launcherPath, romPath, startFullscreen, sectionTitle, selectedRetroArchCore);
+
+    public static ProcessStartInfo BuildRetroArchStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
+        => BuildRetroArchStartInfoInternal(launcherPath, romPath, startFullscreen, sectionTitle, selectedRetroArchCore);
+
+    private static ProcessStartInfo BuildRetroArchStartInfoInternal(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
-        var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
+        var startInfo = CreateBaseStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
         startInfo.CreateNoWindow = true; // This hides the console log window
         startInfo.WindowStyle = ProcessWindowStyle.Hidden; // Additional hint for some versions of Windows/RetroArch
         var corePath = FindRetroArchCore(launcherPath, romPath, sectionTitle, selectedRetroArchCore);
@@ -495,6 +513,15 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         if (IsRetroArchSection(sectionTitle, "snes", "super nintendo"))
             return RetroArchPlatform.SNES;
 
+        if (IsRetroArchSection(sectionTitle, "gba", "game boy advance"))
+            return RetroArchPlatform.GBA;
+
+        if (IsRetroArchSection(sectionTitle, "genesis", "mega drive", "megadrive", "md"))
+            return RetroArchPlatform.Genesis;
+
+        if (IsRetroArchSection(sectionTitle, "saturn", "sega saturn"))
+            return RetroArchPlatform.Saturn;
+
         if (IsRetroArchSection(sectionTitle, "nes", "nintendo entertainment system"))
             return RetroArchPlatform.NES;
 
@@ -522,6 +549,15 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
         if (IsRetroArchSnesRom(romPath))
             return RetroArchPlatform.SNES;
+
+        if (IsRetroArchGbaRom(romPath))
+            return RetroArchPlatform.GBA;
+
+        if (IsRetroArchGenesisRom(romPath))
+            return RetroArchPlatform.Genesis;
+
+        if (IsRetroArchSaturnRom(romPath))
+            return RetroArchPlatform.Saturn;
 
         if (IsRetroArchNesRom(romPath))
             return RetroArchPlatform.NES;
@@ -581,6 +617,27 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
             if (OperatingSystem.IsWindows()) return new[] { "snes9x_libretro.dll", "snes9x_next_libretro.dll", "bsnes_libretro.dll", "higan_libretro.dll" };
             if (OperatingSystem.IsLinux()) return new[] { "snes9x_libretro.so", "snes9x_next_libretro.so", "bsnes_libretro.so", "higan_libretro.so" };
             if (OperatingSystem.IsMacOS()) return new[] { "snes9x_libretro.dylib", "snes9x_next_libretro.dylib", "bsnes_libretro.dylib", "higan_libretro.dylib" };
+        }
+
+        if (platform == RetroArchPlatform.GBA)
+        {
+            if (OperatingSystem.IsWindows()) return new[] { "mgba_libretro.dll", "vba_next_libretro.dll", "gpsp_libretro.dll", "meteor_libretro.dll" };
+            if (OperatingSystem.IsLinux()) return new[] { "mgba_libretro.so", "vba_next_libretro.so", "gpsp_libretro.so", "meteor_libretro.so" };
+            if (OperatingSystem.IsMacOS()) return new[] { "mgba_libretro.dylib", "vba_next_libretro.dylib", "gpsp_libretro.dylib", "meteor_libretro.dylib" };
+        }
+
+        if (platform == RetroArchPlatform.Genesis)
+        {
+            if (OperatingSystem.IsWindows()) return new[] { "genesis_plus_gx_libretro.dll", "genesis_plus_gx_wide_libretro.dll", "picodrive_libretro.dll" };
+            if (OperatingSystem.IsLinux()) return new[] { "genesis_plus_gx_libretro.so", "genesis_plus_gx_wide_libretro.so", "picodrive_libretro.so" };
+            if (OperatingSystem.IsMacOS()) return new[] { "genesis_plus_gx_libretro.dylib", "genesis_plus_gx_wide_libretro.dylib", "picodrive_libretro.dylib" };
+        }
+
+        if (platform == RetroArchPlatform.Saturn)
+        {
+            if (OperatingSystem.IsWindows()) return new[] { "yabasanshiro_libretro.dll", "beetle_saturn_libretro.dll", "mednafen_saturn_libretro.dll" };
+            if (OperatingSystem.IsLinux()) return new[] { "yabasanshiro_libretro.so", "beetle_saturn_libretro.so", "mednafen_saturn_libretro.so" };
+            if (OperatingSystem.IsMacOS()) return new[] { "yabasanshiro_libretro.dylib", "beetle_saturn_libretro.dylib", "mednafen_saturn_libretro.dylib" };
         }
 
         if (platform == RetroArchPlatform.NES)
@@ -649,6 +706,9 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         GameCube,
         N64,
         SNES,
+        GBA,
+        Genesis,
+        Saturn,
         NES,
         Dreamcast,
         Wii,
@@ -693,6 +753,21 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
                 else if (platform == RetroArchPlatform.SNES)
                 {
                     if (fileName.Contains("snes") || fileName.Contains("bsnes") || fileName.Contains("higan"))
+                        return file;
+                }
+                else if (platform == RetroArchPlatform.GBA)
+                {
+                    if (fileName.Contains("mgba") || fileName.Contains("vba") || fileName.Contains("gpsp") || fileName.Contains("meteor"))
+                        return file;
+                }
+                else if (platform == RetroArchPlatform.Genesis)
+                {
+                    if (fileName.Contains("genesis_plus_gx") || fileName.Contains("picodrive"))
+                        return file;
+                }
+                else if (platform == RetroArchPlatform.Saturn)
+                {
+                    if (fileName.Contains("yabasanshiro") || fileName.Contains("beetle_saturn") || fileName.Contains("mednafen_saturn"))
                         return file;
                 }
                 else if (platform == RetroArchPlatform.NES)
@@ -825,8 +900,17 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
     private static bool IsRetroArchSnesRom(string? romPath)
         => IsRetroArchRom(romPath, ".sfc", ".smc", ".fig", ".swc");
 
+    private static bool IsRetroArchGbaRom(string? romPath)
+        => IsRetroArchRom(romPath, ".gba");
+
+    private static bool IsRetroArchGenesisRom(string? romPath)
+        => IsRetroArchRom(romPath, ".gen", ".md", ".smd", ".bin");
+
     private static bool IsRetroArchNesRom(string? romPath)
         => IsRetroArchRom(romPath, ".nes", ".fds", ".unf", ".unif");
+
+    private static bool IsRetroArchSaturnRom(string? romPath)
+        => IsRetroArchRom(romPath, ".cue", ".chd", ".iso", ".img", ".bin");
 
     private static bool IsRetroArchDreamcastRom(string? romPath)
         => IsRetroArchRom(romPath, ".cdi", ".gdi", ".chd", ".cue", ".iso");

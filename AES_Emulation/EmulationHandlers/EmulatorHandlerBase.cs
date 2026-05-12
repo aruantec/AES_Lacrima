@@ -123,6 +123,8 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     
     public virtual EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.DirectComposition;
 
+    public virtual bool UsesRetroArchCores => false;
+
     public virtual void Prepare() => IsPrepared = true;
 
     public virtual void OnShowViewModel() => IsActive = true;
@@ -147,7 +149,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         return Task.CompletedTask;
     }
 
-    public virtual ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
+    protected static ProcessStartInfo CreateBaseStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null)
     {
         var executablePath = ResolveLauncherExecutablePath(launcherPath) ?? launcherPath;
         var workingDirectory = ResolveLauncherWorkingDirectory(launcherPath) ??
@@ -168,8 +170,6 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
             startInfo.Environment.Remove("WAYLAND_DISPLAY");
 
-            // Let AppImage binaries run on systems without functional FUSE mounts,
-            // but avoid forcing extraction when FUSE appears to be available.
             if (IsAppImagePath(executablePath) && !HasLikelyFuseSupport())
             {
                 startInfo.Environment["APPIMAGE_EXTRACT_AND_RUN"] = "1";
@@ -178,6 +178,11 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
         startInfo.ArgumentList.Add(romPath);
         return startInfo;
+    }
+
+    public virtual ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
+    {
+        return CreateBaseStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
     }
 
     private static bool IsAppImagePath(string? executablePath)
