@@ -58,8 +58,13 @@ namespace AES_Lacrima.Services
             new(
                 "GBA",
                 "Game Boy Advance",
-                ["Game Boy Advance", "GBA"],
+                ["Game Boy Advance", "GBA", "Gameboy Advance", "Game Boy Advance (GBA)"],
                 ["*.gba"]),
+            new(
+                "GENESIS",
+                "Sega Genesis",
+                ["Sega Genesis", "Genesis", "Mega Drive", "MegaDrive", "Mega Drive / Genesis", "MD"],
+                ["*.gen", "*.md", "*.smd", "*.bin", "*.zip", "*.7z"]),
             new(
                 "NDS",
                 "Nintendo DS",
@@ -127,6 +132,11 @@ namespace AES_Lacrima.Services
                 "Final Burn Neo",
                 ["Final Burn Neo", "FBNeo", "FBN"],
                 ["*.zip", "*.7z", "*.dat"]),
+            new(
+                "SATURN",
+                "Sega Saturn",
+                ["Sega Saturn", "Saturn", "Saturn (RetroArch)"],
+                ["*.cue", "*.chd", "*.iso", "*.bin", "*.img", "*.zip", "*.7z"]),
             new(
                 "PSP",
                 "PlayStation Portable",

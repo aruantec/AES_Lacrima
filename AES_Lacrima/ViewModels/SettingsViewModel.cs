@@ -67,7 +67,7 @@ public sealed class EmulationHandlerAppItem : ObservableObject
 
     public ICommand SetDefaultHandlerCommand { get; }
 
-    public bool IsRetroArchHandler => string.Equals(HandlerId, RetroArchHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase);
+    public bool IsRetroArchHandler => Handler.UsesRetroArchCores;
 
     public string? SelectedRetroArchCore
     {
@@ -1490,6 +1490,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 handlers = [RetroArchHandler.Instance];
             }
 
+            if (string.Equals(sectionKey, "GBA", StringComparison.OrdinalIgnoreCase))
+                handlers = handlers.Where(handler => handler.UsesRetroArchCores).ToList();
+
+            if (string.Equals(sectionKey, "GENESIS", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(sectionKey, "SATURN", StringComparison.OrdinalIgnoreCase))
+                handlers = handlers.Where(handler => handler.UsesRetroArchCores).ToList();
+
             foreach (var handler in handlers)
                 item.Handlers.Add(new EmulationHandlerAppItem(handler, item));
 
@@ -1531,7 +1538,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private void RefreshRetroArchCores()
     {
         var retroArchHandler = EmulatorHandlerRegistry.GetRegisteredHandlers()
-            .FirstOrDefault(handler => string.Equals(handler.HandlerId, RetroArchHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(handler => handler.UsesRetroArchCores && !string.IsNullOrWhiteSpace(handler.LauncherPath))
+            ?? EmulatorHandlerRegistry.GetRegisteredHandlers().FirstOrDefault(handler => handler.UsesRetroArchCores);
 
         var availableCores = RetroArchHandler.GetRetroArchCores(retroArchHandler?.LauncherPath);
 
@@ -1584,6 +1592,39 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             var snesPreference = new[] { "snes9x_next", "bsnes", "higan", "snes9x" };
             foreach (var keyword in snesPreference)
+            {
+                var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    return match;
+            }
+        }
+
+        if (IsRetroArchGbaSection(section.SectionKey, section.SectionTitle))
+        {
+            var gbaPreference = new[] { "mgba", "vba-next", "gpsp", "meteor" };
+            foreach (var keyword in gbaPreference)
+            {
+                var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    return match;
+            }
+        }
+
+        if (IsRetroArchGenesisSection(section.SectionKey, section.SectionTitle))
+        {
+            var genesisPreference = new[] { "genesis_plus_gx", "genesis plus gx", "picodrive" };
+            foreach (var keyword in genesisPreference)
+            {
+                var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    return match;
+            }
+        }
+
+        if (IsRetroArchSaturnSection(section.SectionKey, section.SectionTitle))
+        {
+            var saturnPreference = new[] { "yabasanshiro", "beetle_saturn", "mednafen_saturn" };
+            foreach (var keyword in saturnPreference)
             {
                 var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
                 if (match != null)
@@ -1671,6 +1712,21 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private static bool IsRetroArchSnesSection(string? sectionKey, string? sectionTitle)
     {
         return IsRetroArchSection(sectionKey, sectionTitle, "snes", "super nintendo");
+    }
+
+    private static bool IsRetroArchGbaSection(string? sectionKey, string? sectionTitle)
+    {
+        return IsRetroArchSection(sectionKey, sectionTitle, "gba", "game boy advance");
+    }
+
+    private static bool IsRetroArchGenesisSection(string? sectionKey, string? sectionTitle)
+    {
+        return IsRetroArchSection(sectionKey, sectionTitle, "genesis", "mega drive", "megadrive", "md");
+    }
+
+    private static bool IsRetroArchSaturnSection(string? sectionKey, string? sectionTitle)
+    {
+        return IsRetroArchSection(sectionKey, sectionTitle, "saturn", "sega saturn");
     }
 
     private static bool IsRetroArchNesSection(string? sectionKey, string? sectionTitle)
