@@ -31,7 +31,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
     public override bool ForceUseTargetClientAreaCapture => true;
 
-    public override int CaptureStartupDelayMs => 5000;
+    public override int CaptureStartupDelayMs => 1200;
 
     public override bool UsesRetroArchCores => true;
 
