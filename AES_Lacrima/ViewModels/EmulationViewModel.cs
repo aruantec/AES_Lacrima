@@ -2210,6 +2210,19 @@ namespace AES_Lacrima.ViewModels
                         SLog.Warn($"Failed to resolve emulator runtime process for '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
                         runtimeProcess = process;
                     }
+
+                    if (handler.HideUntilCaptured && runtimeProcess != null)
+                    {
+                        try
+                        {
+                            runtimeProcess.Refresh();
+                            if (!runtimeProcess.HasExited)
+                                handler.PrepareProcessForCapture(runtimeProcess);
+                        }
+                        catch
+                        {
+                        }
+                    }
                 }
 
                 await Dispatcher.UIThread.InvokeAsync(() =>

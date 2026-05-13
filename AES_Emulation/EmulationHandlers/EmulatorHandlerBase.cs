@@ -375,8 +375,42 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         if (!OperatingSystem.IsWindows())
             return;
 
-        // Note: For now, we delegate to the service if available, 
-        // but many inheritance patterns rely on these static methods.
+        uint processId = 0;
+        try
+        {
+            process.Refresh();
+            processId = (uint)process.Id;
+        }
+        catch
+        {
+        }
+
+        EnumWindows((hwnd, _) =>
+        {
+            if (hwnd == IntPtr.Zero || !IsWindowVisible(hwnd))
+                return true;
+
+            var shouldHide = false;
+
+            if (processId != 0 && GetWindowThreadProcessId(hwnd, out uint windowPid) != 0 && windowPid == processId)
+            {
+                shouldHide = true;
+            }
+            else if (!string.IsNullOrWhiteSpace(fallbackTitleHint))
+            {
+                var title = GetWindowTitle(hwnd);
+                if (!string.IsNullOrWhiteSpace(title) &&
+                    title.Contains(fallbackTitleHint, StringComparison.OrdinalIgnoreCase))
+                {
+                    shouldHide = true;
+                }
+            }
+
+            if (shouldHide)
+                HideWindowForCapture(hwnd);
+
+            return true;
+        }, IntPtr.Zero);
     }
 
     protected static void HideWindowForCapture(IntPtr hwnd)

@@ -297,7 +297,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
     private void RequestRenderOptionsUpdate()
     {
-        ApplyRenderOptionsCore(CaptureSettingsSnapshot());
+        var settings = CaptureSettingsSnapshot();
+        EnqueueRenderer(() => ApplyRenderOptionsCore(settings, force: false));
     }
 
     private void RequestCropRectUpdate()
@@ -581,7 +582,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
         if (_session != IntPtr.Zero && _activeTargetHwnd == settings.TargetHwnd)
         {
-            ApplyRenderOptionsCore(settings);
+            ApplyRenderOptionsCore(settings, force: false);
             ApplyCropRectCore(settings);
             try
             {
@@ -650,7 +651,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         _lastPresentCount = 0;
         _lastFpsSampleUtc = DateTime.UtcNow;
         _lastPresentSampleUtc = _lastFpsSampleUtc;
-        ApplyRenderOptionsCore(settings);
+        ApplyRenderOptionsCore(settings, force: false);
         _pendingRenderOptionsRefreshAfterActive = true;
         RefreshStatusCore();
     }
@@ -725,7 +726,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         _pendingRenderOptionsRefreshAfterActive = false;
     }
 
-    private void ApplyRenderOptionsCore(CaptureSessionSettings settings)
+    private void ApplyRenderOptionsCore(CaptureSessionSettings settings, bool force)
     {
         _currentSettings = settings;
 
@@ -733,8 +734,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
             return;
 
         var requestedShaderPath = string.IsNullOrWhiteSpace(settings.ShaderPath) ? null : settings.ShaderPath;
-        bool renderOptionsChanged = !_lastAppliedRenderSettings.HasValue || !_lastAppliedRenderSettings.Value.Equals(settings);
-        bool shaderPathChanged = !string.Equals(_lastAppliedShaderPath, requestedShaderPath, StringComparison.OrdinalIgnoreCase);
+        bool renderOptionsChanged = force || !_lastAppliedRenderSettings.HasValue || !_lastAppliedRenderSettings.Value.Equals(settings);
+        bool shaderPathChanged = force || !string.Equals(_lastAppliedShaderPath, requestedShaderPath, StringComparison.OrdinalIgnoreCase);
 
         if (!renderOptionsChanged && !shaderPathChanged)
             return;
@@ -873,7 +874,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         if (_pendingRenderOptionsRefreshAfterActive && state == 2)
         {
             _pendingRenderOptionsRefreshAfterActive = false;
-            ApplyRenderOptionsCore(_currentSettings);
+            ApplyRenderOptionsCore(_currentSettings, force: true);
         }
 
         if (!IsDirectCompositionActive && state != -1 && (presents > 0 || frames > 0))
