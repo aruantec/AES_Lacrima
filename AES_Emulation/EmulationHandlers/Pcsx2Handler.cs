@@ -65,12 +65,12 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
         // Intentionally no-op for PCSX2; see PrepareProcessForCapture.
     }
 
-    public override int CaptureStartupDelayMs => 250;
+    public override int CaptureStartupDelayMs => 100;
 
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
-        const int maxAttempts = 220;
-        const int delayMs = 50;
+        const int maxAttempts = 120;
+        const int delayMs = 40;
         const int stableAttemptsBeforeAssign = 2;
 
         IntPtr observedHwnd = IntPtr.Zero;
