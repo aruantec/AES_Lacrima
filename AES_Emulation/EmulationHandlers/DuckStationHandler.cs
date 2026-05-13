@@ -1,5 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace AES_Emulation.EmulationHandlers;
 
@@ -20,6 +22,8 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
     public override string DisplayName => "DuckStation";
 
     public override bool HideUntilCaptured => true;
+
+    public override int CaptureStartupDelayMs => 250;
 
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
@@ -54,6 +58,59 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
 
     public override void PrepareWindowForCapture(IntPtr hwnd) => HideWindowForCapture(hwnd);
 
+    public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 200;
+        const int delayMs = 50;
+        const int stableAttemptsBeforeAssign = 2;
+
+        IntPtr observedHwnd = IntPtr.Zero;
+        var observedStableAttempts = 0;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PrepareProcessForCapture(process);
+
+            IntPtr mainWindowHandle = IntPtr.Zero;
+            try
+            {
+                process.Refresh();
+                mainWindowHandle = process.MainWindowHandle;
+            }
+            catch
+            {
+            }
+
+            var hwnd = FindPreferredWindowHandle(process);
+            if (hwnd != IntPtr.Zero && CanAssignWindow(hwnd, mainWindowHandle))
+            {
+                if (hwnd == observedHwnd)
+                    observedStableAttempts++;
+                else
+                {
+                    observedHwnd = hwnd;
+                    observedStableAttempts = 1;
+                }
+
+                if (observedStableAttempts >= stableAttemptsBeforeAssign)
+                {
+                    PrepareWindowForCapture(hwnd);
+                    return hwnd;
+                }
+            }
+            else
+            {
+                observedHwnd = IntPtr.Zero;
+                observedStableAttempts = 0;
+            }
+
+            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
+    }
+
     public override IntPtr FindPreferredWindowHandle(Process process)
         => FindBestProcessWindowHandle(process, preferSpecificRenderWindow: true, allowHiddenWindows: true, IsLikelyDuckStationRenderWindow);
 
@@ -78,7 +135,7 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
         if (!string.IsNullOrWhiteSpace(lowerTitle))
         {
             var titleLooksLikeUi =
-                lowerTitle.Contains("duckstation") ||
+                lowerTitle == "duckstation" ||
                 lowerTitle.Contains("settings") ||
                 lowerTitle.Contains("audio") ||
                 lowerTitle.Contains("video") ||

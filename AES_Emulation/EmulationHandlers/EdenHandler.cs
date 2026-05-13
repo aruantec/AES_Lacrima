@@ -32,7 +32,7 @@ public sealed class EdenHandler : EmulatorHandlerBase
 
     public override string DisplayName => "Eden";
 
-    public override bool HideUntilCaptured => false;
+    public override bool HideUntilCaptured => true;
 
     public override bool ForceUseTargetClientAreaCapture => true;
 
@@ -40,7 +40,7 @@ public sealed class EdenHandler : EmulatorHandlerBase
 
     public override int ClientAreaCropBottomInset => 0;
 
-    public override int CaptureStartupDelayMs => 6000;
+    public override int CaptureStartupDelayMs => 250;
 
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
@@ -137,11 +137,64 @@ public sealed class EdenHandler : EmulatorHandlerBase
 
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
-        await WaitForRenderReadyOutputAsync(process, cancellationToken).ConfigureAwait(false);
-        return await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
+        // Start output token wait, but don't block capture resolution on it.
+        var renderReadyWaitTask = WaitForRenderReadyOutputAsync(process, cancellationToken, TimeSpan.FromMilliseconds(1200), logTimeout: false);
+
+        const int maxAttempts = 240;
+        const int delayMs = 50;
+        const int stableAttemptsBeforeAssign = 2;
+
+        IntPtr observedHwnd = IntPtr.Zero;
+        var observedStableAttempts = 0;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            PrepareProcessForCapture(process);
+
+            IntPtr mainWindowHandle = IntPtr.Zero;
+            try
+            {
+                process.Refresh();
+                mainWindowHandle = process.MainWindowHandle;
+            }
+            catch
+            {
+            }
+
+            var hwnd = FindPreferredWindowHandle(process);
+            if (hwnd != IntPtr.Zero && CanAssignWindow(hwnd, mainWindowHandle))
+            {
+                if (hwnd == observedHwnd)
+                    observedStableAttempts++;
+                else
+                {
+                    observedHwnd = hwnd;
+                    observedStableAttempts = 1;
+                }
+
+                // If render-ready token already arrived, allow immediate assignment.
+                if (observedStableAttempts >= stableAttemptsBeforeAssign || renderReadyWaitTask.IsCompleted)
+                {
+                    PrepareWindowForCapture(hwnd);
+                    return hwnd;
+                }
+            }
+            else
+            {
+                observedHwnd = IntPtr.Zero;
+                observedStableAttempts = 0;
+            }
+
+            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+        }
+
+        await renderReadyWaitTask.ConfigureAwait(false);
+        return IntPtr.Zero;
     }
 
-    private static async Task WaitForRenderReadyOutputAsync(Process process, CancellationToken cancellationToken)
+    private static async Task WaitForRenderReadyOutputAsync(Process process, CancellationToken cancellationToken, TimeSpan maxWait, bool logTimeout)
     {
         if (process == null)
             return;
@@ -159,7 +212,7 @@ public sealed class EdenHandler : EmulatorHandlerBase
         if (!process.StartInfo.RedirectStandardOutput && !process.StartInfo.RedirectStandardError)
             return;
 
-        var deadline = DateTime.UtcNow.AddSeconds(45);
+        var deadline = DateTime.UtcNow + maxWait;
         var readers = new List<Task<bool>>();
 
         if (process.StartInfo.RedirectStandardOutput)
@@ -194,7 +247,8 @@ public sealed class EdenHandler : EmulatorHandlerBase
             }
         }
 
-        Log.Warn($"Timed out waiting for Eden to emit '{RenderReadyOutputToken}'; continuing with capture target resolution.");
+        if (logTimeout)
+            Log.Warn($"Timed out waiting for Eden to emit '{RenderReadyOutputToken}'; continuing with capture target resolution.");
     }
 
     private static async Task<bool> WaitForTokenAsync(StreamReader reader, string token, CancellationToken cancellationToken)
@@ -435,30 +489,38 @@ public sealed class EdenHandler : EmulatorHandlerBase
 
         var hasCaption = (style & WS_CAPTION) == WS_CAPTION;
         var hasThickFrame = (style & WS_THICKFRAME) == WS_THICKFRAME;
-        var looksLikePrimaryUi = hwnd == mainWindowHandle;
+        var isMainWindow = hwnd == mainWindowHandle;
 
-        if (hasCaption && hasThickFrame)
+        var isKnownToolWindow = !string.IsNullOrWhiteSpace(lowerTitle) &&
+            (lowerTitle.Contains("settings") ||
+             lowerTitle.Contains("audio") ||
+             lowerTitle.Contains("video") ||
+             lowerTitle.Contains("input") ||
+             lowerTitle.Contains("controller") ||
+             lowerTitle.Contains("cheat") ||
+             lowerTitle.Contains("shader") ||
+             lowerTitle.Contains("about"));
+
+        if (isKnownToolWindow)
             return false;
-
-        if (!string.IsNullOrWhiteSpace(lowerTitle))
-        {
-            if (lowerTitle.Contains("settings") || lowerTitle.Contains("audio") || lowerTitle.Contains("video") || lowerTitle.Contains("input") || lowerTitle.Contains("controller") || lowerTitle.Contains("cheat") || lowerTitle.Contains("shader") || lowerTitle.Contains("about"))
-            {
-                looksLikePrimaryUi = true;
-            }
-
-            if (lowerTitle.Contains("eden"))
-                return false;
-        }
 
         if (!string.IsNullOrWhiteSpace(lowerClass))
         {
-            if (lowerClass.Contains("sdl") || lowerClass.Contains("glfw") || lowerClass.Contains("qt") || lowerClass.Contains("eden"))
-            {
+            if (lowerClass.Contains("sdl") || lowerClass.Contains("glfw"))
                 return true;
-            }
+
+            // Keep Qt/Eden windows eligible; recent builds may render directly in the main framed window.
+            if (lowerClass.Contains("qt") || lowerClass.Contains("eden"))
+                return true;
         }
 
-        return !looksLikePrimaryUi && (!hasCaption || string.IsNullOrWhiteSpace(lowerTitle));
+        if (!string.IsNullOrWhiteSpace(lowerTitle) && lowerTitle.Contains("eden"))
+            return true;
+
+        // Fallback for recent Eden behavior where gameplay renders in the primary maximized/framed window.
+        if (isMainWindow)
+            return true;
+
+        return !hasCaption || !hasThickFrame;
     }
 }

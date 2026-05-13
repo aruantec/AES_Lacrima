@@ -103,7 +103,7 @@ struct CaptureSession
         float tint[4];
         float outputWidth;
         float outputHeight;
-        float padding0;
+        float sourceIsSrgb;
         float padding1;
     };
 
@@ -1461,7 +1461,7 @@ struct CaptureSession
             "VSOut main(VSIn input) { VSOut o; o.pos = float4(input.pos, 1.0); o.uv = input.uv; return o; }";
 
         const char* psDefaultSrc =
-            "cbuffer Params : register(b0) { float brightness; float saturation; float sourceWidth; float sourceHeight; float4 tint; float outputWidth; float outputHeight; float padding0; float padding1; };"
+            "cbuffer Params : register(b0) { float brightness; float saturation; float sourceWidth; float sourceHeight; float4 tint; float outputWidth; float outputHeight; float sourceIsSrgb; float padding1; };"
             "Texture2D src : register(t0);"
             "SamplerState samp : register(s0);"
             "struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD; };"
@@ -1471,6 +1471,7 @@ struct CaptureSession
             "  float gray = dot(col.rgb, float3(0.299, 0.587, 0.114));"
             "  col.rgb = lerp(float3(gray, gray, gray), col.rgb, saturation);"
             "  col *= tint;"
+            "  if (sourceIsSrgb > 0.5) { col.rgb = pow(saturate(col.rgb), 1.0 / 2.2); }"
             "  return col;"
             "}";
 
@@ -1816,6 +1817,7 @@ struct CaptureSession
         constants.tint[3] = dcompTintA.load();
         constants.outputWidth = static_cast<float>(dcompWidth);
         constants.outputHeight = static_cast<float>(dcompHeight);
+        constants.sourceIsSrgb = (texDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || texDesc.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB) ? 1.0f : 0.0f;
         d3dContext->UpdateSubresource(dcompConstantBuffer.get(), 0, nullptr, &constants, 0, 0);
 
         D3D11_VIEWPORT viewport{};

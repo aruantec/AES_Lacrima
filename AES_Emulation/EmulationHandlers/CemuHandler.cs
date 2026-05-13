@@ -199,15 +199,20 @@ public sealed class CemuHandler : EmulatorHandlerBase
 
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
-        await WaitForRenderReadyLogAsync(process, cancellationToken).ConfigureAwait(false);
+        await WaitForRenderReadyLogAsync(process, cancellationToken, () => PrepareProcessForCapture(process)).ConfigureAwait(false);
 
         for (var attempt = 0; attempt < 200; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            PrepareProcessForCapture(process);
+
             var preferred = FindPreferredWindowHandle(process);
             if (preferred != IntPtr.Zero)
+            {
+                PrepareWindowForCapture(preferred);
                 return preferred;
+            }
 
             await Task.Delay(100, cancellationToken).ConfigureAwait(false);
         }
@@ -215,7 +220,7 @@ public sealed class CemuHandler : EmulatorHandlerBase
         return IntPtr.Zero;
     }
 
-    private static async Task WaitForRenderReadyLogAsync(Process process, CancellationToken cancellationToken)
+    private static async Task WaitForRenderReadyLogAsync(Process process, CancellationToken cancellationToken, Action? onPoll)
     {
         if (process == null)
             return;
@@ -228,6 +233,7 @@ public sealed class CemuHandler : EmulatorHandlerBase
         while (DateTime.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            onPoll?.Invoke();
 
             try
             {
