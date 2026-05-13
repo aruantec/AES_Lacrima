@@ -959,10 +959,9 @@ namespace AES_Lacrima.ViewModels
             if (AudioPlayer == null) return;
             AudioPlayer.RepeatMode = AudioPlayer.RepeatMode switch
             {
-                RepeatMode.Off => RepeatMode.One,
-                RepeatMode.One => RepeatMode.All,
-                RepeatMode.All => RepeatMode.Shuffle,
-                RepeatMode.Shuffle => RepeatMode.Off,
+                RepeatMode.Off => RepeatMode.All,
+                RepeatMode.All => RepeatMode.One,
+                RepeatMode.One => RepeatMode.Off,
                 _ => RepeatMode.Off
             };
         }
