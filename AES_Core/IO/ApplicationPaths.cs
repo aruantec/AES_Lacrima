@@ -46,6 +46,11 @@ public static class ApplicationPaths
     public static string ToolsDirectory => Path.Combine(DataRootDirectory, "Tools");
 
     /// <summary>
+    /// Directory for managed emulator installations and update staging.
+    /// </summary>
+    public static string EmulatorsDirectory => Path.Combine(DataRootDirectory, "Emulators");
+
+    /// <summary>
     /// Directory for shader files used by the application.
     /// This is a shared writable runtime folder adjacent to the Logs folder,
     /// so packaged builds can copy bundled shaders out of the app bundle and

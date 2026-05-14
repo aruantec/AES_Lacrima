@@ -184,11 +184,17 @@ public sealed class EmulationSectionLaunchSettings
 
     public string? SelectedRetroArchCore { get; set; }
 
+    public string? EdenRepositoryOverride { get; set; }
+
+    public string? SelectedEdenVersion { get; set; }
+
     public EmulationSectionLaunchSettings Clone() =>
         new()
         {
             StartFullscreen = StartFullscreen,
-            SelectedRetroArchCore = SelectedRetroArchCore
+            SelectedRetroArchCore = SelectedRetroArchCore,
+            EdenRepositoryOverride = EdenRepositoryOverride,
+            SelectedEdenVersion = SelectedEdenVersion
         };
 }
 
@@ -2429,6 +2435,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         return item.LaunchSettings?.StartFullscreen is not null ||
                !string.IsNullOrWhiteSpace(item.SelectedRetroArchCore) ||
+               !string.IsNullOrWhiteSpace(item.LaunchSettings?.EdenRepositoryOverride) ||
+               !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedEdenVersion) ||
                !string.IsNullOrWhiteSpace(item.SelectedHandlerId);
     }
 
@@ -2440,7 +2448,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         return new EmulationSectionLaunchSettings
         {
             StartFullscreen = persisted.StartFullscreen ?? defaults.StartFullscreen,
-            SelectedRetroArchCore = persisted.SelectedRetroArchCore ?? defaults.SelectedRetroArchCore
+            SelectedRetroArchCore = persisted.SelectedRetroArchCore ?? defaults.SelectedRetroArchCore,
+            EdenRepositoryOverride = persisted.EdenRepositoryOverride ?? defaults.EdenRepositoryOverride,
+            SelectedEdenVersion = persisted.SelectedEdenVersion ?? defaults.SelectedEdenVersion
         };
     }
 
