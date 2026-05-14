@@ -237,14 +237,21 @@
 
         <Grid Grid.Row="0"
               Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
-              IsHitTestVisible="{Binding IsCompositionCaptureVisible}"
               ZIndex="5"
               Margin="{Binding IsRenderOptionsOpen, Converter={StaticResource BoolToValueConverter}, ConverterParameter='0,0,660,0'}">
+            <Grid.IsHitTestVisible>
+                <MultiBinding Converter="{StaticResource BoolOrConverter}">
+                    <Binding Path="IsCompositionCaptureVisible"/>
+                    <Binding Path="IsRenderOptionsOpen"/>
+                    <Binding Path="IsRetroArchErrorOverlayOpen"/>
+                </MultiBinding>
+            </Grid.IsHitTestVisible>
             <Grid.IsVisible>
                 <MultiBinding Converter="{StaticResource BoolOrConverter}">
                     <Binding Path="IsCompositionCaptureVisible"/>
                     <Binding Path="IsEmulatorLaunchInProgress"/>
                     <Binding ElementName="RootView" Path="IsPortalCaptureInitializing"/>
+                    <Binding Path="IsRenderOptionsOpen"/>
                 </MultiBinding>
             </Grid.IsVisible>
             <Grid.Transitions>
@@ -524,6 +531,27 @@
                                                 BorderBrush="#555"
                                                 BorderThickness="1"/>
                                     </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="12"
+                                                Margin="0,12,0,0"
+                                                VerticalAlignment="Center"
+                                                IsVisible="{Binding ShowCurrentSectionRetroArchCoreSelection}">
+                                        <TextBlock Text="RetroArch Core"
+                                                   Foreground="White"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="18"
+                                                   Width="220"/>
+                                        <ComboBox MinWidth="260"
+                                                  HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding CurrentSectionRetroArchCores}"
+                                                  SelectedItem="{Binding SelectedCurrentSectionRetroArchCore, Mode=TwoWay}">
+                                            <Interaction.Behaviors>
+                                                <controlBehaviors:ComboBoxPopupScaler/>
+                                            </Interaction.Behaviors>
+                                        </ComboBox>
+                                    </StackPanel>
+
                                     <TextBlock Text="Handler runtime options are not currently exposed in the UI." Foreground="#B0B0B0" FontSize="16" TextWrapping="Wrap" Margin="0,16,0,0" />
                                 </StackPanel>
                             </ScrollViewer>
@@ -812,8 +840,13 @@
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding ToggleRetroArchErrorOverlayCommand}"
-                        IsVisible="{Binding HasRetroArchError}"
                         ToolTip.Tip="Show RetroArch warning">
+                    <Button.IsVisible>
+                        <MultiBinding Converter="{StaticResource BoolAndConverter}">
+                            <Binding Path="IsEmulatorRunning"/>
+                            <Binding Path="HasRetroArchError"/>
+                        </MultiBinding>
+                    </Button.IsVisible>
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">
@@ -870,7 +903,7 @@
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding ToggleRenderOptionsCommand}"
-                        IsVisible="{Binding CanShowRenderOptions}"
+                        IsVisible="True"
                         ToolTip.Tip="Render Options">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">

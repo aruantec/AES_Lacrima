@@ -38,7 +38,7 @@ namespace AES_Lacrima.ViewModels
         IntPtr EmulatorTargetHwnd { get; }
     }
 
-    public record ShaderFileItem(string FilePath, string Name);
+    public record ShaderFileItem(string FilePath, string Name, bool IsSupportedInDirectComposition = true);
 
     public partial class EmulationAlbumItem : FolderMediaItem
     {
@@ -83,6 +83,7 @@ namespace AES_Lacrima.ViewModels
         private CancellationTokenSource? _gameplayPreviewCts;
         private bool _isGameplayPreviewActive;
         private bool _suppressSelectionStopForGameplayPreview;
+        private bool _isSyncingCurrentSectionCoreSelection;
         private double _lastSelectedIndexForPreview = double.NaN;
         private string? _pendingGameplayPreviewItemPath;
         private string? _activeGameplayPreviewItemPath;
@@ -226,9 +227,8 @@ namespace AES_Lacrima.ViewModels
         public string AlbumListToggleText => IsAlbumListCollapsed ? "Show Albums" : "Hide Albums";
 
         public bool CanShowRenderOptions =>
-            IsEmulatorRunning &&
-            (SelectedCaptureMode == EmulatorCaptureMode.DirectComposition ||
-             CurrentEmulatorHandler?.IsWindowEmbeddingSupported != true);
+            SelectedCaptureMode == EmulatorCaptureMode.DirectComposition ||
+            CurrentEmulatorHandler?.IsWindowEmbeddingSupported != true;
 
         [ObservableProperty]
         private bool _isEmulatorRunning;
@@ -286,6 +286,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ClientAreaCropBottomInset));
             OnPropertyChanged(nameof(CurrentEmulatorWindowTitleHint));
             OnPropertyChanged(nameof(CurrentCaptureStretch));
+            RefreshCurrentSectionLaunchOptionsState();
         }
 
         partial void OnSelectedCaptureModeChanged(EmulatorCaptureMode value)
@@ -370,7 +371,18 @@ namespace AES_Lacrima.ViewModels
             entries.AddRange(files
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
-                .Select(path => new ShaderFileItem(path, Path.GetFileName(path))));
+                .Select(path =>
+                {
+                    var extension = Path.GetExtension(path);
+                    var isSupportedInDirectComposition =
+                        extension.Equals(".hlsl", StringComparison.OrdinalIgnoreCase);
+
+                    var displayName = isSupportedInDirectComposition
+                        ? Path.GetFileName(path)
+                        : $"{Path.GetFileName(path)} (OpenGL only)";
+
+                    return new ShaderFileItem(path, displayName, isSupportedInDirectComposition);
+                }));
             return entries;
         }
 
@@ -385,8 +397,17 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnSelectedShaderFileItemChanged(ShaderFileItem value)
         {
-            SelectedShaderPath = value?.FilePath ?? string.Empty;
-            ClearShaderWhenPathEmpty = string.IsNullOrWhiteSpace(value?.FilePath);
+            if (value is { IsSupportedInDirectComposition: false })
+            {
+                SelectedShaderPath = string.Empty;
+                ClearShaderWhenPathEmpty = true;
+            }
+            else
+            {
+                SelectedShaderPath = value?.FilePath ?? string.Empty;
+                ClearShaderWhenPathEmpty = string.IsNullOrWhiteSpace(value?.FilePath);
+            }
+
             AutoSave();
         }
 
@@ -460,6 +481,7 @@ namespace AES_Lacrima.ViewModels
         {
             EnsureSettingsViewModelSubscription();
             OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
+            RefreshCurrentSectionLaunchOptionsState();
         }
 
         partial void OnMetadataServiceChanged(MetadataService? oldValue, MetadataService? newValue)
@@ -526,7 +548,8 @@ namespace AES_Lacrima.ViewModels
             }
 
             IsRenderOptionsOpen = false;
-            CurrentEmulatorHandler = null;
+            ClearRetroArchErrorState();
+            UpdateCurrentEmulatorHandlerForSelection(LoadedAlbum ?? SelectedAlbum);
 
             if (IsActive && IsGameplayPreviewAvailable)
                 QueueGameplayPreview(HighlightedItem, immediate: true);
@@ -739,7 +762,11 @@ namespace AES_Lacrima.ViewModels
             if (IsEmulatorRunning && !IsEmulatorViewportDismissed)
                 IsEmulatorViewportDismissed = true;
 
+            if (!IsEmulatorRunning)
+                UpdateCurrentEmulatorHandlerForSelection(value);
+
             SyncSelectedAlbumIndexFromAlbum(value);
+            RefreshCurrentSectionLaunchOptionsState();
             AutoSave();
         }
 
@@ -748,9 +775,88 @@ namespace AES_Lacrima.ViewModels
             if (IsEmulatorRunning && !IsEmulatorViewportDismissed)
                 IsEmulatorViewportDismissed = true;
 
+            if (!IsEmulatorRunning)
+                UpdateCurrentEmulatorHandlerForSelection(value ?? SelectedAlbum);
+
             ApplyFilter();
             QueueSelectedAlbumCoverScan(value);
             RefreshActiveAlbumState();
+            RefreshCurrentSectionLaunchOptionsState();
+        }
+
+        public EmulationSectionItem? CurrentEmulationSectionItem
+        {
+            get
+            {
+                var sectionTitle = (SelectedAlbum ?? LoadedAlbum)?.Title;
+                if (string.IsNullOrWhiteSpace(sectionTitle))
+                    return null;
+
+                return SettingsViewModel?.EmulationSections.FirstOrDefault(section =>
+                    string.Equals(section.SectionTitle, sectionTitle, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        public IReadOnlyList<string> CurrentSectionRetroArchCores =>
+            (IReadOnlyList<string>?)CurrentEmulationSectionItem?.RetroArchCores ?? Array.Empty<string>();
+
+        [ObservableProperty]
+        private string? _selectedCurrentSectionRetroArchCore;
+
+        partial void OnSelectedCurrentSectionRetroArchCoreChanged(string? value)
+        {
+            if (_isSyncingCurrentSectionCoreSelection)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section == null || string.Equals(section.SelectedRetroArchCore, value, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            section.SelectedRetroArchCore = value;
+            SettingsViewModel?.SaveSettings();
+        }
+
+        public bool ShowCurrentSectionRetroArchCoreSelection =>
+            CurrentEmulatorHandler?.UsesRetroArchCores == true &&
+            CurrentSectionRetroArchCores.Count > 0;
+
+        private void RefreshCurrentSectionLaunchOptionsState()
+        {
+            var sectionCore = CurrentEmulationSectionItem?.SelectedRetroArchCore;
+            if (!string.Equals(SelectedCurrentSectionRetroArchCore, sectionCore, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionCoreSelection = true;
+                    SelectedCurrentSectionRetroArchCore = sectionCore;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionCoreSelection = false;
+                }
+            }
+
+            OnPropertyChanged(nameof(CurrentEmulationSectionItem));
+            OnPropertyChanged(nameof(CurrentSectionRetroArchCores));
+            OnPropertyChanged(nameof(ShowCurrentSectionRetroArchCoreSelection));
+        }
+
+        private void UpdateCurrentEmulatorHandlerForSelection(FolderMediaItem? album)
+        {
+            if (album == null)
+            {
+                CurrentEmulatorHandler = null;
+                return;
+            }
+
+            var configuredHandler = SettingsViewModel?.GetConfiguredEmulatorHandler(album.Title);
+            if (configuredHandler == null)
+            {
+                CurrentEmulatorHandler = null;
+                return;
+            }
+
+            CurrentEmulatorHandler = configuredHandler;
         }
 
         partial void OnSelectedAlbumIndexChanged(int value)
@@ -810,9 +916,6 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void ToggleRenderOptions()
         {
-            if (!IsEmulatorRunning)
-                return;
-
             IsRenderOptionsOpen = !IsRenderOptionsOpen;
         }
 
@@ -859,7 +962,7 @@ namespace AES_Lacrima.ViewModels
             RequestStopEmulatorCapture = true;
             EmulatorTargetHwnd = IntPtr.Zero;
             IsEmulatorRunning = false;
-            CurrentEmulatorHandler = null;
+            UpdateCurrentEmulatorHandlerForSelection(LoadedAlbum ?? SelectedAlbum);
             DetachTrackedEmulatorProcess();
         }
 
@@ -1114,6 +1217,7 @@ namespace AES_Lacrima.ViewModels
 
                 SelectedAlbum = AlbumList.FirstOrDefault();
                 LoadedAlbum = null;
+                UpdateCurrentEmulatorHandlerForSelection(SelectedAlbum);
                 _sharedAlbumCache = new AvaloniaList<FolderMediaItem>(AlbumList);
                 IsPrepared = true;
                 _isPreparing = false;
