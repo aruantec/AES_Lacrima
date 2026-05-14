@@ -84,6 +84,7 @@ namespace AES_Lacrima
                 Directory.CreateDirectory(Path.Combine(ApplicationPaths.ShadersDirectory, "hlsl"));
                 Directory.CreateDirectory(Path.Combine(ApplicationPaths.ShadersDirectory, "Shadertoys"));
                 Directory.CreateDirectory(ApplicationPaths.ToolsDirectory);
+                Directory.CreateDirectory(ApplicationPaths.EmulatorsDirectory);
 
                 // Ensure libmpv and other native helpers are loaded from the per-user Tools folder
                 try

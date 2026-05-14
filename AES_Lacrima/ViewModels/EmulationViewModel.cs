@@ -84,6 +84,9 @@ namespace AES_Lacrima.ViewModels
         private bool _isGameplayPreviewActive;
         private bool _suppressSelectionStopForGameplayPreview;
         private bool _isSyncingCurrentSectionCoreSelection;
+        private bool _isSyncingCurrentSectionEdenVersionSelection;
+        private bool _isSyncingCurrentSectionEdenRepositoryOverride;
+        private bool _isCurrentSectionEdenRepositoryDirty;
         private double _lastSelectedIndexForPreview = double.NaN;
         private string? _pendingGameplayPreviewItemPath;
         private string? _activeGameplayPreviewItemPath;
@@ -131,6 +134,9 @@ namespace AES_Lacrima.ViewModels
 
         [AutoResolve]
         private MediaUrlService? _mediaUrlService;
+
+        [AutoResolve]
+        private EdenEmulatorUpdateService? _edenEmulatorUpdateService;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(AlbumListToggleText))]
@@ -803,6 +809,199 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private string? _selectedCurrentSectionRetroArchCore;
 
+        private string? _currentSectionEdenRepositoryOverride;
+        public string? CurrentSectionEdenRepositoryOverride
+        {
+            get => _currentSectionEdenRepositoryOverride;
+            set
+            {
+                if (string.Equals(_currentSectionEdenRepositoryOverride, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionEdenRepositoryOverride = value;
+                OnPropertyChanged();
+
+                if (!_isSyncingCurrentSectionEdenRepositoryOverride)
+                    IsCurrentSectionEdenRepositoryDirty = true;
+            }
+        }
+
+        public bool IsCurrentSectionEdenRepositoryDirty
+        {
+            get => _isCurrentSectionEdenRepositoryDirty;
+            set
+            {
+                if (_isCurrentSectionEdenRepositoryDirty == value)
+                    return;
+
+                _isCurrentSectionEdenRepositoryDirty = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private AvaloniaList<string> _currentSectionEdenAvailableVersions = [];
+        public AvaloniaList<string> CurrentSectionEdenAvailableVersions
+        {
+            get => _currentSectionEdenAvailableVersions;
+            set
+            {
+                if (ReferenceEquals(_currentSectionEdenAvailableVersions, value))
+                    return;
+
+                _currentSectionEdenAvailableVersions = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _selectedCurrentSectionEdenVersion;
+        public string? SelectedCurrentSectionEdenVersion
+        {
+            get => _selectedCurrentSectionEdenVersion;
+            set
+            {
+                if (string.Equals(_selectedCurrentSectionEdenVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _selectedCurrentSectionEdenVersion = value;
+                OnPropertyChanged();
+                OnSelectedCurrentSectionEdenVersionChanged(value);
+            }
+        }
+
+        private string? _currentSectionEdenCurrentVersion;
+        public string? CurrentSectionEdenCurrentVersion
+        {
+            get => _currentSectionEdenCurrentVersion;
+            set
+            {
+                if (string.Equals(_currentSectionEdenCurrentVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionEdenCurrentVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionEdenLatestVersion;
+        public string? CurrentSectionEdenLatestVersion
+        {
+            get => _currentSectionEdenLatestVersion;
+            set
+            {
+                if (string.Equals(_currentSectionEdenLatestVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionEdenLatestVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string _currentSectionEdenStatus = "Select an Eden section to manage updates.";
+        public string CurrentSectionEdenStatus
+        {
+            get => _currentSectionEdenStatus;
+            set
+            {
+                if (string.Equals(_currentSectionEdenStatus, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionEdenStatus = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionEdenUpdateAvailable;
+        public bool IsCurrentSectionEdenUpdateAvailable
+        {
+            get => _isCurrentSectionEdenUpdateAvailable;
+            set
+            {
+                if (_isCurrentSectionEdenUpdateAvailable == value)
+                    return;
+
+                _isCurrentSectionEdenUpdateAvailable = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionEdenBusy;
+        public bool IsCurrentSectionEdenBusy
+        {
+            get => _isCurrentSectionEdenBusy;
+            set
+            {
+                if (_isCurrentSectionEdenBusy == value)
+                    return;
+
+                _isCurrentSectionEdenBusy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionEdenDownloading;
+        public bool IsCurrentSectionEdenDownloading
+        {
+            get => _isCurrentSectionEdenDownloading;
+            set
+            {
+                if (_isCurrentSectionEdenDownloading == value)
+                    return;
+
+                _isCurrentSectionEdenDownloading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private double _currentSectionEdenDownloadProgress;
+        public double CurrentSectionEdenDownloadProgress
+        {
+            get => _currentSectionEdenDownloadProgress;
+            set
+            {
+                if (Math.Abs(_currentSectionEdenDownloadProgress - value) < 0.01)
+                    return;
+
+                _currentSectionEdenDownloadProgress = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionEdenEmulatorPath;
+        public string? CurrentSectionEdenEmulatorPath
+        {
+            get => _currentSectionEdenEmulatorPath;
+            set
+            {
+                if (string.Equals(_currentSectionEdenEmulatorPath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionEdenEmulatorPath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionEdenUpdatePath;
+        public string? CurrentSectionEdenUpdatePath
+        {
+            get => _currentSectionEdenUpdatePath;
+            set
+            {
+                if (string.Equals(_currentSectionEdenUpdatePath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionEdenUpdatePath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private IAsyncRelayCommand? _applyCurrentSectionEdenRepositoryCommand;
+        public IAsyncRelayCommand ApplyCurrentSectionEdenRepositoryCommand =>
+            _applyCurrentSectionEdenRepositoryCommand ??= new AsyncRelayCommand(ApplyCurrentSectionEdenRepository);
+
+        private IAsyncRelayCommand? _openCurrentSectionEdenUpdatesCommand;
+        public IAsyncRelayCommand OpenCurrentSectionEdenUpdatesCommand =>
+            _openCurrentSectionEdenUpdatesCommand ??= new AsyncRelayCommand(OpenCurrentSectionEdenUpdates);
+
         partial void OnSelectedCurrentSectionRetroArchCoreChanged(string? value)
         {
             if (_isSyncingCurrentSectionCoreSelection)
@@ -816,9 +1015,54 @@ namespace AES_Lacrima.ViewModels
             SettingsViewModel?.SaveSettings();
         }
 
+        private async Task ApplyCurrentSectionEdenRepository()
+        {
+            if (!ShowCurrentSectionEdenUpdateControls)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(CurrentSectionEdenRepositoryOverride)
+                ? null
+                : CurrentSectionEdenRepositoryOverride.Trim();
+
+            if (!string.Equals(section.LaunchSettings.EdenRepositoryOverride, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                section.LaunchSettings.EdenRepositoryOverride = normalized;
+                SettingsViewModel?.SaveSettings();
+            }
+
+            IsCurrentSectionEdenRepositoryDirty = false;
+            await RefreshCurrentSectionEdenInfo();
+        }
+
+        private void OnSelectedCurrentSectionEdenVersionChanged(string? value)
+        {
+            if (_isSyncingCurrentSectionEdenVersionSelection)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (string.Equals(section.LaunchSettings.SelectedEdenVersion, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            section.LaunchSettings.SelectedEdenVersion = normalized;
+            SettingsViewModel?.SaveSettings();
+        }
+
         public bool ShowCurrentSectionRetroArchCoreSelection =>
             CurrentEmulatorHandler?.UsesRetroArchCores == true &&
             CurrentSectionRetroArchCores.Count > 0;
+
+        public bool ShowCurrentSectionEdenUpdateControls =>
+            CurrentEmulatorHandler != null &&
+            string.Equals(CurrentEmulatorHandler.HandlerId, EdenHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentEmulationSectionItem != null;
 
         private void RefreshCurrentSectionLaunchOptionsState()
         {
@@ -836,9 +1080,191 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
+            var section = CurrentEmulationSectionItem;
+            var sectionRepoOverride = section?.LaunchSettings?.EdenRepositoryOverride;
+            if (!string.Equals(CurrentSectionEdenRepositoryOverride, sectionRepoOverride, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionEdenRepositoryOverride = true;
+                    CurrentSectionEdenRepositoryOverride = sectionRepoOverride;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionEdenRepositoryOverride = false;
+                }
+            }
+
+            IsCurrentSectionEdenRepositoryDirty = false;
+
+            var sectionEdenVersion = section?.LaunchSettings?.SelectedEdenVersion;
+            if (!string.Equals(SelectedCurrentSectionEdenVersion, sectionEdenVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionEdenVersionSelection = true;
+                    SelectedCurrentSectionEdenVersion = sectionEdenVersion;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionEdenVersionSelection = false;
+                }
+            }
+
             OnPropertyChanged(nameof(CurrentEmulationSectionItem));
             OnPropertyChanged(nameof(CurrentSectionRetroArchCores));
             OnPropertyChanged(nameof(ShowCurrentSectionRetroArchCoreSelection));
+            OnPropertyChanged(nameof(ShowCurrentSectionEdenUpdateControls));
+
+            if (ShowCurrentSectionEdenUpdateControls)
+            {
+                _ = RefreshCurrentSectionEdenInfo();
+            }
+            else
+            {
+                CurrentSectionEdenAvailableVersions.Clear();
+                CurrentSectionEdenCurrentVersion = null;
+                CurrentSectionEdenLatestVersion = null;
+                CurrentSectionEdenStatus = "Select an Eden section to manage updates.";
+                IsCurrentSectionEdenUpdateAvailable = false;
+                CurrentSectionEdenEmulatorPath = null;
+                CurrentSectionEdenUpdatePath = null;
+                IsCurrentSectionEdenRepositoryDirty = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task RefreshCurrentSectionEdenInfo()
+        {
+            if (!ShowCurrentSectionEdenUpdateControls)
+            {
+                CurrentSectionEdenStatus = "Select an Eden section to manage updates.";
+                CurrentSectionEdenAvailableVersions.Clear();
+                CurrentSectionEdenCurrentVersion = null;
+                CurrentSectionEdenLatestVersion = null;
+                IsCurrentSectionEdenUpdateAvailable = false;
+                CurrentSectionEdenEmulatorPath = null;
+                CurrentSectionEdenUpdatePath = null;
+                CurrentSectionEdenDownloadProgress = 0;
+                IsCurrentSectionEdenDownloading = false;
+                return;
+            }
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _edenEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionEdenBusy = true;
+            IsCurrentSectionEdenDownloading = false;
+            CurrentSectionEdenDownloadProgress = 0;
+            try
+            {
+                var state = await updater.GetUpdateInfoAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    CurrentSectionEdenRepositoryOverride,
+                    forceRefresh: false).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() => ApplyEdenUpdateState(state));
+            }
+            finally
+            {
+                IsCurrentSectionEdenBusy = false;
+                IsCurrentSectionEdenDownloading = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task DownloadOrUpdateCurrentSectionEden()
+        {
+            if (!ShowCurrentSectionEdenUpdateControls)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _edenEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionEdenBusy = true;
+            IsCurrentSectionEdenDownloading = true;
+            CurrentSectionEdenDownloadProgress = 5;
+            try
+            {
+                var state = await updater.DownloadOrUpdateAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    CurrentSectionEdenRepositoryOverride,
+                    SelectedCurrentSectionEdenVersion).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CurrentSectionEdenDownloadProgress = 100;
+                    ApplyEdenUpdateState(state);
+
+                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                        !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        handler.LauncherPath = state.ResolvedLauncherPath;
+                        SettingsViewModel?.SaveSettings();
+                    }
+                });
+            }
+            finally
+            {
+                IsCurrentSectionEdenBusy = false;
+                IsCurrentSectionEdenDownloading = false;
+            }
+        }
+
+        private void ApplyEdenUpdateState(EdenUpdateState state)
+        {
+            CurrentSectionEdenCurrentVersion = state.CurrentVersion;
+            CurrentSectionEdenLatestVersion = state.LatestVersion;
+            IsCurrentSectionEdenUpdateAvailable = state.IsUpdateAvailable;
+            CurrentSectionEdenStatus = state.StatusMessage;
+            CurrentSectionEdenEmulatorPath = state.EmulatorDirectory;
+            CurrentSectionEdenUpdatePath = state.UpdateDirectory;
+
+            CurrentSectionEdenAvailableVersions.Clear();
+            foreach (var version in state.AvailableVersions.Take(10))
+                CurrentSectionEdenAvailableVersions.Add(version);
+
+            var selectedVersion = SelectedCurrentSectionEdenVersion;
+            if (string.IsNullOrWhiteSpace(selectedVersion) ||
+                !CurrentSectionEdenAvailableVersions.Contains(selectedVersion, StringComparer.OrdinalIgnoreCase))
+            {
+                selectedVersion = CurrentSectionEdenAvailableVersions.FirstOrDefault() ?? state.LatestVersion;
+            }
+
+            try
+            {
+                _isSyncingCurrentSectionEdenVersionSelection = true;
+                SelectedCurrentSectionEdenVersion = selectedVersion;
+            }
+            finally
+            {
+                _isSyncingCurrentSectionEdenVersionSelection = false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(state.Repository) &&
+                !string.Equals(CurrentSectionEdenRepositoryOverride, state.Repository, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(state.Repository, "eden-emu/eden", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionEdenRepositoryOverride = true;
+                    CurrentSectionEdenRepositoryOverride = state.Repository;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionEdenRepositoryOverride = false;
+                }
+            }
         }
 
         private void UpdateCurrentEmulatorHandlerForSelection(FolderMediaItem? album)
@@ -917,6 +1343,13 @@ namespace AES_Lacrima.ViewModels
         private void ToggleRenderOptions()
         {
             IsRenderOptionsOpen = !IsRenderOptionsOpen;
+        }
+
+        private async Task OpenCurrentSectionEdenUpdates()
+        {
+            IsRenderOptionsOpen = true;
+            RenderOptionsSelectedTabIndex = 1;
+            await RefreshCurrentSectionEdenInfo();
         }
 
         [RelayCommand]
