@@ -92,6 +92,7 @@ namespace AES_Lacrima.ViewModels
         private bool _isSyncingCurrentSectionShadPs4RepositoryOverride;
         private bool _isCurrentSectionShadPs4RepositoryDirty;
         private bool _isSyncingCurrentSectionShadPs4IncludePrereleases;
+        private bool _isSyncingCurrentSectionXeniaVersionSelection;
         private double _lastSelectedIndexForPreview = double.NaN;
         private string? _pendingGameplayPreviewItemPath;
         private string? _activeGameplayPreviewItemPath;
@@ -145,6 +146,9 @@ namespace AES_Lacrima.ViewModels
 
         [AutoResolve]
         private ShadPs4EmulatorUpdateService? _shadPs4EmulatorUpdateService;
+
+        [AutoResolve]
+        private XeniaEmulatorUpdateService? _xeniaEmulatorUpdateService;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(AlbumListToggleText))]
@@ -1251,6 +1255,162 @@ namespace AES_Lacrima.ViewModels
         public IAsyncRelayCommand ApplyCurrentSectionShadPs4RepositoryCommand =>
             _applyCurrentSectionShadPs4RepositoryCommand ??= new AsyncRelayCommand(ApplyCurrentSectionShadPs4Repository);
 
+        private AvaloniaList<string> _currentSectionXeniaAvailableVersions = [];
+        public AvaloniaList<string> CurrentSectionXeniaAvailableVersions
+        {
+            get => _currentSectionXeniaAvailableVersions;
+            set
+            {
+                if (ReferenceEquals(_currentSectionXeniaAvailableVersions, value))
+                    return;
+
+                _currentSectionXeniaAvailableVersions = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _selectedCurrentSectionXeniaVersion;
+        public string? SelectedCurrentSectionXeniaVersion
+        {
+            get => _selectedCurrentSectionXeniaVersion;
+            set
+            {
+                if (string.Equals(_selectedCurrentSectionXeniaVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _selectedCurrentSectionXeniaVersion = value;
+                OnPropertyChanged();
+                OnSelectedCurrentSectionXeniaVersionChanged(value);
+            }
+        }
+
+        private string? _currentSectionXeniaCurrentVersion;
+        public string? CurrentSectionXeniaCurrentVersion
+        {
+            get => _currentSectionXeniaCurrentVersion;
+            set
+            {
+                if (string.Equals(_currentSectionXeniaCurrentVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionXeniaCurrentVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionXeniaLatestVersion;
+        public string? CurrentSectionXeniaLatestVersion
+        {
+            get => _currentSectionXeniaLatestVersion;
+            set
+            {
+                if (string.Equals(_currentSectionXeniaLatestVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionXeniaLatestVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string _currentSectionXeniaStatus = "Select a Xenia section to manage updates.";
+        public string CurrentSectionXeniaStatus
+        {
+            get => _currentSectionXeniaStatus;
+            set
+            {
+                if (string.Equals(_currentSectionXeniaStatus, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionXeniaStatus = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionXeniaUpdateAvailable;
+        public bool IsCurrentSectionXeniaUpdateAvailable
+        {
+            get => _isCurrentSectionXeniaUpdateAvailable;
+            set
+            {
+                if (_isCurrentSectionXeniaUpdateAvailable == value)
+                    return;
+
+                _isCurrentSectionXeniaUpdateAvailable = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
+            }
+        }
+
+        private bool _isCurrentSectionXeniaBusy;
+        public bool IsCurrentSectionXeniaBusy
+        {
+            get => _isCurrentSectionXeniaBusy;
+            set
+            {
+                if (_isCurrentSectionXeniaBusy == value)
+                    return;
+
+                _isCurrentSectionXeniaBusy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionXeniaDownloading;
+        public bool IsCurrentSectionXeniaDownloading
+        {
+            get => _isCurrentSectionXeniaDownloading;
+            set
+            {
+                if (_isCurrentSectionXeniaDownloading == value)
+                    return;
+
+                _isCurrentSectionXeniaDownloading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private double _currentSectionXeniaDownloadProgress;
+        public double CurrentSectionXeniaDownloadProgress
+        {
+            get => _currentSectionXeniaDownloadProgress;
+            set
+            {
+                if (Math.Abs(_currentSectionXeniaDownloadProgress - value) < 0.01)
+                    return;
+
+                _currentSectionXeniaDownloadProgress = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionXeniaEmulatorPath;
+        public string? CurrentSectionXeniaEmulatorPath
+        {
+            get => _currentSectionXeniaEmulatorPath;
+            set
+            {
+                if (string.Equals(_currentSectionXeniaEmulatorPath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionXeniaEmulatorPath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionXeniaUpdatePath;
+        public string? CurrentSectionXeniaUpdatePath
+        {
+            get => _currentSectionXeniaUpdatePath;
+            set
+            {
+                if (string.Equals(_currentSectionXeniaUpdatePath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionXeniaUpdatePath = value;
+                OnPropertyChanged();
+            }
+        }
+
         partial void OnSelectedCurrentSectionRetroArchCoreChanged(string? value)
         {
             if (_isSyncingCurrentSectionCoreSelection)
@@ -1344,6 +1504,23 @@ namespace AES_Lacrima.ViewModels
             SettingsViewModel?.SaveSettings();
         }
 
+        private void OnSelectedCurrentSectionXeniaVersionChanged(string? value)
+        {
+            if (_isSyncingCurrentSectionXeniaVersionSelection)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (string.Equals(section.LaunchSettings.SelectedXeniaVersion, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            section.LaunchSettings.SelectedXeniaVersion = normalized;
+            SettingsViewModel?.SaveSettings();
+        }
+
         public bool ShowCurrentSectionRetroArchCoreSelection =>
             CurrentEmulatorHandler?.UsesRetroArchCores == true &&
             CurrentSectionRetroArchCores.Count > 0;
@@ -1358,9 +1535,15 @@ namespace AES_Lacrima.ViewModels
             string.Equals(CurrentEmulatorHandler.HandlerId, ShadPs4Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
+        public bool ShowCurrentSectionXeniaUpdateControls =>
+            CurrentEmulatorHandler != null &&
+            string.Equals(CurrentEmulatorHandler.HandlerId, XeniaHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentEmulationSectionItem != null;
+
         public bool IsCurrentSectionHandlerUpdateAvailable =>
             (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable) ||
-            (ShowCurrentSectionShadPs4UpdateControls && IsCurrentSectionShadPs4UpdateAvailable);
+            (ShowCurrentSectionShadPs4UpdateControls && IsCurrentSectionShadPs4UpdateAvailable) ||
+            (ShowCurrentSectionXeniaUpdateControls && IsCurrentSectionXeniaUpdateAvailable);
 
         private void RefreshCurrentSectionLaunchOptionsState()
         {
@@ -1428,6 +1611,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ShowCurrentSectionRetroArchCoreSelection));
             OnPropertyChanged(nameof(ShowCurrentSectionEdenUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4UpdateControls));
+            OnPropertyChanged(nameof(ShowCurrentSectionXeniaUpdateControls));
             OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
 
             if (ShowCurrentSectionEdenUpdateControls)
@@ -1525,6 +1709,37 @@ namespace AES_Lacrima.ViewModels
                     _isSyncingCurrentSectionShadPs4IncludePrereleases = false;
                 }
             }
+
+            var sectionXeniaVersion = section?.LaunchSettings?.SelectedXeniaVersion;
+            if (!string.Equals(SelectedCurrentSectionXeniaVersion, sectionXeniaVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionXeniaVersionSelection = true;
+                    SelectedCurrentSectionXeniaVersion = sectionXeniaVersion;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionXeniaVersionSelection = false;
+                }
+            }
+
+            if (ShowCurrentSectionXeniaUpdateControls)
+            {
+                _ = RefreshCurrentSectionXeniaInfo();
+            }
+            else
+            {
+                CurrentSectionXeniaAvailableVersions.Clear();
+                CurrentSectionXeniaCurrentVersion = null;
+                CurrentSectionXeniaLatestVersion = null;
+                CurrentSectionXeniaStatus = "Select a Xenia section to manage updates.";
+                IsCurrentSectionXeniaUpdateAvailable = false;
+                CurrentSectionXeniaEmulatorPath = null;
+                CurrentSectionXeniaUpdatePath = null;
+                CurrentSectionXeniaDownloadProgress = 0;
+                IsCurrentSectionXeniaDownloading = false;
+            }
         }
 
         [RelayCommand]
@@ -1569,6 +1784,92 @@ namespace AES_Lacrima.ViewModels
             {
                 IsCurrentSectionEdenBusy = false;
                 IsCurrentSectionEdenDownloading = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task RefreshCurrentSectionXeniaInfo()
+        {
+            if (!ShowCurrentSectionXeniaUpdateControls)
+            {
+                CurrentSectionXeniaStatus = "Select a Xenia section to manage updates.";
+                CurrentSectionXeniaAvailableVersions.Clear();
+                CurrentSectionXeniaCurrentVersion = null;
+                CurrentSectionXeniaLatestVersion = null;
+                IsCurrentSectionXeniaUpdateAvailable = false;
+                CurrentSectionXeniaEmulatorPath = null;
+                CurrentSectionXeniaUpdatePath = null;
+                CurrentSectionXeniaDownloadProgress = 0;
+                IsCurrentSectionXeniaDownloading = false;
+                return;
+            }
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _xeniaEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionXeniaBusy = true;
+            IsCurrentSectionXeniaDownloading = false;
+            CurrentSectionXeniaDownloadProgress = 0;
+            try
+            {
+                var state = await updater.GetUpdateInfoAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    forceRefresh: false).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() => ApplyXeniaUpdateState(state));
+            }
+            finally
+            {
+                IsCurrentSectionXeniaBusy = false;
+                IsCurrentSectionXeniaDownloading = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task DownloadOrUpdateCurrentSectionXenia()
+        {
+            if (!ShowCurrentSectionXeniaUpdateControls)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _xeniaEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionXeniaBusy = true;
+            IsCurrentSectionXeniaDownloading = true;
+            CurrentSectionXeniaDownloadProgress = 5;
+            try
+            {
+                var state = await updater.DownloadOrUpdateAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    SelectedCurrentSectionXeniaVersion).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CurrentSectionXeniaDownloadProgress = 100;
+                    ApplyXeniaUpdateState(state);
+
+                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                        !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        handler.LauncherPath = state.ResolvedLauncherPath;
+                        SettingsViewModel?.SaveSettings();
+                    }
+                });
+            }
+            finally
+            {
+                IsCurrentSectionXeniaBusy = false;
+                IsCurrentSectionXeniaDownloading = false;
             }
         }
 
@@ -1750,6 +2051,37 @@ namespace AES_Lacrima.ViewModels
                 {
                     _isSyncingCurrentSectionEdenRepositoryOverride = false;
                 }
+            }
+        }
+
+        private void ApplyXeniaUpdateState(XeniaUpdateState state)
+        {
+            CurrentSectionXeniaCurrentVersion = state.CurrentVersion;
+            CurrentSectionXeniaLatestVersion = state.LatestVersion;
+            IsCurrentSectionXeniaUpdateAvailable = state.IsUpdateAvailable;
+            CurrentSectionXeniaStatus = state.StatusMessage;
+            CurrentSectionXeniaEmulatorPath = state.EmulatorDirectory;
+            CurrentSectionXeniaUpdatePath = state.UpdateDirectory;
+
+            CurrentSectionXeniaAvailableVersions.Clear();
+            foreach (var version in state.AvailableVersions.Take(10))
+                CurrentSectionXeniaAvailableVersions.Add(version);
+
+            var selectedVersion = SelectedCurrentSectionXeniaVersion;
+            if (string.IsNullOrWhiteSpace(selectedVersion) ||
+                !CurrentSectionXeniaAvailableVersions.Contains(selectedVersion, StringComparer.OrdinalIgnoreCase))
+            {
+                selectedVersion = CurrentSectionXeniaAvailableVersions.FirstOrDefault() ?? state.LatestVersion;
+            }
+
+            try
+            {
+                _isSyncingCurrentSectionXeniaVersionSelection = true;
+                SelectedCurrentSectionXeniaVersion = selectedVersion;
+            }
+            finally
+            {
+                _isSyncingCurrentSectionXeniaVersionSelection = false;
             }
         }
 
