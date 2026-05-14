@@ -184,6 +184,12 @@ public sealed class EmulationSectionLaunchSettings
 
     public string? SelectedRetroArchCore { get; set; }
 
+    public string? RetroArchRepositoryOverride { get; set; }
+
+    public string? SelectedRetroArchVersion { get; set; }
+
+    public bool IncludeRetroArchCores { get; set; }
+
     public string? EdenRepositoryOverride { get; set; }
 
     public string? SelectedEdenVersion { get; set; }
@@ -203,6 +209,9 @@ public sealed class EmulationSectionLaunchSettings
         {
             StartFullscreen = StartFullscreen,
             SelectedRetroArchCore = SelectedRetroArchCore,
+            RetroArchRepositoryOverride = RetroArchRepositoryOverride,
+            SelectedRetroArchVersion = SelectedRetroArchVersion,
+            IncludeRetroArchCores = IncludeRetroArchCores,
             EdenRepositoryOverride = EdenRepositoryOverride,
             SelectedEdenVersion = SelectedEdenVersion,
             IncludeEdenPrereleases = IncludeEdenPrereleases,

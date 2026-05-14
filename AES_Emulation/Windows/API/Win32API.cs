@@ -404,6 +404,36 @@ namespace AES_Emulation.Windows.API
             }
         }
 
+        public static bool SetWindowBounds(IntPtr hwnd, int x, int y, int width, int height)
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            try
+            {
+                return SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool TryGetVirtualScreenBounds(out int x, out int y, out int width, out int height)
+        {
+            x = y = width = height = 0;
+            try
+            {
+                x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+                return width > 0 && height > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static bool IsWindowTopMost(IntPtr hwnd)
         {
             if (hwnd == IntPtr.Zero) return false;

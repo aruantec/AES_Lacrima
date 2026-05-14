@@ -1,16 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Collections.Specialized;
-using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Globalization;
 using AES_Controls.Helpers;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
@@ -23,7 +10,6 @@ using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
 using Avalonia;
-using System.ComponentModel;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
@@ -33,6 +19,19 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using log4net;
+using System;
+using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace AES_Lacrima.ViewModels
 {
@@ -105,6 +104,10 @@ namespace AES_Lacrima.ViewModels
         private bool _isGameplayPreviewActive;
         private bool _suppressSelectionStopForGameplayPreview;
         private bool _isSyncingCurrentSectionCoreSelection;
+        private bool _isSyncingCurrentSectionRetroArchVersionSelection;
+        private bool _isSyncingCurrentSectionRetroArchRepositoryOverride;
+        private bool _isCurrentSectionRetroArchRepositoryDirty;
+        private bool _isSyncingCurrentSectionRetroArchIncludeCores;
         private bool _isSyncingCurrentSectionEdenVersionSelection;
         private bool _isSyncingCurrentSectionEdenRepositoryOverride;
         private bool _isCurrentSectionEdenRepositoryDirty;
@@ -180,6 +183,9 @@ namespace AES_Lacrima.ViewModels
 
         [AutoResolve]
         private EdenEmulatorUpdateService? _edenEmulatorUpdateService;
+
+        [AutoResolve]
+        private RetroArchEmulatorUpdateService? _retroArchEmulatorUpdateService;
 
         [AutoResolve]
         private ShadPs4EmulatorUpdateService? _shadPs4EmulatorUpdateService;
@@ -887,6 +893,217 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private string? _selectedCurrentSectionRetroArchCore;
 
+        private string? _currentSectionRetroArchRepositoryOverride;
+        public string? CurrentSectionRetroArchRepositoryOverride
+        {
+            get => _currentSectionRetroArchRepositoryOverride;
+            set
+            {
+                if (string.Equals(_currentSectionRetroArchRepositoryOverride, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionRetroArchRepositoryOverride = value;
+                OnPropertyChanged();
+
+                if (!_isSyncingCurrentSectionRetroArchRepositoryOverride)
+                    IsCurrentSectionRetroArchRepositoryDirty = true;
+            }
+        }
+
+        public bool IsCurrentSectionRetroArchRepositoryDirty
+        {
+            get => _isCurrentSectionRetroArchRepositoryDirty;
+            set
+            {
+                if (_isCurrentSectionRetroArchRepositoryDirty == value)
+                    return;
+
+                _isCurrentSectionRetroArchRepositoryDirty = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _includeCurrentSectionRetroArchCores;
+        public bool IncludeCurrentSectionRetroArchCores
+        {
+            get => _includeCurrentSectionRetroArchCores;
+            set
+            {
+                if (_includeCurrentSectionRetroArchCores == value)
+                    return;
+
+                _includeCurrentSectionRetroArchCores = value;
+                OnPropertyChanged();
+
+                if (_isSyncingCurrentSectionRetroArchIncludeCores)
+                    return;
+
+                var section = CurrentEmulationSectionItem;
+                if (section?.LaunchSettings == null)
+                    return;
+
+                section.LaunchSettings.IncludeRetroArchCores = value;
+                SettingsViewModel?.SaveSettings();
+                _ = RefreshCurrentSectionRetroArchInfo();
+            }
+        }
+
+        private AvaloniaList<string> _currentSectionRetroArchAvailableVersions = [];
+        public AvaloniaList<string> CurrentSectionRetroArchAvailableVersions
+        {
+            get => _currentSectionRetroArchAvailableVersions;
+            set
+            {
+                if (ReferenceEquals(_currentSectionRetroArchAvailableVersions, value))
+                    return;
+
+                _currentSectionRetroArchAvailableVersions = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _selectedCurrentSectionRetroArchVersion;
+        public string? SelectedCurrentSectionRetroArchVersion
+        {
+            get => _selectedCurrentSectionRetroArchVersion;
+            set
+            {
+                if (string.Equals(_selectedCurrentSectionRetroArchVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _selectedCurrentSectionRetroArchVersion = value;
+                OnPropertyChanged();
+                OnSelectedCurrentSectionRetroArchVersionChanged(value);
+            }
+        }
+
+        private string? _currentSectionRetroArchCurrentVersion;
+        public string? CurrentSectionRetroArchCurrentVersion
+        {
+            get => _currentSectionRetroArchCurrentVersion;
+            set
+            {
+                if (string.Equals(_currentSectionRetroArchCurrentVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionRetroArchCurrentVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionRetroArchLatestVersion;
+        public string? CurrentSectionRetroArchLatestVersion
+        {
+            get => _currentSectionRetroArchLatestVersion;
+            set
+            {
+                if (string.Equals(_currentSectionRetroArchLatestVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionRetroArchLatestVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string _currentSectionRetroArchStatus = "Select a RetroArch section to manage updates.";
+        public string CurrentSectionRetroArchStatus
+        {
+            get => _currentSectionRetroArchStatus;
+            set
+            {
+                if (string.Equals(_currentSectionRetroArchStatus, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionRetroArchStatus = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionRetroArchUpdateAvailable;
+        public bool IsCurrentSectionRetroArchUpdateAvailable
+        {
+            get => _isCurrentSectionRetroArchUpdateAvailable;
+            set
+            {
+                if (_isCurrentSectionRetroArchUpdateAvailable == value)
+                    return;
+
+                _isCurrentSectionRetroArchUpdateAvailable = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
+            }
+        }
+
+        private bool _isCurrentSectionRetroArchBusy;
+        public bool IsCurrentSectionRetroArchBusy
+        {
+            get => _isCurrentSectionRetroArchBusy;
+            set
+            {
+                if (_isCurrentSectionRetroArchBusy == value)
+                    return;
+
+                _isCurrentSectionRetroArchBusy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionRetroArchDownloading;
+        public bool IsCurrentSectionRetroArchDownloading
+        {
+            get => _isCurrentSectionRetroArchDownloading;
+            set
+            {
+                if (_isCurrentSectionRetroArchDownloading == value)
+                    return;
+
+                _isCurrentSectionRetroArchDownloading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private double _currentSectionRetroArchDownloadProgress;
+        public double CurrentSectionRetroArchDownloadProgress
+        {
+            get => _currentSectionRetroArchDownloadProgress;
+            set
+            {
+                if (Math.Abs(_currentSectionRetroArchDownloadProgress - value) < 0.01)
+                    return;
+
+                _currentSectionRetroArchDownloadProgress = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionRetroArchEmulatorPath;
+        public string? CurrentSectionRetroArchEmulatorPath
+        {
+            get => _currentSectionRetroArchEmulatorPath;
+            set
+            {
+                if (string.Equals(_currentSectionRetroArchEmulatorPath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionRetroArchEmulatorPath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionRetroArchUpdatePath;
+        public string? CurrentSectionRetroArchUpdatePath
+        {
+            get => _currentSectionRetroArchUpdatePath;
+            set
+            {
+                if (string.Equals(_currentSectionRetroArchUpdatePath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionRetroArchUpdatePath = value;
+                OnPropertyChanged();
+            }
+        }
+
         private string? _currentSectionEdenRepositoryOverride;
         public string? CurrentSectionEdenRepositoryOverride
         {
@@ -1313,6 +1530,18 @@ namespace AES_Lacrima.ViewModels
         public IAsyncRelayCommand ApplyCurrentSectionEdenRepositoryCommand =>
             _applyCurrentSectionEdenRepositoryCommand ??= new AsyncRelayCommand(ApplyCurrentSectionEdenRepository);
 
+        private IAsyncRelayCommand? _applyCurrentSectionRetroArchRepositoryCommand;
+        public IAsyncRelayCommand ApplyCurrentSectionRetroArchRepositoryCommand =>
+            _applyCurrentSectionRetroArchRepositoryCommand ??= new AsyncRelayCommand(ApplyCurrentSectionRetroArchRepository);
+
+        private IAsyncRelayCommand? _refreshCurrentSectionRetroArchInfoCommand;
+        public IAsyncRelayCommand RefreshCurrentSectionRetroArchInfoCommand =>
+            _refreshCurrentSectionRetroArchInfoCommand ??= new AsyncRelayCommand(RefreshCurrentSectionRetroArchInfo);
+
+        private IAsyncRelayCommand? _downloadOrUpdateCurrentSectionRetroArchCommand;
+        public IAsyncRelayCommand DownloadOrUpdateCurrentSectionRetroArchCommand =>
+            _downloadOrUpdateCurrentSectionRetroArchCommand ??= new AsyncRelayCommand(DownloadOrUpdateCurrentSectionRetroArch);
+
         private IAsyncRelayCommand? _openCurrentSectionEdenUpdatesCommand;
         public IAsyncRelayCommand OpenCurrentSectionEdenUpdatesCommand =>
             _openCurrentSectionEdenUpdatesCommand ??= new AsyncRelayCommand(OpenCurrentSectionEdenUpdates);
@@ -1586,6 +1815,46 @@ namespace AES_Lacrima.ViewModels
             SettingsViewModel?.SaveSettings();
         }
 
+        private void OnSelectedCurrentSectionRetroArchVersionChanged(string? value)
+        {
+            if (_isSyncingCurrentSectionRetroArchVersionSelection)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (string.Equals(section.LaunchSettings.SelectedRetroArchVersion, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            section.LaunchSettings.SelectedRetroArchVersion = normalized;
+            SettingsViewModel?.SaveSettings();
+        }
+
+        private async Task ApplyCurrentSectionRetroArchRepository()
+        {
+            if (!ShowCurrentSectionRetroArchUpdateControls)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(CurrentSectionRetroArchRepositoryOverride)
+                ? null
+                : CurrentSectionRetroArchRepositoryOverride.Trim();
+
+            if (!string.Equals(section.LaunchSettings.RetroArchRepositoryOverride, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                section.LaunchSettings.RetroArchRepositoryOverride = normalized;
+                SettingsViewModel?.SaveSettings();
+            }
+
+            IsCurrentSectionRetroArchRepositoryDirty = false;
+            await RefreshCurrentSectionRetroArchInfo();
+        }
+
         private void OnSelectedCurrentSectionShadPs4VersionChanged(string? value)
         {
             if (_isSyncingCurrentSectionShadPs4VersionSelection)
@@ -1687,6 +1956,10 @@ namespace AES_Lacrima.ViewModels
             CurrentEmulatorHandler?.UsesRetroArchCores == true &&
             CurrentSectionRetroArchCores.Count > 0;
 
+        public bool ShowCurrentSectionRetroArchUpdateControls =>
+            CurrentEmulatorHandler?.UsesRetroArchCores == true &&
+            CurrentEmulationSectionItem != null;
+
         public bool ShowCurrentSectionEdenUpdateControls =>
             CurrentEmulatorHandler != null &&
             string.Equals(CurrentEmulatorHandler.HandlerId, EdenHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
@@ -1706,6 +1979,7 @@ namespace AES_Lacrima.ViewModels
             ShowCurrentSectionXeniaUpdateControls && HasActiveAlbumItems;
 
         public bool IsCurrentSectionHandlerUpdateAvailable =>
+            (ShowCurrentSectionRetroArchUpdateControls && IsCurrentSectionRetroArchUpdateAvailable) ||
             (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable) ||
             (ShowCurrentSectionShadPs4UpdateControls && IsCurrentSectionShadPs4UpdateAvailable) ||
             (ShowCurrentSectionXeniaUpdateControls && IsCurrentSectionXeniaUpdateAvailable);
@@ -1727,6 +2001,49 @@ namespace AES_Lacrima.ViewModels
             }
 
             var section = CurrentEmulationSectionItem;
+            var sectionRetroArchRepoOverride = section?.LaunchSettings?.RetroArchRepositoryOverride;
+            if (!string.Equals(CurrentSectionRetroArchRepositoryOverride, sectionRetroArchRepoOverride, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionRetroArchRepositoryOverride = true;
+                    CurrentSectionRetroArchRepositoryOverride = sectionRetroArchRepoOverride;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionRetroArchRepositoryOverride = false;
+                }
+            }
+
+            IsCurrentSectionRetroArchRepositoryDirty = false;
+
+            var includeRetroArchCores = section?.LaunchSettings?.IncludeRetroArchCores == true;
+            if (IncludeCurrentSectionRetroArchCores != includeRetroArchCores)
+            {
+                try
+                {
+                    _isSyncingCurrentSectionRetroArchIncludeCores = true;
+                    IncludeCurrentSectionRetroArchCores = includeRetroArchCores;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionRetroArchIncludeCores = false;
+                }
+            }
+
+            var sectionRetroArchVersion = section?.LaunchSettings?.SelectedRetroArchVersion;
+            if (!string.Equals(SelectedCurrentSectionRetroArchVersion, sectionRetroArchVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionRetroArchVersionSelection = true;
+                    SelectedCurrentSectionRetroArchVersion = sectionRetroArchVersion;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionRetroArchVersionSelection = false;
+                }
+            }
             var sectionRepoOverride = section?.LaunchSettings?.EdenRepositoryOverride;
             if (!string.Equals(CurrentSectionEdenRepositoryOverride, sectionRepoOverride, StringComparison.OrdinalIgnoreCase))
             {
@@ -1774,10 +2091,38 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(CurrentEmulationSectionItem));
             OnPropertyChanged(nameof(CurrentSectionRetroArchCores));
             OnPropertyChanged(nameof(ShowCurrentSectionRetroArchCoreSelection));
+            OnPropertyChanged(nameof(ShowCurrentSectionRetroArchUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionEdenUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaUpdateControls));
             OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
+
+            if (ShowCurrentSectionRetroArchUpdateControls)
+            {
+                _ = RefreshCurrentSectionRetroArchInfo();
+            }
+            else
+            {
+                CurrentSectionRetroArchAvailableVersions.Clear();
+                CurrentSectionRetroArchCurrentVersion = null;
+                CurrentSectionRetroArchLatestVersion = null;
+                CurrentSectionRetroArchStatus = "Select a RetroArch section to manage updates.";
+                IsCurrentSectionRetroArchUpdateAvailable = false;
+                CurrentSectionRetroArchEmulatorPath = null;
+                CurrentSectionRetroArchUpdatePath = null;
+                CurrentSectionRetroArchDownloadProgress = 0;
+                IsCurrentSectionRetroArchDownloading = false;
+                IsCurrentSectionRetroArchRepositoryDirty = false;
+                try
+                {
+                    _isSyncingCurrentSectionRetroArchIncludeCores = true;
+                    IncludeCurrentSectionRetroArchCores = false;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionRetroArchIncludeCores = false;
+                }
+            }
 
             if (ShowCurrentSectionEdenUpdateControls)
             {
@@ -1921,6 +2266,149 @@ namespace AES_Lacrima.ViewModels
                 DetachXeniaPatchEntryListeners();
                 CurrentSectionXeniaPatchEntries.Clear();
                 SelectedCurrentSectionXeniaPatchFile = null;
+            }
+        }
+
+        private async Task RefreshCurrentSectionRetroArchInfo()
+        {
+            if (!ShowCurrentSectionRetroArchUpdateControls)
+            {
+                CurrentSectionRetroArchStatus = "Select a RetroArch section to manage updates.";
+                CurrentSectionRetroArchAvailableVersions.Clear();
+                CurrentSectionRetroArchCurrentVersion = null;
+                CurrentSectionRetroArchLatestVersion = null;
+                IsCurrentSectionRetroArchUpdateAvailable = false;
+                CurrentSectionRetroArchEmulatorPath = null;
+                CurrentSectionRetroArchUpdatePath = null;
+                CurrentSectionRetroArchDownloadProgress = 0;
+                IsCurrentSectionRetroArchDownloading = false;
+                return;
+            }
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _retroArchEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionRetroArchBusy = true;
+            IsCurrentSectionRetroArchDownloading = false;
+            CurrentSectionRetroArchDownloadProgress = 0;
+            try
+            {
+                var state = await updater.GetUpdateInfoAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    CurrentSectionRetroArchRepositoryOverride,
+                    IncludeCurrentSectionRetroArchCores,
+                    forceRefresh: false).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() => ApplyRetroArchUpdateState(state));
+            }
+            finally
+            {
+                IsCurrentSectionRetroArchBusy = false;
+                IsCurrentSectionRetroArchDownloading = false;
+            }
+        }
+
+        private async Task DownloadOrUpdateCurrentSectionRetroArch()
+        {
+            if (!ShowCurrentSectionRetroArchUpdateControls)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _retroArchEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionRetroArchBusy = true;
+            IsCurrentSectionRetroArchDownloading = true;
+            CurrentSectionRetroArchDownloadProgress = 0;
+            try
+            {
+                var state = await updater.DownloadOrUpdateAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    CurrentSectionRetroArchRepositoryOverride,
+                    IncludeCurrentSectionRetroArchCores,
+                    SelectedCurrentSectionRetroArchVersion,
+                    progress =>
+                    {
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            CurrentSectionRetroArchDownloadProgress = progress.Percent;
+                            if (!string.IsNullOrWhiteSpace(progress.StatusMessage))
+                                CurrentSectionRetroArchStatus = progress.StatusMessage;
+                        });
+                    }).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CurrentSectionRetroArchDownloadProgress = 100;
+                    ApplyRetroArchUpdateState(state);
+
+                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                        !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        handler.LauncherPath = state.ResolvedLauncherPath;
+                        SettingsViewModel?.SaveSettings();
+                    }
+                });
+            }
+            finally
+            {
+                IsCurrentSectionRetroArchBusy = false;
+                IsCurrentSectionRetroArchDownloading = false;
+            }
+        }
+
+        private void ApplyRetroArchUpdateState(RetroArchUpdateState state)
+        {
+            CurrentSectionRetroArchCurrentVersion = state.CurrentVersion;
+            CurrentSectionRetroArchLatestVersion = state.LatestVersion;
+            IsCurrentSectionRetroArchUpdateAvailable = state.IsUpdateAvailable;
+            CurrentSectionRetroArchStatus = state.StatusMessage;
+            CurrentSectionRetroArchEmulatorPath = state.EmulatorDirectory;
+            CurrentSectionRetroArchUpdatePath = state.UpdateDirectory;
+
+            CurrentSectionRetroArchAvailableVersions.Clear();
+            foreach (var version in state.AvailableVersions.Take(10))
+                CurrentSectionRetroArchAvailableVersions.Add(version);
+
+            var selectedVersion = SelectedCurrentSectionRetroArchVersion;
+            if (string.IsNullOrWhiteSpace(selectedVersion) ||
+                !CurrentSectionRetroArchAvailableVersions.Contains(selectedVersion, StringComparer.OrdinalIgnoreCase))
+            {
+                selectedVersion = CurrentSectionRetroArchAvailableVersions.FirstOrDefault() ?? state.LatestVersion;
+            }
+
+            try
+            {
+                _isSyncingCurrentSectionRetroArchVersionSelection = true;
+                SelectedCurrentSectionRetroArchVersion = selectedVersion;
+            }
+            finally
+            {
+                _isSyncingCurrentSectionRetroArchVersionSelection = false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(state.Repository) &&
+                !string.Equals(CurrentSectionRetroArchRepositoryOverride, state.Repository, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(state.Repository, "libretro/RetroArch", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionRetroArchRepositoryOverride = true;
+                    CurrentSectionRetroArchRepositoryOverride = state.Repository;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionRetroArchRepositoryOverride = false;
+                }
             }
         }
 
@@ -2387,7 +2875,42 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private async Task SaveCurrentSectionXeniaPatches()
         {
-            await SaveCurrentSectionXeniaPatchesCore().ConfigureAwait(false);
+            var saved = await SaveCurrentSectionXeniaPatchesCore().ConfigureAwait(false);
+            if (saved)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    IsXeniaPatchesOverlayOpen = false;
+                    IsXeniaPatchSwitchPromptVisible = false;
+                    _pendingCurrentSectionXeniaPatchFile = null;
+                });
+            }
+        }
+
+        [RelayCommand]
+        private void SelectAllCurrentSectionXeniaPatches()
+        {
+            if (IsXeniaPatchesBusy)
+                return;
+
+            foreach (var entry in CurrentSectionXeniaPatchEntries)
+                entry.IsEnabled = true;
+
+            if (CurrentSectionXeniaPatchEntries.Count > 0)
+                XeniaPatchesStatus = $"Selected {CurrentSectionXeniaPatchEntries.Count} patch option(s).";
+        }
+
+        [RelayCommand]
+        private void UnselectAllCurrentSectionXeniaPatches()
+        {
+            if (IsXeniaPatchesBusy)
+                return;
+
+            foreach (var entry in CurrentSectionXeniaPatchEntries)
+                entry.IsEnabled = false;
+
+            if (CurrentSectionXeniaPatchEntries.Count > 0)
+                XeniaPatchesStatus = $"Unselected {CurrentSectionXeniaPatchEntries.Count} patch option(s).";
         }
 
         private async Task<bool> SaveCurrentSectionXeniaPatchesCore()

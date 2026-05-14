@@ -4,11 +4,15 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
+using AES_Emulation.Windows.API;
 
 namespace AES_Emulation.EmulationHandlers;
 
 public sealed class XeniaHandler : EmulatorHandlerBase
 {
+    private const int CaptureWindowWidth = 1920;
+    private const int CaptureWindowHeight = 1080;
+
     public static XeniaHandler Instance { get; } = new();
 
     private XeniaHandler()
@@ -26,6 +30,8 @@ public sealed class XeniaHandler : EmulatorHandlerBase
     public override bool HideUntilCaptured => true;
 
     public override bool ForceUseTargetClientAreaCapture => true;
+
+    public override int CaptureStartupDelayMs => 150;
 
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
@@ -71,7 +77,66 @@ public sealed class XeniaHandler : EmulatorHandlerBase
         => IsLikelyXeniaRenderWindow(hwnd, mainWindowHandle);
 
     [SupportedOSPlatform("windows")]
-    public override void PrepareWindowForCapture(IntPtr hwnd) => HideWindowForCapture(hwnd);
+    public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 240;
+        const int delayMs = 50;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            IntPtr mainWindow;
+            try
+            {
+                process.Refresh();
+                if (process.HasExited)
+                    return IntPtr.Zero;
+
+                mainWindow = process.MainWindowHandle;
+            }
+            catch
+            {
+                return IntPtr.Zero;
+            }
+
+            var childRenderWindow = FindBestXeniaRenderChildWindow(process, mainWindow);
+            if (childRenderWindow != IntPtr.Zero)
+                return childRenderWindow;
+
+            var preferred = FindBestProcessWindowHandle(
+                process,
+                preferSpecificRenderWindow: true,
+                allowHiddenWindows: true,
+                isPreferredRenderWindow: IsLikelyXeniaRenderWindow);
+
+            if (preferred != IntPtr.Zero)
+                return preferred;
+
+            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+        }
+
+        return IntPtr.Zero;
+    }
+
+    [SupportedOSPlatform("windows")]
+    public override void PrepareWindowForCapture(IntPtr hwnd)
+    {
+        HideWindowForCapture(hwnd);
+
+        if (!OperatingSystem.IsWindows() || hwnd == IntPtr.Zero)
+            return;
+
+        if (Win32API.TryGetVirtualScreenBounds(out var x, out var y, out var width, out var height) && width > 0 && height > 0)
+        {
+            var targetWidth = Math.Min(CaptureWindowWidth, width);
+            var targetHeight = Math.Min(CaptureWindowHeight, height);
+            Win32API.SetWindowBounds(hwnd, x, y, targetWidth, targetHeight);
+            return;
+        }
+
+        Win32API.SetWindowSize(hwnd, CaptureWindowWidth, CaptureWindowHeight);
+    }
 
     [SupportedOSPlatform("windows")]
     private static bool IsLikelyXeniaRenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
@@ -183,8 +248,6 @@ public sealed class XeniaHandler : EmulatorHandlerBase
 
         var className = GetWindowClassName(hwnd).Trim().ToLowerInvariant();
         var title = GetWindowTitle(hwnd).Trim().ToLowerInvariant();
-        if (className.Length == 0 && title.Length == 0)
-            return long.MinValue;
 
         if (className.Contains("ime") ||
             className.Contains("observerwindow") ||
