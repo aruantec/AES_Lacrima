@@ -87,6 +87,11 @@ namespace AES_Lacrima.ViewModels
         private bool _isSyncingCurrentSectionEdenVersionSelection;
         private bool _isSyncingCurrentSectionEdenRepositoryOverride;
         private bool _isCurrentSectionEdenRepositoryDirty;
+        private bool _isSyncingCurrentSectionEdenIncludePrereleases;
+        private bool _isSyncingCurrentSectionShadPs4VersionSelection;
+        private bool _isSyncingCurrentSectionShadPs4RepositoryOverride;
+        private bool _isCurrentSectionShadPs4RepositoryDirty;
+        private bool _isSyncingCurrentSectionShadPs4IncludePrereleases;
         private double _lastSelectedIndexForPreview = double.NaN;
         private string? _pendingGameplayPreviewItemPath;
         private string? _activeGameplayPreviewItemPath;
@@ -137,6 +142,9 @@ namespace AES_Lacrima.ViewModels
 
         [AutoResolve]
         private EdenEmulatorUpdateService? _edenEmulatorUpdateService;
+
+        [AutoResolve]
+        private ShadPs4EmulatorUpdateService? _shadPs4EmulatorUpdateService;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(AlbumListToggleText))]
@@ -839,6 +847,242 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
+        private bool _includeCurrentSectionEdenPrereleases;
+        public bool IncludeCurrentSectionEdenPrereleases
+        {
+            get => _includeCurrentSectionEdenPrereleases;
+            set
+            {
+                if (_includeCurrentSectionEdenPrereleases == value)
+                    return;
+
+                _includeCurrentSectionEdenPrereleases = value;
+                OnPropertyChanged();
+
+                if (_isSyncingCurrentSectionEdenIncludePrereleases)
+                    return;
+
+                var section = CurrentEmulationSectionItem;
+                if (section?.LaunchSettings == null)
+                    return;
+
+                section.LaunchSettings.IncludeEdenPrereleases = value;
+                SettingsViewModel?.SaveSettings();
+                _ = RefreshCurrentSectionEdenInfo();
+            }
+        }
+
+        private string? _currentSectionShadPs4RepositoryOverride;
+        public string? CurrentSectionShadPs4RepositoryOverride
+        {
+            get => _currentSectionShadPs4RepositoryOverride;
+            set
+            {
+                if (string.Equals(_currentSectionShadPs4RepositoryOverride, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionShadPs4RepositoryOverride = value;
+                OnPropertyChanged();
+
+                if (!_isSyncingCurrentSectionShadPs4RepositoryOverride)
+                    IsCurrentSectionShadPs4RepositoryDirty = true;
+            }
+        }
+
+        private AvaloniaList<string> _currentSectionShadPs4AvailableVersions = [];
+        public AvaloniaList<string> CurrentSectionShadPs4AvailableVersions
+        {
+            get => _currentSectionShadPs4AvailableVersions;
+            set
+            {
+                if (ReferenceEquals(_currentSectionShadPs4AvailableVersions, value))
+                    return;
+
+                _currentSectionShadPs4AvailableVersions = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _selectedCurrentSectionShadPs4Version;
+        public string? SelectedCurrentSectionShadPs4Version
+        {
+            get => _selectedCurrentSectionShadPs4Version;
+            set
+            {
+                if (string.Equals(_selectedCurrentSectionShadPs4Version, value, StringComparison.Ordinal))
+                    return;
+
+                _selectedCurrentSectionShadPs4Version = value;
+                OnPropertyChanged();
+                OnSelectedCurrentSectionShadPs4VersionChanged(value);
+            }
+        }
+
+        private string? _currentSectionShadPs4CurrentVersion;
+        public string? CurrentSectionShadPs4CurrentVersion
+        {
+            get => _currentSectionShadPs4CurrentVersion;
+            set
+            {
+                if (string.Equals(_currentSectionShadPs4CurrentVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionShadPs4CurrentVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionShadPs4LatestVersion;
+        public string? CurrentSectionShadPs4LatestVersion
+        {
+            get => _currentSectionShadPs4LatestVersion;
+            set
+            {
+                if (string.Equals(_currentSectionShadPs4LatestVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionShadPs4LatestVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string _currentSectionShadPs4Status = "Select a shadPS4 section to manage updates.";
+        public string CurrentSectionShadPs4Status
+        {
+            get => _currentSectionShadPs4Status;
+            set
+            {
+                if (string.Equals(_currentSectionShadPs4Status, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionShadPs4Status = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionShadPs4UpdateAvailable;
+        public bool IsCurrentSectionShadPs4UpdateAvailable
+        {
+            get => _isCurrentSectionShadPs4UpdateAvailable;
+            set
+            {
+                if (_isCurrentSectionShadPs4UpdateAvailable == value)
+                    return;
+
+                _isCurrentSectionShadPs4UpdateAvailable = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
+            }
+        }
+
+        private bool _isCurrentSectionShadPs4Busy;
+        public bool IsCurrentSectionShadPs4Busy
+        {
+            get => _isCurrentSectionShadPs4Busy;
+            set
+            {
+                if (_isCurrentSectionShadPs4Busy == value)
+                    return;
+
+                _isCurrentSectionShadPs4Busy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionShadPs4Downloading;
+        public bool IsCurrentSectionShadPs4Downloading
+        {
+            get => _isCurrentSectionShadPs4Downloading;
+            set
+            {
+                if (_isCurrentSectionShadPs4Downloading == value)
+                    return;
+
+                _isCurrentSectionShadPs4Downloading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private double _currentSectionShadPs4DownloadProgress;
+        public double CurrentSectionShadPs4DownloadProgress
+        {
+            get => _currentSectionShadPs4DownloadProgress;
+            set
+            {
+                if (Math.Abs(_currentSectionShadPs4DownloadProgress - value) < 0.01)
+                    return;
+
+                _currentSectionShadPs4DownloadProgress = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionShadPs4EmulatorPath;
+        public string? CurrentSectionShadPs4EmulatorPath
+        {
+            get => _currentSectionShadPs4EmulatorPath;
+            set
+            {
+                if (string.Equals(_currentSectionShadPs4EmulatorPath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionShadPs4EmulatorPath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionShadPs4UpdatePath;
+        public string? CurrentSectionShadPs4UpdatePath
+        {
+            get => _currentSectionShadPs4UpdatePath;
+            set
+            {
+                if (string.Equals(_currentSectionShadPs4UpdatePath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionShadPs4UpdatePath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public bool IsCurrentSectionShadPs4RepositoryDirty
+        {
+            get => _isCurrentSectionShadPs4RepositoryDirty;
+            set
+            {
+                if (_isCurrentSectionShadPs4RepositoryDirty == value)
+                    return;
+
+                _isCurrentSectionShadPs4RepositoryDirty = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _includeCurrentSectionShadPs4Prereleases;
+        public bool IncludeCurrentSectionShadPs4Prereleases
+        {
+            get => _includeCurrentSectionShadPs4Prereleases;
+            set
+            {
+                if (_includeCurrentSectionShadPs4Prereleases == value)
+                    return;
+
+                _includeCurrentSectionShadPs4Prereleases = value;
+                OnPropertyChanged();
+
+                if (_isSyncingCurrentSectionShadPs4IncludePrereleases)
+                    return;
+
+                var section = CurrentEmulationSectionItem;
+                if (section?.LaunchSettings == null)
+                    return;
+
+                section.LaunchSettings.IncludeShadPs4Prereleases = value;
+                SettingsViewModel?.SaveSettings();
+                _ = RefreshCurrentSectionShadPs4Info();
+            }
+        }
+
         private AvaloniaList<string> _currentSectionEdenAvailableVersions = [];
         public AvaloniaList<string> CurrentSectionEdenAvailableVersions
         {
@@ -921,6 +1165,7 @@ namespace AES_Lacrima.ViewModels
 
                 _isCurrentSectionEdenUpdateAvailable = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
             }
         }
 
@@ -1002,6 +1247,10 @@ namespace AES_Lacrima.ViewModels
         public IAsyncRelayCommand OpenCurrentSectionEdenUpdatesCommand =>
             _openCurrentSectionEdenUpdatesCommand ??= new AsyncRelayCommand(OpenCurrentSectionEdenUpdates);
 
+        private IAsyncRelayCommand? _applyCurrentSectionShadPs4RepositoryCommand;
+        public IAsyncRelayCommand ApplyCurrentSectionShadPs4RepositoryCommand =>
+            _applyCurrentSectionShadPs4RepositoryCommand ??= new AsyncRelayCommand(ApplyCurrentSectionShadPs4Repository);
+
         partial void OnSelectedCurrentSectionRetroArchCoreChanged(string? value)
         {
             if (_isSyncingCurrentSectionCoreSelection)
@@ -1012,6 +1261,23 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             section.SelectedRetroArchCore = value;
+            SettingsViewModel?.SaveSettings();
+        }
+
+        private void OnSelectedCurrentSectionShadPs4VersionChanged(string? value)
+        {
+            if (_isSyncingCurrentSectionShadPs4VersionSelection)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (string.Equals(section.LaunchSettings.SelectedShadPs4Version, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            section.LaunchSettings.SelectedShadPs4Version = normalized;
             SettingsViewModel?.SaveSettings();
         }
 
@@ -1036,6 +1302,29 @@ namespace AES_Lacrima.ViewModels
 
             IsCurrentSectionEdenRepositoryDirty = false;
             await RefreshCurrentSectionEdenInfo();
+        }
+
+        private async Task ApplyCurrentSectionShadPs4Repository()
+        {
+            if (!ShowCurrentSectionShadPs4UpdateControls)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(CurrentSectionShadPs4RepositoryOverride)
+                ? null
+                : CurrentSectionShadPs4RepositoryOverride.Trim();
+
+            if (!string.Equals(section.LaunchSettings.ShadPs4RepositoryOverride, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                section.LaunchSettings.ShadPs4RepositoryOverride = normalized;
+                SettingsViewModel?.SaveSettings();
+            }
+
+            IsCurrentSectionShadPs4RepositoryDirty = false;
+            await RefreshCurrentSectionShadPs4Info();
         }
 
         private void OnSelectedCurrentSectionEdenVersionChanged(string? value)
@@ -1063,6 +1352,15 @@ namespace AES_Lacrima.ViewModels
             CurrentEmulatorHandler != null &&
             string.Equals(CurrentEmulatorHandler.HandlerId, EdenHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
+
+        public bool ShowCurrentSectionShadPs4UpdateControls =>
+            CurrentEmulatorHandler != null &&
+            string.Equals(CurrentEmulatorHandler.HandlerId, ShadPs4Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentEmulationSectionItem != null;
+
+        public bool IsCurrentSectionHandlerUpdateAvailable =>
+            (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable) ||
+            (ShowCurrentSectionShadPs4UpdateControls && IsCurrentSectionShadPs4UpdateAvailable);
 
         private void RefreshCurrentSectionLaunchOptionsState()
         {
@@ -1097,6 +1395,20 @@ namespace AES_Lacrima.ViewModels
 
             IsCurrentSectionEdenRepositoryDirty = false;
 
+            var includeEdenPrereleases = section?.LaunchSettings?.IncludeEdenPrereleases == true;
+            if (IncludeCurrentSectionEdenPrereleases != includeEdenPrereleases)
+            {
+                try
+                {
+                    _isSyncingCurrentSectionEdenIncludePrereleases = true;
+                    IncludeCurrentSectionEdenPrereleases = includeEdenPrereleases;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionEdenIncludePrereleases = false;
+                }
+            }
+
             var sectionEdenVersion = section?.LaunchSettings?.SelectedEdenVersion;
             if (!string.Equals(SelectedCurrentSectionEdenVersion, sectionEdenVersion, StringComparison.OrdinalIgnoreCase))
             {
@@ -1115,6 +1427,8 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(CurrentSectionRetroArchCores));
             OnPropertyChanged(nameof(ShowCurrentSectionRetroArchCoreSelection));
             OnPropertyChanged(nameof(ShowCurrentSectionEdenUpdateControls));
+            OnPropertyChanged(nameof(ShowCurrentSectionShadPs4UpdateControls));
+            OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
 
             if (ShowCurrentSectionEdenUpdateControls)
             {
@@ -1130,6 +1444,86 @@ namespace AES_Lacrima.ViewModels
                 CurrentSectionEdenEmulatorPath = null;
                 CurrentSectionEdenUpdatePath = null;
                 IsCurrentSectionEdenRepositoryDirty = false;
+                try
+                {
+                    _isSyncingCurrentSectionEdenIncludePrereleases = true;
+                    IncludeCurrentSectionEdenPrereleases = false;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionEdenIncludePrereleases = false;
+                }
+            }
+
+            var sectionShadPs4RepoOverride = section?.LaunchSettings?.ShadPs4RepositoryOverride;
+            if (!string.Equals(CurrentSectionShadPs4RepositoryOverride, sectionShadPs4RepoOverride, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionShadPs4RepositoryOverride = true;
+                    CurrentSectionShadPs4RepositoryOverride = sectionShadPs4RepoOverride;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionShadPs4RepositoryOverride = false;
+                }
+            }
+
+            IsCurrentSectionShadPs4RepositoryDirty = false;
+
+            var includeShadPs4Prereleases = section?.LaunchSettings?.IncludeShadPs4Prereleases == true;
+            if (IncludeCurrentSectionShadPs4Prereleases != includeShadPs4Prereleases)
+            {
+                try
+                {
+                    _isSyncingCurrentSectionShadPs4IncludePrereleases = true;
+                    IncludeCurrentSectionShadPs4Prereleases = includeShadPs4Prereleases;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionShadPs4IncludePrereleases = false;
+                }
+            }
+
+            var sectionShadPs4Version = section?.LaunchSettings?.SelectedShadPs4Version;
+            if (!string.Equals(SelectedCurrentSectionShadPs4Version, sectionShadPs4Version, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionShadPs4VersionSelection = true;
+                    SelectedCurrentSectionShadPs4Version = sectionShadPs4Version;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionShadPs4VersionSelection = false;
+                }
+            }
+
+            if (ShowCurrentSectionShadPs4UpdateControls)
+            {
+                _ = RefreshCurrentSectionShadPs4Info();
+            }
+            else
+            {
+                CurrentSectionShadPs4AvailableVersions.Clear();
+                CurrentSectionShadPs4CurrentVersion = null;
+                CurrentSectionShadPs4LatestVersion = null;
+                CurrentSectionShadPs4Status = "Select a shadPS4 section to manage updates.";
+                IsCurrentSectionShadPs4UpdateAvailable = false;
+                CurrentSectionShadPs4EmulatorPath = null;
+                CurrentSectionShadPs4UpdatePath = null;
+                CurrentSectionShadPs4DownloadProgress = 0;
+                IsCurrentSectionShadPs4Downloading = false;
+                IsCurrentSectionShadPs4RepositoryDirty = false;
+                try
+                {
+                    _isSyncingCurrentSectionShadPs4IncludePrereleases = true;
+                    IncludeCurrentSectionShadPs4Prereleases = false;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionShadPs4IncludePrereleases = false;
+                }
             }
         }
 
@@ -1166,6 +1560,7 @@ namespace AES_Lacrima.ViewModels
                     section.SectionTitle,
                     handler.LauncherPath,
                     CurrentSectionEdenRepositoryOverride,
+                    IncludeCurrentSectionEdenPrereleases,
                     forceRefresh: false).ConfigureAwait(false);
 
                 await Dispatcher.UIThread.InvokeAsync(() => ApplyEdenUpdateState(state));
@@ -1174,6 +1569,96 @@ namespace AES_Lacrima.ViewModels
             {
                 IsCurrentSectionEdenBusy = false;
                 IsCurrentSectionEdenDownloading = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task RefreshCurrentSectionShadPs4Info()
+        {
+            if (!ShowCurrentSectionShadPs4UpdateControls)
+            {
+                CurrentSectionShadPs4Status = "Select a shadPS4 section to manage updates.";
+                CurrentSectionShadPs4AvailableVersions.Clear();
+                CurrentSectionShadPs4CurrentVersion = null;
+                CurrentSectionShadPs4LatestVersion = null;
+                IsCurrentSectionShadPs4UpdateAvailable = false;
+                CurrentSectionShadPs4EmulatorPath = null;
+                CurrentSectionShadPs4UpdatePath = null;
+                CurrentSectionShadPs4DownloadProgress = 0;
+                IsCurrentSectionShadPs4Downloading = false;
+                return;
+            }
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _shadPs4EmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionShadPs4Busy = true;
+            IsCurrentSectionShadPs4Downloading = false;
+            CurrentSectionShadPs4DownloadProgress = 0;
+            try
+            {
+                var state = await updater.GetUpdateInfoAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    CurrentSectionShadPs4RepositoryOverride,
+                    IncludeCurrentSectionShadPs4Prereleases,
+                    forceRefresh: false).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() => ApplyShadPs4UpdateState(state));
+            }
+            finally
+            {
+                IsCurrentSectionShadPs4Busy = false;
+                IsCurrentSectionShadPs4Downloading = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task DownloadOrUpdateCurrentSectionShadPs4()
+        {
+            if (!ShowCurrentSectionShadPs4UpdateControls)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _shadPs4EmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionShadPs4Busy = true;
+            IsCurrentSectionShadPs4Downloading = true;
+            CurrentSectionShadPs4DownloadProgress = 5;
+            try
+            {
+                var state = await updater.DownloadOrUpdateAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    CurrentSectionShadPs4RepositoryOverride,
+                    IncludeCurrentSectionShadPs4Prereleases,
+                    SelectedCurrentSectionShadPs4Version).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CurrentSectionShadPs4DownloadProgress = 100;
+                    ApplyShadPs4UpdateState(state);
+
+                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                        !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        handler.LauncherPath = state.ResolvedLauncherPath;
+                        SettingsViewModel?.SaveSettings();
+                    }
+                });
+            }
+            finally
+            {
+                IsCurrentSectionShadPs4Busy = false;
+                IsCurrentSectionShadPs4Downloading = false;
             }
         }
 
@@ -1199,6 +1684,7 @@ namespace AES_Lacrima.ViewModels
                     section.SectionTitle,
                     handler.LauncherPath,
                     CurrentSectionEdenRepositoryOverride,
+                    IncludeCurrentSectionEdenPrereleases,
                     SelectedCurrentSectionEdenVersion).ConfigureAwait(false);
 
                 await Dispatcher.UIThread.InvokeAsync(() =>
@@ -1263,6 +1749,52 @@ namespace AES_Lacrima.ViewModels
                 finally
                 {
                     _isSyncingCurrentSectionEdenRepositoryOverride = false;
+                }
+            }
+        }
+
+        private void ApplyShadPs4UpdateState(ShadPs4UpdateState state)
+        {
+            CurrentSectionShadPs4CurrentVersion = state.CurrentVersion;
+            CurrentSectionShadPs4LatestVersion = state.LatestVersion;
+            IsCurrentSectionShadPs4UpdateAvailable = state.IsUpdateAvailable;
+            CurrentSectionShadPs4Status = state.StatusMessage;
+            CurrentSectionShadPs4EmulatorPath = state.EmulatorDirectory;
+            CurrentSectionShadPs4UpdatePath = state.UpdateDirectory;
+
+            CurrentSectionShadPs4AvailableVersions.Clear();
+            foreach (var version in state.AvailableVersions.Take(10))
+                CurrentSectionShadPs4AvailableVersions.Add(version);
+
+            var selectedVersion = SelectedCurrentSectionShadPs4Version;
+            if (string.IsNullOrWhiteSpace(selectedVersion) ||
+                !CurrentSectionShadPs4AvailableVersions.Contains(selectedVersion, StringComparer.OrdinalIgnoreCase))
+            {
+                selectedVersion = CurrentSectionShadPs4AvailableVersions.FirstOrDefault() ?? state.LatestVersion;
+            }
+
+            try
+            {
+                _isSyncingCurrentSectionShadPs4VersionSelection = true;
+                SelectedCurrentSectionShadPs4Version = selectedVersion;
+            }
+            finally
+            {
+                _isSyncingCurrentSectionShadPs4VersionSelection = false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(state.Repository) &&
+                !string.Equals(CurrentSectionShadPs4RepositoryOverride, state.Repository, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(state.Repository, "shadps4-emu/shadPS4", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionShadPs4RepositoryOverride = true;
+                    CurrentSectionShadPs4RepositoryOverride = state.Repository;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionShadPs4RepositoryOverride = false;
                 }
             }
         }
@@ -1349,7 +1881,10 @@ namespace AES_Lacrima.ViewModels
         {
             IsRenderOptionsOpen = true;
             RenderOptionsSelectedTabIndex = 1;
-            await RefreshCurrentSectionEdenInfo();
+            if (ShowCurrentSectionEdenUpdateControls)
+                await RefreshCurrentSectionEdenInfo();
+            else if (ShowCurrentSectionShadPs4UpdateControls)
+                await RefreshCurrentSectionShadPs4Info();
         }
 
         [RelayCommand]
