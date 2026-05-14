@@ -33,6 +33,7 @@ public partial class XeniaEmulatorUpdateService
 {
     private const string Repository = "https://github.com/xenia-canary/xenia-canary";
     private const string ReleasesApiEndpoint = "https://api.github.com/repos/xenia-canary/xenia-canary/releases?per_page=20";
+    private const string GamePatchesZipUrl = "https://github.com/xenia-canary/game-patches/releases/latest/download/game-patches.zip";
     private const string CacheKey = "github:xenia-canary/xenia-canary";
     private const string CacheFileName = "xenia-canary-releases-cache.json";
     private const string InstalledVersionMarkerFileName = "xenia_version.txt";
@@ -70,6 +71,7 @@ public partial class XeniaEmulatorUpdateService
 
         try
         {
+            await EnsureGamePatchesAsync(emulatorDirectory, updateDirectory, resolvedLauncherPath, forceRefresh: false, cancellationToken).ConfigureAwait(false);
             var releases = await GetReleasesAsync(forceRefresh, cancellationToken).ConfigureAwait(false);
             var versions = releases
                 .Select(static r => r.Tag)
@@ -166,6 +168,8 @@ public partial class XeniaEmulatorUpdateService
             SaveInstalledVersionMarker(emulatorDirectory, targetRelease.Tag);
 
             var resolvedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
+            await EnsureGamePatchesAsync(emulatorDirectory, updateDirectory, resolvedLauncherPath, forceRefresh: true, cancellationToken).ConfigureAwait(false);
+            PrepareUpdateDirectory(updateDirectory);
             var currentVersion = GetInstalledVersion(emulatorDirectory, resolvedLauncherPath);
             var versions = releases
                 .Select(static r => r.Tag)
@@ -431,6 +435,96 @@ public partial class XeniaEmulatorUpdateService
             if (relative.StartsWith("Emu_Update", StringComparison.OrdinalIgnoreCase))
                 continue;
 
+            var destinationPath = Path.Combine(destinationDirectory, relative);
+            var destinationFolder = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationFolder))
+                Directory.CreateDirectory(destinationFolder);
+
+            File.Copy(file, destinationPath, overwrite: true);
+        }
+    }
+
+    private async Task EnsureGamePatchesAsync(string emulatorDirectory, string updateDirectory, string? resolvedLauncherPath, bool forceRefresh, CancellationToken cancellationToken)
+    {
+        var patchesDirectory = ResolvePatchesDirectory(emulatorDirectory, resolvedLauncherPath);
+        if (!forceRefresh && Directory.Exists(patchesDirectory) && Directory.EnumerateFileSystemEntries(patchesDirectory).Any())
+            return;
+
+        try
+        {
+            Directory.CreateDirectory(updateDirectory);
+            var zipPath = Path.Combine(updateDirectory, "game-patches.zip");
+            var extractDirectory = Path.Combine(updateDirectory, "patches_extracted");
+
+            if (File.Exists(zipPath))
+            {
+                try { File.Delete(zipPath); } catch { }
+            }
+
+            if (Directory.Exists(extractDirectory))
+            {
+                try { Directory.Delete(extractDirectory, true); } catch { }
+            }
+
+            await DownloadAssetAsync(GamePatchesZipUrl, zipPath, cancellationToken).ConfigureAwait(false);
+            ZipFile.ExtractToDirectory(zipPath, extractDirectory, overwriteFiles: true);
+
+            var sourcePatchesDirectory = ResolveExtractedPatchesDirectory(extractDirectory);
+            if (string.IsNullOrWhiteSpace(sourcePatchesDirectory) || !Directory.Exists(sourcePatchesDirectory))
+                return;
+
+            ReplaceDirectoryContents(sourcePatchesDirectory, patchesDirectory);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to refresh Xenia Canary game patches.", ex);
+        }
+    }
+
+    private static string ResolvePatchesDirectory(string emulatorDirectory, string? resolvedLauncherPath)
+    {
+        if (!string.IsNullOrWhiteSpace(resolvedLauncherPath) && File.Exists(resolvedLauncherPath))
+        {
+            var launcherDirectory = Path.GetDirectoryName(resolvedLauncherPath);
+            if (!string.IsNullOrWhiteSpace(launcherDirectory))
+                return Path.Combine(launcherDirectory, "patches");
+        }
+
+        return Path.Combine(emulatorDirectory, "patches");
+    }
+
+    private static string? ResolveExtractedPatchesDirectory(string extractDirectory)
+    {
+        var direct = Path.Combine(extractDirectory, "patches");
+        if (Directory.Exists(direct))
+            return direct;
+
+        foreach (var directory in Directory.EnumerateDirectories(extractDirectory, "*", SearchOption.AllDirectories))
+        {
+            if (string.Equals(Path.GetFileName(directory), "patches", StringComparison.OrdinalIgnoreCase))
+                return directory;
+        }
+
+        return null;
+    }
+
+    private static void ReplaceDirectoryContents(string sourceDirectory, string destinationDirectory)
+    {
+        if (Directory.Exists(destinationDirectory))
+        {
+            try { Directory.Delete(destinationDirectory, true); } catch { }
+        }
+
+        Directory.CreateDirectory(destinationDirectory);
+        foreach (var directory in Directory.EnumerateDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(sourceDirectory, directory);
+            Directory.CreateDirectory(Path.Combine(destinationDirectory, relative));
+        }
+
+        foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(sourceDirectory, file);
             var destinationPath = Path.Combine(destinationDirectory, relative);
             var destinationFolder = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationFolder))

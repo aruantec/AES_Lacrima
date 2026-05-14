@@ -37,6 +37,10 @@ public class CustomMetadata
     public double Duration { get; set; }
     /// <summary>Gets or sets the selected gameplay video URL for emulation metadata.</summary>
     public string VideoUrl { get; set; } = "";
+    /// <summary>Gets or sets the Xbox 360 title ID for emulation metadata.</summary>
+    public string Xbox360TitleId { get; set; } = "";
+    /// <summary>Gets or sets the Xbox 360 media ID for emulation metadata.</summary>
+    public string Xbox360MediaId { get; set; } = "";
     /// <summary>Gets or sets the list of associated images.</summary>
     public List<ImageData> Images { get; set; } = [];
     /// <summary>Gets or sets the list of associated video data.</summary>

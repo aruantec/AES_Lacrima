@@ -96,6 +96,9 @@ namespace AES_Lacrima.Services
         [ObservableProperty] private string? _comment;
         [ObservableProperty] private string? _lyrics;
         [ObservableProperty] private string? _videoUrl;
+        [ObservableProperty] private bool _isXbox360Metadata;
+        [ObservableProperty] private string? _xbox360TitleId;
+        [ObservableProperty] private string? _xbox360MediaId;
         [ObservableProperty] private double _replayGainTrackGain;
         [ObservableProperty] private double _replayGainAlbumGain;
         [ObservableProperty] private TagImageKind _selectedImageKind;
@@ -115,6 +118,9 @@ namespace AES_Lacrima.Services
 
         [AutoResolve]
         private MusicViewModel? _musicViewModel;
+
+        [AutoResolve]
+        private Xbox360MetadataService? _xbox360MetadataService;
 
         public IReadOnlyList<TagImageKind> MetadataImageKinds { get; } =
         [
@@ -148,6 +154,34 @@ namespace AES_Lacrima.Services
             var resolvedPath = item.FileName;
             FilePath = resolvedPath;
             IsOnlineMedia = false;
+            IsXbox360Metadata = string.Equals(item.Album, "Xbox 360", StringComparison.OrdinalIgnoreCase);
+            Xbox360TitleId = null;
+            Xbox360MediaId = null;
+
+            if (IsXbox360Metadata && !string.IsNullOrWhiteSpace(item.FileName) && _xbox360MetadataService != null)
+            {
+                var xbox360Metadata = await Task.Run(() => _xbox360MetadataService.TryReadGameMetadata(item.FileName)).ConfigureAwait(false);
+                Xbox360TitleId = xbox360Metadata?.TitleId;
+                Xbox360MediaId = xbox360Metadata?.MediaId;
+
+                if (!string.IsNullOrWhiteSpace(item.FileName) &&
+                    (!string.IsNullOrWhiteSpace(Xbox360TitleId) || !string.IsNullOrWhiteSpace(Xbox360MediaId)))
+                {
+                    await PersistXbox360IdsToMetadataCacheAsync(item.FileName, Xbox360TitleId, Xbox360MediaId).ConfigureAwait(false);
+                }
+            }
+
+            if (IsXbox360Metadata &&
+                !string.IsNullOrWhiteSpace(item.FileName) &&
+                (string.IsNullOrWhiteSpace(Xbox360TitleId) || string.IsNullOrWhiteSpace(Xbox360MediaId)))
+            {
+                var cachePath = GetMetadataCachePath(item.FileName);
+                var refreshed = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath)).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(Xbox360TitleId))
+                    Xbox360TitleId = refreshed?.Xbox360TitleId;
+                if (string.IsNullOrWhiteSpace(Xbox360MediaId))
+                    Xbox360MediaId = refreshed?.Xbox360MediaId;
+            }
             
             await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             
@@ -285,6 +319,9 @@ namespace AES_Lacrima.Services
 
             _currentSelectedMedia = item;
             FilePath = item.FileName;
+            IsXbox360Metadata = string.Equals(item.Album, "Xbox 360", StringComparison.OrdinalIgnoreCase);
+            Xbox360TitleId = null;
+            Xbox360MediaId = null;
             
             await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             
@@ -307,6 +344,11 @@ namespace AES_Lacrima.Services
 
             if (metadata != null)
             {
+                if (string.IsNullOrWhiteSpace(Xbox360TitleId))
+                    Xbox360TitleId = metadata.Xbox360TitleId;
+                if (string.IsNullOrWhiteSpace(Xbox360MediaId))
+                    Xbox360MediaId = metadata.Xbox360MediaId;
+
                 if (string.IsNullOrWhiteSpace(Title))
                     Title = metadata.Title;
                 if (string.IsNullOrWhiteSpace(Artists))
@@ -369,6 +411,21 @@ namespace AES_Lacrima.Services
             }
 
             IsMetadataLoaded = true;
+
+            if (IsXbox360Metadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                if ((string.IsNullOrWhiteSpace(Xbox360TitleId) || string.IsNullOrWhiteSpace(Xbox360MediaId)) && _xbox360MetadataService != null)
+                {
+                    var xbox360Metadata = await Task.Run(() => _xbox360MetadataService.TryReadGameMetadata(item.FileName)).ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(Xbox360TitleId))
+                        Xbox360TitleId = xbox360Metadata?.TitleId;
+                    if (string.IsNullOrWhiteSpace(Xbox360MediaId))
+                        Xbox360MediaId = xbox360Metadata?.MediaId;
+                }
+
+                if (!string.IsNullOrWhiteSpace(Xbox360TitleId) || !string.IsNullOrWhiteSpace(Xbox360MediaId))
+                    await PersistXbox360IdsToMetadataCacheAsync(item.FileName, Xbox360TitleId, Xbox360MediaId).ConfigureAwait(false);
+            }
         }
 
         [RelayCommand]
@@ -499,6 +556,8 @@ namespace AES_Lacrima.Services
                     Genre = Genres!,
                     Comment = Comment!,
                     VideoUrl = VideoUrl ?? string.Empty,
+                    Xbox360TitleId = Xbox360TitleId ?? string.Empty,
+                    Xbox360MediaId = Xbox360MediaId ?? string.Empty,
                     ReplayGainTrackGain = ReplayGainTrackGain,
                     ReplayGainAlbumGain = ReplayGainAlbumGain,
                     Duration = _currentSelectedMedia?.Duration ?? 0.0,
@@ -550,6 +609,26 @@ namespace AES_Lacrima.Services
                 using var ms = new MemoryStream(wallpaperImage.Data);
                 _currentSelectedMedia.WallpaperBitmap = new Bitmap(ms);
             }
+        }
+
+        private static Task PersistXbox360IdsToMetadataCacheAsync(string filePath, string? titleId, string? mediaId)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return Task.CompletedTask;
+
+            return Task.Run(() =>
+            {
+                var cachePath = GetMetadataCachePath(filePath);
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+
+                if (!string.IsNullOrWhiteSpace(titleId))
+                    metadata.Xbox360TitleId = titleId;
+
+                if (!string.IsNullOrWhiteSpace(mediaId))
+                    metadata.Xbox360MediaId = mediaId;
+
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            });
         }
 
         private void UpdateInfo()
@@ -926,6 +1005,9 @@ namespace AES_Lacrima.Services
 
         private void Close()
         {
+            IsXbox360Metadata = false;
+            Xbox360TitleId = null;
+            Xbox360MediaId = null;
             IsMetadataLoaded = false;
         }
 
