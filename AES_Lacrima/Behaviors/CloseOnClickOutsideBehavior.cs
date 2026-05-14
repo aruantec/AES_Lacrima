@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 using Avalonia.Xaml.Interactivity;
+using System.Linq;
 
 namespace AES_Lacrima.Behaviors;
 
@@ -118,6 +119,19 @@ public class CloseOnClickOutsideBehavior : Behavior<InputElement>
         // Only process if the behavior is enabled
         if (!IsEnabled || TargetControl == null)
             return;
+
+        if (e.Source is Visual sourceVisual)
+        {
+            // Click originated from inside the target overlay itself.
+            if (sourceVisual.GetSelfAndVisualAncestors().Contains(TargetControl))
+                return;
+
+            // ComboBox popups are hosted in a separate visual tree/top-level.
+            // Treat selections inside popup items as inside-clicks so the overlay
+            // does not close before SelectedItem is committed.
+            if (sourceVisual.GetSelfAndVisualAncestors().OfType<ComboBoxItem>().Any())
+                return;
+        }
 
         // Get the pointer position relative to the target control
         var point = e.GetPosition(TargetControl);

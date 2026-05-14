@@ -43,7 +43,11 @@ namespace AES_Lacrima.Behaviors
             if (sender is not Control dragArea)
                 return;
 
-            if (!e.GetCurrentPoint(dragArea).Properties.IsLeftButtonPressed)
+            if (TopLevel.GetTopLevel(dragArea) == null)
+                return;
+
+            if (!TryGetCurrentPoint(e, dragArea, out var pointerPoint) ||
+                !pointerPoint.Properties.IsLeftButtonPressed)
                 return;
 
             if (e.Source is Visual sourceVisual &&
@@ -52,6 +56,20 @@ namespace AES_Lacrima.Behaviors
 
             if (TopLevel.GetTopLevel(dragArea) is Window window && window.WindowState != WindowState.FullScreen)
                 window.BeginMoveDrag(e);
+        }
+
+        private static bool TryGetCurrentPoint(PointerEventArgs e, Visual visual, out PointerPoint point)
+        {
+            try
+            {
+                point = e.GetCurrentPoint(visual);
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                point = default;
+                return false;
+            }
         }
 
         private static bool IsInteractiveElement(Control element)
@@ -109,7 +127,9 @@ namespace AES_Lacrima.Behaviors
                 return;
             }
 
-            var point = e.GetPosition(window);
+            if (!TryGetPosition(e, window, out var point))
+                return;
+
             _currentEdge = GetResizeEdge(window, point);
             window.Cursor = GetCursor(_currentEdge);
         }
@@ -122,10 +142,17 @@ namespace AES_Lacrima.Behaviors
             if (!CanResize(window))
                 return;
 
-            if (!e.GetCurrentPoint(window).Properties.IsLeftButtonPressed)
+            if (TopLevel.GetTopLevel(window) == null)
                 return;
 
-            _currentEdge = GetResizeEdge(window, e.GetPosition(window));
+            if (!TryGetCurrentPoint(e, window, out var pointerPoint) ||
+                !pointerPoint.Properties.IsLeftButtonPressed)
+                return;
+
+            if (!TryGetPosition(e, window, out var position))
+                return;
+
+            _currentEdge = GetResizeEdge(window, position);
             if (_currentEdge is null)
                 return;
 
@@ -136,6 +163,34 @@ namespace AES_Lacrima.Behaviors
         private bool CanResize(Window window)
         {
             return window.CanResize && window.WindowState == WindowState.Normal;
+        }
+
+        private static bool TryGetCurrentPoint(PointerEventArgs e, Visual visual, out PointerPoint point)
+        {
+            try
+            {
+                point = e.GetCurrentPoint(visual);
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                point = default;
+                return false;
+            }
+        }
+
+        private static bool TryGetPosition(PointerEventArgs e, Visual visual, out Point position)
+        {
+            try
+            {
+                position = e.GetPosition(visual);
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                position = default;
+                return false;
+            }
         }
 
         private WindowEdge? GetResizeEdge(Window window, Point point)

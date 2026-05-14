@@ -26,7 +26,10 @@ float3 SampleColor(float2 uv)
 
 float4 main(PSIn input) : SV_TARGET
 {
-    float2 texel = 1.0 / float2(max(sourceWidth, 1.0), max(sourceHeight, 1.0));
+    float2 sourceSize = float2(max(sourceWidth, 1.0), max(sourceHeight, 1.0));
+    float2 outputSize = float2(max(outputWidth, 1.0), max(outputHeight, 1.0));
+    float2 sampleSize = float2(min(sourceSize.x, outputSize.x), min(sourceSize.y, outputSize.y));
+    float2 texel = 1.0 / sampleSize;
     float2 uv = input.uv;
 
     float3 center = SampleColor(uv);
@@ -38,11 +41,13 @@ float4 main(PSIn input) : SV_TARGET
 
     float3 sharpened = center * 1.55 - neighbors * 0.1375;
     float3 color = lerp(center, sharpened, 0.85);
+    color = saturate(color);
 
     float luma = dot(color, float3(0.299, 0.587, 0.114));
     color = lerp(float3(luma, luma, luma), color, saturation);
     color *= brightness;
     color *= tint.rgb;
+    color = saturate(color);
 
     return float4(color, tint.a);
 }

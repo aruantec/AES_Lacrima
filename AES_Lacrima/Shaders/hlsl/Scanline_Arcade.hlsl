@@ -21,7 +21,9 @@ struct PSIn
 
 float4 main(PSIn input) : SV_TARGET
 {
-    float2 texSize = float2(max(sourceWidth, 1.0), max(sourceHeight, 1.0));
+    float2 sourceSize = float2(max(sourceWidth, 1.0), max(sourceHeight, 1.0));
+    float2 outputSize = float2(max(outputWidth, 1.0), max(outputHeight, 1.0));
+    float2 sampleSize = float2(min(sourceSize.x, outputSize.x), min(sourceSize.y, outputSize.y));
     float2 uv = input.uv;
 
     float3 color;
@@ -29,11 +31,11 @@ float4 main(PSIn input) : SV_TARGET
     color.g = src.Sample(samp, uv).g;
     color.b = src.Sample(samp, uv - float2(0.0015, 0.0)).b;
 
-    float scan = sin(uv.y * texSize.y * 6.28318);
+    float scan = sin(uv.y * sampleSize.y * 6.28318);
     scan = scan * scan;
     color *= 1.0 - scan * 0.28;
 
-    float slot = 0.94 + 0.06 * sin(uv.x * texSize.x * 3.14159);
+    float slot = 0.94 + 0.06 * sin(uv.x * sampleSize.x * 3.14159);
     color *= slot;
 
     float2 dist = uv - 0.5;
