@@ -65,7 +65,7 @@
             <Grid ColumnDefinitions="Auto, *, Auto, Auto">
                 <Grid Grid.Column="0"
                       ColumnDefinitions="Auto, 450"
-                      RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto"
+                      RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto"
                       RowSpacing="10"
                       Margin="20,0,0,0">
                     <Grid.Styles>
@@ -137,7 +137,31 @@
                            HorizontalAlignment="Right" />
                     <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding VideoUrl, Mode=TwoWay}" VerticalAlignment="Center" />
 
-                    <Button Grid.Row="8"
+                    <!-- Xbox 360 Title ID -->
+                    <Label Grid.Row="8" Grid.Column="0" Content="Title ID: "
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right"
+                           IsVisible="{Binding IsXbox360Metadata}" />
+                    <TextBox Grid.Row="8" Grid.Column="1"
+                             Text="{Binding Xbox360TitleId, Mode=OneWay}"
+                             IsReadOnly="True"
+                             VerticalAlignment="Center"
+                             IsVisible="{Binding IsXbox360Metadata}" />
+
+                    <!-- Xbox 360 Media ID -->
+                    <Label Grid.Row="9" Grid.Column="0" Content="Media ID: "
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right"
+                           IsVisible="{Binding IsXbox360Metadata}" />
+                    <TextBox Grid.Row="9" Grid.Column="1"
+                             Text="{Binding Xbox360MediaId, Mode=OneWay}"
+                             IsReadOnly="True"
+                             VerticalAlignment="Center"
+                             IsVisible="{Binding IsXbox360Metadata}" />
+
+                    <Button Grid.Row="10"
                             Grid.Column="1"
                             HorizontalAlignment="Stretch"
                             Height="38"

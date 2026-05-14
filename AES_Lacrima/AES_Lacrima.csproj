@@ -149,10 +149,7 @@
       <DependentUpon>MusicListView.axaml</DependentUpon>
     </Compile>
   </ItemGroup>
-  <Target Name="InstallLinuxDesktopEntryOnPublish" AfterTargets="Publish" Condition="'$(AutoInstallLinuxDesktopEntry)' == 'true'
-                     and ('$(RuntimeIdentifier)' == 'linux-x64' or '$(RuntimeIdentifier)' == 'linux-arm64')
-                     and '$(CI)' != 'true'
-                     and Exists('$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh')">
+  <Target Name="InstallLinuxDesktopEntryOnPublish" AfterTargets="Publish" Condition="'$(AutoInstallLinuxDesktopEntry)' == 'true'&#xD;&#xA;                     and ('$(RuntimeIdentifier)' == 'linux-x64' or '$(RuntimeIdentifier)' == 'linux-arm64')&#xD;&#xA;                     and '$(CI)' != 'true'&#xD;&#xA;                     and Exists('$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh')">
     <Message Importance="high" Text="Installing Linux desktop entry for publish output at '$(PublishDir)'" />
     <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh&quot; &quot;$(PublishDir)&quot;" />
   </Target>
@@ -204,8 +201,7 @@
   </Target>
 
   <!-- macOS packaging target: creates a .app bundle using the publish directory -->
-  <Target Name="CreateMacAppBundleOnPublish" AfterTargets="Publish" Condition="('$(RuntimeIdentifier)' == 'osx-x64' or '$(RuntimeIdentifier)' == 'osx-arm64')
-                     and Exists('$(MSBuildProjectDirectory)/Mac/publish-macos.sh')">
+  <Target Name="CreateMacAppBundleOnPublish" AfterTargets="Publish" Condition="('$(RuntimeIdentifier)' == 'osx-x64' or '$(RuntimeIdentifier)' == 'osx-arm64')&#xD;&#xA;                     and Exists('$(MSBuildProjectDirectory)/Mac/publish-macos.sh')">
     <Message Importance="high" Text="Creating macOS application bundle for publish output at '$(PublishDir)'" />
     <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Mac/publish-macos.sh&quot; &quot;$(PublishDir)&quot;" EnvironmentVariables="APP_VERSION=$(Version)" />
   </Target>

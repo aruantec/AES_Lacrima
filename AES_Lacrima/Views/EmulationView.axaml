@@ -153,6 +153,19 @@
                                   Stretch="Uniform" />
                         </MenuItem.Icon>
                     </MenuItem>
+                     <MenuItem Header="Patches"
+                               CornerRadius="8"
+                               Command="{Binding OpenCurrentSectionXeniaPatchesCommand}"
+                               CommandParameter="{Binding SelectedIndex}"
+                               IsVisible="{Binding ShowCurrentSectionXeniaPatchesMenuItem}">
+                         <MenuItem.Icon>
+                             <Path Data="M22,30 H118 C124,30 128,34 128,40 V116 C128,122 124,126 118,126 H22 C16,126 12,122 12,116 V40 C12,34 16,30 22,30 Z M24,46 H116 V110 H24 Z M34,56 H54 V76 H34 Z M62,56 H82 V76 H62 Z M90,56 H110 V76 H90 Z M34,84 H54 V104 H34 Z M62,84 H82 V104 H62 Z M90,84 H110 V104 H90 Z"
+                                   Fill="#CCFFFFFF"
+                                   Width="32"
+                                   Height="32"
+                                   Stretch="Uniform" />
+                         </MenuItem.Icon>
+                     </MenuItem>
                     <MenuItem Header="Delete Item"
                               CornerRadius="8"
                               Command="{Binding DeleteItemCommand}"
@@ -1397,6 +1410,187 @@
                                 </ItemsControl.ItemsPanel>
                             </ItemsControl>
                         </ScrollViewer>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Grid Background="#E0000000"
+              Grid.RowSpan="3"
+              IsVisible="{Binding IsXeniaPatchesOverlayOpen}"
+              IsHitTestVisible="{Binding IsXeniaPatchesOverlayOpen}"
+              Opacity="{Binding IsXeniaPatchesOverlayOpen, Converter={StaticResource BoolToOpacityConverter}}"
+              ZIndex="2101">
+            <Grid.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Grid.Transitions>
+
+            <Border Width="1160"
+                    Height="760"
+                    Padding="24"
+                    Background="#F0202020"
+                    BorderBrush="#55FFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" RowSpacing="10">
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,4">
+                        <TextBlock Grid.Column="0"
+                                   Text="Xenia Patches"
+                                   Foreground="White"
+                                   FontSize="32"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <Button Grid.Column="1"
+                                Content="Close"
+                                Command="{Binding CloseCurrentSectionXeniaPatchesCommand}" />
+                    </Grid>
+
+                    <Grid Grid.Row="1" ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                        <TextBlock Grid.Column="0"
+                                   Text="Detected Title ID"
+                                   Foreground="White"
+                                   VerticalAlignment="Center"
+                                   FontSize="18" />
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding XeniaDetectedTitleId, FallbackValue=Unknown, TargetNullValue=Unknown}"
+                                   Foreground="#E0E0E0"
+                                   VerticalAlignment="Center"
+                                   FontSize="18" />
+                    </Grid>
+
+                    <Grid Grid.Row="2" ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                        <TextBlock Grid.Column="0"
+                                   Text="Patch File"
+                                   Foreground="White"
+                                   VerticalAlignment="Center"
+                                   FontSize="18" />
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding CurrentSectionXeniaPatchFiles}"
+                                  SelectedValueBinding="{Binding FilePath}"
+                                  IsEnabled="{Binding !IsXeniaPatchesBusy}"
+                                  SelectedValue="{Binding SelectedCurrentSectionXeniaPatchFile, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding DisplayName}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </Grid>
+
+                    <Grid Grid.Row="3" ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                        <TextBlock Grid.Column="0"
+                                   Text="Detected Media ID"
+                                   Foreground="White"
+                                   VerticalAlignment="Center"
+                                   FontSize="18" />
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding XeniaDetectedMediaId, FallbackValue=Unknown, TargetNullValue=Unknown}"
+                                   Foreground="#E0E0E0"
+                                   VerticalAlignment="Center"
+                                   FontSize="18" />
+                    </Grid>
+
+                    <Border Grid.Row="4"
+                            BorderBrush="#55FFFFFF"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="8">
+                        <Grid RowDefinitions="Auto,*" RowSpacing="8">
+                            <Grid ColumnDefinitions="360,*,170">
+                                <TextBlock Grid.Column="0" Text="Patch Name" Foreground="#F0F0F0" FontSize="16" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="Description" Foreground="#F0F0F0" FontSize="16" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="2" Text="Enabled" Foreground="#F0F0F0" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                            </Grid>
+
+                            <Grid Grid.Row="1">
+                                <controls:LoadingControl Width="72"
+                                                         Height="72"
+                                                         Foreground="#FFFFFFFF"
+                                                         HorizontalAlignment="Center"
+                                                         VerticalAlignment="Center"
+                                                         IsVisible="{Binding IsXeniaPatchesBusy}" />
+
+                                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                              VerticalScrollBarVisibility="Auto"
+                                              IsVisible="{Binding !IsXeniaPatchesBusy}">
+                                <ItemsControl ItemsSource="{Binding CurrentSectionXeniaPatchEntries}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="#1AFFFFFF" CornerRadius="8" Padding="10" Margin="0,3,0,3">
+                                                <Grid ColumnDefinitions="360,*,170" ColumnSpacing="10">
+                                                <TextBlock Grid.Column="0"
+                                                           Text="{Binding Name}"
+                                                           Foreground="#E0E0E0"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Margin="0,0,8,0"/>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{Binding Description}"
+                                                           Foreground="#CCCCCC"
+                                                           VerticalAlignment="Center"
+                                                           TextWrapping="Wrap"
+                                                           Margin="0,0,4,0"/>
+
+                                                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="8">
+                                                    <ToggleSwitch IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
+                                                    <TextBlock Text="{Binding IsEnabled, Converter={StaticResource BoolToStringConverter}, ConverterParameter='On,Off'}"
+                                                               Foreground="#E0E0E0"
+                                                               VerticalAlignment="Center"
+                                                               FontSize="16" />
+                                                </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                </ScrollViewer>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="5"
+                            Background="#E61F1F1F"
+                            BorderBrush="#66FFFFFF"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="12"
+                            Margin="0,0,0,6"
+                            IsVisible="{Binding IsXeniaPatchSwitchPromptVisible}">
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0"
+                                       Text="You have unsaved changes in the current patch file. Save or Skip before switching."
+                                       Foreground="#F0F0F0"
+                                       VerticalAlignment="Center"
+                                       TextWrapping="Wrap" />
+                            <Button Grid.Column="1"
+                                    Content="Save"
+                                    Command="{Binding SaveAndSwitchCurrentSectionXeniaPatchFileCommand}"
+                                    IsEnabled="{Binding !IsXeniaPatchesBusy}"
+                                    Padding="14,8" />
+                            <Button Grid.Column="2"
+                                    Content="Skip"
+                                    Command="{Binding SkipAndSwitchCurrentSectionXeniaPatchFileCommand}"
+                                    IsEnabled="{Binding !IsXeniaPatchesBusy}"
+                                    Padding="14,8" />
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="6" ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding XeniaPatchesStatus}"
+                                   Foreground="#D0D0D0"
+                                   FontSize="15"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap" />
+                        <Button Grid.Column="1"
+                                Content="Save"
+                                Command="{Binding SaveCurrentSectionXeniaPatchesCommand}"
+                                IsEnabled="{Binding !IsXeniaPatchesBusy}"
+                                Padding="14,8" />
                     </Grid>
                 </Grid>
             </Border>
