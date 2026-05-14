@@ -35,7 +35,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     public override string SectionTitle => "PlayStation 4";
 
-    public override string DisplayName => "shadPS4 QtLauncher";
+    public override string DisplayName => "shadPS4";
 
     public override bool ForceUseTargetClientAreaCapture => true;
 

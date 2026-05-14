@@ -97,6 +97,8 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
     private static ProcessStartInfo BuildRetroArchStartInfoInternal(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
+        EnsureRetroArchFullscreenConfig(launcherPath);
+
         var startInfo = CreateBaseStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
         startInfo.CreateNoWindow = true; // This hides the console log window
         startInfo.WindowStyle = ProcessWindowStyle.Hidden; // Additional hint for some versions of Windows/RetroArch
@@ -180,8 +182,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
                 File.WriteAllLines(path, new[]
                 {
                     "pause_nonactive = \"false\"",
-                    "input_auto_game_focus = \"0\"",
-                    "video_fullscreen = \"false\""
+                    "input_auto_game_focus = \"0\""
                 });
             }
 
@@ -191,6 +192,55 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         {
             return null;
         }
+    }
+
+    private static void EnsureRetroArchFullscreenConfig(string launcherPath)
+    {
+        try
+        {
+            var workingDirectory = ResolveLauncherWorkingDirectory(launcherPath);
+            if (string.IsNullOrWhiteSpace(workingDirectory))
+                return;
+
+            var cfgPath = new[]
+            {
+                Path.Combine(workingDirectory, "retroarch.cfg"),
+                Path.Combine(workingDirectory, "RetroArch.cfg"),
+                Path.Combine(workingDirectory, "Retroarch.cfg")
+            }.FirstOrDefault(File.Exists) ?? Path.Combine(workingDirectory, "retroarch.cfg");
+
+            var lines = File.Exists(cfgPath)
+                ? File.ReadAllLines(cfgPath).ToList()
+                : new List<string>();
+
+            SetOrAddRetroArchCfgValue(lines, "video_fullscreen", "\"true\"");
+            SetOrAddRetroArchCfgValue(lines, "video_windowed_fullscreen", "\"true\"");
+
+            File.WriteAllLines(cfgPath, lines);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to enforce RetroArch fullscreen settings in retroarch.cfg.", ex);
+        }
+    }
+
+    private static void SetOrAddRetroArchCfgValue(List<string> lines, string key, string value)
+    {
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i].TrimStart();
+            if (!line.StartsWith(key, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var equalIndex = line.IndexOf('=');
+            if (equalIndex < 0)
+                continue;
+
+            lines[i] = $"{key} = {value}";
+            return;
+        }
+
+        lines.Add($"{key} = {value}");
     }
 
     public static bool TryGetRetroArchErrorDetails(string? launcherPath, out string summary, out string details)
