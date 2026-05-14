@@ -188,13 +188,25 @@ public sealed class EmulationSectionLaunchSettings
 
     public string? SelectedEdenVersion { get; set; }
 
+    public bool IncludeEdenPrereleases { get; set; }
+
+    public string? ShadPs4RepositoryOverride { get; set; }
+
+    public string? SelectedShadPs4Version { get; set; }
+
+    public bool IncludeShadPs4Prereleases { get; set; }
+
     public EmulationSectionLaunchSettings Clone() =>
         new()
         {
             StartFullscreen = StartFullscreen,
             SelectedRetroArchCore = SelectedRetroArchCore,
             EdenRepositoryOverride = EdenRepositoryOverride,
-            SelectedEdenVersion = SelectedEdenVersion
+            SelectedEdenVersion = SelectedEdenVersion,
+            IncludeEdenPrereleases = IncludeEdenPrereleases,
+            ShadPs4RepositoryOverride = ShadPs4RepositoryOverride,
+            SelectedShadPs4Version = SelectedShadPs4Version,
+            IncludeShadPs4Prereleases = IncludeShadPs4Prereleases
         };
 }
 
@@ -2437,6 +2449,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                !string.IsNullOrWhiteSpace(item.SelectedRetroArchCore) ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.EdenRepositoryOverride) ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedEdenVersion) ||
+               item.LaunchSettings?.IncludeEdenPrereleases == true ||
+               !string.IsNullOrWhiteSpace(item.LaunchSettings?.ShadPs4RepositoryOverride) ||
+               !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedShadPs4Version) ||
+               item.LaunchSettings?.IncludeShadPs4Prereleases == true ||
                !string.IsNullOrWhiteSpace(item.SelectedHandlerId);
     }
 
@@ -2450,7 +2466,11 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             StartFullscreen = persisted.StartFullscreen ?? defaults.StartFullscreen,
             SelectedRetroArchCore = persisted.SelectedRetroArchCore ?? defaults.SelectedRetroArchCore,
             EdenRepositoryOverride = persisted.EdenRepositoryOverride ?? defaults.EdenRepositoryOverride,
-            SelectedEdenVersion = persisted.SelectedEdenVersion ?? defaults.SelectedEdenVersion
+            SelectedEdenVersion = persisted.SelectedEdenVersion ?? defaults.SelectedEdenVersion,
+            IncludeEdenPrereleases = persisted.IncludeEdenPrereleases || defaults.IncludeEdenPrereleases,
+            ShadPs4RepositoryOverride = persisted.ShadPs4RepositoryOverride ?? defaults.ShadPs4RepositoryOverride,
+            SelectedShadPs4Version = persisted.SelectedShadPs4Version ?? defaults.SelectedShadPs4Version,
+            IncludeShadPs4Prereleases = persisted.IncludeShadPs4Prereleases || defaults.IncludeShadPs4Prereleases
         };
     }
 

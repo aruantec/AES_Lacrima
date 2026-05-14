@@ -66,6 +66,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
     {
         var resolvedExecutablePath = ResolveShadPs4ExecutablePath(launcherPath);
         var resolvedGamePath = ResolveShadPs4GamePath(romPath);
+        var userDirectory = ResolveShadPs4UserDirectory(resolvedExecutablePath);
         var launchTranscriptPath = CreateLaunchTranscriptPath(resolvedExecutablePath);
         _launchTranscriptPath = launchTranscriptPath;
         var launchScriptPath = CreateLaunchScriptPath(resolvedExecutablePath, resolvedGamePath, launchTranscriptPath);
@@ -78,6 +79,15 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             WindowStyle = ProcessWindowStyle.Hidden,
             WorkingDirectory = ResolveShadPs4WorkingDirectory(resolvedExecutablePath)
         };
+
+        if (!string.IsNullOrWhiteSpace(userDirectory))
+        {
+            startInfo.Environment["SHADPS4_USER_DIR"] = userDirectory;
+            startInfo.Environment["APPDATA"] = userDirectory;
+            startInfo.Environment["LOCALAPPDATA"] = userDirectory;
+            startInfo.Environment["XDG_CONFIG_HOME"] = userDirectory;
+            startInfo.Environment["XDG_DATA_HOME"] = userDirectory;
+        }
 
         startInfo.Arguments = $"/d /c call \"{launchScriptPath}\"";
 
@@ -232,6 +242,24 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         catch
         {
             return Path.GetDirectoryName(executablePath.Trim()) ?? string.Empty;
+        }
+    }
+
+    private static string ResolveShadPs4UserDirectory(string? executablePath)
+    {
+        var workingDirectory = ResolveShadPs4WorkingDirectory(executablePath);
+        if (string.IsNullOrWhiteSpace(workingDirectory))
+            return string.Empty;
+
+        var userDirectory = Path.Combine(workingDirectory, "user");
+        try
+        {
+            Directory.CreateDirectory(userDirectory);
+            return userDirectory;
+        }
+        catch
+        {
+            return string.Empty;
         }
     }
 

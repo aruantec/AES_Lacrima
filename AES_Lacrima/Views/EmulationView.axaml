@@ -612,6 +612,11 @@
                                                  </ComboBox>
                                              </StackPanel>
 
+                                             <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                                 <TextBlock Text="Include Pre-releases" Foreground="White" FontSize="16" Width="220"/>
+                                                 <ToggleSwitch IsChecked="{Binding IncludeCurrentSectionEdenPrereleases, Mode=TwoWay}" />
+                                             </StackPanel>
+
                                              <TextBlock Text="{Binding CurrentSectionEdenStatus}"
                                                         Foreground="#C8C8C8"
                                                         TextWrapping="Wrap"/>
@@ -646,6 +651,114 @@
                                                          BorderThickness="1"/>
                                                  <Button Content="Download / Update Eden"
                                                          Command="{Binding DownloadOrUpdateCurrentSectionEdenCommand}"
+                                                         Padding="12,8"
+                                                         Background="#222"
+                                                         Foreground="White"
+                                                         BorderBrush="#555"
+                                                         BorderThickness="1"/>
+                                             </StackPanel>
+                                         </StackPanel>
+                                     </Border>
+
+                                     <Border IsVisible="{Binding ShowCurrentSectionShadPs4UpdateControls}"
+                                             Margin="0,14,0,0"
+                                             Padding="12"
+                                             BorderBrush="#555"
+                                             BorderThickness="1"
+                                             CornerRadius="8"
+                                             Background="#1A1A1A">
+                                         <StackPanel Spacing="10">
+                                             <TextBlock Text="shadPS4 Update" Foreground="White" FontSize="18" FontWeight="SemiBold"/>
+
+                                             <TextBlock Text="Repository Override (owner/repo or URL)"
+                                                        Foreground="#D0D0D0"
+                                                        FontSize="14"/>
+                                             <StackPanel Orientation="Horizontal" Spacing="8">
+                                                 <TextBox Text="{Binding CurrentSectionShadPs4RepositoryOverride, Mode=TwoWay}"
+                                                          Watermark="https://github.com/shadps4-emu/shadPS4"
+                                                          MinWidth="360"
+                                                          HorizontalAlignment="Stretch"/>
+                                                 <Button Content="Apply"
+                                                         Command="{Binding ApplyCurrentSectionShadPs4RepositoryCommand}"
+                                                         IsEnabled="{Binding IsCurrentSectionShadPs4RepositoryDirty}"
+                                                         Padding="12,8"
+                                                         Background="#222"
+                                                         Foreground="White"
+                                                         BorderBrush="#555"
+                                                         BorderThickness="1"/>
+                                             </StackPanel>
+
+                                             <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                                 <TextBlock Text="Current Version" Foreground="White" FontSize="16" Width="220"/>
+                                                 <TextBlock Text="{Binding CurrentSectionShadPs4CurrentVersion, FallbackValue=Unknown, TargetNullValue=Unknown}"
+                                                            Foreground="#E0E0E0"
+                                                            FontSize="16"/>
+                                             </StackPanel>
+
+                                             <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                                 <TextBlock Text="Latest Version" Foreground="White" FontSize="16" Width="220"/>
+                                                 <TextBlock Text="{Binding CurrentSectionShadPs4LatestVersion, FallbackValue=Unavailable, TargetNullValue=Unavailable}"
+                                                            Foreground="#E0E0E0"
+                                                            FontSize="16"/>
+                                             </StackPanel>
+
+                                             <TextBlock Text="A new shadPS4 version is available."
+                                                        IsVisible="{Binding IsCurrentSectionShadPs4UpdateAvailable}"
+                                                        Foreground="#FFD166"
+                                                        FontSize="15"
+                                                        FontWeight="SemiBold"/>
+
+                                             <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                                 <TextBlock Text="Target Version" Foreground="White" FontSize="16" Width="220"/>
+                                                 <ComboBox MinWidth="260"
+                                                           HorizontalAlignment="Stretch"
+                                                           ItemsSource="{Binding CurrentSectionShadPs4AvailableVersions}"
+                                                           SelectedItem="{Binding SelectedCurrentSectionShadPs4Version, Mode=TwoWay}">
+                                                     <Interaction.Behaviors>
+                                                         <controlBehaviors:ComboBoxPopupScaler/>
+                                                     </Interaction.Behaviors>
+                                                 </ComboBox>
+                                             </StackPanel>
+
+                                             <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                                 <TextBlock Text="Include Pre-releases" Foreground="White" FontSize="16" Width="220"/>
+                                                 <ToggleSwitch IsChecked="{Binding IncludeCurrentSectionShadPs4Prereleases, Mode=TwoWay}" />
+                                             </StackPanel>
+
+                                             <TextBlock Text="{Binding CurrentSectionShadPs4Status}"
+                                                        Foreground="#C8C8C8"
+                                                        TextWrapping="Wrap"/>
+
+                                             <StackPanel IsVisible="{Binding IsCurrentSectionShadPs4Downloading}" Spacing="4">
+                                                 <TextBlock Text="Downloading and applying shadPS4 update..."
+                                                            Foreground="#E0E0E0"
+                                                            FontSize="14"/>
+                                                 <ProgressBar Minimum="0"
+                                                              Maximum="100"
+                                                              Value="{Binding CurrentSectionShadPs4DownloadProgress}"
+                                                              IsIndeterminate="False"
+                                                              Height="8"/>
+                                             </StackPanel>
+
+                                             <TextBlock Text="{Binding CurrentSectionShadPs4EmulatorPath, StringFormat='Emulator Folder: {0}'}"
+                                                        Foreground="#AFAFAF"
+                                                        FontSize="13"
+                                                        TextWrapping="Wrap"/>
+                                             <TextBlock Text="{Binding CurrentSectionShadPs4UpdatePath, StringFormat='Update Temp (Emu_Update): {0}'}"
+                                                        Foreground="#AFAFAF"
+                                                        FontSize="13"
+                                                        TextWrapping="Wrap"/>
+
+                                             <StackPanel Orientation="Horizontal" Spacing="10">
+                                                 <Button Content="Refresh Versions"
+                                                         Command="{Binding RefreshCurrentSectionShadPs4InfoCommand}"
+                                                         Padding="12,8"
+                                                         Background="#222"
+                                                         Foreground="White"
+                                                         BorderBrush="#555"
+                                                         BorderThickness="1"/>
+                                                 <Button Content="Download / Update shadPS4"
+                                                         Command="{Binding DownloadOrUpdateCurrentSectionShadPs4Command}"
                                                          Padding="12,8"
                                                          Background="#222"
                                                          Foreground="White"
@@ -1006,8 +1119,8 @@
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding OpenCurrentSectionEdenUpdatesCommand}"
-                        IsVisible="{Binding IsCurrentSectionEdenUpdateAvailable}"
-                        ToolTip.Tip="Eden update available">
+                        IsVisible="{Binding IsCurrentSectionHandlerUpdateAvailable}"
+                        ToolTip.Tip="Handler update available">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">

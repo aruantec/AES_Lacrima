@@ -17,7 +17,7 @@ using log4net;
 
 namespace AES_Lacrima.Services;
 
-public sealed record EdenUpdateState(
+public sealed record ShadPs4UpdateState(
     string Repository,
     string? CurrentVersion,
     string? LatestVersion,
@@ -29,18 +29,18 @@ public sealed record EdenUpdateState(
     string? ResolvedLauncherPath);
 
 [AutoRegister]
-public partial class EdenEmulatorUpdateService
+public partial class ShadPs4EmulatorUpdateService
 {
-    private const string DefaultRepo = "https://git.eden-emu.dev/eden-emu/eden";
-    private const string CacheFileName = "eden-releases-cache.json";
-    private const string InstalledVersionMarkerFileName = "eden_version.txt";
-    private static readonly ILog Log = AES_Core.Logging.LogHelper.For<EdenEmulatorUpdateService>();
+    private const string DefaultRepo = "https://github.com/shadps4-emu/shadPS4";
+    private const string CacheFileName = "shadps4-releases-cache.json";
+    private const string InstalledVersionMarkerFileName = "shadps4_version.txt";
+    private static readonly ILog Log = AES_Core.Logging.LogHelper.For<ShadPs4EmulatorUpdateService>();
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(5) };
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(20);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    private sealed class EdenReleaseCache
+    private sealed class ReleaseCache
     {
         public string? Repository { get; set; }
         public string? ETag { get; set; }
@@ -51,19 +51,17 @@ public partial class EdenEmulatorUpdateService
     private sealed record RepoResolution(
         string DisplayValue,
         string CacheKey,
-        string ReleasesApiEndpoint,
-        bool IsGitHub);
+        string ReleasesApiEndpoint);
 
-    private sealed record EdenRelease(
+    private sealed record ReleaseInfo(
         string Tag,
-        string Name,
         bool IsPrerelease,
         DateTimeOffset? PublishedAt,
-        IReadOnlyList<EdenAsset> Assets);
+        IReadOnlyList<ReleaseAsset> Assets);
 
-    private sealed record EdenAsset(string Name, string DownloadUrl);
+    private sealed record ReleaseAsset(string Name, string DownloadUrl);
 
-    public async Task<EdenUpdateState> GetUpdateInfoAsync(
+    public async Task<ShadPs4UpdateState> GetUpdateInfoAsync(
         string sectionKey,
         string sectionTitle,
         string? launcherPath,
@@ -80,16 +78,21 @@ public partial class EdenEmulatorUpdateService
         try
         {
             var releases = await GetReleasesAsync(repository, includePrereleases, forceRefresh, cancellationToken).ConfigureAwait(false);
-            var versions = releases.Select(static r => r.Tag).Where(static v => !string.IsNullOrWhiteSpace(v)).Distinct(StringComparer.OrdinalIgnoreCase).Take(10).ToList();
+            var versions = releases
+                .Select(static r => r.Tag)
+                .Where(static v => !string.IsNullOrWhiteSpace(v))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(10)
+                .ToList();
             var latest = versions.FirstOrDefault();
-            var updateAvailable = IsUpdateAvailable(currentVersion, latest);
+            var updateAvailable = IsUpdateAvailable(currentVersion, latest, includePrereleases);
             var status = updateAvailable
-                ? $"New Eden version available: {latest}"
+                ? $"New shadPS4 version available: {latest}"
                 : string.IsNullOrWhiteSpace(currentVersion)
-                    ? "Eden is not installed in this section yet."
-                    : $"Eden is up to date ({currentVersion}).";
+                    ? "shadPS4 is not installed in this section yet."
+                    : $"shadPS4 is up to date ({currentVersion}).";
 
-            return new EdenUpdateState(
+            return new ShadPs4UpdateState(
                 repository.DisplayValue,
                 currentVersion,
                 latest,
@@ -102,21 +105,21 @@ public partial class EdenEmulatorUpdateService
         }
         catch (Exception ex)
         {
-            Log.Warn("Failed to fetch Eden update info; returning local status only.", ex);
-            return new EdenUpdateState(
+            Log.Warn("Failed to fetch shadPS4 update info; returning local status only.", ex);
+            return new ShadPs4UpdateState(
                 repository.DisplayValue,
                 currentVersion,
                 null,
                 false,
                 Array.Empty<string>(),
-                $"Failed to check Eden updates: {ex.Message}",
+                $"Failed to check shadPS4 updates: {ex.Message}",
                 emulatorDirectory,
                 updateDirectory,
                 resolvedLauncherPath);
         }
     }
 
-    public async Task<EdenUpdateState> DownloadOrUpdateAsync(
+    public async Task<ShadPs4UpdateState> DownloadOrUpdateAsync(
         string sectionKey,
         string sectionTitle,
         string? launcherPath,
@@ -134,21 +137,21 @@ public partial class EdenEmulatorUpdateService
             if (releases.Count == 0)
             {
                 var noReleaseLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
-                return new EdenUpdateState(repository.DisplayValue, GetInstalledVersion(emulatorDirectory, noReleaseLauncherPath), null, false, Array.Empty<string>(), "No Eden releases found.", emulatorDirectory, updateDirectory, noReleaseLauncherPath);
+                return new ShadPs4UpdateState(repository.DisplayValue, GetInstalledVersion(emulatorDirectory, noReleaseLauncherPath), null, false, Array.Empty<string>(), "No shadPS4 releases found.", emulatorDirectory, updateDirectory, noReleaseLauncherPath);
             }
 
             var targetRelease = ResolveTargetRelease(releases, requestedVersion);
             if (targetRelease == null)
             {
                 var unresolvedVersionLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
-                return new EdenUpdateState(repository.DisplayValue, GetInstalledVersion(emulatorDirectory, unresolvedVersionLauncherPath), releases[0].Tag, false, releases.Select(static r => r.Tag).Take(10).ToList(), $"Version '{requestedVersion}' was not found.", emulatorDirectory, updateDirectory, unresolvedVersionLauncherPath);
+                return new ShadPs4UpdateState(repository.DisplayValue, GetInstalledVersion(emulatorDirectory, unresolvedVersionLauncherPath), releases[0].Tag, false, releases.Select(static r => r.Tag).Take(10).ToList(), $"Version '{requestedVersion}' was not found.", emulatorDirectory, updateDirectory, unresolvedVersionLauncherPath);
             }
 
             var selectedAsset = SelectAssetForPlatform(targetRelease.Assets);
             if (selectedAsset == null)
             {
                 var missingAssetLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
-                return new EdenUpdateState(repository.DisplayValue, GetInstalledVersion(emulatorDirectory, missingAssetLauncherPath), releases[0].Tag, false, releases.Select(static r => r.Tag).Take(10).ToList(), "No compatible Eden asset found for this OS.", emulatorDirectory, updateDirectory, missingAssetLauncherPath);
+                return new ShadPs4UpdateState(repository.DisplayValue, GetInstalledVersion(emulatorDirectory, missingAssetLauncherPath), releases[0].Tag, false, releases.Select(static r => r.Tag).Take(10).ToList(), "No compatible shadPS4 asset found for this OS.", emulatorDirectory, updateDirectory, missingAssetLauncherPath);
             }
 
             PrepareUpdateDirectory(updateDirectory);
@@ -169,30 +172,34 @@ public partial class EdenEmulatorUpdateService
                 File.Copy(downloadedAssetPath, destinationPath, overwrite: true);
             }
 
-            // Keep Emu_Update as a pure temp staging area.
             PrepareUpdateDirectory(updateDirectory);
             SaveInstalledVersionMarker(emulatorDirectory, targetRelease.Tag);
 
             var resolvedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
             var currentVersion = GetInstalledVersion(emulatorDirectory, resolvedLauncherPath);
-            var versions = releases.Select(static r => r.Tag).Where(static v => !string.IsNullOrWhiteSpace(v)).Distinct(StringComparer.OrdinalIgnoreCase).Take(10).ToList();
+            var versions = releases
+                .Select(static r => r.Tag)
+                .Where(static v => !string.IsNullOrWhiteSpace(v))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(10)
+                .ToList();
             var latest = versions.FirstOrDefault();
-            var updateAvailable = IsUpdateAvailable(currentVersion, latest);
+            var updateAvailable = IsUpdateAvailable(currentVersion, latest, includePrereleases);
 
-            return new EdenUpdateState(
+            return new ShadPs4UpdateState(
                 repository.DisplayValue,
                 currentVersion,
                 latest,
                 updateAvailable,
                 versions,
-                $"Eden {targetRelease.Tag} downloaded and updated.",
+                $"shadPS4 {targetRelease.Tag} downloaded and updated.",
                 emulatorDirectory,
                 updateDirectory,
                 resolvedLauncherPath);
         }
         catch (Exception ex)
         {
-            Log.Error("Eden update failed.", ex);
+            Log.Error("shadPS4 update failed.", ex);
             var repository = ResolveRepository(repositoryOverride);
             var (emulatorDirectory, updateDirectory) = EnsureDirectories(sectionKey, sectionTitle);
             try
@@ -202,14 +209,15 @@ public partial class EdenEmulatorUpdateService
             catch
             {
             }
+
             var resolvedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
-            return new EdenUpdateState(
+            return new ShadPs4UpdateState(
                 repository.DisplayValue,
                 GetInstalledVersion(emulatorDirectory, resolvedLauncherPath),
                 null,
                 false,
                 Array.Empty<string>(),
-                $"Eden download/update failed: {ex.Message}",
+                $"shadPS4 download/update failed: {ex.Message}",
                 emulatorDirectory,
                 updateDirectory,
                 resolvedLauncherPath);
@@ -223,14 +231,14 @@ public partial class EdenEmulatorUpdateService
     private static (string EmulatorDirectory, string UpdateDirectory) EnsureDirectories(string sectionKey, string sectionTitle)
     {
         var safeSectionKey = SanitizePathPart(NormalizeSectionFolderName(string.IsNullOrWhiteSpace(sectionKey) ? "Unknown" : sectionKey));
-        var emulatorDirectory = Path.Combine(ApplicationPaths.EmulatorsDirectory, safeSectionKey, "Eden");
+        var emulatorDirectory = Path.Combine(ApplicationPaths.EmulatorsDirectory, safeSectionKey, "shadPS4");
         var updateDirectory = Path.Combine(emulatorDirectory, "Emu_Update");
         Directory.CreateDirectory(emulatorDirectory);
         Directory.CreateDirectory(updateDirectory);
         return (emulatorDirectory, updateDirectory);
     }
 
-    private async Task<IReadOnlyList<EdenRelease>> GetReleasesAsync(RepoResolution repository, bool includePrereleases, bool forceRefresh, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<ReleaseInfo>> GetReleasesAsync(RepoResolution repository, bool includePrereleases, bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
         var cache = LoadCache(cachePath);
@@ -246,10 +254,9 @@ public partial class EdenEmulatorUpdateService
         Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
 
         Client.DefaultRequestHeaders.UserAgent.Clear();
-        Client.DefaultRequestHeaders.UserAgent.ParseAdd("AES_Lacrima-EdenUpdater/1.0");
+        Client.DefaultRequestHeaders.UserAgent.ParseAdd("AES_Lacrima-ShadPs4Updater/1.0");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, repository.ReleasesApiEndpoint);
-
         if (!string.IsNullOrWhiteSpace(cache?.ETag) &&
             string.Equals(cache?.Repository, repository.CacheKey, StringComparison.OrdinalIgnoreCase))
         {
@@ -264,14 +271,14 @@ public partial class EdenEmulatorUpdateService
         }
         else if (response.StatusCode == HttpStatusCode.Forbidden && !string.IsNullOrWhiteSpace(cache?.ReleasesJson))
         {
-            Log.Warn("GitHub rate limit reached for Eden updates; using cached releases.");
+            Log.Warn("Rate limit reached for shadPS4 updates; using cached releases.");
             json = cache!.ReleasesJson;
         }
         else
         {
             response.EnsureSuccessStatusCode();
             json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            cache = new EdenReleaseCache
+            cache = new ReleaseCache
             {
                 Repository = repository.CacheKey,
                 ETag = response.Headers.ETag?.Tag,
@@ -282,24 +289,18 @@ public partial class EdenEmulatorUpdateService
         }
 
         if (string.IsNullOrWhiteSpace(json))
-            return Array.Empty<EdenRelease>();
+            return Array.Empty<ReleaseInfo>();
 
         return ParseReleases(json, includePrereleases);
     }
 
-    private static IReadOnlyList<EdenRelease> ParseReleases(string json, bool includePrereleases)
+    private static IReadOnlyList<ReleaseInfo> ParseReleases(string json, bool includePrereleases)
     {
         var root = JsonNode.Parse(json) as JsonArray;
         if (root == null)
-            return Array.Empty<EdenRelease>();
+            return Array.Empty<ReleaseInfo>();
 
-        var isGitHubFormat = root.Any(static node => node is JsonObject item && item.ContainsKey("tag_name"));
-        if (!isGitHubFormat)
-        {
-            return ParseForgejoReleases(root, includePrereleases);
-        }
-
-        var results = new List<EdenRelease>();
+        var results = new List<ReleaseInfo>();
         foreach (var node in root)
         {
             if (node is not JsonObject item)
@@ -315,7 +316,7 @@ public partial class EdenEmulatorUpdateService
             if (DateTimeOffset.TryParse(published, out var parsedPublished))
                 publishedAt = parsedPublished;
 
-            var assets = new List<EdenAsset>();
+            var assets = new List<ReleaseAsset>();
             if (item["assets"] is JsonArray assetsNode)
             {
                 foreach (var assetNode in assetsNode)
@@ -326,11 +327,11 @@ public partial class EdenEmulatorUpdateService
                     var name = assetObj["name"]?.GetValue<string>()?.Trim();
                     var url = assetObj["browser_download_url"]?.GetValue<string>()?.Trim();
                     if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(url))
-                        assets.Add(new EdenAsset(name, url));
+                        assets.Add(new ReleaseAsset(name, url));
                 }
             }
 
-            results.Add(new EdenRelease(tag, item["name"]?.GetValue<string>() ?? tag, prerelease, publishedAt, assets));
+            results.Add(new ReleaseInfo(tag, prerelease, publishedAt, assets));
         }
 
         return results
@@ -340,54 +341,7 @@ public partial class EdenEmulatorUpdateService
             .ToList();
     }
 
-    private static IReadOnlyList<EdenRelease> ParseForgejoReleases(JsonArray root, bool includePrereleases)
-    {
-        var results = new List<EdenRelease>();
-        foreach (var node in root)
-        {
-            if (node is not JsonObject item)
-                continue;
-
-            var tag = item["tag_name"]?.GetValue<string>()?.Trim()
-                      ?? item["tag"]?.GetValue<string>()?.Trim();
-            if (string.IsNullOrWhiteSpace(tag))
-                continue;
-
-            var prerelease = item["prerelease"]?.GetValue<bool>() == true;
-            var published = item["published_at"]?.GetValue<string>() ?? item["created_at"]?.GetValue<string>();
-            DateTimeOffset? publishedAt = null;
-            if (DateTimeOffset.TryParse(published, out var parsedPublished))
-                publishedAt = parsedPublished;
-
-            var assets = new List<EdenAsset>();
-            if (item["assets"] is JsonArray assetsNode)
-            {
-                foreach (var assetNode in assetsNode)
-                {
-                    if (assetNode is not JsonObject assetObj)
-                        continue;
-
-                    var name = assetObj["name"]?.GetValue<string>()?.Trim();
-                    var url = assetObj["browser_download_url"]?.GetValue<string>()?.Trim();
-                    if (string.IsNullOrWhiteSpace(url) && assetObj["url"]?.GetValue<string>() is { } apiUrl)
-                        url = apiUrl;
-
-                    if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(url))
-                        assets.Add(new EdenAsset(name, url));
-                }
-            }
-
-            results.Add(new EdenRelease(tag, item["name"]?.GetValue<string>() ?? tag, prerelease, publishedAt, assets));
-        }
-
-        return results
-            .Where(r => includePrereleases ? r.IsPrerelease : !r.IsPrerelease)
-            .OrderByDescending(static r => r.PublishedAt ?? DateTimeOffset.MinValue)
-            .ThenByDescending(static r => r.Tag, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    private static EdenRelease? ResolveTargetRelease(IReadOnlyList<EdenRelease> releases, string? requestedVersion)
+    private static ReleaseInfo? ResolveTargetRelease(IReadOnlyList<ReleaseInfo> releases, string? requestedVersion)
     {
         if (releases.Count == 0)
             return null;
@@ -400,7 +354,7 @@ public partial class EdenEmulatorUpdateService
             string.Equals(NormalizeVersion(release.Tag), NormalizeVersion(requestedVersion), StringComparison.OrdinalIgnoreCase));
     }
 
-    private static EdenAsset? SelectAssetForPlatform(IReadOnlyList<EdenAsset> assets)
+    private static ReleaseAsset? SelectAssetForPlatform(IReadOnlyList<ReleaseAsset> assets)
     {
         if (assets.Count == 0)
             return null;
@@ -408,8 +362,8 @@ public partial class EdenEmulatorUpdateService
         if (OperatingSystem.IsWindows())
         {
             return assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.Contains("x64", StringComparison.OrdinalIgnoreCase) &&
+                       asset.Name.Contains("win", StringComparison.OrdinalIgnoreCase) &&
+                       asset.Name.Contains("qt", StringComparison.OrdinalIgnoreCase) &&
                        asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                    ?? assets.FirstOrDefault(asset =>
                        asset.Name.Contains("win", StringComparison.OrdinalIgnoreCase) &&
@@ -417,19 +371,24 @@ public partial class EdenEmulatorUpdateService
                    ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
         }
 
+        if (OperatingSystem.IsLinux())
+        {
+            return assets.FirstOrDefault(asset =>
+                       asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
+                       asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                   ?? assets.FirstOrDefault(asset =>
+                       asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
+                       asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        }
+
         if (OperatingSystem.IsMacOS())
         {
             return assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("mac", StringComparison.OrdinalIgnoreCase) ||
-                       asset.Name.Contains("osx", StringComparison.OrdinalIgnoreCase))
-                   ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+                       asset.Name.Contains("mac", StringComparison.OrdinalIgnoreCase) &&
+                       asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
         }
 
-        return assets.FirstOrDefault(asset =>
-                   asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
-                   (asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) ||
-                    asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)))
-               ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        return assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
     }
 
     private static async Task DownloadAssetAsync(string url, string destinationPath, CancellationToken cancellationToken)
@@ -509,18 +468,16 @@ public partial class EdenEmulatorUpdateService
             return new RepoResolution(
                 ownerRepo,
                 $"github:{ownerRepo}",
-                $"https://api.github.com/repos/{ownerRepo}/releases?per_page=20",
-                true);
+                $"https://api.github.com/repos/{ownerRepo}/releases?per_page=20");
         }
 
         var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (segments.Length < 2)
         {
             return new RepoResolution(
-                DefaultRepo,
-                "forgejo:eden-emu/eden",
-                "https://git.eden-emu.dev/api/v1/repos/eden-emu/eden/releases?page=1&limit=20",
-                false);
+                "shadps4-emu/shadPS4",
+                "github:shadps4-emu/shadPS4",
+                "https://api.github.com/repos/shadps4-emu/shadPS4/releases?per_page=20");
         }
 
         var ownerRepoPath = $"{segments[0]}/{segments[1]}";
@@ -529,50 +486,38 @@ public partial class EdenEmulatorUpdateService
             return new RepoResolution(
                 ownerRepoPath,
                 $"github:{ownerRepoPath}",
-                $"https://api.github.com/repos/{ownerRepoPath}/releases?per_page=20",
-                true);
+                $"https://api.github.com/repos/{ownerRepoPath}/releases?per_page=20");
         }
 
         return new RepoResolution(
             $"{uri.Scheme}://{uri.Host}/{ownerRepoPath}",
             $"{uri.Host}:{ownerRepoPath}",
-            $"{uri.Scheme}://{uri.Host}/api/v1/repos/{ownerRepoPath}/releases?page=1&limit=20",
-            false);
-    }
-
-    private static string NormalizeSectionFolderName(string input)
-    {
-        var value = input.Trim();
-        var extension = Path.GetExtension(value);
-        if (string.Equals(extension, ".png", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(extension, ".jpeg", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(extension, ".webp", StringComparison.OrdinalIgnoreCase))
-        {
-            value = Path.GetFileNameWithoutExtension(value);
-        }
-
-        return value;
+            $"{uri.Scheme}://{uri.Host}/api/v1/repos/{ownerRepoPath}/releases?page=1&limit=20");
     }
 
     private static string? ResolveLauncherPath(string? launcherPath, string emulatorDirectory)
     {
         if (OperatingSystem.IsWindows())
         {
-            var cli = Directory.EnumerateFiles(emulatorDirectory, "eden-cli.exe", SearchOption.AllDirectories).FirstOrDefault();
-            if (!string.IsNullOrWhiteSpace(cli))
-                return cli;
-
-            var gui = Directory.EnumerateFiles(emulatorDirectory, "eden.exe", SearchOption.AllDirectories).FirstOrDefault();
-            if (!string.IsNullOrWhiteSpace(gui))
-                return gui;
+            var prioritized = new[] { "shadPS4.exe", "shadps4.exe", "shadPS4QtLauncher.exe", "shadps4qtlauncher.exe" };
+            foreach (var executableName in prioritized)
+            {
+                var candidate = Directory.EnumerateFiles(emulatorDirectory, executableName, SearchOption.AllDirectories).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(candidate))
+                    return candidate;
+            }
         }
 
-        var executableCandidates = Directory.EnumerateFiles(emulatorDirectory, "*", SearchOption.AllDirectories)
-            .Where(static path => Path.GetFileName(path).Contains("eden", StringComparison.OrdinalIgnoreCase))
+        var candidates = Directory.EnumerateFiles(emulatorDirectory, "*", SearchOption.AllDirectories)
+            .Where(static path =>
+            {
+                var fileName = Path.GetFileName(path);
+                return fileName.Contains("shadps4", StringComparison.OrdinalIgnoreCase) ||
+                       fileName.Contains("qtlauncher", StringComparison.OrdinalIgnoreCase);
+            })
             .ToList();
 
-        var localCandidate = executableCandidates.FirstOrDefault();
+        var localCandidate = candidates.FirstOrDefault();
         if (!string.IsNullOrWhiteSpace(localCandidate))
             return localCandidate;
 
@@ -584,11 +529,21 @@ public partial class EdenEmulatorUpdateService
 
     private static string? GetInstalledVersion(string emulatorDirectory, string? launcherPath)
     {
+        var markerPath = Path.Combine(emulatorDirectory, InstalledVersionMarkerFileName);
+        var markerVersion = ReadInstalledVersionMarker(markerPath);
+
+        if (!string.IsNullOrWhiteSpace(markerVersion))
+            return markerVersion;
+
         var fileVersion = GetFileVersionSafe(launcherPath);
         if (!string.IsNullOrWhiteSpace(fileVersion))
             return fileVersion;
 
-        var markerPath = Path.Combine(emulatorDirectory, InstalledVersionMarkerFileName);
+        return markerVersion;
+    }
+
+    private static string? ReadInstalledVersionMarker(string markerPath)
+    {
         if (!File.Exists(markerPath))
             return null;
 
@@ -601,6 +556,18 @@ public partial class EdenEmulatorUpdateService
         {
             return null;
         }
+    }
+
+    private static bool IsLikelyPrereleaseVersion(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+            return false;
+
+        var normalized = version.Trim();
+        return normalized.Contains("pre", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("preview", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("nightly", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains('-', StringComparison.OrdinalIgnoreCase);
     }
 
     private static void SaveInstalledVersionMarker(string emulatorDirectory, string version)
@@ -644,16 +611,22 @@ public partial class EdenEmulatorUpdateService
         return string.Equals(NormalizeVersion(currentVersion), NormalizeVersion(releaseVersion), StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsUpdateAvailable(string? currentVersion, string? latestVersion)
+    private static bool IsUpdateAvailable(string? currentVersion, string? latestVersion, bool includePrereleases)
     {
         if (string.IsNullOrWhiteSpace(currentVersion) || string.IsNullOrWhiteSpace(latestVersion))
             return false;
+
+        if (VersionsEquivalent(currentVersion, latestVersion))
+            return false;
+
+        if (!includePrereleases && IsLikelyPrereleaseVersion(currentVersion))
+            return true;
 
         var compareResult = CompareVersionNumbers(currentVersion, latestVersion);
         if (compareResult.HasValue)
             return compareResult.Value < 0;
 
-        return !VersionsEquivalent(currentVersion, latestVersion);
+        return true;
     }
 
     private static int? CompareVersionNumbers(string left, string right)
@@ -729,6 +702,21 @@ public partial class EdenEmulatorUpdateService
         return value.Trim().TrimStart('v', 'V');
     }
 
+    private static string NormalizeSectionFolderName(string input)
+    {
+        var value = input.Trim();
+        var extension = Path.GetExtension(value);
+        if (string.Equals(extension, ".png", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(extension, ".jpeg", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(extension, ".webp", StringComparison.OrdinalIgnoreCase))
+        {
+            value = Path.GetFileNameWithoutExtension(value);
+        }
+
+        return value;
+    }
+
     private static string SanitizePathPart(string input)
     {
         var invalid = Path.GetInvalidFileNameChars();
@@ -737,7 +725,7 @@ public partial class EdenEmulatorUpdateService
         return string.IsNullOrWhiteSpace(sanitized) ? "Unknown" : sanitized;
     }
 
-    private static EdenReleaseCache? LoadCache(string cachePath)
+    private static ReleaseCache? LoadCache(string cachePath)
     {
         try
         {
@@ -745,7 +733,7 @@ public partial class EdenEmulatorUpdateService
                 return null;
 
             var json = File.ReadAllText(cachePath);
-            return JsonSerializer.Deserialize<EdenReleaseCache>(json);
+            return JsonSerializer.Deserialize<ReleaseCache>(json);
         }
         catch
         {
@@ -753,7 +741,7 @@ public partial class EdenEmulatorUpdateService
         }
     }
 
-    private static void SaveCache(string cachePath, EdenReleaseCache cache)
+    private static void SaveCache(string cachePath, ReleaseCache cache)
     {
         try
         {
