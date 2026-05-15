@@ -757,6 +757,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
                 settings.ColorTint.B / 255f,
                 settings.ColorTint.A / 255f,
                 settings.DisableVSync);
+
+            WgcBridgeApi.SetVrrEnabled(_session, settings.DisableVSync);
         }
 
         if (!shaderPathChanged)
