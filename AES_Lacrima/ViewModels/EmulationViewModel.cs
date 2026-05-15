@@ -19,6 +19,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using log4net;
+using DrawingIcon = System.Drawing.Icon;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -118,6 +119,8 @@ namespace AES_Lacrima.ViewModels
         private bool _isSyncingCurrentSectionShadPs4IncludePrereleases;
         private bool _isSyncingCurrentSectionPcsx2VersionSelection;
         private bool _isSyncingCurrentSectionPcsx2IncludePrereleases;
+        private bool _isSyncingCurrentSectionDuckStationVersionSelection;
+        private bool _isSyncingCurrentSectionDuckStationIncludePrereleases;
         private bool _isSyncingCurrentSectionXeniaVersionSelection;
         private bool _isXeniaPatchesOverlayOpen;
         private bool _isXeniaPatchesBusy;
@@ -141,7 +144,10 @@ namespace AES_Lacrima.ViewModels
         private long _gameplayPreviewRequestVersion;
         private Process? _activeEmulatorProcess;
         private CancellationTokenSource? _retroArchLogWatcherCts;
+        private CancellationTokenSource? _activeEmulatorWatchdogCts;
         private CancellationTokenSource? _appTopmostRestoreCts;
+        private string? _currentSetupLaunchIconExecutablePath;
+        private Bitmap? _currentSetupLaunchIcon;
         private PendingEmulatorLaunchRequest? _pendingEmulatorLaunchRequest;
         private bool _isClosingActiveEmulatorForRelaunch;
         private bool _appTopmostOverride;
@@ -197,6 +203,9 @@ namespace AES_Lacrima.ViewModels
 
         [AutoResolve]
         private Pcsx2EmulatorUpdateService? _pcsx2EmulatorUpdateService;
+
+        [AutoResolve]
+        private DuckStationEmulatorUpdateService? _duckStationEmulatorUpdateService;
 
         [AutoResolve]
         private Xbox360MetadataService? _xbox360MetadataService;
@@ -344,7 +353,7 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnCurrentEmulatorHandlerChanged(IEmulatorHandler? value)
         {
-            SelectedCaptureMode = EmulatorCaptureMode.DirectComposition;
+        SelectedCaptureMode = EmulatorCaptureMode.DirectComposition;
 
             OnPropertyChanged(nameof(CanShowRenderOptions));
             OnPropertyChanged(nameof(ForceUseTargetClientAreaCapture));
@@ -356,6 +365,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(CurrentEmulatorWindowTitleHint));
             OnPropertyChanged(nameof(CurrentCaptureStretch));
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
+            OnPropertyChanged(nameof(ShowCurrentSectionDuckStationSetupLaunchButton));
             RefreshCurrentSectionLaunchOptionsState();
         }
 
@@ -543,15 +553,85 @@ namespace AES_Lacrima.ViewModels
 
             if (_subscribedSettingsViewModel != null)
             {
+                DetachEmulationSectionSubscriptions(_subscribedSettingsViewModel);
                 _subscribedSettingsViewModel.PropertyChanged -= SettingsViewModel_PropertyChanged;
                 _subscribedSettingsViewModel.EmulationUseFirstItemCoverChanged -= OnEmulationUseFirstItemCoverChanged;
                 _subscribedSettingsViewModel.EmulationGameplayAutoplayChanged -= OnEmulationGameplayAutoplayChanged;
             }
 
             _subscribedSettingsViewModel = settings;
+            AttachEmulationSectionSubscriptions(_subscribedSettingsViewModel);
             _subscribedSettingsViewModel.PropertyChanged += SettingsViewModel_PropertyChanged;
             _subscribedSettingsViewModel.EmulationUseFirstItemCoverChanged += OnEmulationUseFirstItemCoverChanged;
             _subscribedSettingsViewModel.EmulationGameplayAutoplayChanged += OnEmulationGameplayAutoplayChanged;
+        }
+
+        private void AttachEmulationSectionSubscriptions(SettingsViewModel settings)
+        {
+            settings.EmulationSections.CollectionChanged -= EmulationSections_CollectionChanged;
+            settings.EmulationSections.CollectionChanged += EmulationSections_CollectionChanged;
+
+            foreach (var section in settings.EmulationSections)
+            {
+                section.PropertyChanged -= EmulationSectionItem_PropertyChanged;
+                section.PropertyChanged += EmulationSectionItem_PropertyChanged;
+            }
+        }
+
+        private void DetachEmulationSectionSubscriptions(SettingsViewModel settings)
+        {
+            settings.EmulationSections.CollectionChanged -= EmulationSections_CollectionChanged;
+
+            foreach (var section in settings.EmulationSections)
+                section.PropertyChanged -= EmulationSectionItem_PropertyChanged;
+        }
+
+        private void EmulationSections_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (e.OldItems != null)
+            {
+                foreach (var item in e.OldItems.OfType<EmulationSectionItem>())
+                    item.PropertyChanged -= EmulationSectionItem_PropertyChanged;
+            }
+
+            if (e.NewItems != null)
+            {
+                foreach (var item in e.NewItems.OfType<EmulationSectionItem>())
+                {
+                    item.PropertyChanged -= EmulationSectionItem_PropertyChanged;
+                    item.PropertyChanged += EmulationSectionItem_PropertyChanged;
+                }
+            }
+
+            RefreshCurrentSectionHandlerState();
+        }
+
+        private void EmulationSectionItem_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (sender is not EmulationSectionItem section)
+                return;
+
+            if (!string.Equals(e.PropertyName, nameof(EmulationSectionItem.SelectedHandlerId), StringComparison.Ordinal) &&
+                !string.Equals(e.PropertyName, nameof(EmulationSectionItem.LaunchSettings), StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var sectionTitle = LoadedAlbum?.Title;
+            if (string.IsNullOrWhiteSpace(sectionTitle) ||
+                !string.Equals(section.SectionTitle, sectionTitle, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            RefreshCurrentSectionHandlerState();
+        }
+
+        private void RefreshCurrentSectionHandlerState()
+        {
+            OnPropertyChanged(nameof(CurrentEmulationSectionItem));
+            UpdateCurrentEmulatorHandlerForSelection(LoadedAlbum);
+            RefreshCurrentSectionLaunchOptionsState();
         }
 
         private void EnsureMetadataServiceSubscription()
@@ -598,6 +678,12 @@ namespace AES_Lacrima.ViewModels
                 RefreshAlbumPreviews();
             }
 
+            if (e.PropertyName == nameof(SettingsViewModel.EmulationSections))
+            {
+                EnsureSettingsViewModelSubscription();
+                RefreshCurrentSectionHandlerState();
+            }
+
             if (e.PropertyName == nameof(SettingsViewModel.IsYtDlpInstalled))
             {
                 OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
@@ -628,6 +714,7 @@ namespace AES_Lacrima.ViewModels
         {
             OnPropertyChanged(nameof(CanShowRenderOptions));
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
+            OnPropertyChanged(nameof(ShowCurrentSectionDuckStationSetupLaunchButton));
             OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
             OnPropertyChanged(nameof(IsEmulatorViewportVisible));
             OnPropertyChanged(nameof(IsCompositionCaptureVisible));
@@ -646,7 +733,7 @@ namespace AES_Lacrima.ViewModels
 
             IsRenderOptionsOpen = false;
             ClearRetroArchErrorState();
-            UpdateCurrentEmulatorHandlerForSelection(LoadedAlbum ?? SelectedAlbum);
+            UpdateCurrentEmulatorHandlerForSelection(LoadedAlbum);
 
             if (IsActive && IsGameplayPreviewAvailable)
                 QueueGameplayPreview(HighlightedItem, immediate: true);
@@ -655,6 +742,7 @@ namespace AES_Lacrima.ViewModels
         partial void OnIsEmulatorLaunchInProgressChanged(bool value)
         {
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
+            OnPropertyChanged(nameof(ShowCurrentSectionDuckStationSetupLaunchButton));
         }
 
         partial void OnIsEmulatorViewportDismissedChanged(bool value)
@@ -864,9 +952,6 @@ namespace AES_Lacrima.ViewModels
             if (IsEmulatorRunning && !IsEmulatorViewportDismissed)
                 IsEmulatorViewportDismissed = true;
 
-            if (!IsEmulatorRunning)
-                UpdateCurrentEmulatorHandlerForSelection(value);
-
             SyncSelectedAlbumIndexFromAlbum(value);
             RefreshCurrentSectionLaunchOptionsState();
             AutoSave();
@@ -878,7 +963,7 @@ namespace AES_Lacrima.ViewModels
                 IsEmulatorViewportDismissed = true;
 
             if (!IsEmulatorRunning)
-                UpdateCurrentEmulatorHandlerForSelection(value ?? SelectedAlbum);
+                UpdateCurrentEmulatorHandlerForSelection(value);
 
             ApplyFilter();
             QueueSelectedAlbumCoverScan(value);
@@ -890,7 +975,7 @@ namespace AES_Lacrima.ViewModels
         {
             get
             {
-                var sectionTitle = (SelectedAlbum ?? LoadedAlbum)?.Title;
+                var sectionTitle = LoadedAlbum?.Title;
                 if (string.IsNullOrWhiteSpace(sectionTitle))
                     return null;
 
@@ -1743,6 +1828,187 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
+        private AvaloniaList<string> _currentSectionDuckStationAvailableVersions = [];
+        public AvaloniaList<string> CurrentSectionDuckStationAvailableVersions
+        {
+            get => _currentSectionDuckStationAvailableVersions;
+            set
+            {
+                if (ReferenceEquals(_currentSectionDuckStationAvailableVersions, value))
+                    return;
+
+                _currentSectionDuckStationAvailableVersions = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _selectedCurrentSectionDuckStationVersion;
+        public string? SelectedCurrentSectionDuckStationVersion
+        {
+            get => _selectedCurrentSectionDuckStationVersion;
+            set
+            {
+                if (string.Equals(_selectedCurrentSectionDuckStationVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _selectedCurrentSectionDuckStationVersion = value;
+                OnPropertyChanged();
+                OnSelectedCurrentSectionDuckStationVersionChanged(value);
+            }
+        }
+
+        private string? _currentSectionDuckStationCurrentVersion;
+        public string? CurrentSectionDuckStationCurrentVersion
+        {
+            get => _currentSectionDuckStationCurrentVersion;
+            set
+            {
+                if (string.Equals(_currentSectionDuckStationCurrentVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionDuckStationCurrentVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionDuckStationLatestVersion;
+        public string? CurrentSectionDuckStationLatestVersion
+        {
+            get => _currentSectionDuckStationLatestVersion;
+            set
+            {
+                if (string.Equals(_currentSectionDuckStationLatestVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionDuckStationLatestVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string _currentSectionDuckStationStatus = "Select a DuckStation section to manage updates.";
+        public string CurrentSectionDuckStationStatus
+        {
+            get => _currentSectionDuckStationStatus;
+            set
+            {
+                if (string.Equals(_currentSectionDuckStationStatus, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionDuckStationStatus = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _includeCurrentSectionDuckStationPrereleases;
+        public bool IncludeCurrentSectionDuckStationPrereleases
+        {
+            get => _includeCurrentSectionDuckStationPrereleases;
+            set
+            {
+                if (_includeCurrentSectionDuckStationPrereleases == value)
+                    return;
+
+                _includeCurrentSectionDuckStationPrereleases = value;
+                OnPropertyChanged();
+
+                if (_isSyncingCurrentSectionDuckStationIncludePrereleases)
+                    return;
+
+                var section = CurrentEmulationSectionItem;
+                if (section?.LaunchSettings == null)
+                    return;
+
+                section.LaunchSettings.IncludeDuckStationPrereleases = value;
+                SettingsViewModel?.SaveSettings();
+                _ = RefreshCurrentSectionDuckStationInfo();
+            }
+        }
+
+        private bool _isCurrentSectionDuckStationUpdateAvailable;
+        public bool IsCurrentSectionDuckStationUpdateAvailable
+        {
+            get => _isCurrentSectionDuckStationUpdateAvailable;
+            set
+            {
+                if (_isCurrentSectionDuckStationUpdateAvailable == value)
+                    return;
+
+                _isCurrentSectionDuckStationUpdateAvailable = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
+            }
+        }
+
+        private bool _isCurrentSectionDuckStationBusy;
+        public bool IsCurrentSectionDuckStationBusy
+        {
+            get => _isCurrentSectionDuckStationBusy;
+            set
+            {
+                if (_isCurrentSectionDuckStationBusy == value)
+                    return;
+
+                _isCurrentSectionDuckStationBusy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionDuckStationDownloading;
+        public bool IsCurrentSectionDuckStationDownloading
+        {
+            get => _isCurrentSectionDuckStationDownloading;
+            set
+            {
+                if (_isCurrentSectionDuckStationDownloading == value)
+                    return;
+
+                _isCurrentSectionDuckStationDownloading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private double _currentSectionDuckStationDownloadProgress;
+        public double CurrentSectionDuckStationDownloadProgress
+        {
+            get => _currentSectionDuckStationDownloadProgress;
+            set
+            {
+                if (Math.Abs(_currentSectionDuckStationDownloadProgress - value) < 0.01)
+                    return;
+
+                _currentSectionDuckStationDownloadProgress = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionDuckStationEmulatorPath;
+        public string? CurrentSectionDuckStationEmulatorPath
+        {
+            get => _currentSectionDuckStationEmulatorPath;
+            set
+            {
+                if (string.Equals(_currentSectionDuckStationEmulatorPath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionDuckStationEmulatorPath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionDuckStationUpdatePath;
+        public string? CurrentSectionDuckStationUpdatePath
+        {
+            get => _currentSectionDuckStationUpdatePath;
+            set
+            {
+                if (string.Equals(_currentSectionDuckStationUpdatePath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionDuckStationUpdatePath = value;
+                OnPropertyChanged();
+            }
+        }
+
         private AvaloniaList<string> _currentSectionXeniaAvailableVersions = [];
         public AvaloniaList<string> CurrentSectionXeniaAvailableVersions
         {
@@ -2162,6 +2428,23 @@ namespace AES_Lacrima.ViewModels
             SettingsViewModel?.SaveSettings();
         }
 
+        private void OnSelectedCurrentSectionDuckStationVersionChanged(string? value)
+        {
+            if (_isSyncingCurrentSectionDuckStationVersionSelection)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (string.Equals(section.LaunchSettings.SelectedDuckStationVersion, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            section.LaunchSettings.SelectedDuckStationVersion = normalized;
+            SettingsViewModel?.SaveSettings();
+        }
+
         public bool ShowCurrentSectionRetroArchCoreSelection =>
             CurrentEmulatorHandler?.UsesRetroArchCores == true &&
             CurrentSectionRetroArchCores.Count > 0;
@@ -2190,10 +2473,37 @@ namespace AES_Lacrima.ViewModels
             string.Equals(CurrentEmulatorHandler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
+        public bool ShowCurrentSectionDuckStationUpdateControls =>
+            CurrentEmulatorHandler != null &&
+            string.Equals(CurrentEmulatorHandler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentEmulationSectionItem != null;
+
         public bool ShowCurrentSectionPcsx2SetupLaunchButton =>
             CurrentEmulatorHandler != null &&
             string.Equals(CurrentEmulatorHandler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulatorHandler.IsLauncherPathValid(CurrentEmulatorHandler.LauncherPath) &&
+            !IsEmulatorRunning &&
+            !IsEmulatorLaunchInProgress;
+
+        public bool ShowCurrentSectionDuckStationSetupLaunchButton =>
+            CurrentEmulatorHandler != null &&
+            string.Equals(CurrentEmulatorHandler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentEmulatorHandler.IsLauncherPathValid(CurrentEmulatorHandler.LauncherPath) &&
+            !IsEmulatorRunning &&
+            !IsEmulatorLaunchInProgress;
+
+        public Bitmap? CurrentSectionSetupLaunchIcon => ResolveCurrentSectionSetupLaunchIcon();
+
+        public bool HasCurrentSectionSetupLaunchIcon => CurrentSectionSetupLaunchIcon != null;
+
+        public string CurrentSectionSetupLaunchToolTip =>
+            CurrentEmulatorHandler?.DisplayName is { Length: > 0 } handlerName
+                ? $"Launch {handlerName}"
+                : "Launch emulator";
+
+        public bool CanLaunchCurrentSectionHandlerSetup =>
+            CurrentEmulatorHandler != null &&
+            CurrentEmulatorHandler?.IsLauncherPathValid(CurrentEmulatorHandler.LauncherPath) == true &&
             !IsEmulatorRunning &&
             !IsEmulatorLaunchInProgress;
 
@@ -2205,10 +2515,17 @@ namespace AES_Lacrima.ViewModels
             (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable) ||
             (ShowCurrentSectionShadPs4UpdateControls && IsCurrentSectionShadPs4UpdateAvailable) ||
             (ShowCurrentSectionXeniaUpdateControls && IsCurrentSectionXeniaUpdateAvailable) ||
-            (ShowCurrentSectionPcsx2UpdateControls && IsCurrentSectionPcsx2UpdateAvailable);
+            (ShowCurrentSectionPcsx2UpdateControls && IsCurrentSectionPcsx2UpdateAvailable) ||
+            (ShowCurrentSectionDuckStationUpdateControls && IsCurrentSectionDuckStationUpdateAvailable);
 
         private void RefreshCurrentSectionLaunchOptionsState()
         {
+            OnPropertyChanged(nameof(CurrentSectionSetupLaunchIcon));
+            OnPropertyChanged(nameof(HasCurrentSectionSetupLaunchIcon));
+            OnPropertyChanged(nameof(CurrentSectionSetupLaunchToolTip));
+            OnPropertyChanged(nameof(CanLaunchCurrentSectionHandlerSetup));
+            LaunchCurrentSectionHandlerSetupCommand.NotifyCanExecuteChanged();
+
             var sectionCore = CurrentEmulationSectionItem?.SelectedRetroArchCore;
             if (!string.Equals(SelectedCurrentSectionRetroArchCore, sectionCore, StringComparison.OrdinalIgnoreCase))
             {
@@ -2319,6 +2636,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2UpdateControls));
+            OnPropertyChanged(nameof(ShowCurrentSectionDuckStationUpdateControls));
             OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
 
             if (ShowCurrentSectionRetroArchUpdateControls)
@@ -2500,6 +2818,60 @@ namespace AES_Lacrima.ViewModels
                 finally
                 {
                     _isSyncingCurrentSectionPcsx2IncludePrereleases = false;
+                }
+            }
+
+            var sectionDuckStationVersion = section?.LaunchSettings?.SelectedDuckStationVersion;
+            if (!string.Equals(SelectedCurrentSectionDuckStationVersion, sectionDuckStationVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionDuckStationVersionSelection = true;
+                    SelectedCurrentSectionDuckStationVersion = sectionDuckStationVersion;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionDuckStationVersionSelection = false;
+                }
+            }
+
+            var includeDuckStationPrereleases = section?.LaunchSettings?.IncludeDuckStationPrereleases == true;
+            if (IncludeCurrentSectionDuckStationPrereleases != includeDuckStationPrereleases)
+            {
+                try
+                {
+                    _isSyncingCurrentSectionDuckStationIncludePrereleases = true;
+                    IncludeCurrentSectionDuckStationPrereleases = includeDuckStationPrereleases;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionDuckStationIncludePrereleases = false;
+                }
+            }
+
+            if (ShowCurrentSectionDuckStationUpdateControls)
+            {
+                _ = RefreshCurrentSectionDuckStationInfo();
+            }
+            else
+            {
+                CurrentSectionDuckStationAvailableVersions.Clear();
+                CurrentSectionDuckStationCurrentVersion = null;
+                CurrentSectionDuckStationLatestVersion = null;
+                CurrentSectionDuckStationStatus = "Select a DuckStation section to manage updates.";
+                IsCurrentSectionDuckStationUpdateAvailable = false;
+                CurrentSectionDuckStationEmulatorPath = null;
+                CurrentSectionDuckStationUpdatePath = null;
+                CurrentSectionDuckStationDownloadProgress = 0;
+                IsCurrentSectionDuckStationDownloading = false;
+                try
+                {
+                    _isSyncingCurrentSectionDuckStationIncludePrereleases = true;
+                    IncludeCurrentSectionDuckStationPrereleases = false;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionDuckStationIncludePrereleases = false;
                 }
             }
 
@@ -2866,6 +3238,94 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
+        private async Task RefreshCurrentSectionDuckStationInfo()
+        {
+            if (!ShowCurrentSectionDuckStationUpdateControls)
+            {
+                CurrentSectionDuckStationStatus = "Select a DuckStation section to manage updates.";
+                CurrentSectionDuckStationAvailableVersions.Clear();
+                CurrentSectionDuckStationCurrentVersion = null;
+                CurrentSectionDuckStationLatestVersion = null;
+                IsCurrentSectionDuckStationUpdateAvailable = false;
+                CurrentSectionDuckStationEmulatorPath = null;
+                CurrentSectionDuckStationUpdatePath = null;
+                CurrentSectionDuckStationDownloadProgress = 0;
+                IsCurrentSectionDuckStationDownloading = false;
+                return;
+            }
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _duckStationEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionDuckStationBusy = true;
+            IsCurrentSectionDuckStationDownloading = false;
+            CurrentSectionDuckStationDownloadProgress = 0;
+            try
+            {
+                var state = await updater.GetUpdateInfoAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    IncludeCurrentSectionDuckStationPrereleases,
+                    forceRefresh: false).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() => ApplyDuckStationUpdateState(state));
+            }
+            finally
+            {
+                IsCurrentSectionDuckStationBusy = false;
+                IsCurrentSectionDuckStationDownloading = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task DownloadOrUpdateCurrentSectionDuckStation()
+        {
+            if (!ShowCurrentSectionDuckStationUpdateControls)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _duckStationEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionDuckStationBusy = true;
+            IsCurrentSectionDuckStationDownloading = true;
+            CurrentSectionDuckStationDownloadProgress = 5;
+            try
+            {
+                var state = await updater.DownloadOrUpdateAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    IncludeCurrentSectionDuckStationPrereleases,
+                    SelectedCurrentSectionDuckStationVersion).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CurrentSectionDuckStationDownloadProgress = 100;
+                    ApplyDuckStationUpdateState(state);
+
+                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                        !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        handler.LauncherPath = state.ResolvedLauncherPath;
+                        SettingsViewModel?.SaveSettings();
+                    }
+                });
+            }
+            finally
+            {
+                IsCurrentSectionDuckStationBusy = false;
+                IsCurrentSectionDuckStationDownloading = false;
+            }
+        }
+
+        [RelayCommand]
         private async Task DownloadOrUpdateCurrentSectionPcsx2()
         {
             if (!ShowCurrentSectionPcsx2UpdateControls)
@@ -3149,6 +3609,37 @@ namespace AES_Lacrima.ViewModels
             finally
             {
                 _isSyncingCurrentSectionPcsx2VersionSelection = false;
+            }
+        }
+
+        private void ApplyDuckStationUpdateState(DuckStationUpdateState state)
+        {
+            CurrentSectionDuckStationCurrentVersion = state.CurrentVersion;
+            CurrentSectionDuckStationLatestVersion = state.LatestVersion;
+            IsCurrentSectionDuckStationUpdateAvailable = state.IsUpdateAvailable;
+            CurrentSectionDuckStationStatus = state.StatusMessage;
+            CurrentSectionDuckStationEmulatorPath = state.EmulatorDirectory;
+            CurrentSectionDuckStationUpdatePath = state.UpdateDirectory;
+
+            CurrentSectionDuckStationAvailableVersions.Clear();
+            foreach (var version in state.AvailableVersions.Take(10))
+                CurrentSectionDuckStationAvailableVersions.Add(version);
+
+            var selectedVersion = SelectedCurrentSectionDuckStationVersion;
+            if (string.IsNullOrWhiteSpace(selectedVersion) ||
+                !CurrentSectionDuckStationAvailableVersions.Contains(selectedVersion, StringComparer.OrdinalIgnoreCase))
+            {
+                selectedVersion = CurrentSectionDuckStationAvailableVersions.FirstOrDefault() ?? state.LatestVersion;
+            }
+
+            try
+            {
+                _isSyncingCurrentSectionDuckStationVersionSelection = true;
+                SelectedCurrentSectionDuckStationVersion = selectedVersion;
+            }
+            finally
+            {
+                _isSyncingCurrentSectionDuckStationVersionSelection = false;
             }
         }
 
@@ -3762,6 +4253,107 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
+        private void LaunchCurrentSectionHandlerSetup()
+        {
+            if (!CanLaunchCurrentSectionHandlerSetup)
+                return;
+
+            var handlerId = CurrentEmulatorHandler?.HandlerId;
+            if (string.Equals(handlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+            {
+                LaunchCurrentSectionDuckStationSetup();
+                return;
+            }
+
+            if (string.Equals(handlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+            {
+                LaunchCurrentSectionPcsx2Setup();
+                return;
+            }
+
+            LaunchCurrentSectionGenericHandlerSetup();
+        }
+
+        private Bitmap? ResolveCurrentSectionSetupLaunchIcon()
+        {
+            if (!OperatingSystem.IsWindows())
+                return null;
+
+            var executablePath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(CurrentEmulatorHandler?.LauncherPath);
+            if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
+                return null;
+
+            if (string.Equals(_currentSetupLaunchIconExecutablePath, executablePath, StringComparison.OrdinalIgnoreCase) &&
+                _currentSetupLaunchIcon != null)
+            {
+                return _currentSetupLaunchIcon;
+            }
+
+            _currentSetupLaunchIcon?.Dispose();
+            _currentSetupLaunchIcon = TryLoadExecutableIcon(executablePath);
+            _currentSetupLaunchIconExecutablePath = executablePath;
+            return _currentSetupLaunchIcon;
+        }
+
+        private static Bitmap? TryLoadExecutableIcon(string executablePath)
+        {
+            try
+            {
+                using var icon = DrawingIcon.ExtractAssociatedIcon(executablePath);
+                if (icon == null)
+                    return null;
+
+                using var drawingBitmap = icon.ToBitmap();
+                using var stream = new MemoryStream();
+                drawingBitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+                stream.Position = 0;
+                return new Bitmap(stream);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool IsCurrentSectionSetupLaunchSupported()
+            => true;
+
+        [RelayCommand]
+        private void LaunchCurrentSectionGenericHandlerSetup()
+        {
+            var handler = CurrentEmulatorHandler;
+            if (handler == null)
+                return;
+
+            if (IsEmulatorRunning || IsEmulatorLaunchInProgress)
+                return;
+
+            var launcherPath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(handler.LauncherPath);
+            if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
+                return;
+
+            try
+            {
+                RestoreAppTopMost();
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = launcherPath,
+                    UseShellExecute = false,
+                    WorkingDirectory = EmulatorHandlerBase.ResolveLauncherWorkingDirectory(handler.LauncherPath)
+                                       ?? Path.GetDirectoryName(launcherPath)
+                                       ?? string.Empty
+                };
+
+                _ = Process.Start(startInfo);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to launch {handler.DisplayName}.", ex);
+            }
+        }
+
+        [RelayCommand]
         private void LaunchCurrentSectionPcsx2Setup()
         {
             var handler = CurrentEmulatorHandler;
@@ -3774,7 +4366,7 @@ namespace AES_Lacrima.ViewModels
             if (IsEmulatorRunning || IsEmulatorLaunchInProgress)
                 return;
 
-            var launcherPath = EmulatorHandlerBase.ResolveLauncherExecutablePath(handler.LauncherPath);
+            var launcherPath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(handler.LauncherPath);
             if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
                 return;
 
@@ -3797,7 +4389,47 @@ namespace AES_Lacrima.ViewModels
             }
             catch (Exception ex)
             {
-                SLog.Warn("Failed to launch PCSX2 setup mode.", ex);
+                SLog.Warn("Failed to launch PCSX2.", ex);
+            }
+        }
+
+        [RelayCommand]
+        private void LaunchCurrentSectionDuckStationSetup()
+        {
+            var handler = CurrentEmulatorHandler;
+            if (handler == null ||
+                !string.Equals(handler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (IsEmulatorRunning || IsEmulatorLaunchInProgress)
+                return;
+
+            var launcherPath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(handler.LauncherPath);
+            if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
+                return;
+
+            try
+            {
+                RestoreAppTopMost();
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = launcherPath,
+                    UseShellExecute = false,
+                    WorkingDirectory = EmulatorHandlerBase.ResolveLauncherWorkingDirectory(handler.LauncherPath)
+                                       ?? Path.GetDirectoryName(launcherPath)
+                                       ?? string.Empty
+                };
+
+                DuckStationHandler.EnsurePortableModeMarker(startInfo.FileName, startInfo.WorkingDirectory);
+
+                _ = Process.Start(startInfo);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed to launch DuckStation.", ex);
             }
         }
 
@@ -3826,6 +4458,16 @@ namespace AES_Lacrima.ViewModels
             IsRetroArchErrorOverlayOpen = false;
         }
 
+        private void ShowEmulatorCaptureFailure(string romPath, IEmulatorHandler handler, string? details = null)
+        {
+            var handlerName = string.IsNullOrWhiteSpace(handler.DisplayName) ? "emulator" : handler.DisplayName;
+            RetroArchErrorSummary = $"{handlerName} capture failed.";
+            RetroArchErrorDetails = string.IsNullOrWhiteSpace(details)
+                ? $"AES could not capture '{romPath}'. The emulator may still be running. Please retry, or reopen the emulator window and try again."
+                : details;
+            IsRetroArchErrorOverlayOpen = true;
+        }
+
         [RelayCommand]
         private void CloseEmulator()
         {
@@ -3844,7 +4486,7 @@ namespace AES_Lacrima.ViewModels
             RequestStopEmulatorCapture = true;
             EmulatorTargetHwnd = IntPtr.Zero;
             IsEmulatorRunning = false;
-            UpdateCurrentEmulatorHandlerForSelection(LoadedAlbum ?? SelectedAlbum);
+            UpdateCurrentEmulatorHandlerForSelection(LoadedAlbum);
             DetachTrackedEmulatorProcess();
         }
 
@@ -4102,7 +4744,7 @@ namespace AES_Lacrima.ViewModels
 
                 SelectedAlbum = AlbumList.FirstOrDefault();
                 LoadedAlbum = null;
-                UpdateCurrentEmulatorHandlerForSelection(SelectedAlbum);
+                UpdateCurrentEmulatorHandlerForSelection(LoadedAlbum);
                 _sharedAlbumCache = new AvaloniaList<FolderMediaItem>(AlbumList);
                 IsPrepared = true;
                 _isPreparing = false;
@@ -5346,7 +5988,8 @@ namespace AES_Lacrima.ViewModels
                 var handler = request.Handler;
                 CurrentEmulatorHandler = handler;
                 SetSessionCaptureStretchOverride(string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase) ||
-                                                 string.Equals(handler.HandlerId, "cemu", StringComparison.OrdinalIgnoreCase)
+                                                 string.Equals(handler.HandlerId, "cemu", StringComparison.OrdinalIgnoreCase) ||
+                                                 string.Equals(handler.HandlerId, "duckstation", StringComparison.OrdinalIgnoreCase)
                     ? Stretch.UniformToFill
                     : null);
                 
@@ -5636,6 +6279,7 @@ namespace AES_Lacrima.ViewModels
                 await Task.Run(() =>
                 {
                     var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
+                    forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "duckstation", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "dolphin", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase);
                     if (!forceKillFirst)
@@ -5643,6 +6287,7 @@ namespace AES_Lacrima.ViewModels
                         try
                         {
                             forceKillFirst = process.ProcessName.Contains("pcsx2", StringComparison.OrdinalIgnoreCase) ||
+                                             process.ProcessName.Contains("duckstation", StringComparison.OrdinalIgnoreCase) ||
                                              process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
                             forceKillFirst |= process.ProcessName.Contains("shadps4", StringComparison.OrdinalIgnoreCase);
                         }
@@ -5656,7 +6301,7 @@ namespace AES_Lacrima.ViewModels
                     {
                         if (forceKillFirst)
                         {
-                            SLog.Info($"EmulationViewModel using direct termination for PCSX2 pid={process.Id} to bypass confirm-shutdown dialogs.");
+                            SLog.Info($"EmulationViewModel using direct termination for pid={process.Id} to bypass confirm-shutdown dialogs.");
                             process.Kill(true);
                         }
                         else
@@ -5766,6 +6411,10 @@ namespace AES_Lacrima.ViewModels
             _retroArchLogWatcherCts?.Dispose();
             _retroArchLogWatcherCts = null;
 
+            _activeEmulatorWatchdogCts?.Cancel();
+            _activeEmulatorWatchdogCts?.Dispose();
+            _activeEmulatorWatchdogCts = null;
+
             _activeEmulatorProcess = process;
             EmulatorTargetProcessId = process?.Id ?? 0;
 
@@ -5789,9 +6438,87 @@ namespace AES_Lacrima.ViewModels
             if (process.HasExited)
                 HandleTrackedEmulatorExited(process);
             else
+            {
+                StartActiveEmulatorWatchdog(process);
                 _ = ResolveEmulatorTargetHwndAsync(process, romPath, handler);
+            }
 
             RestoreHostWindowFocus();
+        }
+
+        private void StartActiveEmulatorWatchdog(Process process)
+        {
+            _activeEmulatorWatchdogCts?.Cancel();
+            _activeEmulatorWatchdogCts?.Dispose();
+
+            var cts = new CancellationTokenSource();
+            _activeEmulatorWatchdogCts = cts;
+            _ = MonitorActiveEmulatorAsync(process, cts.Token);
+        }
+
+        private async Task MonitorActiveEmulatorAsync(Process process, CancellationToken cancellationToken)
+        {
+            const int pollDelayMs = 500;
+            const int missingWindowThreshold = 6;
+            var missingWindowCount = 0;
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(pollDelayMs, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                if (!ReferenceEquals(_activeEmulatorProcess, process))
+                    break;
+
+                try
+                {
+                    process.Refresh();
+                    if (process.HasExited)
+                        break;
+                }
+                catch
+                {
+                    break;
+                }
+
+                if (!OperatingSystem.IsWindows())
+                    continue;
+
+                var targetHwnd = EmulatorTargetHwnd;
+                if (targetHwnd == IntPtr.Zero)
+                {
+                    missingWindowCount = 0;
+                    continue;
+                }
+
+                if (NativeIsWindow(targetHwnd))
+                {
+                    missingWindowCount = 0;
+                    continue;
+                }
+
+                missingWindowCount++;
+                if (missingWindowCount < missingWindowThreshold)
+                    continue;
+
+                SLog.Warn($"EmulationViewModel detected that emulator target hwnd 0x{targetHwnd.ToInt64():X} is no longer valid while process pid={process.Id} is still tracked. Triggering close flow.");
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (!ReferenceEquals(_activeEmulatorProcess, process))
+                        return;
+
+                    RequestStopEmulatorCapture = true;
+                    CloseTrackedEmulatorForPendingLaunch(process);
+                }, DispatcherPriority.Background);
+
+                break;
+            }
         }
 
         private void ActiveEmulatorProcess_Exited(object? sender, EventArgs e)
@@ -5823,7 +6550,7 @@ namespace AES_Lacrima.ViewModels
 
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
-            RequestStopEmulatorCapture = false;
+            RequestStopEmulatorCapture = true;
             ClearSessionCaptureStretchOverride();
             if (currentHandler is CemuHandler cemuHandler)
                 cemuHandler.RestoreFullscreenScalingWorkaround(currentHandler.LauncherPath ?? string.Empty);
@@ -5843,6 +6570,10 @@ namespace AES_Lacrima.ViewModels
 
         private void DetachTrackedEmulatorProcess()
         {
+            _activeEmulatorWatchdogCts?.Cancel();
+            _activeEmulatorWatchdogCts?.Dispose();
+            _activeEmulatorWatchdogCts = null;
+
             if (_activeEmulatorProcess == null)
             {
                 EmulatorTargetHwnd = IntPtr.Zero;
@@ -5870,6 +6601,9 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool NativeIsWindow(IntPtr hWnd);
+
         private async Task ResolveEmulatorTargetHwndAsync(Process process, string romPath, IEmulatorHandler handler)
         {
             try
@@ -5890,7 +6624,11 @@ namespace AES_Lacrima.ViewModels
                 {
                     SLog.Warn($"Failed to resolve emulator capture target for '{romPath}' after retry.");
                     RestoreAppTopMost();
-                    await Dispatcher.UIThread.InvokeAsync(() => IsEmulatorLaunchInProgress = false);
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        IsEmulatorLaunchInProgress = false;
+                        ShowEmulatorCaptureFailure(romPath, handler);
+                    });
                     return;
                 }
 
@@ -5905,7 +6643,11 @@ namespace AES_Lacrima.ViewModels
             {
                 SLog.Warn($"Failed to resolve emulator capture target for '{romPath}'.", ex);
                 RestoreAppTopMost();
-                await Dispatcher.UIThread.InvokeAsync(() => IsEmulatorLaunchInProgress = false);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    IsEmulatorLaunchInProgress = false;
+                    ShowEmulatorCaptureFailure(romPath, handler, ex.Message);
+                });
             }
         }
 

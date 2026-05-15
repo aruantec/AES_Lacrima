@@ -464,7 +464,7 @@ struct CaptureSession
 
         HRESULT hr = originalFn(This, pDevice, pDesc, ppSwapChain);
         char buf[256];
-        sprintf_s(buf, "[WGC_NATIVE] Hooked_CreateSwapChain called hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] Hooked_CreateSwapChain called hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
         DebugLog(buf);
         if (SUCCEEDED(hr) && ppSwapChain && *ppSwapChain)
         {
@@ -486,11 +486,12 @@ struct CaptureSession
 
         HRESULT hr = originalFn(This, pDevice, hWnd, pDesc, pFullscreenDesc, pRestrictToOutput, ppSwapChain);
         char buf[256];
-        sprintf_s(buf, "[WGC_NATIVE] Hooked_CreateSwapChainForHwnd called hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] Hooked_CreateSwapChainForHwnd called hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
         DebugLog(buf);
         if (SUCCEEDED(hr) && ppSwapChain && *ppSwapChain)
         {
-            if (HookSwapChain(*reinterpret_cast<IDXGISwapChain**>(ppSwapChain)))
+            IDXGISwapChain* baseSwapChain = static_cast<IDXGISwapChain*>(*ppSwapChain);
+            if (HookSwapChain(baseSwapChain))
                 DebugLog("[WGC_NATIVE] Hooked_CreateSwapChainForHwnd successfully hooked swapchain\n");
             else
                 DebugLog("[WGC_NATIVE] Hooked_CreateSwapChainForHwnd failed to hook swapchain\n");
@@ -508,11 +509,12 @@ struct CaptureSession
 
         HRESULT hr = originalFn(This, pDevice, pWindow, pDesc, pRestrictToOutput, ppSwapChain);
         char buf[256];
-        sprintf_s(buf, "[WGC_NATIVE] Hooked_CreateSwapChainForCoreWindow called hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] Hooked_CreateSwapChainForCoreWindow called hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
         DebugLog(buf);
         if (SUCCEEDED(hr) && ppSwapChain && *ppSwapChain)
         {
-            if (HookSwapChain(*reinterpret_cast<IDXGISwapChain**>(ppSwapChain)))
+            IDXGISwapChain* baseSwapChain = static_cast<IDXGISwapChain*>(*ppSwapChain);
+            if (HookSwapChain(baseSwapChain))
                 DebugLog("[WGC_NATIVE] Hooked_CreateSwapChainForCoreWindow successfully hooked swapchain\n");
             else
                 DebugLog("[WGC_NATIVE] Hooked_CreateSwapChainForCoreWindow failed to hook swapchain\n");
@@ -567,7 +569,7 @@ struct CaptureSession
 
         HRESULT hr = originalFn(riid, ppFactory);
         char buf[256];
-        sprintf_s(buf, "[WGC_NATIVE] Hooked_CreateDXGIFactory called hr=0x%08X factory=%p\n", static_cast<unsigned>(hr), ppFactory ? *ppFactory : nullptr);
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] Hooked_CreateDXGIFactory called hr=0x%08X factory=%p\n", static_cast<unsigned>(hr), ppFactory ? *ppFactory : nullptr);
         DebugLog(buf);
         if (SUCCEEDED(hr) && ppFactory && *ppFactory)
             HookDxgiFactory(reinterpret_cast<IUnknown*>(*ppFactory));
@@ -584,7 +586,7 @@ struct CaptureSession
 
         HRESULT hr = originalFn(riid, ppFactory);
         char buf[256];
-        sprintf_s(buf, "[WGC_NATIVE] Hooked_CreateDXGIFactory1 called hr=0x%08X factory=%p\n", static_cast<unsigned>(hr), ppFactory ? *ppFactory : nullptr);
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] Hooked_CreateDXGIFactory1 called hr=0x%08X factory=%p\n", static_cast<unsigned>(hr), ppFactory ? *ppFactory : nullptr);
         DebugLog(buf);
         if (SUCCEEDED(hr) && ppFactory && *ppFactory)
             HookDxgiFactory(reinterpret_cast<IUnknown*>(*ppFactory));
@@ -601,7 +603,7 @@ struct CaptureSession
 
         HRESULT hr = originalFn(Flags, riid, ppFactory);
         char buf[256];
-        sprintf_s(buf, "[WGC_NATIVE] Hooked_CreateDXGIFactory2 called hr=0x%08X factory=%p\n", static_cast<unsigned>(hr), ppFactory ? *ppFactory : nullptr);
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] Hooked_CreateDXGIFactory2 called hr=0x%08X factory=%p\n", static_cast<unsigned>(hr), ppFactory ? *ppFactory : nullptr);
         DebugLog(buf);
         if (SUCCEEDED(hr) && ppFactory && *ppFactory)
             HookDxgiFactory(reinterpret_cast<IUnknown*>(*ppFactory));
@@ -670,7 +672,7 @@ struct CaptureSession
         }
 
         char buf[256];
-        sprintf_s(buf, "[WGC_NATIVE] HookSwapChain called swapChain=%p\n", swapChain);
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] HookSwapChain called swapChain=%p\n", swapChain);
         DebugLog(buf);
 
         void* originalPresent = vtable[8];
@@ -884,14 +886,14 @@ struct CaptureSession
 
         auto mapName = MakeInjectionSharedMemoryName(pid);
         char buf[256];
-        sprintf_s(buf, "[WGC_NATIVE] InitializeGlobalInjection creating shared memory for PID %lu name=%S\n", pid, mapName.c_str());
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] InitializeGlobalInjection creating shared memory for PID %lu name=%S\n", pid, mapName.c_str());
         OutputDebugStringA(buf);
 
         HANDLE mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, &sa, PAGE_READWRITE, 0, static_cast<DWORD>(InjectionHeaderSize + InjectionMaxFrameBytes), mapName.c_str());
         if (!mapping)
         {
             DWORD err = GetLastError();
-            sprintf_s(buf, "[WGC_NATIVE] InitializeGlobalInjection CreateFileMappingW failed err=%lu\n", err);
+            _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] InitializeGlobalInjection CreateFileMappingW failed err=%lu\n", err);
             OutputDebugStringA(buf);
             if (sd)
                 LocalFree(sd);
@@ -902,7 +904,7 @@ struct CaptureSession
         if (!view)
         {
             DWORD err = GetLastError();
-            sprintf_s(buf, "[WGC_NATIVE] InitializeGlobalInjection MapViewOfFile failed err=%lu\n", err);
+            _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] InitializeGlobalInjection MapViewOfFile failed err=%lu\n", err);
             OutputDebugStringA(buf);
             CloseHandle(mapping);
             if (sd)
@@ -1187,7 +1189,7 @@ struct CaptureSession
 
         HRESULT hr = originalFn(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels, SDKVersion, pSwapChainDesc, ppSwapChain, ppDevice, pFeatureLevel, ppImmediateContext);
         char buf[256];
-        sprintf_s(buf, "[WGC_NATIVE] Hooked_D3D11CreateDeviceAndSwapChain returned hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] Hooked_D3D11CreateDeviceAndSwapChain returned hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
         DebugLog(buf);
         if (SUCCEEDED(hr) && ppSwapChain && *ppSwapChain)
         {
@@ -1239,11 +1241,12 @@ struct CaptureSession
 
         HRESULT hr = originalFn(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels, SDKVersion, pSwapChainDesc, ppSwapChain, ppDevice, pFeatureLevel, ppImmediateContext);
         char buf[256];
-        sprintf_s(buf, "[WGC_NATIVE] Hooked_D3D11CreateDeviceAndSwapChain1 returned hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] Hooked_D3D11CreateDeviceAndSwapChain1 returned hr=0x%08X ppSwapChain=%p\n", static_cast<unsigned>(hr), ppSwapChain ? *ppSwapChain : nullptr);
         DebugLog(buf);
         if (SUCCEEDED(hr) && ppSwapChain && *ppSwapChain)
         {
-            if (HookSwapChain(*reinterpret_cast<IDXGISwapChain**>(*ppSwapChain)))
+            IDXGISwapChain* baseSwapChain = static_cast<IDXGISwapChain*>(*ppSwapChain);
+            if (HookSwapChain(baseSwapChain))
                 DebugLog("[WGC_NATIVE] Hooked_D3D11CreateDeviceAndSwapChain1 hooked swapchain\n");
             else
                 DebugLog("[WGC_NATIVE] Hooked_D3D11CreateDeviceAndSwapChain1 failed to hook swapchain\n");
@@ -1771,7 +1774,7 @@ struct CaptureSession
         float v1 = 1.0f;
         int stretch = dcompStretch.load();
 
-        if (stretch == 1 || stretch == 2)
+        if (stretch == 1)
         {
             if (frameAspect > viewAspect)
             {
@@ -1784,6 +1787,24 @@ struct CaptureSession
                 float scaleX = frameAspect / viewAspect;
                 left = -scaleX;
                 right = scaleX;
+            }
+        }
+        else if (stretch == 2)
+        {
+            // UniformToFill: fill the viewport and crop source UVs as needed.
+            if (frameAspect > viewAspect)
+            {
+                float visibleRatio = viewAspect / frameAspect;
+                float crop = (1.0f - visibleRatio) * 0.5f;
+                u0 = crop;
+                u1 = 1.0f - crop;
+            }
+            else
+            {
+                float visibleRatio = frameAspect / viewAspect;
+                float crop = (1.0f - visibleRatio) * 0.5f;
+                v0 = crop;
+                v1 = 1.0f - crop;
             }
         }
 
@@ -2151,7 +2172,7 @@ struct CaptureSession
                             else
                             {
                                 char rlog[128];
-                                sprintf_s(rlog, "[WGC_NATIVE] Frame dropped (scaler): readers=%d\n", curReaders);
+                                _snprintf_s(rlog, sizeof(rlog), _TRUNCATE, "[WGC_NATIVE] Frame dropped (scaler): readers=%d\n", curReaders);
                                 OutputDebugStringA(rlog);
                             }
                         }
@@ -2342,7 +2363,7 @@ extern "C" {
             if (FAILED(hr))
             {
                 char buf[256];
-                sprintf_s(buf, "[WGC_NATIVE] D3D11CreateDevice failed: 0x%08X (Note: Host may need to run as Admin if target is Admin)\n", (unsigned)hr);
+                _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] D3D11CreateDevice failed: 0x%08X (Note: Host may need to run as Admin if target is Admin)\n", (unsigned)hr);
                 DebugLog(buf);
                 delete s;
                 return nullptr;
@@ -2413,12 +2434,6 @@ extern "C" {
                 return nullptr;
             }
 
-            if (s->presentationHwnd)
-            {
-                s->interopEnabled.store(true, std::memory_order_relaxed);
-                s->InitializeDirectComposition();
-            }
-
             HWND captureTargetHwnd = targetHwnd;
             HWND rootOwnerHwnd = GetAncestor(targetHwnd, GA_ROOTOWNER);
             HWND rootHwnd = GetAncestor(targetHwnd, GA_ROOT);
@@ -2434,7 +2449,7 @@ extern "C" {
             if (captureTargetHwnd != targetHwnd)
             {
                 char normalizedBuf[256];
-                sprintf_s(normalizedBuf, "[WGC_NATIVE] Normalized capture target from HWND=%p to root HWND=%p\n", targetHwnd, captureTargetHwnd);
+                _snprintf_s(normalizedBuf, sizeof(normalizedBuf), _TRUNCATE, "[WGC_NATIVE] Normalized capture target from HWND=%p to root HWND=%p\n", targetHwnd, captureTargetHwnd);
                 OutputDebugStringA(normalizedBuf);
             }
 
@@ -2454,7 +2469,7 @@ extern "C" {
                 wchar_t classBuf[128]{};
                 GetWindowTextW(targetHwnd, titleBuf, static_cast<int>(std::size(titleBuf)));
                 GetClassNameW(targetHwnd, classBuf, static_cast<int>(std::size(classBuf)));
-                sprintf_s(hwndBuf, "[WGC_NATIVE] Target HWND=%p title='%ls' class='%ls' visible=%d iconic=%d\n",
+                _snprintf_s(hwndBuf, sizeof(hwndBuf), _TRUNCATE, "[WGC_NATIVE] Target HWND=%p title='%ls' class='%ls' visible=%d iconic=%d\n",
                     targetHwnd,
                     titleBuf,
                     classBuf,
@@ -2477,7 +2492,7 @@ extern "C" {
                 if (FAILED(createHr) || !s->item)
                 {
                     char buf[256];
-                    sprintf_s(buf, "[WGC_NATIVE] CreateForWindow failed: 0x%08X for HWND=%p (normalized=%p). Ensure the RPCS3 renderer window is ready.\n", (unsigned)createHr, targetHwnd, captureTargetHwnd);
+                    _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] CreateForWindow failed: 0x%08X for HWND=%p (normalized=%p). Ensure the RPCS3 renderer window is ready.\n", (unsigned)createHr, targetHwnd, captureTargetHwnd);
                     DebugLog(buf);
                     delete s;
                     return nullptr;
@@ -2495,7 +2510,7 @@ extern "C" {
             {
                 auto size = s->item.Size();
                 char buf[256];
-                sprintf_s(buf, "[WGC_NATIVE] Capture item size: %d x %d\n", (int)size.Width, (int)size.Height);
+                _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] Capture item size: %d x %d\n", (int)size.Width, (int)size.Height);
                 OutputDebugStringA(buf);
 
                 // Use 10 buffers for high refresh rate stability
@@ -2554,6 +2569,13 @@ extern "C" {
 
                 s->session.StartCapture();
                 OutputDebugStringA("[WGC_NATIVE] session.StartCapture() called\n");
+
+                if (s->presentationHwnd)
+                {
+                    s->interopEnabled.store(true, std::memory_order_relaxed);
+                    s->InitializeDirectComposition();
+                }
+
                 return s;
             }
             catch (...) {
@@ -2701,14 +2723,14 @@ extern "C" {
         if (!s) return;
         s->maxWidth = maxWidth;
         s->maxHeight = maxHeight;
-        char buf[256]; sprintf_s(buf, "[WGC_NATIVE] SetCaptureMaxResolution: %dx%d\n", maxWidth, maxHeight); OutputDebugStringA(buf);
+        char buf[256]; _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] SetCaptureMaxResolution: %dx%d\n", maxWidth, maxHeight); OutputDebugStringA(buf);
     }
 
     __declspec(dllexport) void SetVrrEnabled(void* ptr, int enabled) {
         auto s = static_cast<CaptureSession*>(ptr);
         if (!s) return;
         s->vrrEnabled = enabled != 0;
-        char buf[128]; sprintf_s(buf, "[WGC_NATIVE] SetVrrEnabled: %d\n", enabled); OutputDebugStringA(buf);
+        char buf[128]; _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] SetVrrEnabled: %d\n", enabled); OutputDebugStringA(buf);
     }
 
     __declspec(dllexport) void SetBorderRequired(void* ptr, int required) {
@@ -2719,7 +2741,7 @@ extern "C" {
             if (session3)
             {
                 session3.IsBorderRequired(required != 0);
-                char buf[256]; sprintf_s(buf, "[WGC_NATIVE] SetBorderRequired: %d\n", required); OutputDebugStringA(buf);
+                char buf[256]; _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] SetBorderRequired: %d\n", required); OutputDebugStringA(buf);
             }
         } catch(...) { OutputDebugStringA("[WGC_NATIVE] IGraphicsCaptureSession3 not available for SetBorderRequired\n"); }
     }
@@ -2739,7 +2761,7 @@ extern "C" {
         s->cropY.store(y);
         s->cropW.store(width);
         s->cropH.store(height);
-        char buf[256]; sprintf_s(buf, "[WGC_NATIVE] SetCaptureCropRect: %d,%d %dx%d\n", x, y, width, height); OutputDebugStringA(buf);
+        char buf[256]; _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] SetCaptureCropRect: %d,%d %dx%d\n", x, y, width, height); OutputDebugStringA(buf);
     }
 
     __declspec(dllexport) bool GetLatestFrame(void* ptr, unsigned char* outBuffer, size_t bufferSize, int* w, int* h) {
@@ -2827,6 +2849,6 @@ extern "C" {
         auto s = static_cast<CaptureSession*>(ptr);
         if (!s) return;
         s->interopEnabled.store(enabled != 0);
-        char buf[128]; sprintf_s(buf, "[WGC_NATIVE] SetInteropEnabled: %d\n", enabled); OutputDebugStringA(buf);
+        char buf[128]; _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] SetInteropEnabled: %d\n", enabled); OutputDebugStringA(buf);
     }
 }

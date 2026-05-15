@@ -278,6 +278,45 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         }
     }
 
+    public static string? ResolveSimpleLaunchExecutablePath(string? launcherPath)
+    {
+        var executablePath = ResolveLauncherExecutablePath(launcherPath);
+        if (string.IsNullOrWhiteSpace(executablePath))
+            return null;
+
+        if (!OperatingSystem.IsWindows() || !File.Exists(executablePath))
+            return executablePath;
+
+        var directory = Path.GetDirectoryName(executablePath);
+        var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(executablePath);
+        var extension = Path.GetExtension(executablePath);
+        if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(fileNameWithoutExtension))
+            return executablePath;
+
+        var candidateNames = new List<string>();
+        if (fileNameWithoutExtension.EndsWith("-cli", StringComparison.OrdinalIgnoreCase))
+            candidateNames.Add(fileNameWithoutExtension[..^4]);
+
+        if (fileNameWithoutExtension.EndsWith("_cli", StringComparison.OrdinalIgnoreCase))
+            candidateNames.Add(fileNameWithoutExtension[..^4]);
+
+        if (fileNameWithoutExtension.EndsWith("cli", StringComparison.OrdinalIgnoreCase))
+        {
+            var trimmed = fileNameWithoutExtension[..^3].TrimEnd('-', '_', '.', ' ');
+            if (!string.IsNullOrWhiteSpace(trimmed))
+                candidateNames.Add(trimmed);
+        }
+
+        foreach (var candidateName in candidateNames)
+        {
+            var candidatePath = Path.Combine(directory, candidateName + extension);
+            if (File.Exists(candidatePath))
+                return candidatePath;
+        }
+
+        return executablePath;
+    }
+
     public static string? ResolveLauncherWorkingDirectory(string? launcherPath)
     {
         if (string.IsNullOrWhiteSpace(launcherPath))

@@ -1,12 +1,18 @@
 using System;
 using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using AES_Emulation.Windows.API;
 
 namespace AES_Emulation.EmulationHandlers;
 
 public sealed class DuckStationHandler : EmulatorHandlerBase
 {
+    private const int CaptureWindowWidth = 1920;
+    private const int CaptureWindowHeight = 1080;
+
     public static DuckStationHandler Instance { get; } = new();
 
     private DuckStationHandler()
@@ -23,7 +29,15 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => true;
 
-    public override int CaptureStartupDelayMs => 250;
+    public override bool ForceUseTargetClientAreaCapture => true;
+
+    // DuckStation in -nogui mode can present with internal letterbox bars.
+    // Apply a small symmetric crop to remove those bars from the captured frame.
+    public override int ClientAreaCropTopInset => 38;
+
+    public override int ClientAreaCropBottomInset => 38;
+
+    public override int CaptureStartupDelayMs => 120;
 
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
@@ -40,29 +54,56 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
-        startInfo.WindowStyle = ProcessWindowStyle.Hidden;
         startInfo.ArgumentList.Clear();
+
+        EnsurePortableModeMarker(startInfo.FileName, startInfo.WorkingDirectory);
 
         // DuckStation expects command switches before `--`, with the image path
         // after `--` so the ROM filename is not parsed as an option.
         startInfo.ArgumentList.Add("-batch");
-        if (startFullscreen)
-            startInfo.ArgumentList.Add("-fullscreen");
+        startInfo.ArgumentList.Add("-nofullscreen");
+        startInfo.ArgumentList.Add("-nogui");
 
         startInfo.ArgumentList.Add("--");
         startInfo.ArgumentList.Add(romPath);
         return startInfo;
     }
 
-    public override void PrepareProcessForCapture(Process process) => HideProcessWindowsForCapture(process);
+    public static void EnsurePortableModeMarker(string? executablePath, string? workingDirectory)
+    {
+        try
+        {
+            var baseDirectory = !string.IsNullOrWhiteSpace(workingDirectory)
+                ? workingDirectory
+                : Path.GetDirectoryName(executablePath ?? string.Empty);
 
-    public override void PrepareWindowForCapture(IntPtr hwnd) => HideWindowForCapture(hwnd);
+            if (string.IsNullOrWhiteSpace(baseDirectory) || !Directory.Exists(baseDirectory))
+                return;
+
+            var portableMarkerPath = Path.Combine(baseDirectory, "portable.txt");
+            if (!File.Exists(portableMarkerPath))
+                File.WriteAllText(portableMarkerPath, string.Empty);
+        }
+        catch
+        {
+        }
+    }
+
+    public override void PrepareProcessForCapture(Process process)
+    {
+        base.PrepareProcessForCapture(process);
+    }
+
+    public override void PrepareWindowForCapture(IntPtr hwnd)
+    {
+        base.PrepareWindowForCapture(hwnd);
+    }
 
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
-        const int maxAttempts = 200;
-        const int delayMs = 50;
-        const int stableAttemptsBeforeAssign = 2;
+        const int maxAttempts = 120;
+        const int delayMs = 40;
+        const int stableAttemptsBeforeAssign = 6;
 
         IntPtr observedHwnd = IntPtr.Zero;
         var observedStableAttempts = 0;
@@ -70,8 +111,6 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            PrepareProcessForCapture(process);
-
             IntPtr mainWindowHandle = IntPtr.Zero;
             try
             {
@@ -82,8 +121,11 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
             {
             }
 
-            var hwnd = FindPreferredWindowHandle(process);
-            if (hwnd != IntPtr.Zero && CanAssignWindow(hwnd, mainWindowHandle))
+            var hwnd = FindFallbackQtGameWindow(process);
+            if (hwnd == IntPtr.Zero)
+                hwnd = FindPreferredWindowHandle(process);
+
+            if (hwnd != IntPtr.Zero && IsStableCaptureCandidate(hwnd, mainWindowHandle))
             {
                 if (hwnd == observedHwnd)
                     observedStableAttempts++;
@@ -95,7 +137,7 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
 
                 if (observedStableAttempts >= stableAttemptsBeforeAssign)
                 {
-                    PrepareWindowForCapture(hwnd);
+                    TryApplyCaptureWindowSize(hwnd);
                     return hwnd;
                 }
             }
@@ -108,7 +150,18 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
             await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
         }
 
-        return await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
+        var targetHwnd = await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
+        if (targetHwnd != IntPtr.Zero)
+        {
+            TryApplyCaptureWindowSize(targetHwnd);
+            return targetHwnd;
+        }
+
+        targetHwnd = FindFallbackQtGameWindow(process);
+        if (targetHwnd != IntPtr.Zero)
+            TryApplyCaptureWindowSize(targetHwnd);
+
+        return targetHwnd;
     }
 
     public override IntPtr FindPreferredWindowHandle(Process process)
@@ -116,6 +169,23 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
 
     public override bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle)
         => IsLikelyDuckStationRenderWindow(hwnd, mainWindowHandle);
+
+    private static bool IsStableCaptureCandidate(IntPtr hwnd, IntPtr mainWindowHandle)
+    {
+        if (!IsLikelyDuckStationRenderWindow(hwnd, mainWindowHandle))
+            return false;
+
+        if (IsIconic(hwnd))
+            return false;
+
+        if (!Win32API.GetClientAreaOffsets(hwnd, out _, out _, out var width, out var height))
+            return false;
+
+        if (width < 640 || height < 360)
+            return false;
+
+        return true;
+    }
 
     private static bool IsLikelyDuckStationRenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
     {
@@ -128,9 +198,23 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
         var lowerTitle = title.ToLowerInvariant();
         var lowerClass = className.ToLowerInvariant();
 
+        if (lowerTitle.Contains("_q_titlebar") ||
+            lowerTitle.Contains("msctfime ui") ||
+            lowerTitle.Contains("default ime") ||
+            lowerClass.Contains("screenchangeobserver") ||
+            lowerClass.Contains("themechangeobserver") ||
+            lowerClass.Contains("ime"))
+        {
+            return false;
+        }
+
         var hasCaption = (style & WS_CAPTION) == WS_CAPTION;
-        var hasThickFrame = (style & WS_THICKFRAME) == WS_THICKFRAME;
         var looksLikePrimaryUi = hwnd == mainWindowHandle;
+
+        // DuckStation can render directly in its main Qt window with an empty title
+        // while loading/starting a game. Allow that window shape as a capture target.
+        if (looksLikePrimaryUi && string.IsNullOrWhiteSpace(lowerTitle) && lowerClass.Contains("qt") && !hasCaption)
+            return true;
 
         if (!string.IsNullOrWhiteSpace(lowerTitle))
         {
@@ -167,4 +251,77 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
 
         return !looksLikePrimaryUi && (!hasCaption || !string.IsNullOrWhiteSpace(title));
     }
+
+    private static IntPtr FindFallbackQtGameWindow(Process process)
+    {
+        IntPtr best = IntPtr.Zero;
+        long bestScore = long.MinValue;
+
+        IntPtr mainWindowHandle;
+        try
+        {
+            mainWindowHandle = process.MainWindowHandle;
+        }
+        catch
+        {
+            mainWindowHandle = IntPtr.Zero;
+        }
+
+        foreach (var hwnd in EnumerateProcessTopLevelWindows(process, includeHiddenWindows: true))
+        {
+            if (hwnd == IntPtr.Zero)
+                continue;
+
+            if (!IsLikelyDuckStationRenderWindow(hwnd, mainWindowHandle))
+                continue;
+
+            if (!Win32API.GetClientAreaOffsets(hwnd, out _, out _, out var width, out var height))
+                continue;
+
+            if (width < 480 || height < 270)
+                continue;
+
+            var title = GetWindowTitle(hwnd).Trim();
+            var score = (long)width * height;
+
+            if (!string.IsNullOrWhiteSpace(title))
+                score += 500_000;
+
+            if (!title.Contains("duckstation", StringComparison.OrdinalIgnoreCase))
+                score += 350_000;
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = hwnd;
+            }
+        }
+
+        return best;
+    }
+
+    private static void TryApplyCaptureWindowSize(IntPtr hwnd)
+    {
+        if (!OperatingSystem.IsWindows() || hwnd == IntPtr.Zero)
+            return;
+
+        try
+        {
+            if (Win32API.TryGetVirtualScreenBounds(out var x, out var y, out var width, out var height) && width > 0 && height > 0)
+            {
+                var targetWidth = Math.Min(CaptureWindowWidth, width);
+                var targetHeight = Math.Min(CaptureWindowHeight, height);
+                Win32API.SetWindowBounds(hwnd, x, y, targetWidth, targetHeight);
+                return;
+            }
+
+            Win32API.SetWindowSize(hwnd, CaptureWindowWidth, CaptureWindowHeight);
+        }
+        catch
+        {
+        }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
 }

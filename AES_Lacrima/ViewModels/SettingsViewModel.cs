@@ -208,6 +208,10 @@ public sealed class EmulationSectionLaunchSettings
 
     public bool IncludePcsx2Prereleases { get; set; }
 
+    public string? SelectedDuckStationVersion { get; set; }
+
+    public bool IncludeDuckStationPrereleases { get; set; }
+
     public EmulationSectionLaunchSettings Clone() =>
         new()
         {
@@ -224,7 +228,9 @@ public sealed class EmulationSectionLaunchSettings
             IncludeShadPs4Prereleases = IncludeShadPs4Prereleases,
             SelectedXeniaVersion = SelectedXeniaVersion,
             SelectedPcsx2Version = SelectedPcsx2Version,
-            IncludePcsx2Prereleases = IncludePcsx2Prereleases
+            IncludePcsx2Prereleases = IncludePcsx2Prereleases,
+            SelectedDuckStationVersion = SelectedDuckStationVersion,
+            IncludeDuckStationPrereleases = IncludeDuckStationPrereleases
         };
 }
 
@@ -2473,6 +2479,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                item.LaunchSettings?.IncludeShadPs4Prereleases == true ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedPcsx2Version) ||
                item.LaunchSettings?.IncludePcsx2Prereleases == true ||
+               !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedDuckStationVersion) ||
+               item.LaunchSettings?.IncludeDuckStationPrereleases == true ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedXeniaVersion) ||
                !string.IsNullOrWhiteSpace(item.SelectedHandlerId);
     }
@@ -2486,6 +2494,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             StartFullscreen = persisted.StartFullscreen ?? defaults.StartFullscreen,
             SelectedRetroArchCore = persisted.SelectedRetroArchCore ?? defaults.SelectedRetroArchCore,
+            RetroArchRepositoryOverride = persisted.RetroArchRepositoryOverride ?? defaults.RetroArchRepositoryOverride,
+            SelectedRetroArchVersion = persisted.SelectedRetroArchVersion ?? defaults.SelectedRetroArchVersion,
+            IncludeRetroArchCores = persisted.IncludeRetroArchCores || defaults.IncludeRetroArchCores,
             EdenRepositoryOverride = persisted.EdenRepositoryOverride ?? defaults.EdenRepositoryOverride,
             SelectedEdenVersion = persisted.SelectedEdenVersion ?? defaults.SelectedEdenVersion,
             IncludeEdenPrereleases = persisted.IncludeEdenPrereleases || defaults.IncludeEdenPrereleases,
@@ -2494,7 +2505,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             IncludeShadPs4Prereleases = persisted.IncludeShadPs4Prereleases || defaults.IncludeShadPs4Prereleases,
             SelectedXeniaVersion = persisted.SelectedXeniaVersion ?? defaults.SelectedXeniaVersion,
             SelectedPcsx2Version = persisted.SelectedPcsx2Version ?? defaults.SelectedPcsx2Version,
-            IncludePcsx2Prereleases = persisted.IncludePcsx2Prereleases || defaults.IncludePcsx2Prereleases
+            IncludePcsx2Prereleases = persisted.IncludePcsx2Prereleases || defaults.IncludePcsx2Prereleases,
+            SelectedDuckStationVersion = persisted.SelectedDuckStationVersion ?? defaults.SelectedDuckStationVersion,
+            IncludeDuckStationPrereleases = persisted.IncludeDuckStationPrereleases || defaults.IncludeDuckStationPrereleases
         };
     }
 
