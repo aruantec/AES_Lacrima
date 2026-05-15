@@ -116,6 +116,8 @@ namespace AES_Lacrima.ViewModels
         private bool _isSyncingCurrentSectionShadPs4RepositoryOverride;
         private bool _isCurrentSectionShadPs4RepositoryDirty;
         private bool _isSyncingCurrentSectionShadPs4IncludePrereleases;
+        private bool _isSyncingCurrentSectionPcsx2VersionSelection;
+        private bool _isSyncingCurrentSectionPcsx2IncludePrereleases;
         private bool _isSyncingCurrentSectionXeniaVersionSelection;
         private bool _isXeniaPatchesOverlayOpen;
         private bool _isXeniaPatchesBusy;
@@ -192,6 +194,9 @@ namespace AES_Lacrima.ViewModels
 
         [AutoResolve]
         private XeniaEmulatorUpdateService? _xeniaEmulatorUpdateService;
+
+        [AutoResolve]
+        private Pcsx2EmulatorUpdateService? _pcsx2EmulatorUpdateService;
 
         [AutoResolve]
         private Xbox360MetadataService? _xbox360MetadataService;
@@ -350,6 +355,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ClientAreaCropBottomInset));
             OnPropertyChanged(nameof(CurrentEmulatorWindowTitleHint));
             OnPropertyChanged(nameof(CurrentCaptureStretch));
+            OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
             RefreshCurrentSectionLaunchOptionsState();
         }
 
@@ -621,6 +627,7 @@ namespace AES_Lacrima.ViewModels
         partial void OnIsEmulatorRunningChanged(bool value)
         {
             OnPropertyChanged(nameof(CanShowRenderOptions));
+            OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
             OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
             OnPropertyChanged(nameof(IsEmulatorViewportVisible));
             OnPropertyChanged(nameof(IsCompositionCaptureVisible));
@@ -643,6 +650,11 @@ namespace AES_Lacrima.ViewModels
 
             if (IsActive && IsGameplayPreviewAvailable)
                 QueueGameplayPreview(HighlightedItem, immediate: true);
+        }
+
+        partial void OnIsEmulatorLaunchInProgressChanged(bool value)
+        {
+            OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
         }
 
         partial void OnIsEmulatorViewportDismissedChanged(bool value)
@@ -1550,6 +1562,187 @@ namespace AES_Lacrima.ViewModels
         public IAsyncRelayCommand ApplyCurrentSectionShadPs4RepositoryCommand =>
             _applyCurrentSectionShadPs4RepositoryCommand ??= new AsyncRelayCommand(ApplyCurrentSectionShadPs4Repository);
 
+        private AvaloniaList<string> _currentSectionPcsx2AvailableVersions = [];
+        public AvaloniaList<string> CurrentSectionPcsx2AvailableVersions
+        {
+            get => _currentSectionPcsx2AvailableVersions;
+            set
+            {
+                if (ReferenceEquals(_currentSectionPcsx2AvailableVersions, value))
+                    return;
+
+                _currentSectionPcsx2AvailableVersions = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _selectedCurrentSectionPcsx2Version;
+        public string? SelectedCurrentSectionPcsx2Version
+        {
+            get => _selectedCurrentSectionPcsx2Version;
+            set
+            {
+                if (string.Equals(_selectedCurrentSectionPcsx2Version, value, StringComparison.Ordinal))
+                    return;
+
+                _selectedCurrentSectionPcsx2Version = value;
+                OnPropertyChanged();
+                OnSelectedCurrentSectionPcsx2VersionChanged(value);
+            }
+        }
+
+        private string? _currentSectionPcsx2CurrentVersion;
+        public string? CurrentSectionPcsx2CurrentVersion
+        {
+            get => _currentSectionPcsx2CurrentVersion;
+            set
+            {
+                if (string.Equals(_currentSectionPcsx2CurrentVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionPcsx2CurrentVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionPcsx2LatestVersion;
+        public string? CurrentSectionPcsx2LatestVersion
+        {
+            get => _currentSectionPcsx2LatestVersion;
+            set
+            {
+                if (string.Equals(_currentSectionPcsx2LatestVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionPcsx2LatestVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string _currentSectionPcsx2Status = "Select a PCSX2 section to manage updates.";
+        public string CurrentSectionPcsx2Status
+        {
+            get => _currentSectionPcsx2Status;
+            set
+            {
+                if (string.Equals(_currentSectionPcsx2Status, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionPcsx2Status = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _includeCurrentSectionPcsx2Prereleases;
+        public bool IncludeCurrentSectionPcsx2Prereleases
+        {
+            get => _includeCurrentSectionPcsx2Prereleases;
+            set
+            {
+                if (_includeCurrentSectionPcsx2Prereleases == value)
+                    return;
+
+                _includeCurrentSectionPcsx2Prereleases = value;
+                OnPropertyChanged();
+
+                if (_isSyncingCurrentSectionPcsx2IncludePrereleases)
+                    return;
+
+                var section = CurrentEmulationSectionItem;
+                if (section?.LaunchSettings == null)
+                    return;
+
+                section.LaunchSettings.IncludePcsx2Prereleases = value;
+                SettingsViewModel?.SaveSettings();
+                _ = RefreshCurrentSectionPcsx2Info();
+            }
+        }
+
+        private bool _isCurrentSectionPcsx2UpdateAvailable;
+        public bool IsCurrentSectionPcsx2UpdateAvailable
+        {
+            get => _isCurrentSectionPcsx2UpdateAvailable;
+            set
+            {
+                if (_isCurrentSectionPcsx2UpdateAvailable == value)
+                    return;
+
+                _isCurrentSectionPcsx2UpdateAvailable = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
+            }
+        }
+
+        private bool _isCurrentSectionPcsx2Busy;
+        public bool IsCurrentSectionPcsx2Busy
+        {
+            get => _isCurrentSectionPcsx2Busy;
+            set
+            {
+                if (_isCurrentSectionPcsx2Busy == value)
+                    return;
+
+                _isCurrentSectionPcsx2Busy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionPcsx2Downloading;
+        public bool IsCurrentSectionPcsx2Downloading
+        {
+            get => _isCurrentSectionPcsx2Downloading;
+            set
+            {
+                if (_isCurrentSectionPcsx2Downloading == value)
+                    return;
+
+                _isCurrentSectionPcsx2Downloading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private double _currentSectionPcsx2DownloadProgress;
+        public double CurrentSectionPcsx2DownloadProgress
+        {
+            get => _currentSectionPcsx2DownloadProgress;
+            set
+            {
+                if (Math.Abs(_currentSectionPcsx2DownloadProgress - value) < 0.01)
+                    return;
+
+                _currentSectionPcsx2DownloadProgress = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionPcsx2EmulatorPath;
+        public string? CurrentSectionPcsx2EmulatorPath
+        {
+            get => _currentSectionPcsx2EmulatorPath;
+            set
+            {
+                if (string.Equals(_currentSectionPcsx2EmulatorPath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionPcsx2EmulatorPath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionPcsx2UpdatePath;
+        public string? CurrentSectionPcsx2UpdatePath
+        {
+            get => _currentSectionPcsx2UpdatePath;
+            set
+            {
+                if (string.Equals(_currentSectionPcsx2UpdatePath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionPcsx2UpdatePath = value;
+                OnPropertyChanged();
+            }
+        }
+
         private AvaloniaList<string> _currentSectionXeniaAvailableVersions = [];
         public AvaloniaList<string> CurrentSectionXeniaAvailableVersions
         {
@@ -1952,6 +2145,23 @@ namespace AES_Lacrima.ViewModels
             SettingsViewModel?.SaveSettings();
         }
 
+        private void OnSelectedCurrentSectionPcsx2VersionChanged(string? value)
+        {
+            if (_isSyncingCurrentSectionPcsx2VersionSelection)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (string.Equals(section.LaunchSettings.SelectedPcsx2Version, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            section.LaunchSettings.SelectedPcsx2Version = normalized;
+            SettingsViewModel?.SaveSettings();
+        }
+
         public bool ShowCurrentSectionRetroArchCoreSelection =>
             CurrentEmulatorHandler?.UsesRetroArchCores == true &&
             CurrentSectionRetroArchCores.Count > 0;
@@ -1975,6 +2185,18 @@ namespace AES_Lacrima.ViewModels
             string.Equals(CurrentEmulatorHandler.HandlerId, XeniaHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
+        public bool ShowCurrentSectionPcsx2UpdateControls =>
+            CurrentEmulatorHandler != null &&
+            string.Equals(CurrentEmulatorHandler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentEmulationSectionItem != null;
+
+        public bool ShowCurrentSectionPcsx2SetupLaunchButton =>
+            CurrentEmulatorHandler != null &&
+            string.Equals(CurrentEmulatorHandler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentEmulatorHandler.IsLauncherPathValid(CurrentEmulatorHandler.LauncherPath) &&
+            !IsEmulatorRunning &&
+            !IsEmulatorLaunchInProgress;
+
         public bool ShowCurrentSectionXeniaPatchesMenuItem =>
             ShowCurrentSectionXeniaUpdateControls && HasActiveAlbumItems;
 
@@ -1982,7 +2204,8 @@ namespace AES_Lacrima.ViewModels
             (ShowCurrentSectionRetroArchUpdateControls && IsCurrentSectionRetroArchUpdateAvailable) ||
             (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable) ||
             (ShowCurrentSectionShadPs4UpdateControls && IsCurrentSectionShadPs4UpdateAvailable) ||
-            (ShowCurrentSectionXeniaUpdateControls && IsCurrentSectionXeniaUpdateAvailable);
+            (ShowCurrentSectionXeniaUpdateControls && IsCurrentSectionXeniaUpdateAvailable) ||
+            (ShowCurrentSectionPcsx2UpdateControls && IsCurrentSectionPcsx2UpdateAvailable);
 
         private void RefreshCurrentSectionLaunchOptionsState()
         {
@@ -2095,6 +2318,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ShowCurrentSectionEdenUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaUpdateControls));
+            OnPropertyChanged(nameof(ShowCurrentSectionPcsx2UpdateControls));
             OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
 
             if (ShowCurrentSectionRetroArchUpdateControls)
@@ -2249,6 +2473,60 @@ namespace AES_Lacrima.ViewModels
                 CurrentSectionXeniaUpdatePath = null;
                 CurrentSectionXeniaDownloadProgress = 0;
                 IsCurrentSectionXeniaDownloading = false;
+            }
+
+            var sectionPcsx2Version = section?.LaunchSettings?.SelectedPcsx2Version;
+            if (!string.Equals(SelectedCurrentSectionPcsx2Version, sectionPcsx2Version, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionPcsx2VersionSelection = true;
+                    SelectedCurrentSectionPcsx2Version = sectionPcsx2Version;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionPcsx2VersionSelection = false;
+                }
+            }
+
+            var includePcsx2Prereleases = section?.LaunchSettings?.IncludePcsx2Prereleases == true;
+            if (IncludeCurrentSectionPcsx2Prereleases != includePcsx2Prereleases)
+            {
+                try
+                {
+                    _isSyncingCurrentSectionPcsx2IncludePrereleases = true;
+                    IncludeCurrentSectionPcsx2Prereleases = includePcsx2Prereleases;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionPcsx2IncludePrereleases = false;
+                }
+            }
+
+            if (ShowCurrentSectionPcsx2UpdateControls)
+            {
+                _ = RefreshCurrentSectionPcsx2Info();
+            }
+            else
+            {
+                CurrentSectionPcsx2AvailableVersions.Clear();
+                CurrentSectionPcsx2CurrentVersion = null;
+                CurrentSectionPcsx2LatestVersion = null;
+                CurrentSectionPcsx2Status = "Select a PCSX2 section to manage updates.";
+                IsCurrentSectionPcsx2UpdateAvailable = false;
+                CurrentSectionPcsx2EmulatorPath = null;
+                CurrentSectionPcsx2UpdatePath = null;
+                CurrentSectionPcsx2DownloadProgress = 0;
+                IsCurrentSectionPcsx2Downloading = false;
+                try
+                {
+                    _isSyncingCurrentSectionPcsx2IncludePrereleases = true;
+                    IncludeCurrentSectionPcsx2Prereleases = false;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionPcsx2IncludePrereleases = false;
+                }
             }
 
             if (!ShowCurrentSectionXeniaUpdateControls)
@@ -2544,6 +2822,94 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
+        private async Task RefreshCurrentSectionPcsx2Info()
+        {
+            if (!ShowCurrentSectionPcsx2UpdateControls)
+            {
+                CurrentSectionPcsx2Status = "Select a PCSX2 section to manage updates.";
+                CurrentSectionPcsx2AvailableVersions.Clear();
+                CurrentSectionPcsx2CurrentVersion = null;
+                CurrentSectionPcsx2LatestVersion = null;
+                IsCurrentSectionPcsx2UpdateAvailable = false;
+                CurrentSectionPcsx2EmulatorPath = null;
+                CurrentSectionPcsx2UpdatePath = null;
+                CurrentSectionPcsx2DownloadProgress = 0;
+                IsCurrentSectionPcsx2Downloading = false;
+                return;
+            }
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _pcsx2EmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionPcsx2Busy = true;
+            IsCurrentSectionPcsx2Downloading = false;
+            CurrentSectionPcsx2DownloadProgress = 0;
+            try
+            {
+                var state = await updater.GetUpdateInfoAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    IncludeCurrentSectionPcsx2Prereleases,
+                    forceRefresh: false).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() => ApplyPcsx2UpdateState(state));
+            }
+            finally
+            {
+                IsCurrentSectionPcsx2Busy = false;
+                IsCurrentSectionPcsx2Downloading = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task DownloadOrUpdateCurrentSectionPcsx2()
+        {
+            if (!ShowCurrentSectionPcsx2UpdateControls)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _pcsx2EmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionPcsx2Busy = true;
+            IsCurrentSectionPcsx2Downloading = true;
+            CurrentSectionPcsx2DownloadProgress = 5;
+            try
+            {
+                var state = await updater.DownloadOrUpdateAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    IncludeCurrentSectionPcsx2Prereleases,
+                    SelectedCurrentSectionPcsx2Version).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CurrentSectionPcsx2DownloadProgress = 100;
+                    ApplyPcsx2UpdateState(state);
+
+                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                        !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        handler.LauncherPath = state.ResolvedLauncherPath;
+                        SettingsViewModel?.SaveSettings();
+                    }
+                });
+            }
+            finally
+            {
+                IsCurrentSectionPcsx2Busy = false;
+                IsCurrentSectionPcsx2Downloading = false;
+            }
+        }
+
+        [RelayCommand]
         private async Task RefreshCurrentSectionShadPs4Info()
         {
             if (!ShowCurrentSectionShadPs4UpdateControls)
@@ -2752,6 +3118,37 @@ namespace AES_Lacrima.ViewModels
             finally
             {
                 _isSyncingCurrentSectionXeniaVersionSelection = false;
+            }
+        }
+
+        private void ApplyPcsx2UpdateState(Pcsx2UpdateState state)
+        {
+            CurrentSectionPcsx2CurrentVersion = state.CurrentVersion;
+            CurrentSectionPcsx2LatestVersion = state.LatestVersion;
+            IsCurrentSectionPcsx2UpdateAvailable = state.IsUpdateAvailable;
+            CurrentSectionPcsx2Status = state.StatusMessage;
+            CurrentSectionPcsx2EmulatorPath = state.EmulatorDirectory;
+            CurrentSectionPcsx2UpdatePath = state.UpdateDirectory;
+
+            CurrentSectionPcsx2AvailableVersions.Clear();
+            foreach (var version in state.AvailableVersions.Take(10))
+                CurrentSectionPcsx2AvailableVersions.Add(version);
+
+            var selectedVersion = SelectedCurrentSectionPcsx2Version;
+            if (string.IsNullOrWhiteSpace(selectedVersion) ||
+                !CurrentSectionPcsx2AvailableVersions.Contains(selectedVersion, StringComparer.OrdinalIgnoreCase))
+            {
+                selectedVersion = CurrentSectionPcsx2AvailableVersions.FirstOrDefault() ?? state.LatestVersion;
+            }
+
+            try
+            {
+                _isSyncingCurrentSectionPcsx2VersionSelection = true;
+                SelectedCurrentSectionPcsx2Version = selectedVersion;
+            }
+            finally
+            {
+                _isSyncingCurrentSectionPcsx2VersionSelection = false;
             }
         }
 
@@ -3360,6 +3757,48 @@ namespace AES_Lacrima.ViewModels
                 await RefreshCurrentSectionEdenInfo();
             else if (ShowCurrentSectionShadPs4UpdateControls)
                 await RefreshCurrentSectionShadPs4Info();
+            else if (ShowCurrentSectionPcsx2UpdateControls)
+                await RefreshCurrentSectionPcsx2Info();
+        }
+
+        [RelayCommand]
+        private void LaunchCurrentSectionPcsx2Setup()
+        {
+            var handler = CurrentEmulatorHandler;
+            if (handler == null ||
+                !string.Equals(handler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (IsEmulatorRunning || IsEmulatorLaunchInProgress)
+                return;
+
+            var launcherPath = EmulatorHandlerBase.ResolveLauncherExecutablePath(handler.LauncherPath);
+            if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
+                return;
+
+            try
+            {
+                RestoreAppTopMost();
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = launcherPath,
+                    UseShellExecute = false,
+                    WorkingDirectory = EmulatorHandlerBase.ResolveLauncherWorkingDirectory(handler.LauncherPath)
+                                       ?? Path.GetDirectoryName(launcherPath)
+                                       ?? string.Empty
+                };
+
+                startInfo.ArgumentList.Add("-portable");
+
+                _ = Process.Start(startInfo);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed to launch PCSX2 setup mode.", ex);
+            }
         }
 
         [RelayCommand]
