@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Emulation.Windows.API;
@@ -41,8 +42,10 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
 
         // PCSX2 Qt supports batch mode and optional fullscreen startup.
         // `-nogui` reduces chances of capturing the full shell window instead of the render surface.
+        // `-portable` keeps settings/config within the emulator folder.
         startInfo.ArgumentList.Add("-batch");
         startInfo.ArgumentList.Add("-nogui");
+        startInfo.ArgumentList.Add("-portable");
         if (startFullscreen)
             startInfo.ArgumentList.Add("-fullscreen");
 
@@ -65,13 +68,13 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
         // Intentionally no-op for PCSX2; see PrepareProcessForCapture.
     }
 
-    public override int CaptureStartupDelayMs => 100;
+    public override int CaptureStartupDelayMs => 200;
 
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
         const int maxAttempts = 120;
         const int delayMs = 40;
-        const int stableAttemptsBeforeAssign = 2;
+        const int stableAttemptsBeforeAssign = 6;
 
         IntPtr observedHwnd = IntPtr.Zero;
         var observedStableAttempts = 0;
@@ -90,8 +93,11 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
             {
             }
 
-            var hwnd = FindPreferredWindowHandle(process);
-            if (hwnd != IntPtr.Zero && CanAssignWindow(hwnd, mainWindowHandle))
+            var hwnd = FindFallbackQtGameWindow(process);
+            if (hwnd == IntPtr.Zero)
+                hwnd = FindPreferredWindowHandle(process);
+
+            if (hwnd != IntPtr.Zero && IsStableCaptureCandidate(hwnd, mainWindowHandle))
             {
                 if (hwnd == observedHwnd)
                     observedStableAttempts++;
@@ -126,6 +132,23 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
 
     public override bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle)
         => IsLikelyPcsx2RenderWindow(hwnd, mainWindowHandle);
+
+    private static bool IsStableCaptureCandidate(IntPtr hwnd, IntPtr mainWindowHandle)
+    {
+        if (!IsLikelyPcsx2RenderWindow(hwnd, mainWindowHandle))
+            return false;
+
+        if (IsIconic(hwnd))
+            return false;
+
+        if (!Win32API.GetClientAreaOffsets(hwnd, out _, out _, out var width, out var height))
+            return false;
+
+        if (width < 640 || height < 360)
+            return false;
+
+        return true;
+    }
 
     private static bool IsLikelyPcsx2RenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
     {
@@ -236,4 +259,7 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
 
         return best;
     }
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
 }

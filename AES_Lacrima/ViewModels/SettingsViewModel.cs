@@ -204,6 +204,10 @@ public sealed class EmulationSectionLaunchSettings
 
     public string? SelectedXeniaVersion { get; set; }
 
+    public string? SelectedPcsx2Version { get; set; }
+
+    public bool IncludePcsx2Prereleases { get; set; }
+
     public EmulationSectionLaunchSettings Clone() =>
         new()
         {
@@ -218,7 +222,9 @@ public sealed class EmulationSectionLaunchSettings
             ShadPs4RepositoryOverride = ShadPs4RepositoryOverride,
             SelectedShadPs4Version = SelectedShadPs4Version,
             IncludeShadPs4Prereleases = IncludeShadPs4Prereleases,
-            SelectedXeniaVersion = SelectedXeniaVersion
+            SelectedXeniaVersion = SelectedXeniaVersion,
+            SelectedPcsx2Version = SelectedPcsx2Version,
+            IncludePcsx2Prereleases = IncludePcsx2Prereleases
         };
 }
 
@@ -2465,6 +2471,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.ShadPs4RepositoryOverride) ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedShadPs4Version) ||
                item.LaunchSettings?.IncludeShadPs4Prereleases == true ||
+               !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedPcsx2Version) ||
+               item.LaunchSettings?.IncludePcsx2Prereleases == true ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedXeniaVersion) ||
                !string.IsNullOrWhiteSpace(item.SelectedHandlerId);
     }
@@ -2484,7 +2492,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             ShadPs4RepositoryOverride = persisted.ShadPs4RepositoryOverride ?? defaults.ShadPs4RepositoryOverride,
             SelectedShadPs4Version = persisted.SelectedShadPs4Version ?? defaults.SelectedShadPs4Version,
             IncludeShadPs4Prereleases = persisted.IncludeShadPs4Prereleases || defaults.IncludeShadPs4Prereleases,
-            SelectedXeniaVersion = persisted.SelectedXeniaVersion ?? defaults.SelectedXeniaVersion
+            SelectedXeniaVersion = persisted.SelectedXeniaVersion ?? defaults.SelectedXeniaVersion,
+            SelectedPcsx2Version = persisted.SelectedPcsx2Version ?? defaults.SelectedPcsx2Version,
+            IncludePcsx2Prereleases = persisted.IncludePcsx2Prereleases || defaults.IncludePcsx2Prereleases
         };
     }
 
