@@ -65,7 +65,7 @@
             <Grid ColumnDefinitions="Auto, *, Auto, Auto">
                 <Grid Grid.Column="0"
                       ColumnDefinitions="Auto, 450"
-                      RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto"
+                      RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto"
                       RowSpacing="10"
                       Margin="20,0,0,0">
                     <Grid.Styles>
@@ -156,12 +156,60 @@
                            HorizontalAlignment="Right"
                            IsVisible="{Binding IsXbox360Metadata}" />
                     <TextBox Grid.Row="9" Grid.Column="1"
-                             Text="{Binding Xbox360MediaId, Mode=OneWay}"
-                             IsReadOnly="True"
-                             VerticalAlignment="Center"
-                             IsVisible="{Binding IsXbox360Metadata}" />
+                              Text="{Binding Xbox360MediaId, Mode=OneWay}"
+                              IsReadOnly="True"
+                              VerticalAlignment="Center"
+                              IsVisible="{Binding IsXbox360Metadata}" />
 
-                    <Button Grid.Row="10"
+                    <!-- PS3 Title ID -->
+                    <Label Grid.Row="10" Grid.Column="0" Content="Title ID (Serial): "
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right"
+                           IsVisible="{Binding IsPs3Metadata}" />
+                    <TextBox Grid.Row="10" Grid.Column="1"
+                              Text="{Binding Ps3TitleId, Mode=OneWay}"
+                              IsReadOnly="True"
+                              VerticalAlignment="Center"
+                              IsVisible="{Binding IsPs3Metadata}" />
+
+                    <!-- PS3 Version -->
+                    <Label Grid.Row="11" Grid.Column="0" Content="Version: "
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right"
+                           IsVisible="{Binding IsPs3Metadata}" />
+                    <TextBox Grid.Row="11" Grid.Column="1"
+                              Text="{Binding Ps3Version, Mode=OneWay}"
+                              IsReadOnly="True"
+                              VerticalAlignment="Center"
+                              IsVisible="{Binding IsPs3Metadata}" />
+
+                    <!-- PS4 Title ID -->
+                    <Label Grid.Row="12" Grid.Column="0" Content="Title ID (Serial): "
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right"
+                           IsVisible="{Binding IsPs4Metadata}" />
+                    <TextBox Grid.Row="12" Grid.Column="1"
+                              Text="{Binding Ps4TitleId, Mode=OneWay}"
+                              IsReadOnly="True"
+                              VerticalAlignment="Center"
+                              IsVisible="{Binding IsPs4Metadata}" />
+
+                    <!-- PS4 Version -->
+                    <Label Grid.Row="13" Grid.Column="0" Content="Version: "
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right"
+                           IsVisible="{Binding IsPs4Metadata}" />
+                    <TextBox Grid.Row="13" Grid.Column="1"
+                              Text="{Binding Ps4Version, Mode=OneWay}"
+                              IsReadOnly="True"
+                              VerticalAlignment="Center"
+                              IsVisible="{Binding IsPs4Metadata}" />
+
+                    <Button Grid.Row="14"
                             Grid.Column="1"
                             HorizontalAlignment="Stretch"
                             Height="38"
@@ -177,7 +225,7 @@
                                FontSize="35"
                                Foreground="White"
                                VerticalAlignment="Top" />
-                        <ComboBox ItemsSource="{Binding EmulationImageKinds}"
+                        <ComboBox ItemsSource="{Binding MetadataImageKinds}"
                                   SelectedItem="{Binding SelectedImageKind, Mode=TwoWay}"
                                   VerticalAlignment="Center"
                                   FontSize="22" />
