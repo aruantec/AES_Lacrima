@@ -119,6 +119,8 @@ namespace AES_Lacrima.ViewModels
         private bool _isSyncingCurrentSectionShadPs4IncludePrereleases;
         private bool _isSyncingCurrentSectionDolphinVersionSelection;
         private bool _isSyncingCurrentSectionDolphinIncludePrereleases;
+        private bool _isSyncingCurrentSectionRpcs3VersionSelection;
+        private bool _isSyncingCurrentSectionRpcs3IncludePrereleases;
         private bool _isSyncingCurrentSectionPcsx2VersionSelection;
         private bool _isSyncingCurrentSectionPcsx2IncludePrereleases;
         private bool _isSyncingCurrentSectionDuckStationVersionSelection;
@@ -205,6 +207,9 @@ namespace AES_Lacrima.ViewModels
 
         [AutoResolve]
         private DolphinEmulatorUpdateService? _dolphinEmulatorUpdateService;
+
+        [AutoResolve]
+        private Rpcs3EmulatorUpdateService? _rpcs3EmulatorUpdateService;
 
         [AutoResolve]
         private Pcsx2EmulatorUpdateService? _pcsx2EmulatorUpdateService;
@@ -1833,6 +1838,187 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
+        private AvaloniaList<string> _currentSectionRpcs3AvailableVersions = [];
+        public AvaloniaList<string> CurrentSectionRpcs3AvailableVersions
+        {
+            get => _currentSectionRpcs3AvailableVersions;
+            set
+            {
+                if (ReferenceEquals(_currentSectionRpcs3AvailableVersions, value))
+                    return;
+
+                _currentSectionRpcs3AvailableVersions = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _selectedCurrentSectionRpcs3Version;
+        public string? SelectedCurrentSectionRpcs3Version
+        {
+            get => _selectedCurrentSectionRpcs3Version;
+            set
+            {
+                if (string.Equals(_selectedCurrentSectionRpcs3Version, value, StringComparison.Ordinal))
+                    return;
+
+                _selectedCurrentSectionRpcs3Version = value;
+                OnPropertyChanged();
+                OnSelectedCurrentSectionRpcs3VersionChanged(value);
+            }
+        }
+
+        private string? _currentSectionRpcs3CurrentVersion;
+        public string? CurrentSectionRpcs3CurrentVersion
+        {
+            get => _currentSectionRpcs3CurrentVersion;
+            set
+            {
+                if (string.Equals(_currentSectionRpcs3CurrentVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionRpcs3CurrentVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionRpcs3LatestVersion;
+        public string? CurrentSectionRpcs3LatestVersion
+        {
+            get => _currentSectionRpcs3LatestVersion;
+            set
+            {
+                if (string.Equals(_currentSectionRpcs3LatestVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionRpcs3LatestVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string _currentSectionRpcs3Status = "Select an RPCS3 section to manage updates.";
+        public string CurrentSectionRpcs3Status
+        {
+            get => _currentSectionRpcs3Status;
+            set
+            {
+                if (string.Equals(_currentSectionRpcs3Status, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionRpcs3Status = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _includeCurrentSectionRpcs3Prereleases;
+        public bool IncludeCurrentSectionRpcs3Prereleases
+        {
+            get => _includeCurrentSectionRpcs3Prereleases;
+            set
+            {
+                if (_includeCurrentSectionRpcs3Prereleases == value)
+                    return;
+
+                _includeCurrentSectionRpcs3Prereleases = value;
+                OnPropertyChanged();
+
+                if (_isSyncingCurrentSectionRpcs3IncludePrereleases)
+                    return;
+
+                var section = CurrentEmulationSectionItem;
+                if (section?.LaunchSettings == null)
+                    return;
+
+                section.LaunchSettings.IncludeRpcs3Prereleases = value;
+                SettingsViewModel?.SaveSettings();
+                _ = RefreshCurrentSectionRpcs3Info();
+            }
+        }
+
+        private bool _isCurrentSectionRpcs3UpdateAvailable;
+        public bool IsCurrentSectionRpcs3UpdateAvailable
+        {
+            get => _isCurrentSectionRpcs3UpdateAvailable;
+            set
+            {
+                if (_isCurrentSectionRpcs3UpdateAvailable == value)
+                    return;
+
+                _isCurrentSectionRpcs3UpdateAvailable = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
+            }
+        }
+
+        private bool _isCurrentSectionRpcs3Busy;
+        public bool IsCurrentSectionRpcs3Busy
+        {
+            get => _isCurrentSectionRpcs3Busy;
+            set
+            {
+                if (_isCurrentSectionRpcs3Busy == value)
+                    return;
+
+                _isCurrentSectionRpcs3Busy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionRpcs3Downloading;
+        public bool IsCurrentSectionRpcs3Downloading
+        {
+            get => _isCurrentSectionRpcs3Downloading;
+            set
+            {
+                if (_isCurrentSectionRpcs3Downloading == value)
+                    return;
+
+                _isCurrentSectionRpcs3Downloading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private double _currentSectionRpcs3DownloadProgress;
+        public double CurrentSectionRpcs3DownloadProgress
+        {
+            get => _currentSectionRpcs3DownloadProgress;
+            set
+            {
+                if (Math.Abs(_currentSectionRpcs3DownloadProgress - value) < 0.01)
+                    return;
+
+                _currentSectionRpcs3DownloadProgress = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionRpcs3EmulatorPath;
+        public string? CurrentSectionRpcs3EmulatorPath
+        {
+            get => _currentSectionRpcs3EmulatorPath;
+            set
+            {
+                if (string.Equals(_currentSectionRpcs3EmulatorPath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionRpcs3EmulatorPath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionRpcs3UpdatePath;
+        public string? CurrentSectionRpcs3UpdatePath
+        {
+            get => _currentSectionRpcs3UpdatePath;
+            set
+            {
+                if (string.Equals(_currentSectionRpcs3UpdatePath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionRpcs3UpdatePath = value;
+                OnPropertyChanged();
+            }
+        }
+
         private AvaloniaList<string> _currentSectionPcsx2AvailableVersions = [];
         public AvaloniaList<string> CurrentSectionPcsx2AvailableVersions
         {
@@ -2648,6 +2834,23 @@ namespace AES_Lacrima.ViewModels
             SettingsViewModel?.SaveSettings();
         }
 
+        private void OnSelectedCurrentSectionRpcs3VersionChanged(string? value)
+        {
+            if (_isSyncingCurrentSectionRpcs3VersionSelection)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (string.Equals(section.LaunchSettings.SelectedRpcs3Version, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            section.LaunchSettings.SelectedRpcs3Version = normalized;
+            SettingsViewModel?.SaveSettings();
+        }
+
         public bool ShowCurrentSectionRetroArchCoreSelection =>
             CurrentEmulatorHandler?.UsesRetroArchCores == true &&
             CurrentSectionRetroArchCores.Count > 0;
@@ -2669,6 +2872,11 @@ namespace AES_Lacrima.ViewModels
         public bool ShowCurrentSectionXeniaUpdateControls =>
             CurrentEmulatorHandler != null &&
             string.Equals(CurrentEmulatorHandler.HandlerId, XeniaHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentEmulationSectionItem != null;
+
+        public bool ShowCurrentSectionRpcs3UpdateControls =>
+            CurrentEmulatorHandler != null &&
+            string.Equals(CurrentEmulatorHandler.HandlerId, Rpcs3Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
         public bool ShowCurrentSectionPcsx2UpdateControls =>
@@ -2723,6 +2931,7 @@ namespace AES_Lacrima.ViewModels
             (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable) ||
             (ShowCurrentSectionShadPs4UpdateControls && IsCurrentSectionShadPs4UpdateAvailable) ||
             (ShowCurrentSectionXeniaUpdateControls && IsCurrentSectionXeniaUpdateAvailable) ||
+            (ShowCurrentSectionRpcs3UpdateControls && IsCurrentSectionRpcs3UpdateAvailable) ||
             (ShowCurrentSectionDolphinUpdateControls && IsCurrentSectionDolphinUpdateAvailable) ||
             (ShowCurrentSectionPcsx2UpdateControls && IsCurrentSectionPcsx2UpdateAvailable) ||
             (ShowCurrentSectionDuckStationUpdateControls && IsCurrentSectionDuckStationUpdateAvailable);
@@ -2844,6 +3053,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ShowCurrentSectionEdenUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaUpdateControls));
+            OnPropertyChanged(nameof(ShowCurrentSectionRpcs3UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionDolphinUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionDuckStationUpdateControls));
@@ -2983,6 +3193,60 @@ namespace AES_Lacrima.ViewModels
                 finally
                 {
                     _isSyncingCurrentSectionXeniaVersionSelection = false;
+                }
+            }
+
+            var sectionRpcs3Version = section?.LaunchSettings?.SelectedRpcs3Version;
+            if (!string.Equals(SelectedCurrentSectionRpcs3Version, sectionRpcs3Version, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionRpcs3VersionSelection = true;
+                    SelectedCurrentSectionRpcs3Version = sectionRpcs3Version;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionRpcs3VersionSelection = false;
+                }
+            }
+
+            var includeRpcs3Prereleases = section?.LaunchSettings?.IncludeRpcs3Prereleases == true;
+            if (IncludeCurrentSectionRpcs3Prereleases != includeRpcs3Prereleases)
+            {
+                try
+                {
+                    _isSyncingCurrentSectionRpcs3IncludePrereleases = true;
+                    IncludeCurrentSectionRpcs3Prereleases = includeRpcs3Prereleases;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionRpcs3IncludePrereleases = false;
+                }
+            }
+
+            if (ShowCurrentSectionRpcs3UpdateControls)
+            {
+                _ = RefreshCurrentSectionRpcs3Info();
+            }
+            else
+            {
+                CurrentSectionRpcs3AvailableVersions.Clear();
+                CurrentSectionRpcs3CurrentVersion = null;
+                CurrentSectionRpcs3LatestVersion = null;
+                CurrentSectionRpcs3Status = "Select an RPCS3 section to manage updates.";
+                IsCurrentSectionRpcs3UpdateAvailable = false;
+                CurrentSectionRpcs3EmulatorPath = null;
+                CurrentSectionRpcs3UpdatePath = null;
+                CurrentSectionRpcs3DownloadProgress = 0;
+                IsCurrentSectionRpcs3Downloading = false;
+                try
+                {
+                    _isSyncingCurrentSectionRpcs3IncludePrereleases = true;
+                    IncludeCurrentSectionRpcs3Prereleases = false;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionRpcs3IncludePrereleases = false;
                 }
             }
 
@@ -3454,6 +3718,94 @@ namespace AES_Lacrima.ViewModels
             {
                 IsCurrentSectionXeniaBusy = false;
                 IsCurrentSectionXeniaDownloading = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task RefreshCurrentSectionRpcs3Info()
+        {
+            if (!ShowCurrentSectionRpcs3UpdateControls)
+            {
+                CurrentSectionRpcs3Status = "Select an RPCS3 section to manage updates.";
+                CurrentSectionRpcs3AvailableVersions.Clear();
+                CurrentSectionRpcs3CurrentVersion = null;
+                CurrentSectionRpcs3LatestVersion = null;
+                IsCurrentSectionRpcs3UpdateAvailable = false;
+                CurrentSectionRpcs3EmulatorPath = null;
+                CurrentSectionRpcs3UpdatePath = null;
+                CurrentSectionRpcs3DownloadProgress = 0;
+                IsCurrentSectionRpcs3Downloading = false;
+                return;
+            }
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _rpcs3EmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionRpcs3Busy = true;
+            IsCurrentSectionRpcs3Downloading = false;
+            CurrentSectionRpcs3DownloadProgress = 0;
+            try
+            {
+                var state = await updater.GetUpdateInfoAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    IncludeCurrentSectionRpcs3Prereleases,
+                    forceRefresh: false).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() => ApplyRpcs3UpdateState(state));
+            }
+            finally
+            {
+                IsCurrentSectionRpcs3Busy = false;
+                IsCurrentSectionRpcs3Downloading = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task DownloadOrUpdateCurrentSectionRpcs3()
+        {
+            if (!ShowCurrentSectionRpcs3UpdateControls)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _rpcs3EmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionRpcs3Busy = true;
+            IsCurrentSectionRpcs3Downloading = true;
+            CurrentSectionRpcs3DownloadProgress = 5;
+            try
+            {
+                var state = await updater.DownloadOrUpdateAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    IncludeCurrentSectionRpcs3Prereleases,
+                    SelectedCurrentSectionRpcs3Version).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CurrentSectionRpcs3DownloadProgress = 100;
+                    ApplyRpcs3UpdateState(state);
+
+                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                        !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        handler.LauncherPath = state.ResolvedLauncherPath;
+                        SettingsViewModel?.SaveSettings();
+                    }
+                });
+            }
+            finally
+            {
+                IsCurrentSectionRpcs3Busy = false;
+                IsCurrentSectionRpcs3Downloading = false;
             }
         }
 
@@ -3930,6 +4282,37 @@ namespace AES_Lacrima.ViewModels
             finally
             {
                 _isSyncingCurrentSectionXeniaVersionSelection = false;
+            }
+        }
+
+        private void ApplyRpcs3UpdateState(Rpcs3UpdateState state)
+        {
+            CurrentSectionRpcs3CurrentVersion = state.CurrentVersion;
+            CurrentSectionRpcs3LatestVersion = state.LatestVersion;
+            IsCurrentSectionRpcs3UpdateAvailable = state.IsUpdateAvailable;
+            CurrentSectionRpcs3Status = state.StatusMessage;
+            CurrentSectionRpcs3EmulatorPath = state.EmulatorDirectory;
+            CurrentSectionRpcs3UpdatePath = state.UpdateDirectory;
+
+            CurrentSectionRpcs3AvailableVersions.Clear();
+            foreach (var version in state.AvailableVersions.Take(10))
+                CurrentSectionRpcs3AvailableVersions.Add(version);
+
+            var selectedVersion = SelectedCurrentSectionRpcs3Version;
+            if (string.IsNullOrWhiteSpace(selectedVersion) ||
+                !CurrentSectionRpcs3AvailableVersions.Contains(selectedVersion, StringComparer.OrdinalIgnoreCase))
+            {
+                selectedVersion = CurrentSectionRpcs3AvailableVersions.FirstOrDefault() ?? state.LatestVersion;
+            }
+
+            try
+            {
+                _isSyncingCurrentSectionRpcs3VersionSelection = true;
+                SelectedCurrentSectionRpcs3Version = selectedVersion;
+            }
+            finally
+            {
+                _isSyncingCurrentSectionRpcs3VersionSelection = false;
             }
         }
 
@@ -4631,6 +5014,8 @@ namespace AES_Lacrima.ViewModels
                 await RefreshCurrentSectionEdenInfo();
             else if (ShowCurrentSectionShadPs4UpdateControls)
                 await RefreshCurrentSectionShadPs4Info();
+            else if (ShowCurrentSectionRpcs3UpdateControls)
+                await RefreshCurrentSectionRpcs3Info();
             else if (ShowCurrentSectionDolphinUpdateControls)
                 await RefreshCurrentSectionDolphinInfo();
             else if (ShowCurrentSectionPcsx2UpdateControls)
@@ -6457,8 +6842,17 @@ namespace AES_Lacrima.ViewModels
                 if (string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase) &&
                     !string.IsNullOrWhiteSpace(rpcs3TitleId))
                 {
-                    launchRomPath = Rpcs3Handler.BuildGameIdBootPath(rpcs3TitleId);
-                    SLog.Info($"EmulationViewModel booting RPCS3 by GAMEID using '{launchRomPath}'.");
+                    var preferredBootPath = Ps3InstalledGameHelper.GetPreferredBootPath(request.RomPath);
+                    if (!string.IsNullOrWhiteSpace(preferredBootPath))
+                    {
+                        launchRomPath = preferredBootPath;
+                        SLog.Info($"EmulationViewModel booting RPCS3 using EBOOT path '{launchRomPath}'.");
+                    }
+                    else
+                    {
+                        launchRomPath = Rpcs3Handler.BuildGameIdBootPath(rpcs3TitleId);
+                        SLog.Info($"EmulationViewModel fallback booting RPCS3 by GAMEID using '{launchRomPath}'.");
+                    }
                 }
 
                 var startInfo = handler.BuildStartInfo(

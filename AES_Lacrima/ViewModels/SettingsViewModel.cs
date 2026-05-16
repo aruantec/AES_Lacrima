@@ -204,6 +204,10 @@ public sealed class EmulationSectionLaunchSettings
 
     public string? SelectedXeniaVersion { get; set; }
 
+    public string? SelectedRpcs3Version { get; set; }
+
+    public bool IncludeRpcs3Prereleases { get; set; }
+
     public string? SelectedPcsx2Version { get; set; }
 
     public bool IncludePcsx2Prereleases { get; set; }
@@ -231,6 +235,8 @@ public sealed class EmulationSectionLaunchSettings
             SelectedShadPs4Version = SelectedShadPs4Version,
             IncludeShadPs4Prereleases = IncludeShadPs4Prereleases,
             SelectedXeniaVersion = SelectedXeniaVersion,
+            SelectedRpcs3Version = SelectedRpcs3Version,
+            IncludeRpcs3Prereleases = IncludeRpcs3Prereleases,
             SelectedPcsx2Version = SelectedPcsx2Version,
             IncludePcsx2Prereleases = IncludePcsx2Prereleases,
             SelectedDolphinVersion = SelectedDolphinVersion,
@@ -2483,6 +2489,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.ShadPs4RepositoryOverride) ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedShadPs4Version) ||
                item.LaunchSettings?.IncludeShadPs4Prereleases == true ||
+               !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedRpcs3Version) ||
+               item.LaunchSettings?.IncludeRpcs3Prereleases == true ||
+               !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedDolphinVersion) ||
+               item.LaunchSettings?.IncludeDolphinPrereleases == true ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedPcsx2Version) ||
                item.LaunchSettings?.IncludePcsx2Prereleases == true ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedDuckStationVersion) ||
@@ -2510,6 +2520,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             SelectedShadPs4Version = persisted.SelectedShadPs4Version ?? defaults.SelectedShadPs4Version,
             IncludeShadPs4Prereleases = persisted.IncludeShadPs4Prereleases || defaults.IncludeShadPs4Prereleases,
             SelectedXeniaVersion = persisted.SelectedXeniaVersion ?? defaults.SelectedXeniaVersion,
+            SelectedRpcs3Version = persisted.SelectedRpcs3Version ?? defaults.SelectedRpcs3Version,
+            IncludeRpcs3Prereleases = persisted.IncludeRpcs3Prereleases || defaults.IncludeRpcs3Prereleases,
+            SelectedDolphinVersion = persisted.SelectedDolphinVersion ?? defaults.SelectedDolphinVersion,
+            IncludeDolphinPrereleases = persisted.IncludeDolphinPrereleases || defaults.IncludeDolphinPrereleases,
             SelectedPcsx2Version = persisted.SelectedPcsx2Version ?? defaults.SelectedPcsx2Version,
             IncludePcsx2Prereleases = persisted.IncludePcsx2Prereleases || defaults.IncludePcsx2Prereleases,
             SelectedDuckStationVersion = persisted.SelectedDuckStationVersion ?? defaults.SelectedDuckStationVersion,
