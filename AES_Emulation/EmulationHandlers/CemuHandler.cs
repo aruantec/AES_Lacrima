@@ -86,6 +86,16 @@ public sealed class CemuHandler : EmulatorHandlerBase
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
         startInfo.ArgumentList.Clear();
 
+        var executableDirectory = Path.GetDirectoryName(launcherPath);
+        if (!string.IsNullOrWhiteSpace(executableDirectory))
+        {
+            // Force portable mode by pointing config and mlc to the local directory
+            startInfo.ArgumentList.Add("-c");
+            startInfo.ArgumentList.Add(executableDirectory);
+            startInfo.ArgumentList.Add("-mlc");
+            startInfo.ArgumentList.Add(executableDirectory);
+        }
+
         startInfo.ArgumentList.Add("-g");
         startInfo.ArgumentList.Add(romPath);
 
@@ -264,14 +274,15 @@ public sealed class CemuHandler : EmulatorHandlerBase
             if (string.IsNullOrWhiteSpace(executableDirectory))
                 return null;
 
+            // Check executable directory first (standard for -c <dir> or portable installs)
+            var localLogPath = Path.Combine(executableDirectory, "log.txt");
+            if (File.Exists(localLogPath))
+                return localLogPath;
+
             var portableDirectory = Path.Combine(executableDirectory, "portable");
             var portableLogPath = Path.Combine(portableDirectory, "log.txt");
             if (Directory.Exists(portableDirectory))
                 return portableLogPath;
-
-            var portableSettingsLogPath = Path.Combine(executableDirectory, "log.txt");
-            if (File.Exists(Path.Combine(executableDirectory, "settings.xml")))
-                return portableSettingsLogPath;
 
             var roamingPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Cemu", "log.txt");
             return roamingPath;
@@ -282,7 +293,17 @@ public sealed class CemuHandler : EmulatorHandlerBase
         }
     }
 
-    public override void PrepareWindowForCapture(IntPtr hwnd) => HideWindowForCapture(hwnd);
+    public override void PrepareWindowForCapture(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+            return;
+
+        // Use a less aggressive preparation for Cemu to avoid it disappearing before capture
+        if (OperatingSystem.IsWindows())
+        {
+            Win32API.RemoveWindowDecorations(hwnd);
+        }
+    }
 
     private static bool IsLikelyCemuRenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
     {
@@ -298,7 +319,13 @@ public sealed class CemuHandler : EmulatorHandlerBase
             return true;
 
         if (lowerTitle.Contains("cemu") && !lowerTitle.Contains("cemu hook"))
+        {
+            // If it contains FPS or game info, it's almost certainly the render window
+            if (lowerTitle.Contains("fps:") || lowerTitle.Contains("loading") || lowerTitle.Contains("compiling"))
+                return true;
+
             return true;
+        }
 
         if (!string.IsNullOrWhiteSpace(title) &&
             !lowerTitle.Contains("settings") &&
@@ -307,12 +334,15 @@ public sealed class CemuHandler : EmulatorHandlerBase
             !lowerTitle.Contains("input") &&
             !lowerTitle.Contains("about") &&
             !lowerTitle.Contains("profile") &&
-            !lowerTitle.Contains("update"))
+            !lowerTitle.Contains("update") &&
+            !lowerTitle.Contains("options") &&
+            !lowerTitle.Contains("vulkan") &&
+            !lowerTitle.Contains("opengl"))
         {
             return true;
         }
 
-        if (!string.IsNullOrWhiteSpace(lowerClass) && lowerClass.Contains("qwindow") && hwnd != mainWindowHandle)
+        if (!string.IsNullOrWhiteSpace(lowerClass) && (lowerClass.Contains("qwindow") || lowerClass.Contains("qt6")) && hwnd != mainWindowHandle)
             return true;
 
         return false;
