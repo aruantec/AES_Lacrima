@@ -7,6 +7,38 @@ namespace AES_Lacrima.Services
 {
     internal static class Ps3InstalledGameHelper
     {
+        public static string? GetPreferredBootPath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
+
+            try
+            {
+                var normalizedPath = path.Trim();
+                if (File.Exists(normalizedPath))
+                    return normalizedPath;
+
+                if (!Directory.Exists(normalizedPath))
+                    return null;
+
+                foreach (var candidateDirectory in GetCandidateDirectories(normalizedPath))
+                {
+                    var ebootPath = Path.Combine(candidateDirectory, "EBOOT.BIN");
+                    if (File.Exists(ebootPath))
+                        return ebootPath;
+
+                    var ebootPathLower = Path.Combine(candidateDirectory, "eboot.bin");
+                    if (File.Exists(ebootPathLower))
+                        return ebootPathLower;
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
+
         public static bool IsInstalledGameFolder(string? path)
         {
             if (string.IsNullOrWhiteSpace(path))

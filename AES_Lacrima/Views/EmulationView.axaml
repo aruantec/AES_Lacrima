@@ -1070,6 +1070,96 @@
                                            </StackPanel>
                                        </Border>
 
+                                       <Border IsVisible="{Binding ShowCurrentSectionRpcs3UpdateControls}"
+                                              Margin="0,14,0,0"
+                                              Padding="12"
+                                              BorderBrush="#555"
+                                              BorderThickness="1"
+                                              CornerRadius="8"
+                                              Background="#1A1A1A">
+                                           <StackPanel Spacing="10">
+                                               <TextBlock Text="RPCS3 Update" Foreground="White" FontSize="18" FontWeight="SemiBold"/>
+
+                                               <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                                   <TextBlock Text="Current Version" Foreground="White" FontSize="16" Width="220"/>
+                                                   <TextBlock Text="{Binding CurrentSectionRpcs3CurrentVersion, FallbackValue=Unknown, TargetNullValue=Unknown}"
+                                                              Foreground="#E0E0E0"
+                                                              FontSize="16"/>
+                                               </StackPanel>
+
+                                               <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                                   <TextBlock Text="Latest Version" Foreground="White" FontSize="16" Width="220"/>
+                                                   <TextBlock Text="{Binding CurrentSectionRpcs3LatestVersion, FallbackValue=Unavailable, TargetNullValue=Unavailable}"
+                                                              Foreground="#E0E0E0"
+                                                              FontSize="16"/>
+                                               </StackPanel>
+
+                                               <TextBlock Text="A new RPCS3 version is available."
+                                                          IsVisible="{Binding IsCurrentSectionRpcs3UpdateAvailable}"
+                                                          Foreground="#FFD166"
+                                                          FontSize="15"
+                                                          FontWeight="SemiBold"/>
+
+                                               <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                                   <TextBlock Text="Target Version" Foreground="White" FontSize="16" Width="220"/>
+                                                   <ComboBox MinWidth="260"
+                                                             HorizontalAlignment="Stretch"
+                                                             ItemsSource="{Binding CurrentSectionRpcs3AvailableVersions}"
+                                                             SelectedItem="{Binding SelectedCurrentSectionRpcs3Version, Mode=TwoWay}">
+                                                       <Interaction.Behaviors>
+                                                           <controlBehaviors:ComboBoxPopupScaler/>
+                                                       </Interaction.Behaviors>
+                                                   </ComboBox>
+                                               </StackPanel>
+
+                                               <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                                   <TextBlock Text="Include Nightly Builds" Foreground="White" FontSize="16" Width="220"/>
+                                                   <ToggleSwitch IsChecked="{Binding IncludeCurrentSectionRpcs3Prereleases, Mode=TwoWay}" />
+                                               </StackPanel>
+
+                                               <TextBlock Text="{Binding CurrentSectionRpcs3Status}"
+                                                          Foreground="#C8C8C8"
+                                                          TextWrapping="Wrap"/>
+
+                                               <StackPanel IsVisible="{Binding IsCurrentSectionRpcs3Downloading}" Spacing="4">
+                                                   <TextBlock Text="Downloading and applying RPCS3 update..."
+                                                              Foreground="#E0E0E0"
+                                                              FontSize="14"/>
+                                                   <ProgressBar Minimum="0"
+                                                                Maximum="100"
+                                                                Value="{Binding CurrentSectionRpcs3DownloadProgress}"
+                                                                IsIndeterminate="False"
+                                                                Height="8"/>
+                                               </StackPanel>
+
+                                               <TextBlock Text="{Binding CurrentSectionRpcs3EmulatorPath, StringFormat='Emulator Folder: {0}'}"
+                                                          Foreground="#AFAFAF"
+                                                          FontSize="13"
+                                                          TextWrapping="Wrap"/>
+                                               <TextBlock Text="{Binding CurrentSectionRpcs3UpdatePath, StringFormat='Update Temp (Emu_Update): {0}'}"
+                                                          Foreground="#AFAFAF"
+                                                          FontSize="13"
+                                                          TextWrapping="Wrap"/>
+
+                                               <StackPanel Orientation="Horizontal" Spacing="10">
+                                                   <Button Content="Refresh Versions"
+                                                           Command="{Binding RefreshCurrentSectionRpcs3InfoCommand}"
+                                                           Padding="12,8"
+                                                           Background="#222"
+                                                           Foreground="White"
+                                                           BorderBrush="#555"
+                                                           BorderThickness="1"/>
+                                                   <Button Content="Download / Update RPCS3"
+                                                           Command="{Binding DownloadOrUpdateCurrentSectionRpcs3Command}"
+                                                           Padding="12,8"
+                                                           Background="#222"
+                                                           Foreground="White"
+                                                           BorderBrush="#555"
+                                                           BorderThickness="1"/>
+                                               </StackPanel>
+                                           </StackPanel>
+                                       </Border>
+
                                        <Border IsVisible="{Binding ShowCurrentSectionDolphinUpdateControls}"
                                               Margin="0,14,0,0"
                                               Padding="12"

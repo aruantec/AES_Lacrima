@@ -65,7 +65,14 @@ public sealed class Rpcs3Handler : EmulatorHandlerBase
         // and gets us to the actual render window faster.
         startInfo.ArgumentList.Add("--no-gui");
 
-        startInfo.ArgumentList.Add(romPath);
+        var bootTarget = romPath;
+        if (!string.IsNullOrWhiteSpace(bootTarget) &&
+            bootTarget.StartsWith(GameIdBootPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            bootTarget = bootTarget[GameIdBootPrefix.Length..].Trim();
+        }
+
+        startInfo.ArgumentList.Add(bootTarget);
         return startInfo;
     }
 
