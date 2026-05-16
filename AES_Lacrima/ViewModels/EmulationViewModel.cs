@@ -7346,6 +7346,7 @@ namespace AES_Lacrima.ViewModels
             foreach (var item in album.Children)
             {
                 var ps3Title = Ps3InstalledGameHelper.GetTitleName(item.FileName);
+                var ps4Title = Ps4InstalledGameHelper.GetTitleName(item.FileName);
                 var normalized = GetNormalizedRomTitle(item.Title);
                 if (string.IsNullOrWhiteSpace(normalized) && !string.IsNullOrWhiteSpace(item.FileName))
                     normalized = GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(item.FileName));
@@ -7356,6 +7357,15 @@ namespace AES_Lacrima.ViewModels
                      string.Equals(item.Title, Path.GetFileNameWithoutExtension(item.FileName), StringComparison.OrdinalIgnoreCase)))
                 {
                     item.Title = ps3Title;
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(ps4Title) &&
+                    (string.IsNullOrWhiteSpace(item.Title) ||
+                     string.Equals(item.Title, normalized, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(item.Title, Path.GetFileNameWithoutExtension(item.FileName), StringComparison.OrdinalIgnoreCase)))
+                {
+                    item.Title = ps4Title;
                     continue;
                 }
 

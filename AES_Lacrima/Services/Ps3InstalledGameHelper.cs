@@ -108,6 +108,31 @@ namespace AES_Lacrima.Services
             return null;
         }
 
+        public static string? GetVersion(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
+
+            try
+            {
+                foreach (var candidateDirectory in GetCandidateDirectories(path))
+                {
+                    var paramSfoPath = Path.Combine(candidateDirectory, "PARAM.SFO");
+                    if (!File.Exists(paramSfoPath))
+                        continue;
+
+                    var version = TryReadValueFromParamSfo(paramSfoPath, "APP_VER");
+                    if (!string.IsNullOrWhiteSpace(version))
+                        return version;
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
+
         public static string? GetPreferredIconPath(string? path)
             => FindArtworkPath(path, ["icon0.png", "ICON0.PNG"]);
 

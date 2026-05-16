@@ -41,6 +41,14 @@ public class CustomMetadata
     public string Xbox360TitleId { get; set; } = "";
     /// <summary>Gets or sets the Xbox 360 media ID for emulation metadata.</summary>
     public string Xbox360MediaId { get; set; } = "";
+    /// <summary>Gets or sets the PS3 title ID (serial) for emulation metadata.</summary>
+    public string Ps3TitleId { get; set; } = "";
+    /// <summary>Gets or sets the PS3 version for emulation metadata.</summary>
+    public string Ps3Version { get; set; } = "";
+    /// <summary>Gets or sets the PS4 title ID (serial) for emulation metadata.</summary>
+    public string Ps4TitleId { get; set; } = "";
+    /// <summary>Gets or sets the PS4 version for emulation metadata.</summary>
+    public string Ps4Version { get; set; } = "";
     /// <summary>Gets or sets the list of associated images.</summary>
     public List<ImageData> Images { get; set; } = [];
     /// <summary>Gets or sets the list of associated video data.</summary>
