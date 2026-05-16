@@ -209,6 +209,9 @@ namespace AES_Lacrima.ViewModels
         private DolphinEmulatorUpdateService? _dolphinEmulatorUpdateService;
 
         [AutoResolve]
+        private FlycastEmulatorUpdateService? _flycastEmulatorUpdateService;
+
+        [AutoResolve]
         private Rpcs3EmulatorUpdateService? _rpcs3EmulatorUpdateService;
 
         [AutoResolve]
@@ -392,6 +395,187 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
+        private AvaloniaList<string> _currentSectionFlycastAvailableVersions = [];
+        public AvaloniaList<string> CurrentSectionFlycastAvailableVersions
+        {
+            get => _currentSectionFlycastAvailableVersions;
+            set
+            {
+                if (ReferenceEquals(_currentSectionFlycastAvailableVersions, value))
+                    return;
+
+                _currentSectionFlycastAvailableVersions = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _selectedCurrentSectionFlycastVersion;
+        public string? SelectedCurrentSectionFlycastVersion
+        {
+            get => _selectedCurrentSectionFlycastVersion;
+            set
+            {
+                if (string.Equals(_selectedCurrentSectionFlycastVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _selectedCurrentSectionFlycastVersion = value;
+                OnPropertyChanged();
+                OnSelectedCurrentSectionFlycastVersionChanged(value);
+            }
+        }
+
+        private string? _currentSectionFlycastCurrentVersion;
+        public string? CurrentSectionFlycastCurrentVersion
+        {
+            get => _currentSectionFlycastCurrentVersion;
+            set
+            {
+                if (string.Equals(_currentSectionFlycastCurrentVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionFlycastCurrentVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionFlycastLatestVersion;
+        public string? CurrentSectionFlycastLatestVersion
+        {
+            get => _currentSectionFlycastLatestVersion;
+            set
+            {
+                if (string.Equals(_currentSectionFlycastLatestVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionFlycastLatestVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string _currentSectionFlycastStatus = "Select a Flycast section to manage updates.";
+        public string CurrentSectionFlycastStatus
+        {
+            get => _currentSectionFlycastStatus;
+            set
+            {
+                if (string.Equals(_currentSectionFlycastStatus, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionFlycastStatus = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _includeCurrentSectionFlycastNightlies;
+        public bool IncludeCurrentSectionFlycastNightlies
+        {
+            get => _includeCurrentSectionFlycastNightlies;
+            set
+            {
+                if (_includeCurrentSectionFlycastNightlies == value)
+                    return;
+
+                _includeCurrentSectionFlycastNightlies = value;
+                OnPropertyChanged();
+
+                if (_isSyncingCurrentSectionFlycastNightlies)
+                    return;
+
+                var section = CurrentEmulationSectionItem;
+                if (section?.LaunchSettings == null)
+                    return;
+
+                section.LaunchSettings.IncludeFlycastNightlies = value;
+                SettingsViewModel?.SaveSettings();
+                _ = RefreshCurrentSectionFlycastInfo();
+            }
+        }
+
+        private bool _isCurrentSectionFlycastUpdateAvailable;
+        public bool IsCurrentSectionFlycastUpdateAvailable
+        {
+            get => _isCurrentSectionFlycastUpdateAvailable;
+            set
+            {
+                if (_isCurrentSectionFlycastUpdateAvailable == value)
+                    return;
+
+                _isCurrentSectionFlycastUpdateAvailable = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
+            }
+        }
+
+        private bool _isCurrentSectionFlycastBusy;
+        public bool IsCurrentSectionFlycastBusy
+        {
+            get => _isCurrentSectionFlycastBusy;
+            set
+            {
+                if (_isCurrentSectionFlycastBusy == value)
+                    return;
+
+                _isCurrentSectionFlycastBusy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionFlycastDownloading;
+        public bool IsCurrentSectionFlycastDownloading
+        {
+            get => _isCurrentSectionFlycastDownloading;
+            set
+            {
+                if (_isCurrentSectionFlycastDownloading == value)
+                    return;
+
+                _isCurrentSectionFlycastDownloading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private double _currentSectionFlycastDownloadProgress;
+        public double CurrentSectionFlycastDownloadProgress
+        {
+            get => _currentSectionFlycastDownloadProgress;
+            set
+            {
+                if (Math.Abs(_currentSectionFlycastDownloadProgress - value) < 0.01)
+                    return;
+
+                _currentSectionFlycastDownloadProgress = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionFlycastEmulatorPath;
+        public string? CurrentSectionFlycastEmulatorPath
+        {
+            get => _currentSectionFlycastEmulatorPath;
+            set
+            {
+                if (string.Equals(_currentSectionFlycastEmulatorPath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionFlycastEmulatorPath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionFlycastUpdatePath;
+        public string? CurrentSectionFlycastUpdatePath
+        {
+            get => _currentSectionFlycastUpdatePath;
+            set
+            {
+                if (string.Equals(_currentSectionFlycastUpdatePath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionFlycastUpdatePath = value;
+                OnPropertyChanged();
+            }
+        }
+
         public bool IsXeniaPatchSwitchPromptVisible
         {
             get => _isXeniaPatchSwitchPromptVisible;
@@ -404,6 +588,9 @@ namespace AES_Lacrima.ViewModels
                 OnPropertyChanged();
             }
         }
+
+        private bool _isSyncingCurrentSectionFlycastVersionSelection;
+        private bool _isSyncingCurrentSectionFlycastNightlies;
 
         partial void OnSelectedCaptureModeChanged(EmulatorCaptureMode value)
             => OnPropertyChanged(nameof(CanShowRenderOptions));
@@ -2817,6 +3004,23 @@ namespace AES_Lacrima.ViewModels
             SettingsViewModel?.SaveSettings();
         }
 
+        private void OnSelectedCurrentSectionFlycastVersionChanged(string? value)
+        {
+            if (_isSyncingCurrentSectionFlycastVersionSelection)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (string.Equals(section.LaunchSettings.SelectedFlycastVersion, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            section.LaunchSettings.SelectedFlycastVersion = normalized;
+            SettingsViewModel?.SaveSettings();
+        }
+
         private void OnSelectedCurrentSectionDuckStationVersionChanged(string? value)
         {
             if (_isSyncingCurrentSectionDuckStationVersionSelection)
@@ -2889,6 +3093,11 @@ namespace AES_Lacrima.ViewModels
             string.Equals(CurrentEmulatorHandler.HandlerId, DolphinHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
+        public bool ShowCurrentSectionFlycastUpdateControls =>
+            CurrentEmulatorHandler != null &&
+            string.Equals(CurrentEmulatorHandler.HandlerId, FlyCastHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentEmulationSectionItem != null;
+
         public bool ShowCurrentSectionDuckStationUpdateControls =>
             CurrentEmulatorHandler != null &&
             string.Equals(CurrentEmulatorHandler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
@@ -2933,6 +3142,7 @@ namespace AES_Lacrima.ViewModels
             (ShowCurrentSectionXeniaUpdateControls && IsCurrentSectionXeniaUpdateAvailable) ||
             (ShowCurrentSectionRpcs3UpdateControls && IsCurrentSectionRpcs3UpdateAvailable) ||
             (ShowCurrentSectionDolphinUpdateControls && IsCurrentSectionDolphinUpdateAvailable) ||
+            (ShowCurrentSectionFlycastUpdateControls && IsCurrentSectionFlycastUpdateAvailable) ||
             (ShowCurrentSectionPcsx2UpdateControls && IsCurrentSectionPcsx2UpdateAvailable) ||
             (ShowCurrentSectionDuckStationUpdateControls && IsCurrentSectionDuckStationUpdateAvailable);
 
@@ -3055,6 +3265,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionDolphinUpdateControls));
+            OnPropertyChanged(nameof(ShowCurrentSectionFlycastUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionDuckStationUpdateControls));
             OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
@@ -3309,6 +3520,34 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
+            var includeFlycastNightlies = section?.LaunchSettings?.IncludeFlycastNightlies == true;
+            if (IncludeCurrentSectionFlycastNightlies != includeFlycastNightlies)
+            {
+                try
+                {
+                    _isSyncingCurrentSectionFlycastNightlies = true;
+                    IncludeCurrentSectionFlycastNightlies = includeFlycastNightlies;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionFlycastNightlies = false;
+                }
+            }
+
+            var sectionFlycastVersion = section?.LaunchSettings?.SelectedFlycastVersion;
+            if (!string.Equals(SelectedCurrentSectionFlycastVersion, sectionFlycastVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionFlycastVersionSelection = true;
+                    SelectedCurrentSectionFlycastVersion = sectionFlycastVersion;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionFlycastVersionSelection = false;
+                }
+            }
+
             var includePcsx2Prereleases = section?.LaunchSettings?.IncludePcsx2Prereleases == true;
             if (IncludeCurrentSectionPcsx2Prereleases != includePcsx2Prereleases)
             {
@@ -3346,6 +3585,42 @@ namespace AES_Lacrima.ViewModels
                 finally
                 {
                     _isSyncingCurrentSectionDolphinIncludePrereleases = false;
+                }
+            }
+
+            if (ShowCurrentSectionFlycastUpdateControls)
+            {
+                _ = RefreshCurrentSectionFlycastInfo();
+            }
+            else
+            {
+                CurrentSectionFlycastAvailableVersions.Clear();
+                CurrentSectionFlycastCurrentVersion = null;
+                CurrentSectionFlycastLatestVersion = null;
+                CurrentSectionFlycastStatus = "Select a Flycast section to manage updates.";
+                IsCurrentSectionFlycastUpdateAvailable = false;
+                CurrentSectionFlycastEmulatorPath = null;
+                CurrentSectionFlycastUpdatePath = null;
+                CurrentSectionFlycastDownloadProgress = 0;
+                IsCurrentSectionFlycastDownloading = false;
+                try
+                {
+                    _isSyncingCurrentSectionFlycastNightlies = true;
+                    IncludeCurrentSectionFlycastNightlies = false;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionFlycastNightlies = false;
+                }
+
+                try
+                {
+                    _isSyncingCurrentSectionFlycastVersionSelection = true;
+                    SelectedCurrentSectionFlycastVersion = null;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionFlycastVersionSelection = false;
                 }
             }
 
@@ -3898,6 +4173,94 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
+        private async Task RefreshCurrentSectionFlycastInfo()
+        {
+            if (!ShowCurrentSectionFlycastUpdateControls)
+            {
+                CurrentSectionFlycastStatus = "Select a Flycast section to manage updates.";
+                CurrentSectionFlycastAvailableVersions.Clear();
+                CurrentSectionFlycastCurrentVersion = null;
+                CurrentSectionFlycastLatestVersion = null;
+                IsCurrentSectionFlycastUpdateAvailable = false;
+                CurrentSectionFlycastEmulatorPath = null;
+                CurrentSectionFlycastUpdatePath = null;
+                CurrentSectionFlycastDownloadProgress = 0;
+                IsCurrentSectionFlycastDownloading = false;
+                return;
+            }
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _flycastEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionFlycastBusy = true;
+            IsCurrentSectionFlycastDownloading = false;
+            CurrentSectionFlycastDownloadProgress = 0;
+            try
+            {
+                var state = await updater.GetUpdateInfoAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    IncludeCurrentSectionFlycastNightlies,
+                    forceRefresh: false).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() => ApplyFlycastUpdateState(state));
+            }
+            finally
+            {
+                IsCurrentSectionFlycastBusy = false;
+                IsCurrentSectionFlycastDownloading = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task DownloadOrUpdateCurrentSectionFlycast()
+        {
+            if (!ShowCurrentSectionFlycastUpdateControls)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _flycastEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionFlycastBusy = true;
+            IsCurrentSectionFlycastDownloading = true;
+            CurrentSectionFlycastDownloadProgress = 5;
+            try
+            {
+                var state = await updater.DownloadOrUpdateAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    IncludeCurrentSectionFlycastNightlies,
+                    SelectedCurrentSectionFlycastVersion).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CurrentSectionFlycastDownloadProgress = 100;
+                    ApplyFlycastUpdateState(state);
+
+                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                        !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        handler.LauncherPath = state.ResolvedLauncherPath;
+                        SettingsViewModel?.SaveSettings();
+                    }
+                });
+            }
+            finally
+            {
+                IsCurrentSectionFlycastBusy = false;
+                IsCurrentSectionFlycastDownloading = false;
+            }
+        }
+
+        [RelayCommand]
         private async Task RefreshCurrentSectionDuckStationInfo()
         {
             if (!ShowCurrentSectionDuckStationUpdateControls)
@@ -4375,6 +4738,37 @@ namespace AES_Lacrima.ViewModels
             finally
             {
                 _isSyncingCurrentSectionDolphinVersionSelection = false;
+            }
+        }
+
+        private void ApplyFlycastUpdateState(FlycastUpdateState state)
+        {
+            CurrentSectionFlycastCurrentVersion = state.CurrentVersion;
+            CurrentSectionFlycastLatestVersion = state.LatestVersion;
+            IsCurrentSectionFlycastUpdateAvailable = state.IsUpdateAvailable;
+            CurrentSectionFlycastStatus = state.StatusMessage;
+            CurrentSectionFlycastEmulatorPath = state.EmulatorDirectory;
+            CurrentSectionFlycastUpdatePath = state.UpdateDirectory;
+
+            CurrentSectionFlycastAvailableVersions.Clear();
+            foreach (var version in state.AvailableVersions.Take(10))
+                CurrentSectionFlycastAvailableVersions.Add(version);
+
+            var selectedVersion = SelectedCurrentSectionFlycastVersion;
+            if (string.IsNullOrWhiteSpace(selectedVersion) ||
+                !CurrentSectionFlycastAvailableVersions.Contains(selectedVersion, StringComparer.OrdinalIgnoreCase))
+            {
+                selectedVersion = CurrentSectionFlycastAvailableVersions.FirstOrDefault() ?? state.LatestVersion;
+            }
+
+            try
+            {
+                _isSyncingCurrentSectionFlycastVersionSelection = true;
+                SelectedCurrentSectionFlycastVersion = selectedVersion;
+            }
+            finally
+            {
+                _isSyncingCurrentSectionFlycastVersionSelection = false;
             }
         }
 
@@ -6806,6 +7200,7 @@ namespace AES_Lacrima.ViewModels
 
         private async Task LaunchEmulatorAsync(PendingEmulatorLaunchRequest request)
         {
+            var launchStopwatch = Stopwatch.StartNew();
             try
             {
                 ClearRetroArchErrorState();
@@ -6864,6 +7259,7 @@ namespace AES_Lacrima.ViewModels
 
                 PrepareLinuxAppImageStartInfo(startInfo);
                 var process = Process.Start(startInfo);
+                SLog.Info($"Emulation launch started for '{request.AlbumTitle}'/'{request.ItemTitle}' after {launchStopwatch.ElapsedMilliseconds} ms. pid={(process?.Id ?? 0)}.");
 
                 if (process != null)
                 {
@@ -6878,6 +7274,7 @@ namespace AES_Lacrima.ViewModels
                     try
                     {
                         runtimeProcess = await handler.ResolveRuntimeProcessAsync(process, CancellationToken.None).ConfigureAwait(false) ?? process;
+                        SLog.Info($"Emulator runtime process resolution completed in {launchStopwatch.ElapsedMilliseconds} ms for '{request.AlbumTitle}'/'{request.ItemTitle}'. runtimePid={runtimeProcess?.Id ?? 0}.");
                     }
                     catch (OperationCanceledException)
                     {
@@ -7440,6 +7837,7 @@ namespace AES_Lacrima.ViewModels
 
         private async Task ResolveEmulatorTargetHwndAsync(Process process, string romPath, IEmulatorHandler handler)
         {
+            var captureStopwatch = Stopwatch.StartNew();
             try
             {
                 var hwnd = await ResolveCaptureTargetForCurrentPlatformAsync(process, handler).ConfigureAwait(false);
@@ -7467,6 +7865,7 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 UseHostWindowCapture = false;
+                SLog.Info($"Emulation capture target resolved for '{romPath}' in {captureStopwatch.ElapsedMilliseconds} ms. hwnd=0x{hwnd.ToInt64():X}.");
                 await TryApplyEmulatorTargetHwndAsync(process, hwnd, showWindowForCapture: handler.HideUntilCaptured).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -7701,6 +8100,7 @@ namespace AES_Lacrima.ViewModels
             if (hwnd == IntPtr.Zero)
                 return false;
 
+            var handoffStopwatch = Stopwatch.StartNew();
             return await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (!ReferenceEquals(_activeEmulatorProcess, process))
@@ -7731,6 +8131,7 @@ namespace AES_Lacrima.ViewModels
                     EmulatorTargetHwnd = hwnd;
 
                 IsEmulatorLaunchInProgress = false;
+                SLog.Info($"Emulation capture handoff completed in {handoffStopwatch.ElapsedMilliseconds} ms for pid={process.Id}. hwnd=0x{hwnd.ToInt64():X}, showWindowForCapture={showWindowForCapture}.");
 
                 return true;
             }, DispatcherPriority.Background);
