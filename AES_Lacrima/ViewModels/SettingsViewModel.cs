@@ -208,6 +208,10 @@ public sealed class EmulationSectionLaunchSettings
 
     public bool IncludePcsx2Prereleases { get; set; }
 
+    public string? SelectedDolphinVersion { get; set; }
+
+    public bool IncludeDolphinPrereleases { get; set; }
+
     public string? SelectedDuckStationVersion { get; set; }
 
     public bool IncludeDuckStationPrereleases { get; set; }
@@ -229,6 +233,8 @@ public sealed class EmulationSectionLaunchSettings
             SelectedXeniaVersion = SelectedXeniaVersion,
             SelectedPcsx2Version = SelectedPcsx2Version,
             IncludePcsx2Prereleases = IncludePcsx2Prereleases,
+            SelectedDolphinVersion = SelectedDolphinVersion,
+            IncludeDolphinPrereleases = IncludeDolphinPrereleases,
             SelectedDuckStationVersion = SelectedDuckStationVersion,
             IncludeDuckStationPrereleases = IncludeDuckStationPrereleases
         };

@@ -71,7 +71,18 @@ public sealed class DolphinHandler : EmulatorHandlerBase
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
         startInfo.ArgumentList.Clear();
 
+        var executableDirectory = Path.GetDirectoryName(startInfo.FileName);
+        var dolphinUserDirectory = string.IsNullOrWhiteSpace(executableDirectory)
+            ? startInfo.WorkingDirectory
+            : Path.Combine(executableDirectory, "User");
+
         // Dolphin CLI: -b batch, -e executable/content path, -f fullscreen.
+        if (!string.IsNullOrWhiteSpace(dolphinUserDirectory))
+        {
+            startInfo.ArgumentList.Add("-u");
+            startInfo.ArgumentList.Add(dolphinUserDirectory);
+        }
+
         startInfo.ArgumentList.Add("-b");
         if (startFullscreen)
             startInfo.ArgumentList.Add("-f");

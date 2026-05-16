@@ -117,6 +117,8 @@ namespace AES_Lacrima.ViewModels
         private bool _isSyncingCurrentSectionShadPs4RepositoryOverride;
         private bool _isCurrentSectionShadPs4RepositoryDirty;
         private bool _isSyncingCurrentSectionShadPs4IncludePrereleases;
+        private bool _isSyncingCurrentSectionDolphinVersionSelection;
+        private bool _isSyncingCurrentSectionDolphinIncludePrereleases;
         private bool _isSyncingCurrentSectionPcsx2VersionSelection;
         private bool _isSyncingCurrentSectionPcsx2IncludePrereleases;
         private bool _isSyncingCurrentSectionDuckStationVersionSelection;
@@ -200,6 +202,9 @@ namespace AES_Lacrima.ViewModels
 
         [AutoResolve]
         private XeniaEmulatorUpdateService? _xeniaEmulatorUpdateService;
+
+        [AutoResolve]
+        private DolphinEmulatorUpdateService? _dolphinEmulatorUpdateService;
 
         [AutoResolve]
         private Pcsx2EmulatorUpdateService? _pcsx2EmulatorUpdateService;
@@ -1647,6 +1652,187 @@ namespace AES_Lacrima.ViewModels
         public IAsyncRelayCommand ApplyCurrentSectionShadPs4RepositoryCommand =>
             _applyCurrentSectionShadPs4RepositoryCommand ??= new AsyncRelayCommand(ApplyCurrentSectionShadPs4Repository);
 
+        private AvaloniaList<string> _currentSectionDolphinAvailableVersions = [];
+        public AvaloniaList<string> CurrentSectionDolphinAvailableVersions
+        {
+            get => _currentSectionDolphinAvailableVersions;
+            set
+            {
+                if (ReferenceEquals(_currentSectionDolphinAvailableVersions, value))
+                    return;
+
+                _currentSectionDolphinAvailableVersions = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _selectedCurrentSectionDolphinVersion;
+        public string? SelectedCurrentSectionDolphinVersion
+        {
+            get => _selectedCurrentSectionDolphinVersion;
+            set
+            {
+                if (string.Equals(_selectedCurrentSectionDolphinVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _selectedCurrentSectionDolphinVersion = value;
+                OnPropertyChanged();
+                OnSelectedCurrentSectionDolphinVersionChanged(value);
+            }
+        }
+
+        private string? _currentSectionDolphinCurrentVersion;
+        public string? CurrentSectionDolphinCurrentVersion
+        {
+            get => _currentSectionDolphinCurrentVersion;
+            set
+            {
+                if (string.Equals(_currentSectionDolphinCurrentVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionDolphinCurrentVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionDolphinLatestVersion;
+        public string? CurrentSectionDolphinLatestVersion
+        {
+            get => _currentSectionDolphinLatestVersion;
+            set
+            {
+                if (string.Equals(_currentSectionDolphinLatestVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionDolphinLatestVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string _currentSectionDolphinStatus = "Select a Dolphin section to manage updates.";
+        public string CurrentSectionDolphinStatus
+        {
+            get => _currentSectionDolphinStatus;
+            set
+            {
+                if (string.Equals(_currentSectionDolphinStatus, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionDolphinStatus = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _includeCurrentSectionDolphinPrereleases;
+        public bool IncludeCurrentSectionDolphinPrereleases
+        {
+            get => _includeCurrentSectionDolphinPrereleases;
+            set
+            {
+                if (_includeCurrentSectionDolphinPrereleases == value)
+                    return;
+
+                _includeCurrentSectionDolphinPrereleases = value;
+                OnPropertyChanged();
+
+                if (_isSyncingCurrentSectionDolphinIncludePrereleases)
+                    return;
+
+                var section = CurrentEmulationSectionItem;
+                if (section?.LaunchSettings == null)
+                    return;
+
+                section.LaunchSettings.IncludeDolphinPrereleases = value;
+                SettingsViewModel?.SaveSettings();
+                _ = RefreshCurrentSectionDolphinInfo();
+            }
+        }
+
+        private bool _isCurrentSectionDolphinUpdateAvailable;
+        public bool IsCurrentSectionDolphinUpdateAvailable
+        {
+            get => _isCurrentSectionDolphinUpdateAvailable;
+            set
+            {
+                if (_isCurrentSectionDolphinUpdateAvailable == value)
+                    return;
+
+                _isCurrentSectionDolphinUpdateAvailable = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
+            }
+        }
+
+        private bool _isCurrentSectionDolphinBusy;
+        public bool IsCurrentSectionDolphinBusy
+        {
+            get => _isCurrentSectionDolphinBusy;
+            set
+            {
+                if (_isCurrentSectionDolphinBusy == value)
+                    return;
+
+                _isCurrentSectionDolphinBusy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionDolphinDownloading;
+        public bool IsCurrentSectionDolphinDownloading
+        {
+            get => _isCurrentSectionDolphinDownloading;
+            set
+            {
+                if (_isCurrentSectionDolphinDownloading == value)
+                    return;
+
+                _isCurrentSectionDolphinDownloading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private double _currentSectionDolphinDownloadProgress;
+        public double CurrentSectionDolphinDownloadProgress
+        {
+            get => _currentSectionDolphinDownloadProgress;
+            set
+            {
+                if (Math.Abs(_currentSectionDolphinDownloadProgress - value) < 0.01)
+                    return;
+
+                _currentSectionDolphinDownloadProgress = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionDolphinEmulatorPath;
+        public string? CurrentSectionDolphinEmulatorPath
+        {
+            get => _currentSectionDolphinEmulatorPath;
+            set
+            {
+                if (string.Equals(_currentSectionDolphinEmulatorPath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionDolphinEmulatorPath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionDolphinUpdatePath;
+        public string? CurrentSectionDolphinUpdatePath
+        {
+            get => _currentSectionDolphinUpdatePath;
+            set
+            {
+                if (string.Equals(_currentSectionDolphinUpdatePath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionDolphinUpdatePath = value;
+                OnPropertyChanged();
+            }
+        }
+
         private AvaloniaList<string> _currentSectionPcsx2AvailableVersions = [];
         public AvaloniaList<string> CurrentSectionPcsx2AvailableVersions
         {
@@ -2428,6 +2614,23 @@ namespace AES_Lacrima.ViewModels
             SettingsViewModel?.SaveSettings();
         }
 
+        private void OnSelectedCurrentSectionDolphinVersionChanged(string? value)
+        {
+            if (_isSyncingCurrentSectionDolphinVersionSelection)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (string.Equals(section.LaunchSettings.SelectedDolphinVersion, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            section.LaunchSettings.SelectedDolphinVersion = normalized;
+            SettingsViewModel?.SaveSettings();
+        }
+
         private void OnSelectedCurrentSectionDuckStationVersionChanged(string? value)
         {
             if (_isSyncingCurrentSectionDuckStationVersionSelection)
@@ -2473,6 +2676,11 @@ namespace AES_Lacrima.ViewModels
             string.Equals(CurrentEmulatorHandler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
+        public bool ShowCurrentSectionDolphinUpdateControls =>
+            CurrentEmulatorHandler != null &&
+            string.Equals(CurrentEmulatorHandler.HandlerId, DolphinHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentEmulationSectionItem != null;
+
         public bool ShowCurrentSectionDuckStationUpdateControls =>
             CurrentEmulatorHandler != null &&
             string.Equals(CurrentEmulatorHandler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
@@ -2515,6 +2723,7 @@ namespace AES_Lacrima.ViewModels
             (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable) ||
             (ShowCurrentSectionShadPs4UpdateControls && IsCurrentSectionShadPs4UpdateAvailable) ||
             (ShowCurrentSectionXeniaUpdateControls && IsCurrentSectionXeniaUpdateAvailable) ||
+            (ShowCurrentSectionDolphinUpdateControls && IsCurrentSectionDolphinUpdateAvailable) ||
             (ShowCurrentSectionPcsx2UpdateControls && IsCurrentSectionPcsx2UpdateAvailable) ||
             (ShowCurrentSectionDuckStationUpdateControls && IsCurrentSectionDuckStationUpdateAvailable);
 
@@ -2635,6 +2844,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ShowCurrentSectionEdenUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaUpdateControls));
+            OnPropertyChanged(nameof(ShowCurrentSectionDolphinUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionDuckStationUpdateControls));
             OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
@@ -2807,6 +3017,34 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
+            var sectionDolphinVersion = section?.LaunchSettings?.SelectedDolphinVersion;
+            if (!string.Equals(SelectedCurrentSectionDolphinVersion, sectionDolphinVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionDolphinVersionSelection = true;
+                    SelectedCurrentSectionDolphinVersion = sectionDolphinVersion;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionDolphinVersionSelection = false;
+                }
+            }
+
+            var includeDolphinPrereleases = section?.LaunchSettings?.IncludeDolphinPrereleases == true;
+            if (IncludeCurrentSectionDolphinPrereleases != includeDolphinPrereleases)
+            {
+                try
+                {
+                    _isSyncingCurrentSectionDolphinIncludePrereleases = true;
+                    IncludeCurrentSectionDolphinPrereleases = includeDolphinPrereleases;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionDolphinIncludePrereleases = false;
+                }
+            }
+
             var includePcsx2Prereleases = section?.LaunchSettings?.IncludePcsx2Prereleases == true;
             if (IncludeCurrentSectionPcsx2Prereleases != includePcsx2Prereleases)
             {
@@ -2818,6 +3056,32 @@ namespace AES_Lacrima.ViewModels
                 finally
                 {
                     _isSyncingCurrentSectionPcsx2IncludePrereleases = false;
+                }
+            }
+
+            if (ShowCurrentSectionDolphinUpdateControls)
+            {
+                _ = RefreshCurrentSectionDolphinInfo();
+            }
+            else
+            {
+                CurrentSectionDolphinAvailableVersions.Clear();
+                CurrentSectionDolphinCurrentVersion = null;
+                CurrentSectionDolphinLatestVersion = null;
+                CurrentSectionDolphinStatus = "Select a Dolphin section to manage updates.";
+                IsCurrentSectionDolphinUpdateAvailable = false;
+                CurrentSectionDolphinEmulatorPath = null;
+                CurrentSectionDolphinUpdatePath = null;
+                CurrentSectionDolphinDownloadProgress = 0;
+                IsCurrentSectionDolphinDownloading = false;
+                try
+                {
+                    _isSyncingCurrentSectionDolphinIncludePrereleases = true;
+                    IncludeCurrentSectionDolphinPrereleases = false;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionDolphinIncludePrereleases = false;
                 }
             }
 
@@ -3238,6 +3502,50 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
+        private async Task RefreshCurrentSectionDolphinInfo()
+        {
+            if (!ShowCurrentSectionDolphinUpdateControls)
+            {
+                CurrentSectionDolphinStatus = "Select a Dolphin section to manage updates.";
+                CurrentSectionDolphinAvailableVersions.Clear();
+                CurrentSectionDolphinCurrentVersion = null;
+                CurrentSectionDolphinLatestVersion = null;
+                IsCurrentSectionDolphinUpdateAvailable = false;
+                CurrentSectionDolphinEmulatorPath = null;
+                CurrentSectionDolphinUpdatePath = null;
+                CurrentSectionDolphinDownloadProgress = 0;
+                IsCurrentSectionDolphinDownloading = false;
+                return;
+            }
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _dolphinEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionDolphinBusy = true;
+            IsCurrentSectionDolphinDownloading = false;
+            CurrentSectionDolphinDownloadProgress = 0;
+            try
+            {
+                var state = await updater.GetUpdateInfoAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    false,
+                    forceRefresh: false).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() => ApplyDolphinUpdateState(state));
+            }
+            finally
+            {
+                IsCurrentSectionDolphinBusy = false;
+                IsCurrentSectionDolphinDownloading = false;
+            }
+        }
+
+        [RelayCommand]
         private async Task RefreshCurrentSectionDuckStationInfo()
         {
             if (!ShowCurrentSectionDuckStationUpdateControls)
@@ -3366,6 +3674,50 @@ namespace AES_Lacrima.ViewModels
             {
                 IsCurrentSectionPcsx2Busy = false;
                 IsCurrentSectionPcsx2Downloading = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task DownloadOrUpdateCurrentSectionDolphin()
+        {
+            if (!ShowCurrentSectionDolphinUpdateControls)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _dolphinEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionDolphinBusy = true;
+            IsCurrentSectionDolphinDownloading = true;
+            CurrentSectionDolphinDownloadProgress = 5;
+            try
+            {
+                var state = await updater.DownloadOrUpdateAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    false,
+                    SelectedCurrentSectionDolphinVersion).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CurrentSectionDolphinDownloadProgress = 100;
+                    ApplyDolphinUpdateState(state);
+
+                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                        !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        handler.LauncherPath = state.ResolvedLauncherPath;
+                        SettingsViewModel?.SaveSettings();
+                    }
+                });
+            }
+            finally
+            {
+                IsCurrentSectionDolphinBusy = false;
+                IsCurrentSectionDolphinDownloading = false;
             }
         }
 
@@ -3609,6 +3961,37 @@ namespace AES_Lacrima.ViewModels
             finally
             {
                 _isSyncingCurrentSectionPcsx2VersionSelection = false;
+            }
+        }
+
+        private void ApplyDolphinUpdateState(DolphinUpdateState state)
+        {
+            CurrentSectionDolphinCurrentVersion = state.CurrentVersion;
+            CurrentSectionDolphinLatestVersion = state.LatestVersion;
+            IsCurrentSectionDolphinUpdateAvailable = state.IsUpdateAvailable;
+            CurrentSectionDolphinStatus = state.StatusMessage;
+            CurrentSectionDolphinEmulatorPath = state.EmulatorDirectory;
+            CurrentSectionDolphinUpdatePath = state.UpdateDirectory;
+
+            CurrentSectionDolphinAvailableVersions.Clear();
+            foreach (var version in state.AvailableVersions.Take(10))
+                CurrentSectionDolphinAvailableVersions.Add(version);
+
+            var selectedVersion = SelectedCurrentSectionDolphinVersion;
+            if (string.IsNullOrWhiteSpace(selectedVersion) ||
+                !CurrentSectionDolphinAvailableVersions.Contains(selectedVersion, StringComparer.OrdinalIgnoreCase))
+            {
+                selectedVersion = CurrentSectionDolphinAvailableVersions.FirstOrDefault() ?? state.LatestVersion;
+            }
+
+            try
+            {
+                _isSyncingCurrentSectionDolphinVersionSelection = true;
+                SelectedCurrentSectionDolphinVersion = selectedVersion;
+            }
+            finally
+            {
+                _isSyncingCurrentSectionDolphinVersionSelection = false;
             }
         }
 
@@ -4248,6 +4631,8 @@ namespace AES_Lacrima.ViewModels
                 await RefreshCurrentSectionEdenInfo();
             else if (ShowCurrentSectionShadPs4UpdateControls)
                 await RefreshCurrentSectionShadPs4Info();
+            else if (ShowCurrentSectionDolphinUpdateControls)
+                await RefreshCurrentSectionDolphinInfo();
             else if (ShowCurrentSectionPcsx2UpdateControls)
                 await RefreshCurrentSectionPcsx2Info();
         }
@@ -4271,7 +4656,62 @@ namespace AES_Lacrima.ViewModels
                 return;
             }
 
+            if (string.Equals(handlerId, DolphinHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+            {
+                LaunchCurrentSectionDolphinSetup();
+                return;
+            }
+
             LaunchCurrentSectionGenericHandlerSetup();
+        }
+
+        [RelayCommand]
+        private void LaunchCurrentSectionDolphinSetup()
+        {
+            var handler = CurrentEmulatorHandler;
+            if (handler == null ||
+                !string.Equals(handler.HandlerId, DolphinHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (IsEmulatorRunning || IsEmulatorLaunchInProgress)
+                return;
+
+            var launcherPath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(handler.LauncherPath);
+            if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
+                return;
+
+            try
+            {
+                RestoreAppTopMost();
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = launcherPath,
+                    UseShellExecute = false,
+                    WorkingDirectory = EmulatorHandlerBase.ResolveLauncherWorkingDirectory(handler.LauncherPath)
+                                       ?? Path.GetDirectoryName(launcherPath)
+                                       ?? string.Empty
+                };
+
+                var executableDirectory = Path.GetDirectoryName(startInfo.FileName);
+                var dolphinUserDirectory = string.IsNullOrWhiteSpace(executableDirectory)
+                    ? startInfo.WorkingDirectory
+                    : Path.Combine(executableDirectory, "User");
+
+                if (!string.IsNullOrWhiteSpace(dolphinUserDirectory))
+                {
+                    startInfo.ArgumentList.Add("-u");
+                    startInfo.ArgumentList.Add(dolphinUserDirectory);
+                }
+
+                _ = Process.Start(startInfo);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed to launch Dolphin.", ex);
+            }
         }
 
         private Bitmap? ResolveCurrentSectionSetupLaunchIcon()

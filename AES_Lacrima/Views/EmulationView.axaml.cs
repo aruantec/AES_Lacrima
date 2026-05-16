@@ -109,6 +109,12 @@ public partial class EmulationView : UserControl
             o => o.IsAlbumListInteractive,
             (o, v) => o.IsAlbumListInteractive = v);
 
+    public static readonly DirectProperty<EmulationView, double> CarouselOpacityProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, double>(
+            nameof(CarouselOpacity),
+            o => o.CarouselOpacity,
+            (o, v) => o.CarouselOpacity = v);
+
     private PortalWindow? _portalWindow;
     private EmulatorCaptureHostControl? _inlineCaptureHost;
     private IDisposable? _boundsSubscription;
@@ -134,7 +140,11 @@ public partial class EmulationView : UserControl
     private string _portalGpuVendor = "Unknown";
     private Geometry? _portalFrametimeGraphGeometry;
     private CancellationTokenSource? _portalBrightnessFadeCancellation;
+    private CancellationTokenSource? _portalHideTransitionCancellation;
+    private CancellationTokenSource? _carouselFadeCancellation;
+    private CancellationTokenSource? _portalShowBlendCancellation;
     private bool _isAlbumListInteractive = true;
+    private double _carouselOpacity = 1;
     private readonly Queue<double> _portalFrameSamples = new();
     private const int PortalFrameSampleCount = 180;
     private readonly Transitions _albumListTransitions =
@@ -183,6 +193,7 @@ public partial class EmulationView : UserControl
         PortalGpuRenderer = "Unknown";
         PortalGpuVendor = "Unknown";
         IsAlbumListInteractive = true;
+        CarouselOpacity = 1;
     }
 
     private void OnViewLayoutUpdated(object? sender, EventArgs e)
@@ -344,6 +355,12 @@ public partial class EmulationView : UserControl
     {
         get => _isAlbumListInteractive;
         set => SetAndRaise(IsAlbumListInteractiveProperty, ref _isAlbumListInteractive, value);
+    }
+
+    public double CarouselOpacity
+    {
+        get => _carouselOpacity;
+        set => SetAndRaise(CarouselOpacityProperty, ref _carouselOpacity, value);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -604,6 +621,11 @@ public partial class EmulationView : UserControl
 
     private void ShowPortal()
     {
+        _portalHideTransitionCancellation?.Cancel();
+        _carouselFadeCancellation?.Cancel();
+        _portalShowBlendCancellation?.Cancel();
+        CarouselOpacity = 0;
+
         if (UseInlineCaptureHost)
         {
             EnsureInlineCaptureHost();
@@ -613,8 +635,12 @@ public partial class EmulationView : UserControl
             if (DataContext is EmulationViewModel vm)
                 UpdateInlineCaptureHostVisibility(vm);
 
-            PortalFallbackOpacity = 0;
             IsPortalSurfaceVisible = false;
+            PortalFallbackOpacity = 1;
+
+            var showCancellation = new CancellationTokenSource();
+            _portalShowBlendCancellation = showCancellation;
+            _ = FadeInPortalAfterCarouselFadeOutAsync(showCancellation.Token);
             return;
         }
 
@@ -625,6 +651,10 @@ public partial class EmulationView : UserControl
             {
                 PortalFallbackOpacity = 1;
                 IsPortalSurfaceVisible = false;
+
+                var showCancellation = new CancellationTokenSource();
+                _portalShowBlendCancellation = showCancellation;
+                _ = FadeInPortalAfterCarouselFadeOutAsync(showCancellation.Token);
             }
 
             _portalWindow.Show();
@@ -638,63 +668,147 @@ public partial class EmulationView : UserControl
                 mainWindow.Activate();
             }
 
-            if (!wasSurfaceVisible)
-            {
-                ResetPortalCaptureBrightness();
-                IsPortalSurfaceVisible = true;
+            if (wasSurfaceVisible)
                 PortalFallbackOpacity = 0;
-                StartPortalBrightnessFade();
-            }
-
-            if (!wasSurfaceVisible)
-            {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    if (DataContext is EmulationViewModel { IsActive: true } && _portalWindow?.IsVisible == true)
-                    {
-                        SyncPortalWindowCore();
-                        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && TopLevel.GetTopLevel(this) is Window mainWindow)
-                        {
-                            mainWindow.Activate();
-                        }
-                        IsPortalSurfaceVisible = true;
-                        PortalFallbackOpacity = 0;
-                        StartPortalBrightnessFade();
-                    }
-                }, DispatcherPriority.Background);
-            }
         }
     }
 
     private void HidePortal()
     {
         _portalBrightnessFadeCancellation?.Cancel();
+        _portalHideTransitionCancellation?.Cancel();
+        _carouselFadeCancellation?.Cancel();
 
         if (UseInlineCaptureHost)
         {
-            PortalFallbackOpacity = 1;
             IsPortalSurfaceVisible = false;
+            PortalFallbackOpacity = 0;
 
-            if (_inlineCaptureHost != null)
-                _inlineCaptureHost.IsVisible = false;
+            var hideCancellation = new CancellationTokenSource();
+            _portalHideTransitionCancellation = hideCancellation;
+            _ = CompleteInlinePortalHideAsync(hideCancellation.Token);
+
+            if (DataContext is EmulationViewModel vmInline)
+                vmInline.PortalCaptureBrightness = 0;
 
             return;
         }
 
-        PortalFallbackOpacity = 1;
         IsPortalSurfaceVisible = false;
-
-        if (DataContext is EmulationViewModel vm)
-            vm.PortalCaptureBrightness = 0;
+        PortalFallbackOpacity = 0;
 
         if (_isPortalWindowFullscreen && DataContext is EmulationViewModel vmFullscreen)
         {
             vmFullscreen.IsFullscreen = false;
         }
 
+        var cancellation = new CancellationTokenSource();
+        _portalHideTransitionCancellation = cancellation;
+        _ = CompletePortalHideAsync(cancellation.Token);
+
+        var carouselCancellation = new CancellationTokenSource();
+        _carouselFadeCancellation = carouselCancellation;
+        _ = FadeInCarouselAfterPortalFadeAsync(carouselCancellation.Token);
+    }
+
+    private async Task FadeInCarouselAfterPortalFadeAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(210, cancellationToken);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        CarouselOpacity = 1;
+    }
+
+    private async Task FadeInPortalAfterCarouselFadeOutAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(170, cancellationToken);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        if (DataContext is not EmulationViewModel { IsActive: true })
+            return;
+
+        if (UseInlineCaptureHost)
+        {
+            if (_inlineCaptureHost == null)
+                return;
+        }
+        else
+        {
+            if (_portalWindow?.IsVisible != true)
+                return;
+
+            SyncPortalWindowCore();
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && TopLevel.GetTopLevel(this) is Window mainWindow)
+            {
+                mainWindow.Activate();
+            }
+        }
+
+        ResetPortalCaptureBrightness();
+        IsPortalSurfaceVisible = true;
+        PortalFallbackOpacity = 0;
+        StartPortalBrightnessFade();
+    }
+
+    private async Task CompleteInlinePortalHideAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(320, cancellationToken);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        if (_inlineCaptureHost != null)
+            _inlineCaptureHost.IsVisible = false;
+
+        PortalFallbackOpacity = 1;
+    }
+
+    private async Task CompletePortalHideAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(320, cancellationToken);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        if (DataContext is EmulationViewModel vm)
+            vm.PortalCaptureBrightness = 0;
+
         _portalWindow?.Hide();
         HidePortalFullscreenOverlay();
         _isPortalWindowFullscreen = false;
+        PortalFallbackOpacity = 1;
     }
 
     private void ResetPortalCaptureBrightness()

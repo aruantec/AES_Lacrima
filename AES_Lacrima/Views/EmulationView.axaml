@@ -61,7 +61,7 @@
         <Border Background="#FF000000" Grid.RowSpan="3"/>
         <!--Removes the background on purpose and forces transparency-->
         <composition:TransparentComposition x:Name="PortalPortal"
-                            IsVisible="{Binding ElementName=RootView, Path=IsPortalSurfaceVisible}"
+                            IsHitTestVisible="False"
                             Opacity="{Binding ElementName=RootView, Path=IsPortalSurfaceVisible, Converter={StaticResource BoolToOpacityConverter}}">
             <composition:TransparentComposition.Transitions>
                 <Transitions>
@@ -89,9 +89,15 @@
                                                 SideTranslation="{Binding SettingsViewModel.CarouselSideTranslation}"
                                                 StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"
                                                 UseFullCoverSize="True"
-                                                IsVisible="{Binding !IsEmulatorViewportVisible}"
+                                                IsHitTestVisible="{Binding !IsEmulatorViewportVisible}"
+                                                Opacity="{Binding ElementName=RootView, Path=CarouselOpacity}"
                                                 GlobalOpacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
                                                 ClipToBounds="False">
+            <composition:CompositionCarouselControl.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.24" Easing="CubicEaseOut" />
+                </Transitions>
+            </composition:CompositionCarouselControl.Transitions>
             <composition:CompositionCarouselControl.ContextMenu>
                 <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
                     <MenuItem Header="Add Roms" CornerRadius="8" Command="{Binding AddRomsCommand}">
@@ -1055,6 +1061,91 @@
                                                            BorderThickness="1"/>
                                                    <Button Content="Download / Update PCSX2"
                                                            Command="{Binding DownloadOrUpdateCurrentSectionPcsx2Command}"
+                                                           Padding="12,8"
+                                                           Background="#222"
+                                                           Foreground="White"
+                                                           BorderBrush="#555"
+                                                           BorderThickness="1"/>
+                                               </StackPanel>
+                                           </StackPanel>
+                                       </Border>
+
+                                       <Border IsVisible="{Binding ShowCurrentSectionDolphinUpdateControls}"
+                                              Margin="0,14,0,0"
+                                              Padding="12"
+                                              BorderBrush="#555"
+                                              BorderThickness="1"
+                                              CornerRadius="8"
+                                              Background="#1A1A1A">
+                                           <StackPanel Spacing="10">
+                                               <TextBlock Text="Dolphin Update" Foreground="White" FontSize="18" FontWeight="SemiBold"/>
+
+                                               <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                                   <TextBlock Text="Current Version" Foreground="White" FontSize="16" Width="220"/>
+                                                   <TextBlock Text="{Binding CurrentSectionDolphinCurrentVersion, FallbackValue=Unknown, TargetNullValue=Unknown}"
+                                                              Foreground="#E0E0E0"
+                                                              FontSize="16"/>
+                                               </StackPanel>
+
+                                               <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                                   <TextBlock Text="Latest Version" Foreground="White" FontSize="16" Width="220"/>
+                                                   <TextBlock Text="{Binding CurrentSectionDolphinLatestVersion, FallbackValue=Unavailable, TargetNullValue=Unavailable}"
+                                                              Foreground="#E0E0E0"
+                                                              FontSize="16"/>
+                                               </StackPanel>
+
+                                               <TextBlock Text="A new Dolphin version is available."
+                                                          IsVisible="{Binding IsCurrentSectionDolphinUpdateAvailable}"
+                                                          Foreground="#FFD166"
+                                                          FontSize="15"
+                                                          FontWeight="SemiBold"/>
+
+                                               <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                                   <TextBlock Text="Target Version" Foreground="White" FontSize="16" Width="220"/>
+                                                   <ComboBox MinWidth="260"
+                                                             HorizontalAlignment="Stretch"
+                                                             ItemsSource="{Binding CurrentSectionDolphinAvailableVersions}"
+                                                             SelectedItem="{Binding SelectedCurrentSectionDolphinVersion, Mode=TwoWay}">
+                                                       <Interaction.Behaviors>
+                                                           <controlBehaviors:ComboBoxPopupScaler/>
+                                                       </Interaction.Behaviors>
+                                                   </ComboBox>
+                                               </StackPanel>
+
+                                               <TextBlock Text="{Binding CurrentSectionDolphinStatus}"
+                                                          Foreground="#C8C8C8"
+                                                          TextWrapping="Wrap"/>
+
+                                               <StackPanel IsVisible="{Binding IsCurrentSectionDolphinDownloading}" Spacing="4">
+                                                   <TextBlock Text="Downloading and applying Dolphin update..."
+                                                              Foreground="#E0E0E0"
+                                                              FontSize="14"/>
+                                                   <ProgressBar Minimum="0"
+                                                                Maximum="100"
+                                                                Value="{Binding CurrentSectionDolphinDownloadProgress}"
+                                                                IsIndeterminate="False"
+                                                                Height="8"/>
+                                               </StackPanel>
+
+                                               <TextBlock Text="{Binding CurrentSectionDolphinEmulatorPath, StringFormat='Emulator Folder: {0}'}"
+                                                          Foreground="#AFAFAF"
+                                                          FontSize="13"
+                                                          TextWrapping="Wrap"/>
+                                               <TextBlock Text="{Binding CurrentSectionDolphinUpdatePath, StringFormat='Update Temp (Emu_Update): {0}'}"
+                                                          Foreground="#AFAFAF"
+                                                          FontSize="13"
+                                                          TextWrapping="Wrap"/>
+
+                                               <StackPanel Orientation="Horizontal" Spacing="10">
+                                                   <Button Content="Refresh Versions"
+                                                           Command="{Binding RefreshCurrentSectionDolphinInfoCommand}"
+                                                           Padding="12,8"
+                                                           Background="#222"
+                                                           Foreground="White"
+                                                           BorderBrush="#555"
+                                                           BorderThickness="1"/>
+                                                   <Button Content="Download / Update Dolphin"
+                                                           Command="{Binding DownloadOrUpdateCurrentSectionDolphinCommand}"
                                                            Padding="12,8"
                                                            Background="#222"
                                                            Foreground="White"
