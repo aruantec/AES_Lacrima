@@ -1,16 +1,14 @@
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using AES_Core.DI;
 using AES_Core.Logging;
 using AES_Emulation.EmulationHandlers;
 using AES_Emulation.Windows.API;
 using log4net;
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace AES_Emulation.Windows.Platform;
 

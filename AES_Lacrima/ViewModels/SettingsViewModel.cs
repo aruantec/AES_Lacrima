@@ -216,6 +216,10 @@ public sealed class EmulationSectionLaunchSettings
 
     public bool IncludeDolphinPrereleases { get; set; }
 
+    public string? SelectedFlycastVersion { get; set; }
+
+    public bool IncludeFlycastNightlies { get; set; }
+
     public string? SelectedDuckStationVersion { get; set; }
 
     public bool IncludeDuckStationPrereleases { get; set; }
@@ -241,6 +245,8 @@ public sealed class EmulationSectionLaunchSettings
             IncludePcsx2Prereleases = IncludePcsx2Prereleases,
             SelectedDolphinVersion = SelectedDolphinVersion,
             IncludeDolphinPrereleases = IncludeDolphinPrereleases,
+            SelectedFlycastVersion = SelectedFlycastVersion,
+            IncludeFlycastNightlies = IncludeFlycastNightlies,
             SelectedDuckStationVersion = SelectedDuckStationVersion,
             IncludeDuckStationPrereleases = IncludeDuckStationPrereleases
         };
@@ -2493,6 +2499,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                item.LaunchSettings?.IncludeRpcs3Prereleases == true ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedDolphinVersion) ||
                item.LaunchSettings?.IncludeDolphinPrereleases == true ||
+                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedFlycastVersion) ||
+                item.LaunchSettings?.IncludeFlycastNightlies == true ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedPcsx2Version) ||
                item.LaunchSettings?.IncludePcsx2Prereleases == true ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedDuckStationVersion) ||
@@ -2524,6 +2532,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             IncludeRpcs3Prereleases = persisted.IncludeRpcs3Prereleases || defaults.IncludeRpcs3Prereleases,
             SelectedDolphinVersion = persisted.SelectedDolphinVersion ?? defaults.SelectedDolphinVersion,
             IncludeDolphinPrereleases = persisted.IncludeDolphinPrereleases || defaults.IncludeDolphinPrereleases,
+            SelectedFlycastVersion = persisted.SelectedFlycastVersion ?? defaults.SelectedFlycastVersion,
+            IncludeFlycastNightlies = persisted.IncludeFlycastNightlies || defaults.IncludeFlycastNightlies,
             SelectedPcsx2Version = persisted.SelectedPcsx2Version ?? defaults.SelectedPcsx2Version,
             IncludePcsx2Prereleases = persisted.IncludePcsx2Prereleases || defaults.IncludePcsx2Prereleases,
             SelectedDuckStationVersion = persisted.SelectedDuckStationVersion ?? defaults.SelectedDuckStationVersion,
