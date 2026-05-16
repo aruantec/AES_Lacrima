@@ -19,7 +19,6 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using log4net;
-using DrawingIcon = System.Drawing.Icon;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -33,6 +32,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using DrawingIcon = System.Drawing.Icon;
 
 namespace AES_Lacrima.ViewModels
 {
@@ -221,6 +221,9 @@ namespace AES_Lacrima.ViewModels
         private DuckStationEmulatorUpdateService? _duckStationEmulatorUpdateService;
 
         [AutoResolve]
+        private CemuEmulatorUpdateService? _cemuEmulatorUpdateService;
+
+        [AutoResolve]
         private Xbox360MetadataService? _xbox360MetadataService;
 
         [ObservableProperty]
@@ -341,6 +344,21 @@ namespace AES_Lacrima.ViewModels
 
         [ObservableProperty]
         private bool _isFullscreen;
+
+        private Stretch _previousStretchBeforeFullscreen = Stretch.Uniform;
+
+        partial void OnIsFullscreenChanged(bool value)
+        {
+            if (value)
+            {
+                _previousStretchBeforeFullscreen = SelectedStretch;
+                SelectedStretch = Stretch.Fill;
+            }
+            else
+            {
+                SelectedStretch = _previousStretchBeforeFullscreen;
+            }
+        }
 
         [ObservableProperty]
         private bool _isRetroArchErrorOverlayOpen;
@@ -591,6 +609,7 @@ namespace AES_Lacrima.ViewModels
 
         private bool _isSyncingCurrentSectionFlycastVersionSelection;
         private bool _isSyncingCurrentSectionFlycastNightlies;
+        private bool _isSyncingCurrentSectionCemuVersionSelection;
 
         partial void OnSelectedCaptureModeChanged(EmulatorCaptureMode value)
             => OnPropertyChanged(nameof(CanShowRenderOptions));
@@ -1717,6 +1736,162 @@ namespace AES_Lacrima.ViewModels
                     return;
 
                 _currentSectionEdenLatestVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private AvaloniaList<string> _currentSectionCemuAvailableVersions = [];
+        public AvaloniaList<string> CurrentSectionCemuAvailableVersions
+        {
+            get => _currentSectionCemuAvailableVersions;
+            set
+            {
+                if (ReferenceEquals(_currentSectionCemuAvailableVersions, value))
+                    return;
+
+                _currentSectionCemuAvailableVersions = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _selectedCurrentSectionCemuVersion;
+        public string? SelectedCurrentSectionCemuVersion
+        {
+            get => _selectedCurrentSectionCemuVersion;
+            set
+            {
+                if (string.Equals(_selectedCurrentSectionCemuVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _selectedCurrentSectionCemuVersion = value;
+                OnPropertyChanged();
+                OnSelectedCurrentSectionCemuVersionChanged(value);
+            }
+        }
+
+        private string? _currentSectionCemuCurrentVersion;
+        public string? CurrentSectionCemuCurrentVersion
+        {
+            get => _currentSectionCemuCurrentVersion;
+            set
+            {
+                if (string.Equals(_currentSectionCemuCurrentVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionCemuCurrentVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionCemuLatestVersion;
+        public string? CurrentSectionCemuLatestVersion
+        {
+            get => _currentSectionCemuLatestVersion;
+            set
+            {
+                if (string.Equals(_currentSectionCemuLatestVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionCemuLatestVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string _currentSectionCemuStatus = "Select a Cemu section to manage updates.";
+        public string CurrentSectionCemuStatus
+        {
+            get => _currentSectionCemuStatus;
+            set
+            {
+                if (string.Equals(_currentSectionCemuStatus, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionCemuStatus = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionCemuUpdateAvailable;
+        public bool IsCurrentSectionCemuUpdateAvailable
+        {
+            get => _isCurrentSectionCemuUpdateAvailable;
+            set
+            {
+                if (_isCurrentSectionCemuUpdateAvailable == value)
+                    return;
+
+                _isCurrentSectionCemuUpdateAvailable = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
+            }
+        }
+
+        private bool _isCurrentSectionCemuBusy;
+        public bool IsCurrentSectionCemuBusy
+        {
+            get => _isCurrentSectionCemuBusy;
+            set
+            {
+                if (_isCurrentSectionCemuBusy == value)
+                    return;
+
+                _isCurrentSectionCemuBusy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionCemuDownloading;
+        public bool IsCurrentSectionCemuDownloading
+        {
+            get => _isCurrentSectionCemuDownloading;
+            set
+            {
+                if (_isCurrentSectionCemuDownloading == value)
+                    return;
+
+                _isCurrentSectionCemuDownloading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private double _currentSectionCemuDownloadProgress;
+        public double CurrentSectionCemuDownloadProgress
+        {
+            get => _currentSectionCemuDownloadProgress;
+            set
+            {
+                if (Math.Abs(_currentSectionCemuDownloadProgress - value) < 0.01)
+                    return;
+
+                _currentSectionCemuDownloadProgress = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionCemuEmulatorPath;
+        public string? CurrentSectionCemuEmulatorPath
+        {
+            get => _currentSectionCemuEmulatorPath;
+            set
+            {
+                if (string.Equals(_currentSectionCemuEmulatorPath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionCemuEmulatorPath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionCemuUpdatePath;
+        public string? CurrentSectionCemuUpdatePath
+        {
+            get => _currentSectionCemuUpdatePath;
+            set
+            {
+                if (string.Equals(_currentSectionCemuUpdatePath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionCemuUpdatePath = value;
                 OnPropertyChanged();
             }
         }
@@ -2953,6 +3128,165 @@ namespace AES_Lacrima.ViewModels
             SettingsViewModel?.SaveSettings();
         }
 
+        private async Task RefreshCurrentSectionCemuInfo()
+        {
+            if (!ShowCurrentSectionCemuSection)
+            {
+                CurrentSectionCemuStatus = "Select a Cemu section to manage updates.";
+                CurrentSectionCemuAvailableVersions.Clear();
+                CurrentSectionCemuCurrentVersion = null;
+                CurrentSectionCemuLatestVersion = null;
+                IsCurrentSectionCemuUpdateAvailable = false;
+                CurrentSectionCemuEmulatorPath = null;
+                CurrentSectionCemuUpdatePath = null;
+                CurrentSectionCemuDownloadProgress = 0;
+                IsCurrentSectionCemuDownloading = false;
+                return;
+            }
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _cemuEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionCemuBusy = true;
+            IsCurrentSectionCemuDownloading = false;
+            CurrentSectionCemuDownloadProgress = 0;
+
+            try
+            {
+                var state = await updater.GetUpdateInfoAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    forceRefresh: false).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() => ApplyCemuUpdateState(state));
+            }
+            catch (Exception ex)
+            {
+                CurrentSectionCemuStatus = $"Failed to check Cemu releases: {ex.Message}";
+            }
+            finally
+            {
+                IsCurrentSectionCemuBusy = false;
+                IsCurrentSectionCemuDownloading = false;
+            }
+        }
+
+        private void ApplyCemuUpdateState(CemuUpdateState state)
+        {
+            CurrentSectionCemuCurrentVersion = state.CurrentVersion;
+            CurrentSectionCemuLatestVersion = state.LatestVersion;
+            IsCurrentSectionCemuUpdateAvailable = state.IsUpdateAvailable;
+            CurrentSectionCemuStatus = state.StatusMessage;
+            CurrentSectionCemuEmulatorPath = state.EmulatorDirectory;
+            CurrentSectionCemuUpdatePath = state.UpdateDirectory;
+
+            CurrentSectionCemuAvailableVersions.Clear();
+            foreach (var version in state.AvailableVersions)
+                CurrentSectionCemuAvailableVersions.Add(version);
+
+            var selectedVersion = SelectedCurrentSectionCemuVersion;
+            if (string.IsNullOrWhiteSpace(selectedVersion) ||
+                !CurrentSectionCemuAvailableVersions.Contains(selectedVersion, StringComparer.OrdinalIgnoreCase))
+            {
+                selectedVersion = CurrentSectionCemuAvailableVersions.FirstOrDefault() ?? state.LatestVersion;
+            }
+
+            try
+            {
+                _isSyncingCurrentSectionCemuVersionSelection = true;
+                SelectedCurrentSectionCemuVersion = selectedVersion;
+            }
+            finally
+            {
+                _isSyncingCurrentSectionCemuVersionSelection = false;
+            }
+        }
+
+        private IAsyncRelayCommand? _refreshCurrentSectionCemuInfoCommand;
+        public IAsyncRelayCommand RefreshCurrentSectionCemuInfoCommand =>
+            _refreshCurrentSectionCemuInfoCommand ??= new AsyncRelayCommand(RefreshCurrentSectionCemuInfo);
+
+        private async Task DownloadOrUpdateCurrentSectionCemu()
+        {
+            if (!ShowCurrentSectionCemuSection)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentEmulatorHandler;
+            var updater = _cemuEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionCemuBusy = true;
+            IsCurrentSectionCemuDownloading = true;
+            CurrentSectionCemuDownloadProgress = 0;
+
+            try
+            {
+                var state = await updater.DownloadOrUpdateAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    SelectedCurrentSectionCemuVersion,
+                    progress =>
+                    {
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            CurrentSectionCemuDownloadProgress = progress.Percent;
+                            if (!string.IsNullOrWhiteSpace(progress.StatusMessage))
+                                CurrentSectionCemuStatus = progress.StatusMessage;
+                        });
+                    }).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CurrentSectionCemuDownloadProgress = 100;
+                    ApplyCemuUpdateState(state);
+
+                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath))
+                    {
+                        var updatedPath = state.ResolvedLauncherPath;
+                        if (!string.Equals(handler.LauncherPath, updatedPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            handler.LauncherPath = updatedPath;
+                            SettingsViewModel?.SaveSettings();
+                        }
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                CurrentSectionCemuStatus = $"Cemu update failed: {ex.Message}";
+            }
+            finally
+            {
+                IsCurrentSectionCemuBusy = false;
+                IsCurrentSectionCemuDownloading = false;
+            }
+        }
+
+        private IAsyncRelayCommand? _downloadOrUpdateCurrentSectionCemuCommand;
+        public IAsyncRelayCommand DownloadOrUpdateCurrentSectionCemuCommand =>
+            _downloadOrUpdateCurrentSectionCemuCommand ??= new AsyncRelayCommand(DownloadOrUpdateCurrentSectionCemu);
+
+        private void OnSelectedCurrentSectionCemuVersionChanged(string? value)
+        {
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (string.Equals(section.LaunchSettings.SelectedCemuVersion, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            section.LaunchSettings.SelectedCemuVersion = normalized;
+            SettingsViewModel?.SaveSettings();
+        }
+
         private void OnSelectedCurrentSectionXeniaVersionChanged(string? value)
         {
             if (_isSyncingCurrentSectionXeniaVersionSelection)
@@ -3103,6 +3437,11 @@ namespace AES_Lacrima.ViewModels
             string.Equals(CurrentEmulatorHandler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
+        public bool ShowCurrentSectionCemuSection =>
+            CurrentEmulatorHandler != null &&
+            string.Equals(CurrentEmulatorHandler.HandlerId, CemuHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentEmulationSectionItem != null;
+
         public bool ShowCurrentSectionPcsx2SetupLaunchButton =>
             CurrentEmulatorHandler != null &&
             string.Equals(CurrentEmulatorHandler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
@@ -3144,6 +3483,7 @@ namespace AES_Lacrima.ViewModels
             (ShowCurrentSectionDolphinUpdateControls && IsCurrentSectionDolphinUpdateAvailable) ||
             (ShowCurrentSectionFlycastUpdateControls && IsCurrentSectionFlycastUpdateAvailable) ||
             (ShowCurrentSectionPcsx2UpdateControls && IsCurrentSectionPcsx2UpdateAvailable) ||
+            (ShowCurrentSectionCemuSection && IsCurrentSectionCemuUpdateAvailable) ||
             (ShowCurrentSectionDuckStationUpdateControls && IsCurrentSectionDuckStationUpdateAvailable);
 
         private void RefreshCurrentSectionLaunchOptionsState()
@@ -3256,6 +3596,20 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
+            var sectionCemuVersion = section?.LaunchSettings?.SelectedCemuVersion;
+            if (!string.Equals(SelectedCurrentSectionCemuVersion, sectionCemuVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionCemuVersionSelection = true;
+                    SelectedCurrentSectionCemuVersion = sectionCemuVersion;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionCemuVersionSelection = false;
+                }
+            }
+
             OnPropertyChanged(nameof(CurrentEmulationSectionItem));
             OnPropertyChanged(nameof(CurrentSectionRetroArchCores));
             OnPropertyChanged(nameof(ShowCurrentSectionRetroArchCoreSelection));
@@ -3268,6 +3622,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ShowCurrentSectionFlycastUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionDuckStationUpdateControls));
+            OnPropertyChanged(nameof(ShowCurrentSectionCemuSection));
             OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
 
             if (ShowCurrentSectionRetroArchUpdateControls)
@@ -3704,6 +4059,11 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
+            if (ShowCurrentSectionCemuSection)
+            {
+                _ = RefreshCurrentSectionCemuInfo();
+            }
+
             if (!ShowCurrentSectionXeniaUpdateControls)
             {
                 IsXeniaPatchesOverlayOpen = false;
@@ -3862,6 +4222,23 @@ namespace AES_Lacrima.ViewModels
                 {
                     _isSyncingCurrentSectionRetroArchRepositoryOverride = false;
                 }
+            }
+
+            if (ShowCurrentSectionCemuSection)
+            {
+                _ = RefreshCurrentSectionCemuInfo();
+            }
+            else
+            {
+                CurrentSectionCemuAvailableVersions.Clear();
+                CurrentSectionCemuCurrentVersion = null;
+                CurrentSectionCemuLatestVersion = null;
+                CurrentSectionCemuStatus = "Select a Cemu section to manage updates.";
+                IsCurrentSectionCemuUpdateAvailable = false;
+                CurrentSectionCemuEmulatorPath = null;
+                CurrentSectionCemuUpdatePath = null;
+                CurrentSectionCemuDownloadProgress = 0;
+                IsCurrentSectionCemuDownloading = false;
             }
         }
 

@@ -196,6 +196,8 @@ public sealed class EmulationSectionLaunchSettings
 
     public bool IncludeEdenPrereleases { get; set; }
 
+    public string? SelectedCemuVersion { get; set; }
+
     public string? ShadPs4RepositoryOverride { get; set; }
 
     public string? SelectedShadPs4Version { get; set; }
@@ -235,6 +237,7 @@ public sealed class EmulationSectionLaunchSettings
             EdenRepositoryOverride = EdenRepositoryOverride,
             SelectedEdenVersion = SelectedEdenVersion,
             IncludeEdenPrereleases = IncludeEdenPrereleases,
+            SelectedCemuVersion = SelectedCemuVersion,
             ShadPs4RepositoryOverride = ShadPs4RepositoryOverride,
             SelectedShadPs4Version = SelectedShadPs4Version,
             IncludeShadPs4Prereleases = IncludeShadPs4Prereleases,
