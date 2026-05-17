@@ -5933,6 +5933,8 @@ private bool _isShadPs4PatchesOverlayOpen;
                 _activeShadPs4PatchDocumentText = updated;
                 IsCurrentSectionShadPs4PatchDirty = false;
                 ShadPs4PatchesStatus = "Patch settings saved.";
+                //Close the overlay
+                CloseCurrentSectionShadPs4Patches();
             }
             catch (Exception ex)
             {
