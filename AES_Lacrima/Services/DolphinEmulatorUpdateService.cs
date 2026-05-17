@@ -254,9 +254,9 @@ public partial class DolphinEmulatorUpdateService
             return selectorReleases;
 
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath);
+        var cache = LoadCache(cachePath)!;
         if (!forceRefresh &&
-            cache?.Repository != null &&
+            cache.Repository != null &&
             string.Equals(cache.Repository, CacheKey, StringComparison.OrdinalIgnoreCase) &&
             !string.IsNullOrWhiteSpace(cache.ReleasesJson) &&
             (DateTimeOffset.UtcNow - cache.FetchedAtUtc) <= CacheTtl)
@@ -270,8 +270,8 @@ public partial class DolphinEmulatorUpdateService
         Client.DefaultRequestHeaders.UserAgent.ParseAdd("AES_Lacrima-DolphinUpdater/1.0");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, ReleasesApiEndpoint);
-        if (!string.IsNullOrWhiteSpace(cache?.ETag) &&
-            string.Equals(cache?.Repository, CacheKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(cache!.ETag) &&
+            string.Equals(cache!.Repository, CacheKey, StringComparison.OrdinalIgnoreCase))
         {
             request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(cache.ETag));
         }

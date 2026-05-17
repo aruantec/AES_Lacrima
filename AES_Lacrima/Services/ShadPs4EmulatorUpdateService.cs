@@ -241,9 +241,9 @@ public partial class ShadPs4EmulatorUpdateService
     private async Task<IReadOnlyList<ReleaseInfo>> GetReleasesAsync(RepoResolution repository, bool includePrereleases, bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath);
+        var cache = LoadCache(cachePath)!;
         if (!forceRefresh &&
-            cache?.Repository != null &&
+            cache.Repository != null &&
             string.Equals(cache.Repository, repository.CacheKey, StringComparison.OrdinalIgnoreCase) &&
             !string.IsNullOrWhiteSpace(cache.ReleasesJson) &&
             (DateTimeOffset.UtcNow - cache.FetchedAtUtc) <= CacheTtl)
@@ -257,8 +257,8 @@ public partial class ShadPs4EmulatorUpdateService
         Client.DefaultRequestHeaders.UserAgent.ParseAdd("AES_Lacrima-ShadPs4Updater/1.0");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, repository.ReleasesApiEndpoint);
-        if (!string.IsNullOrWhiteSpace(cache?.ETag) &&
-            string.Equals(cache?.Repository, repository.CacheKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(cache!.ETag) &&
+            string.Equals(cache!.Repository, repository.CacheKey, StringComparison.OrdinalIgnoreCase))
         {
             request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(cache.ETag));
         }

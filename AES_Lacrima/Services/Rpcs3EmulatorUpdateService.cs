@@ -487,9 +487,9 @@ public partial class Rpcs3EmulatorUpdateService
     private async Task<IReadOnlyList<ReleaseInfo>> GetStableReleasesAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath);
+        var cache = LoadCache(cachePath)!;
         if (!forceRefresh &&
-            cache?.Repository != null &&
+            cache.Repository != null &&
             string.Equals(cache.Repository, StableCacheKey, StringComparison.OrdinalIgnoreCase) &&
             !string.IsNullOrWhiteSpace(cache.ReleasesJson) &&
             (DateTimeOffset.UtcNow - cache.FetchedAtUtc) <= CacheTtl)
@@ -503,8 +503,8 @@ public partial class Rpcs3EmulatorUpdateService
         Client.DefaultRequestHeaders.UserAgent.ParseAdd("AES_Lacrima-RPCS3Updater/1.0");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, ReleasesApiEndpoint);
-        if (!string.IsNullOrWhiteSpace(cache?.ETag) &&
-            string.Equals(cache?.Repository, StableCacheKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(cache!.ETag) &&
+            string.Equals(cache!.Repository, StableCacheKey, StringComparison.OrdinalIgnoreCase))
         {
             request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(cache.ETag));
         }
@@ -799,7 +799,7 @@ public partial class Rpcs3EmulatorUpdateService
             return new[] { latestFromDownloadPage };
 
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, NightlyCacheFileName);
-        var cache = LoadCache(cachePath);
+        var cache = LoadCache(cachePath)!;
 
         if (!forceRefresh &&
             cache?.Repository != null &&
@@ -825,8 +825,8 @@ public partial class Rpcs3EmulatorUpdateService
         Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, CompatibilityBuildsEndpoint);
-        if (!string.IsNullOrWhiteSpace(cache?.ETag) &&
-            string.Equals(cache?.Repository, NightlyCacheKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(cache!.ETag) &&
+            string.Equals(cache!.Repository, NightlyCacheKey, StringComparison.OrdinalIgnoreCase))
         {
             request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(cache.ETag));
         }
