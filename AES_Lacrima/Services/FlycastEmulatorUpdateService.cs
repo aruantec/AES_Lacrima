@@ -280,9 +280,9 @@ public partial class FlycastEmulatorUpdateService
     private async Task<IReadOnlyList<ReleaseInfo>> GetGitHubReleasesAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath);
+        var cache = LoadCache(cachePath)!;
         if (!forceRefresh &&
-            cache?.Repository != null &&
+            cache.Repository != null &&
             string.Equals(cache.Repository, ReleaseCacheKey, StringComparison.OrdinalIgnoreCase) &&
             !string.IsNullOrWhiteSpace(cache.Payload) &&
             (DateTimeOffset.UtcNow - cache.FetchedAtUtc) <= CacheTtl)
@@ -295,7 +295,7 @@ public partial class FlycastEmulatorUpdateService
         Client.DefaultRequestHeaders.UserAgent.ParseAdd("AES_Lacrima-FlycastUpdater/1.0");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, ReleasesApiEndpoint);
-        if (!string.IsNullOrWhiteSpace(cache?.ETag) && string.Equals(cache?.Repository, ReleaseCacheKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(cache!.ETag) && string.Equals(cache!.Repository, ReleaseCacheKey, StringComparison.OrdinalIgnoreCase))
             request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(cache.ETag));
 
         string? json;
@@ -332,9 +332,9 @@ public partial class FlycastEmulatorUpdateService
     private async Task<IReadOnlyList<ReleaseInfo>> GetNightlyReleasesAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath);
+        var cache = LoadCache(cachePath)!;
         if (!forceRefresh &&
-            cache?.Repository != null &&
+            cache.Repository != null &&
             string.Equals(cache.Repository, NightlyCacheKey, StringComparison.OrdinalIgnoreCase) &&
             !string.IsNullOrWhiteSpace(cache.Payload) &&
             (DateTimeOffset.UtcNow - cache.FetchedAtUtc) <= CacheTtl)
@@ -414,7 +414,7 @@ public partial class FlycastEmulatorUpdateService
             if (assets.Count == 0)
                 continue;
 
-            results.Add(new ReleaseInfo(NormalizeVersionTag(tag), false, publishedAt, assets));
+            results.Add(new ReleaseInfo(NormalizeVersionTag(tag)!, false, publishedAt, assets));
         }
 
         return results

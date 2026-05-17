@@ -233,9 +233,9 @@ public partial class Pcsx2EmulatorUpdateService
     private async Task<IReadOnlyList<ReleaseInfo>> GetReleasesAsync(bool includePrereleases, bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath);
+        var cache = LoadCache(cachePath)!;
         if (!forceRefresh &&
-            cache?.Repository != null &&
+            cache.Repository != null &&
             string.Equals(cache.Repository, CacheKey, StringComparison.OrdinalIgnoreCase) &&
             !string.IsNullOrWhiteSpace(cache.ReleasesJson) &&
             (DateTimeOffset.UtcNow - cache.FetchedAtUtc) <= CacheTtl)
@@ -249,8 +249,8 @@ public partial class Pcsx2EmulatorUpdateService
         Client.DefaultRequestHeaders.UserAgent.ParseAdd("AES_Lacrima-PCSX2Updater/1.0");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, ReleasesApiEndpoint);
-        if (!string.IsNullOrWhiteSpace(cache?.ETag) &&
-            string.Equals(cache?.Repository, CacheKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(cache!.ETag) &&
+            string.Equals(cache!.Repository, CacheKey, StringComparison.OrdinalIgnoreCase))
         {
             request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(cache.ETag));
         }
