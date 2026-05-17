@@ -2325,7 +2325,7 @@
                     CornerRadius="12"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center">
-                <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" RowSpacing="10">
+                <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="10">
                     <Grid ColumnDefinitions="*" Margin="0,0,0,4">
                         <TextBlock Grid.Column="0"
                                     Text="{Binding ShadPs4PatchOverlayHeader}"
@@ -2371,7 +2371,7 @@
                                 <TextBlock Grid.Column="5" Text="Enabled" Foreground="#F0F0F0" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Right" />
                             </Grid>
 
-                            <Grid Grid.Row="1">
+                            <Grid Grid.Row="1" Height="500">
                                 <controls:LoadingControl Width="72"
                                                          Height="72"
                                                          Foreground="#FFFFFFFF"
@@ -2379,48 +2379,48 @@
                                                          VerticalAlignment="Center"
                                                          IsVisible="{Binding IsShadPs4PatchesBusy}" />
 
-                                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
-                                              VerticalScrollBarVisibility="Auto"
-                                              IsVisible="{Binding !IsShadPs4PatchesBusy}">
-                                <ItemsControl ItemsSource="{Binding CurrentSectionShadPs4PatchEntries}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border Background="#1AFFFFFF" CornerRadius="8" Padding="12" Margin="0,4,0,4">
-                                                <Grid ColumnDefinitions="380,*,80,160" ColumnSpacing="10">
-                                                <TextBlock Grid.Column="0"
-                                                           Text="{Binding Name}"
-                                                           Foreground="#E0E0E0"
-                                                           VerticalAlignment="Center"
-                                                           FontSize="20"
-                                                           TextTrimming="CharacterEllipsis"
-                                                           Margin="0,0,8,0"/>
-                                                <TextBlock Grid.Column="1"
-                                                           Text="{Binding Note}"
-                                                           Foreground="#CCCCCC"
-                                                           VerticalAlignment="Center"
-                                                           FontSize="19"
-                                                           TextWrapping="Wrap"
-                                                           Margin="0,0,4,0"/>
-                                                <TextBlock Grid.Column="2"
-                                                           Text="{Binding AppVer}"
-                                                           Foreground="#CCCCCC"
-                                                           VerticalAlignment="Center"
-                                                           FontSize="19"
-                                                           TextTrimming="CharacterEllipsis" />
-                                                <StackPanel Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                                    <ToggleSwitch IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
-                                                </StackPanel>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                </ScrollViewer>
+                                 <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                               VerticalScrollBarVisibility="Auto"
+                                               IsVisible="{Binding !IsShadPs4PatchesBusy}">
+                                    <ItemsControl ItemsSource="{Binding CurrentSectionShadPs4PatchEntries}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#1AFFFFFF" CornerRadius="8" Padding="12" Margin="0,4,0,4">
+                                                    <Grid ColumnDefinitions="380,*,80,160" ColumnSpacing="10">
+                                                    <TextBlock Grid.Column="0"
+                                                                Text="{Binding Name}"
+                                                                Foreground="#E0E0E0"
+                                                                VerticalAlignment="Center"
+                                                                FontSize="20"
+                                                                TextTrimming="CharacterEllipsis"
+                                                                Margin="0,0,8,0"/>
+                                                    <TextBlock Grid.Column="1"
+                                                                Text="{Binding Note}"
+                                                                Foreground="#CCCCCC"
+                                                                VerticalAlignment="Center"
+                                                                FontSize="19"
+                                                                TextWrapping="Wrap"
+                                                                Margin="0,0,4,0"/>
+                                                    <TextBlock Grid.Column="2"
+                                                                Text="{Binding AppVer}"
+                                                                Foreground="#CCCCCC"
+                                                                VerticalAlignment="Center"
+                                                                FontSize="19"
+                                                                TextTrimming="CharacterEllipsis" />
+                                                    <StackPanel Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                        <ToggleSwitch IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
+                                                    </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                 </ScrollViewer>
                             </Grid>
                         </Grid>
                     </Border>
 
-                    <Grid Grid.Row="6" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="0,6,0,0">
+                    <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="0,6,0,0">
                         <TextBlock Grid.Column="0"
                                    Text="{Binding ShadPs4PatchesStatus}"
                                    Foreground="#D0D0D0"

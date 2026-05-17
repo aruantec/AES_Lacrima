@@ -6068,15 +6068,14 @@ private bool _isShadPs4PatchesOverlayOpen;
             try
             {
                 var doc = XDocument.Parse(document);
-                foreach (var patchElement in doc.Descendants("Patch"))
+                var metadataElements = doc.Descendants("Metadata").ToList();
+
+                foreach (var metadataElement in metadataElements)
                 {
-                    var name = patchElement.Element("Name")?.Value?.Trim() ?? "Unnamed patch";
-                    var note = patchElement.Element("Note")?.Value?.Trim() ?? string.Empty;
-                    var appVer = patchElement.Element("AppVer")?.Value?.Trim() ?? string.Empty;
-                    var metadataElement = patchElement.Element("Metadata");
-                    var isEnabled = metadataElement != null &&
-                                    bool.TryParse(metadataElement.Attribute("isEnabled")?.Value, out var parsed) &&
-                                    parsed;
+                    var name = metadataElement.Attribute("Name")?.Value?.Trim() ?? "Unnamed patch";
+                    var note = metadataElement.Attribute("Note")?.Value?.Trim() ?? string.Empty;
+                    var appVer = metadataElement.Attribute("AppVer")?.Value?.Trim() ?? string.Empty;
+                    var isEnabled = bool.TryParse(metadataElement.Attribute("isEnabled")?.Value, out var parsed) && parsed;
 
                     entries.Add(new ShadPs4PatchEntry(isEnabled, name, note, appVer));
                 }
@@ -6093,23 +6092,15 @@ private bool _isShadPs4PatchesOverlayOpen;
             try
             {
                 var doc = XDocument.Parse(original);
-                var patches = doc.Descendants("Patch").ToList();
-                var entryQueue = new Queue<ShadPs4PatchEntry>(entries);
+                var metadataElements = doc.Descendants("Metadata").ToList();
+                var entryList = entries.ToList();
 
-                foreach (var patch in patches)
+                for (var i = 0; i < metadataElements.Count && i < entryList.Count; i++)
                 {
-                    if (entryQueue.Count == 0)
-                        break;
-
-                    var entry = entryQueue.Dequeue();
-                    var metadata = patch.Element("Metadata");
-                    if (metadata == null)
-                    {
-                        metadata = new XElement("Metadata");
-                        patch.Add(metadata);
-                    }
-
+                    var metadata = metadataElements[i];
+                    var entry = entryList[i];
                     var enabledAttr = metadata.Attribute("isEnabled");
+
                     if (entry.IsEnabled)
                     {
                         if (enabledAttr == null)
