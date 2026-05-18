@@ -3,6 +3,7 @@ using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Lacrima.Helpers;
 using AES_Lacrima.Services.Emulation;
 using AES_Lacrima.ViewModels;
 using Avalonia;
@@ -25,6 +26,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -75,6 +77,9 @@ namespace AES_Lacrima.Services
         private static readonly Regex CoverSearchTokenRegex = new(@"\b(?:cover(?:\s+art)?|album\s+cover|box\s*art)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly SemaphoreSlim AutoCoverLookupThrottle = new(2, 2);
         private const string GoogleConsentCookie = "CONSENT=YES+cb.20210328-17-p0.en+FX+471";
+        private static readonly object PsTitleLookupLock = new();
+        private static Dictionary<string, string>? _psxTitleLookup;
+        private static Dictionary<string, string>? _ps2TitleLookup;
         private static readonly string[] NoiseTokens =
         [
             "lyrics", "lyric", "official video", "official audio", "official",
@@ -612,28 +617,54 @@ namespace AES_Lacrima.Services
             {
                 if (string.IsNullOrWhiteSpace(PsXTitleId))
                 {
-                    var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName)).ConfigureAwait(false);
+                    var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName, DiscSection.PSX)).ConfigureAwait(false);
                     var psxTitleId = romInfo?.GameId;
-                    if (string.IsNullOrWhiteSpace(PsXTitleId))
+                    if (!string.IsNullOrWhiteSpace(psxTitleId))
                         PsXTitleId = psxTitleId;
                 }
 
-                if (!string.IsNullOrWhiteSpace(PsXTitleId) || !string.IsNullOrWhiteSpace(PsXVersion))
+                var psxTitle = ResolvePsTitle(PsXTitleId, preferPs2TitleId: false);
+                if (!string.IsNullOrWhiteSpace(psxTitle))
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        item.Title = psxTitle;
+                        if (_currentSelectedMedia == item)
+                            Title = psxTitle;
+                    }, DispatcherPriority.Background);
+                    await PersistPsXMetadataToMetadataCacheAsync(item.FileName, PsXTitleId, PsXVersion, psxTitle).ConfigureAwait(false);
+                }
+                else if (!string.IsNullOrWhiteSpace(PsXTitleId) || !string.IsNullOrWhiteSpace(PsXVersion))
+                {
                     await PersistPsXMetadataToMetadataCacheAsync(item.FileName, PsXTitleId, PsXVersion).ConfigureAwait(false);
+                }
             }
 
             if (IsPs2Metadata && !string.IsNullOrWhiteSpace(item.FileName))
             {
                 if (string.IsNullOrWhiteSpace(Ps2TitleId))
                 {
-                    var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName)).ConfigureAwait(false);
+                    var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName, DiscSection.PS2)).ConfigureAwait(false);
                     var ps2TitleId = romInfo?.GameId;
-                    if (string.IsNullOrWhiteSpace(Ps2TitleId))
+                    if (!string.IsNullOrWhiteSpace(ps2TitleId))
                         Ps2TitleId = ps2TitleId;
                 }
 
-                if (!string.IsNullOrWhiteSpace(Ps2TitleId) || !string.IsNullOrWhiteSpace(Ps2Version))
+                var ps2Title = ResolvePsTitle(Ps2TitleId, preferPs2TitleId: true);
+                if (!string.IsNullOrWhiteSpace(ps2Title))
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        item.Title = ps2Title;
+                        if (_currentSelectedMedia == item)
+                            Title = ps2Title;
+                    }, DispatcherPriority.Background);
+                    await PersistPs2MetadataToMetadataCacheAsync(item.FileName, Ps2TitleId, Ps2Version, ps2Title).ConfigureAwait(false);
+                }
+                else if (!string.IsNullOrWhiteSpace(Ps2TitleId) || !string.IsNullOrWhiteSpace(Ps2Version))
+                {
                     await PersistPs2MetadataToMetadataCacheAsync(item.FileName, Ps2TitleId, Ps2Version).ConfigureAwait(false);
+                }
             }
         }
 
@@ -2179,7 +2210,7 @@ namespace AES_Lacrima.Services
             }).ConfigureAwait(false);
         }
 
-        private async Task PersistPsXMetadataToMetadataCacheAsync(string? filePath, string? psXTitleId, string? psXVersion)
+        private async Task PersistPsXMetadataToMetadataCacheAsync(string? filePath, string? psXTitleId, string? psXVersion, string? titleName = null)
         {
             if (string.IsNullOrWhiteSpace(filePath))
                 return;
@@ -2192,11 +2223,13 @@ namespace AES_Lacrima.Services
                     metadata.PsXTitleId = psXTitleId;
                 if (!string.IsNullOrWhiteSpace(psXVersion))
                     metadata.PsXVersion = psXVersion;
+                if (!string.IsNullOrWhiteSpace(titleName))
+                    metadata.Title = titleName;
                 BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
             }).ConfigureAwait(false);
         }
 
-        private async Task PersistPs2MetadataToMetadataCacheAsync(string? filePath, string? ps2TitleId, string? ps2Version)
+        private async Task PersistPs2MetadataToMetadataCacheAsync(string? filePath, string? ps2TitleId, string? ps2Version, string? titleName = null)
         {
             if (string.IsNullOrWhiteSpace(filePath))
                 return;
@@ -2209,6 +2242,8 @@ namespace AES_Lacrima.Services
                     metadata.Ps2TitleId = ps2TitleId;
                 if (!string.IsNullOrWhiteSpace(ps2Version))
                     metadata.Ps2Version = ps2Version;
+                if (!string.IsNullOrWhiteSpace(titleName))
+                    metadata.Title = titleName;
                 BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
             }).ConfigureAwait(false);
         }
@@ -2378,22 +2413,159 @@ namespace AES_Lacrima.Services
             if (!IsPsXMetadata || string.IsNullOrWhiteSpace(item.FileName))
                 return false;
 
-            // Scan PSX disc to get GameId if not already loaded
-            var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName), cancellationToken).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(romInfo?.GameId))
+            return await TryApplyTitleFromPsGameAsync(item, cancellationToken, preferPs2TitleId: false).ConfigureAwait(false);
+        }
+
+        private async Task<bool> TryApplyTitleFromPs2GameAsync(MediaItem item, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!IsPs2Metadata || string.IsNullOrWhiteSpace(item.FileName))
                 return false;
 
-            var psxTitleId = romInfo.GameId;
-            
-            // Only update if not already set from cache
-            if (string.IsNullOrWhiteSpace(PsXTitleId))
+            return await TryApplyTitleFromPsGameAsync(item, cancellationToken, preferPs2TitleId: true).ConfigureAwait(false);
+        }
+
+        private async Task<bool> TryApplyTitleFromPsGameAsync(MediaItem item, CancellationToken cancellationToken, bool preferPs2TitleId)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (string.IsNullOrWhiteSpace(item.FileName))
+                return false;
+
+            var filePath = item.FileName;
+            var titleId = preferPs2TitleId ? Ps2TitleId : PsXTitleId;
+            if (string.IsNullOrWhiteSpace(titleId))
             {
-                PsXTitleId = psxTitleId;
-                // Persist to metadata cache
-                await PersistPsXMetadataToMetadataCacheAsync(item.FileName, psxTitleId, PsXVersion).ConfigureAwait(false);
+                var romInfo = await Task.Run(() => RomInspector.Inspect(filePath, preferPs2TitleId ? DiscSection.PS2 : DiscSection.PSX), cancellationToken).ConfigureAwait(false);
+                titleId = romInfo?.GameId;
+                if (string.IsNullOrWhiteSpace(titleId))
+                    return false;
+
+                if (preferPs2TitleId)
+                    Ps2TitleId = titleId;
+                else
+                    PsXTitleId = titleId;
             }
 
+            var lookup = preferPs2TitleId ? LoadPs2TitleLookup() : LoadPsxTitleLookup();
+            if (!lookup.TryGetValue(NormalizeSerialKey(titleId), out var dbTitle) || string.IsNullOrWhiteSpace(dbTitle))
+            {
+                if (preferPs2TitleId)
+                    await PersistPs2MetadataToMetadataCacheAsync(filePath, Ps2TitleId, Ps2Version).ConfigureAwait(false);
+                else
+                    await PersistPsXMetadataToMetadataCacheAsync(filePath, PsXTitleId, PsXVersion).ConfigureAwait(false);
+
+                return true;
+            }
+
+            var shouldUpdateTitle = string.IsNullOrWhiteSpace(item.Title) || !string.Equals(item.Title.Trim(), dbTitle.Trim(), StringComparison.Ordinal);
+            if (shouldUpdateTitle)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    item.Title = dbTitle;
+                    if (_currentSelectedMedia == item)
+                        Title = dbTitle;
+                }, DispatcherPriority.Background);
+            }
+
+            if (preferPs2TitleId)
+                await PersistPs2MetadataToMetadataCacheAsync(filePath, Ps2TitleId, Ps2Version, dbTitle).ConfigureAwait(false);
+            else
+                await PersistPsXMetadataToMetadataCacheAsync(filePath, PsXTitleId, PsXVersion, dbTitle).ConfigureAwait(false);
+
             return true;
+        }
+
+        private static string? ResolvePsTitle(string? titleId, bool preferPs2TitleId)
+        {
+            if (string.IsNullOrWhiteSpace(titleId))
+                return null;
+
+            var lookup = preferPs2TitleId ? LoadPs2TitleLookup() : LoadPsxTitleLookup();
+            return lookup.TryGetValue(NormalizeSerialKey(titleId), out var title) ? title : null;
+        }
+
+        private static Dictionary<string, string> LoadPsxTitleLookup()
+        {
+            if (_psxTitleLookup != null)
+                return _psxTitleLookup;
+
+            lock (PsTitleLookupLock)
+            {
+                if (_psxTitleLookup != null)
+                    return _psxTitleLookup;
+
+                _psxTitleLookup = LoadTitleLookupFromDatabase("psx.json");
+                return _psxTitleLookup;
+            }
+        }
+
+        private static Dictionary<string, string> LoadPs2TitleLookup()
+        {
+            if (_ps2TitleLookup != null)
+                return _ps2TitleLookup;
+
+            lock (PsTitleLookupLock)
+            {
+                if (_ps2TitleLookup != null)
+                    return _ps2TitleLookup;
+
+                _ps2TitleLookup = LoadTitleLookupFromDatabase("ps2.json");
+                return _ps2TitleLookup;
+            }
+        }
+
+        private static Dictionary<string, string> LoadTitleLookupFromDatabase(string fileName)
+        {
+            var lookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            var json = EmbeddedDatabaseResource.ReadText(fileName);
+            if (string.IsNullOrWhiteSpace(json))
+                return lookup;
+
+            try
+            {
+                var entries = JsonSerializer.Deserialize<List<RomTitleEntry>>(json) ?? [];
+
+                foreach (var entry in entries)
+                {
+                    if (string.IsNullOrWhiteSpace(entry?.Serial) || string.IsNullOrWhiteSpace(entry.Title))
+                        continue;
+
+                    var serial = NormalizeSerialKey(entry.Serial);
+                    if (string.IsNullOrWhiteSpace(serial))
+                        continue;
+
+                    if (!lookup.ContainsKey(serial))
+                        lookup[serial] = entry.Title.Trim();
+                }
+            }
+            catch
+            {
+                // Ignore database load failures and fall back to existing titles.
+            }
+
+            return lookup;
+        }
+
+        private static string NormalizeSerialKey(string serial)
+        {
+            return serial.Trim()
+                         .Replace(' ', '-')
+                         .Replace('_', '-')
+                         .Replace('.', '-')
+                         .ToUpperInvariant();
+        }
+
+        private sealed class RomTitleEntry
+        {
+            [JsonPropertyName("serial")]
+            public string? Serial { get; set; }
+
+            [JsonPropertyName("title")]
+            public string? Title { get; set; }
         }
 
         private async Task SavePs3TitleToMetadataCacheAsync(MediaItem item, string titleName, CancellationToken cancellationToken)

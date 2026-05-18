@@ -4,14 +4,18 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using AES_Core.DI;
+using AES_Lacrima.Helpers;
 
 namespace AES_Lacrima.Services;
 
 public sealed record Xbox360GameMetadata(
     string? TitleId,
     string? MediaId,
+    string? Title,
     string SourcePath);
 
 [AutoRegister]
@@ -29,6 +33,8 @@ public partial class Xbox360MetadataService
     private const long MaxIsoScanBytes = 512L * 1024 * 1024;
     private static readonly int[] XgdMagicSectors = [0x20, 0x4120, 0x1FB40, 0x30620];
     private static readonly byte[] XgdMagic = "MICROSOFT*XBOX*MEDIA"u8.ToArray();
+    private static readonly object TitleLookupLock = new();
+    private static Dictionary<string, string>? _titleLookup;
 
     public Xbox360GameMetadata? TryReadGameMetadata(string? gamePath, ISet<string>? knownTitleIds = null)
     {
@@ -48,13 +54,13 @@ public partial class Xbox360MetadataService
                 {
                     var fromXex = TryReadFromXexFile(fullPath, normalizedKnownIds);
                     if (fromXex != null)
-                        return fromXex;
+                        return WithTitle(fromXex);
                 }
                 else if (ext.Equals(".iso", StringComparison.OrdinalIgnoreCase) || ext.Equals(".xiso", StringComparison.OrdinalIgnoreCase))
                 {
                     var fromIso = TryReadFromIsoFile(fullPath, normalizedKnownIds);
                     if (fromIso != null)
-                        return fromIso;
+                        return WithTitle(fromIso);
                 }
             }
             else if (Directory.Exists(fullPath))
@@ -67,13 +73,13 @@ public partial class Xbox360MetadataService
                 {
                     var fromDirectoryXex = TryReadFromXexFile(defaultXex, normalizedKnownIds);
                     if (fromDirectoryXex != null)
-                        return fromDirectoryXex;
+                        return WithTitle(fromDirectoryXex);
                 }
             }
 
             var pathTitleId = TryGetTitleIdFromPath(fullPath, normalizedKnownIds);
             if (!string.IsNullOrWhiteSpace(pathTitleId))
-                return new Xbox360GameMetadata(pathTitleId, null, fullPath);
+                return WithTitle(new Xbox360GameMetadata(pathTitleId, null, null, fullPath));
         }
         catch
         {
@@ -218,7 +224,75 @@ public partial class Xbox360MetadataService
             return null;
 
         var mediaId = executionInfo.Value.MediaId.ToString("X8", CultureInfo.InvariantCulture);
-        return new Xbox360GameMetadata(titleId, mediaId, sourcePath);
+        return new Xbox360GameMetadata(titleId, mediaId, null, sourcePath);
+    }
+
+    private static Xbox360GameMetadata WithTitle(Xbox360GameMetadata metadata)
+    {
+        if (string.IsNullOrWhiteSpace(metadata.TitleId))
+            return metadata;
+
+        var title = TryGetTitleFromTitleId(metadata.TitleId);
+        if (string.IsNullOrWhiteSpace(title))
+            return metadata;
+
+        return metadata.Title == title ? metadata : metadata with { Title = title };
+    }
+
+    private static string? TryGetTitleFromTitleId(string titleId)
+    {
+        if (string.IsNullOrWhiteSpace(titleId))
+            return null;
+
+        var lookup = LoadTitleLookup();
+        return lookup.TryGetValue(titleId.Trim().ToUpperInvariant(), out var title) ? title : null;
+    }
+
+    private static Dictionary<string, string> LoadTitleLookup()
+    {
+        if (_titleLookup != null)
+            return _titleLookup;
+
+        lock (TitleLookupLock)
+        {
+            if (_titleLookup != null)
+                return _titleLookup;
+
+            var lookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var json = EmbeddedDatabaseResource.ReadText("x360.json");
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                try
+                {
+                    var entries = JsonSerializer.Deserialize<List<Xbox360TitleEntry>>(json) ?? [];
+
+                    foreach (var entry in entries)
+                    {
+                        if (string.IsNullOrWhiteSpace(entry?.TitleId) || string.IsNullOrWhiteSpace(entry.Title))
+                            continue;
+
+                        var titleId = entry.TitleId.Trim().ToUpperInvariant();
+                        if (titleId.Length == 8 && Regex.IsMatch(titleId, "^[0-9A-F]{8}$") && !lookup.ContainsKey(titleId))
+                            lookup[titleId] = entry.Title.Trim();
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            _titleLookup = lookup;
+            return lookup;
+        }
+    }
+
+    private sealed class Xbox360TitleEntry
+    {
+        [JsonPropertyName("titleid")]
+        public string? TitleId { get; set; }
+
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
     }
 
     private static bool TryReadXgdLayout(Stream stream, out (long BaseSector, uint RootDirSector, uint RootDirSize) layout)
