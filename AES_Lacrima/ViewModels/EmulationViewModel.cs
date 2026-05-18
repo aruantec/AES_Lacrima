@@ -1099,15 +1099,6 @@ private bool _isShadPs4PatchesOverlayOpen;
             return HighlightedItem;
         }
 
-        private void ForceRestartGameplayPreview(MediaItem item, bool immediate = false)
-        {
-            if (immediate)
-                _suppressSelectionStopForGameplayPreview = true;
-
-            StopGameplayPreview();
-            QueueGameplayPreview(item, immediate);
-        }
-
         public override void Prepare()
         {
             if (IsPrepared || _isPreparing)
@@ -8877,25 +8868,6 @@ private bool _isShadPs4PatchesOverlayOpen;
                     await Task.Delay(250, token).ConfigureAwait(false);
                 }
             }, token);
-        }
-
-        private bool IsTrackedProcessAlive(Process process)
-        {
-            if (!ReferenceEquals(_activeEmulatorProcess, process))
-                return false;
-
-            if (_isClosingActiveEmulatorForRelaunch)
-                return false;
-
-            try
-            {
-                return !process.HasExited;
-            }
-            catch (Exception ex)
-            {
-                SLog.Debug("Failed to poll the tracked emulator process state.", ex);
-                return false;
-            }
         }
 
         private async Task<bool> TryApplyEmulatorTargetHwndAsync(Process process, IntPtr hwnd, bool showWindowForCapture)

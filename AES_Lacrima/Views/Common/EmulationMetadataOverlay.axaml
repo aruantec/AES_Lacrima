@@ -221,43 +221,31 @@
                                VerticalAlignment="Center"
                                IsVisible="{Binding IsPsXMetadata}" />
 
-                     <!-- PSX Version -->
-                     <Label Grid.Row="15" Grid.Column="0" Content="Version: "
-                            Foreground="White"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Right"
-                            IsVisible="{Binding IsPsXMetadata}" />
-                     <TextBox Grid.Row="15" Grid.Column="1"
-                               Text="{Binding PsXVersion, Mode=OneWay}"
-                               IsReadOnly="True"
-                               VerticalAlignment="Center"
-                               IsVisible="{Binding IsPsXMetadata}" />
-
                      <!-- PS2 Title ID -->
-                     <Label Grid.Row="16" Grid.Column="0" Content="Title ID (Serial): "
+                    <Label Grid.Row="15" Grid.Column="0" Content="Title ID (Serial): "
                             Foreground="White"
                             VerticalAlignment="Center"
                             HorizontalAlignment="Right"
                             IsVisible="{Binding IsPs2Metadata}" />
-                     <TextBox Grid.Row="16" Grid.Column="1"
+                    <TextBox Grid.Row="15" Grid.Column="1"
                                Text="{Binding Ps2TitleId, Mode=OneWay}"
                                IsReadOnly="True"
                                VerticalAlignment="Center"
                                IsVisible="{Binding IsPs2Metadata}" />
 
                      <!-- PS2 Version -->
-                     <Label Grid.Row="17" Grid.Column="0" Content="Version: "
+                    <Label Grid.Row="16" Grid.Column="0" Content="Version: "
                             Foreground="White"
                             VerticalAlignment="Center"
                             HorizontalAlignment="Right"
                             IsVisible="{Binding IsPs2Metadata}" />
-                     <TextBox Grid.Row="17" Grid.Column="1"
+                    <TextBox Grid.Row="16" Grid.Column="1"
                                Text="{Binding Ps2Version, Mode=OneWay}"
                                IsReadOnly="True"
                                VerticalAlignment="Center"
                                IsVisible="{Binding IsPs2Metadata}" />
 
-                     <Button Grid.Row="18"
+                    <Button Grid.Row="17"
                              Grid.Column="1"
                              HorizontalAlignment="Stretch"
                              Height="38"
