@@ -7574,7 +7574,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             var title = Ps3InstalledGameHelper.GetTitleName(filePath);
             if (string.IsNullOrWhiteSpace(title))
-                title = GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(filePath));
+                title = SectionHandlers.RomTitleNormalizationUtil.GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(filePath));
 
             return new MediaItem
             {
@@ -7646,10 +7646,10 @@ private bool _isShadPs4PatchesOverlayOpen;
                     continue;
                 }
 
-                var normalizedCurrentTitle = GetNormalizedRomTitle(item.Title);
-                var normalizedDbTitle = GetNormalizedRomTitle(dbTitle);
+                var normalizedCurrentTitle = SectionHandlers.RomTitleNormalizationUtil.GetNormalizedRomTitle(item.Title);
+                var normalizedDbTitle = SectionHandlers.RomTitleNormalizationUtil.GetNormalizedRomTitle(dbTitle);
                 var shouldUpdateTitle = string.IsNullOrWhiteSpace(normalizedCurrentTitle) ||
-                                        normalizedCurrentTitle.Equals(GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(item.FileName)), StringComparison.OrdinalIgnoreCase) ||
+                                        normalizedCurrentTitle.Equals(SectionHandlers.RomTitleNormalizationUtil.GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(item.FileName)), StringComparison.OrdinalIgnoreCase) ||
                                         !string.Equals(normalizedCurrentTitle, normalizedDbTitle, StringComparison.OrdinalIgnoreCase);
 
                 if (!shouldUpdateTitle)
@@ -7823,7 +7823,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             return new MediaItem
             {
                 FileName = fileName,
-                Title = GetNormalizedRomTitle(string.IsNullOrWhiteSpace(source.Title)
+                Title = SectionHandlers.RomTitleNormalizationUtil.GetNormalizedRomTitle(string.IsNullOrWhiteSpace(source.Title)
                     ? Path.GetFileNameWithoutExtension(fileName)
                     : source.Title),
                 Artist = source.Artist,
@@ -7842,108 +7842,8 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         private static void NormalizeAlbumRomTitles(FolderMediaItem album)
         {
-            foreach (var item in album.Children)
-            {
-                var ps3Title = Ps3InstalledGameHelper.GetTitleName(item.FileName);
-                var ps4Title = Ps4InstalledGameHelper.GetTitleName(item.FileName);
-                var normalized = GetNormalizedRomTitle(item.Title);
-                if (string.IsNullOrWhiteSpace(normalized) && !string.IsNullOrWhiteSpace(item.FileName))
-                    normalized = GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(item.FileName));
-
-                // Scan PSX and PS2 discs to extract GameId and persist to metadata cache if not already set
-                var isPsxOrPs2 = string.Equals(album.Title, "PlayStation", StringComparison.OrdinalIgnoreCase) ||
-                                 string.Equals(album.Title, "PSX", StringComparison.OrdinalIgnoreCase) ||
-                                 string.Equals(album.Title, "PS1", StringComparison.OrdinalIgnoreCase) ||
-                                 string.Equals(album.Title, "PlayStation 1", StringComparison.OrdinalIgnoreCase) ||
-                                 string.Equals(album.Title, "PlayStation 2", StringComparison.OrdinalIgnoreCase) ||
-                                 string.Equals(album.Title, "PS2", StringComparison.OrdinalIgnoreCase);
-
-                if (isPsxOrPs2 && !string.IsNullOrWhiteSpace(item.FileName) && File.Exists(item.FileName))
-                {
-                    var romInfo = RomInspector.Inspect(item.FileName);
-                    if (!string.IsNullOrWhiteSpace(romInfo?.GameId))
-                    {
-                        _ = PersistPsxGameIdToLocalMetadataAsync(item, romInfo.GameId);
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(ps3Title) &&
-                    (string.IsNullOrWhiteSpace(item.Title) ||
-                     string.Equals(item.Title, normalized, StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(item.Title, Path.GetFileNameWithoutExtension(item.FileName), StringComparison.OrdinalIgnoreCase)))
-                {
-                    item.Title = ps3Title;
-                    continue;
-                }
-
-                if (!string.IsNullOrWhiteSpace(ps4Title) &&
-                    (string.IsNullOrWhiteSpace(item.Title) ||
-                     string.Equals(item.Title, normalized, StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(item.Title, Path.GetFileNameWithoutExtension(item.FileName), StringComparison.OrdinalIgnoreCase)))
-                {
-                    item.Title = ps4Title;
-                    continue;
-                }
-
-                if (!string.IsNullOrWhiteSpace(normalized) &&
-                    !string.Equals(item.Title, normalized, StringComparison.Ordinal))
-                {
-                    item.Title = normalized;
-                }
-            }
-        }
-
-        private static string GetNormalizedRomTitle(string? rawTitle)
-        {
-            if (string.IsNullOrWhiteSpace(rawTitle))
-                return string.Empty;
-
-            var normalized = rawTitle.Replace('_', ' ').Replace('.', ' ').Trim();
-            var preservedMediaLabels = RomMediaLabelRegex
-                .Matches(normalized)
-                .Select(match => NormalizeRomMediaLabel(match.Groups[1].Value))
-                .Where(label => !string.IsNullOrWhiteSpace(label))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-
-            normalized = RomBracketTokenRegex.Replace(normalized, " ");
-            normalized = normalized.Replace("!", " ");
-            normalized = RomWhitespaceRegex.Replace(normalized, " ").Trim();
-
-            if (preservedMediaLabels.Length > 0)
-            {
-                var suffix = string.Join(" ", preservedMediaLabels.Select(label => $"({label})"));
-                normalized = string.IsNullOrWhiteSpace(normalized)
-                    ? suffix
-                    : $"{normalized} {suffix}";
-            }
-
-            return normalized;
-        }
-
-        private static string NormalizeRomMediaLabel(string rawLabel)
-        {
-            if (string.IsNullOrWhiteSpace(rawLabel))
-                return string.Empty;
-
-            var compact = RomWhitespaceRegex.Replace(rawLabel, " ").Trim();
-            var match = RomMediaLabelPartsRegex.Match(compact);
-            if (!match.Success)
-                return compact;
-
-            var prefix = match.Groups[1].Value.ToLowerInvariant() switch
-            {
-                "disc" => "Disc",
-                "disk" => "Disk",
-                "cd" => "CD",
-                "dvd" => "DVD",
-                "gd" => "GD",
-                "side" => "Side",
-                _ => match.Groups[1].Value
-            };
-
-            var value = match.Groups[2].Value;
-            return $"{prefix} {value.ToUpperInvariant()}";
+            var normalizer = new SectionHandlers.GenericAlbumNormalizer();
+            normalizer.NormalizeRomTitles(album);
         }
 
         private static bool NeedsCoverLookup(MediaItem item, FolderMediaItem album)
