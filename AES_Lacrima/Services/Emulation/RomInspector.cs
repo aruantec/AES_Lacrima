@@ -592,6 +592,11 @@ namespace AES_Lacrima.Services.Emulation
                     }
                 }
             }
+
+            // PS2 images should usually resolve the serial from SYSTEM.CNF.
+            // If we already have it, stop before running the broader fallback scans.
+            if (section == DiscSection.PS2 && !string.IsNullOrEmpty(info.GameId))
+                return info;
             
             // Additional attempt to find IP.BIN at standard location (sector 0) for Dreamcast
             if (string.IsNullOrEmpty(info.GameId) && string.IsNullOrEmpty(info.InternalTitle))
@@ -783,6 +788,9 @@ namespace AES_Lacrima.Services.Emulation
                                         // Extract game ID from SYSTEM.CNF - this is faster than searching the entire disc
                                         if (string.IsNullOrEmpty(info.GameId))
                                             info.GameId = ExtractGameIdFromSystemCnf(info.SystemCnf, section);
+
+                                        if (section == DiscSection.PS2 && !string.IsNullOrEmpty(info.GameId))
+                                            return;
                                     }
                                 }
                             }
@@ -814,78 +822,45 @@ namespace AES_Lacrima.Services.Emulation
         private static string? ExtractGameIdFromSystemCnf(string? syscnf, DiscSection section = DiscSection.Auto)
         {
             if (string.IsNullOrEmpty(syscnf)) return null;
-            
-            var lines = syscnf.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.Trim());
-            
-            // For PS2 specifically, check BOOT2 first
-            if (section == DiscSection.PS2)
+
+            string? bootFallback = null;
+            foreach (var rawLine in syscnf.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
             {
-                foreach (var line in lines)
+                var line = rawLine.Trim();
+                if (line.Length == 0)
+                    continue;
+
+                if (!TrySplitSystemCnfAssignment(line, out var key, out var value))
+                    continue;
+
+                if (string.Equals(key, "BOOT2", StringComparison.OrdinalIgnoreCase))
                 {
-                    var s = line.Trim();
-                    if (s.StartsWith("BOOT2", StringComparison.OrdinalIgnoreCase) && s.Contains("="))
-                    {
-                        var gameId = ExtractSerialFromBootLine(s);
-                        if (!string.IsNullOrEmpty(gameId))
-                            return gameId;
-                    }
+                    var gameId = ExtractSerialFromBootPath(value);
+                    if (!string.IsNullOrEmpty(gameId))
+                        return gameId;
+
+                    bootFallback ??= value;
+                    continue;
                 }
-                // If no BOOT2 found in PS2 context, try BOOT as fallback
-                foreach (var line in lines)
+
+                if (!string.Equals(key, "BOOT", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var bootId = ExtractSerialFromBootPath(value);
+                if (!string.IsNullOrEmpty(bootId))
                 {
-                    var s = line.Trim();
-                    if (s.StartsWith("BOOT", StringComparison.OrdinalIgnoreCase) && 
-                        !s.StartsWith("BOOT2", StringComparison.OrdinalIgnoreCase) && 
-                        s.Contains("="))
-                    {
-                        var gameId = ExtractSerialFromBootLine(s);
-                        if (!string.IsNullOrEmpty(gameId))
-                            return gameId;
-                    }
+                    if (section != DiscSection.PS2)
+                        return bootId;
+
+                    bootFallback ??= value;
+                    if (section == DiscSection.PSX)
+                        return bootId;
                 }
             }
-            // For PSX specifically, check BOOT first (without BOOT2)
-            else if (section == DiscSection.PSX)
-            {
-                foreach (var line in lines)
-                {
-                    var s = line.Trim();
-                    if (s.StartsWith("BOOT", StringComparison.OrdinalIgnoreCase) && 
-                        !s.StartsWith("BOOT2", StringComparison.OrdinalIgnoreCase) && 
-                        s.Contains("="))
-                    {
-                        var gameId = ExtractSerialFromBootLine(s);
-                        if (!string.IsNullOrEmpty(gameId))
-                            return gameId;
-                    }
-                }
-            }
-            // Auto-detect: try BOOT2 first (more specific for PS2), then BOOT
-            else
-            {
-                foreach (var line in lines)
-                {
-                    var s = line.Trim();
-                    if (s.StartsWith("BOOT2", StringComparison.OrdinalIgnoreCase) && s.Contains("="))
-                    {
-                        var gameId = ExtractSerialFromBootLine(s);
-                        if (!string.IsNullOrEmpty(gameId))
-                            return gameId;
-                    }
-                }
-                foreach (var line in lines)
-                {
-                    var s = line.Trim();
-                    if (s.StartsWith("BOOT", StringComparison.OrdinalIgnoreCase) && 
-                        !s.StartsWith("BOOT2", StringComparison.OrdinalIgnoreCase) && 
-                        s.Contains("="))
-                    {
-                        var gameId = ExtractSerialFromBootLine(s);
-                        if (!string.IsNullOrEmpty(gameId))
-                            return gameId;
-                    }
-                }
-            }
+
+            if (!string.IsNullOrEmpty(bootFallback))
+                return ExtractSerialFromBootPath(bootFallback);
+
             return null;
         }
 
@@ -899,24 +874,38 @@ namespace AES_Lacrima.Services.Emulation
             if (parts.Length < 2)
                 return null;
 
-            var bootPath = parts[1].Trim().Trim('"', '\'');
-            
-            // Extract filename from path, handling both backslash and forward slash separators
-            // and removing the version marker (e.g., ";1")
-            var fileName = bootPath.Replace('/', '\\');
-            var lastSlash = fileName.LastIndexOf('\\');
+            return ExtractSerialFromBootPath(parts[1]);
+        }
+
+        /// <summary>
+        /// Extract a normalized serial from a PS2/PSX boot path.
+        /// Mirrors the PCSX2 approach of using the executable filename from SYSTEM.CNF.
+        /// </summary>
+        private static string? ExtractSerialFromBootPath(string bootPath)
+        {
+            if (string.IsNullOrWhiteSpace(bootPath))
+                return null;
+
+            var path = bootPath.Trim().Trim('"', '\'');
+
+            if (path.StartsWith("cdrom0:", StringComparison.OrdinalIgnoreCase))
+                path = path[7..];
+            else if (path.StartsWith("cdrom:", StringComparison.OrdinalIgnoreCase))
+                path = path[6..];
+
+            while (path.Length > 0 && (path[0] == '/' || path[0] == '\\'))
+                path = path[1..];
+
+            var lastSlash = Math.Max(path.LastIndexOf('/'), path.LastIndexOf('\\'));
             if (lastSlash >= 0)
-                fileName = fileName.Substring(lastSlash + 1);
-            
-            // Remove version marker (e.g., ";1")
-            var semiColon = fileName.IndexOf(';');
+                path = path[(lastSlash + 1)..];
+
+            var semiColon = path.IndexOf(';');
             if (semiColon >= 0)
-                fileName = fileName.Substring(0, semiColon);
-            
-            fileName = fileName.Trim();
-            
-            // Normalize: convert SLUS_012.01 to SLUS-01201
-            return NormalizeGameId(fileName);
+                path = path[..semiColon];
+
+            path = path.Trim();
+            return NormalizeGameId(path);
         }
 
         /// <summary>
@@ -987,14 +976,17 @@ namespace AES_Lacrima.Services.Emulation
         private static string? ExtractBootFromSystemCnf(string? syscnf)
         {
             if (string.IsNullOrEmpty(syscnf)) return null;
-            var lines = syscnf.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.Trim());
-            foreach (var l in lines)
+            foreach (var rawLine in syscnf.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
             {
-                var s = l.Trim();
-                if (s.StartsWith("BOOT", StringComparison.OrdinalIgnoreCase) && s.Contains("="))
+                var s = rawLine.Trim();
+                if (s.Length == 0)
+                    continue;
+
+                if (TrySplitSystemCnfAssignment(s, out var key, out var value))
                 {
-                    var parts = s.Split('=', 2);
-                    if (parts.Length >= 2) return parts[1].Trim().Trim('"', '\'');
+                    if (string.Equals(key, "BOOT2", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(key, "BOOT", StringComparison.OrdinalIgnoreCase))
+                        return value;
                 }
                 if (s.IndexOf("cdrom0:\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     s.IndexOf("cdrom0:/", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -1010,6 +1002,23 @@ namespace AES_Lacrima.Services.Emulation
                 }
             }
             return null;
+        }
+
+        /// <summary>
+        /// Split a SYSTEM.CNF assignment into key/value parts without extra allocations.
+        /// </summary>
+        private static bool TrySplitSystemCnfAssignment(string line, out string key, out string value)
+        {
+            key = string.Empty;
+            value = string.Empty;
+
+            var eqIndex = line.IndexOf('=');
+            if (eqIndex <= 0 || eqIndex >= line.Length - 1)
+                return false;
+
+            key = line[..eqIndex].Trim();
+            value = line[(eqIndex + 1)..].Trim().Trim('"', '\'');
+            return key.Length > 0 && value.Length > 0;
         }
 
         /// <summary>
