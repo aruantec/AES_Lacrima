@@ -1,12 +1,10 @@
-using AES_Controls.Player.Models;
 using AES_Controls.Helpers;
+using AES_Controls.Player.Models;
+using AES_Core.IO;
 using AES_Lacrima.Services;
 using AES_Lacrima.Services.Emulation;
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace AES_Lacrima.ViewModels.SectionHandlers
@@ -30,11 +28,12 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
                 if (string.IsNullOrWhiteSpace(normalized) && !string.IsNullOrWhiteSpace(item.FileName))
                     normalized = RomTitleNormalizationUtil.GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(item.FileName));
 
-                // Scan PSX and PS2 discs to extract GameId
-                var isPsxOrPs2 = IsPsxOrPs2Album(album.Title);
-                if (isPsxOrPs2 && !string.IsNullOrWhiteSpace(item.FileName) && File.Exists(item.FileName))
+                // Scan PSX and PS2 discs to extract GameId in the background.
+                var isPsxAlbum = IsPsxAlbum(album.Title);
+                var isPs2Album = IsPs2Album(album.Title);
+                if ((isPsxAlbum || isPs2Album) && !string.IsNullOrWhiteSpace(item.FileName) && File.Exists(item.FileName))
                 {
-                    _ = ExtractAndPersistPsxGameIdAsync(item);
+                    _ = ExtractAndPersistPsxGameIdAsync(item, isPs2Album);
                 }
 
                 if (!string.IsNullOrWhiteSpace(ps3Title) &&
@@ -63,7 +62,7 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
             }
         }
 
-        private static bool IsPsxOrPs2Album(string? albumTitle)
+        private static bool IsPsxAlbum(string? albumTitle)
         {
             if (string.IsNullOrWhiteSpace(albumTitle))
                 return false;
@@ -71,29 +70,62 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
             return string.Equals(albumTitle, "PlayStation", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(albumTitle, "PSX", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(albumTitle, "PS1", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(albumTitle, "PlayStation 1", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(albumTitle, "PlayStation 2", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(albumTitle, "PlayStation 1", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsPs2Album(string? albumTitle)
+        {
+            if (string.IsNullOrWhiteSpace(albumTitle))
+                return false;
+
+            return string.Equals(albumTitle, "PlayStation 2", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(albumTitle, "PS2", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static async Task ExtractAndPersistPsxGameIdAsync(MediaItem item)
+        private static Task ExtractAndPersistPsxGameIdAsync(MediaItem item, bool preferPs2TitleId)
         {
-            try
+            return Task.Run(() =>
             {
-                if (!string.IsNullOrWhiteSpace(item.FileName))
+                try
                 {
-                    var romInfo = RomInspector.Inspect(item.FileName);
+                    if (string.IsNullOrWhiteSpace(item.FileName))
+                        return;
+
+                    var cachePath = GetLocalMetadataCachePath(item.FileName);
+                    var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
+                    var cachedGameId = preferPs2TitleId ? metadata?.Ps2TitleId : metadata?.PsXTitleId;
+                    if (!string.IsNullOrWhiteSpace(cachedGameId))
+                        return;
+
+                    var romInfo = RomInspector.Inspect(item.FileName, preferPs2TitleId ? DiscSection.PS2 : DiscSection.PSX);
                     if (!string.IsNullOrWhiteSpace(romInfo?.GameId))
                     {
-                        // Extraction complete - persistence handled through MetadataService
-                        await Task.CompletedTask;
+                        var updatedMetadata = metadata ?? new CustomMetadata();
+                        if (preferPs2TitleId)
+                        {
+                            if (string.IsNullOrWhiteSpace(updatedMetadata.Ps2TitleId))
+                                updatedMetadata.Ps2TitleId = romInfo.GameId;
+                        }
+                        else
+                        {
+                            if (string.IsNullOrWhiteSpace(updatedMetadata.PsXTitleId))
+                                updatedMetadata.PsXTitleId = romInfo.GameId;
+                        }
+
+                        BinaryMetadataHelper.SaveMetadata(cachePath, updatedMetadata);
                     }
                 }
-            }
-            catch
-            {
-                // Silently fail - extraction is optional
-            }
+                catch
+                {
+                    // Silently fail - extraction is optional
+                }
+            });
+        }
+
+        private static string GetLocalMetadataCachePath(string filePath)
+        {
+            var cacheId = BinaryMetadataHelper.GetCacheId(filePath ?? string.Empty);
+            return ApplicationPaths.GetCacheFile(cacheId + ".meta");
         }
     }
 }

@@ -7469,7 +7469,9 @@ private bool _isShadPs4PatchesOverlayOpen;
                 SLog.Warn($"Failed to cancel previous emulation album cover scan for '{album.Title}'.", ex);
             }
 
-            NormalizeAlbumRomTitles(album);
+            if (ReferenceEquals(LoadedAlbum, album))
+                NormalizeAlbumRomTitles(album);
+
             SLog.Debug($"Queueing emulation cover scan for album '{album.Title}' with {album.Children.Count} items.");
 
             var cts = new CancellationTokenSource();
