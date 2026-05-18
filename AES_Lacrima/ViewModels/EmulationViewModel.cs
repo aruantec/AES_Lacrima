@@ -156,8 +156,6 @@ namespace AES_Lacrima.ViewModels
         private string _xeniaPatchesStatus = "Select an Xbox 360 game to manage patches.";
         private string? _xeniaDetectedTitleId;
         private string? _xeniaDetectedMediaId;
-        private Dictionary<string, string>? _xbox360TitleLookup;
-        private readonly HashSet<string> _xbox360MetadataSeededItems = new(StringComparer.OrdinalIgnoreCase);
         private string? _selectedCurrentSectionXeniaPatchFile;
         private string? _pendingCurrentSectionXeniaPatchFile;
         private string? _activeXeniaPatchDocumentPath;
@@ -6801,7 +6799,6 @@ private bool _isShadPs4PatchesOverlayOpen;
                 {
                     if (album.Children.Count > 0)
                     {
-                        _ = ApplyXbox360TitlesFromDatabaseAsync(album);
                         QueueSelectedAlbumCoverScan(album);
                     }
                 }
@@ -7212,7 +7209,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         private void FinalizeRomImport(FolderMediaItem album)
         {
-            _ = ApplyXbox360TitlesFromDatabaseAsync(album);
+            NormalizeAlbumRomTitles(album);
 
             if (ReferenceEquals(LoadedAlbum, album))
                 ApplyFilter();
@@ -7565,7 +7562,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         private static MediaItem CreateRomItem(string filePath, FolderMediaItem album)
         {
-            var title = Ps3InstalledGameHelper.GetTitleName(filePath);
+            var title = SectionHandlers.GenericAlbumNormalizer.ResolveRomTitle(filePath, album.Title);
             if (string.IsNullOrWhiteSpace(title))
                 title = SectionHandlers.RomTitleNormalizationUtil.GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(filePath));
 
@@ -7587,10 +7584,6 @@ private bool _isShadPs4PatchesOverlayOpen;
             if (metadataService == null)
                 return;
 
-            var lookup = await LoadXbox360TitleLookupAsync(cancellationToken).ConfigureAwait(false);
-            if (lookup.Count == 0)
-                return;
-
             foreach (var item in album.Children)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -7598,113 +7591,35 @@ private bool _isShadPs4PatchesOverlayOpen;
                 if (item == null || string.IsNullOrWhiteSpace(item.FileName))
                     continue;
 
-                if (_xbox360MetadataSeededItems.Contains(item.FileName) &&
-                    TryReadCachedXbox360Ids(item.FileName, out var seededTitleId, out var seededMediaId) &&
-                    !string.IsNullOrWhiteSpace(seededTitleId) &&
-                    !string.IsNullOrWhiteSpace(seededMediaId))
-                {
-                    continue;
-                }
-
-                var cachedTitle = TryReadCachedMetadataTitle(item.FileName);
-                if (!string.IsNullOrWhiteSpace(cachedTitle))
-                {
-                    await Dispatcher.UIThread.InvokeAsync(() =>
-                    {
-                        if (!string.Equals(item.Title, cachedTitle, StringComparison.Ordinal))
-                            item.Title = cachedTitle;
-                    }, DispatcherPriority.Background);
-
-                    if (!TryReadCachedXbox360Ids(item.FileName, out var cachedTitleId, out var cachedMediaId) ||
-                        string.IsNullOrWhiteSpace(cachedTitleId) ||
-                        string.IsNullOrWhiteSpace(cachedMediaId))
-                    {
-                        var detectedMetadata = await Task.Run(() => metadataService.TryReadGameMetadata(item.FileName), cancellationToken).ConfigureAwait(false);
-                        await PersistXbox360LocalMetadataAsync(item, cachedTitle, detectedMetadata?.TitleId, detectedMetadata?.MediaId, cancellationToken).ConfigureAwait(false);
-                    }
-
-                    _xbox360MetadataSeededItems.Add(item.FileName);
-                    continue;
-                }
-
                 var metadata = await Task.Run(() => metadataService.TryReadGameMetadata(item.FileName), cancellationToken).ConfigureAwait(false);
-                var titleId = metadata?.TitleId;
-                var mediaId = metadata?.MediaId;
-                if (string.IsNullOrWhiteSpace(titleId) || !lookup.TryGetValue(titleId, out var dbTitle) || string.IsNullOrWhiteSpace(dbTitle))
-                {
-                    if (!string.IsNullOrWhiteSpace(titleId) || !string.IsNullOrWhiteSpace(mediaId))
-                        await PersistXbox360LocalMetadataAsync(item, item.Title ?? string.Empty, titleId, mediaId, cancellationToken).ConfigureAwait(false);
+                var cachedTitle = TryReadCachedMetadataTitle(item.FileName);
 
-                    _xbox360MetadataSeededItems.Add(item.FileName);
+                var resolvedTitle = !string.IsNullOrWhiteSpace(metadata?.Title)
+                    ? metadata!.Title
+                    : cachedTitle;
+
+                if (string.IsNullOrWhiteSpace(resolvedTitle))
+                {
+                    if (!string.IsNullOrWhiteSpace(metadata?.TitleId) || !string.IsNullOrWhiteSpace(metadata?.MediaId))
+                        await PersistXbox360LocalMetadataAsync(item, item.Title ?? string.Empty, metadata?.TitleId, metadata?.MediaId, cancellationToken).ConfigureAwait(false);
+
                     continue;
                 }
 
-                var normalizedCurrentTitle = SectionHandlers.RomTitleNormalizationUtil.GetNormalizedRomTitle(item.Title);
-                var normalizedDbTitle = SectionHandlers.RomTitleNormalizationUtil.GetNormalizedRomTitle(dbTitle);
-                var shouldUpdateTitle = string.IsNullOrWhiteSpace(normalizedCurrentTitle) ||
-                                        normalizedCurrentTitle.Equals(SectionHandlers.RomTitleNormalizationUtil.GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(item.FileName)), StringComparison.OrdinalIgnoreCase) ||
-                                        !string.Equals(normalizedCurrentTitle, normalizedDbTitle, StringComparison.OrdinalIgnoreCase);
+                var shouldUpdateTitle = string.IsNullOrWhiteSpace(item.Title) ||
+                                        !string.Equals(item.Title.Trim(), resolvedTitle.Trim(), StringComparison.Ordinal);
 
-                if (!shouldUpdateTitle)
+                if (shouldUpdateTitle)
                 {
-                    await PersistXbox360LocalMetadataAsync(item, item.Title ?? dbTitle, titleId, mediaId, cancellationToken).ConfigureAwait(false);
-                    _xbox360MetadataSeededItems.Add(item.FileName);
-                    continue;
+                    await Dispatcher.UIThread.InvokeAsync(() => item.Title = resolvedTitle, DispatcherPriority.Background);
                 }
 
-                await Dispatcher.UIThread.InvokeAsync(() => item.Title = dbTitle, DispatcherPriority.Background);
-                await PersistXbox360LocalMetadataAsync(item, dbTitle, titleId, mediaId, cancellationToken).ConfigureAwait(false);
-                _xbox360MetadataSeededItems.Add(item.FileName);
-            }
-        }
-
-        private async Task<Dictionary<string, string>> LoadXbox360TitleLookupAsync(CancellationToken cancellationToken)
-        {
-            if (_xbox360TitleLookup != null)
-                return _xbox360TitleLookup;
-
-            var lookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-            var dbPath = Path.Combine(AppContext.BaseDirectory, "Database", "x360.json");
-            if (!File.Exists(dbPath))
-            {
-                var projectDbPath = Path.Combine(Directory.GetCurrentDirectory(), "AES_Lacrima", "Database", "x360.json");
-                if (File.Exists(projectDbPath))
-                    dbPath = projectDbPath;
-            }
-
-            if (!File.Exists(dbPath))
-            {
-                _xbox360TitleLookup = lookup;
-                return lookup;
-            }
-
-            try
-            {
-                await using var stream = File.OpenRead(dbPath);
-                var entries = await JsonSerializer.DeserializeAsync<List<Xbox360TitleEntry>>(stream, cancellationToken: cancellationToken).ConfigureAwait(false)
-                              ?? [];
-
-                foreach (var entry in entries)
+                if (!string.IsNullOrWhiteSpace(metadata?.TitleId) || !string.IsNullOrWhiteSpace(metadata?.MediaId) || shouldUpdateTitle)
                 {
-                    if (string.IsNullOrWhiteSpace(entry?.TitleId) || string.IsNullOrWhiteSpace(entry.Title))
-                        continue;
-
-                    var id = entry.TitleId.Trim().ToUpperInvariant();
-                    if (id.Length != 8 || !Regex.IsMatch(id, "^[0-9A-F]{8}$"))
-                        continue;
-
-                    if (!lookup.ContainsKey(id))
-                        lookup[id] = entry.Title.Trim();
+                    await PersistXbox360LocalMetadataAsync(item, resolvedTitle, metadata?.TitleId, metadata?.MediaId, cancellationToken).ConfigureAwait(false);
                 }
-            }
-            catch (Exception ex)
-            {
-                SLog.Warn("Failed to load Xbox 360 title database (Database/x360.json).", ex);
-            }
 
-            _xbox360TitleLookup = lookup;
-            return lookup;
+            }
         }
 
         private static bool TryReadCachedXbox360Ids(string filePath, out string? titleId, out string? mediaId)
