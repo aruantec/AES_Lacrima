@@ -46,7 +46,10 @@ public partial class TagImageModel : ObservableObject, IDisposable
             if (Kind == TagImageKind.LiveWallpaper || Data == null || Data.Length == 0) return null;
             try
             {
-                using var ms = new MemoryStream(Data);
+                // Note: DO NOT use 'using' on the MemoryStream - the Bitmap holds a reference to it
+                // and disposes it when it's no longer needed. Disposing the stream early causes
+                // ObjectDisposedException when Avalonia tries to measure/render the Image control.
+                var ms = new MemoryStream(Data);
                 _cachedImage = new Bitmap(ms);
                 return _cachedImage;
             }
@@ -69,14 +72,19 @@ public partial class TagImageModel : ObservableObject, IDisposable
 
             try
             {
-                using var ms = new MemoryStream(Data);
+                // Note: The MemoryStream created for 'original' is disposed when the Bitmap is disposed.
+                // We use 'using' here because we're creating a temporary Bitmap just to measure it,
+                // not for long-term UI display.
+                var ms = new MemoryStream(Data);
                 using var original = new Bitmap(ms);
                 var px = original.PixelSize;
                 const int maxWidth = 250;
 
                 if (px.Width <= maxWidth)
                 {
-                    _cachedPreview = new Bitmap(new MemoryStream(Data));
+                    // Note: DO NOT use 'using' on this MemoryStream - the cached Bitmap holds a reference to it
+                    var previewMs = new MemoryStream(Data);
+                    _cachedPreview = new Bitmap(previewMs);
                     return _cachedPreview;
                 }
 

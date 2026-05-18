@@ -807,18 +807,30 @@ namespace AES_Lacrima.Services
 
             if (coverImage != null)
             {
-                using var ms = new MemoryStream(coverImage.Data);
+                // Note: DO NOT use 'using' on the MemoryStream - the Bitmap holds a reference to it
+                // and disposes it when it's no longer needed. Disposing the stream early causes
+                // ObjectDisposedException when Avalonia tries to measure/render the Image control.
+                var ms = new MemoryStream(coverImage.Data);
                 _currentSelectedMedia.CoverBitmap = new Bitmap(ms);
             }
             else
             {
+                _currentSelectedMedia.CoverBitmap?.Dispose();
                 _currentSelectedMedia.CoverBitmap = null;
             }
 
             if (wallpaperImage != null)
             {
-                using var ms = new MemoryStream(wallpaperImage.Data);
+                // Note: DO NOT use 'using' on the MemoryStream - the Bitmap holds a reference to it
+                // and disposes it when it's no longer needed. Disposing the stream early causes
+                // ObjectDisposedException when Avalonia tries to measure/render the Image control.
+                var ms = new MemoryStream(wallpaperImage.Data);
                 _currentSelectedMedia.WallpaperBitmap = new Bitmap(ms);
+            }
+            else
+            {
+                _currentSelectedMedia.WallpaperBitmap?.Dispose();
+                _currentSelectedMedia.WallpaperBitmap = null;
             }
         }
 
