@@ -49,6 +49,14 @@ public class CustomMetadata
     public string Ps4TitleId { get; set; } = "";
     /// <summary>Gets or sets the PS4 version for emulation metadata.</summary>
     public string Ps4Version { get; set; } = "";
+    /// <summary>Gets or sets the PSX title ID (serial) for emulation metadata.</summary>
+    public string PsXTitleId { get; set; } = "";
+    /// <summary>Gets or sets the PSX version for emulation metadata.</summary>
+    public string PsXVersion { get; set; } = "";
+    /// <summary>Gets or sets the PS2 title ID (serial) for emulation metadata.</summary>
+    public string Ps2TitleId { get; set; } = "";
+    /// <summary>Gets or sets the PS2 version for emulation metadata.</summary>
+    public string Ps2Version { get; set; } = "";
     /// <summary>Gets or sets the list of associated images.</summary>
     public List<ImageData> Images { get; set; } = [];
     /// <summary>Gets or sets the list of associated video data.</summary>

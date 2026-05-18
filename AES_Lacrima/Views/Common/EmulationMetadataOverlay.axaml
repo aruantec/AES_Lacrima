@@ -65,7 +65,7 @@
             <Grid ColumnDefinitions="Auto, *, Auto, Auto">
                 <Grid Grid.Column="0"
                       ColumnDefinitions="Auto, 450"
-                      RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto"
+                       RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto"
                       RowSpacing="10"
                       Margin="20,0,0,0">
                     <Grid.Styles>
@@ -197,27 +197,75 @@
                               VerticalAlignment="Center"
                               IsVisible="{Binding IsPs4Metadata}" />
 
-                    <!-- PS4 Version -->
-                    <Label Grid.Row="13" Grid.Column="0" Content="Version: "
-                           Foreground="White"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Right"
-                           IsVisible="{Binding IsPs4Metadata}" />
-                    <TextBox Grid.Row="13" Grid.Column="1"
-                              Text="{Binding Ps4Version, Mode=OneWay}"
-                              IsReadOnly="True"
-                              VerticalAlignment="Center"
-                              IsVisible="{Binding IsPs4Metadata}" />
+                     <!-- PS4 Version -->
+                     <Label Grid.Row="13" Grid.Column="0" Content="Version: "
+                            Foreground="White"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Right"
+                            IsVisible="{Binding IsPs4Metadata}" />
+                     <TextBox Grid.Row="13" Grid.Column="1"
+                               Text="{Binding Ps4Version, Mode=OneWay}"
+                               IsReadOnly="True"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding IsPs4Metadata}" />
 
-                    <Button Grid.Row="14"
-                            Grid.Column="1"
-                            HorizontalAlignment="Stretch"
-                            Height="38"
-                            FontSize="22"
-                            FontWeight="SemiBold"
-                            Content="Add Gameplay"
-                            Command="{Binding AddGameplayCommand}" />
-                </Grid>
+                     <!-- PSX Title ID -->
+                     <Label Grid.Row="14" Grid.Column="0" Content="Title ID (Serial): "
+                            Foreground="White"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Right"
+                            IsVisible="{Binding IsPsXMetadata}" />
+                     <TextBox Grid.Row="14" Grid.Column="1"
+                               Text="{Binding PsXTitleId, Mode=OneWay}"
+                               IsReadOnly="True"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding IsPsXMetadata}" />
+
+                     <!-- PSX Version -->
+                     <Label Grid.Row="15" Grid.Column="0" Content="Version: "
+                            Foreground="White"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Right"
+                            IsVisible="{Binding IsPsXMetadata}" />
+                     <TextBox Grid.Row="15" Grid.Column="1"
+                               Text="{Binding PsXVersion, Mode=OneWay}"
+                               IsReadOnly="True"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding IsPsXMetadata}" />
+
+                     <!-- PS2 Title ID -->
+                     <Label Grid.Row="16" Grid.Column="0" Content="Title ID (Serial): "
+                            Foreground="White"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Right"
+                            IsVisible="{Binding IsPs2Metadata}" />
+                     <TextBox Grid.Row="16" Grid.Column="1"
+                               Text="{Binding Ps2TitleId, Mode=OneWay}"
+                               IsReadOnly="True"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding IsPs2Metadata}" />
+
+                     <!-- PS2 Version -->
+                     <Label Grid.Row="17" Grid.Column="0" Content="Version: "
+                            Foreground="White"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Right"
+                            IsVisible="{Binding IsPs2Metadata}" />
+                     <TextBox Grid.Row="17" Grid.Column="1"
+                               Text="{Binding Ps2Version, Mode=OneWay}"
+                               IsReadOnly="True"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding IsPs2Metadata}" />
+
+                     <Button Grid.Row="18"
+                             Grid.Column="1"
+                             HorizontalAlignment="Stretch"
+                             Height="38"
+                             FontSize="22"
+                             FontWeight="SemiBold"
+                             Content="Add Gameplay"
+                             Command="{Binding AddGameplayCommand}" />
+                 </Grid>
 
                 <StackPanel Grid.Column="1" Margin="50,0,0,0" VerticalAlignment="Stretch">
                     <StackPanel Orientation="Horizontal" Spacing="30">
