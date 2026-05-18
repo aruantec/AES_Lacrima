@@ -35,7 +35,6 @@
     <NoWarn>$(NoWarn);IL2104;IL3000;IL3053;CS0618</NoWarn>
     <DefineConstants>$(DefineConstants);NATIVE_AOT</DefineConstants>
   </PropertyGroup>
-
   <PropertyGroup>
     <NoWarn>$(NoWarn);CS0618;NU1903</NoWarn>
   </PropertyGroup>
@@ -68,7 +67,6 @@
     <ProjectReference Include="..\AES_Core\AES_Core.csproj" />
     <ProjectReference Include="..\AES_Emulation\AES_Emulation.csproj" />
   </ItemGroup>
-
   <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
     <!-- Discovery logic for MSBuild.exe across VS 2026 (18) and VS 2022 (17) -->
     <MsBuildPath Condition="'$(MsBuildPath)' == ''">$(MSBuildBinPath)\..\..\..\Bin\MSBuild.exe</MsBuildPath>
@@ -80,10 +78,8 @@
     <MsBuildPath Condition="!Exists('$(MsBuildPath)')">C:\Program Files\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe</MsBuildPath>
     <MsBuildPath Condition="!Exists('$(MsBuildPath)')">C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe</MsBuildPath>
     <MsBuildPath Condition="!Exists('$(MsBuildPath)')">C:\Program Files\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe</MsBuildPath>
-    
     <BuildWgcBridge>true</BuildWgcBridge>
   </PropertyGroup>
-
   <!-- 
     We use a custom target instead of ProjectReference because dotnet build 
     cannot natively compile .vcxproj files on Windows without throwing MSB4278.
@@ -93,7 +89,6 @@
     <Message Importance="high" Text="Antigravity: Compiling WgcBridge native library using $(MsBuildPath)..." />
     <Exec Command="&quot;$(MsBuildPath)&quot; &quot;$(MSBuildProjectDirectory)\..\WgcBridge\WgcBridge.vcxproj&quot; /p:Configuration=$(Configuration) /p:Platform=x64 /m /v:m" />
   </Target>
-
   <ItemGroup Condition="'$(PublishAot)' != 'true'">
     <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
@@ -150,29 +145,30 @@
       <DependentUpon>MusicListView.axaml</DependentUpon>
     </Compile>
   </ItemGroup>
-  <Target Name="InstallLinuxDesktopEntryOnPublish" AfterTargets="Publish" Condition="'$(AutoInstallLinuxDesktopEntry)' == 'true'&#xD;&#xA;                     and ('$(RuntimeIdentifier)' == 'linux-x64' or '$(RuntimeIdentifier)' == 'linux-arm64')&#xD;&#xA;                     and '$(CI)' != 'true'&#xD;&#xA;                     and Exists('$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh')">
+  <Target Name="InstallLinuxDesktopEntryOnPublish" AfterTargets="Publish" Condition="'$(AutoInstallLinuxDesktopEntry)' == 'true'
+                     and ('$(RuntimeIdentifier)' == 'linux-x64' or '$(RuntimeIdentifier)' == 'linux-arm64')
+                     and '$(CI)' != 'true'
+                     and Exists('$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh')">
     <Message Importance="high" Text="Installing Linux desktop entry for publish output at '$(PublishDir)'" />
-    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh&quot; &quot;$(PublishDir)&quot;" />
+    <Exec Command="bash &amp;quot;$(MSBuildProjectDirectory)/Linux/install-desktop-entry.sh&amp;quot; &amp;quot;$(PublishDir)&amp;quot;" />
   </Target>
   <Target Name="BuildMacCaptureBridge" AfterTargets="Build" Condition="$([MSBuild]::IsOSPlatform('OSX')) and Exists('$(MSBuildProjectDirectory)/Mac/Native/AesMacCaptureBridge.m')">
     <Message Importance="high" Text="Building macOS ScreenCaptureKit bridge into '$(OutDir)libAesMacCaptureBridge.dylib'" />
-    <Exec Command="clang -dynamiclib -fobjc-arc -framework AppKit -framework AVFoundation -framework CoreGraphics -framework CoreMedia -framework QuartzCore -framework ScreenCaptureKit -o &quot;$(OutDir)libAesMacCaptureBridge.dylib&quot; &quot;$(MSBuildProjectDirectory)/Mac/Native/AesMacCaptureBridge.m&quot;" />
+    <Exec Command="clang -dynamiclib -fobjc-arc -framework AppKit -framework AVFoundation -framework CoreGraphics -framework CoreMedia -framework QuartzCore -framework ScreenCaptureKit -o &amp;quot;$(OutDir)libAesMacCaptureBridge.dylib&amp;quot; &amp;quot;$(MSBuildProjectDirectory)/Mac/Native/AesMacCaptureBridge.m&amp;quot;" />
   </Target>
   <Target Name="BuildMacCaptureBridgeForPublish" AfterTargets="Publish" Condition="$([MSBuild]::IsOSPlatform('OSX')) and Exists('$(MSBuildProjectDirectory)/Mac/Native/AesMacCaptureBridge.m')">
     <Message Importance="high" Text="Building macOS ScreenCaptureKit bridge into '$(PublishDir)libAesMacCaptureBridge.dylib'" />
-    <Exec Command="clang -dynamiclib -fobjc-arc -framework AppKit -framework AVFoundation -framework CoreGraphics -framework CoreMedia -framework QuartzCore -framework ScreenCaptureKit -o &quot;$(PublishDir)libAesMacCaptureBridge.dylib&quot; &quot;$(MSBuildProjectDirectory)/Mac/Native/AesMacCaptureBridge.m&quot;" />
+    <Exec Command="clang -dynamiclib -fobjc-arc -framework AppKit -framework AVFoundation -framework CoreGraphics -framework CoreMedia -framework QuartzCore -framework ScreenCaptureKit -o &amp;quot;$(PublishDir)libAesMacCaptureBridge.dylib&amp;quot; &amp;quot;$(MSBuildProjectDirectory)/Mac/Native/AesMacCaptureBridge.m&amp;quot;" />
   </Target>
-
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
     <LinuxCppCompiler Condition="'$(LinuxCppCompiler)' == ''">g++</LinuxCppCompiler>
     <LinuxCppCompilerFallback Condition="'$(LinuxCppCompilerFallback)' == ''">c++</LinuxCppCompilerFallback>
   </PropertyGroup>
-  
   <Target Name="BuildLinuxCaptureBridge" AfterTargets="Build" Condition="$([MSBuild]::IsOSPlatform('Linux')) and Exists('$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp')">
-    <Exec Command="command -v &quot;$(LinuxCppCompiler)&quot; &gt;/dev/null 2&gt;&amp;1" IgnoreExitCode="true">
+    <Exec Command="command -v &amp;quot;$(LinuxCppCompiler)&amp;quot; >/dev/null 2>&amp;1" IgnoreExitCode="true">
       <Output TaskParameter="ExitCode" PropertyName="LinuxCppCompilerExitCode" />
     </Exec>
-    <Exec Condition="'$(LinuxCppCompilerExitCode)' != '0'" Command="command -v &quot;$(LinuxCppCompilerFallback)&quot; &gt;/dev/null 2&gt;&amp;1" IgnoreExitCode="true">
+    <Exec Condition="'$(LinuxCppCompilerExitCode)' != '0'" Command="command -v &amp;quot;$(LinuxCppCompilerFallback)&amp;quot; >/dev/null 2>&amp;1" IgnoreExitCode="true">
       <Output TaskParameter="ExitCode" PropertyName="LinuxCppCompilerFallbackExitCode" />
     </Exec>
     <PropertyGroup>
@@ -181,15 +177,15 @@
     </PropertyGroup>
     <Warning Condition="'$(LinuxCaptureCompilerToUse)' == ''" Text="Skipping Linux X11 capture bridge build because neither '$(LinuxCppCompiler)' nor fallback '$(LinuxCppCompilerFallback)' was found on PATH. Install g++ (or c++) and libx11-dev/libxcomposite-dev/libxdamage-dev/libxfixes-dev/libgl1-mesa-dev to build the native bridge." />
     <Message Importance="high" Condition="'$(LinuxCaptureCompilerToUse)' != ''" Text="Building Linux X11 capture bridge into '$(OutDir)libAesLinuxCaptureBridge.so' using '$(LinuxCaptureCompilerToUse)'" />
-    <Exec Condition="'$(LinuxCaptureCompilerToUse)' != ''" Command="&quot;$(LinuxCaptureCompilerToUse)&quot; -shared -fPIC -o &quot;$(OutDir)libAesLinuxCaptureBridge.so&quot; &quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&quot; -lX11 -lXcomposite -lXdamage -lXfixes -lGL -lpthread" />
+    <Exec Condition="'$(LinuxCaptureCompilerToUse)' != ''" Command="&amp;quot;$(LinuxCaptureCompilerToUse)&amp;quot; -shared -fPIC -o &amp;quot;$(OutDir)libAesLinuxCaptureBridge.so&amp;quot; &amp;quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&amp;quot; -lX11 -lXcomposite -lXdamage -lXfixes -lGL -lpthread" />
     <MakeDir Condition="'$(LinuxCaptureCompilerToUse)' != ''" Directories="$(OutDir)runtimes/linux-x64/native" />
     <Copy Condition="'$(LinuxCaptureCompilerToUse)' != ''" SourceFiles="$(OutDir)libAesLinuxCaptureBridge.so" DestinationFolder="$(OutDir)runtimes/linux-x64/native" SkipUnchangedFiles="true" />
   </Target>
   <Target Name="BuildLinuxCaptureBridgeForPublish" AfterTargets="Publish" Condition="$([MSBuild]::IsOSPlatform('Linux')) and Exists('$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp')">
-    <Exec Command="command -v &quot;$(LinuxCppCompiler)&quot; &gt;/dev/null 2&gt;&amp;1" IgnoreExitCode="true">
+    <Exec Command="command -v &amp;quot;$(LinuxCppCompiler)&amp;quot; >/dev/null 2>&amp;1" IgnoreExitCode="true">
       <Output TaskParameter="ExitCode" PropertyName="LinuxCppCompilerPublishExitCode" />
     </Exec>
-    <Exec Condition="'$(LinuxCppCompilerPublishExitCode)' != '0'" Command="command -v &quot;$(LinuxCppCompilerFallback)&quot; &gt;/dev/null 2&gt;&amp;1" IgnoreExitCode="true">
+    <Exec Condition="'$(LinuxCppCompilerPublishExitCode)' != '0'" Command="command -v &amp;quot;$(LinuxCppCompilerFallback)&amp;quot; >/dev/null 2>&amp;1" IgnoreExitCode="true">
       <Output TaskParameter="ExitCode" PropertyName="LinuxCppCompilerFallbackPublishExitCode" />
     </Exec>
     <PropertyGroup>
@@ -198,13 +194,13 @@
     </PropertyGroup>
     <Warning Condition="'$(LinuxCapturePublishCompilerToUse)' == ''" Text="Skipping Linux X11 capture bridge publish build because neither '$(LinuxCppCompiler)' nor fallback '$(LinuxCppCompilerFallback)' was found on PATH. Install g++ (or c++) and libx11-dev/libxcomposite-dev/libxdamage-dev/libxfixes-dev/libgl1-mesa-dev to build the native bridge." />
     <Message Importance="high" Condition="'$(LinuxCapturePublishCompilerToUse)' != ''" Text="Building Linux X11 capture bridge into '$(PublishDir)libAesLinuxCaptureBridge.so' using '$(LinuxCapturePublishCompilerToUse)'" />
-    <Exec Condition="'$(LinuxCapturePublishCompilerToUse)' != ''" Command="&quot;$(LinuxCapturePublishCompilerToUse)&quot; -shared -fPIC -o &quot;$(PublishDir)libAesLinuxCaptureBridge.so&quot; &quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&quot; -lX11 -lXcomposite -lXdamage -lXfixes -lGL -lpthread" />
+    <Exec Condition="'$(LinuxCapturePublishCompilerToUse)' != ''" Command="&amp;quot;$(LinuxCapturePublishCompilerToUse)&amp;quot; -shared -fPIC -o &amp;quot;$(PublishDir)libAesLinuxCaptureBridge.so&amp;quot; &amp;quot;$(MSBuildProjectDirectory)/Linux/Native/AesLinuxCaptureBridge.cpp&amp;quot; -lX11 -lXcomposite -lXdamage -lXfixes -lGL -lpthread" />
   </Target>
-
   <!-- macOS packaging target: creates a .app bundle using the publish directory -->
-  <Target Name="CreateMacAppBundleOnPublish" AfterTargets="Publish" Condition="('$(RuntimeIdentifier)' == 'osx-x64' or '$(RuntimeIdentifier)' == 'osx-arm64')&#xD;&#xA;                     and Exists('$(MSBuildProjectDirectory)/Mac/publish-macos.sh')">
+  <Target Name="CreateMacAppBundleOnPublish" AfterTargets="Publish" Condition="('$(RuntimeIdentifier)' == 'osx-x64' or '$(RuntimeIdentifier)' == 'osx-arm64')
+                     and Exists('$(MSBuildProjectDirectory)/Mac/publish-macos.sh')">
     <Message Importance="high" Text="Creating macOS application bundle for publish output at '$(PublishDir)'" />
-    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Mac/publish-macos.sh&quot; &quot;$(PublishDir)&quot;" EnvironmentVariables="APP_VERSION=$(Version)" />
+    <Exec Command="bash &amp;quot;$(MSBuildProjectDirectory)/Mac/publish-macos.sh&amp;quot; &amp;quot;$(PublishDir)&amp;quot;" EnvironmentVariables="APP_VERSION=$(Version)" />
   </Target>
   <Target Name="BuildAesDiGeneratorForAot" BeforeTargets="CoreCompile" Condition="'$(PublishAot)' == 'true'">
     <MSBuild Projects="..\AES_Di.Generator\AES_Di.Generator.csproj" Targets="Build" Properties="Configuration=$(Configuration)" RemoveProperties="PublishAot;PublishTrimmed;RuntimeIdentifier;SelfContained" />

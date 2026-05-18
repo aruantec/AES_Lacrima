@@ -9,6 +9,7 @@ using AES_Emulation.Platform;
 using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
+using AES_Lacrima.Services.Emulation;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -163,10 +164,12 @@ namespace AES_Lacrima.ViewModels
         private string? _activeXeniaPatchDocumentText;
         private readonly AvaloniaList<XeniaPatchFileItem> _currentSectionXeniaPatchFiles = [];
         private readonly AvaloniaList<XeniaPatchEntry> _currentSectionXeniaPatchEntries = [];
+#pragma warning disable CS0649
 private bool _isShadPs4PatchesOverlayOpen;
         private bool _isShadPs4PatchesBusy;
         private bool _isCurrentSectionShadPs4PatchDirty;
         private bool _isSwitchingCurrentSectionShadPs4PatchFile;
+#pragma warning restore CS0649
         private string? _activeShadPs4PatchDocumentPath;
         private string? _activeShadPs4PatchDocumentText;
         private string? _selectedCurrentSectionShadPs4PatchFile;
@@ -7760,6 +7763,28 @@ private bool _isShadPs4PatchesOverlayOpen;
             }, cancellationToken);
         }
 
+        private static Task PersistPsxGameIdToLocalMetadataAsync(MediaItem item, string gameId)
+        {
+            if (item == null ||
+                string.IsNullOrWhiteSpace(item.FileName) ||
+                string.IsNullOrWhiteSpace(gameId))
+            {
+                return Task.CompletedTask;
+            }
+
+            return Task.Run(() =>
+            {
+                var cachePath = GetLocalMetadataCachePath(item.FileName);
+                var existing = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                if (string.IsNullOrWhiteSpace(existing.PsXTitleId))
+                    existing.PsXTitleId = gameId;
+                if (string.IsNullOrWhiteSpace(existing.Album))
+                    existing.Album = item.Album ?? string.Empty;
+
+                BinaryMetadataHelper.SaveMetadata(cachePath, existing);
+            });
+        }
+
         private static string? TryReadCachedMetadataTitle(string filePath)
         {
             try
@@ -7824,6 +7849,23 @@ private bool _isShadPs4PatchesOverlayOpen;
                 var normalized = GetNormalizedRomTitle(item.Title);
                 if (string.IsNullOrWhiteSpace(normalized) && !string.IsNullOrWhiteSpace(item.FileName))
                     normalized = GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(item.FileName));
+
+                // Scan PSX and PS2 discs to extract GameId and persist to metadata cache if not already set
+                var isPsxOrPs2 = string.Equals(album.Title, "PlayStation", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(album.Title, "PSX", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(album.Title, "PS1", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(album.Title, "PlayStation 1", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(album.Title, "PlayStation 2", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(album.Title, "PS2", StringComparison.OrdinalIgnoreCase);
+
+                if (isPsxOrPs2 && !string.IsNullOrWhiteSpace(item.FileName) && File.Exists(item.FileName))
+                {
+                    var romInfo = RomInspector.Inspect(item.FileName);
+                    if (!string.IsNullOrWhiteSpace(romInfo?.GameId))
+                    {
+                        _ = PersistPsxGameIdToLocalMetadataAsync(item, romInfo.GameId);
+                    }
+                }
 
                 if (!string.IsNullOrWhiteSpace(ps3Title) &&
                     (string.IsNullOrWhiteSpace(item.Title) ||

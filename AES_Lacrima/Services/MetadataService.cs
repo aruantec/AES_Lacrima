@@ -3,6 +3,7 @@ using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Lacrima.Services.Emulation;
 using AES_Lacrima.ViewModels;
 using Avalonia;
 using Avalonia.Collections;
@@ -105,6 +106,12 @@ namespace AES_Lacrima.Services
         [ObservableProperty] private bool _isPs4Metadata;
         [ObservableProperty] private string? _ps4TitleId;
         [ObservableProperty] private string? _ps4Version;
+        [ObservableProperty] private bool _isPsXMetadata;
+        [ObservableProperty] private string? _psXTitleId;
+        [ObservableProperty] private string? _psXVersion;
+        [ObservableProperty] private bool _isPs2Metadata;
+        [ObservableProperty] private string? _ps2TitleId;
+        [ObservableProperty] private string? _ps2Version;
         [ObservableProperty] private double _replayGainTrackGain;
         [ObservableProperty] private double _replayGainAlbumGain;
         [ObservableProperty] private TagImageKind _selectedImageKind;
@@ -239,10 +246,60 @@ namespace AES_Lacrima.Services
                 }
             }
 
+            IsPsXMetadata = string.Equals(item.Album, "PlayStation", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(item.Album, "PSX", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(item.Album, "PS1", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(item.Album, "PlayStation 1", StringComparison.OrdinalIgnoreCase);
+            PsXTitleId = null;
+            PsXVersion = null;
+
+            IsPs2Metadata = string.Equals(item.Album, "PlayStation 2", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(item.Album, "PS2", StringComparison.OrdinalIgnoreCase);
+            Ps2TitleId = null;
+            Ps2Version = null;
+
+            if (IsPsXMetadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName, DiscSection.PSX)).ConfigureAwait(false);
+                PsXTitleId = romInfo?.GameId;
+                if (!string.IsNullOrWhiteSpace(PsXTitleId))
+                {
+                    await PersistPsXMetadataToMetadataCacheAsync(item.FileName, PsXTitleId, PsXVersion).ConfigureAwait(false);
+                }
+                else
+                {
+                    var cachePath = GetMetadataCachePath(item.FileName);
+                    var refreshed = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath)).ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(PsXTitleId))
+                        PsXTitleId = refreshed?.PsXTitleId;
+                    if (string.IsNullOrWhiteSpace(PsXVersion))
+                        PsXVersion = refreshed?.PsXVersion;
+                }
+            }
+
+            if (IsPs2Metadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName, DiscSection.PS2)).ConfigureAwait(false);
+                Ps2TitleId = romInfo?.GameId;
+                if (!string.IsNullOrWhiteSpace(Ps2TitleId))
+                {
+                    await PersistPs2MetadataToMetadataCacheAsync(item.FileName, Ps2TitleId, Ps2Version).ConfigureAwait(false);
+                }
+                else
+                {
+                    var cachePath = GetMetadataCachePath(item.FileName);
+                    var refreshed = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath)).ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(Ps2TitleId))
+                        Ps2TitleId = refreshed?.Ps2TitleId;
+                    if (string.IsNullOrWhiteSpace(Ps2Version))
+                        Ps2Version = refreshed?.Ps2Version;
+                }
+            }
+
             await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyTitleFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyCoverFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
-            
+            await TryApplyTitleFromPsxGameAsync(item, CancellationToken.None).ConfigureAwait(false);
 
             try
             {
@@ -385,15 +442,26 @@ namespace AES_Lacrima.Services
                            Ps3InstalledGameHelper.IsInstalledGameFolder(item.FileName);
             Ps3TitleId = null;
             Ps3Version = null;
-            IsPs4Metadata = string.Equals(item.Album, "PlayStation 4", StringComparison.OrdinalIgnoreCase) ||
-                           string.Equals(item.Album, "PS4", StringComparison.OrdinalIgnoreCase) ||
-                           Ps4InstalledGameHelper.IsInstalledGameFolder(item.FileName);
-            Ps4TitleId = null;
-            Ps4Version = null;
+             IsPs4Metadata = string.Equals(item.Album, "PlayStation 4", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(item.Album, "PS4", StringComparison.OrdinalIgnoreCase) ||
+                            Ps4InstalledGameHelper.IsInstalledGameFolder(item.FileName);
+             Ps4TitleId = null;
+             Ps4Version = null;
+             IsPsXMetadata = string.Equals(item.Album, "PlayStation", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(item.Album, "PSX", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(item.Album, "PS1", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(item.Album, "PlayStation 1", StringComparison.OrdinalIgnoreCase);
+             PsXTitleId = null;
+             PsXVersion = null;
+             IsPs2Metadata = string.Equals(item.Album, "PlayStation 2", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(item.Album, "PS2", StringComparison.OrdinalIgnoreCase);
+             Ps2TitleId = null;
+             Ps2Version = null;
 
-            await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
+             await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyTitleFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyCoverFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
+            await TryApplyTitleFromPsxGameAsync(item, CancellationToken.None).ConfigureAwait(false);
 
             Title = item.Title;
             Artists = item.Artist;
@@ -422,10 +490,14 @@ namespace AES_Lacrima.Services
                     Ps3TitleId = metadata.Ps3TitleId;
                 if (string.IsNullOrWhiteSpace(Ps3Version))
                     Ps3Version = metadata.Ps3Version;
-                if (string.IsNullOrWhiteSpace(Ps4TitleId))
+                 if (string.IsNullOrWhiteSpace(Ps4TitleId))
                     Ps4TitleId = metadata.Ps4TitleId;
-                if (string.IsNullOrWhiteSpace(Ps4Version))
+                 if (string.IsNullOrWhiteSpace(Ps4Version))
                     Ps4Version = metadata.Ps4Version;
+                 if (string.IsNullOrWhiteSpace(PsXTitleId))
+                    PsXTitleId = metadata.PsXTitleId;
+                 if (string.IsNullOrWhiteSpace(PsXVersion))
+                    PsXVersion = metadata.PsXVersion;
 
                     Title = metadata.Title;
                 if (string.IsNullOrWhiteSpace(Artists))
@@ -532,8 +604,36 @@ namespace AES_Lacrima.Services
                         Ps4Version = ps4Version;
                 }
 
-                if (!string.IsNullOrWhiteSpace(Ps4TitleId) || !string.IsNullOrWhiteSpace(Ps4Version))
+                 if (!string.IsNullOrWhiteSpace(Ps4TitleId) || !string.IsNullOrWhiteSpace(Ps4Version))
                     await PersistPs4MetadataToMetadataCacheAsync(item.FileName, Ps4TitleId, Ps4Version).ConfigureAwait(false);
+            }
+
+            if (IsPsXMetadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                if (string.IsNullOrWhiteSpace(PsXTitleId))
+                {
+                    var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName)).ConfigureAwait(false);
+                    var psxTitleId = romInfo?.GameId;
+                    if (string.IsNullOrWhiteSpace(PsXTitleId))
+                        PsXTitleId = psxTitleId;
+                }
+
+                if (!string.IsNullOrWhiteSpace(PsXTitleId) || !string.IsNullOrWhiteSpace(PsXVersion))
+                    await PersistPsXMetadataToMetadataCacheAsync(item.FileName, PsXTitleId, PsXVersion).ConfigureAwait(false);
+            }
+
+            if (IsPs2Metadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                if (string.IsNullOrWhiteSpace(Ps2TitleId))
+                {
+                    var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName)).ConfigureAwait(false);
+                    var ps2TitleId = romInfo?.GameId;
+                    if (string.IsNullOrWhiteSpace(Ps2TitleId))
+                        Ps2TitleId = ps2TitleId;
+                }
+
+                if (!string.IsNullOrWhiteSpace(Ps2TitleId) || !string.IsNullOrWhiteSpace(Ps2Version))
+                    await PersistPs2MetadataToMetadataCacheAsync(item.FileName, Ps2TitleId, Ps2Version).ConfigureAwait(false);
             }
         }
 
@@ -666,8 +766,10 @@ namespace AES_Lacrima.Services
                     Comment = Comment!,
                     VideoUrl = VideoUrl ?? string.Empty,
                     Xbox360TitleId = Xbox360TitleId ?? string.Empty,
-                    Xbox360MediaId = Xbox360MediaId ?? string.Empty,
-                    ReplayGainTrackGain = ReplayGainTrackGain,
+                     Xbox360MediaId = Xbox360MediaId ?? string.Empty,
+                     PsXTitleId = PsXTitleId ?? string.Empty,
+                     PsXVersion = PsXVersion ?? string.Empty,
+                     ReplayGainTrackGain = ReplayGainTrackGain,
                     ReplayGainAlbumGain = ReplayGainAlbumGain,
                     Duration = _currentSelectedMedia?.Duration ?? 0.0,
                     Images = [.. Images.Select(img => new ImageData
@@ -1117,6 +1219,12 @@ namespace AES_Lacrima.Services
             IsXbox360Metadata = false;
             Xbox360TitleId = null;
             Xbox360MediaId = null;
+            IsPsXMetadata = false;
+            PsXTitleId = null;
+            PsXVersion = null;
+            IsPs2Metadata = false;
+            Ps2TitleId = null;
+            Ps2Version = null;
             IsMetadataLoaded = false;
         }
 
@@ -2055,6 +2163,40 @@ namespace AES_Lacrima.Services
                     metadata.Ps4TitleId = ps4TitleId;
                 if (!string.IsNullOrWhiteSpace(ps4Version))
                     metadata.Ps4Version = ps4Version;
+                 BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            }).ConfigureAwait(false);
+        }
+
+        private async Task PersistPsXMetadataToMetadataCacheAsync(string? filePath, string? psXTitleId, string? psXVersion)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            var cachePath = GetMetadataCachePath(filePath);
+            await Task.Run(() =>
+            {
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                if (!string.IsNullOrWhiteSpace(psXTitleId))
+                    metadata.PsXTitleId = psXTitleId;
+                if (!string.IsNullOrWhiteSpace(psXVersion))
+                    metadata.PsXVersion = psXVersion;
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            }).ConfigureAwait(false);
+        }
+
+        private async Task PersistPs2MetadataToMetadataCacheAsync(string? filePath, string? ps2TitleId, string? ps2Version)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            var cachePath = GetMetadataCachePath(filePath);
+            await Task.Run(() =>
+            {
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                if (!string.IsNullOrWhiteSpace(ps2TitleId))
+                    metadata.Ps2TitleId = ps2TitleId;
+                if (!string.IsNullOrWhiteSpace(ps2Version))
+                    metadata.Ps2Version = ps2Version;
                 BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
             }).ConfigureAwait(false);
         }
@@ -2214,6 +2356,31 @@ namespace AES_Lacrima.Services
             }, DispatcherPriority.Background);
 
             await SavePs3TitleToMetadataCacheAsync(item, ps3TitleName, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        private async Task<bool> TryApplyTitleFromPsxGameAsync(MediaItem item, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!IsPsXMetadata || string.IsNullOrWhiteSpace(item.FileName))
+                return false;
+
+            // Scan PSX disc to get GameId if not already loaded
+            var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName), cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(romInfo?.GameId))
+                return false;
+
+            var psxTitleId = romInfo.GameId;
+            
+            // Only update if not already set from cache
+            if (string.IsNullOrWhiteSpace(PsXTitleId))
+            {
+                PsXTitleId = psxTitleId;
+                // Persist to metadata cache
+                await PersistPsXMetadataToMetadataCacheAsync(item.FileName, psxTitleId, PsXVersion).ConfigureAwait(false);
+            }
+
             return true;
         }
 
