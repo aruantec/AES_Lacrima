@@ -57,6 +57,20 @@ public class CustomMetadata
     public string Ps2TitleId { get; set; } = "";
     /// <summary>Gets or sets the PS2 version for emulation metadata.</summary>
     public string Ps2Version { get; set; } = "";
+    /// <summary>Gets or sets the GameCube game ID for emulation metadata.</summary>
+    public string GameCubeTitleId { get; set; } = "";
+    /// <summary>Gets or sets the Wii game ID for emulation metadata.</summary>
+    public string WiiTitleId { get; set; } = "";
+    /// <summary>Gets or sets the Wii U title ID for emulation metadata.</summary>
+    public string WiiUTitleId { get; set; } = "";
+    /// <summary>Gets or sets the Nintendo 3DS title ID for emulation metadata (16-char hex).</summary>
+    public string Nintendo3dsTitleId { get; set; } = "";
+    /// <summary>
+    /// Marks the file as having been inspected by the ROM metadata scanner.
+    /// Used to avoid re-inspecting ROMs whose extraction yielded nothing
+    /// (typical for headerless cartridge dumps) across application restarts.
+    /// </summary>
+    public bool RomScanned { get; set; }
     /// <summary>Gets or sets the list of associated images.</summary>
     public List<ImageData> Images { get; set; } = [];
     /// <summary>Gets or sets the list of associated video data.</summary>

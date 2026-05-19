@@ -65,7 +65,7 @@
             <Grid ColumnDefinitions="Auto, *, Auto, Auto">
                 <Grid Grid.Column="0"
                       ColumnDefinitions="Auto, 450"
-                       RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto"
+                       RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto"
                       RowSpacing="10"
                       Margin="20,0,0,0">
                     <Grid.Styles>
@@ -233,7 +233,55 @@
                                VerticalAlignment="Center"
                                IsVisible="{Binding IsPs2Metadata}" />
 
-                        <Button Grid.Row="16"
+                     <!-- GameCube Game ID -->
+                    <Label Grid.Row="16" Grid.Column="0" Content="Game ID: "
+                            Foreground="White"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Right"
+                            IsVisible="{Binding IsGameCubeMetadata}" />
+                    <TextBox Grid.Row="16" Grid.Column="1"
+                               Text="{Binding GameCubeTitleId, Mode=OneWay}"
+                               IsReadOnly="True"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding IsGameCubeMetadata}" />
+
+                     <!-- Wii Game ID -->
+                    <Label Grid.Row="17" Grid.Column="0" Content="Game ID: "
+                            Foreground="White"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Right"
+                            IsVisible="{Binding IsWiiMetadata}" />
+                    <TextBox Grid.Row="17" Grid.Column="1"
+                               Text="{Binding WiiTitleId, Mode=OneWay}"
+                               IsReadOnly="True"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding IsWiiMetadata}" />
+
+                     <!-- Wii U Title ID -->
+                    <Label Grid.Row="18" Grid.Column="0" Content="Title ID: "
+                            Foreground="White"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Right"
+                            IsVisible="{Binding IsWiiUMetadata}" />
+                    <TextBox Grid.Row="18" Grid.Column="1"
+                               Text="{Binding WiiUTitleId, Mode=OneWay}"
+                               IsReadOnly="True"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding IsWiiUMetadata}" />
+
+                     <!-- Nintendo 3DS Title ID -->
+                    <Label Grid.Row="19" Grid.Column="0" Content="Title ID: "
+                            Foreground="White"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Right"
+                            IsVisible="{Binding IsNintendo3dsMetadata}" />
+                    <TextBox Grid.Row="19" Grid.Column="1"
+                               Text="{Binding Nintendo3dsTitleId, Mode=OneWay}"
+                               IsReadOnly="True"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding IsNintendo3dsMetadata}" />
+
+                        <Button Grid.Row="20"
                              Grid.Column="1"
                              HorizontalAlignment="Stretch"
                              Height="38"

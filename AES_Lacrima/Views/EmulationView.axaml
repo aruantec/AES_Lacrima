@@ -1942,7 +1942,7 @@
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding ToggleRenderOptionsCommand}"
-                        IsVisible="True"
+                        IsVisible="{Binding CanShowRenderOptions}"
                         ToolTip.Tip="Render Options">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">

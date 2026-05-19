@@ -117,6 +117,14 @@ namespace AES_Lacrima.Services
         [ObservableProperty] private bool _isPs2Metadata;
         [ObservableProperty] private string? _ps2TitleId;
         [ObservableProperty] private string? _ps2Version;
+        [ObservableProperty] private bool _isGameCubeMetadata;
+        [ObservableProperty] private string? _gameCubeTitleId;
+        [ObservableProperty] private bool _isWiiMetadata;
+        [ObservableProperty] private string? _wiiTitleId;
+        [ObservableProperty] private bool _isWiiUMetadata;
+        [ObservableProperty] private string? _wiiUTitleId;
+        [ObservableProperty] private bool _isNintendo3dsMetadata;
+        [ObservableProperty] private string? _nintendo3dsTitleId;
         [ObservableProperty] private double _replayGainTrackGain;
         [ObservableProperty] private double _replayGainAlbumGain;
         [ObservableProperty] private TagImageKind _selectedImageKind;
@@ -301,6 +309,35 @@ namespace AES_Lacrima.Services
                 }
             }
 
+            IsGameCubeMetadata = IsGameCubeAlbum(item.Album);
+            GameCubeTitleId = null;
+            if (IsGameCubeMetadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                await LoadNintendoDiscMetadataAsync(item, DiscSection.GameCube).ConfigureAwait(false);
+            }
+
+            IsWiiMetadata = IsWiiAlbum(item.Album);
+            WiiTitleId = null;
+            if (IsWiiMetadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                await LoadNintendoDiscMetadataAsync(item, DiscSection.Wii).ConfigureAwait(false);
+            }
+
+            IsWiiUMetadata = IsWiiUAlbum(item.Album) ||
+                             WiiUInstalledGameHelper.IsInstalledGameFolder(item.FileName);
+            WiiUTitleId = null;
+            if (IsWiiUMetadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                await LoadWiiUMetadataAsync(item).ConfigureAwait(false);
+            }
+
+            IsNintendo3dsMetadata = IsNintendo3dsAlbum(item.Album);
+            Nintendo3dsTitleId = null;
+            if (IsNintendo3dsMetadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                await LoadNintendo3dsMetadataAsync(item).ConfigureAwait(false);
+            }
+
             await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyTitleFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyCoverFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
@@ -462,6 +499,15 @@ namespace AES_Lacrima.Services
                             string.Equals(item.Album, "PS2", StringComparison.OrdinalIgnoreCase);
              Ps2TitleId = null;
              Ps2Version = null;
+             IsGameCubeMetadata = IsGameCubeAlbum(item.Album);
+             GameCubeTitleId = null;
+             IsWiiMetadata = IsWiiAlbum(item.Album);
+             WiiTitleId = null;
+             IsWiiUMetadata = IsWiiUAlbum(item.Album) ||
+                              WiiUInstalledGameHelper.IsInstalledGameFolder(item.FileName);
+             WiiUTitleId = null;
+             IsNintendo3dsMetadata = IsNintendo3dsAlbum(item.Album);
+             Nintendo3dsTitleId = null;
 
              await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyTitleFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
@@ -503,6 +549,18 @@ namespace AES_Lacrima.Services
                     PsXTitleId = metadata.PsXTitleId;
                  if (string.IsNullOrWhiteSpace(PsXVersion))
                     PsXVersion = metadata.PsXVersion;
+                 if (string.IsNullOrWhiteSpace(Ps2TitleId))
+                    Ps2TitleId = metadata.Ps2TitleId;
+                 if (string.IsNullOrWhiteSpace(Ps2Version))
+                    Ps2Version = metadata.Ps2Version;
+                 if (string.IsNullOrWhiteSpace(GameCubeTitleId))
+                    GameCubeTitleId = metadata.GameCubeTitleId;
+                 if (string.IsNullOrWhiteSpace(WiiTitleId))
+                    WiiTitleId = metadata.WiiTitleId;
+                 if (string.IsNullOrWhiteSpace(WiiUTitleId))
+                    WiiUTitleId = metadata.WiiUTitleId;
+                 if (string.IsNullOrWhiteSpace(Nintendo3dsTitleId))
+                    Nintendo3dsTitleId = metadata.Nintendo3dsTitleId;
 
                     Title = metadata.Title;
                 if (string.IsNullOrWhiteSpace(Artists))
@@ -666,6 +724,21 @@ namespace AES_Lacrima.Services
                     await PersistPs2MetadataToMetadataCacheAsync(item.FileName, Ps2TitleId, Ps2Version).ConfigureAwait(false);
                 }
             }
+
+            if (IsGameCubeMetadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                await LoadNintendoDiscMetadataAsync(item, DiscSection.GameCube).ConfigureAwait(false);
+            }
+
+            if (IsWiiMetadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                await LoadNintendoDiscMetadataAsync(item, DiscSection.Wii).ConfigureAwait(false);
+            }
+
+            if (IsWiiUMetadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                await LoadWiiUMetadataAsync(item).ConfigureAwait(false);
+            }
         }
 
         [RelayCommand]
@@ -800,6 +873,12 @@ namespace AES_Lacrima.Services
                      Xbox360MediaId = Xbox360MediaId ?? string.Empty,
                      PsXTitleId = PsXTitleId ?? string.Empty,
                      PsXVersion = PsXVersion ?? string.Empty,
+                     Ps2TitleId = Ps2TitleId ?? string.Empty,
+                     Ps2Version = Ps2Version ?? string.Empty,
+                     GameCubeTitleId = GameCubeTitleId ?? string.Empty,
+                     WiiTitleId = WiiTitleId ?? string.Empty,
+                     WiiUTitleId = WiiUTitleId ?? string.Empty,
+                     Nintendo3dsTitleId = Nintendo3dsTitleId ?? string.Empty,
                      ReplayGainTrackGain = ReplayGainTrackGain,
                     ReplayGainAlbumGain = ReplayGainAlbumGain,
                     Duration = _currentSelectedMedia?.Duration ?? 0.0,
@@ -1268,6 +1347,14 @@ namespace AES_Lacrima.Services
             IsPs2Metadata = false;
             Ps2TitleId = null;
             Ps2Version = null;
+            IsGameCubeMetadata = false;
+            GameCubeTitleId = null;
+            IsWiiMetadata = false;
+            WiiTitleId = null;
+            IsWiiUMetadata = false;
+            WiiUTitleId = null;
+            IsNintendo3dsMetadata = false;
+            Nintendo3dsTitleId = null;
             IsMetadataLoaded = false;
         }
 
@@ -2246,6 +2333,264 @@ namespace AES_Lacrima.Services
                     metadata.Title = titleName;
                 BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
             }).ConfigureAwait(false);
+        }
+
+        private async Task LoadNintendoDiscMetadataAsync(MediaItem item, DiscSection section)
+        {
+            var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName!, section)).ConfigureAwait(false);
+            var gameId = romInfo?.GameId;
+            var extractedTitle = romInfo?.InternalTitle;
+
+            if (section == DiscSection.Wii)
+                WiiTitleId = gameId;
+            else
+                GameCubeTitleId = gameId;
+
+            if (!string.IsNullOrWhiteSpace(gameId))
+            {
+                await ApplyExtractedNintendoTitleAsync(item, extractedTitle, gameId, section).ConfigureAwait(false);
+            }
+            else
+            {
+                var cachePath = GetMetadataCachePath(item.FileName);
+                var refreshed = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath)).ConfigureAwait(false);
+                if (section == DiscSection.Wii)
+                {
+                    if (string.IsNullOrWhiteSpace(WiiTitleId))
+                        WiiTitleId = refreshed?.WiiTitleId;
+                }
+                else if (string.IsNullOrWhiteSpace(GameCubeTitleId))
+                {
+                    GameCubeTitleId = refreshed?.GameCubeTitleId;
+                }
+
+                extractedTitle = refreshed?.Title;
+                if (ShouldUpdateExtractedTitle(item.Title, extractedTitle))
+                    await ApplyExtractedNintendoTitleAsync(item, extractedTitle, gameId, section).ConfigureAwait(false);
+            }
+        }
+
+        private async Task LoadNintendo3dsMetadataAsync(MediaItem item)
+        {
+            var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName!, DiscSection.Nintendo3ds)).ConfigureAwait(false);
+            var titleId = romInfo?.GameId;
+            var extractedTitle = romInfo?.InternalTitle;
+
+            Nintendo3dsTitleId = titleId;
+
+            if (!string.IsNullOrWhiteSpace(titleId))
+            {
+                await ApplyExtractedNintendo3dsTitleAsync(item, extractedTitle, titleId).ConfigureAwait(false);
+            }
+            else
+            {
+                var cachePath = GetMetadataCachePath(item.FileName);
+                var refreshed = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath)).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(Nintendo3dsTitleId))
+                    Nintendo3dsTitleId = refreshed?.Nintendo3dsTitleId;
+
+                extractedTitle = refreshed?.Title;
+                if (ShouldUpdateExtractedTitle(item.Title, extractedTitle))
+                    await ApplyExtractedNintendo3dsTitleAsync(item, extractedTitle, Nintendo3dsTitleId).ConfigureAwait(false);
+            }
+        }
+
+        private async Task LoadWiiUMetadataAsync(MediaItem item)
+        {
+            var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName!, DiscSection.WiiU)).ConfigureAwait(false);
+            var titleId = romInfo?.GameId ?? WiiUInstalledGameHelper.GetTitleId(item.FileName);
+            var extractedTitle = romInfo?.InternalTitle ?? WiiUInstalledGameHelper.GetTitleName(item.FileName);
+
+            WiiUTitleId = titleId;
+
+            if (!string.IsNullOrWhiteSpace(titleId))
+            {
+                await ApplyExtractedWiiUTitleAsync(item, extractedTitle, titleId).ConfigureAwait(false);
+            }
+            else
+            {
+                var cachePath = GetMetadataCachePath(item.FileName);
+                var refreshed = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath)).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(WiiUTitleId))
+                    WiiUTitleId = refreshed?.WiiUTitleId;
+
+                extractedTitle = refreshed?.Title;
+                if (ShouldUpdateExtractedTitle(item.Title, extractedTitle))
+                    await ApplyExtractedWiiUTitleAsync(item, extractedTitle, WiiUTitleId).ConfigureAwait(false);
+            }
+        }
+
+        private async Task ApplyExtractedNintendoTitleAsync(
+            MediaItem item,
+            string? extractedTitle,
+            string? gameId,
+            DiscSection section)
+        {
+            string? titleToPersist = null;
+            if (ShouldUpdateExtractedTitle(item.Title, extractedTitle))
+            {
+                titleToPersist = extractedTitle!.Trim();
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    item.Title = titleToPersist;
+                    if (_currentSelectedMedia == item)
+                        Title = titleToPersist;
+                }, DispatcherPriority.Background);
+            }
+
+            await PersistNintendoDiscMetadataToMetadataCacheAsync(
+                item.FileName,
+                gameId,
+                section,
+                titleToPersist).ConfigureAwait(false);
+        }
+
+        private async Task ApplyExtractedWiiUTitleAsync(MediaItem item, string? extractedTitle, string? titleId)
+        {
+            string? titleToPersist = null;
+            if (ShouldUpdateExtractedTitle(item.Title, extractedTitle))
+            {
+                titleToPersist = extractedTitle!.Trim();
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    item.Title = titleToPersist;
+                    if (_currentSelectedMedia == item)
+                        Title = titleToPersist;
+                }, DispatcherPriority.Background);
+            }
+
+            await PersistWiiUMetadataToMetadataCacheAsync(item.FileName, titleId, titleToPersist).ConfigureAwait(false);
+        }
+
+        private async Task ApplyExtractedNintendo3dsTitleAsync(MediaItem item, string? extractedTitle, string? titleId)
+        {
+            string? titleToPersist = null;
+            if (ShouldUpdateExtractedTitle(item.Title, extractedTitle))
+            {
+                titleToPersist = extractedTitle!.Trim();
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    item.Title = titleToPersist;
+                    if (_currentSelectedMedia == item)
+                        Title = titleToPersist;
+                }, DispatcherPriority.Background);
+            }
+
+            await PersistNintendo3dsMetadataToMetadataCacheAsync(item.FileName, titleId, titleToPersist).ConfigureAwait(false);
+        }
+
+        private static bool ShouldUpdateExtractedTitle(string? currentTitle, string? extractedTitle)
+        {
+            if (string.IsNullOrWhiteSpace(extractedTitle))
+                return false;
+
+            return string.IsNullOrWhiteSpace(currentTitle) ||
+                   !string.Equals(currentTitle.Trim(), extractedTitle.Trim(), StringComparison.Ordinal);
+        }
+
+        private async Task PersistNintendoDiscMetadataToMetadataCacheAsync(
+            string? filePath,
+            string? gameId,
+            DiscSection section,
+            string? titleName = null)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            var cachePath = GetMetadataCachePath(filePath);
+            await Task.Run(() =>
+            {
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                if (!string.IsNullOrWhiteSpace(gameId))
+                {
+                    if (section == DiscSection.Wii)
+                        metadata.WiiTitleId = gameId;
+                    else
+                        metadata.GameCubeTitleId = gameId;
+                }
+
+                if (!string.IsNullOrWhiteSpace(titleName))
+                    metadata.Title = titleName;
+
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            }).ConfigureAwait(false);
+        }
+
+        private async Task PersistWiiUMetadataToMetadataCacheAsync(string? filePath, string? titleId, string? titleName = null)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            var cachePath = GetMetadataCachePath(filePath);
+            await Task.Run(() =>
+            {
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                if (!string.IsNullOrWhiteSpace(titleId))
+                    metadata.WiiUTitleId = titleId;
+                if (!string.IsNullOrWhiteSpace(titleName))
+                    metadata.Title = titleName;
+
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            }).ConfigureAwait(false);
+        }
+
+        private async Task PersistNintendo3dsMetadataToMetadataCacheAsync(string? filePath, string? titleId, string? titleName = null)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            var cachePath = GetMetadataCachePath(filePath);
+            await Task.Run(() =>
+            {
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                if (!string.IsNullOrWhiteSpace(titleId))
+                    metadata.Nintendo3dsTitleId = titleId;
+                if (!string.IsNullOrWhiteSpace(titleName))
+                    metadata.Title = titleName;
+
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            }).ConfigureAwait(false);
+        }
+
+        private static bool IsGameCubeAlbum(string? albumTitle)
+        {
+            if (string.IsNullOrWhiteSpace(albumTitle))
+                return false;
+
+            return string.Equals(albumTitle, "Nintendo GameCube", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(albumTitle, "GameCube", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(albumTitle, "GCN", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(albumTitle, "GC", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsWiiAlbum(string? albumTitle)
+        {
+            if (string.IsNullOrWhiteSpace(albumTitle))
+                return false;
+
+            return string.Equals(albumTitle, "Nintendo Wii", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(albumTitle, "Wii", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsWiiUAlbum(string? albumTitle)
+        {
+            if (string.IsNullOrWhiteSpace(albumTitle))
+                return false;
+
+            return string.Equals(albumTitle, "Nintendo Wii U", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(albumTitle, "Wii U", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(albumTitle, "WiiU", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(albumTitle, "WII U", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsNintendo3dsAlbum(string? albumTitle)
+        {
+            if (string.IsNullOrWhiteSpace(albumTitle))
+                return false;
+
+            return string.Equals(albumTitle, "Nintendo 3DS", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(albumTitle, "3DS", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(albumTitle, "N3DS", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<bool> TryApplyTitleFromPs4InstalledGameAsync(MediaItem item, CancellationToken cancellationToken)
