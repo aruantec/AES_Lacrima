@@ -237,7 +237,7 @@ public partial class DuckStationEmulatorUpdateService
     private async Task<IReadOnlyList<ReleaseInfo>> GetReleasesAsync(bool includePrereleases, bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath)!;
+        var cache = LoadCache(cachePath) ?? new ReleaseCache();
         if (!forceRefresh &&
             cache.Repository != null &&
             string.Equals(cache.Repository, CacheKey, StringComparison.OrdinalIgnoreCase) &&
@@ -253,8 +253,8 @@ public partial class DuckStationEmulatorUpdateService
         Client.DefaultRequestHeaders.UserAgent.ParseAdd("AES_Lacrima-DuckStationUpdater/1.0");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, ReleasesApiEndpoint);
-        if (!string.IsNullOrWhiteSpace(cache!.ETag) &&
-            string.Equals(cache!.Repository, CacheKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(cache.ETag) &&
+            string.Equals(cache.Repository, CacheKey, StringComparison.OrdinalIgnoreCase))
         {
             request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(cache.ETag));
         }

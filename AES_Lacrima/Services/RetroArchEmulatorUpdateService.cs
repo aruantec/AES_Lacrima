@@ -319,7 +319,7 @@ public partial class RetroArchEmulatorUpdateService
     private async Task<IReadOnlyList<ReleaseInfo>> GetGitHubReleasesAsync(RepoResolution repository, bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath)!;
+        var cache = LoadCache(cachePath) ?? new ReleaseCache();
         if (!forceRefresh &&
             cache.Repository != null &&
             string.Equals(cache.Repository, repository.CacheKey, StringComparison.OrdinalIgnoreCase) &&
@@ -335,8 +335,8 @@ public partial class RetroArchEmulatorUpdateService
         Client.DefaultRequestHeaders.UserAgent.ParseAdd("AES_Lacrima-RetroArchUpdater/1.0");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, repository.ReleasesEndpoint);
-        if (!string.IsNullOrWhiteSpace(cache!.ETag) &&
-            string.Equals(cache!.Repository, repository.CacheKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(cache.ETag) &&
+            string.Equals(cache.Repository, repository.CacheKey, StringComparison.OrdinalIgnoreCase))
         {
             request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(cache.ETag));
         }
@@ -375,7 +375,7 @@ public partial class RetroArchEmulatorUpdateService
     private async Task<IReadOnlyList<ReleaseInfo>> GetNightlyReleasesAsync(RepoResolution repository, bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath)!;
+        var cache = LoadCache(cachePath) ?? new ReleaseCache();
         if (!forceRefresh &&
             cache.Repository != null &&
             string.Equals(cache.Repository, repository.CacheKey, StringComparison.OrdinalIgnoreCase) &&

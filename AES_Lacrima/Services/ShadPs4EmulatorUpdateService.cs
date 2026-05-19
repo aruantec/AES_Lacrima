@@ -241,7 +241,7 @@ public partial class ShadPs4EmulatorUpdateService
     private async Task<IReadOnlyList<ReleaseInfo>> GetReleasesAsync(RepoResolution repository, bool includePrereleases, bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath)!;
+        var cache = LoadCache(cachePath) ?? new ReleaseCache();
         if (!forceRefresh &&
             cache.Repository != null &&
             string.Equals(cache.Repository, repository.CacheKey, StringComparison.OrdinalIgnoreCase) &&
@@ -257,22 +257,22 @@ public partial class ShadPs4EmulatorUpdateService
         Client.DefaultRequestHeaders.UserAgent.ParseAdd("AES_Lacrima-ShadPs4Updater/1.0");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, repository.ReleasesApiEndpoint);
-        if (!string.IsNullOrWhiteSpace(cache!.ETag) &&
-            string.Equals(cache!.Repository, repository.CacheKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(cache.ETag) &&
+            string.Equals(cache.Repository, repository.CacheKey, StringComparison.OrdinalIgnoreCase))
         {
             request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(cache.ETag));
         }
 
         string? json;
         using var response = await Client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (response.StatusCode == HttpStatusCode.NotModified && !string.IsNullOrWhiteSpace(cache?.ReleasesJson))
+        if (response.StatusCode == HttpStatusCode.NotModified && !string.IsNullOrWhiteSpace(cache.ReleasesJson))
         {
-            json = cache!.ReleasesJson;
+            json = cache.ReleasesJson;
         }
-        else if (response.StatusCode == HttpStatusCode.Forbidden && !string.IsNullOrWhiteSpace(cache?.ReleasesJson))
+        else if (response.StatusCode == HttpStatusCode.Forbidden && !string.IsNullOrWhiteSpace(cache.ReleasesJson))
         {
             Log.Warn("Rate limit reached for shadPS4 updates; using cached releases.");
-            json = cache!.ReleasesJson;
+            json = cache.ReleasesJson;
         }
         else
         {
