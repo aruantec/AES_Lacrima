@@ -1170,6 +1170,7 @@ public partial class EmulationView : UserControl
         captureHost.Bind(EmulatorCaptureHostControl.TargetProcessIdProperty, new Binding("EmulatorTargetProcessId"));
         captureHost.Bind(EmulatorCaptureHostControl.TargetWindowTitleHintProperty, new Binding("CurrentEmulatorWindowTitleHint"));
         captureHost.Bind(EmulatorCaptureHostControl.ForceUseTargetClientAreaProperty, new Binding("ForceUseTargetClientAreaCapture"));
+        captureHost.Bind(EmulatorCaptureHostControl.EnablePillarboxCropProperty, new Binding("EnableCapturePillarboxCrop"));
         captureHost.Bind(EmulatorCaptureHostControl.ClientAreaCropLeftInsetProperty, new Binding("ClientAreaCropLeftInset"));
         captureHost.Bind(EmulatorCaptureHostControl.ClientAreaCropTopInsetProperty, new Binding("ClientAreaCropTopInset"));
         captureHost.Bind(EmulatorCaptureHostControl.ClientAreaCropRightInsetProperty, new Binding("ClientAreaCropRightInset"));

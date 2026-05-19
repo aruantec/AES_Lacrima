@@ -302,6 +302,7 @@ public sealed class CemuHandler : EmulatorHandlerBase
         if (OperatingSystem.IsWindows())
         {
             Win32API.RemoveWindowDecorations(hwnd);
+            ResizeCaptureWindowToSixteenByNine(hwnd);
         }
     }
 

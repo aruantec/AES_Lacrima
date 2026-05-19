@@ -208,6 +208,13 @@ struct CaptureSession
     std::atomic<float> dcompTintB{ 1.0f };
     std::atomic<float> dcompTintA{ 1.0f };
     std::atomic<bool> dcompDisableVsync{ false };
+    std::atomic<bool> dcompPillarboxCropEnabled{ false };
+    std::atomic<int> dcompPillarboxLeft{ 0 };
+    std::atomic<int> dcompPillarboxRight{ 0 };
+    std::atomic<int> dcompPillarboxDetectCounter{ 0 };
+    rt::com_ptr<ID3D11Texture2D> pillarboxStagingTexture;
+    int pillarboxStagingWidth = 0;
+    int pillarboxStagingHeight = 0;
     std::wstring dcompShaderPath;
     std::mutex dcompShaderMutex;
     std::atomic<bool> dcompShaderDirty{ false };
@@ -1785,10 +1792,158 @@ struct CaptureSession
         dcompSmoothedFps.store(1000.0 / smoothedFrameTimeMs, std::memory_order_relaxed);
     }
 
+    static void DetectPillarboxColumns(const uint8_t* pixels, int stride, int width, int height, int& outLeft, int& outRight)
+    {
+        outLeft = 0;
+        outRight = 0;
+        if (!pixels || width < 100 || height < 100)
+            return;
+
+        const int maxScan = width / 4;
+        const int contentThreshold = 3;
+        const int rowCount = 15;
+        int rows[15] = {
+            height / 16, height / 8, 3 * height / 16, height / 4, 5 * height / 16,
+            3 * height / 8, 7 * height / 16, height / 2, 9 * height / 16, 5 * height / 8,
+            11 * height / 16, 3 * height / 4, 13 * height / 16, 7 * height / 8, 15 * height / 16
+        };
+
+        bool hasContent = false;
+        const int centerSamples[5] = { width / 2, width / 3, 2 * width / 3, width / 4, 3 * width / 4 };
+        for (int sample = 0; sample < 5 && !hasContent; ++sample)
+        {
+            const int x = centerSamples[sample];
+            for (int r = 0; r < rowCount; ++r)
+            {
+                const uint8_t* p = pixels + (rows[r] * stride) + (x * 4);
+                if (p[0] > 3 || p[1] > 3 || p[2] > 3)
+                {
+                    hasContent = true;
+                    break;
+                }
+            }
+        }
+        if (!hasContent)
+            return;
+
+        int detectedLeft = 0;
+        for (int x = 0; x < maxScan; ++x)
+        {
+            bool hasContentInCol = false;
+            for (int r = 0; r < rowCount; ++r)
+            {
+                const uint8_t* p = pixels + (rows[r] * stride) + (x * 4);
+                if (p[0] > contentThreshold || p[1] > contentThreshold || p[2] > contentThreshold)
+                {
+                    hasContentInCol = true;
+                    break;
+                }
+            }
+            if (hasContentInCol)
+            {
+                detectedLeft = (std::max)(0, x - 1);
+                break;
+            }
+        }
+
+        int detectedRight = 0;
+        for (int x = width - 1; x > width - 1 - maxScan; --x)
+        {
+            bool hasContentInCol = false;
+            for (int r = 0; r < rowCount; ++r)
+            {
+                const uint8_t* p = pixels + (rows[r] * stride) + (x * 4);
+                if (p[0] > contentThreshold || p[1] > contentThreshold || p[2] > contentThreshold)
+                {
+                    hasContentInCol = true;
+                    break;
+                }
+            }
+            if (hasContentInCol)
+            {
+                detectedRight = (std::max)(0, (width - 1 - x) - 1);
+                break;
+            }
+        }
+
+        outLeft = detectedLeft;
+        outRight = detectedRight;
+    }
+
+    void UpdatePillarboxCropFromTexture(ID3D11Texture2D* texture, int width, int height)
+    {
+        if (!dcompPillarboxCropEnabled.load(std::memory_order_relaxed) || !texture || !d3dDevice || !d3dContext)
+            return;
+
+        const int counter = dcompPillarboxDetectCounter.fetch_add(1, std::memory_order_relaxed);
+        if ((counter % 15) != 0)
+            return;
+
+        if (width < 100 || height < 100)
+            return;
+
+        if (!pillarboxStagingTexture || pillarboxStagingWidth != width || pillarboxStagingHeight != height)
+        {
+            D3D11_TEXTURE2D_DESC sourceDesc{};
+            texture->GetDesc(&sourceDesc);
+            D3D11_TEXTURE2D_DESC stagingDesc = sourceDesc;
+            stagingDesc.BindFlags = 0;
+            stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            stagingDesc.Usage = D3D11_USAGE_STAGING;
+            stagingDesc.MiscFlags = 0;
+            stagingDesc.MipLevels = 1;
+            stagingDesc.ArraySize = 1;
+
+            pillarboxStagingTexture = nullptr;
+            if (FAILED(d3dDevice->CreateTexture2D(&stagingDesc, nullptr, pillarboxStagingTexture.put())))
+                return;
+
+            pillarboxStagingWidth = width;
+            pillarboxStagingHeight = height;
+        }
+
+        d3dContext->CopyResource(pillarboxStagingTexture.get(), texture);
+
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(d3dContext->Map(pillarboxStagingTexture.get(), 0, D3D11_MAP_READ, 0, &mapped)))
+            return;
+
+        int detectedLeft = 0;
+        int detectedRight = 0;
+        DetectPillarboxColumns(
+            static_cast<const uint8_t*>(mapped.pData),
+            static_cast<int>(mapped.RowPitch),
+            width,
+            height,
+            detectedLeft,
+            detectedRight);
+        d3dContext->Unmap(pillarboxStagingTexture.get(), 0);
+
+        const int currentLeft = dcompPillarboxLeft.load(std::memory_order_relaxed);
+        const int currentRight = dcompPillarboxRight.load(std::memory_order_relaxed);
+
+        if (detectedLeft < currentLeft)
+            dcompPillarboxLeft.store(detectedLeft, std::memory_order_relaxed);
+        if (detectedRight < currentRight)
+            dcompPillarboxRight.store(detectedRight, std::memory_order_relaxed);
+
+        if (detectedLeft > currentLeft || detectedRight > currentRight)
+        {
+            const int pending = dcompPillarboxDetectCounter.load(std::memory_order_relaxed);
+            if ((pending % 30) == 0)
+            {
+                dcompPillarboxLeft.store(detectedLeft, std::memory_order_relaxed);
+                dcompPillarboxRight.store(detectedRight, std::memory_order_relaxed);
+            }
+        }
+    }
+
     void PresentToDirectComposition(ID3D11Texture2D* texture, int width, int height)
     {
         if (!presentationHwnd || !texture || !d3dContext)
             return;
+
+        UpdatePillarboxCropFromTexture(texture, width, height);
 
         if (!EnsureDirectCompositionSwapChain(width, height))
             return;
@@ -1858,6 +2013,26 @@ struct CaptureSession
                 float crop = (1.0f - visibleRatio) * 0.5f;
                 v0 = crop;
                 v1 = 1.0f - crop;
+            }
+        }
+
+        if (dcompPillarboxCropEnabled.load(std::memory_order_relaxed) && width > 0)
+        {
+            const int cropLeft = dcompPillarboxLeft.load(std::memory_order_relaxed);
+            const int cropRight = dcompPillarboxRight.load(std::memory_order_relaxed);
+            if (cropLeft > 0 || cropRight > 0)
+            {
+                const float insetLeft = static_cast<float>(cropLeft) / static_cast<float>(width);
+                const float insetRight = static_cast<float>(cropRight) / static_cast<float>(width);
+                u0 = (std::min)(1.0f, (std::max)(0.0f, u0 + insetLeft));
+                u1 = (std::max)(0.0f, (std::min)(1.0f, u1 - insetRight));
+                if (u1 - u0 > 0.02f)
+                {
+                    left = -1.0f;
+                    right = 1.0f;
+                    top = 1.0f;
+                    bottom = -1.0f;
+                }
             }
         }
 
@@ -2735,6 +2910,20 @@ extern "C" {
 
         strncpy_s(buffer, bufferChars, s->dcompLastError.c_str(), _TRUNCATE);
         return 1;
+    }
+
+    __declspec(dllexport) void SetDirectCompositionPillarboxCropEnabled(void* ptr, int enabled) {
+        auto s = static_cast<CaptureSession*>(ptr);
+        if (!s) return;
+
+        const bool enable = enabled != 0;
+        s->dcompPillarboxCropEnabled.store(enable, std::memory_order_relaxed);
+        if (!enable)
+        {
+            s->dcompPillarboxLeft.store(0, std::memory_order_relaxed);
+            s->dcompPillarboxRight.store(0, std::memory_order_relaxed);
+            s->dcompPillarboxDetectCounter.store(0, std::memory_order_relaxed);
+        }
     }
 
     __declspec(dllexport) void SetDirectCompositionRenderOptions(void* ptr, int stretch, float brightness, float saturation, float tintR, float tintG, float tintB, float tintA, int disableVsync) {

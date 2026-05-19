@@ -56,6 +56,8 @@ public interface IEmulatorHandler : INotifyPropertyChanged
 
     bool ForceUseTargetClientAreaCapture { get; }
 
+    bool EnableCapturePillarboxCrop { get; }
+
     bool UsesRetroArchCores { get; }
 
     int ClientAreaCropLeftInset { get; }

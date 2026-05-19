@@ -137,6 +137,10 @@ public static class WgcBridgeApi
     private static SetDirectCompositionRenderOptionsDel? s_setDirectCompositionRenderOptions;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SetDirectCompositionPillarboxCropEnabledDel(nint session, int enabled);
+    private static SetDirectCompositionPillarboxCropEnabledDel? s_setDirectCompositionPillarboxCropEnabled;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void SetDirectCompositionShaderDel(nint session, [MarshalAs(UnmanagedType.LPWStr)] string? shaderPath);
     private static SetDirectCompositionShaderDel? s_setDirectCompositionShader;
 
@@ -189,6 +193,7 @@ public static class WgcBridgeApi
                     "GetDirectCompositionSmoothedFrameTimeMs",
                     "GetDirectCompositionLastError",
                     "SetDirectCompositionRenderOptions",
+                    "SetDirectCompositionPillarboxCropEnabled",
                     "SetDirectCompositionShader",
                     "GetDirectCompositionAdapterInfo",
                     "PeekLatestFrame",
@@ -255,6 +260,8 @@ public static class WgcBridgeApi
                     s_getDirectCompositionLastError = Marshal.GetDelegateForFunctionPointer<GetDirectCompositionLastErrorDel>(pDCompLastError);
                 if (NativeLibrary.TryGetExport(handle, "SetDirectCompositionRenderOptions", out IntPtr pDCompOptions))
                     s_setDirectCompositionRenderOptions = Marshal.GetDelegateForFunctionPointer<SetDirectCompositionRenderOptionsDel>(pDCompOptions);
+                if (NativeLibrary.TryGetExport(handle, "SetDirectCompositionPillarboxCropEnabled", out IntPtr pDCompPillarbox))
+                    s_setDirectCompositionPillarboxCropEnabled = Marshal.GetDelegateForFunctionPointer<SetDirectCompositionPillarboxCropEnabledDel>(pDCompPillarbox);
 
                 if (NativeLibrary.TryGetExport(handle, "SetDirectCompositionShader", out IntPtr pDCompShader))
                     s_setDirectCompositionShader = Marshal.GetDelegateForFunctionPointer<SetDirectCompositionShaderDel>(pDCompShader);
@@ -312,6 +319,9 @@ public static class WgcBridgeApi
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "SetDirectCompositionRenderOptions")]
     private static extern void SetDirectCompositionRenderOptionsNative(nint session, int stretch, float brightness, float saturation, float tintR, float tintG, float tintB, float tintA, int disableVsync);
+
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "SetDirectCompositionPillarboxCropEnabled")]
+    private static extern void SetDirectCompositionPillarboxCropEnabledNative(nint session, int enabled);
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "SetDirectCompositionShader")]
     private static extern void SetDirectCompositionShaderNative(nint session, [MarshalAs(UnmanagedType.LPWStr)] string? shaderPath);
@@ -511,6 +521,17 @@ public static class WgcBridgeApi
         }
 
         SetDirectCompositionRenderOptionsNative(session, stretch, brightness, saturation, tintR, tintG, tintB, tintA, disableVsync ? 1 : 0);
+    }
+
+    public static void SetDirectCompositionPillarboxCropEnabled(nint session, bool enabled)
+    {
+        if (s_setDirectCompositionPillarboxCropEnabled != null)
+        {
+            s_setDirectCompositionPillarboxCropEnabled(session, enabled ? 1 : 0);
+            return;
+        }
+
+        SetDirectCompositionPillarboxCropEnabledNative(session, enabled ? 1 : 0);
     }
 
     public static void SetDirectCompositionShader(nint session, string? shaderPath)
