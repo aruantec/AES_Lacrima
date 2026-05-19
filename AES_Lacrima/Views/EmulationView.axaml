@@ -185,6 +185,19 @@
                                    Stretch="Uniform" />
                          </MenuItem.Icon>
                      </MenuItem>
+                     <MenuItem Header="Custom Config"
+                               CornerRadius="8"
+                               Command="{Binding OpenCurrentSectionShadPs4CustomConfigCommand}"
+                               CommandParameter="{Binding SelectedIndex}"
+                               IsVisible="{Binding ShowCurrentSectionShadPs4CustomConfigMenuItem}">
+                         <MenuItem.Icon>
+                             <Path Data="M20,18 H44 V30 H20 Z M56,18 H80 V30 H56 Z M92,18 H116 V30 H92 Z M20,42 H44 V54 H20 Z M56,42 H80 V54 H56 Z M92,42 H116 V54 H92 Z M20,66 H44 V78 H20 Z M56,66 H80 V78 H56 Z M92,66 H116 V78 H92 Z"
+                                   Fill="#CCFFFFFF"
+                                   Width="32"
+                                   Height="32"
+                                   Stretch="Uniform" />
+                         </MenuItem.Icon>
+                     </MenuItem>
                      <MenuItem Header="Delete Item"
                                CornerRadius="8"
                                Command="{Binding DeleteItemCommand}"
@@ -2014,6 +2027,10 @@
 
         <!-- Metadata overlay for emulation cover/comment editing -->
         <common:EmulationMetadataOverlay DataContext="{Binding MetadataService}" />
+
+        <common:ShadPs4CustomConfigOverlay Grid.RowSpan="3"
+                                           ZIndex="2103"
+                                           DataContext="{Binding ShadPs4CustomConfigEditor}" />
 
         <!-- Search overlay (like music view) -->
         <Grid Background="#E0000000"
