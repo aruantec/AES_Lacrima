@@ -29,7 +29,9 @@ namespace AES_Lacrima.Services.Emulation
         /// <summary>Nintendo Wii U disc image or install package</summary>
         WiiU = 6,
         /// <summary>Nintendo 3DS ROM container (NCSD/CCI/NCCH/CXI/CIA)</summary>
-        Nintendo3ds = 7
+        Nintendo3ds = 7,
+        /// <summary>PlayStation 4 installed package folder</summary>
+        PS4 = 8
     }
 
     /// <summary>
@@ -76,6 +78,13 @@ namespace AES_Lacrima.Services.Emulation
 
             if (Directory.Exists(path))
             {
+                if (section == DiscSection.PS4 || section == DiscSection.Auto)
+                {
+                    var ps4Info = InspectPs4Package(path);
+                    if (ps4Info.Format != RomFormat.Unknown)
+                        return ps4Info;
+                }
+
                 if (section == DiscSection.WiiU || section == DiscSection.Auto)
                     return InspectWiiUPackage(path);
 
@@ -2407,6 +2416,20 @@ namespace AES_Lacrima.Services.Emulation
             }
 
             return true;
+        }
+
+        private static RomInfo InspectPs4Package(string path)
+        {
+            if (!Ps4InstalledGameHelper.IsInstalledGameFolder(path))
+                return new RomInfo { FilePath = path, Format = RomFormat.Unknown };
+
+            return new RomInfo
+            {
+                FilePath = path,
+                Format = RomFormat.Iso,
+                GameId = Ps4InstalledGameHelper.GetTitleId(path),
+                InternalTitle = Ps4InstalledGameHelper.GetTitleName(path)
+            };
         }
 
         private static RomInfo InspectWiiUPackage(string path)

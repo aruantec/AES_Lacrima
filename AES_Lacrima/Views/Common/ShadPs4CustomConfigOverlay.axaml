@@ -1,0 +1,294 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AES_Lacrima.ViewModels"
+             xmlns:controls="using:AES_Controls"
+             mc:Ignorable="d"
+             x:Class="AES_Lacrima.ShadPs4CustomConfigOverlay"
+             x:DataType="vm:ShadPs4CustomConfigEditorViewModel"
+             IsHitTestVisible="{Binding IsOpen}"
+             Opacity="{Binding IsOpen, Converter={StaticResource BoolToOpacityConverter}}">
+
+    <UserControl.Transitions>
+        <Transitions>
+            <DoubleTransition Property="Opacity" Duration="0:0:0.32" />
+        </Transitions>
+    </UserControl.Transitions>
+
+    <Grid Background="#E6000000">
+        <Grid RowDefinitions="Auto,*,Auto" Margin="24,16,24,20">
+            <StackPanel Grid.Row="0" Spacing="4" Margin="6,0,0,12">
+                <TextBlock Text="{Binding OverlayHeader}"
+                           FontSize="42"
+                           FontWeight="SemiBold"
+                           Foreground="White" />
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <TextBlock Text="Title ID" Foreground="#D8D8D8" FontSize="20" />
+                    <TextBlock Text="{Binding TitleId, FallbackValue=Unknown, TargetNullValue=Unknown}"
+                               Foreground="White"
+                               FontSize="20" />
+                    <TextBlock Text="{Binding ConfigFilePath}"
+                               Foreground="#A8A8A8"
+                               FontSize="14"
+                               TextTrimming="CharacterEllipsis"
+                               MaxWidth="900" />
+                </StackPanel>
+            </StackPanel>
+
+            <Border Grid.Row="1"
+                    Background="#1AFFFFFF"
+                    BorderBrush="#3FFFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="12">
+                <Grid>
+                    <controls:LoadingControl Width="72"
+                                             Height="72"
+                                             Foreground="#FFFFFFFF"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             IsVisible="{Binding IsBusy}" />
+
+                    <TabControl SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}"
+                                IsVisible="{Binding !IsBusy}">
+                        <TabControl.Styles>
+                            <Style Selector="TabItem">
+                                <Setter Property="FontSize" Value="22" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Style>
+                            <Style Selector="TextBlock.fieldLabel">
+                                <Setter Property="Foreground" Value="White" />
+                                <Setter Property="FontSize" Value="20" />
+                                <Setter Property="VerticalAlignment" Value="Center" />
+                                <Setter Property="HorizontalAlignment" Value="Right" />
+                                <Setter Property="Margin" Value="0,0,12,0" />
+                            </Style>
+                            <Style Selector="TextBox, ComboBox, NumericUpDown">
+                                <Setter Property="FontSize" Value="20" />
+                                <Setter Property="MinHeight" Value="36" />
+                            </Style>
+                        </TabControl.Styles>
+
+                        <TabItem Header="General">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                                      RowSpacing="12" Margin="8,12,8,12" MaxWidth="900">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Volume" />
+                                    <Slider Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding VolumeSlider, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="fieldLabel" Text="Dev Kit Mode" />
+                                    <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding DevKitMode, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Classes="fieldLabel" Text="Neo Mode" />
+                                    <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding NeoMode, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Classes="fieldLabel" Text="Show Splash" />
+                                    <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding ShowSplash, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Classes="fieldLabel" Text="PSN Signed In" />
+                                    <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding PsnSignedIn, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Classes="fieldLabel" Text="Network Connected" />
+                                    <ToggleSwitch Grid.Row="5" Grid.Column="1" IsChecked="{Binding ConnectedToNetwork, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Classes="fieldLabel" Text="Extra DMEM (MB)" />
+                                    <NumericUpDown Grid.Row="6" Grid.Column="1" Minimum="0" Maximum="100000" Value="{Binding ExtraDmemInMbytes, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Classes="fieldLabel" Text="Disable Trophy Popup" />
+                                    <ToggleSwitch Grid.Row="7" Grid.Column="1" IsChecked="{Binding TrophyPopupDisabled, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="8" Grid.Column="0" Classes="fieldLabel" Text="Trophy Duration" />
+                                    <NumericUpDown Grid.Row="8" Grid.Column="1" Minimum="0" Maximum="60" Increment="0.5" Value="{Binding TrophyNotificationDuration, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="9" Grid.Column="0" Classes="fieldLabel" Text="Trophy Side" />
+                                    <ComboBox Grid.Row="9" Grid.Column="1"
+                                              ItemsSource="{Binding TrophyNotificationSideLabels}"
+                                              SelectedItem="{Binding TrophyNotificationSideLabel, Mode=TwoWay}" />
+                                </Grid>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem Header="GPU">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                                      RowSpacing="12" Margin="8,12,8,12" MaxWidth="920">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Resolution" />
+                                    <ComboBox Grid.Row="0" Grid.Column="1"
+                                              ItemsSource="{Binding ResolutionPresets}"
+                                              SelectedItem="{Binding SelectedResolution, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="fieldLabel" Text="Display Mode" />
+                                    <ComboBox Grid.Row="1" Grid.Column="1"
+                                              ItemsSource="{Binding FullScreenModeLabels}"
+                                              SelectedItem="{Binding FullScreenMode, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Classes="fieldLabel" Text="Fullscreen Flag" />
+                                    <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding FullScreen, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Classes="fieldLabel" Text="Present Mode" />
+                                    <ComboBox Grid.Row="3" Grid.Column="1"
+                                              ItemsSource="{Binding PresentModeLabels}"
+                                              SelectedItem="{Binding PresentModeLabel, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Classes="fieldLabel" Text="HDR Allowed" />
+                                    <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding HdrAllowed, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Classes="fieldLabel" Text="Null GPU" />
+                                    <ToggleSwitch Grid.Row="5" Grid.Column="1" IsChecked="{Binding NullGpu, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Classes="fieldLabel" Text="FSR Enabled" />
+                                    <ToggleSwitch Grid.Row="6" Grid.Column="1" IsChecked="{Binding FsrEnabled, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Classes="fieldLabel" Text="RCAS Enabled" />
+                                    <ToggleSwitch Grid.Row="7" Grid.Column="1" IsChecked="{Binding RcasEnabled, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="8" Grid.Column="0" Classes="fieldLabel" Text="RCAS Attenuation" />
+                                    <NumericUpDown Grid.Row="8" Grid.Column="1" Minimum="0" Maximum="3000" Value="{Binding RcasAttenuation, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="9" Grid.Column="0" Classes="fieldLabel" Text="Readbacks Mode" />
+                                    <ComboBox Grid.Row="9" Grid.Column="1"
+                                              ItemsSource="{Binding ReadbacksModeLabels}"
+                                              SelectedIndex="{Binding ReadbacksMode, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="10" Grid.Column="0" Classes="fieldLabel" Text="Readback Linear Images" />
+                                    <ToggleSwitch Grid.Row="10" Grid.Column="1" IsChecked="{Binding ReadbackLinearImagesEnabled, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="11" Grid.Column="0" Classes="fieldLabel" Text="Direct Memory Access" />
+                                    <ToggleSwitch Grid.Row="11" Grid.Column="1" IsChecked="{Binding DirectMemoryAccessEnabled, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="12" Grid.Column="0" Classes="fieldLabel" Text="Copy GPU Buffers" />
+                                    <ToggleSwitch Grid.Row="12" Grid.Column="1" IsChecked="{Binding CopyGpuBuffers, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="13" Grid.Column="0" Classes="fieldLabel" Text="Dump Shaders" />
+                                    <ToggleSwitch Grid.Row="13" Grid.Column="1" IsChecked="{Binding DumpShaders, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="14" Grid.Column="0" Classes="fieldLabel" Text="Patch Shaders" />
+                                    <ToggleSwitch Grid.Row="14" Grid.Column="1" IsChecked="{Binding PatchShaders, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="15" Grid.Column="0" Classes="fieldLabel" Text="Vblank Frequency" />
+                                    <NumericUpDown Grid.Row="15" Grid.Column="1" Minimum="1" Maximum="9999" Value="{Binding VblankFrequency, Mode=TwoWay}" />
+                                </Grid>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem Header="Vulkan">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                                      RowSpacing="12" Margin="8,12,8,12" MaxWidth="920">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Graphics Adapter" />
+                                    <ComboBox Grid.Row="0" Grid.Column="1"
+                                              ItemsSource="{Binding GpuAdapterLabels}"
+                                              SelectedIndex="{Binding SelectedGpuAdapterIndex, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="fieldLabel" Text="Pipeline Cache" />
+                                    <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding PipelineCacheEnabled, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Classes="fieldLabel" Text="Archive Pipeline Cache" />
+                                    <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding PipelineCacheArchived, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Classes="fieldLabel" Text="RenderDoc" />
+                                    <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding RenderdocEnabled, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Classes="fieldLabel" Text="Vulkan Validation" />
+                                    <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding VkvalidationEnabled, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Classes="fieldLabel" Text="Core Validation" />
+                                    <ToggleSwitch Grid.Row="5" Grid.Column="1" IsChecked="{Binding VkvalidationCoreEnabled, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Classes="fieldLabel" Text="Sync Validation" />
+                                    <ToggleSwitch Grid.Row="6" Grid.Column="1" IsChecked="{Binding VkvalidationSyncEnabled, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Classes="fieldLabel" Text="GPU Validation" />
+                                    <ToggleSwitch Grid.Row="7" Grid.Column="1" IsChecked="{Binding VkvalidationGpuEnabled, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="8" Grid.Column="0" Classes="fieldLabel" Text="Crash Diagnostics" />
+                                    <ToggleSwitch Grid.Row="8" Grid.Column="1" IsChecked="{Binding VkcrashDiagnosticEnabled, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="9" Grid.Column="0" Classes="fieldLabel" Text="Host Markers" />
+                                    <ToggleSwitch Grid.Row="9" Grid.Column="1" IsChecked="{Binding VkhostMarkers, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="10" Grid.Column="0" Classes="fieldLabel" Text="Guest Markers" />
+                                    <ToggleSwitch Grid.Row="10" Grid.Column="1" IsChecked="{Binding VkguestMarkers, Mode=TwoWay}" />
+                                </Grid>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem Header="Audio">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                                      RowSpacing="12" Margin="8,12,8,12" MaxWidth="920">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Audio Backend" />
+                                    <ComboBox Grid.Row="0" Grid.Column="1"
+                                              ItemsSource="{Binding AudioBackendLabels}"
+                                              SelectedIndex="{Binding AudioBackend, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="fieldLabel" Text="SDL Main Output" />
+                                    <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding AudioDevices}" SelectedItem="{Binding SdlMainOutputDevice, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Classes="fieldLabel" Text="SDL Mic" />
+                                    <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding AudioDevices}" SelectedItem="{Binding SdlMicDevice, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Classes="fieldLabel" Text="SDL Pad Speaker" />
+                                    <ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding AudioDevices}" SelectedItem="{Binding SdlPadSpkOutputDevice, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Classes="fieldLabel" Text="OpenAL Main Output" />
+                                    <ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding AudioDevices}" SelectedItem="{Binding OpenalMainOutputDevice, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Classes="fieldLabel" Text="OpenAL Mic" />
+                                    <ComboBox Grid.Row="5" Grid.Column="1" ItemsSource="{Binding AudioDevices}" SelectedItem="{Binding OpenalMicDevice, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Classes="fieldLabel" Text="OpenAL Pad Speaker" />
+                                    <ComboBox Grid.Row="6" Grid.Column="1" ItemsSource="{Binding AudioDevices}" SelectedItem="{Binding OpenalPadSpkOutputDevice, Mode=TwoWay}" />
+                                </Grid>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem Header="Input">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                                      RowSpacing="12" Margin="8,12,8,12" MaxWidth="920">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Motion Controls" />
+                                    <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding MotionControlsEnabled, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="fieldLabel" Text="Background Input" />
+                                    <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding BackgroundControllerInput, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Classes="fieldLabel" Text="Cursor State" />
+                                    <ComboBox Grid.Row="2" Grid.Column="1"
+                                              ItemsSource="{Binding CursorStateLabels}"
+                                              SelectedIndex="{Binding CursorState, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Classes="fieldLabel" Text="Cursor Hide Timeout" />
+                                    <NumericUpDown Grid.Row="3" Grid.Column="1" Minimum="1" Maximum="3600" Value="{Binding CursorHideTimeout, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Classes="fieldLabel" Text="USB Device Backend" />
+                                    <ComboBox Grid.Row="4" Grid.Column="1"
+                                              ItemsSource="{Binding UsbDeviceBackendLabels}"
+                                              SelectedIndex="{Binding UsbDeviceBackend, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Classes="fieldLabel" Text="Camera ID" />
+                                    <NumericUpDown Grid.Row="5" Grid.Column="1" Minimum="-1" Maximum="32" Value="{Binding CameraId, Mode=TwoWay}" />
+                                </Grid>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem Header="Log">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                                      RowSpacing="12" Margin="8,12,8,12" MaxWidth="920">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Enable Logging" />
+                                    <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding LogEnable, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="fieldLabel" Text="Log Type" />
+                                    <ComboBox Grid.Row="1" Grid.Column="1"
+                                              ItemsSource="{Binding LogTypeLabels}"
+                                              SelectedItem="{Binding LogType, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Classes="fieldLabel" Text="Filter" />
+                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding LogFilter, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Classes="fieldLabel" Text="Append" />
+                                    <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding LogAppend, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Classes="fieldLabel" Text="Separate Files" />
+                                    <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding LogSeparate, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Classes="fieldLabel" Text="Sync" />
+                                    <ToggleSwitch Grid.Row="5" Grid.Column="1" IsChecked="{Binding LogSync, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Classes="fieldLabel" Text="Skip Duplicate" />
+                                    <ToggleSwitch Grid.Row="6" Grid.Column="1" IsChecked="{Binding LogSkipDuplicate, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Classes="fieldLabel" Text="Max Skip Duration" />
+                                    <NumericUpDown Grid.Row="7" Grid.Column="1" Minimum="0" Maximum="9999999" Value="{Binding LogMaxSkipDuration, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="8" Grid.Column="0" Classes="fieldLabel" Text="Size Limit" />
+                                    <NumericUpDown Grid.Row="8" Grid.Column="1" Minimum="0" Maximum="999999999" Value="{Binding LogSizeLimit, Mode=TwoWay}" />
+                                </Grid>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem Header="Debug">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto"
+                                      RowSpacing="12" Margin="8,12,8,12" MaxWidth="720">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Debug Dump" />
+                                    <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding DebugDump, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="fieldLabel" Text="Shader Collect" />
+                                    <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding ShaderCollect, Mode=TwoWay}" />
+                                </Grid>
+                            </ScrollViewer>
+                        </TabItem>
+                    </TabControl>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="0,12,0,0">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding Status}"
+                           Foreground="#D0D0D0"
+                           FontSize="18"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap" />
+                <Button Grid.Column="1"
+                        Content="Save"
+                        Command="{Binding SaveCommand}"
+                        IsEnabled="{Binding !IsBusy}"
+                        Padding="14,8" />
+                <Button Grid.Column="2"
+                        Content="Cancel"
+                        Command="{Binding CloseCommand}"
+                        IsEnabled="{Binding !IsBusy}"
+                        Padding="14,8" />
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

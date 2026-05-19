@@ -56,9 +56,33 @@ namespace AES_Lacrima.Services
             if (string.IsNullOrWhiteSpace(path))
                 return null;
 
-            var sceSysSfo = Path.Combine(path, "sce_sys", "param.sfo");
-            if (File.Exists(sceSysSfo))
-                return sceSysSfo;
+            try
+            {
+                var normalizedPath = Path.GetFullPath(path);
+                var directSfo = Path.Combine(normalizedPath, "sce_sys", "param.sfo");
+                if (File.Exists(directSfo))
+                    return directSfo;
+
+                if (!Directory.Exists(normalizedPath))
+                    return null;
+
+                foreach (var candidate in Directory.EnumerateDirectories(normalizedPath, "*", SearchOption.TopDirectoryOnly))
+                {
+                    var candidateSfo = Path.Combine(candidate, "sce_sys", "param.sfo");
+                    if (File.Exists(candidateSfo))
+                        return candidateSfo;
+                }
+
+                foreach (var candidate in Directory.EnumerateDirectories(normalizedPath, "*", SearchOption.AllDirectories))
+                {
+                    var candidateSfo = Path.Combine(candidate, "sce_sys", "param.sfo");
+                    if (File.Exists(candidateSfo))
+                        return candidateSfo;
+                }
+            }
+            catch
+            {
+            }
 
             return null;
         }

@@ -10,6 +10,7 @@ using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
 using AES_Lacrima.Services.Emulation;
+using AES_Lacrima.Services.ShadPs4;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -757,6 +758,8 @@ private bool _isShadPs4PatchesOverlayOpen;
                 }));
             return entries;
         }
+
+        public ShadPs4CustomConfigEditorViewModel ShadPs4CustomConfigEditor { get; } = new();
 
         public EmulationViewModel()
         {
@@ -3615,6 +3618,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool ShowCurrentSectionShadPs4PatchesMenuItem =>
             ShowCurrentSectionShadPs4UpdateControls && HasActiveAlbumItems;
 
+        public bool ShowCurrentSectionShadPs4CustomConfigMenuItem =>
+            ShowCurrentSectionShadPs4UpdateControls && HasActiveAlbumItems;
+
         public bool IsCurrentSectionHandlerUpdateAvailable =>
             (ShowCurrentSectionRetroArchUpdateControls && IsCurrentSectionRetroArchUpdateAvailable) ||
             (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable) ||
@@ -3758,6 +3764,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(ShowCurrentSectionEdenUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4PatchesMenuItem));
+            OnPropertyChanged(nameof(ShowCurrentSectionShadPs4CustomConfigMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaPatchesMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3UpdateControls));
@@ -4236,6 +4243,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 CurrentSectionShadPs4PatchFiles.Clear();
                 DetachShadPs4PatchEntryListeners();
                 CurrentSectionShadPs4PatchEntries.Clear();
+                ShadPs4CustomConfigEditor.Reset();
             }
         }
 
@@ -5830,16 +5838,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             if (!ShowCurrentSectionShadPs4PatchesMenuItem)
                 return;
 
-            var selectedItem = GetCurrentCarouselSelectedItem();
-            var target = parameter switch
-            {
-                MediaItem mi when CoverItems.Contains(mi) => mi,
-                MediaItem mi => mi,
-                double selected when !double.IsNaN(selected) => GetCarouselItemByIndex(GetRoundedSelectedIndex(selected)),
-                int idx when idx >= 0 && idx < CoverItems.Count => CoverItems[idx],
-                _ => selectedItem ?? HighlightedItem
-            };
-
+            var target = ResolveShadPs4ContextMenuTarget(parameter);
             if (target == null)
                 return;
 
@@ -5857,16 +5856,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             try
             {
                 var shadPs4Directory = CurrentSectionShadPs4EmulatorPath;
-                var titleId = Ps4InstalledGameHelper.GetTitleId(target.FileName);
-
-                // Fallback: try to extract title ID from folder name (e.g., "CUSA12345 - Game Title")
-                if (string.IsNullOrWhiteSpace(titleId) && !string.IsNullOrWhiteSpace(target.FileName))
-                {
-                    var folderName = Path.GetFileName(target.FileName);
-                    var match = Regex.Match(folderName, @"^(?<id>[A-Z]{2}[A-Z0-9]{3}[A-Z]{2}\d{5})", RegexOptions.IgnoreCase);
-                    if (match.Success)
-                        titleId = match.Groups["id"].Value.ToUpperInvariant();
-                }
+                var titleId = ShadPs4TitleIdResolver.Resolve(target.FileName);
 
                 var gameTitle = target.Title;
 
@@ -5973,6 +5963,34 @@ private bool _isShadPs4PatchesOverlayOpen;
             IsShadPs4PatchesOverlayOpen = false;
             _activeShadPs4PatchDocumentPath = null;
             _activeShadPs4PatchDocumentText = null;
+        }
+
+        [RelayCommand]
+        private async Task OpenCurrentSectionShadPs4CustomConfig(object? parameter)
+        {
+            if (!ShowCurrentSectionShadPs4CustomConfigMenuItem)
+                return;
+
+            var target = ResolveShadPs4ContextMenuTarget(parameter);
+            if (target == null || string.IsNullOrWhiteSpace(target.FileName))
+                return;
+
+            await ShadPs4CustomConfigEditor.LoadAsync(
+                CurrentSectionShadPs4EmulatorPath,
+                target.FileName,
+                target.Title).ConfigureAwait(true);
+        }
+
+        private MediaItem? ResolveShadPs4ContextMenuTarget(object? parameter)
+        {
+            return parameter switch
+            {
+                MediaItem mediaItem when CoverItems.Contains(mediaItem) => mediaItem,
+                MediaItem mediaItem => mediaItem,
+                double selected when !double.IsNaN(selected) => GetCarouselItemByIndex(GetRoundedSelectedIndex(selected)),
+                int idx when idx >= 0 && idx < CoverItems.Count => CoverItems[idx],
+                _ => GetCurrentCarouselSelectedItem() ?? HighlightedItem
+            };
         }
 
         private void LoadSelectedShadPs4PatchEntries(string? patchFilePath)
