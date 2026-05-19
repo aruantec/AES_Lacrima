@@ -487,7 +487,7 @@ public partial class Rpcs3EmulatorUpdateService
     private async Task<IReadOnlyList<ReleaseInfo>> GetStableReleasesAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath)!;
+        var cache = LoadCache(cachePath) ?? new ReleaseCache();
         if (!forceRefresh &&
             cache.Repository != null &&
             string.Equals(cache.Repository, StableCacheKey, StringComparison.OrdinalIgnoreCase) &&
@@ -503,8 +503,8 @@ public partial class Rpcs3EmulatorUpdateService
         Client.DefaultRequestHeaders.UserAgent.ParseAdd("AES_Lacrima-RPCS3Updater/1.0");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, ReleasesApiEndpoint);
-        if (!string.IsNullOrWhiteSpace(cache!.ETag) &&
-            string.Equals(cache!.Repository, StableCacheKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(cache.ETag) &&
+            string.Equals(cache.Repository, StableCacheKey, StringComparison.OrdinalIgnoreCase))
         {
             request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(cache.ETag));
         }
@@ -799,15 +799,18 @@ public partial class Rpcs3EmulatorUpdateService
             return new[] { latestFromDownloadPage };
 
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, NightlyCacheFileName);
-        var cache = LoadCache(cachePath)!;
+        var cache = LoadCache(cachePath);
+        ReleaseCache nightlyCache = cache ?? new ReleaseCache();
+        var nightlyRepository = nightlyCache.Repository ?? string.Empty;
+        var nightlyEtag = nightlyCache.ETag ?? string.Empty;
 
         if (!forceRefresh &&
-            cache?.Repository != null &&
-            string.Equals(cache.Repository, NightlyCacheKey, StringComparison.OrdinalIgnoreCase) &&
-            !string.IsNullOrWhiteSpace(cache.ReleasesJson) &&
-            (DateTimeOffset.UtcNow - cache.FetchedAtUtc) <= CacheTtl)
+            !string.IsNullOrWhiteSpace(nightlyRepository) &&
+            string.Equals(nightlyRepository, NightlyCacheKey, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(nightlyCache.ReleasesJson) &&
+            (DateTimeOffset.UtcNow - nightlyCache.FetchedAtUtc) <= CacheTtl)
         {
-            var cachedReleases = ParseCompatibilityBuildReleases(cache.ReleasesJson!);
+            var cachedReleases = ParseCompatibilityBuildReleases(nightlyCache.ReleasesJson!);
             var cachedBinaryFallback = await TryGetNightlyReleasesFromBinaryFeedAsync(cancellationToken).ConfigureAwait(false);
             var preferredCached = PickNewestNightlyList(cachedReleases, cachedBinaryFallback);
             var latestFromUpdate = await TryGetLatestNightlyFromUpdateEndpointAsync(cancellationToken).ConfigureAwait(false);
@@ -815,7 +818,7 @@ public partial class Rpcs3EmulatorUpdateService
             if (preferredCached.Count > 0)
                 return preferredCached;
 
-            var cachedApiFallback = await ResolveCompatibilityBuildReleasesFromApiAsync(cache.ReleasesJson!, cancellationToken).ConfigureAwait(false);
+            var cachedApiFallback = await ResolveCompatibilityBuildReleasesFromApiAsync(nightlyCache.ReleasesJson!, cancellationToken).ConfigureAwait(false);
             var preferredApiCached = PickNewestNightlyList(cachedApiFallback, cachedBinaryFallback);
             preferredApiCached = MergeNightlyReleases(preferredApiCached, latestFromUpdate);
             if (preferredApiCached.Count > 0)
@@ -825,22 +828,22 @@ public partial class Rpcs3EmulatorUpdateService
         Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, CompatibilityBuildsEndpoint);
-        if (!string.IsNullOrWhiteSpace(cache!.ETag) &&
-            string.Equals(cache!.Repository, NightlyCacheKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(nightlyEtag) &&
+            string.Equals(nightlyRepository, NightlyCacheKey, StringComparison.OrdinalIgnoreCase))
         {
-            request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(cache.ETag));
+            request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(nightlyEtag));
         }
 
         string? json;
         using var response = await Client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (response.StatusCode == HttpStatusCode.NotModified && !string.IsNullOrWhiteSpace(cache?.ReleasesJson))
+        if (response.StatusCode == HttpStatusCode.NotModified && !string.IsNullOrWhiteSpace(nightlyCache.ReleasesJson))
         {
-            json = cache!.ReleasesJson;
+            json = nightlyCache.ReleasesJson;
         }
-        else if (response.StatusCode == HttpStatusCode.Forbidden && !string.IsNullOrWhiteSpace(cache?.ReleasesJson))
+        else if (response.StatusCode == HttpStatusCode.Forbidden && !string.IsNullOrWhiteSpace(nightlyCache.ReleasesJson))
         {
             Log.Warn("Rate limit reached for RPCS3 nightly metadata; using cached entries.");
-            json = cache!.ReleasesJson;
+            json = nightlyCache.ReleasesJson;
         }
         else
         {

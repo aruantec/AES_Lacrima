@@ -8543,7 +8543,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             }
         }
 
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "IsWindow")]
         private static extern bool NativeIsWindow(IntPtr hWnd);
 
         private async Task ResolveEmulatorTargetHwndAsync(Process process, string romPath, IEmulatorHandler handler)
