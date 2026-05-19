@@ -885,10 +885,8 @@ public partial class EmulationView : UserControl
         var screen = mainWindow.Screens?.ScreenFromWindow(mainWindow) ?? mainWindow.Screens?.Primary;
         var bounds = screen?.Bounds ?? new PixelRect(0, 0, 0, 0);
 
-        _portalWindow.Position = bounds.Position;
-        _portalWindow.Width = bounds.Width;
-        _portalWindow.Height = bounds.Height;
         _portalWindow.Topmost = false;
+        ApplyPortalWindowBounds(bounds.Position, bounds.Width, bounds.Height, mainWindow);
 
         if (_portalFullscreenOverlayWindow == null)
         {
@@ -896,15 +894,21 @@ public partial class EmulationView : UserControl
             _portalFullscreenOverlayWindow.DoubleClicked += OnPortalFullscreenOverlayDoubleClicked;
         }
 
-        _portalFullscreenOverlayWindow.Position = bounds.Position;
-        _portalFullscreenOverlayWindow.Width = bounds.Width;
-        _portalFullscreenOverlayWindow.Height = bounds.Height;
+        ApplyFullscreenOverlayBounds(bounds, mainWindow);
+        if (_portalFullscreenOverlayWindow.FindControl<PortalCaptureStatsOverlay>("StatsOverlay") is { } statsOverlay &&
+            DataContext is EmulationViewModel vm)
+        {
+            statsOverlay.CaptureHost = this;
+            statsOverlay.Settings = vm;
+        }
+
         _portalFullscreenOverlayWindow.Topmost = true;
         _portalFullscreenOverlayWindow.Show();
         _portalFullscreenOverlayWindow.Activate();
         _portalFullscreenOverlayWindow.Focus();
 
         _isPortalWindowFullscreen = true;
+        _portalWindow.CaptureHostControl?.InvalidateArrange();
     }
 
     private void ExitPortalFullscreen()
@@ -913,6 +917,11 @@ public partial class EmulationView : UserControl
             return;
 
         _portalFullscreenOverlayWindow?.Hide();
+        if (_portalFullscreenOverlayWindow?.FindControl<PortalCaptureStatsOverlay>("StatsOverlay") is { } statsOverlay)
+        {
+            statsOverlay.CaptureHost = null;
+            statsOverlay.Settings = null;
+        }
 
         _portalWindow.Position = _portalWindowFullscreenPosition;
         _portalWindow.Width = _portalWindowFullscreenSize.Width;
@@ -1005,14 +1014,14 @@ public partial class EmulationView : UserControl
         const int portalExpansionPixels = 1;
         var widthPixels = Math.Max(0, screenBottomRight.X - screenTopLeft.X) + (int)PortalLeftOverlapPixels + (int)PortalRightOverlapPixels + portalExpansionPixels * 2;
         var heightPixels = Math.Max(0, screenBottomRight.Y - screenTopLeft.Y) + (int)PortalTopOverlapPixels + (int)PortalBottomOverlapPixels + portalExpansionPixels * 2;
-        var portalRenderScaling = Math.Max(0.0001, _portalWindow.RenderScaling > 0 ? _portalWindow.RenderScaling : mainWindow.RenderScaling);
-        var width = Math.Ceiling(widthPixels / portalRenderScaling);
-        var height = Math.Ceiling(heightPixels / portalRenderScaling);
 
         var portalPosition = new PixelPoint(
             screenTopLeft.X - (int)PortalLeftOverlapPixels - portalExpansionPixels,
             screenTopLeft.Y - (int)PortalTopOverlapPixels - portalExpansionPixels);
-        var portalSize = new Size(width, height);
+        var portalRenderScaling = GetPortalRenderScaling(mainWindow);
+        var portalSize = new Size(
+            Math.Ceiling(widthPixels / portalRenderScaling),
+            Math.Ceiling(heightPixels / portalRenderScaling));
         if (_lastPortalPosition == portalPosition && _lastPortalSize == portalSize)
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
@@ -1024,17 +1033,53 @@ public partial class EmulationView : UserControl
             return;
         }
 
-        _lastPortalPosition = portalPosition;
-        _lastPortalSize = portalSize;
-        _portalWindow.Position = portalPosition;
+        ApplyPortalWindowBounds(portalPosition, widthPixels, heightPixels, mainWindow);
+        UpdateWindowZOrder();
+    }
+
+    private double GetPortalRenderScaling(Window? mainWindow)
+    {
+        if (_portalWindow == null)
+            return Math.Max(0.0001, mainWindow?.RenderScaling ?? 1.0);
+
+        return Math.Max(0.0001, _portalWindow.RenderScaling > 0
+            ? _portalWindow.RenderScaling
+            : mainWindow?.RenderScaling ?? 1.0);
+    }
+
+    private void ApplyPortalWindowBounds(PixelPoint position, int widthPixels, int heightPixels, Window? mainWindow)
+    {
+        if (_portalWindow == null || widthPixels <= 0 || heightPixels <= 0)
+            return;
+
+        var renderScaling = GetPortalRenderScaling(mainWindow);
+        var width = Math.Ceiling(widthPixels / renderScaling);
+        var height = Math.Ceiling(heightPixels / renderScaling);
+
+        _lastPortalPosition = position;
+        _lastPortalSize = new Size(width, height);
+        _portalWindow.Position = position;
         _portalWindow.Width = width;
         _portalWindow.Height = height;
+
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
-            _portalWindow.MoveResizeUnconstrained(portalPosition, widthPixels, heightPixels);
+            _portalWindow.MoveResizeUnconstrained(position, widthPixels, heightPixels);
             LinuxWindowPlacement.TryConfigureClickThrough(_portalWindow);
         }
-        UpdateWindowZOrder();
+    }
+
+    private void ApplyFullscreenOverlayBounds(PixelRect screenBounds, Window mainWindow)
+    {
+        if (_portalFullscreenOverlayWindow == null || screenBounds.Width <= 0 || screenBounds.Height <= 0)
+            return;
+
+        var renderScaling = Math.Max(0.0001, _portalFullscreenOverlayWindow.RenderScaling > 0
+            ? _portalFullscreenOverlayWindow.RenderScaling
+            : mainWindow.RenderScaling);
+        _portalFullscreenOverlayWindow.Position = screenBounds.Position;
+        _portalFullscreenOverlayWindow.Width = Math.Ceiling(screenBounds.Width / renderScaling);
+        _portalFullscreenOverlayWindow.Height = Math.Ceiling(screenBounds.Height / renderScaling);
     }
 
     private void AttachPortalCaptureBindings()

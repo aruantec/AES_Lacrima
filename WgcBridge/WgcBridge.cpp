@@ -196,6 +196,10 @@ struct CaptureSession
     int dcompHeight = 0;
     std::atomic<int> dcompState{ 0 }; // 0=disabled, 1=initializing, 2=active, -1=failed
     std::atomic<int> dcompPresentCount{ 0 };
+    std::atomic<uint64_t> dcompLastPresentQpc{ 0 };
+    std::atomic<double> dcompSmoothedFrameTimeMs{ 0.0 };
+    std::atomic<double> dcompSmoothedFps{ 0.0 };
+    std::atomic<bool> dcompSwapChainAllowTearing{ false };
     std::atomic<int> dcompStretch{ 2 }; // 0=fill, 1=uniform, 2=uniformToFill
     std::atomic<float> dcompBrightness{ 1.0f };
     std::atomic<float> dcompSaturation{ 1.0f };
@@ -1668,6 +1672,9 @@ struct CaptureSession
         dcompRenderTargetView = nullptr;
         dcompWidth = 0;
         dcompHeight = 0;
+        dcompSwapChainAllowTearing.store(false, std::memory_order_relaxed);
+
+        const bool requestTearing = dcompDisableVsync.load(std::memory_order_relaxed);
 
         DXGI_SWAP_CHAIN_DESC1 desc = {};
         desc.Width = targetWidth;
@@ -1676,20 +1683,36 @@ struct CaptureSession
         desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         desc.BufferCount = 2;
         desc.SampleDesc.Count = 1;
-        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
         desc.Scaling = DXGI_SCALING_STRETCH;
         desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+        desc.SwapEffect = requestTearing ? DXGI_SWAP_EFFECT_FLIP_DISCARD : DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+        desc.Flags = requestTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
 
         HRESULT hr = dxgiFactory->CreateSwapChainForComposition(
             d3dDevice.get(),
             &desc,
             nullptr,
             dcompSwapChain.put());
+        bool allowTearing = requestTearing && SUCCEEDED(hr) && dcompSwapChain;
+        if ((FAILED(hr) || !dcompSwapChain) && requestTearing)
+        {
+            desc.Flags = 0;
+            desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+            hr = dxgiFactory->CreateSwapChainForComposition(
+                d3dDevice.get(),
+                &desc,
+                nullptr,
+                dcompSwapChain.put());
+            allowTearing = false;
+        }
+
         if (FAILED(hr) || !dcompSwapChain)
         {
             MarkDirectCompositionFailed("CreateSwapChainForComposition failed");
             return false;
         }
+
+        dcompSwapChainAllowTearing.store(allowTearing, std::memory_order_relaxed);
 
         hr = dcompVisual->SetContent(dcompSwapChain.get());
         if (FAILED(hr))
@@ -1730,6 +1753,36 @@ struct CaptureSession
         dcompWidth = targetWidth;
         dcompHeight = targetHeight;
         return true;
+    }
+
+    void RecordDirectCompositionPresentTiming()
+    {
+        LARGE_INTEGER now{};
+        QueryPerformanceCounter(&now);
+
+        static LARGE_INTEGER qpcFrequency{};
+        if (qpcFrequency.QuadPart == 0)
+            QueryPerformanceFrequency(&qpcFrequency);
+
+        if (qpcFrequency.QuadPart == 0)
+            return;
+
+        const uint64_t previousQpc = dcompLastPresentQpc.exchange(static_cast<uint64_t>(now.QuadPart), std::memory_order_acq_rel);
+        if (previousQpc == 0)
+            return;
+
+        const double deltaMs = (static_cast<double>(now.QuadPart - previousQpc) * 1000.0) / static_cast<double>(qpcFrequency.QuadPart);
+        if (deltaMs <= 0.0 || deltaMs > 1000.0)
+            return;
+
+        constexpr double smoothing = 0.88;
+        const double previousFrameTimeMs = dcompSmoothedFrameTimeMs.load(std::memory_order_relaxed);
+        const double smoothedFrameTimeMs = previousFrameTimeMs <= 0.0
+            ? deltaMs
+            : (previousFrameTimeMs * smoothing) + (deltaMs * (1.0 - smoothing));
+
+        dcompSmoothedFrameTimeMs.store(smoothedFrameTimeMs, std::memory_order_relaxed);
+        dcompSmoothedFps.store(1000.0 / smoothedFrameTimeMs, std::memory_order_relaxed);
     }
 
     void PresentToDirectComposition(ID3D11Texture2D* texture, int width, int height)
@@ -1874,10 +1927,21 @@ struct CaptureSession
         ID3D11ShaderResourceView* nullSrv = nullptr;
         d3dContext->PSSetShaderResources(0, 1, &nullSrv);
 
-        hr = dcompSwapChain->Present(1, 0);
+        const bool vsync = !dcompDisableVsync.load(std::memory_order_relaxed);
+        const UINT syncInterval = vsync ? 1u : 0u;
+        UINT presentFlags = 0;
+        if (!vsync && dcompSwapChainAllowTearing.load(std::memory_order_relaxed))
+            presentFlags = DXGI_PRESENT_ALLOW_TEARING;
+
+        hr = dcompSwapChain->Present(syncInterval, presentFlags);
+        if (hr == DXGI_ERROR_WAS_STILL_DRAWING)
+            return;
+
         if (FAILED(hr))
         {
-            MarkDirectCompositionFailed("Present failed");
+            char buf[128];
+            _snprintf_s(buf, sizeof(buf), _TRUNCATE, "Present failed (0x%08X)", static_cast<unsigned>(hr));
+            MarkDirectCompositionFailed(buf);
             return;
         }
 
@@ -1890,6 +1954,7 @@ struct CaptureSession
 
         dcompState.store(2);
         dcompPresentCount.fetch_add(1);
+        RecordDirectCompositionPresentTiming();
     }
 
     // OnFrameArrived
@@ -2642,6 +2707,16 @@ extern "C" {
         return static_cast<CaptureSession*>(ptr)->dcompPresentCount.load();
     }
 
+    __declspec(dllexport) double GetDirectCompositionSmoothedFps(void* ptr) {
+        if (!ptr) return 0.0;
+        return static_cast<CaptureSession*>(ptr)->dcompSmoothedFps.load(std::memory_order_relaxed);
+    }
+
+    __declspec(dllexport) double GetDirectCompositionSmoothedFrameTimeMs(void* ptr) {
+        if (!ptr) return 0.0;
+        return static_cast<CaptureSession*>(ptr)->dcompSmoothedFrameTimeMs.load(std::memory_order_relaxed);
+    }
+
     __declspec(dllexport) unsigned int GetDirectCompositionFrameOverwriteCount(void* ptr) {
         if (!ptr) return 0;
         return static_cast<CaptureSession*>(ptr)->dcompFrameOverwriteCount.load(std::memory_order_relaxed);
@@ -2665,6 +2740,10 @@ extern "C" {
     __declspec(dllexport) void SetDirectCompositionRenderOptions(void* ptr, int stretch, float brightness, float saturation, float tintR, float tintG, float tintB, float tintA, int disableVsync) {
         auto s = static_cast<CaptureSession*>(ptr);
         if (!s) return;
+
+        const bool wasDisableVsync = s->dcompDisableVsync.load(std::memory_order_relaxed);
+        const bool willDisableVsync = disableVsync != 0;
+
         s->dcompStretch.store(stretch);
         s->dcompBrightness.store(brightness);
         s->dcompSaturation.store(saturation);
@@ -2672,7 +2751,19 @@ extern "C" {
         s->dcompTintG.store(tintG);
         s->dcompTintB.store(tintB);
         s->dcompTintA.store(tintA);
-        s->dcompDisableVsync.store(disableVsync != 0);
+        s->dcompDisableVsync.store(willDisableVsync);
+
+        if (wasDisableVsync != willDisableVsync)
+        {
+            std::lock_guard<std::mutex> lock(s->dcompWorkerMutex);
+            s->dcompSwapChain = nullptr;
+            s->dcompRenderTargetView = nullptr;
+            s->dcompWidth = 0;
+            s->dcompHeight = 0;
+            s->dcompSwapChainAllowTearing.store(false, std::memory_order_relaxed);
+            if (s->dcompState.load() == -1)
+                s->dcompState.store(2);
+        }
     }
 
     __declspec(dllexport) void SetDirectCompositionShader(void* ptr, const wchar_t* shaderPath) {

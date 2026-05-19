@@ -396,21 +396,6 @@ private bool _isShadPs4PatchesOverlayOpen;
         [ObservableProperty]
         private bool _isFullscreen;
 
-        private Stretch _previousStretchBeforeFullscreen = Stretch.Uniform;
-
-        partial void OnIsFullscreenChanged(bool value)
-        {
-            if (value)
-            {
-                _previousStretchBeforeFullscreen = SelectedStretch;
-                SelectedStretch = Stretch.Fill;
-            }
-            else
-            {
-                SelectedStretch = _previousStretchBeforeFullscreen;
-            }
-        }
-
         [ObservableProperty]
         private bool _isRetroArchErrorOverlayOpen;
 

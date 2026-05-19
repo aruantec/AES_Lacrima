@@ -1,0 +1,82 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:AES_Lacrima.Views"
+             x:Class="AES_Lacrima.Views.PortalCaptureStatsOverlay"
+             x:Name="StatsRoot"
+             IsHitTestVisible="False">
+    <Border Margin="16,16,16,24"
+            Width="560"
+            Padding="10"
+            CornerRadius="8"
+            Background="#C0000000"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Bottom"
+            IsVisible="{Binding Settings.ShowStatisticsOverlay, ElementName=StatsRoot, FallbackValue=False}"
+            IsHitTestVisible="False"
+            Opacity="{Binding Settings.RenderOverlayOpacity, ElementName=StatsRoot, FallbackValue=0.55}">
+        <StackPanel Spacing="4"
+                    HorizontalAlignment="Left">
+            <StackPanel Spacing="4"
+                        HorizontalAlignment="Left">
+                <TextBlock Text="{Binding CaptureHost.PortalCaptureFps, ElementName=StatsRoot, StringFormat='Capture FPS: {0:0.0}', FallbackValue='Capture FPS: --'}"
+                           Foreground="White"
+                           FontSize="16"
+                           FontFamily="Consolas"/>
+                <TextBlock Text="{Binding CaptureHost.PortalCaptureFrameTimeMs, ElementName=StatsRoot, StringFormat='Capture frame time: {0:0.00} ms', FallbackValue='Capture frame time: -- ms'}"
+                           Foreground="White"
+                           FontSize="16"
+                           FontFamily="Consolas"/>
+                <TextBlock Text="{Binding CaptureHost.PortalStatusText, ElementName=StatsRoot, FallbackValue=''}"
+                           Foreground="{Binding CaptureHost.IsPortalDirectCompositionActive, ElementName=StatsRoot, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#7CFC00,#FFCC66'}"
+                           FontSize="13"
+                           FontFamily="Consolas"
+                           Margin="0,2,0,4"/>
+                <StackPanel Spacing="4"
+                            HorizontalAlignment="Left"
+                            IsVisible="{Binding Settings.ShowDetailedGpuInfo, ElementName=StatsRoot, FallbackValue=False}">
+                    <TextBlock Text="{Binding CaptureHost.PortalGpuRenderer, ElementName=StatsRoot, StringFormat='GPU: {0}', FallbackValue='GPU: Unknown'}"
+                               Foreground="#DDDDDD"
+                               FontSize="13"
+                               FontFamily="Consolas"
+                               HorizontalAlignment="Left"
+                               TextAlignment="Left"
+                               TextTrimming="CharacterEllipsis"
+                               MaxWidth="420"/>
+                    <TextBlock Text="{Binding CaptureHost.PortalGpuVendor, ElementName=StatsRoot, StringFormat='Vendor: {0}', FallbackValue='Vendor: Unknown'}"
+                               Foreground="#DDDDDD"
+                               FontSize="13"
+                               FontFamily="Consolas"
+                               HorizontalAlignment="Left"
+                               TextAlignment="Left"/>
+                </StackPanel>
+                <StackPanel Spacing="0"
+                            HorizontalAlignment="Left"
+                            IsVisible="{Binding Settings.ShowFrametimeGraph, ElementName=StatsRoot, FallbackValue=False}">
+                    <Canvas Width="520"
+                            Height="40"
+                            HorizontalAlignment="Left"
+                            Margin="0,5,0,0">
+                        <Border Width="520"
+                                Height="1"
+                                Background="#28FFFFFF"
+                                Canvas.Top="13.36"/>
+                        <Border Width="520"
+                                Height="1"
+                                Background="#28FFFFFF"
+                                Canvas.Top="26.72"/>
+                        <Path Data="{Binding CaptureHost.PortalFrametimeGraphGeometry, ElementName=StatsRoot}"
+                              Stroke="#B400FFFF"
+                              StrokeThickness="1.5"
+                              Stretch="None"/>
+                        <TextBlock Text="{Binding CaptureHost.PortalCaptureFrameTimeMs, ElementName=StatsRoot, StringFormat='{}{0:0.00} ms', FallbackValue=''}"
+                                   Foreground="#FF00FFFF"
+                                   FontSize="12"
+                                   FontFamily="Consolas"
+                                   Canvas.Top="-5"
+                                   Canvas.Left="0"/>
+                    </Canvas>
+                </StackPanel>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

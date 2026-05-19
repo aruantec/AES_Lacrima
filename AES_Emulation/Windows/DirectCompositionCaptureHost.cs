@@ -647,6 +647,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         _lastCropWidth = int.MinValue;
         _lastCropHeight = int.MinValue;
         ApplyCropRectCore(settings);
+        WgcBridgeApi.SetCaptureMaxResolution(_session, 4096, 1080);
         _lastFrameCount = 0;
         _lastPresentCount = 0;
         _lastFpsSampleUtc = DateTime.UtcNow;
@@ -797,76 +798,46 @@ public class DirectCompositionCaptureHost : NativeControlHost
             _lastLoggedDirectCompositionError = lastError;
         }
         var now = DateTime.UtcNow;
-        var elapsedMs = (now - _lastFpsSampleUtc).TotalMilliseconds;
-        if (elapsedMs >= 120)
+        var captureFps = WgcBridgeApi.GetDirectCompositionSmoothedFps(_session);
+        var captureFrameTimeMs = WgcBridgeApi.GetDirectCompositionSmoothedFrameTimeMs(_session);
+        if (captureFps > 0.01 || captureFrameTimeMs > 0.01)
         {
-            var deltaFrames = Math.Max(0, frames - _lastFrameCount);
-            var fps = deltaFrames * 1000.0 / elapsedMs;
-            if (deltaFrames > 0)
+            var roundedFps = Math.Round(captureFps, 1);
+            var roundedFrameTimeMs = Math.Round(captureFrameTimeMs, 2);
+            if (Math.Abs(Fps - roundedFps) > 0.05 || Math.Abs(FrameTimeMs - roundedFrameTimeMs) > 0.05)
             {
-                var nextFps = Fps <= 0.01 ? fps : (Fps * 0.8) + (fps * 0.2);
-                RunOnUiThread(() => Fps = nextFps);
-            }
-            else if (elapsedMs > 250)
-            {
-                // Decay FPS if we haven't seen a frame for a quarter second
-                var decayedFps = Fps * 0.5;
-                if (decayedFps < 0.1) decayedFps = 0;
-                RunOnUiThread(() => Fps = decayedFps);
-            }
-            else if (frames <= 0 && presents <= 0)
-            {
-                RunOnUiThread(() => Fps = 0);
+                RunOnUiThread(() => Fps = roundedFps);
+                RunOnUiThread(() => FrameTimeMs = roundedFrameTimeMs);
             }
 
             _lastFrameCount = frames;
-            _lastFpsSampleUtc = now;
-        }
-
-        var presentElapsedMs = (now - _lastPresentSampleUtc).TotalMilliseconds;
-        var deltaPresents = Math.Max(0, presents - _lastPresentCount);
-        if (deltaPresents > 0 && presentElapsedMs >= 1)
-        {
-            var instantFrameTimeMs = presentElapsedMs / deltaPresents;
-            
-            // If we had a long stall (> 500ms), cap the spike and reset smoothing faster
-            if (presentElapsedMs > 500 && deltaPresents == 1)
-            {
-                var cappedFrameTimeMs = Math.Min(instantFrameTimeMs, 500.0);
-                var calculatedFps = 1000.0 / Math.Max(cappedFrameTimeMs, 0.001);
-                RunOnUiThread(() => FrameTimeMs = cappedFrameTimeMs);
-                RunOnUiThread(() => Fps = calculatedFps);
-            }
-            else
-            {
-                var smoothedFrameTimeMs = FrameTimeMs <= 0.01
-                    ? instantFrameTimeMs
-                    : (FrameTimeMs * 0.82) + (instantFrameTimeMs * 0.18);
-
-                var instantFps = 1000.0 / Math.Max(instantFrameTimeMs, 0.001);
-                var smoothedFps = Fps <= 0.01
-                    ? instantFps
-                    : (Fps * 0.75) + (instantFps * 0.25);
-                RunOnUiThread(() => FrameTimeMs = smoothedFrameTimeMs);
-                RunOnUiThread(() => Fps = smoothedFps);
-            }
-
             _lastPresentCount = presents;
+            _lastFpsSampleUtc = now;
             _lastPresentSampleUtc = now;
         }
-        else if (presentElapsedMs > 300)
+        else
         {
-            // Stalled
-            if (presents <= 0 && frames <= 0)
+            var elapsedMs = (now - _lastFpsSampleUtc).TotalMilliseconds;
+            if (elapsedMs >= 250)
             {
-                RunOnUiThread(() => FrameTimeMs = 0);
-                RunOnUiThread(() => Fps = 0);
-            }
-            else
-            {
-                var decayedFps = Fps * 0.5;
-                if (decayedFps < 0.1) decayedFps = 0;
-                RunOnUiThread(() => Fps = decayedFps);
+                var deltaPresents = Math.Max(0, presents - _lastPresentCount);
+                if (deltaPresents > 0 && elapsedMs > 0)
+                {
+                    var fallbackFrameTimeMs = elapsedMs / deltaPresents;
+                    var fallbackFps = 1000.0 / Math.Max(fallbackFrameTimeMs, 0.001);
+                    RunOnUiThread(() => FrameTimeMs = Math.Round(fallbackFrameTimeMs, 2));
+                    RunOnUiThread(() => Fps = Math.Round(fallbackFps, 1));
+                }
+                else if (presents <= 0 && frames <= 0)
+                {
+                    RunOnUiThread(() => FrameTimeMs = 0);
+                    RunOnUiThread(() => Fps = 0);
+                }
+
+                _lastFrameCount = frames;
+                _lastPresentCount = presents;
+                _lastFpsSampleUtc = now;
+                _lastPresentSampleUtc = now;
             }
         }
 

@@ -121,6 +121,14 @@ public static class WgcBridgeApi
     private static GetDirectCompositionPresentCountDel? s_getDirectCompositionPresentCount;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate double GetDirectCompositionSmoothedFpsDel(nint session);
+    private static GetDirectCompositionSmoothedFpsDel? s_getDirectCompositionSmoothedFps;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate double GetDirectCompositionSmoothedFrameTimeMsDel(nint session);
+    private static GetDirectCompositionSmoothedFrameTimeMsDel? s_getDirectCompositionSmoothedFrameTimeMs;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int GetDirectCompositionLastErrorDel(nint session, StringBuilder buffer, int bufferChars);
     private static GetDirectCompositionLastErrorDel? s_getDirectCompositionLastError;
 
@@ -177,6 +185,8 @@ public static class WgcBridgeApi
                     "GetCaptureStatus",
                     "GetDirectCompositionState",
                     "GetDirectCompositionPresentCount",
+                    "GetDirectCompositionSmoothedFps",
+                    "GetDirectCompositionSmoothedFrameTimeMs",
                     "GetDirectCompositionLastError",
                     "SetDirectCompositionRenderOptions",
                     "SetDirectCompositionShader",
@@ -237,6 +247,10 @@ public static class WgcBridgeApi
                     s_getDirectCompositionState = Marshal.GetDelegateForFunctionPointer<GetDirectCompositionStateDel>(pDCompState);
                 if (NativeLibrary.TryGetExport(handle, "GetDirectCompositionPresentCount", out IntPtr pDCompPresent))
                     s_getDirectCompositionPresentCount = Marshal.GetDelegateForFunctionPointer<GetDirectCompositionPresentCountDel>(pDCompPresent);
+                if (NativeLibrary.TryGetExport(handle, "GetDirectCompositionSmoothedFps", out IntPtr pDCompFps))
+                    s_getDirectCompositionSmoothedFps = Marshal.GetDelegateForFunctionPointer<GetDirectCompositionSmoothedFpsDel>(pDCompFps);
+                if (NativeLibrary.TryGetExport(handle, "GetDirectCompositionSmoothedFrameTimeMs", out IntPtr pDCompFrameTime))
+                    s_getDirectCompositionSmoothedFrameTimeMs = Marshal.GetDelegateForFunctionPointer<GetDirectCompositionSmoothedFrameTimeMsDel>(pDCompFrameTime);
                 if (NativeLibrary.TryGetExport(handle, "GetDirectCompositionLastError", out IntPtr pDCompLastError))
                     s_getDirectCompositionLastError = Marshal.GetDelegateForFunctionPointer<GetDirectCompositionLastErrorDel>(pDCompLastError);
                 if (NativeLibrary.TryGetExport(handle, "SetDirectCompositionRenderOptions", out IntPtr pDCompOptions))
@@ -286,6 +300,12 @@ public static class WgcBridgeApi
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "GetDirectCompositionPresentCount")]
     private static extern int GetDirectCompositionPresentCountNative(nint session);
+
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "GetDirectCompositionSmoothedFps")]
+    private static extern double GetDirectCompositionSmoothedFpsNative(nint session);
+
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "GetDirectCompositionSmoothedFrameTimeMs")]
+    private static extern double GetDirectCompositionSmoothedFrameTimeMsNative(nint session);
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, SetLastError = true, EntryPoint = "GetDirectCompositionLastError")]
     private static extern int GetDirectCompositionLastErrorNative(nint session, StringBuilder buffer, int bufferChars);
@@ -427,6 +447,50 @@ public static class WgcBridgeApi
     {
         if (s_getDirectCompositionPresentCount != null) return s_getDirectCompositionPresentCount(session);
         return GetDirectCompositionPresentCountNative(session);
+    }
+
+    public static double GetDirectCompositionSmoothedFps(nint session)
+    {
+        if (session == IntPtr.Zero)
+            return 0.0;
+
+        if (s_getDirectCompositionSmoothedFps != null)
+            return s_getDirectCompositionSmoothedFps(session);
+
+        try
+        {
+            return GetDirectCompositionSmoothedFpsNative(session);
+        }
+        catch (DllNotFoundException)
+        {
+            return 0.0;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return 0.0;
+        }
+    }
+
+    public static double GetDirectCompositionSmoothedFrameTimeMs(nint session)
+    {
+        if (session == IntPtr.Zero)
+            return 0.0;
+
+        if (s_getDirectCompositionSmoothedFrameTimeMs != null)
+            return s_getDirectCompositionSmoothedFrameTimeMs(session);
+
+        try
+        {
+            return GetDirectCompositionSmoothedFrameTimeMsNative(session);
+        }
+        catch (DllNotFoundException)
+        {
+            return 0.0;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return 0.0;
+        }
     }
 
     public static string GetDirectCompositionLastError(nint session)
