@@ -86,6 +86,8 @@ public sealed class XeniaHandler : EmulatorHandlerBase
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            TryDismissXeniaWarningDialogs(process);
+
             IntPtr mainWindow;
             try
             {
@@ -151,6 +153,9 @@ public sealed class XeniaHandler : EmulatorHandlerBase
         bool hasCaption = (style & WS_CAPTION) == WS_CAPTION;
         bool looksLikePrimaryUi = hwnd == mainWindowHandle;
 
+        if (IsXeniaMessageBoxWindow(hwnd, title, className))
+            return false;
+
         if (!string.IsNullOrWhiteSpace(title))
         {
             var lowerTitle = title.ToLowerInvariant();
@@ -162,12 +167,14 @@ public sealed class XeniaHandler : EmulatorHandlerBase
                 lowerTitle.Contains("controller") ||
                 lowerTitle.Contains("tools") ||
                 lowerTitle.Contains("about") ||
-                lowerTitle.Contains("help"))
+                lowerTitle.Contains("help") ||
+                lowerTitle.Contains("warning") ||
+                lowerTitle.Contains("error"))
             {
                 return false;
             }
 
-            if (lowerTitle.Contains("xenia"))
+            if (lowerTitle.Contains("xenia") && !lowerTitle.Contains("warning"))
                 return true;
         }
 
@@ -247,7 +254,12 @@ public sealed class XeniaHandler : EmulatorHandlerBase
             return long.MinValue;
 
         var className = GetWindowClassName(hwnd).Trim().ToLowerInvariant();
-        var title = GetWindowTitle(hwnd).Trim().ToLowerInvariant();
+        var title = GetWindowTitle(hwnd).Trim();
+
+        if (IsXeniaMessageBoxWindow(hwnd, title, className))
+            return long.MinValue;
+
+        var lowerTitle = title.ToLowerInvariant();
 
         if (className.Contains("ime") ||
             className.Contains("observerwindow") ||
@@ -270,10 +282,81 @@ public sealed class XeniaHandler : EmulatorHandlerBase
         if (className.Contains("render") || className.Contains("swapchain") || className.Contains("viewport"))
             score += 5_000_000;
 
-        if (title.Contains("temp window"))
+        if (lowerTitle.Contains("temp window"))
             score += 10_000_000;
 
         return score;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void TryDismissXeniaWarningDialogs(Process process)
+    {
+        foreach (var hwnd in EnumerateProcessTopLevelWindows(process, includeHiddenWindows: true))
+        {
+            if (hwnd == IntPtr.Zero)
+                continue;
+
+            var title = GetWindowTitle(hwnd).Trim();
+            if (!title.Contains("Xenia Warning", StringComparison.OrdinalIgnoreCase) &&
+                !title.Equals("Xenia Error", StringComparison.OrdinalIgnoreCase) &&
+                !title.Equals("Xenia Help", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!TryClickDialogButton(hwnd, "OK") && !TryClickDialogButton(hwnd, "&OK"))
+                PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool IsXeniaMessageBoxWindow(IntPtr hwnd, string title, string className)
+    {
+        var lowerTitle = title.Trim().ToLowerInvariant();
+        var lowerClass = className.Trim().ToLowerInvariant();
+
+        if (lowerClass == "#32770")
+            return true;
+
+        if (lowerTitle.Contains("xenia warning") ||
+            lowerTitle.Contains("xenia error") ||
+            lowerTitle.Equals("xenia help", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out RECT rect))
+            return false;
+
+        var width = Math.Max(0, rect.Right - rect.Left);
+        var height = Math.Max(0, rect.Bottom - rect.Top);
+        return width > 0 && width < 640 && height > 0 && height < 360 &&
+               (lowerTitle.Contains("warning") || lowerTitle.Contains("error"));
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool TryClickDialogButton(IntPtr dialogHwnd, string buttonText)
+    {
+        var clicked = false;
+
+        EnumChildWindows(dialogHwnd, (child, _) =>
+        {
+            if (clicked)
+                return false;
+
+            if (!string.Equals(GetWindowClassName(child), "Button", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var text = GetWindowTitle(child).Trim();
+            if (!text.Equals(buttonText, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            SendMessage(child, BM_CLICK, IntPtr.Zero, IntPtr.Zero);
+            clicked = true;
+            return false;
+        }, IntPtr.Zero);
+
+        return clicked;
     }
 
     private delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
@@ -289,6 +372,15 @@ public sealed class XeniaHandler : EmulatorHandlerBase
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll", SetLastError = false)]
+    private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = false)]
+    private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    private const uint WM_CLOSE = 0x0010;
+    private const uint BM_CLICK = 0x00F5;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT
