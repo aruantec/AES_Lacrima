@@ -118,6 +118,7 @@ namespace AES_Lacrima.ViewModels
         ];
 
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumScanCtsMap = [];
+        private readonly HashSet<FolderMediaItem> _albumsWithMetadataScanned = [];
         private AvaloniaList<string> _pendingAlbumOrder = [];
         private Dictionary<string, List<MediaItem>> _pendingAlbumRoms = new(StringComparer.OrdinalIgnoreCase);
         private bool _isPreparing;
@@ -325,6 +326,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         private FolderMediaItem? _selectedAlbum;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(CanShowRenderOptions))]
         private FolderMediaItem? _loadedAlbum;
 
         [ObservableProperty]
@@ -368,8 +370,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         public string AlbumListToggleText => IsAlbumListCollapsed ? "Show Albums" : "Hide Albums";
 
         public bool CanShowRenderOptions =>
-            SelectedCaptureMode == EmulatorCaptureMode.DirectComposition ||
-            CurrentEmulatorHandler?.IsWindowEmbeddingSupported != true;
+            LoadedAlbum?.Children.Count > 0 &&
+            (SelectedCaptureMode == EmulatorCaptureMode.DirectComposition ||
+             CurrentEmulatorHandler?.IsWindowEmbeddingSupported != true);
 
         [ObservableProperty]
         private bool _isEmulatorRunning;
@@ -7043,6 +7046,10 @@ private bool _isShadPs4PatchesOverlayOpen;
             }
 
             album.Children.Clear();
+            lock (_albumsWithMetadataScanned)
+            {
+                _albumsWithMetadataScanned.Remove(album);
+            }
             ApplyFilter();
             SaveSettings();
             return Task.CompletedTask;
@@ -7209,7 +7216,12 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         private void FinalizeRomImport(FolderMediaItem album)
         {
-            NormalizeAlbumRomTitles(album);
+            // Newly imported ROMs need a fresh metadata pass; clear the
+            // session-scoped scanned marker so the queued scan actually runs.
+            lock (_albumsWithMetadataScanned)
+            {
+                _albumsWithMetadataScanned.Remove(album);
+            }
 
             if (ReferenceEquals(LoadedAlbum, album))
                 ApplyFilter();
@@ -7449,7 +7461,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         private void QueueSelectedAlbumCoverScan(FolderMediaItem? album)
         {
-            if (album == null || album.Children.Count == 0 || MetadataService == null)
+            if (album == null || album.Children.Count == 0)
                 return;
 
             try
@@ -7466,10 +7478,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 SLog.Warn($"Failed to cancel previous emulation album cover scan for '{album.Title}'.", ex);
             }
 
-            if (ReferenceEquals(LoadedAlbum, album))
-                NormalizeAlbumRomTitles(album);
-
-            SLog.Debug($"Queueing emulation cover scan for album '{album.Title}' with {album.Children.Count} items.");
+            SLog.Debug($"Queueing emulation metadata and cover scan for album '{album.Title}' with {album.Children.Count} items.");
 
             var cts = new CancellationTokenSource();
             _albumScanCtsMap[album] = cts;
@@ -7509,11 +7518,22 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         private async Task LoadAlbumCoversAsync(FolderMediaItem album, CancellationToken cancellationToken)
         {
-            if (MetadataService == null)
-                return;
+            // Kick off the ROM metadata pass in parallel so cover loading
+            // (which is what the user actually sees) is never blocked by
+            // expensive disc/ROM header inspection. The metadata pass runs
+            // relaxed in the background and updates titles as it goes.
+            var metadataTask = Task.Run(
+                () => ApplyAlbumRomMetadataAsync(album, cancellationToken),
+                cancellationToken);
 
             try
             {
+                if (MetadataService == null)
+                {
+                    await metadataTask.ConfigureAwait(false);
+                    return;
+                }
+
                 var itemsToLoad = await Dispatcher.UIThread.InvokeAsync(() =>
                     album.Children.Where(item => NeedsCoverLookup(item, album)).ToList(), DispatcherPriority.Background);
                 SLog.Debug($"Starting emulation cover scan for album '{album.Title}'. {itemsToLoad.Count} roms need lookup.");
@@ -7557,6 +7577,19 @@ private bool _isShadPs4PatchesOverlayOpen;
             catch (Exception ex)
             {
                 SLog.Warn($"Emulation cover scan failed for album '{album.Title}'.", ex);
+            }
+
+            try
+            {
+                await metadataTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Cover scan and metadata scan share the same token; ignore.
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Emulation ROM metadata scan failed for album '{album.Title}'.", ex);
             }
         }
 
@@ -7748,10 +7781,95 @@ private bool _isShadPs4PatchesOverlayOpen;
             };
         }
 
-        private static void NormalizeAlbumRomTitles(FolderMediaItem album)
+        private async Task ApplyAlbumRomMetadataAsync(FolderMediaItem album, CancellationToken cancellationToken)
         {
-            var normalizer = new SectionHandlers.GenericAlbumNormalizer();
-            normalizer.NormalizeRomTitles(album);
+            if (album.Children.Count == 0)
+                return;
+
+            // Avoid re-scanning the same album multiple times in a session
+            // (album selection can fire repeatedly while the user navigates).
+            lock (_albumsWithMetadataScanned)
+            {
+                if (!_albumsWithMetadataScanned.Add(album))
+                    return;
+            }
+
+            var items = await Dispatcher.UIThread.InvokeAsync(
+                () => album.Children.ToList(),
+                DispatcherPriority.Background);
+
+            // Incremental updates: post a batch periodically so titles appear
+            // progressively instead of all-at-once after a long pass.
+            const int UiBatchSize = 8;
+            // Pause between actual ROM inspections to keep the scanner relaxed.
+            // Cached / already-scanned items skip this delay entirely.
+            const int RelaxedInspectionDelayMs = 40;
+
+            var pendingUpdates = new List<(MediaItem item, string title)>(UiBatchSize);
+
+            async Task FlushAsync()
+            {
+                if (pendingUpdates.Count == 0)
+                    return;
+
+                var snapshot = pendingUpdates.ToArray();
+                pendingUpdates.Clear();
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    foreach (var (item, title) in snapshot)
+                        item.Title = title;
+
+                    if (ReferenceEquals(LoadedAlbum, album))
+                        ApplyFilter();
+                }, DispatcherPriority.Background);
+            }
+
+            try
+            {
+                foreach (var item in items)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (string.IsNullOrWhiteSpace(item.FileName))
+                        continue;
+
+                    var wasPreviouslyScanned =
+                        SectionHandlers.GenericAlbumNormalizer.IsRomMetadataAlreadyScanned(item.FileName);
+
+                    var resolvedTitle = SectionHandlers.GenericAlbumNormalizer.ResolveRomTitle(
+                        item.FileName,
+                        album.Title,
+                        item.Title);
+
+                    if (!string.IsNullOrWhiteSpace(resolvedTitle) &&
+                        !string.Equals(item.Title, resolvedTitle, StringComparison.Ordinal))
+                    {
+                        pendingUpdates.Add((item, resolvedTitle));
+                        if (pendingUpdates.Count >= UiBatchSize)
+                            await FlushAsync().ConfigureAwait(false);
+                    }
+
+                    // Only throttle when we actually touched disk for inspection.
+                    if (!wasPreviouslyScanned)
+                        await Task.Delay(RelaxedInspectionDelayMs, cancellationToken).ConfigureAwait(false);
+                }
+
+                await FlushAsync().ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Best-effort flush of any titles we already resolved before cancel.
+                try
+                {
+                    await FlushAsync().ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Ignore secondary failures during cancellation.
+                }
+                throw;
+            }
         }
 
         private static bool NeedsCoverLookup(MediaItem item, FolderMediaItem album)
@@ -7816,6 +7934,11 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             OnPropertyChanged(nameof(HasActiveAlbumItems));
             OnPropertyChanged(nameof(ShowEmptyActiveAlbumHint));
+            OnPropertyChanged(nameof(CanShowRenderOptions));
+
+            if (!CanShowRenderOptions && IsRenderOptionsOpen)
+                IsRenderOptionsOpen = false;
+
             ClearAlbumCommand.NotifyCanExecuteChanged();
             ClearAlbumCacheCommand.NotifyCanExecuteChanged();
             OpenMetadataCommand.NotifyCanExecuteChanged();

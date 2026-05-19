@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using AES_Lacrima.Services;
 
 namespace AES_Lacrima.Services.Emulation
 {
@@ -20,7 +21,15 @@ namespace AES_Lacrima.Services.Emulation
         /// <summary>PlayStation 2 disc - uses BOOT2 key in SYSTEM.CNF</summary>
         PS2 = 2,
         /// <summary>Dreamcast disc - uses IP.BIN metadata</summary>
-        Dreamcast = 3
+        Dreamcast = 3,
+        /// <summary>Nintendo GameCube disc image</summary>
+        GameCube = 4,
+        /// <summary>Nintendo Wii disc image</summary>
+        Wii = 5,
+        /// <summary>Nintendo Wii U disc image or install package</summary>
+        WiiU = 6,
+        /// <summary>Nintendo 3DS ROM container (NCSD/CCI/NCCH/CXI/CIA)</summary>
+        Nintendo3ds = 7
     }
 
     /// <summary>
@@ -31,6 +40,23 @@ namespace AES_Lacrima.Services.Emulation
     {
         private const long FullHashThreshold = 200L * 1024 * 1024; // 200 MB
         private const long NormSha1Threshold = 512L * 1024 * 1024; // 512 MB
+        private const uint GameCubeDiscMagic = 0xC2339F3D;
+        private const uint WiiDiscMagic = 0x5D1C9EA3;
+        private const int NintendoInternalNameLength = 0x60;
+        private const uint Nintendo3dsCiaHeaderSize = 0x2020;
+        private const int Nintendo3dsSmdhSize = 0x36C0;
+        private const int Nintendo3dsSmdhTitleEntrySize = 0x200;
+        private const int Nintendo3dsSmdhShortDescriptionLength = 0x80;
+
+        private static readonly string[] NintendoDiscExtensions =
+        [
+            ".iso", ".gcm", ".gcz", ".ciso", ".rvz", ".wia", ".wbfs", ".bin", ".tgc", ".wad"
+        ];
+
+        private static readonly string[] Nintendo3dsExtensions =
+        [
+            ".3ds", ".cci", ".cxi", ".cia"
+        ];
 
         /// <summary>
         /// Inspect a file path or an archive entry (zip).
@@ -45,8 +71,19 @@ namespace AES_Lacrima.Services.Emulation
         /// </summary>
         public static RomInfo Inspect(string path, DiscSection section)
         {
+            if (string.IsNullOrWhiteSpace(path))
+                return new RomInfo { Format = RomFormat.Unknown };
+
+            if (Directory.Exists(path))
+            {
+                if (section == DiscSection.WiiU || section == DiscSection.Auto)
+                    return InspectWiiUPackage(path);
+
+                return new RomInfo { FilePath = path, Format = RomFormat.Unknown };
+            }
+
             // Check if file exists before attempting to inspect
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            if (!File.Exists(path))
                 return new RomInfo { Format = RomFormat.Unknown };
 
             var ext = Path.GetExtension(path).ToLowerInvariant();
@@ -358,7 +395,7 @@ namespace AES_Lacrima.Services.Emulation
             }
             else if (info.Format == RomFormat.Nes)
             {
-                // NES doesn't have an internal title in the ROM header, but we've identified it as NES
+                info.InternalTitle = ExtractNesTitle(fs);
             }
             else if (info.Format == RomFormat.Genesis)
             {
@@ -379,6 +416,29 @@ namespace AES_Lacrima.Services.Emulation
                 info.InternalTitle = CleanAsciiText(info.InternalTitle);
                 if (!IsValidTitle(info.InternalTitle))
                     info.InternalTitle = null;
+            }
+
+            var streamExtension = Path.GetExtension(displayPath).ToLowerInvariant();
+
+            if (Is3dsContext(streamExtension, section))
+            {
+                fs.Seek(0, SeekOrigin.Begin);
+                if (TryExtract3dsMetadata(fs, info, streamExtension))
+                {
+                    info.Format = RomFormat.Iso;
+                    return info;
+                }
+            }
+
+            if (IsNintendoDiscContext(streamExtension, section))
+            {
+                fs.Seek(0, SeekOrigin.Begin);
+                if (TryExtractNintendoDiscMetadata(fs, info, section, streamExtension) &&
+                    !string.IsNullOrEmpty(info.GameId))
+                {
+                    info.Format = RomFormat.Iso;
+                    return info;
+                }
             }
 
             // If ISO detected by header heuristics, perform specialized disc inspection
@@ -460,6 +520,17 @@ namespace AES_Lacrima.Services.Emulation
         {
             var info = new RomInfo { FilePath = displayPath, Format = RomFormat.Iso };
             if (!fs.CanSeek) return info;
+
+            var discExtension = Path.GetExtension(displayPath).ToLowerInvariant();
+            if (IsNintendoDiscContext(discExtension, section))
+            {
+                fs.Seek(0, SeekOrigin.Begin);
+                if (TryExtractNintendoDiscMetadata(fs, info, section, discExtension) &&
+                    !string.IsNullOrEmpty(info.GameId))
+                {
+                    return info;
+                }
+            }
 
             int[] sectorCandidates = new[] { 2048, 2352 };
             int foundSectorSize = 0;
@@ -1289,6 +1360,58 @@ namespace AES_Lacrima.Services.Emulation
             return (ushort)(checksum + complement) == 0xFFFF && checksum != 0 && checksum != 0xFFFF;
         }
 
+        private static string? ExtractNesTitle(Stream fs)
+        {
+            if (!fs.CanSeek || fs.Length < 16)
+                return null;
+
+            var header = new byte[16];
+            fs.Seek(0, SeekOrigin.Begin);
+            if (fs.Read(header, 0, header.Length) != header.Length)
+                return null;
+
+            if (header[0] != 'N' || header[1] != 'E' || header[2] != 'S' || header[3] != 0x1A)
+                return null;
+
+            // iNES 2.0 name tag (NESdev): byte 7 bits 2-3 == 0b10
+            if ((header[7] & 0x0C) != 0x08)
+                return null;
+
+            int prgSize = header[4] * 0x4000;
+            int chrSize = header[5] * 0x2000;
+            int trainerSize = (header[6] & 0x04) != 0 ? 512 : 0;
+            long extensionOffset = 16L + trainerSize + prgSize + chrSize;
+            if (fs.Length <= extensionOffset + 8)
+                return null;
+
+            int toRead = (int)Math.Min(fs.Length - extensionOffset, 64 * 1024);
+            var buffer = new byte[toRead];
+            fs.Seek(extensionOffset, SeekOrigin.Begin);
+            if (fs.Read(buffer, 0, toRead) < 8)
+                return null;
+
+            for (int i = 0; i + 8 <= buffer.Length;)
+            {
+                if (buffer[i] == 'N' && buffer[i + 1] == 'a' && buffer[i + 2] == 'm' && buffer[i + 3] == 'e')
+                {
+                    uint length = BitConverter.ToUInt32(buffer, i + 4);
+                    if (length == 0 || i + 8 + length > buffer.Length)
+                        return null;
+
+                    var title = Encoding.UTF8.GetString(buffer, i + 8, (int)length).TrimEnd('\0');
+                    title = CleanAsciiText(title).Trim();
+                    return IsValidTitle(title) ? title : null;
+                }
+
+                if (buffer[i] == 0 && (i == 0 || buffer[i - 1] == 0))
+                    break;
+
+                i++;
+            }
+
+            return null;
+        }
+
         private static string? ExtractSnesTitle(Stream fs)
         {
             byte[] buf = new byte[0x10200]; // enough to cover HiROM + copier header
@@ -1926,6 +2049,571 @@ namespace AES_Lacrima.Services.Emulation
             }
         }
         
+        private static bool IsNintendoDiscExtension(string extension)
+            => NintendoDiscExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+
+        private static bool IsNintendoDiscContext(string extension, DiscSection section)
+            => section == DiscSection.GameCube ||
+               section == DiscSection.Wii ||
+               section == DiscSection.WiiU ||
+               IsNintendoDiscExtension(extension);
+
+        private static bool Is3dsExtension(string extension)
+            => Nintendo3dsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+
+        private static bool Is3dsContext(string extension, DiscSection section)
+            => section == DiscSection.Nintendo3ds || Is3dsExtension(extension);
+
+        /// <summary>
+        /// Extracts title ID and (where available) product code / SMDH title from
+        /// a Nintendo 3DS container (NCSD/CCI/3DS, NCCH/CXI or CIA).
+        /// </summary>
+        private static bool TryExtract3dsMetadata(Stream fs, RomInfo info, string extension)
+        {
+            if (!fs.CanSeek || fs.Length < 0x200)
+                return false;
+
+            try
+            {
+                if (string.Equals(extension, ".cia", StringComparison.OrdinalIgnoreCase))
+                    return TryExtract3dsCiaMetadata(fs, info);
+
+                // NCSD / CCI / 3DS: read the magic at 0x100 to disambiguate from raw NCCH (CXI).
+                var headerProbe = new byte[0x200];
+                fs.Seek(0, SeekOrigin.Begin);
+                if (fs.Read(headerProbe, 0, headerProbe.Length) != headerProbe.Length)
+                    return false;
+
+                if (HasAsciiTag(headerProbe, 0x100, "NCSD"))
+                    return TryExtract3dsNcsdMetadata(fs, info, headerProbe);
+
+                if (HasAsciiTag(headerProbe, 0x100, "NCCH"))
+                    return TryExtract3dsNcchMetadata(fs, info, headerProbe, ncchOffset: 0);
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool TryExtract3dsNcsdMetadata(Stream fs, RomInfo info, byte[] ncsdHeader)
+        {
+            // NCSD title id lives at 0x108 (8 bytes little-endian).
+            ApplyNintendo3dsTitleIdLe(ncsdHeader, 0x108, info);
+
+            // Partition table: 8 entries starting at 0x120, each 8 bytes
+            // (offset, size) expressed in media units. The media unit size shift
+            // is at offset 0x188+6 inside the partition flags (Dolphin/Citra ref).
+            var unitShift = ncsdHeader[0x188 + 6];
+            if (unitShift > 16)
+                unitShift = 0; // defensive; sane shifts are 0..16
+
+            var mediaUnitSize = 0x200L << unitShift;
+            var firstPartitionUnits = BitConverter.ToUInt32(ncsdHeader, 0x120);
+            if (firstPartitionUnits == 0 || mediaUnitSize <= 0)
+                return !string.IsNullOrEmpty(info.GameId);
+
+            var ncchOffset = firstPartitionUnits * mediaUnitSize;
+            if (ncchOffset + 0x200 > fs.Length)
+                return !string.IsNullOrEmpty(info.GameId);
+
+            var ncchHeader = new byte[0x200];
+            fs.Seek(ncchOffset, SeekOrigin.Begin);
+            if (fs.Read(ncchHeader, 0, ncchHeader.Length) != ncchHeader.Length)
+                return !string.IsNullOrEmpty(info.GameId);
+
+            if (HasAsciiTag(ncchHeader, 0x100, "NCCH"))
+                TryExtract3dsNcchMetadata(fs, info, ncchHeader, ncchOffset);
+
+            return !string.IsNullOrEmpty(info.GameId);
+        }
+
+        private static bool TryExtract3dsNcchMetadata(Stream fs, RomInfo info, byte[] ncchHeader, long ncchOffset)
+        {
+            // Title id at 0x118 inside the NCCH header (8 bytes LE).
+            if (string.IsNullOrEmpty(info.GameId))
+                ApplyNintendo3dsTitleIdLe(ncchHeader, 0x118, info);
+
+            // Many dumps available outside encrypted retail are stored decrypted
+            // (NoCrypto flag set in NCCH flags). For those we can read the SMDH
+            // out of the icon file inside the ExeFS region and recover the real
+            // English game title — e.g. "The Legend of Zelda: Ocarina of Time 3D"
+            // instead of the product code "CTR-P-AQEE".
+            if (string.IsNullOrEmpty(info.InternalTitle) && IsNcchUnencrypted(ncchHeader))
+            {
+                var smdhTitle = TryExtractTitleFromNcchExeFs(fs, ncchHeader, ncchOffset);
+                if (!string.IsNullOrEmpty(smdhTitle))
+                    info.InternalTitle = smdhTitle;
+            }
+
+            // Intentionally do NOT fall back to the product code (e.g. "CTR-P-AQEE")
+            // as the title — it isn't a human-readable name. Filename normalization
+            // upstream handles the cosmetic title in that case.
+
+            return !string.IsNullOrEmpty(info.GameId);
+        }
+
+        /// <summary>
+        /// Returns true if the NoCrypto flag is set in the NCCH header flags
+        /// (offset 0x188, byte 7, bit 0x04). Decrypted dumps set this so the
+        /// ExeFS / RomFS can be read without keys.
+        /// </summary>
+        private static bool IsNcchUnencrypted(byte[] ncchHeader)
+        {
+            if (ncchHeader.Length < 0x188 + 8)
+                return false;
+
+            return (ncchHeader[0x188 + 7] & 0x04) != 0;
+        }
+
+        /// <summary>
+        /// Locates the "icon" file inside the NCCH's ExeFS, reads its SMDH and
+        /// returns the English short description. Only meaningful for decrypted
+        /// dumps (caller is responsible for checking the NoCrypto flag).
+        /// </summary>
+        private static string? TryExtractTitleFromNcchExeFs(Stream fs, byte[] ncchHeader, long ncchOffset)
+        {
+            if (ncchHeader.Length < 0x1A8)
+                return null;
+
+            // NCCH media unit shift lives at offset 0x188+6 in the NCCH header.
+            var unitShift = ncchHeader[0x188 + 6];
+            if (unitShift > 16)
+                unitShift = 0;
+            var mediaUnitSize = 0x200L << unitShift;
+
+            // ExeFS offset/size at NCCH+0x1A0 / NCCH+0x1A4, both expressed in
+            // media units relative to the start of the NCCH partition.
+            var exeFsUnits = BitConverter.ToUInt32(ncchHeader, 0x1A0);
+            var exeFsSizeUnits = BitConverter.ToUInt32(ncchHeader, 0x1A4);
+            if (exeFsUnits == 0 || exeFsSizeUnits == 0)
+                return null;
+
+            var exeFsOffset = ncchOffset + exeFsUnits * mediaUnitSize;
+            var exeFsSize = exeFsSizeUnits * mediaUnitSize;
+            if (exeFsOffset <= 0 || exeFsOffset + 0x200 > fs.Length)
+                return null;
+
+            // ExeFS header is 0x200 bytes: 10 entries of name[8] + offset[4] + size[4],
+            // followed by reserved/hash blocks we don't need.
+            var exeFsHeader = new byte[0x200];
+            fs.Seek(exeFsOffset, SeekOrigin.Begin);
+            if (fs.Read(exeFsHeader, 0, exeFsHeader.Length) != exeFsHeader.Length)
+                return null;
+
+            for (int i = 0; i < 10; i++)
+            {
+                var entry = i * 0x10;
+                var name = Encoding.ASCII.GetString(exeFsHeader, entry, 8).TrimEnd('\0', ' ');
+                if (!string.Equals(name, "icon", StringComparison.Ordinal))
+                    continue;
+
+                var iconOffsetInExeFs = BitConverter.ToUInt32(exeFsHeader, entry + 8);
+                var iconSize = BitConverter.ToUInt32(exeFsHeader, entry + 12);
+                if (iconSize < Nintendo3dsSmdhSize)
+                    return null;
+
+                // The 0x200 ExeFS header sits before the file payload area.
+                var iconAbsoluteOffset = exeFsOffset + 0x200 + iconOffsetInExeFs;
+                if (iconAbsoluteOffset + Nintendo3dsSmdhSize > fs.Length ||
+                    iconAbsoluteOffset + Nintendo3dsSmdhSize > exeFsOffset + exeFsSize)
+                {
+                    return null;
+                }
+
+                var smdh = new byte[Nintendo3dsSmdhSize];
+                fs.Seek(iconAbsoluteOffset, SeekOrigin.Begin);
+                if (fs.Read(smdh, 0, smdh.Length) != smdh.Length)
+                    return null;
+
+                if (!HasAsciiTag(smdh, 0x00, "SMDH"))
+                    return null;
+
+                return ExtractSmdhEnglishTitle(smdh);
+            }
+
+            return null;
+        }
+
+        private static bool TryExtract3dsCiaMetadata(Stream fs, RomInfo info)
+        {
+            var ciaHeader = new byte[(int)Nintendo3dsCiaHeaderSize];
+            fs.Seek(0, SeekOrigin.Begin);
+            if (fs.Read(ciaHeader, 0, ciaHeader.Length) != ciaHeader.Length)
+                return false;
+
+            var headerSize = BitConverter.ToUInt32(ciaHeader, 0x00);
+            if (headerSize != Nintendo3dsCiaHeaderSize)
+                return false;
+
+            var certChainSize = BitConverter.ToUInt32(ciaHeader, 0x08);
+            var ticketSize = BitConverter.ToUInt32(ciaHeader, 0x0C);
+            var tmdSize = BitConverter.ToUInt32(ciaHeader, 0x10);
+            var metaSize = BitConverter.ToUInt32(ciaHeader, 0x14);
+            var contentSize = BitConverter.ToUInt64(ciaHeader, 0x18);
+
+            // CIA aligns each region to 64-byte boundaries.
+            static long Align64(long value) => (value + 63) & ~63L;
+
+            var tmdOffset = Align64(headerSize) + Align64(certChainSize) + Align64(ticketSize);
+            if (tmdOffset + 0x1DC > fs.Length)
+                return false;
+
+            // TMD signature length varies; the post-sig data begins at one of
+            // a few well-known offsets. Title id sits at +0x18C of the TMD body.
+            var tmdSigType = ReadUInt32BigEndianAt(fs, tmdOffset);
+            var tmdBodyOffset = GetSignedBodyOffset(tmdSigType);
+            if (tmdBodyOffset < 0)
+                return false;
+
+            var titleIdOffset = tmdOffset + tmdBodyOffset + 0x4C; // +0x4C inside TMD body
+            if (titleIdOffset + 8 > fs.Length)
+                return false;
+
+            var titleIdBytes = new byte[8];
+            fs.Seek(titleIdOffset, SeekOrigin.Begin);
+            if (fs.Read(titleIdBytes, 0, 8) != 8)
+                return false;
+
+            ApplyNintendo3dsTitleIdBe(titleIdBytes, 0, info);
+
+            if (metaSize >= Nintendo3dsSmdhSize)
+            {
+                var metaOffset = Align64(headerSize) +
+                                 Align64(certChainSize) +
+                                 Align64(ticketSize) +
+                                 Align64(tmdSize) +
+                                 Align64((long)contentSize);
+
+                // Meta region layout: 0x180 dependency list + 0x180 reserved
+                // + 0x4 core version + 0xFC reserved + SMDH (0x36C0).
+                var smdhOffset = metaOffset + 0x400;
+                if (smdhOffset + Nintendo3dsSmdhSize <= fs.Length)
+                {
+                    var smdh = new byte[Nintendo3dsSmdhSize];
+                    fs.Seek(smdhOffset, SeekOrigin.Begin);
+                    if (fs.Read(smdh, 0, smdh.Length) == smdh.Length &&
+                        HasAsciiTag(smdh, 0x00, "SMDH"))
+                    {
+                        var smdhTitle = ExtractSmdhEnglishTitle(smdh);
+                        if (!string.IsNullOrEmpty(smdhTitle))
+                            info.InternalTitle = smdhTitle;
+                    }
+                }
+            }
+
+            return !string.IsNullOrEmpty(info.GameId);
+        }
+
+        /// <summary>
+        /// Reads a 4-byte big-endian unsigned integer at the given offset.
+        /// </summary>
+        private static uint ReadUInt32BigEndianAt(Stream fs, long offset)
+        {
+            var current = fs.Position;
+            try
+            {
+                fs.Seek(offset, SeekOrigin.Begin);
+                Span<byte> buffer = stackalloc byte[4];
+                if (fs.Read(buffer) != 4)
+                    return 0;
+
+                return (uint)((buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3]);
+            }
+            finally
+            {
+                fs.Seek(current, SeekOrigin.Begin);
+            }
+        }
+
+        /// <summary>
+        /// Returns the offset from the start of a CTR signed blob to its body
+        /// (covers all common 3DS signature types).
+        /// </summary>
+        private static int GetSignedBodyOffset(uint sigType) => sigType switch
+        {
+            0x00010000 or 0x00010003 => 0x240, // RSA-4096
+            0x00010001 or 0x00010004 => 0x140, // RSA-2048
+            0x00010002 or 0x00010005 => 0x80,  // ECC
+            _ => -1
+        };
+
+        private static void ApplyNintendo3dsTitleIdLe(byte[] buffer, int offset, RomInfo info)
+        {
+            if (buffer.Length < offset + 8)
+                return;
+
+            var low = BitConverter.ToUInt32(buffer, offset);
+            var high = BitConverter.ToUInt32(buffer, offset + 4);
+            if (low == 0 && high == 0)
+                return;
+
+            info.GameId = string.Create(16, (high, low), static (span, state) =>
+            {
+                state.high.TryFormat(span[..8], out _, "X8");
+                state.low.TryFormat(span.Slice(8, 8), out _, "X8");
+            });
+        }
+
+        private static void ApplyNintendo3dsTitleIdBe(byte[] buffer, int offset, RomInfo info)
+        {
+            if (buffer.Length < offset + 8)
+                return;
+
+            // CIA TMD stores title id big-endian.
+            var high = (uint)((buffer[offset] << 24) | (buffer[offset + 1] << 16) |
+                              (buffer[offset + 2] << 8) | buffer[offset + 3]);
+            var low = (uint)((buffer[offset + 4] << 24) | (buffer[offset + 5] << 16) |
+                             (buffer[offset + 6] << 8) | buffer[offset + 7]);
+            if (low == 0 && high == 0)
+                return;
+
+            info.GameId = string.Create(16, (high, low), static (span, state) =>
+            {
+                state.high.TryFormat(span[..8], out _, "X8");
+                state.low.TryFormat(span.Slice(8, 8), out _, "X8");
+            });
+        }
+
+        private static string? ExtractSmdhEnglishTitle(byte[] smdh)
+        {
+            // Title entry array starts at offset 0x08. Index 1 = English.
+            const int titlesOffset = 0x08;
+            const int englishIndex = 1;
+
+            var entryStart = titlesOffset + englishIndex * Nintendo3dsSmdhTitleEntrySize;
+            if (smdh.Length < entryStart + Nintendo3dsSmdhShortDescriptionLength)
+                return null;
+
+            var shortDescription = Encoding.Unicode
+                .GetString(smdh, entryStart, Nintendo3dsSmdhShortDescriptionLength)
+                .TrimEnd('\0', ' ', '\n', '\r', '\t');
+
+            shortDescription = CleanAsciiText(shortDescription);
+            return IsValidTitle(shortDescription) ? shortDescription : null;
+        }
+
+        private static bool HasAsciiTag(byte[] buffer, int offset, string tag)
+        {
+            if (string.IsNullOrEmpty(tag) || buffer.Length < offset + tag.Length)
+                return false;
+
+            for (int i = 0; i < tag.Length; i++)
+            {
+                if (buffer[offset + i] != (byte)tag[i])
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static RomInfo InspectWiiUPackage(string path)
+        {
+            // Only mark the directory as an ISO-style package after we've
+            // confirmed it actually is a Wii U install layout. Otherwise
+            // arbitrary folders would be misreported as disc images and
+            // downstream code (cover lookup, metadata cache, etc.) would
+            // treat them as ROMs.
+            if (!WiiUInstalledGameHelper.IsInstalledGameFolder(path))
+                return new RomInfo { FilePath = path, Format = RomFormat.Unknown };
+
+            return new RomInfo
+            {
+                FilePath = path,
+                Format = RomFormat.Iso,
+                GameId = WiiUInstalledGameHelper.GetTitleId(path),
+                InternalTitle = WiiUInstalledGameHelper.GetTitleName(path)
+            };
+        }
+
+        private static bool TryExtractNintendoDiscMetadata(Stream fs, RomInfo info, DiscSection section, string extension)
+        {
+            if (!fs.CanSeek)
+                return false;
+
+            try
+            {
+                if (string.Equals(extension, ".wbfs", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (TryExtractNintendoGameIdFromWbfs(fs, info))
+                        return true;
+                }
+                else
+                {
+                    if (TryExtractNintendoGameIdFromDiscOffset(fs, info, 0))
+                        return true;
+
+                    if (string.Equals(extension, ".ciso", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(extension, ".gcz", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(extension, ".rvz", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(extension, ".wia", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (TryExtractNintendoGameIdFromDiscOffset(fs, info, 0x8000))
+                            return true;
+                    }
+                }
+
+                if (string.IsNullOrEmpty(info.GameId))
+                    info.GameId = ExtractNintendoGameIdFromFilename(info.FilePath);
+
+                return !string.IsNullOrEmpty(info.GameId) || !string.IsNullOrEmpty(info.InternalTitle);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool TryExtractNintendoGameIdFromWbfs(Stream fs, RomInfo info)
+        {
+            if (fs.Length < 14)
+                return false;
+
+            var header = new byte[14];
+            fs.Seek(0, SeekOrigin.Begin);
+            if (fs.Read(header, 0, header.Length) != header.Length)
+                return false;
+
+            if (!Encoding.ASCII.GetString(header, 0, 4).Equals("WBFS", StringComparison.Ordinal))
+                return false;
+
+            return TryApplyNintendoGameId(Encoding.ASCII.GetString(header, 8, 6), info);
+        }
+
+        private static bool TryExtractNintendoGameIdFromDiscOffset(Stream fs, RomInfo info, long offset)
+        {
+            if (fs.Length < offset + 0x80)
+                return false;
+
+            var header = new byte[0x80];
+            fs.Seek(offset, SeekOrigin.Begin);
+            if (fs.Read(header, 0, header.Length) != header.Length)
+                return false;
+
+            var hasDiscMagic = HasNintendoDiscMagic(header);
+            if (!hasDiscMagic && offset != 0)
+                return false;
+
+            return TryApplyNintendoDiscHeader(header, info, hasDiscMagic);
+        }
+
+        private static bool HasNintendoDiscMagic(byte[] header)
+        {
+            if (header.Length < 0x20)
+                return false;
+
+            var wiiMagic = BitConverter.ToUInt32(header, 0x18);
+            if (wiiMagic == WiiDiscMagic)
+                return true;
+
+            if (header.Length < 0x24)
+                return false;
+
+            var gameCubeMagic = BitConverter.ToUInt32(header, 0x1C);
+            return gameCubeMagic == GameCubeDiscMagic;
+        }
+
+        private static bool TryApplyNintendoDiscHeader(byte[] header, RomInfo info, bool hasDiscMagic)
+        {
+            if (header.Length < 6)
+                return false;
+
+            var rawGameId = FilterNintendoGameId(Encoding.ASCII.GetString(header, 0, 6));
+            if (!TryApplyNintendoGameId(rawGameId, info))
+            {
+                if (!hasDiscMagic)
+                    return false;
+            }
+
+            if (string.IsNullOrEmpty(info.InternalTitle) && header.Length >= 0x20 + NintendoInternalNameLength)
+            {
+                var title = CleanAsciiText(Encoding.ASCII.GetString(header, 0x20, NintendoInternalNameLength));
+                if (IsValidTitle(title))
+                    info.InternalTitle = title;
+            }
+
+            return !string.IsNullOrEmpty(info.GameId) || !string.IsNullOrEmpty(info.InternalTitle);
+        }
+
+        /// <summary>
+        /// Mirrors Dolphin's Volume::FilterGameID — keep only alnum characters from the 6-byte ID.
+        /// </summary>
+        private static string FilterNintendoGameId(string rawId)
+        {
+            if (string.IsNullOrEmpty(rawId))
+                return string.Empty;
+
+            var filtered = new char[rawId.Length];
+            int length = 0;
+            foreach (var character in rawId)
+            {
+                if (char.IsAsciiLetterOrDigit(character))
+                    filtered[length++] = character;
+            }
+
+            return length == 0 ? string.Empty : new string(filtered, 0, length).ToUpperInvariant();
+        }
+
+        private static bool TryApplyNintendoGameId(string? rawGameId, RomInfo info)
+        {
+            var gameId = NormalizeNintendoGameId(rawGameId);
+            if (string.IsNullOrEmpty(gameId))
+                return false;
+
+            info.GameId = gameId;
+            return true;
+        }
+
+        private static string? NormalizeNintendoGameId(string? rawId)
+        {
+            if (string.IsNullOrWhiteSpace(rawId))
+                return null;
+
+            var normalized = FilterNintendoGameId(rawId);
+            if (!IsValidNintendoGameId(normalized))
+                return null;
+
+            return normalized;
+        }
+
+        private static string? ExtractNintendoGameIdFromFilename(string? filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return null;
+
+            var name = Path.GetFileNameWithoutExtension(filePath);
+            if (string.IsNullOrWhiteSpace(name))
+                return null;
+
+            // Only accept IDs delimited from title text — avoids matching words like "DOUBLE".
+            var match = Regex.Match(
+                name,
+                @"(?:^|[\s_\-\(\[])([A-Z0-9]{3}[A-Z][0-9]{2}|[A-Z0-9]{4}[0-9]{2})(?:$|[\s_\-\)\]])",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+            return match.Success ? NormalizeNintendoGameId(match.Groups[1].Value) : null;
+        }
+
+        private static bool IsValidNintendoGameId(string gameId)
+        {
+            if (gameId.Length != 6)
+                return false;
+
+            for (int i = 0; i < 6; i++)
+            {
+                if (!char.IsAsciiLetterOrDigit(gameId[i]))
+                    return false;
+            }
+
+            // Country/version suffix must include a digit (e.g. E01, P01, 01).
+            if (!char.IsAsciiDigit(gameId[4]) && !char.IsAsciiDigit(gameId[5]))
+                return false;
+
+            return true;
+        }
+
         /// <summary>
         /// Validate that a string looks like a legitimate Dreamcast Game ID.
         /// Dreamcast IDs follow patterns like: MK-51052, T-1210N, HDR-0176, 6107110 06, etc.
