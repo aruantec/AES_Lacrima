@@ -425,6 +425,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             OnPropertyChanged(nameof(CanShowRenderOptions));
             OnPropertyChanged(nameof(ForceUseTargetClientAreaCapture));
+            OnPropertyChanged(nameof(EnableCapturePillarboxCrop));
             OnPropertyChanged(nameof(HideTargetWindowAfterCaptureStarts));
             OnPropertyChanged(nameof(ClientAreaCropLeftInset));
             OnPropertyChanged(nameof(ClientAreaCropTopInset));
@@ -668,6 +669,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool IsGameplayPreviewViewportVisible => IsGameplayPreviewHostVisible && !IsEmulatorViewportVisible;
         public bool IsGameplayVideoSurfaceVisible => IsGameplayVideoVisible && !IsEmulatorViewportVisible;
         public bool ForceUseTargetClientAreaCapture => CurrentEmulatorHandler?.ForceUseTargetClientAreaCapture == true;
+
+        public bool EnableCapturePillarboxCrop => CurrentEmulatorHandler?.EnableCapturePillarboxCrop == true;
         public bool HideTargetWindowAfterCaptureStarts => CurrentEmulatorHandler?.HideUntilCaptured != false;
         public int ClientAreaCropLeftInset => CurrentEmulatorHandler?.ClientAreaCropLeftInset ?? 0;
         public int ClientAreaCropTopInset => CurrentEmulatorHandler?.ClientAreaCropTopInset ?? 0;

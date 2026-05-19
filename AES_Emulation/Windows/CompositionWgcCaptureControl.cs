@@ -929,7 +929,7 @@ public class CompositionWgcCaptureControl : Control
         if (!IsWindowsPlatform)
             return;
 
-        var effectiveEnableAutoCrop = EnableAutoCrop && !ForceUseTargetClientSize;
+        var effectiveEnableAutoCrop = EnableAutoCrop;
 
         if (Log.IsDebugEnabled)
         {
@@ -1249,7 +1249,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _showDetailedGpuInfo = st.ShowDetailedGpuInfo;
             _overlayOpacity = st.OverlayOpacity;
             _overlayBackgroundColor = st.OverlayBackgroundColor;
-            _enableAutoCrop = st.EnableAutoCrop && !st.ForceUseTargetClientSize;
+            _enableAutoCrop = st.EnableAutoCrop;
             _overlayPosition = st.OverlayPosition;
             _settingsDirty = true;
 

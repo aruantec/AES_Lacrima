@@ -113,6 +113,12 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual bool ForceUseTargetClientAreaCapture => false;
 
+    /// <summary>
+    /// When true, the capture pipeline trims baked-in letterbox/pillarbox bars from the frame
+    /// (common when emulators keep aspect ratio inside a 16:9 window).
+    /// </summary>
+    public virtual bool EnableCapturePillarboxCrop => ForceUseTargetClientAreaCapture;
+
     public virtual int ClientAreaCropLeftInset => 0;
 
     public virtual int ClientAreaCropTopInset => 0;
@@ -450,6 +456,35 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
             return true;
         }, IntPtr.Zero);
+    }
+
+    protected static void ResizeCaptureWindowToSixteenByNine(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
+            return;
+
+        const int targetWidth = 1920;
+        const int targetHeight = 1080;
+
+        try
+        {
+            if (Win32API.TryGetVirtualScreenBounds(out var x, out var y, out var width, out var height) && width > 0 && height > 0)
+            {
+                Win32API.SetWindowBounds(
+                    hwnd,
+                    x,
+                    y,
+                    Math.Min(targetWidth, width),
+                    Math.Min(targetHeight, height));
+            }
+            else
+            {
+                Win32API.SetWindowSize(hwnd, targetWidth, targetHeight);
+            }
+        }
+        catch
+        {
+        }
     }
 
     protected static void HideWindowForCapture(IntPtr hwnd)

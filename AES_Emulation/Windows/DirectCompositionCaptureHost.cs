@@ -58,6 +58,9 @@ public class DirectCompositionCaptureHost : NativeControlHost
     public static readonly StyledProperty<bool> ForceUseTargetClientAreaProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, bool>(nameof(ForceUseTargetClientArea), false);
 
+    public static readonly StyledProperty<bool> EnablePillarboxCropProperty =
+        AvaloniaProperty.Register<DirectCompositionCaptureHost, bool>(nameof(EnablePillarboxCrop), false);
+
     public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
 
@@ -123,7 +126,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
         Color ColorTint,
         bool DisableVSync,
         string? ShaderPath,
-        bool ClearShaderWhenPathEmpty);
+        bool ClearShaderWhenPathEmpty,
+        bool EnablePillarboxCrop);
 
     private readonly BlockingCollection<Action> _rendererQueue = new();
     private readonly Thread _rendererThread;
@@ -269,7 +273,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
             ColorTint,
             DisableVSync,
             ShaderPath,
-            ClearShaderWhenPathEmpty);
+            ClearShaderWhenPathEmpty,
+            EnablePillarboxCrop);
     }
 
     private void RequestEnsureSession()
@@ -384,6 +389,12 @@ public class DirectCompositionCaptureHost : NativeControlHost
         set => SetValue(ForceUseTargetClientAreaProperty, value);
     }
 
+    public bool EnablePillarboxCrop
+    {
+        get => GetValue(EnablePillarboxCropProperty);
+        set => SetValue(EnablePillarboxCropProperty, value);
+    }
+
     public bool HideTargetWindowAfterCaptureStarts
     {
         get => GetValue(HideTargetWindowAfterCaptureStartsProperty);
@@ -482,7 +493,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
         {
             RequestEnsureSession();
         }
-        else if (change.Property == StretchProperty ||
+        else if (change.Property == EnablePillarboxCropProperty ||
+                 change.Property == StretchProperty ||
                  change.Property == BrightnessProperty ||
                  change.Property == SaturationProperty ||
                  change.Property == ColorTintProperty ||
@@ -759,6 +771,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
                 settings.ColorTint.A / 255f,
                 settings.DisableVSync);
 
+            WgcBridgeApi.SetDirectCompositionPillarboxCropEnabled(_session, settings.EnablePillarboxCrop);
             WgcBridgeApi.SetVrrEnabled(_session, settings.DisableVSync);
         }
 

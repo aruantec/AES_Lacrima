@@ -66,6 +66,9 @@ public class EmulatorCaptureHost : ContentControl
     public static readonly StyledProperty<bool> ForceUseTargetClientAreaProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(ForceUseTargetClientArea), false);
 
+    public static readonly StyledProperty<bool> EnablePillarboxCropProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(EnablePillarboxCrop), false);
+
     public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
 
@@ -212,6 +215,12 @@ public class EmulatorCaptureHost : ContentControl
     {
         get => GetValue(ForceUseTargetClientAreaProperty);
         set => SetValue(ForceUseTargetClientAreaProperty, value);
+    }
+
+    public bool EnablePillarboxCrop
+    {
+        get => GetValue(EnablePillarboxCropProperty);
+        set => SetValue(EnablePillarboxCropProperty, value);
     }
 
     public bool HideTargetWindowAfterCaptureStarts
@@ -459,6 +468,7 @@ public class EmulatorCaptureHost : ContentControl
                 windowsBackend.ShaderPath = ShaderPath;
                 windowsBackend.ClearShaderWhenPathEmpty = ClearShaderWhenPathEmpty;
                 windowsBackend.ForceUseTargetClientArea = ForceUseTargetClientArea;
+                windowsBackend.EnablePillarboxCrop = EnablePillarboxCrop;
                 windowsBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
                 windowsBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
                 windowsBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
