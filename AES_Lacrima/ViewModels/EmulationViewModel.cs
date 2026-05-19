@@ -11,6 +11,7 @@ using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
 using AES_Lacrima.Services.Emulation;
 using AES_Lacrima.Services.ShadPs4;
+using AES_Lacrima.Services.Xenia;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -745,6 +746,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         }
 
         public ShadPs4CustomConfigEditorViewModel ShadPs4CustomConfigEditor { get; } = new();
+
+        public XeniaCustomConfigEditorViewModel XeniaCustomConfigEditor { get; } = new();
 
         public EmulationViewModel()
         {
@@ -3606,6 +3609,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool ShowCurrentSectionShadPs4CustomConfigMenuItem =>
             ShowCurrentSectionShadPs4UpdateControls && HasActiveAlbumItems;
 
+        public bool ShowCurrentSectionXeniaCustomConfigMenuItem =>
+            ShowCurrentSectionXeniaUpdateControls && HasActiveAlbumItems;
+
         public bool IsCurrentSectionHandlerUpdateAvailable =>
             (ShowCurrentSectionRetroArchUpdateControls && IsCurrentSectionRetroArchUpdateAvailable) ||
             (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable) ||
@@ -3752,6 +3758,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4CustomConfigMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaPatchesMenuItem));
+            OnPropertyChanged(nameof(ShowCurrentSectionXeniaCustomConfigMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionDolphinUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionFlycastUpdateControls));
@@ -4201,6 +4208,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             if (!ShowCurrentSectionXeniaUpdateControls)
             {
+                XeniaCustomConfigEditor.Reset();
                 IsXeniaPatchesOverlayOpen = false;
                 XeniaDetectedTitleId = null;
                 XeniaDetectedMediaId = null;
@@ -5965,6 +5973,25 @@ private bool _isShadPs4PatchesOverlayOpen;
                 target.FileName,
                 target.Title).ConfigureAwait(true);
         }
+
+        [RelayCommand]
+        private async Task OpenCurrentSectionXeniaCustomConfig(object? parameter)
+        {
+            if (!ShowCurrentSectionXeniaCustomConfigMenuItem)
+                return;
+
+            var target = ResolveXeniaContextMenuTarget(parameter);
+            if (target == null || string.IsNullOrWhiteSpace(target.FileName))
+                return;
+
+            await XeniaCustomConfigEditor.LoadAsync(
+                CurrentSectionXeniaEmulatorPath,
+                target.FileName,
+                target.Title).ConfigureAwait(true);
+        }
+
+        private MediaItem? ResolveXeniaContextMenuTarget(object? parameter) =>
+            ResolveShadPs4ContextMenuTarget(parameter);
 
         private MediaItem? ResolveShadPs4ContextMenuTarget(object? parameter)
         {
@@ -8062,6 +8089,16 @@ private bool _isShadPs4PatchesOverlayOpen;
 
                 if (handler is CemuHandler cemuHandler)
                     cemuHandler.ApplyFullscreenScalingWorkaround(handler.LauncherPath ?? string.Empty);
+
+                if (string.Equals(handler.HandlerId, XeniaHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(handler.LauncherPath))
+                {
+                    var xeniaTitleId = XeniaTitleIdResolver.Resolve(request.RomPath);
+                    var xeniaDirectory = Path.GetDirectoryName(handler.LauncherPath);
+                    await Task.Run(() => XeniaCustomConfigService.PrepareConfigForLaunch(xeniaDirectory, xeniaTitleId))
+                        .ConfigureAwait(false);
+                }
+
                 var rpcs3TitleId = string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase)
                     ? Ps3InstalledGameHelper.GetTitleId(request.RomPath)
                     : null;

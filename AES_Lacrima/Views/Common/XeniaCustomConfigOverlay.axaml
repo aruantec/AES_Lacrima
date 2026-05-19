@@ -1,0 +1,184 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AES_Lacrima.ViewModels"
+             xmlns:controls="using:AES_Controls"
+             mc:Ignorable="d"
+             x:Class="AES_Lacrima.XeniaCustomConfigOverlay"
+             x:DataType="vm:XeniaCustomConfigEditorViewModel"
+             IsHitTestVisible="{Binding IsOpen}"
+             Opacity="{Binding IsOpen, Converter={StaticResource BoolToOpacityConverter}}">
+
+    <UserControl.Transitions>
+        <Transitions>
+            <DoubleTransition Property="Opacity" Duration="0:0:0.32" />
+        </Transitions>
+    </UserControl.Transitions>
+
+    <Grid Background="#E6000000">
+        <Grid RowDefinitions="Auto,*,Auto" Margin="24,16,24,20">
+            <StackPanel Grid.Row="0" Spacing="4" Margin="6,0,0,12">
+                <TextBlock Text="{Binding OverlayHeader}"
+                           FontSize="42"
+                           FontWeight="SemiBold"
+                           Foreground="White" />
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <TextBlock Text="Title ID" Foreground="#D8D8D8" FontSize="20" />
+                    <TextBlock Text="{Binding TitleId, FallbackValue=Unknown, TargetNullValue=Unknown}"
+                               Foreground="White"
+                               FontSize="20" />
+                    <TextBlock Text="{Binding ConfigFilePath}"
+                               Foreground="#A8A8A8"
+                               FontSize="14"
+                               TextTrimming="CharacterEllipsis"
+                               MaxWidth="900" />
+                </StackPanel>
+            </StackPanel>
+
+            <Border Grid.Row="1"
+                    Background="#1AFFFFFF"
+                    BorderBrush="#3FFFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="12">
+                <Grid>
+                    <controls:LoadingControl Width="72"
+                                             Height="72"
+                                             Foreground="#FFFFFFFF"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             IsVisible="{Binding IsBusy}" />
+
+                    <TabControl ItemsSource="{Binding Sections}"
+                                SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}"
+                                IsVisible="{Binding !IsBusy}">
+                        <TabControl.Styles>
+                            <Style Selector="TabItem">
+                                <Setter Property="FontSize" Value="20" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Style>
+                            <Style Selector="TextBlock.fieldLabel">
+                                <Setter Property="Foreground" Value="White" />
+                                <Setter Property="FontSize" Value="18" />
+                                <Setter Property="VerticalAlignment" Value="Center" />
+                                <Setter Property="HorizontalAlignment" Value="Right" />
+                                <Setter Property="Margin" Value="0,0,12,0" />
+                            </Style>
+                            <Style Selector="TextBox, ComboBox, NumericUpDown">
+                                <Setter Property="FontSize" Value="18" />
+                                <Setter Property="MinHeight" Value="36" />
+                            </Style>
+                        </TabControl.Styles>
+
+                        <TabControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:XeniaCustomConfigSectionViewModel">
+                                <TextBlock Text="{Binding Header}" />
+                            </DataTemplate>
+                        </TabControl.ItemTemplate>
+
+                        <TabControl.ContentTemplate>
+                            <DataTemplate x:DataType="vm:XeniaCustomConfigSectionViewModel">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="720">
+                                    <StackPanel Margin="8,12,8,12" Spacing="0">
+                                    <Grid ColumnDefinitions="280,*"
+                                          Margin="0,6"
+                                          MaxWidth="980"
+                                          IsVisible="{Binding IsGpuSection}">
+                                        <TextBlock Grid.Column="0"
+                                                   Classes="fieldLabel"
+                                                   Text="Resolution scale"
+                                                   ToolTip.Tip="Internal render resolution multiplier (applies to X and Y)." />
+                                        <Grid Grid.Column="1"
+                                              ColumnDefinitions="*,Auto"
+                                              ColumnSpacing="12"
+                                              VerticalAlignment="Center">
+                                            <Slider Grid.Column="0"
+                                                    VerticalAlignment="Center"
+                                                    Minimum="{Binding Editor.DrawResolutionScaleMin}"
+                                                    Maximum="{Binding Editor.DrawResolutionScaleMax}"
+                                                    Value="{Binding Editor.DrawResolutionScale, Mode=TwoWay}"
+                                                    TickFrequency="1"
+                                                    IsSnapToTickEnabled="True"
+                                                    TickPlacement="BottomRight" />
+                                            <TextBlock Grid.Column="1"
+                                                       Foreground="#D0D0D0"
+                                                       FontSize="18"
+                                                       MinWidth="36"
+                                                       VerticalAlignment="Center"
+                                                       Text="{Binding Editor.DrawResolutionScale, StringFormat={}{0}x}}" />
+                                        </Grid>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding Fields}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:XeniaCustomConfigFieldViewModel">
+                                                <Grid ColumnDefinitions="280,*" Margin="0,6" MaxWidth="980">
+                                                    <TextBlock Grid.Column="0"
+                                                               Classes="fieldLabel"
+                                                               Text="{Binding Label}"
+                                                               ToolTip.Tip="{Binding Description}" />
+                                                    <Grid Grid.Column="1">
+                                                        <ToggleSwitch IsVisible="{Binding IsBoolean}"
+                                                                      IsChecked="{Binding BoolValue, Mode=TwoWay}" />
+                                                        <ComboBox IsVisible="{Binding IsChoice}"
+                                                                  ItemsSource="{Binding ChoiceLabels}"
+                                                                  SelectedItem="{Binding SelectedChoiceLabel, Mode=TwoWay}" />
+                                                        <ComboBox IsVisible="{Binding IsGpuAdapter}"
+                                                                  ItemsSource="{Binding GpuAdapterLabels}"
+                                                                  SelectedIndex="{Binding SelectedGpuAdapterIndex, Mode=TwoWay}" />
+                                                        <NumericUpDown IsVisible="{Binding IsInteger}"
+                                                                       Value="{Binding IntValue, Mode=TwoWay}"
+                                                                       Minimum="{Binding IntMinimum}"
+                                                                       Maximum="{Binding IntMaximum}"
+                                                                       ShowButtonSpinner="True" />
+                                                        <NumericUpDown IsVisible="{Binding IsFloat}"
+                                                                       Value="{Binding DoubleValue, Mode=TwoWay}"
+                                                                       Minimum="{Binding FloatMinimum}"
+                                                                       Maximum="{Binding FloatMaximum}"
+                                                                       ShowButtonSpinner="True" />
+                                                        <TextBox IsVisible="{Binding IsString}"
+                                                                 Text="{Binding StringValue, Mode=TwoWay}" />
+                                                    </Grid>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </DataTemplate>
+                        </TabControl.ContentTemplate>
+                    </TabControl>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="10" Margin="0,12,0,0">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding Status}"
+                           Foreground="#D0D0D0"
+                           FontSize="16"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap" />
+                <Button Grid.Column="1"
+                        Content="Restore defaults"
+                        Command="{Binding RestoreTemplateDefaultsCommand}"
+                        IsEnabled="{Binding !IsBusy}"
+                        Padding="12,8" />
+                <Button Grid.Column="2"
+                        Content="Apply now"
+                        Command="{Binding ApplyNowCommand}"
+                        IsEnabled="{Binding !IsBusy}"
+                        Padding="12,8" />
+                <Button Grid.Column="3"
+                        Content="Save"
+                        Command="{Binding SaveCommand}"
+                        IsEnabled="{Binding !IsBusy}"
+                        Padding="12,8" />
+                <Button Grid.Column="4"
+                        Content="Close"
+                        Command="{Binding CloseCommand}"
+                        IsEnabled="{Binding !IsBusy}"
+                        Padding="12,8" />
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>
