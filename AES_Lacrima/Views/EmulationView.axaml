@@ -61,18 +61,14 @@
         </Grid.Styles>
         <Border Background="#FF000000" Grid.RowSpan="3"/>
         <!--Removes the background on purpose and forces transparency-->
+        <!-- Legacy portal hole only (separate PortalWindow path). Hidden for inline WGC capture on Windows. -->
         <composition:TransparentComposition x:Name="PortalPortal"
                             IsHitTestVisible="False"
-                            Opacity="{Binding ElementName=RootView, Path=IsPortalSurfaceVisible, Converter={StaticResource BoolToOpacityConverter}}">
-            <composition:TransparentComposition.Transitions>
-                <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.30" Easing="CubicEaseOut" />
-                </Transitions>
-            </composition:TransparentComposition.Transitions>
-        </composition:TransparentComposition>
+                            IsVisible="{Binding ElementName=RootView, Path=IsPortalPortalVisible}" />
         <Border x:Name="PortalFallbackOverlay"
                 Background="#FF000000"
                 IsHitTestVisible="False"
+                IsVisible="{Binding ElementName=RootView, Path=IsPortalFallbackOverlayVisible}"
                 Opacity="{Binding ElementName=RootView, Path=PortalFallbackOpacity}"/>
 
         <composition:CompositionCarouselControl x:Name="RomCarousel"
@@ -294,10 +290,10 @@
             </Border>
         </Canvas>
 
-        <Grid Grid.Row="0"
+        <Grid x:Name="EmulatorCaptureOverlay"
+              Grid.Row="0"
               Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
-              ZIndex="5"
-              Margin="{Binding IsRenderOptionsOpen, Converter={StaticResource BoolToValueConverter}, ConverterParameter='0,0,660,0'}">
+              ZIndex="5">
             <Grid.IsHitTestVisible>
                 <MultiBinding Converter="{StaticResource BoolOrConverter}">
                     <Binding Path="IsCompositionCaptureVisible"/>
@@ -313,16 +309,14 @@
                     <Binding Path="IsRenderOptionsOpen"/>
                 </MultiBinding>
             </Grid.IsVisible>
-            <Grid.Transitions>
-                <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut" />
-                </Transitions>
-            </Grid.Transitions>
             <Border x:Name="EmulatorCaptureHost"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch"
                     Background="Transparent"
                     ClipToBounds="True">
+                <Interaction.Behaviors>
+                    <behaviors:WindowDragBehavior/>
+                </Interaction.Behaviors>
             </Border>
 
             <StackPanel HorizontalAlignment="Center"
@@ -392,7 +386,7 @@
                                             <ComboBox MinWidth="220"
                                                       HorizontalAlignment="Stretch"
                                                       ItemsSource="{Binding CaptureStretchOptions}"
-                                                      SelectedItem="{Binding SelectedStretch, Mode=TwoWay}">
+                                                      SelectedIndex="{Binding SelectedStretchIndex, Mode=TwoWay}">
                                                 <Interaction.Behaviors>
                                                     <controlBehaviors:ComboBoxPopupScaler/>
                                                 </Interaction.Behaviors>

@@ -26,20 +26,28 @@ namespace AES_Emulation.Windows;
 
 public class CompositionWgcCaptureControl : Control
 {
+    static CompositionWgcCaptureControl()
+    {
+        ClipToBoundsProperty.OverrideDefaultValue<CompositionWgcCaptureControl>(true);
+        FocusableProperty.OverrideDefaultValue<CompositionWgcCaptureControl>(false);
+    }
+
     private static readonly ILog Log = LogHelper.For<CompositionWgcCaptureControl>();
     private static bool IsWindowsPlatform => OperatingSystem.IsWindows();
     private CompositionCustomVisual? _visual;
     private WgcCaptureVisualHandler? _handler;
     private DispatcherTimer? _fallbackRenderTimer;
     private nint _session = nint.Zero;
-    private WindowHandler? _windowHandler;
     private nint _hostHandle = nint.Zero;
     private nint _activeTargetHwnd = nint.Zero;
+    private DateTime _lastCaptureHideUtc = DateTime.MinValue;
     private bool _isAttachedToVisualTree;
     private bool _isStoppingSession;
     private bool _useOwnerRenderFallback;
     private bool _loggedFallbackRenderPath;
     private long _lastSettingsLogTickMs;
+    private Vector2 _lastSentHandlerSize;
+    private DispatcherTimer? _sizeUpdateDebounceTimer;
     private CancellationTokenSource? _sessionStartCts;
     private const int CaptureReadyTimeoutMs = 5000;
 
@@ -94,7 +102,7 @@ public class CompositionWgcCaptureControl : Control
     }
 
     public static readonly StyledProperty<int> CaptureSessionStartDelayMsProperty =
-        AvaloniaProperty.Register<CompositionWgcCaptureControl, int>(nameof(CaptureSessionStartDelayMs), 3000);
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, int>(nameof(CaptureSessionStartDelayMs), 0);
 
     public int CaptureSessionStartDelayMs
     {
@@ -264,6 +272,87 @@ public class CompositionWgcCaptureControl : Control
         set => SetValue(EnableAutoCropProperty, value);
     }
 
+    public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
+
+    public bool HideTargetWindowAfterCaptureStarts
+    {
+        get => GetValue(HideTargetWindowAfterCaptureStartsProperty);
+        set => SetValue(HideTargetWindowAfterCaptureStartsProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> UseOpacityCaptureHideProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(UseOpacityCaptureHide), true);
+
+    public bool UseOpacityCaptureHide
+    {
+        get => GetValue(UseOpacityCaptureHideProperty);
+        set => SetValue(UseOpacityCaptureHideProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> RemoveDecorationsForCaptureProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(RemoveDecorationsForCapture), true);
+
+    public bool RemoveDecorationsForCapture
+    {
+        get => GetValue(RemoveDecorationsForCaptureProperty);
+        set => SetValue(RemoveDecorationsForCaptureProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> MoveCaptureTargetOffScreenProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(MoveCaptureTargetOffScreen), true);
+
+    public bool MoveCaptureTargetOffScreen
+    {
+        get => GetValue(MoveCaptureTargetOffScreenProperty);
+        set => SetValue(MoveCaptureTargetOffScreenProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> EnablePillarboxCropProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(EnablePillarboxCrop), false);
+
+    public bool EnablePillarboxCrop
+    {
+        get => GetValue(EnablePillarboxCropProperty);
+        set => SetValue(EnablePillarboxCropProperty, value);
+    }
+
+    public static readonly StyledProperty<int> ClientAreaCropLeftInsetProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, int>(nameof(ClientAreaCropLeftInset), 0);
+
+    public int ClientAreaCropLeftInset
+    {
+        get => GetValue(ClientAreaCropLeftInsetProperty);
+        set => SetValue(ClientAreaCropLeftInsetProperty, value);
+    }
+
+    public static readonly StyledProperty<int> ClientAreaCropTopInsetProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, int>(nameof(ClientAreaCropTopInset), 0);
+
+    public int ClientAreaCropTopInset
+    {
+        get => GetValue(ClientAreaCropTopInsetProperty);
+        set => SetValue(ClientAreaCropTopInsetProperty, value);
+    }
+
+    public static readonly StyledProperty<int> ClientAreaCropRightInsetProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, int>(nameof(ClientAreaCropRightInset), 0);
+
+    public int ClientAreaCropRightInset
+    {
+        get => GetValue(ClientAreaCropRightInsetProperty);
+        set => SetValue(ClientAreaCropRightInsetProperty, value);
+    }
+
+    public static readonly StyledProperty<int> ClientAreaCropBottomInsetProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, int>(nameof(ClientAreaCropBottomInset), 0);
+
+    public int ClientAreaCropBottomInset
+    {
+        get => GetValue(ClientAreaCropBottomInsetProperty);
+        set => SetValue(ClientAreaCropBottomInsetProperty, value);
+    }
+
     // New: request the control to stop the active capture session immediately.
     // Set this to true (from UI or view-model) before clearing TargetHwnd to ensure
     // StopSession runs while the handle is still available.
@@ -349,13 +438,6 @@ public class CompositionWgcCaptureControl : Control
             e.Pointer.Capture(this);
             e.Handled = true;
         }
-        else
-        {
-            // Only forward focus if we're NOT dragging the overlay.
-            // This ensures clicking the "portal" (the game area) always focuses the emulator.
-            TryFocusTargetOnClick();
-        }
-
         base.OnPointerPressed(e);
     }
 
@@ -379,13 +461,6 @@ public class CompositionWgcCaptureControl : Control
                 TryResolveHostHandle();
 
             Win32API.ForceEmulatorFocus(target, _hostHandle, 0);
-
-            // Some emulators ignore the first activation; retry once on input priority.
-            Dispatcher.UIThread.Post(() =>
-            {
-                if (IsWindow(target))
-                    Win32API.ForceEmulatorFocus(target, _hostHandle, 0);
-            }, DispatcherPriority.Input);
         }
         catch (Exception ex)
         {
@@ -572,27 +647,21 @@ public class CompositionWgcCaptureControl : Control
             return;
         }
 
+        if (!await WaitForCaptureTargetReadyAsync(nextTargetHwnd, cancellationToken).ConfigureAwait(true))
+        {
+            LogInfo(
+                $"CompositionWgcCaptureControl StartSession aborted: capture target hwnd 0x{nextTargetHwnd.ToInt64():X} " +
+                "did not reach a stable constructed size.");
+            IsCaptureInitializing = false;
+            return;
+        }
+
         try
         {
-            _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
-            _windowHandler.EnableRoundedCorners(44);
-            _windowHandler.SetMoveToHost(false);
-            _windowHandler.Start(_hostHandle, nextTargetHwnd);
-
+            // Composition capture renders inside Avalonia; do not sync the emulator HWND to the host rect.
             _session = await CreateCaptureSessionWithRetryAsync(nextTargetHwnd, cancellationToken).ConfigureAwait(true);
             if (_session != nint.Zero)
             {
-                try
-                {
-                    Win32API.RemoveWindowDecorations(nextTargetHwnd);
-                    Win32API.MoveAway(nextTargetHwnd, false);
-                    Win32API.SetWindowOpacity(nextTargetHwnd, 0);
-                }
-                catch (Exception ex)
-                {
-                    LogInfo($"CompositionWgcCaptureControl could not fully hide/decorate target hwnd 0x{nextTargetHwnd.ToInt64():X} after session creation: {ex.Message}");
-                }
-
                 _activeTargetHwnd = nextTargetHwnd;
                 LogInfo(
                     $"CompositionWgcCaptureControl capture session created. session=0x{_session.ToInt64():X}, " +
@@ -602,6 +671,7 @@ public class CompositionWgcCaptureControl : Control
                 else
                     WgcBridgeApi.SetCaptureMaxResolution(_session, 4096, 1080);
 
+                UpdateHandlerSize();
                 UpdateHandlerSession();
                 UpdateHandlerSettings();
                 UpdateFallbackRenderLoop();
@@ -611,19 +681,19 @@ public class CompositionWgcCaptureControl : Control
                 {
                     LogInfo($"CompositionWgcCaptureControl capture session did not receive a frame within {CaptureReadyTimeoutMs} ms.");
                 }
+                else if (!cancellationToken.IsCancellationRequested && TargetHwnd == nextTargetHwnd)
+                {
+                    await ApplyTargetCaptureHideAsync(nextTargetHwnd, cancellationToken).ConfigureAwait(true);
+                }
 
                 IsCaptureInitializing = false;
             }
             else
             {
-                if (_windowHandler != null)
-                {
-                    _windowHandler.Stop();
-                    _windowHandler = null;
-                }
-
+                Win32API.RestoreCaptureTargetTree(nextTargetHwnd);
                 Win32API.RestoreWindowDecorations(nextTargetHwnd);
-                Win32API.SetWindowOpacity(nextTargetHwnd, 255);
+                if (UseOpacityCaptureHide)
+                    Win32API.SetWindowOpacity(nextTargetHwnd, 255);
                 LogInfo($"CompositionWgcCaptureControl failed to create capture session for hwnd 0x{nextTargetHwnd.ToInt64():X}. startupMs={startupSw.ElapsedMilliseconds}.");
                 IsCaptureInitializing = false;
             }
@@ -678,43 +748,46 @@ public class CompositionWgcCaptureControl : Control
         if (_isStoppingSession)
             return;
 
-        if (_session == IntPtr.Zero && _windowHandler == null && _activeTargetHwnd == IntPtr.Zero)
+        if (_session == IntPtr.Zero && _activeTargetHwnd == IntPtr.Zero)
             return;
 
         _isStoppingSession = true;
 
         try
         {
-        LogInfo(
-            $"CompositionWgcCaptureControl StopSession. session=0x{_session.ToInt64():X}, " +
-            $"activeTarget=0x{_activeTargetHwnd.ToInt64():X}.");
-        _sessionStartCts?.Cancel();
-        _sessionStartCts?.Dispose();
-        _sessionStartCts = null;
+            LogInfo(
+                $"CompositionWgcCaptureControl StopSession. session=0x{_session.ToInt64():X}, " +
+                $"activeTarget=0x{_activeTargetHwnd.ToInt64():X}.");
 
-        var previousTargetHwnd = _activeTargetHwnd;
-        var canRestoreTargetWindow = previousTargetHwnd != IntPtr.Zero && IsWindow(previousTargetHwnd);
+            _sessionStartCts?.Cancel();
+            _sessionStartCts?.Dispose();
+            _sessionStartCts = null;
+            _fallbackRenderTimer?.Stop();
 
-        if (_windowHandler != null)
-        {
-            _windowHandler.Stop();
-            if (canRestoreTargetWindow)
-                _windowHandler.RestoreOriginalPosition();
-            _windowHandler = null;
+            var previousTargetHwnd = _activeTargetHwnd;
+            var canRestoreTargetWindow = previousTargetHwnd != IntPtr.Zero && IsWindow(previousTargetHwnd);
 
             if (canRestoreTargetWindow)
             {
+                Win32API.RestoreCaptureTargetTree(previousTargetHwnd);
+                var root = Win32API.GetRootWindow(previousTargetHwnd);
+                if (root != IntPtr.Zero)
+                    Win32API.RestoreWindowDecorations(root);
                 Win32API.RestoreWindowDecorations(previousTargetHwnd);
-                Win32API.SetWindowOpacity(previousTargetHwnd, 255);
+                if (UseOpacityCaptureHide)
+                    Win32API.SetWindowOpacity(previousTargetHwnd, 255);
             }
-        }
 
-        var sessionToDestroy = _session;
-        _session = nint.Zero;
+            var sessionToDestroy = _session;
+            _session = nint.Zero;
+            _activeTargetHwnd = IntPtr.Zero;
+            IsCaptureInitializing = false;
 
-        if (sessionToDestroy != nint.Zero)
-        {
-            _ = Task.Run(() =>
+            // Stop the handler synchronously before native teardown to avoid render/destroy races.
+            NotifyHandlerSessionStopped();
+            WaitForHandlerRenderDrain();
+
+            if (sessionToDestroy != nint.Zero)
             {
                 try
                 {
@@ -724,17 +797,50 @@ public class CompositionWgcCaptureControl : Control
                 {
                     LogError($"CompositionWgcCaptureControl failed to destroy capture session 0x{sessionToDestroy.ToInt64():X}.", ex);
                 }
-            });
-        }
+            }
 
-        _activeTargetHwnd = IntPtr.Zero;
-        IsCaptureInitializing = false;
-        UpdateHandlerSession();
-        UpdateFallbackRenderLoop();
+            UpdateHandlerSession();
+            UpdateFallbackRenderLoop();
+            InvalidateVisual();
         }
         finally
         {
             _isStoppingSession = false;
+        }
+    }
+
+    private void NotifyHandlerSessionStopped()
+    {
+        var stoppedMessage = new WgcSessionMessage
+        {
+            Session = nint.Zero,
+            TargetHwnd = nint.Zero,
+            Owner = null,
+            UseOwnerInvalidation = _useOwnerRenderFallback
+        };
+
+        if (_visual != null)
+            _visual.SendHandlerMessage(stoppedMessage);
+
+        _handler?.OnMessage(stoppedMessage);
+        _handler?.OnMessage(null);
+    }
+
+    private void WaitForHandlerRenderDrain()
+    {
+        if (_handler == null)
+            return;
+
+        const int maxAttempts = 20;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            if (_handler.TryEnterRenderLock(0))
+            {
+                _handler.ExitRenderLock();
+                return;
+            }
+
+            Thread.Sleep(1);
         }
     }
 
@@ -743,9 +849,9 @@ public class CompositionWgcCaptureControl : Control
         if (session == nint.Zero)
             return;
 
-        // Give render/release callbacks a brief window to flush before destroying the native session.
-        const int maxWaitIterations = 60;
-        const int waitDelayMs = 16;
+        // Briefly wait for in-flight frame acquire/release before destroying the native session.
+        const int maxWaitIterations = 20;
+        const int waitDelayMs = 5;
 
         for (var i = 0; i < maxWaitIterations; i++)
         {
@@ -757,7 +863,6 @@ public class CompositionWgcCaptureControl : Control
             }
             catch
             {
-                // Ignore reader count probe failures; destruction will still be attempted.
                 break;
             }
 
@@ -844,7 +949,12 @@ public class CompositionWgcCaptureControl : Control
                 LogError("CompositionWgcCaptureControl RequestStopSession handler failed.", ex);
             }
         }
-        else if (change.Property == StretchProperty ||
+        else if (change.Property == EnablePillarboxCropProperty ||
+                 change.Property == ClientAreaCropLeftInsetProperty ||
+                 change.Property == ClientAreaCropTopInsetProperty ||
+                 change.Property == ClientAreaCropRightInsetProperty ||
+                 change.Property == ClientAreaCropBottomInsetProperty ||
+                 change.Property == StretchProperty ||
                  change.Property == BrightnessProperty ||
                  change.Property == SaturationProperty ||
                  change.Property == ColorTintProperty ||
@@ -883,13 +993,153 @@ public class CompositionWgcCaptureControl : Control
 
     private void UpdateHandlerSize()
     {
-        var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
+        if (Bounds.Width <= 0 || Bounds.Height <= 0)
+            return;
+
+        var scaling = (float)(TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0);
+        var size = new Vector2((float)Bounds.Width * scaling, (float)Bounds.Height * scaling);
+        if (Math.Abs(size.X - _lastSentHandlerSize.X) < 0.5f && Math.Abs(size.Y - _lastSentHandlerSize.Y) < 0.5f)
+            return;
+
+        _lastSentHandlerSize = size;
         if (_visual != null)
-        {
             _visual.Size = size;
-        }
 
         SendHandlerMessage(size);
+    }
+
+    internal void ReapplyCaptureTargetHide()
+    {
+        if (!ShouldHideCaptureTarget() || !IsWindowsPlatform || _activeTargetHwnd == IntPtr.Zero)
+            return;
+
+        var now = DateTime.UtcNow;
+        if ((now - _lastCaptureHideUtc).TotalMilliseconds < 400)
+            return;
+
+        _lastCaptureHideUtc = now;
+        ApplyCaptureTargetHide(_activeTargetHwnd, useCloak: !UseOpacityCaptureHide);
+    }
+
+    private static bool ShouldHideCaptureTarget(bool hideAfterCaptureStarts) => hideAfterCaptureStarts;
+
+    private bool ShouldHideCaptureTarget() => ShouldHideCaptureTarget(HideTargetWindowAfterCaptureStarts);
+
+    private void ApplyCaptureTargetHide(nint targetHwnd, bool useCloak)
+    {
+        if (!ShouldHideCaptureTarget() || targetHwnd == IntPtr.Zero)
+            return;
+
+        try
+        {
+            if (RemoveDecorationsForCapture)
+                Win32API.RemoveWindowDecorations(targetHwnd);
+
+            Win32API.HideCaptureTargetTree(
+                targetHwnd,
+                useCloak: useCloak,
+                removeDecorations: RemoveDecorationsForCapture,
+                moveOffScreen: MoveCaptureTargetOffScreen);
+
+            // Opacity 0 on an on-screen HWND often appears as a flickering black box under DWM; use move/cloak only.
+            if (UseOpacityCaptureHide && !MoveCaptureTargetOffScreen)
+                Win32API.SetWindowOpacity(targetHwnd, 0);
+        }
+        catch (Exception ex)
+        {
+            LogInfo($"CompositionWgcCaptureControl could not hide target hwnd 0x{targetHwnd.ToInt64():X}: {ex.Message}");
+        }
+    }
+
+    private static async Task<bool> WaitForCaptureTargetReadyAsync(nint targetHwnd, CancellationToken cancellationToken)
+    {
+        if (targetHwnd == IntPtr.Zero)
+            return false;
+
+        const int minWidth = 640;
+        const int minHeight = 360;
+        const int stableSamplesRequired = 6;
+        const int pollDelayMs = 50;
+        const int maxPolls = 240;
+
+        var stableSamples = 0;
+        var lastWidth = -1;
+        var lastHeight = -1;
+
+        for (var poll = 0; poll < maxPolls; poll++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!IsWindow(targetHwnd))
+                return false;
+
+            if (!Win32API.TryGetWindowPixelSize(targetHwnd, out var width, out var height) ||
+                width < minWidth ||
+                height < minHeight)
+            {
+                stableSamples = 0;
+                lastWidth = -1;
+                lastHeight = -1;
+            }
+            else if (width == lastWidth && height == lastHeight)
+            {
+                stableSamples++;
+                if (stableSamples >= stableSamplesRequired)
+                    return true;
+            }
+            else
+            {
+                lastWidth = width;
+                lastHeight = height;
+                stableSamples = 1;
+            }
+
+            try
+            {
+                await Task.Delay(pollDelayMs, cancellationToken).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+        }
+
+        return false;
+    }
+
+    private async Task ApplyTargetCaptureHideAsync(nint targetHwnd, CancellationToken cancellationToken)
+    {
+        if (!ShouldHideCaptureTarget() || targetHwnd == IntPtr.Zero)
+            return;
+
+        try
+        {
+            _lastCaptureHideUtc = DateTime.UtcNow;
+            ApplyCaptureTargetHide(targetHwnd, useCloak: !UseOpacityCaptureHide);
+
+            if (!UseOpacityCaptureHide)
+            {
+                const int dx12StabilizeMs = 300;
+                try
+                {
+                    await Task.Delay(dx12StabilizeMs, cancellationToken).ConfigureAwait(true);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+
+                if (cancellationToken.IsCancellationRequested || TargetHwnd != targetHwnd)
+                    return;
+
+                ApplyCaptureTargetHide(targetHwnd, useCloak: true);
+                LogInfo($"CompositionWgcCaptureControl hid DX12 capture target tree (no opacity hide). hwnd=0x{targetHwnd.ToInt64():X}.");
+            }
+        }
+        catch (Exception ex)
+        {
+            LogInfo($"CompositionWgcCaptureControl could not hide target hwnd 0x{targetHwnd.ToInt64():X}: {ex.Message}");
+        }
     }
 
     private void UpdateHandlerSession()
@@ -929,6 +1179,8 @@ public class CompositionWgcCaptureControl : Control
         if (!IsWindowsPlatform)
             return;
 
+        // Pillarbox crop for the composition path is handled via client-area insets / DComp bridge.
+        // CPU AutoDetectPillarboxes is opt-in only (EnableAutoCrop) because it jitters on 16:9 content.
         var effectiveEnableAutoCrop = EnableAutoCrop;
 
         if (Log.IsDebugEnabled)
@@ -959,6 +1211,10 @@ public class CompositionWgcCaptureControl : Control
             OverlayOpacity = (float)OverlayOpacity,
             OverlayBackgroundColor = OverlayBackgroundColor,
             EnableAutoCrop = effectiveEnableAutoCrop,
+            ClientAreaCropLeftInset = ClientAreaCropLeftInset,
+            ClientAreaCropTopInset = ClientAreaCropTopInset,
+            ClientAreaCropRightInset = ClientAreaCropRightInset,
+            ClientAreaCropBottomInset = ClientAreaCropBottomInset,
             OverlayPosition = new Vector2((float)OverlayPosition.X, (float)OverlayPosition.Y)
         });
     }
@@ -1009,7 +1265,6 @@ public class CompositionWgcCaptureControl : Control
                 return;
 
             _handler.OnAnimationFrameUpdate();
-            InvalidateVisual();
         };
     }
 
@@ -1026,7 +1281,26 @@ public class CompositionWgcCaptureControl : Control
     protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
         base.OnSizeChanged(e);
-        UpdateHandlerSize();
+        ScheduleUpdateHandlerSize();
+    }
+
+    private void ScheduleUpdateHandlerSize()
+    {
+        if (_sizeUpdateDebounceTimer == null)
+        {
+            _sizeUpdateDebounceTimer = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromMilliseconds(120)
+            };
+            _sizeUpdateDebounceTimer.Tick += (_, _) =>
+            {
+                _sizeUpdateDebounceTimer?.Stop();
+                UpdateHandlerSize();
+            };
+        }
+
+        _sizeUpdateDebounceTimer.Stop();
+        _sizeUpdateDebounceTimer.Start();
     }
 
     [DllImport("user32.dll")]
@@ -1057,6 +1331,10 @@ internal class WgcSettingsMessage
     public float OverlayOpacity;
     public Color OverlayBackgroundColor;
     public bool EnableAutoCrop;
+    public int ClientAreaCropLeftInset;
+    public int ClientAreaCropTopInset;
+    public int ClientAreaCropRightInset;
+    public int ClientAreaCropBottomInset;
     public Vector2 OverlayPosition;
 }
 
@@ -1088,10 +1366,15 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private WeakReference<CompositionWgcCaptureControl>? _ownerRef;
     private bool _useOwnerInvalidation;
     private bool _forceUseTargetClientSize = false;
+    private int _clientAreaCropLeftInset;
+    private int _clientAreaCropTopInset;
+    private int _clientAreaCropRightInset;
+    private int _clientAreaCropBottomInset;
     private int _lastCropX, _lastCropY, _lastCropW, _lastCropH;
 
     // FPS Tracking
     private int _lastNativeFrameCount = -1;
+    private long _lastHeartbeatRenderTicks;
     private long _lastFrameTicks = 0;
     private double _smoothedFps = 0.0;
     private double _smoothedFrameTimeMs = 0.0;
@@ -1145,6 +1428,10 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private string? _retroarchShaderFile;
     private GlInterface? _gl;
     private readonly object _renderLock = new();
+
+    internal bool TryEnterRenderLock(int timeoutMs) => Monitor.TryEnter(_renderLock, timeoutMs);
+
+    internal void ExitRenderLock() => Monitor.Exit(_renderLock);
     private IntPtr _glTexSubImage2DPtr = IntPtr.Zero;
     private int _captureTextureId;
     private int _intermediateFbo;
@@ -1198,11 +1485,16 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
         if (message is WgcSessionMessage sm)
         {
-            _session = sm.Session;
-            _targetHwnd = sm.TargetHwnd;
-            _ownerRef = sm.Owner;
-            _useOwnerInvalidation = sm.UseOwnerInvalidation;
+            lock (_renderLock)
+            {
+                _session = sm.Session;
+                _targetHwnd = sm.TargetHwnd;
+                _ownerRef = sm.Owner;
+                _useOwnerInvalidation = sm.UseOwnerInvalidation;
+            }
+
             _lastNativeFrameCount = -1;
+            _lastHeartbeatRenderTicks = 0;
             _ownerInvalidateQueued = 0;
             _ownerStatsUpdateQueued = 0;
             _loggedRenderEntry = false;
@@ -1214,11 +1506,15 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _loggedGlRenderPath = false;
             _loggedSimpleRenderPath = false;
             _glRenderFailed = false;
+            _rectDirty = true;
+            _cropLeft = 0;
+            _cropRight = 0;
+            _consecutiveBlackFrames = 0;
             LogDebugOnce(
                 ref _loggedSessionMessage,
-                $"WgcCaptureVisualHandler received session message. session=0x{_session.ToInt64():X}, " +
-                $"target=0x{_targetHwnd.ToInt64():X}, useOwnerInvalidation={_useOwnerInvalidation}.");
-            if (_session != nint.Zero && !_useOwnerInvalidation)
+                $"WgcCaptureVisualHandler received session message. session=0x{sm.Session.ToInt64():X}, " +
+                $"target=0x{sm.TargetHwnd.ToInt64():X}, useOwnerInvalidation={sm.UseOwnerInvalidation}.");
+            if (sm.Session != nint.Zero && !sm.UseOwnerInvalidation)
                 RegisterForNextAnimationFrameUpdate();
             RequestRender();
         }
@@ -1237,12 +1533,17 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             {
                 _stretch = st.Stretch;
                 _rectDirty = true;
+                _cachedDestRect = default;
             }
 
             _brightness = st.Brightness;
             _saturation = st.Saturation;
             _tint = st.Tint;
             _forceUseTargetClientSize = st.ForceUseTargetClientSize;
+            _clientAreaCropLeftInset = st.ClientAreaCropLeftInset;
+            _clientAreaCropTopInset = st.ClientAreaCropTopInset;
+            _clientAreaCropRightInset = st.ClientAreaCropRightInset;
+            _clientAreaCropBottomInset = st.ClientAreaCropBottomInset;
             _fpsSmoothing = st.FpsSmoothingFactor;
             _showStatisticsOverlay = st.ShowStatisticsOverlay;
             _showFrametimeGraph = st.ShowFrametimeGraph;
@@ -1394,7 +1695,15 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     public override void OnAnimationFrameUpdate()
     {
-        if (_session == nint.Zero)
+        nint activeSession;
+        nint activeTargetHwnd;
+        lock (_renderLock)
+        {
+            activeSession = _session;
+            activeTargetHwnd = _targetHwnd;
+        }
+
+        if (activeSession == nint.Zero)
             return;
 
         try
@@ -1449,27 +1758,46 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 }
             }
 
-            if (_forceUseTargetClientSize && _targetHwnd != IntPtr.Zero)
+            var cropChanged = false;
+            if (_forceUseTargetClientSize && activeTargetHwnd != IntPtr.Zero)
             {
-                if (Win32API.GetClientAreaOffsets(_targetHwnd, out int cx, out int cy, out int cw, out int ch))
+                int cx, cy, cw, ch;
+                if (Win32API.WindowHasCaption(activeTargetHwnd) &&
+                    Win32API.GetClientAreaOffsets(activeTargetHwnd, out cx, out cy, out cw, out ch))
                 {
-                    if (cx != _lastCropX || cy != _lastCropY || cw != _lastCropW || ch != _lastCropH)
-                    {
-                        WgcBridgeApi.SetCaptureCropRect(_session, cx, cy, cw, ch);
-                        _lastCropX = cx; _lastCropY = cy; _lastCropW = cw; _lastCropH = ch;
-                    }
+                    cx += Math.Max(0, _clientAreaCropLeftInset);
+                    cy += Math.Max(0, _clientAreaCropTopInset);
+                    cw -= Math.Max(0, _clientAreaCropLeftInset + _clientAreaCropRightInset);
+                    ch -= Math.Max(0, _clientAreaCropTopInset + _clientAreaCropBottomInset);
+                }
+                else if (Win32API.GetClientAreaOffsets(activeTargetHwnd, out cx, out cy, out cw, out ch))
+                {
+                    // Render-surface HWND: crop to full client area only (no menu/title insets).
+                }
+                else
+                {
+                    cx = cy = 0;
+                    cw = ch = 0;
+                }
+
+                if (cw >= 1 && ch >= 1 &&
+                    (cx != _lastCropX || cy != _lastCropY || cw != _lastCropW || ch != _lastCropH))
+                {
+                    WgcBridgeApi.SetCaptureCropRect(activeSession, cx, cy, cw, ch);
+                    _lastCropX = cx; _lastCropY = cy; _lastCropW = cw; _lastCropH = ch;
+                    cropChanged = true;
                 }
             }
 
-            int nativeCount = WgcBridgeApi.GetCaptureStatus(_session);
+            var frameAdvanced = false;
+            var nativeCount = WgcBridgeApi.GetCaptureStatus(activeSession);
             if (nativeCount != _lastNativeFrameCount)
             {
                 _lastNativeFrameCount = nativeCount;
+                frameAdvanced = true;
             }
 
-            // Under NativeAOT the composition custom visual can stall if we only redraw on
-            // capture-status transitions, so keep the visual invalidating while a session is active.
-            if (!_useOwnerInvalidation)
+            if (!_useOwnerInvalidation && (frameAdvanced || cropChanged))
                 RequestRender();
         }
         catch (Exception ex)
@@ -1480,8 +1808,14 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         }
         finally
         {
-            if (!_useOwnerInvalidation && _session != nint.Zero)
-                RegisterForNextAnimationFrameUpdate();
+            if (!_useOwnerInvalidation)
+            {
+                lock (_renderLock)
+                {
+                    if (_session != nint.Zero)
+                        RegisterForNextAnimationFrameUpdate();
+                }
+            }
         }
     }
 
@@ -1514,9 +1848,6 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     public override void OnRender(ImmediateDrawingContext context)
     {
-        if (_visualSize.X < 1 || _visualSize.Y < 1)
-            return;
-
         lock (_renderLock)
         {
             try
@@ -1532,13 +1863,27 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 var canvas = lease.SkCanvas;
                 var grContext = lease.GrContext;
 
-                // Always clear the target first.
-                // This ensures the previous captured frame is not left behind when the session is stopped.
-                canvas.Clear(SKColors.Black);
-
                 var activeSession = _session;
                 if (activeSession == nint.Zero)
+                {
+                    canvas.Clear(SKColors.Transparent);
                     return;
+                }
+
+                var clip = canvas.LocalClipBounds;
+                var viewW = clip.Width;
+                var viewH = clip.Height;
+                if (viewW < 1f || viewH < 1f)
+                    return;
+
+                if (Math.Abs(_visualSize.X - viewW) > 0.5f || Math.Abs(_visualSize.Y - viewH) > 0.5f)
+                {
+                    _visualSize = new Vector2(viewW, viewH);
+                    _rectDirty = true;
+                }
+
+                // Clear each paint so stale/empty GPU frames do not leave a centered black rectangle.
+                canvas.Clear(SKColors.Transparent);
 
                 LogDebugOnce(
                     ref _loggedRenderEntry,
@@ -1560,7 +1905,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
                             if (_rectDirty || _texWidth != w || _texHeight != h)
                             {
-                                _cachedDestRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, w - _cropLeft - _cropRight, h);
+                                _cachedDestRect = CalculateAspectRect(viewW, viewH, w - _cropLeft - _cropRight, h);
                                 _rectDirty = false;
                             }
 
@@ -1606,7 +1951,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
                         if (_rectDirty || _texWidth != w || _texHeight != h)
                         {
-                            _cachedDestRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, w - _cropLeft - _cropRight, h);
+                            _cachedDestRect = CalculateAspectRect(viewW, viewH, w - _cropLeft - _cropRight, h);
                             _rectDirty = false;
                         }
 
@@ -1637,6 +1982,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 else
                 {
                     LogWarnOnce(ref _loggedNoFrameAvailable, "WgcCaptureVisualHandler could not acquire any frame in OnRender.");
+                    canvas.Clear(SKColors.Transparent);
                 }
             }
             catch (Exception ex)

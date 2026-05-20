@@ -220,9 +220,11 @@ public sealed class EmulationViewModelTests
     }
 
     [Fact]
-    public void EdenHandler_UsesBottomClientAreaCropToRemoveBanding()
+    public void EdenHandler_UsesClientAreaCropForQtChrome()
     {
+        Assert.Equal(52, EdenHandler.Instance.ClientAreaCropTopInset);
         Assert.Equal(0, EdenHandler.Instance.ClientAreaCropBottomInset);
+        Assert.False(EdenHandler.Instance.EnableCapturePillarboxCrop);
         Assert.True(EdenHandler.Instance.ForceUseTargetClientAreaCapture);
     }
 

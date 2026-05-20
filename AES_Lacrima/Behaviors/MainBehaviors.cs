@@ -46,6 +46,9 @@ namespace AES_Lacrima.Behaviors
             if (TopLevel.GetTopLevel(dragArea) == null)
                 return;
 
+            if (e.ClickCount > 1)
+                return;
+
             if (!TryGetCurrentPoint(e, dragArea, out var pointerPoint) ||
                 !pointerPoint.Properties.IsLeftButtonPressed)
                 return;
@@ -77,9 +80,14 @@ namespace AES_Lacrima.Behaviors
             return element is Button ||
                    element is TextBox ||
                    element is ComboBox ||
+                   element is ComboBoxItem ||
                    element is Slider ||
                    element is ListBox ||
-                   element is NumericUpDown;
+                   element is TabControl ||
+                   element is TabItem ||
+                   element is ScrollViewer ||
+                   element is NumericUpDown ||
+                   element is CheckBox;
         }
     }
 
