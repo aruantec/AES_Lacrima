@@ -265,6 +265,9 @@ namespace AES_Lacrima.ViewModels
                     _subscribedAudioPlayer.LogarithmicVolumeControl = SettingsViewModel.LogarithmicVolumeControl;
                     _subscribedAudioPlayer.LoudnessCompensatedVolume = SettingsViewModel.LoudnessCompensatedVolume;
                     _subscribedAudioPlayer.SilenceAdvanceDelayMs = SettingsViewModel.SilenceAdvanceDelayMs;
+                    _subscribedAudioPlayer.RestartOnResumeEnabled = SettingsViewModel.RestartOnResumeEnabled;
+                    _subscribedAudioPlayer.RestartOnResumeThresholdSeconds = SettingsViewModel.RestartOnResumeThresholdSeconds;
+                    _subscribedAudioPlayer.PauseWhenVolumeIsZero = SettingsViewModel.PauseWhenVolumeIsZero;
 
                     // Sync initial ReplayGain options directly to player's memory cache
                     _ = _subscribedAudioPlayer.RecomputeReplayGainForCurrentAsync(

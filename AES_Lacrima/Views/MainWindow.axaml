@@ -90,13 +90,23 @@
                         <Border x:Name="SettingsOverlay"
                                 Grid.Row="1"
                                 Grid.Column="1"
+                                ZIndex="2500"
                                 Background="#E6000000"
                                 BorderBrush="DimGray"
                                 BorderThickness="0.5,0,0,0"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"
                                 Opacity="{Binding NavigationService.ShowSettingsOverlay, Converter={StaticResource BoolToOpacityConverter}}"
+                                IsVisible="{Binding NavigationService.ShowSettingsOverlay}"
                                 IsHitTestVisible="{Binding NavigationService.ShowSettingsOverlay}">
-                            <ScrollViewer>
-                                <common:SettingsOverlay DataContext="{Binding SettingsViewModel}" Margin="5,15,0,0"/>
+                            <ScrollViewer HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch"
+                                          Background="#E6000000"
+                                          VerticalScrollBarVisibility="Auto">
+                                <common:SettingsOverlay DataContext="{Binding SettingsViewModel}"
+                                                        Margin="5,15,0,0"
+                                                        HorizontalAlignment="Stretch"
+                                                        VerticalAlignment="Stretch"/>
                             </ScrollViewer>
                         </Border>
                         <!-- Prompt overlay -->

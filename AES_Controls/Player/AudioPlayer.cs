@@ -86,6 +86,25 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     /// </summary>
     public bool LoudnessCompensatedVolume { get; set; } = true;
 
+    /// <summary>
+    /// When true, resuming after a manual pause restarts the track from the beginning if playback
+    /// was still within the restart timeframe (0 to <see cref="RestartOnResumeThresholdSeconds"/>).
+    /// </summary>
+    public bool RestartOnResumeEnabled { get; set; }
+
+    /// <summary>
+    /// Upper bound (seconds) of the restart timeframe. Pausing and resuming within 0..this value restarts playback.
+    /// </summary>
+    public double RestartOnResumeThresholdSeconds { get; set; } = 10;
+
+    /// <summary>
+    /// When true, setting volume to zero pauses playback.
+    /// </summary>
+    public bool PauseWhenVolumeIsZero { get; set; }
+
+    private double _positionWhenPaused;
+    private bool _wasPaused;
+    private bool _pausedDueToZeroVolume;
     private volatile bool _ignoreTimePos;
 
     // Cache ReplayGain settings in-memory to ensure consistency across track changes
@@ -761,9 +780,24 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         set
         {
             if (Math.Abs(_volume - value) < 0.001) return;
+            var wasZero = _volume <= 0.001;
             _volume = value;
             UpdateAf();
             OnPropertyChanged(nameof(Volume));
+
+            if (!PauseWhenVolumeIsZero)
+                return;
+
+            if (value <= 0.001 && IsPlaying)
+            {
+                _pausedDueToZeroVolume = true;
+                PauseForZeroVolume();
+            }
+            else if (wasZero && value > 0.001 && _pausedDueToZeroVolume && !IsPlaying)
+            {
+                _pausedDueToZeroVolume = false;
+                Play();
+            }
         }
     }
 
@@ -2329,12 +2363,40 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     /// <summary>
     /// Start playback.
     /// </summary>
-    public void Play() { if (!_disposed) InvokeOnMpvThread(() => { SetProperty("pause", false); return true; }); IsPlaying = true; }
+    public void Play()
+    {
+        if (RestartOnResumeEnabled &&
+            _wasPaused &&
+            _positionWhenPaused <= RestartOnResumeThresholdSeconds)
+        {
+            SetPosition(0);
+        }
+
+        _wasPaused = false;
+        if (!_disposed)
+            InvokeOnMpvThread(() => { SetProperty("pause", false); return true; });
+        IsPlaying = true;
+    }
 
     /// <summary>
     /// Pause playback.
     /// </summary>
-    public void Pause() { if (!_disposed) InvokeOnMpvThread(() => { SetProperty("pause", true); return true; }); IsPlaying = false; }
+    public void Pause()
+    {
+        _pausedDueToZeroVolume = false;
+        _positionWhenPaused = Position;
+        _wasPaused = true;
+        if (!_disposed)
+            InvokeOnMpvThread(() => { SetProperty("pause", true); return true; });
+        IsPlaying = false;
+    }
+
+    private void PauseForZeroVolume()
+    {
+        if (!_disposed)
+            InvokeOnMpvThread(() => { SetProperty("pause", true); return true; });
+        IsPlaying = false;
+    }
 
     /// <summary>
     /// Stop playback and reset state.
@@ -2370,6 +2432,9 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     {
         IsPlaying = false;
         Position = 0;
+        _wasPaused = false;
+        _positionWhenPaused = 0;
+        _pausedDueToZeroVolume = false;
         ClearMedia();
         Stopped?.Invoke(this, EventArgs.Empty);
     }

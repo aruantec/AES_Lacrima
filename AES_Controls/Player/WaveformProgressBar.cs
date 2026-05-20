@@ -8,6 +8,7 @@ using Avalonia.Threading;
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 
 namespace AES_Controls.Player
 {
@@ -186,6 +187,27 @@ namespace AES_Controls.Player
             if (!IsEffectivelyVisible) return;
             // if the event already targeted this control, skip
             if (e.Source == this) return;
+
+            if (e.Source is Visual sourceVisual)
+            {
+                // Don't steal clicks intended for overlays (settings panel, popups, etc.).
+                if (IsBlockingOverlay(sourceVisual))
+                    return;
+
+                if (TopLevel.GetTopLevel(this) is Visual root)
+                {
+                    var hit = root.GetVisualAt(e.GetPosition(root));
+                    if (hit != null)
+                    {
+                        if (IsBlockingOverlay(hit))
+                            return;
+                        // Direct hits are handled by the control's own PointerPressed handler.
+                        if (IsVisualDescendant(hit, this))
+                            return;
+                    }
+                }
+            }
+
             var pt = e.GetPosition(this);
             double buffer = TriangleHeight + TriangleOffset + 5;
             if (pt.X >= -buffer && pt.X <= Bounds.Width + buffer && pt.Y >= -buffer && pt.Y <= Bounds.Height + buffer)
@@ -196,6 +218,34 @@ namespace AES_Controls.Player
                 // mark handled so other elements don't steal it
                 e.Handled = true;
             }
+        }
+
+        private static bool IsVisualDescendant(Visual? visual, Visual ancestor)
+        {
+            if (visual == null) return false;
+            return visual == ancestor || visual.GetVisualAncestors().Contains(ancestor);
+        }
+
+        private static bool IsBlockingOverlay(Visual visual)
+        {
+            foreach (var ancestor in visual.GetVisualAncestors())
+            {
+                if (ancestor is Border { Name: "SettingsOverlay" })
+                    return true;
+
+                if (ancestor is Control { ZIndex: >= 2000 })
+                    return true;
+
+                var typeName = ancestor.GetType().Name;
+                if (typeName is "SettingsOverlay"
+                    or "MetadataOverlay"
+                    or "EmulationMetadataOverlay"
+                    or "PopupRoot"
+                    or "OverlayPopupHost")
+                    return true;
+            }
+
+            return false;
         }
 
         public WaveformProgressBar()

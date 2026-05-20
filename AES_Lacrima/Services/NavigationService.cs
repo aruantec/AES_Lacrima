@@ -78,6 +78,21 @@ namespace AES_Lacrima.Services
             ShowSettingsOverlay = !ShowSettingsOverlay;
         }
 
+        partial void OnShowSettingsOverlayChanged(bool value)
+        {
+            if (!value)
+                return;
+
+            try
+            {
+                DiLocator.ResolveViewModel<SettingsViewModel>()?.ApplyPlaybackBehaviorSettings();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("OnShowSettingsOverlayChanged: failed to apply playback settings", ex);
+            }
+        }
+
         [RelayCommand]
         private void CloseSettingsOverlay()
         {

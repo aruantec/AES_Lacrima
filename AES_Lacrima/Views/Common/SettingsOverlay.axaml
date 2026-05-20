@@ -9,20 +9,28 @@
              mc:Ignorable="d"
              x:Class="AES_Lacrima.Views.Common.SettingsOverlay"
              x:DataType="vm:SettingsViewModel"
-             ClipToBounds="False">
+             Background="#E6000000"
+             HorizontalAlignment="Stretch"
+             VerticalAlignment="Stretch"
+             ClipToBounds="True">
 
     <Design.DataContext>
         <vm:SettingsViewModel/>
     </Design.DataContext>
 
-    <Grid Background="Transparent" RowDefinitions="*,Auto">
+    <Grid Background="#E6000000" RowDefinitions="*,Auto">
         <Border Background="Black"
                 Height="75"
                 BorderBrush="DimGray"
                 BorderThickness="0,0,0,0.5"
                 VerticalAlignment="Top"
                 Margin="-4,-15,2,0"/>
-        <TabControl Grid.Row="0" Margin="15,0,0,0" SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
+        <TabControl Grid.Row="0"
+                    Margin="15,0,0,0"
+                    Background="#E6000000"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
             <TabItem Header="UI" FontSize="30">
                 <ScrollViewer>
                     <StackPanel Margin="15,20,0,0">
@@ -480,6 +488,24 @@
                                         <ComboBoxItem>Album</ComboBoxItem>
                                     </ComboBox>
                                 </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <TextBlock Margin="0,24,0,10" Text="Playback Options" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="30"/>
+                        <StackPanel Orientation="Vertical" Spacing="6" Margin="0,0,0,10">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
+                                <CheckBox IsChecked="{Binding RestartOnResumeEnabled, Mode=TwoWay}" VerticalAlignment="Center"/>
+                                <TextBlock Text="Restart time frame" Foreground="WhiteSmoke" VerticalAlignment="Center" FontSize="18" IsHitTestVisible="False"/>
+                            </StackPanel>
+                            <Grid ColumnDefinitions="Auto, Auto, Auto" IsEnabled="{Binding RestartOnResumeEnabled}" Margin="20,0,0,0">
+                                <TextBlock Grid.Column="0" Text="0 to (s)" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="16"/>
+                                <Slider Grid.Column="1" Width="300" Minimum="0" Maximum="20" SmallChange="0.5" LargeChange="1" Value="{Binding RestartOnResumeThresholdSeconds, Mode=TwoWay}" Margin="10,0,0,0"/>
+                                <TextBlock Grid.Column="2" Text="{Binding RestartOnResumeThresholdSeconds, StringFormat='{} {0:0.0} s'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
+                            </Grid>
+                            <TextBlock IsEnabled="{Binding RestartOnResumeEnabled}" Margin="20,0,0,4" Text="Restart from the beginning when resuming after a pause within this timeframe." Foreground="#BBFFFFFF" FontSize="14" TextWrapping="Wrap" MaxWidth="520"/>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10" Margin="0,6,0,0">
+                                <CheckBox IsChecked="{Binding PauseWhenVolumeIsZero, Mode=TwoWay}" VerticalAlignment="Center"/>
+                                <TextBlock Text="Pause when volume is set to zero" Foreground="WhiteSmoke" VerticalAlignment="Center" FontSize="18" IsHitTestVisible="False"/>
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>
