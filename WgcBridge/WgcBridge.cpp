@@ -232,6 +232,12 @@ struct CaptureSession
     int dcompPendingWidth = 0;
     int dcompPendingHeight = 0;
     bool dcompHasPendingFrame = false;
+    // Stable copy target + cached SRV to avoid per-present resource creation.
+    rt::com_ptr<ID3D11Texture2D> dcompPresentationTexture;
+    rt::com_ptr<ID3D11ShaderResourceView> dcompPresentationSrv;
+    int dcompPresentationWidth = 0;
+    int dcompPresentationHeight = 0;
+    DXGI_FORMAT dcompPresentationFormat = DXGI_FORMAT_UNKNOWN;
 
     static std::wstring GetShaderCompilerErrorLogPath()
     {
@@ -1389,6 +1395,11 @@ struct CaptureSession
         dcompPendingHeight = 0;
         dcompHasPendingFrame = false;
         dcompFrameQueued.store(false);
+        dcompPresentationTexture = nullptr;
+        dcompPresentationSrv = nullptr;
+        dcompPresentationWidth = 0;
+        dcompPresentationHeight = 0;
+        dcompPresentationFormat = DXGI_FORMAT_UNKNOWN;
     }
 
     void QueueDirectCompositionFrame(ID3D11Texture2D* texture, int width, int height)
@@ -1434,13 +1445,14 @@ struct CaptureSession
                 if (!dcompWorkerRunning.load())
                     break;
 
-                hadFrame = dcompHasPendingFrame;
-                if (hadFrame)
+                // Coalesce bursts: always present only the newest queued frame.
+                while (dcompHasPendingFrame)
                 {
                     texture = dcompPendingTexture;
                     width = dcompPendingWidth;
                     height = dcompPendingHeight;
                     dcompHasPendingFrame = false;
+                    hadFrame = true;
                 }
             }
 
@@ -1456,6 +1468,65 @@ struct CaptureSession
                 dcompFrameQueued.store(false, std::memory_order_release);
             }
         }
+    }
+
+    bool EnsureDcompPresentationResources(ID3D11Texture2D* source, int width, int height)
+    {
+        if (!source || !d3dDevice || !d3dContext || width <= 0 || height <= 0)
+            return false;
+
+        D3D11_TEXTURE2D_DESC srcDesc{};
+        source->GetDesc(&srcDesc);
+
+        const bool needsRecreate =
+            !dcompPresentationTexture ||
+            !dcompPresentationSrv ||
+            dcompPresentationWidth != width ||
+            dcompPresentationHeight != height ||
+            dcompPresentationFormat != srcDesc.Format;
+
+        if (needsRecreate)
+        {
+            dcompPresentationTexture = nullptr;
+            dcompPresentationSrv = nullptr;
+
+            D3D11_TEXTURE2D_DESC td = srcDesc;
+            td.Width = static_cast<UINT>(width);
+            td.Height = static_cast<UINT>(height);
+            td.MipLevels = 1;
+            td.ArraySize = 1;
+            td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            td.MiscFlags = 0;
+            td.Usage = D3D11_USAGE_DEFAULT;
+            td.CPUAccessFlags = 0;
+
+            HRESULT hr = d3dDevice->CreateTexture2D(&td, nullptr, dcompPresentationTexture.put());
+            if (FAILED(hr) || !dcompPresentationTexture)
+                return false;
+
+            hr = d3dDevice->CreateShaderResourceView(dcompPresentationTexture.get(), nullptr, dcompPresentationSrv.put());
+            if (FAILED(hr) || !dcompPresentationSrv)
+            {
+                dcompPresentationTexture = nullptr;
+                return false;
+            }
+
+            dcompPresentationWidth = width;
+            dcompPresentationHeight = height;
+            dcompPresentationFormat = srcDesc.Format;
+        }
+
+        d3dContext->CopySubresourceRegion(
+            dcompPresentationTexture.get(),
+            0,
+            0,
+            0,
+            0,
+            source,
+            0,
+            nullptr);
+
+        return true;
     }
 
     bool EnsureDirectCompositionRenderer()
@@ -1957,18 +2028,16 @@ struct CaptureSession
             return;
         }
 
-        HRESULT hr = S_OK;
-
-        D3D11_TEXTURE2D_DESC texDesc{};
-        texture->GetDesc(&texDesc);
-
-        rt::com_ptr<ID3D11ShaderResourceView> srv;
-        hr = d3dDevice->CreateShaderResourceView(texture, nullptr, srv.put());
-        if (FAILED(hr) || !srv)
+        if (!EnsureDcompPresentationResources(texture, width, height))
         {
-            MarkDirectCompositionFailed("CreateShaderResourceView failed");
+            MarkDirectCompositionFailed("EnsureDcompPresentationResources failed");
             return;
         }
+
+        D3D11_TEXTURE2D_DESC texDesc{};
+        dcompPresentationTexture->GetDesc(&texDesc);
+
+        ID3D11ShaderResourceView* srvPtr = dcompPresentationSrv.get();
 
         float viewAspect = dcompHeight > 0 ? static_cast<float>(dcompWidth) / static_cast<float>(dcompHeight) : 1.0f;
         float frameAspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
@@ -2044,6 +2113,7 @@ struct CaptureSession
             { right, bottom, 0.0f, u1, v1 }
         };
 
+        HRESULT hr = S_OK;
         D3D11_MAPPED_SUBRESOURCE mapped{};
         hr = d3dContext->Map(dcompVertexBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
         if (FAILED(hr))
@@ -2085,7 +2155,6 @@ struct CaptureSession
         UINT stride = sizeof(DcompVertex);
         UINT offset = 0;
         ID3D11Buffer* vb = dcompVertexBuffer.get();
-        ID3D11ShaderResourceView* srvPtr = srv.get();
         ID3D11SamplerState* samplerPtr = dcompSamplerState.get();
         ID3D11Buffer* cbPtr = dcompConstantBuffer.get();
 
@@ -2157,7 +2226,13 @@ struct CaptureSession
         int localCropW = cropW.load();
         int localCropH = cropH.load();
 
-        auto frame = sender.TryGetNextFrame();
+        // Drain the frame pool so we always composite the freshest capture.
+        wgc::Direct3D11CaptureFrame frame{ nullptr };
+        while (auto next = sender.TryGetNextFrame())
+        {
+            frame = std::move(next);
+        }
+
         if (!frame)
         {
             return;
@@ -2949,6 +3024,11 @@ extern "C" {
             s->dcompRenderTargetView = nullptr;
             s->dcompWidth = 0;
             s->dcompHeight = 0;
+            s->dcompPresentationTexture = nullptr;
+            s->dcompPresentationSrv = nullptr;
+            s->dcompPresentationWidth = 0;
+            s->dcompPresentationHeight = 0;
+            s->dcompPresentationFormat = DXGI_FORMAT_UNKNOWN;
             s->dcompSwapChainAllowTearing.store(false, std::memory_order_relaxed);
             if (s->dcompState.load() == -1)
                 s->dcompState.store(2);
