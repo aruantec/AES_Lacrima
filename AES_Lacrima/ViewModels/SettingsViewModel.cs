@@ -544,6 +544,25 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private int _silenceAdvanceDelayMs = 500;
 
     /// <summary>
+    /// When true, resuming after pause restarts the current track if playback was still within
+    /// the restart timeframe (0 to <see cref="RestartOnResumeThresholdSeconds"/>).
+    /// </summary>
+    [ObservableProperty]
+    private bool _restartOnResumeEnabled;
+
+    /// <summary>
+    /// Upper bound (seconds) of the restart timeframe for pause/resume restart behavior.
+    /// </summary>
+    [ObservableProperty]
+    private double _restartOnResumeThresholdSeconds = 10;
+
+    /// <summary>
+    /// When true, setting playback volume to zero pauses the current track.
+    /// </summary>
+    [ObservableProperty]
+    private bool _pauseWhenVolumeIsZero;
+
+    /// <summary>
     /// When true, analyze files on-the-fly to compute target gain for tracks without tags.
     /// </summary>
     [ObservableProperty]
@@ -1278,6 +1297,21 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             }
         }
 
+        if (e.PropertyName == nameof(RestartOnResumeEnabled) ||
+            e.PropertyName == nameof(RestartOnResumeThresholdSeconds) ||
+            e.PropertyName == nameof(PauseWhenVolumeIsZero))
+        {
+            try
+            {
+                SaveSettings();
+                ApplyPlaybackBehaviorSettings();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("OnSettingsPropertyChanged: failed to push playback behavior settings to player", ex);
+            }
+        }
+
         if (e.PropertyName == nameof(ShowShaderToy) && ShowShaderToy)
         {
             ShowBackground = false;
@@ -1287,6 +1321,20 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             ShowShaderToy = false;
         }
+    }
+
+    /// <summary>
+    /// Applies playback option settings to the active <see cref="MusicViewModel"/> audio player.
+    /// </summary>
+    public void ApplyPlaybackBehaviorSettings()
+    {
+        var mv = DiLocator.ResolveViewModel<MusicViewModel>();
+        if (mv?.AudioPlayer == null)
+            return;
+
+        mv.AudioPlayer.RestartOnResumeEnabled = RestartOnResumeEnabled;
+        mv.AudioPlayer.RestartOnResumeThresholdSeconds = RestartOnResumeThresholdSeconds;
+        mv.AudioPlayer.PauseWhenVolumeIsZero = PauseWhenVolumeIsZero;
     }
 
     [RelayCommand]
@@ -2384,6 +2432,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ReplayGainTagsPreampDb = ReadDoubleSetting(section, nameof(ReplayGainTagsPreampDb), ReplayGainTagsPreampDb);
         ReplayGainTagSource = ReadIntSetting(section, nameof(ReplayGainTagSource), ReplayGainTagSource);
         SilenceAdvanceDelayMs = ReadIntSetting(section, nameof(SilenceAdvanceDelayMs), SilenceAdvanceDelayMs);
+        RestartOnResumeEnabled = ReadBoolSetting(section, nameof(RestartOnResumeEnabled), RestartOnResumeEnabled);
+        RestartOnResumeThresholdSeconds = ReadDoubleSetting(section, nameof(RestartOnResumeThresholdSeconds), RestartOnResumeThresholdSeconds);
+        PauseWhenVolumeIsZero = ReadBoolSetting(section, nameof(PauseWhenVolumeIsZero), PauseWhenVolumeIsZero);
         SortAlbumsByTrackNameInMiniView = ReadBoolSetting(section, nameof(SortAlbumsByTrackNameInMiniView), SortAlbumsByTrackNameInMiniView);
     }
 
@@ -2468,6 +2519,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ReplayGainTagsPreampDb), ReplayGainTagsPreampDb);
         WriteSetting(section, nameof(ReplayGainTagSource), ReplayGainTagSource);
         WriteSetting(section, nameof(SilenceAdvanceDelayMs), SilenceAdvanceDelayMs);
+        WriteSetting(section, nameof(RestartOnResumeEnabled), RestartOnResumeEnabled);
+        WriteSetting(section, nameof(RestartOnResumeThresholdSeconds), RestartOnResumeThresholdSeconds);
+        WriteSetting(section, nameof(PauseWhenVolumeIsZero), PauseWhenVolumeIsZero);
         WriteSetting(section, nameof(SortAlbumsByTrackNameInMiniView), SortAlbumsByTrackNameInMiniView);
     }
 

@@ -1,3 +1,5 @@
+using System;
+using AES_Lacrima.ViewModels;
 using Avalonia.Controls;
 using Avalonia.Media;
 
@@ -8,7 +10,13 @@ public partial class SettingsOverlay : UserControl
     public SettingsOverlay()
     {
         InitializeComponent();
-        // Show black background in the XAML designer only
-        Background = Design.IsDesignMode ? Brushes.Black : Brushes.Transparent;
+        Background = Design.IsDesignMode ? Brushes.Black : new SolidColorBrush(Color.Parse("#E6000000"));
+    }
+
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+        if (DataContext is SettingsViewModel settings)
+            settings.ApplyPlaybackBehaviorSettings();
     }
 }
