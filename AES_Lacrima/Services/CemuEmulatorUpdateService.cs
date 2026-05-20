@@ -22,7 +22,8 @@ public sealed record CemuUpdateState(
     string StatusMessage,
     string EmulatorDirectory,
     string UpdateDirectory,
-    string? ResolvedLauncherPath);
+    string? ResolvedLauncherPath,
+    string? LatestReleaseNotes = null);
 
 [AutoRegister]
 public partial class CemuEmulatorUpdateService
@@ -39,7 +40,8 @@ public partial class CemuEmulatorUpdateService
         string Tag,
         bool IsPrerelease,
         DateTimeOffset? PublishedAt,
-        IReadOnlyList<ReleaseAsset> Assets);
+        IReadOnlyList<ReleaseAsset> Assets,
+        string? ReleaseNotes = null);
 
     private sealed record ReleaseAsset(string Name, string DownloadUrl);
 
@@ -57,13 +59,17 @@ public partial class CemuEmulatorUpdateService
         try
         {
             var releases = await GetReleasesAsync(cancellationToken).ConfigureAwait(false);
+            var latestRelease = releases
+                .Where(static r => !r.IsPrerelease)
+                .OrderByDescending(static r => r.PublishedAt ?? DateTimeOffset.MinValue)
+                .FirstOrDefault();
             var versions = releases
                 .Select(static r => r.Tag)
                 .Where(static v => !string.IsNullOrWhiteSpace(v))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Take(12)
                 .ToList();
-            var latest = versions.FirstOrDefault();
+            var latest = latestRelease?.Tag ?? versions.FirstOrDefault();
             var updateAvailable = IsUpdateAvailable(currentVersion, latest);
             var status = updateAvailable
                 ? $"New Cemu version available: {latest}"
@@ -80,7 +86,8 @@ public partial class CemuEmulatorUpdateService
                 status,
                 emulatorDirectory,
                 updateDirectory,
-                resolvedLauncherPath);
+                resolvedLauncherPath,
+                updateAvailable ? latestRelease?.ReleaseNotes : null);
         }
         catch (Exception ex)
         {
@@ -199,7 +206,8 @@ public partial class CemuEmulatorUpdateService
                     .Select(a => new ReleaseAsset(
                         a["name"]?.GetValue<string>() ?? "",
                         a["browser_download_url"]?.GetValue<string>() ?? ""))
-                    .ToList() ?? []))
+                    .ToList() ?? [],
+                EmulatorReleaseNotesHelper.ParseGitHubReleaseBody(item)))
             .ToList() ?? [];
     }
 

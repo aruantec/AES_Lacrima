@@ -26,7 +26,8 @@ public sealed record Pcsx2UpdateState(
     string StatusMessage,
     string EmulatorDirectory,
     string UpdateDirectory,
-    string? ResolvedLauncherPath);
+    string? ResolvedLauncherPath,
+    string? LatestReleaseNotes = null);
 
 [AutoRegister]
 public partial class Pcsx2EmulatorUpdateService
@@ -54,7 +55,8 @@ public partial class Pcsx2EmulatorUpdateService
         string Tag,
         bool IsPrerelease,
         DateTimeOffset? PublishedAt,
-        IReadOnlyList<ReleaseAsset> Assets);
+        IReadOnlyList<ReleaseAsset> Assets,
+        string? ReleaseNotes = null);
 
     private sealed record ReleaseAsset(string Name, string DownloadUrl);
 
@@ -73,13 +75,14 @@ public partial class Pcsx2EmulatorUpdateService
         try
         {
             var releases = await GetReleasesAsync(includePrereleases, forceRefresh, cancellationToken).ConfigureAwait(false);
+            var latestRelease = releases.FirstOrDefault();
             var versions = releases
                 .Select(static r => r.Tag)
                 .Where(static v => !string.IsNullOrWhiteSpace(v))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Take(12)
                 .ToList();
-            var latest = versions.FirstOrDefault();
+            var latest = latestRelease?.Tag ?? versions.FirstOrDefault();
             var updateAvailable = IsUpdateAvailable(currentVersion, latest);
             var status = updateAvailable
                 ? $"New PCSX2 version available: {latest}"
@@ -96,7 +99,8 @@ public partial class Pcsx2EmulatorUpdateService
                 status,
                 emulatorDirectory,
                 updateDirectory,
-                resolvedLauncherPath);
+                resolvedLauncherPath,
+                updateAvailable ? latestRelease?.ReleaseNotes : null);
         }
         catch (Exception ex)
         {
@@ -330,7 +334,7 @@ public partial class Pcsx2EmulatorUpdateService
                 }
             }
 
-            results.Add(new ReleaseInfo(tag, prerelease, publishedAt, assets));
+            results.Add(new ReleaseInfo(tag, prerelease, publishedAt, assets, EmulatorReleaseNotesHelper.ParseGitHubReleaseBody(item)));
         }
 
         return results

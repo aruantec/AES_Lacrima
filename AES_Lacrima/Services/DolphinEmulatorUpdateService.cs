@@ -27,7 +27,8 @@ public sealed record DolphinUpdateState(
     string StatusMessage,
     string EmulatorDirectory,
     string UpdateDirectory,
-    string? ResolvedLauncherPath);
+    string? ResolvedLauncherPath,
+    string? LatestReleaseNotes = null);
 
 [AutoRegister]
 public partial class DolphinEmulatorUpdateService
@@ -60,7 +61,8 @@ public partial class DolphinEmulatorUpdateService
         string Tag,
         bool IsPrerelease,
         DateTimeOffset? PublishedAt,
-        IReadOnlyList<ReleaseAsset> Assets);
+        IReadOnlyList<ReleaseAsset> Assets,
+        string? ReleaseNotes = null);
 
     private sealed record EmucrReleaseStub(string Tag, DateTimeOffset? PublishedAt, string PostUrl);
 
@@ -81,6 +83,7 @@ public partial class DolphinEmulatorUpdateService
         try
         {
             var releases = await GetReleasesAsync(includePrereleases, forceRefresh, cancellationToken).ConfigureAwait(false);
+            var latestRelease = releases.FirstOrDefault();
             var versions = releases
                 .Select(static r => r.Tag)
                 .Where(static v => !string.IsNullOrWhiteSpace(v))
@@ -88,7 +91,7 @@ public partial class DolphinEmulatorUpdateService
                 .Take(12)
                 .ToList();
 
-            var latest = versions.FirstOrDefault();
+            var latest = latestRelease?.Tag ?? versions.FirstOrDefault();
             var updateAvailable = IsUpdateAvailable(currentVersion, latest);
             var status = updateAvailable
                 ? $"New Dolphin version available: {latest}"
@@ -105,7 +108,8 @@ public partial class DolphinEmulatorUpdateService
                 status,
                 emulatorDirectory,
                 updateDirectory,
-                resolvedLauncherPath);
+                resolvedLauncherPath,
+                updateAvailable ? latestRelease?.ReleaseNotes : null);
         }
         catch (Exception ex)
         {
@@ -757,7 +761,7 @@ public partial class DolphinEmulatorUpdateService
                 }
             }
 
-            results.Add(new ReleaseInfo(tag, prerelease, publishedAt, assets));
+            results.Add(new ReleaseInfo(tag, prerelease, publishedAt, assets, EmulatorReleaseNotesHelper.ParseGitHubReleaseBody(item)));
         }
 
         return results
