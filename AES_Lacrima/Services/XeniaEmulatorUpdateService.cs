@@ -26,7 +26,8 @@ public sealed record XeniaUpdateState(
     string StatusMessage,
     string EmulatorDirectory,
     string UpdateDirectory,
-    string? ResolvedLauncherPath);
+    string? ResolvedLauncherPath,
+    string? LatestReleaseNotes = null);
 
 [AutoRegister]
 public partial class XeniaEmulatorUpdateService
@@ -54,7 +55,8 @@ public partial class XeniaEmulatorUpdateService
     private sealed record ReleaseInfo(
         string Tag,
         DateTimeOffset? PublishedAt,
-        IReadOnlyList<ReleaseAsset> Assets);
+        IReadOnlyList<ReleaseAsset> Assets,
+        string? ReleaseNotes = null);
 
     private sealed record ReleaseAsset(string Name, string DownloadUrl);
 
@@ -73,13 +75,14 @@ public partial class XeniaEmulatorUpdateService
         {
             await EnsureGamePatchesAsync(emulatorDirectory, updateDirectory, resolvedLauncherPath, forceRefresh: false, cancellationToken).ConfigureAwait(false);
             var releases = await GetReleasesAsync(forceRefresh, cancellationToken).ConfigureAwait(false);
+            var latestRelease = releases.FirstOrDefault();
             var versions = releases
                 .Select(static r => r.Tag)
                 .Where(static v => !string.IsNullOrWhiteSpace(v))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Take(10)
                 .ToList();
-            var latest = versions.FirstOrDefault();
+            var latest = latestRelease?.Tag ?? versions.FirstOrDefault();
             var updateAvailable = IsUpdateAvailable(currentVersion, latest);
             var status = updateAvailable
                 ? $"New Xenia Canary version available: {latest}"
@@ -96,7 +99,8 @@ public partial class XeniaEmulatorUpdateService
                 status,
                 emulatorDirectory,
                 updateDirectory,
-                resolvedLauncherPath);
+                resolvedLauncherPath,
+                updateAvailable ? latestRelease?.ReleaseNotes : null);
         }
         catch (Exception ex)
         {
@@ -327,7 +331,7 @@ public partial class XeniaEmulatorUpdateService
                 }
             }
 
-            results.Add(new ReleaseInfo(tag, publishedAt, assets));
+            results.Add(new ReleaseInfo(tag, publishedAt, assets, EmulatorReleaseNotesHelper.ParseGitHubReleaseBody(item)));
         }
 
         return results

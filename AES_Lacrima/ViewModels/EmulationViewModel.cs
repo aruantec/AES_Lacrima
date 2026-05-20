@@ -411,6 +411,28 @@ private bool _isShadPs4PatchesOverlayOpen;
         partial void OnRetroArchErrorSummaryChanged(string? value) => OnPropertyChanged(nameof(HasRetroArchError));
 
         [ObservableProperty]
+        private bool _isEmulatorUpdateNoticeOverlayOpen;
+
+        [ObservableProperty]
+        private string? _emulatorUpdateNoticeSummary;
+
+        [ObservableProperty]
+        private string? _emulatorUpdateNoticeDetails;
+
+        [ObservableProperty]
+        private string? _emulatorUpdateNoticeFooter;
+
+        [ObservableProperty]
+        private string? _emulatorUpdateNoticeChanges;
+
+        private string? _sectionLatestReleaseNotes;
+        private string? _emulatorUpdateNoticeSuppressedAlbumTitle;
+
+        public bool HasEmulatorUpdateNoticeChanges => !string.IsNullOrWhiteSpace(EmulatorUpdateNoticeChanges);
+
+        partial void OnEmulatorUpdateNoticeChangesChanged(string? value) => OnPropertyChanged(nameof(HasEmulatorUpdateNoticeChanges));
+
+        [ObservableProperty]
         private int _renderOptionsSelectedTabIndex;
 
         [ObservableProperty]
@@ -1215,6 +1237,14 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             if (!IsEmulatorRunning)
                 UpdateCurrentEmulatorHandlerForSelection(value);
+
+            IsEmulatorUpdateNoticeOverlayOpen = false;
+
+            if (value != null &&
+                !string.Equals(_emulatorUpdateNoticeSuppressedAlbumTitle, value.Title, StringComparison.OrdinalIgnoreCase))
+            {
+                _emulatorUpdateNoticeSuppressedAlbumTitle = null;
+            }
 
             ApplyFilter();
             QueueSelectedAlbumCoverScan(value);
@@ -3333,6 +3363,9 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 _isSyncingCurrentSectionCemuVersionSelection = false;
             }
+
+            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
+            SyncEmulatorUpdateNoticeOverlay();
         }
 
         private IAsyncRelayCommand? _refreshCurrentSectionCemuInfoCommand;
@@ -4401,6 +4434,9 @@ private bool _isShadPs4PatchesOverlayOpen;
                 CurrentSectionCemuDownloadProgress = 0;
                 IsCurrentSectionCemuDownloading = false;
             }
+
+            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
+            SyncEmulatorUpdateNoticeOverlay();
         }
 
         [RelayCommand]
@@ -5153,6 +5189,9 @@ private bool _isShadPs4PatchesOverlayOpen;
                     _isSyncingCurrentSectionEdenRepositoryOverride = false;
                 }
             }
+
+            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
+            SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void ApplyXeniaUpdateState(XeniaUpdateState state)
@@ -5184,6 +5223,9 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 _isSyncingCurrentSectionXeniaVersionSelection = false;
             }
+
+            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
+            SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void ApplyRpcs3UpdateState(Rpcs3UpdateState state)
@@ -5215,6 +5257,9 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 _isSyncingCurrentSectionRpcs3VersionSelection = false;
             }
+
+            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
+            SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void ApplyPcsx2UpdateState(Pcsx2UpdateState state)
@@ -5246,6 +5291,9 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 _isSyncingCurrentSectionPcsx2VersionSelection = false;
             }
+
+            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
+            SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void ApplyDolphinUpdateState(DolphinUpdateState state)
@@ -5277,6 +5325,9 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 _isSyncingCurrentSectionDolphinVersionSelection = false;
             }
+
+            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
+            SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void ApplyFlycastUpdateState(FlycastUpdateState state)
@@ -5308,6 +5359,9 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 _isSyncingCurrentSectionFlycastVersionSelection = false;
             }
+
+            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
+            SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void ApplyDuckStationUpdateState(DuckStationUpdateState state)
@@ -5339,6 +5393,9 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 _isSyncingCurrentSectionDuckStationVersionSelection = false;
             }
+
+            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
+            SyncEmulatorUpdateNoticeOverlay();
         }
 
         [RelayCommand]
@@ -6197,6 +6254,9 @@ private bool _isShadPs4PatchesOverlayOpen;
                     _isSyncingCurrentSectionShadPs4RepositoryOverride = false;
                 }
             }
+
+            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
+            SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void UpdateCurrentEmulatorHandlerForSelection(FolderMediaItem? album)
@@ -6547,6 +6607,73 @@ private bool _isShadPs4PatchesOverlayOpen;
                 return;
 
             IsRetroArchErrorOverlayOpen = !IsRetroArchErrorOverlayOpen;
+        }
+
+        [RelayCommand]
+        private void DismissEmulatorUpdateNoticeOverlay()
+        {
+            _emulatorUpdateNoticeSuppressedAlbumTitle = LoadedAlbum?.Title;
+            IsEmulatorUpdateNoticeOverlayOpen = false;
+        }
+
+        [RelayCommand]
+        private async Task OpenEmulatorUpdateNoticeOverlay()
+        {
+            IsEmulatorUpdateNoticeOverlayOpen = false;
+            await OpenCurrentSectionEdenUpdates();
+        }
+
+        private void SyncEmulatorUpdateNoticeOverlay()
+        {
+            if (LoadedAlbum == null || !IsCurrentSectionHandlerUpdateAvailable)
+                return;
+
+            if (string.Equals(_emulatorUpdateNoticeSuppressedAlbumTitle, LoadedAlbum.Title, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var (currentVersion, latestVersion) = GetCurrentSectionUpdateVersionInfo();
+            var emulatorName = string.IsNullOrWhiteSpace(CurrentEmulatorHandler?.DisplayName)
+                ? "emulator"
+                : CurrentEmulatorHandler.DisplayName;
+
+            EmulatorUpdateNoticeSummary = $"A new version of {emulatorName} is available.";
+
+            var details = new System.Text.StringBuilder();
+            if (!string.IsNullOrWhiteSpace(currentVersion))
+                details.Append("Installed: ").AppendLine(currentVersion);
+            if (!string.IsNullOrWhiteSpace(latestVersion))
+                details.Append("Latest: ").AppendLine(latestVersion);
+
+            EmulatorUpdateNoticeDetails = details.Length > 0 ? details.ToString().TrimEnd() : null;
+            EmulatorUpdateNoticeChanges = _sectionLatestReleaseNotes;
+            EmulatorUpdateNoticeFooter = "Open Render Options → Updates to download and install the update.";
+            IsEmulatorUpdateNoticeOverlayOpen = true;
+        }
+
+        private (string? CurrentVersion, string? LatestVersion) GetCurrentSectionUpdateVersionInfo()
+        {
+            if (ShowCurrentSectionRetroArchUpdateControls && IsCurrentSectionRetroArchUpdateAvailable)
+                return (CurrentSectionRetroArchCurrentVersion, CurrentSectionRetroArchLatestVersion);
+            if (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable)
+                return (CurrentSectionEdenCurrentVersion, CurrentSectionEdenLatestVersion);
+            if (ShowCurrentSectionShadPs4UpdateControls && IsCurrentSectionShadPs4UpdateAvailable)
+                return (CurrentSectionShadPs4CurrentVersion, CurrentSectionShadPs4LatestVersion);
+            if (ShowCurrentSectionXeniaUpdateControls && IsCurrentSectionXeniaUpdateAvailable)
+                return (CurrentSectionXeniaCurrentVersion, CurrentSectionXeniaLatestVersion);
+            if (ShowCurrentSectionRpcs3UpdateControls && IsCurrentSectionRpcs3UpdateAvailable)
+                return (CurrentSectionRpcs3CurrentVersion, CurrentSectionRpcs3LatestVersion);
+            if (ShowCurrentSectionPcsx2UpdateControls && IsCurrentSectionPcsx2UpdateAvailable)
+                return (CurrentSectionPcsx2CurrentVersion, CurrentSectionPcsx2LatestVersion);
+            if (ShowCurrentSectionDolphinUpdateControls && IsCurrentSectionDolphinUpdateAvailable)
+                return (CurrentSectionDolphinCurrentVersion, CurrentSectionDolphinLatestVersion);
+            if (ShowCurrentSectionFlycastUpdateControls && IsCurrentSectionFlycastUpdateAvailable)
+                return (CurrentSectionFlycastCurrentVersion, CurrentSectionFlycastLatestVersion);
+            if (ShowCurrentSectionDuckStationUpdateControls && IsCurrentSectionDuckStationUpdateAvailable)
+                return (CurrentSectionDuckStationCurrentVersion, CurrentSectionDuckStationLatestVersion);
+            if (ShowCurrentSectionCemuSection && IsCurrentSectionCemuUpdateAvailable)
+                return (CurrentSectionCemuCurrentVersion, CurrentSectionCemuLatestVersion);
+
+            return (null, null);
         }
 
         private void ClearRetroArchErrorState()

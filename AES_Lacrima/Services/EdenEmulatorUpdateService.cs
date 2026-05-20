@@ -26,7 +26,8 @@ public sealed record EdenUpdateState(
     string StatusMessage,
     string EmulatorDirectory,
     string UpdateDirectory,
-    string? ResolvedLauncherPath);
+    string? ResolvedLauncherPath,
+    string? LatestReleaseNotes = null);
 
 [AutoRegister]
 public partial class EdenEmulatorUpdateService
@@ -59,7 +60,8 @@ public partial class EdenEmulatorUpdateService
         string Name,
         bool IsPrerelease,
         DateTimeOffset? PublishedAt,
-        IReadOnlyList<EdenAsset> Assets);
+        IReadOnlyList<EdenAsset> Assets,
+        string? ReleaseNotes = null);
 
     private sealed record EdenAsset(string Name, string DownloadUrl);
 
@@ -80,8 +82,9 @@ public partial class EdenEmulatorUpdateService
         try
         {
             var releases = await GetReleasesAsync(repository, includePrereleases, forceRefresh, cancellationToken).ConfigureAwait(false);
+            var latestRelease = releases.FirstOrDefault();
             var versions = releases.Select(static r => r.Tag).Where(static v => !string.IsNullOrWhiteSpace(v)).Distinct(StringComparer.OrdinalIgnoreCase).Take(10).ToList();
-            var latest = versions.FirstOrDefault();
+            var latest = latestRelease?.Tag ?? versions.FirstOrDefault();
             var updateAvailable = IsUpdateAvailable(currentVersion, latest);
             var status = updateAvailable
                 ? $"New Eden version available: {latest}"
@@ -98,7 +101,8 @@ public partial class EdenEmulatorUpdateService
                 status,
                 emulatorDirectory,
                 updateDirectory,
-                resolvedLauncherPath);
+                resolvedLauncherPath,
+                updateAvailable ? latestRelease?.ReleaseNotes : null);
         }
         catch (Exception ex)
         {
@@ -330,7 +334,7 @@ public partial class EdenEmulatorUpdateService
                 }
             }
 
-            results.Add(new EdenRelease(tag, item["name"]?.GetValue<string>() ?? tag, prerelease, publishedAt, assets));
+            results.Add(new EdenRelease(tag, item["name"]?.GetValue<string>() ?? tag, prerelease, publishedAt, assets, EmulatorReleaseNotesHelper.ParseGitHubReleaseBody(item)));
         }
 
         return results
@@ -377,7 +381,7 @@ public partial class EdenEmulatorUpdateService
                 }
             }
 
-            results.Add(new EdenRelease(tag, item["name"]?.GetValue<string>() ?? tag, prerelease, publishedAt, assets));
+            results.Add(new EdenRelease(tag, item["name"]?.GetValue<string>() ?? tag, prerelease, publishedAt, assets, EmulatorReleaseNotesHelper.ParseGitHubReleaseBody(item)));
         }
 
         return results

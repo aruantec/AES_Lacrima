@@ -29,7 +29,8 @@ public sealed record FlycastUpdateState(
     string StatusMessage,
     string EmulatorDirectory,
     string UpdateDirectory,
-    string? ResolvedLauncherPath);
+    string? ResolvedLauncherPath,
+    string? LatestReleaseNotes = null);
 
 [AutoRegister]
 public partial class FlycastEmulatorUpdateService
@@ -60,7 +61,8 @@ public partial class FlycastEmulatorUpdateService
         string Tag,
         bool IsNightly,
         DateTimeOffset? PublishedAt,
-        IReadOnlyList<ReleaseAsset> Assets);
+        IReadOnlyList<ReleaseAsset> Assets,
+        string? ReleaseNotes = null);
 
     private sealed record ReleaseAsset(string Name, string DownloadUrl);
 
@@ -79,6 +81,7 @@ public partial class FlycastEmulatorUpdateService
         try
         {
             var releases = await GetReleasesAsync(includeNightlies, forceRefresh, cancellationToken).ConfigureAwait(false);
+            var latestRelease = releases.FirstOrDefault();
             var versions = releases
                 .Select(static r => r.Tag)
                 .Where(static v => !string.IsNullOrWhiteSpace(v))
@@ -86,7 +89,7 @@ public partial class FlycastEmulatorUpdateService
                 .Take(12)
                 .ToList();
 
-            var latest = versions.FirstOrDefault();
+            var latest = latestRelease?.Tag ?? versions.FirstOrDefault();
             var updateAvailable = IsUpdateAvailable(currentVersion, latest);
             var status = updateAvailable
                 ? $"New Flycast version available: {latest}"
@@ -106,7 +109,8 @@ public partial class FlycastEmulatorUpdateService
                 status,
                 emulatorDirectory,
                 updateDirectory,
-                resolvedLauncherPath);
+                resolvedLauncherPath,
+                updateAvailable ? latestRelease?.ReleaseNotes : null);
         }
         catch (Exception ex)
         {
@@ -414,7 +418,7 @@ public partial class FlycastEmulatorUpdateService
             if (assets.Count == 0)
                 continue;
 
-            results.Add(new ReleaseInfo(NormalizeVersionTag(tag)!, false, publishedAt, assets));
+            results.Add(new ReleaseInfo(NormalizeVersionTag(tag)!, false, publishedAt, assets, EmulatorReleaseNotesHelper.ParseGitHubReleaseBody(item)));
         }
 
         return results
