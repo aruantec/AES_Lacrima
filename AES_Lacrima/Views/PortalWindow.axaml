@@ -26,6 +26,7 @@
                                        ClientAreaCropRightInset="{Binding ClientAreaCropRightInset}"
                                        ClientAreaCropBottomInset="{Binding ClientAreaCropBottomInset}"
                                        HideTargetWindowAfterCaptureStarts="{Binding HideTargetWindowAfterCaptureStarts}"
+                                       UseOpacityCaptureHide="{Binding UseOpacityCaptureHide}"
                                        Stretch="{Binding SelectedStretch, Mode=TwoWay}"
                                        Brightness="{Binding PortalCaptureBrightness, Mode=TwoWay}"
                                        Saturation="{Binding RenderSaturation, Mode=TwoWay}"

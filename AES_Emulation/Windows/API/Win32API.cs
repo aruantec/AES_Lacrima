@@ -316,6 +316,127 @@ namespace AES_Emulation.Windows.API
         private const int SM_YVIRTUALSCREEN = 77;
         private const int SM_CXVIRTUALSCREEN = 78;
         private const int SM_CYVIRTUALSCREEN = 79;
+        private const int GA_ROOT = 2;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr GetAncestor(IntPtr hwnd, int gaFlags);
+
+        public static IntPtr GetRootWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return IntPtr.Zero;
+
+            var root = GetAncestor(hwnd, GA_ROOT);
+            return root != IntPtr.Zero ? root : hwnd;
+        }
+
+        public static bool SetWindowCloaked(IntPtr hwnd, bool cloaked)
+        {
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            try
+            {
+                int cloak = cloaked ? 1 : 0;
+                return DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, ref cloak, sizeof(int)) == 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool WindowHasCaption(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            try
+            {
+                var style = GetWindowLongPtrCompat(hwnd, GWL_STYLE).ToInt64();
+                return (style & WS_CAPTION) == WS_CAPTION;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Hides a capture target for WGC: strips chrome, moves HWNDs far off-screen, and optionally cloaks the root.
+        /// The capture HWND itself is never cloaked (cloaking often breaks WGC).
+        /// </summary>
+        public static void HideCaptureTargetTree(
+            IntPtr hwnd,
+            bool useCloak = true,
+            bool removeDecorations = true,
+            bool moveOffScreen = true)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            var root = GetRootWindow(hwnd);
+            if (removeDecorations)
+            {
+                if (root != IntPtr.Zero)
+                    RemoveWindowDecorations(root);
+
+                RemoveWindowDecorations(hwnd);
+            }
+
+            if (!moveOffScreen)
+                return;
+
+            if (root != IntPtr.Zero && root != hwnd)
+            {
+                MoveCaptureHwndOffScreen(root);
+                if (useCloak)
+                    SetWindowCloaked(root, true);
+            }
+
+            MoveCaptureHwndOffScreen(hwnd);
+            SetWindowCloaked(hwnd, false);
+        }
+
+        private static void MoveCaptureHwndOffScreen(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            try
+            {
+                if (!_savedRects.ContainsKey(hwnd) && GetWindowRect(hwnd, out RECT r))
+                    _savedRects[hwnd] = r;
+
+                int virtualLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                int virtualTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                int virtualWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                int virtualHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+                int destX = virtualLeft + virtualWidth + 64;
+                int destY = virtualTop + virtualHeight + 64;
+                SetWindowPos(hwnd, IntPtr.Zero, destX, destY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            catch
+            {
+                MoveAway(hwnd, useCloak: false);
+            }
+        }
+
+        /// <summary>
+        /// Restores visibility for a capture target tree hidden via <see cref="HideCaptureTargetTree"/>.
+        /// </summary>
+        public static void RestoreCaptureTargetTree(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            var root = GetRootWindow(hwnd);
+            if (root != IntPtr.Zero)
+                SetWindowCloaked(root, false);
+
+            SetWindowCloaked(hwnd, false);
+        }
 
         public static bool MoveAway(IntPtr hwnd, bool useCloak = false)
         {
@@ -588,6 +709,17 @@ namespace AES_Emulation.Windows.API
             height = cr.Bottom - cr.Top;
 
             return true;
+        }
+
+        public static bool TryGetWindowPixelSize(IntPtr hwnd, out int width, out int height)
+        {
+            width = height = 0;
+            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out RECT rect))
+                return false;
+
+            width = Math.Max(0, rect.Right - rect.Left);
+            height = Math.Max(0, rect.Bottom - rect.Top);
+            return width > 0 && height > 0;
         }
 
         /// <summary>

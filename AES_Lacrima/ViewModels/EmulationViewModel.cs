@@ -295,7 +295,6 @@ private bool _isShadPs4PatchesOverlayOpen;
         [ObservableProperty]
         private Stretch _selectedStretch = Stretch.Uniform;
 
-        private Stretch? _sessionCaptureStretchOverride;
 
         [ObservableProperty]
         private bool _useHostWindowCapture;
@@ -426,13 +425,15 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(CanShowRenderOptions));
             OnPropertyChanged(nameof(ForceUseTargetClientAreaCapture));
             OnPropertyChanged(nameof(EnableCapturePillarboxCrop));
+            OnPropertyChanged(nameof(UseOpacityCaptureHide));
+            OnPropertyChanged(nameof(RemoveDecorationsForCapture));
+            OnPropertyChanged(nameof(MoveCaptureTargetOffScreen));
             OnPropertyChanged(nameof(HideTargetWindowAfterCaptureStarts));
             OnPropertyChanged(nameof(ClientAreaCropLeftInset));
             OnPropertyChanged(nameof(ClientAreaCropTopInset));
             OnPropertyChanged(nameof(ClientAreaCropRightInset));
             OnPropertyChanged(nameof(ClientAreaCropBottomInset));
             OnPropertyChanged(nameof(CurrentEmulatorWindowTitleHint));
-            OnPropertyChanged(nameof(CurrentCaptureStretch));
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
             OnPropertyChanged(nameof(ShowCurrentSectionDuckStationSetupLaunchButton));
             RefreshCurrentSectionLaunchOptionsState();
@@ -672,11 +673,40 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         public bool EnableCapturePillarboxCrop => CurrentEmulatorHandler?.EnableCapturePillarboxCrop == true;
         public bool HideTargetWindowAfterCaptureStarts => CurrentEmulatorHandler?.HideUntilCaptured != false;
+
+        /// <summary>DX12 (Xenia) stops presenting at opacity 0; use move/cloak instead.</summary>
+        public bool UseOpacityCaptureHide =>
+            !string.Equals(CurrentEmulatorHandler?.HandlerId, "xenia", StringComparison.OrdinalIgnoreCase);
+
+        public bool RemoveDecorationsForCapture => true;
+
+        public bool MoveCaptureTargetOffScreen => true;
+
         public int ClientAreaCropLeftInset => CurrentEmulatorHandler?.ClientAreaCropLeftInset ?? 0;
         public int ClientAreaCropTopInset => CurrentEmulatorHandler?.ClientAreaCropTopInset ?? 0;
         public int ClientAreaCropRightInset => CurrentEmulatorHandler?.ClientAreaCropRightInset ?? 0;
         public int ClientAreaCropBottomInset => CurrentEmulatorHandler?.ClientAreaCropBottomInset ?? 0;
-        public Stretch CurrentCaptureStretch => _sessionCaptureStretchOverride ?? SelectedStretch;
+        public int SelectedStretchIndex
+        {
+            get
+            {
+                for (var i = 0; i < CaptureStretchOptions.Count; i++)
+                {
+                    if (CaptureStretchOptions[i] == SelectedStretch)
+                        return i;
+                }
+
+                return 0;
+            }
+            set
+            {
+                if (value < 0 || value >= CaptureStretchOptions.Count)
+                    return;
+
+                SelectedStretch = CaptureStretchOptions[value];
+            }
+        }
+
         public string? CurrentEmulatorWindowTitleHint
         {
             get
@@ -1176,7 +1206,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         partial void OnSelectedStretchChanged(Stretch value)
         {
-            OnPropertyChanged(nameof(CurrentCaptureStretch));
+            OnPropertyChanged(nameof(SelectedStretchIndex));
             AutoSave();
         }
 
@@ -6573,17 +6603,17 @@ private bool _isShadPs4PatchesOverlayOpen;
             _pendingEmulatorLaunchRequest = null;
             IsRenderOptionsOpen = false;
             ClearRetroArchErrorState();
+            RequestStopEmulatorCapture = true;
+            IsEmulatorRunning = false;
 
             if (TryGetRunningTrackedEmulatorProcess(out var process))
             {
-                RequestStopEmulatorCapture = true;
                 CloseTrackedEmulatorForPendingLaunch(process);
                 return;
             }
 
-            RequestStopEmulatorCapture = true;
             EmulatorTargetHwnd = IntPtr.Zero;
-            IsEmulatorRunning = false;
+            RequestStopEmulatorCapture = false;
             UpdateCurrentEmulatorHandlerForSelection(LoadedAlbum);
             DetachTrackedEmulatorProcess();
         }
@@ -6606,7 +6636,6 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 IsEmulatorRunning = false;
                 CurrentEmulatorHandler = null;
-                ClearSessionCaptureStretchOverride();
                 DetachTrackedEmulatorProcess();
                 return;
             }
@@ -6680,7 +6709,6 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 IsEmulatorRunning = false;
                 CurrentEmulatorHandler = null;
-                ClearSessionCaptureStretchOverride();
                 DetachTrackedEmulatorProcess();
                 SLog.Info("EmulationViewModel.ShutdownForApplicationExit finished.");
             }
@@ -8074,12 +8102,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
                 var handler = request.Handler;
                 CurrentEmulatorHandler = handler;
-                SetSessionCaptureStretchOverride(string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase) ||
-                                                 string.Equals(handler.HandlerId, "cemu", StringComparison.OrdinalIgnoreCase) ||
-                                                 string.Equals(handler.HandlerId, "duckstation", StringComparison.OrdinalIgnoreCase)
-                    ? Stretch.UniformToFill
-                    : null);
-                
+
                 SelectedCaptureMode = handler.PreferredCaptureMode;
                 EmulatorCaptureDelayMs = handler.IsWindowEmbeddingSupported
                     ? 0
@@ -8163,7 +8186,8 @@ private bool _isShadPs4PatchesOverlayOpen;
                         runtimeProcess = process;
                     }
 
-                    if (handler.HideUntilCaptured && runtimeProcess != null)
+                    // Inline WGC capture hides after the first frame; early hide causes DWM flicker and failed capture.
+                    if (handler.HideUntilCaptured && runtimeProcess != null && !OperatingSystem.IsWindows())
                     {
                         try
                         {
@@ -8199,25 +8223,10 @@ private bool _isShadPs4PatchesOverlayOpen;
                 SLog.Warn($"Failed to launch emulator for '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
                 if (request.Handler is CemuHandler cemuHandler)
                     cemuHandler.RestoreFullscreenScalingWorkaround(request.Handler.LauncherPath ?? string.Empty);
-                ClearSessionCaptureStretchOverride();
                 RestoreAppTopMost();
                 RestoreHostWindowFocus();
                 IsEmulatorLaunchInProgress = false;
             }
-        }
-
-        private void SetSessionCaptureStretchOverride(Stretch? stretch)
-        {
-            if (_sessionCaptureStretchOverride == stretch)
-                return;
-
-            _sessionCaptureStretchOverride = stretch;
-            OnPropertyChanged(nameof(CurrentCaptureStretch));
-        }
-
-        private void ClearSessionCaptureStretchOverride()
-        {
-            SetSessionCaptureStretchOverride(null);
         }
 
         private static void PrepareLinuxAppImageStartInfo(ProcessStartInfo startInfo)
@@ -8461,9 +8470,10 @@ private bool _isShadPs4PatchesOverlayOpen;
             }
             finally
             {
-                await Dispatcher.UIThread.InvokeAsync(() =>
+                Dispatcher.UIThread.Post(() =>
                 {
                     SLog.Info("EmulationViewModel finished the tracked emulator shutdown flow.");
+                    RequestStopEmulatorCapture = false;
                     _isClosingActiveEmulatorForRelaunch = false;
                     TryLaunchPendingEmulatorRequest();
                 }, DispatcherPriority.Background);
@@ -8490,9 +8500,11 @@ private bool _isShadPs4PatchesOverlayOpen;
                     SLog.Info($"EmulationViewModel clearing emulator hwnd 0x{EmulatorTargetHwnd.ToInt64():X} after capture stop request.");
                     EmulatorTargetHwnd = IntPtr.Zero;
                 }
+
+                RequestStopEmulatorCapture = false;
             }, DispatcherPriority.Background);
 
-            await Task.Delay(150).ConfigureAwait(false);
+            await Task.Delay(50).ConfigureAwait(false);
         }
 
         private void TrackEmulatorProcess(Process? process, string romPath, IEmulatorHandler handler)
@@ -8658,8 +8670,10 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
-            RequestStopEmulatorCapture = true;
-            ClearSessionCaptureStretchOverride();
+            if (!_isClosingActiveEmulatorForRelaunch)
+                RequestStopEmulatorCapture = true;
+            else
+                RequestStopEmulatorCapture = false;
             if (currentHandler is CemuHandler cemuHandler)
                 cemuHandler.RestoreFullscreenScalingWorkaround(currentHandler.LauncherPath ?? string.Empty);
             RestoreAppTopMost();

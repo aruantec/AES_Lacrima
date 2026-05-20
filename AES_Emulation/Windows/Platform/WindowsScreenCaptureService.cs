@@ -69,13 +69,16 @@ public class WindowsScreenCaptureService : AES_Emulation.Platform.IScreenCapture
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (HideUntilCaptured && handler.HideUntilCaptured)
+            // Composition capture (Windows) applies hide after the first WGC frame, not during HWND polling.
+            var deferHideDuringResolve = OperatingSystem.IsWindows();
+
+            if (HideUntilCaptured && handler.HideUntilCaptured && !deferHideDuringResolve)
                 handler.PrepareProcessForCapture(process);
 
             var hwnd = handler.FindPreferredWindowHandle(process);
             if (hwnd != IntPtr.Zero)
             {
-                if (HideUntilCaptured && handler.HideUntilCaptured)
+                if (HideUntilCaptured && handler.HideUntilCaptured && !deferHideDuringResolve)
                     handler.PrepareWindowForCapture(hwnd);
 
                 if (!handler.CanAssignWindow(hwnd, process.MainWindowHandle))
