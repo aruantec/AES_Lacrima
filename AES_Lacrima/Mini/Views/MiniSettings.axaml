@@ -144,6 +144,24 @@
                                     </ComboBox>
                                 </WrapPanel>
                             </StackPanel>
+
+                            <TextBlock Margin="0,16,0,6" Text="Playback Options" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
+                            <StackPanel Orientation="Vertical" Spacing="6" Margin="0,0,0,10">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
+                                    <CheckBox IsChecked="{Binding RestartOnResumeEnabled, Mode=TwoWay}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Restart time frame" Foreground="WhiteSmoke" VerticalAlignment="Center" FontSize="14" IsHitTestVisible="False"/>
+                                </StackPanel>
+                                <WrapPanel VerticalAlignment="Center" Orientation="Horizontal" IsEnabled="{Binding RestartOnResumeEnabled}" Margin="20,0,0,0">
+                                    <TextBlock Text="0 to (s)" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="14"/>
+                                    <Slider Width="220" Minimum="0" Maximum="20" SmallChange="0.5" LargeChange="1" Value="{Binding RestartOnResumeThresholdSeconds, Mode=TwoWay}" Margin="10,0,0,0"/>
+                                    <TextBlock Text="{Binding RestartOnResumeThresholdSeconds, StringFormat='{} {0:0.0} s'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0,0,0"/>
+                                </WrapPanel>
+                                <TextBlock IsEnabled="{Binding RestartOnResumeEnabled}" Margin="20,0,0,4" Text="Restart from the beginning when resuming after a pause within this timeframe." Foreground="#BBFFFFFF" FontSize="12" TextWrapping="Wrap" MaxWidth="520"/>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10" Margin="0,4,0,0">
+                                    <CheckBox IsChecked="{Binding PauseWhenVolumeIsZero, Mode=TwoWay}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Pause when volume is set to zero (app or system mute)" Foreground="WhiteSmoke" VerticalAlignment="Center" FontSize="14" IsHitTestVisible="False" TextWrapping="Wrap" MaxWidth="480"/>
+                                </StackPanel>
+                            </StackPanel>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
