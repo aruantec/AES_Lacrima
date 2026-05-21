@@ -10,6 +10,20 @@
              IsHitTestVisible="{Binding IsOpen}"
              Opacity="{Binding IsOpen, Converter={StaticResource BoolToOpacityConverter}}">
 
+    <UserControl.Styles>
+        <Style Selector="TextBlock.fieldLabel">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="20" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="Margin" Value="0,0,12,0" />
+        </Style>
+        <Style Selector="TextBox, ComboBox, NumericUpDown">
+            <Setter Property="FontSize" Value="20" />
+            <Setter Property="MinHeight" Value="36" />
+        </Style>
+    </UserControl.Styles>
+
     <UserControl.Transitions>
         <Transitions>
             <DoubleTransition Property="Opacity" Duration="0:0:0.32" />
@@ -50,28 +64,36 @@
                                              VerticalAlignment="Center"
                                              IsVisible="{Binding IsBusy}" />
 
-                    <TabControl SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}"
-                                IsVisible="{Binding !IsBusy}">
-                        <TabControl.Styles>
-                            <Style Selector="TabItem">
-                                <Setter Property="FontSize" Value="22" />
-                                <Setter Property="Foreground" Value="White" />
-                            </Style>
-                            <Style Selector="TextBlock.fieldLabel">
-                                <Setter Property="Foreground" Value="White" />
-                                <Setter Property="FontSize" Value="20" />
-                                <Setter Property="VerticalAlignment" Value="Center" />
-                                <Setter Property="HorizontalAlignment" Value="Right" />
-                                <Setter Property="Margin" Value="0,0,12,0" />
-                            </Style>
-                            <Style Selector="TextBox, ComboBox, NumericUpDown">
-                                <Setter Property="FontSize" Value="20" />
-                                <Setter Property="MinHeight" Value="36" />
-                            </Style>
-                        </TabControl.Styles>
+                    <Grid ColumnDefinitions="280,*"
+                          ColumnSpacing="12"
+                          IsVisible="{Binding !IsBusy}">
+                        <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="8">
+                            <TextBlock Text="Sections"
+                                       Foreground="White"
+                                       FontSize="22"
+                                       FontWeight="SemiBold" />
+                            <ListBox Grid.Row="1"
+                                     ItemsSource="{Binding ConfigSections}"
+                                     SelectedItem="{Binding SelectedConfigSection, Mode=TwoWay}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ShadPs4ConfigSectionItem">
+                                        <TextBlock Text="{Binding Header}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontSize="18" />
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
 
-                        <TabItem Header="General">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <Grid Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="8">
+                            <TextBlock Text="{Binding SelectedConfigSectionHeader}"
+                                       Foreground="White"
+                                       FontSize="22"
+                                       FontWeight="SemiBold" />
+
+                            <Panel Grid.Row="1">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          IsVisible="{Binding IsGeneralConfigSectionVisible}">
                                 <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                                       RowSpacing="12" Margin="8,12,8,12" MaxWidth="900">
                                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Volume" />
@@ -98,10 +120,9 @@
                                               SelectedItem="{Binding TrophyNotificationSideLabel, Mode=TwoWay}" />
                                 </Grid>
                             </ScrollViewer>
-                        </TabItem>
 
-                        <TabItem Header="GPU">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          IsVisible="{Binding IsGpuConfigSectionVisible}">
                                 <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                                       RowSpacing="12" Margin="8,12,8,12" MaxWidth="920">
                                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Resolution" />
@@ -146,10 +167,9 @@
                                     <NumericUpDown Grid.Row="15" Grid.Column="1" Minimum="1" Maximum="9999" Value="{Binding VblankFrequency, Mode=TwoWay}" />
                                 </Grid>
                             </ScrollViewer>
-                        </TabItem>
 
-                        <TabItem Header="Vulkan">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          IsVisible="{Binding IsVulkanConfigSectionVisible}">
                                 <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                                       RowSpacing="12" Margin="8,12,8,12" MaxWidth="920">
                                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Graphics Adapter" />
@@ -178,10 +198,9 @@
                                     <ToggleSwitch Grid.Row="10" Grid.Column="1" IsChecked="{Binding VkguestMarkers, Mode=TwoWay}" />
                                 </Grid>
                             </ScrollViewer>
-                        </TabItem>
 
-                        <TabItem Header="Audio">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          IsVisible="{Binding IsAudioConfigSectionVisible}">
                                 <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                                       RowSpacing="12" Margin="8,12,8,12" MaxWidth="920">
                                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Audio Backend" />
@@ -202,10 +221,9 @@
                                     <ComboBox Grid.Row="6" Grid.Column="1" ItemsSource="{Binding AudioDevices}" SelectedItem="{Binding OpenalPadSpkOutputDevice, Mode=TwoWay}" />
                                 </Grid>
                             </ScrollViewer>
-                        </TabItem>
 
-                        <TabItem Header="Input">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          IsVisible="{Binding IsInputConfigSectionVisible}">
                                 <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                                       RowSpacing="12" Margin="8,12,8,12" MaxWidth="920">
                                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Motion Controls" />
@@ -226,10 +244,9 @@
                                     <NumericUpDown Grid.Row="5" Grid.Column="1" Minimum="-1" Maximum="32" Value="{Binding CameraId, Mode=TwoWay}" />
                                 </Grid>
                             </ScrollViewer>
-                        </TabItem>
 
-                        <TabItem Header="Log">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          IsVisible="{Binding IsLogConfigSectionVisible}">
                                 <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                                       RowSpacing="12" Margin="8,12,8,12" MaxWidth="920">
                                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Enable Logging" />
@@ -254,10 +271,9 @@
                                     <NumericUpDown Grid.Row="8" Grid.Column="1" Minimum="0" Maximum="999999999" Value="{Binding LogSizeLimit, Mode=TwoWay}" />
                                 </Grid>
                             </ScrollViewer>
-                        </TabItem>
 
-                        <TabItem Header="Debug">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          IsVisible="{Binding IsDebugConfigSectionVisible}">
                                 <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto"
                                       RowSpacing="12" Margin="8,12,8,12" MaxWidth="720">
                                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Debug Dump" />
@@ -266,15 +282,16 @@
                                     <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding ShaderCollect, Mode=TwoWay}" />
                                 </Grid>
                             </ScrollViewer>
-                        </TabItem>
-                    </TabControl>
+                            </Panel>
+                        </Grid>
+                    </Grid>
                 </Grid>
             </Border>
 
-            <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="0,12,0,0">
+            <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="6,12,0,0">
                 <TextBlock Grid.Column="0"
                            Text="{Binding Status}"
-                           Foreground="#D0D0D0"
+                           Foreground="#D8D8D8"
                            FontSize="18"
                            VerticalAlignment="Center"
                            TextWrapping="Wrap" />
@@ -284,7 +301,7 @@
                         IsEnabled="{Binding !IsBusy}"
                         Padding="14,8" />
                 <Button Grid.Column="2"
-                        Content="Cancel"
+                        Content="Close"
                         Command="{Binding CloseCommand}"
                         IsEnabled="{Binding !IsBusy}"
                         Padding="14,8" />

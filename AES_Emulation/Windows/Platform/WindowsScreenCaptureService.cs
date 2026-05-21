@@ -65,17 +65,19 @@ public class WindowsScreenCaptureService : AES_Emulation.Platform.IScreenCapture
             }
         }
 
+        var deferHiding = handler.DeferWindowHidingUntilCaptured;
+
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (HideUntilCaptured && handler.HideUntilCaptured)
+            if (HideUntilCaptured && handler.HideUntilCaptured && !deferHiding)
                 handler.PrepareProcessForCapture(process);
 
             var hwnd = handler.FindPreferredWindowHandle(process);
             if (hwnd != IntPtr.Zero)
             {
-                if (HideUntilCaptured && handler.HideUntilCaptured)
+                if (HideUntilCaptured && handler.HideUntilCaptured && !deferHiding)
                     handler.PrepareWindowForCapture(hwnd);
 
                 if (!handler.CanAssignWindow(hwnd, process.MainWindowHandle))

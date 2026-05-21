@@ -22,6 +22,7 @@ public partial class XeniaCustomConfigEditorViewModel : ObservableObject
     private bool _isDirty;
     private string _status = "Select an Xbox 360 game to edit custom config.";
     private int _selectedTabIndex;
+    private XeniaCustomConfigSectionViewModel? _selectedSection;
     private int _drawResolutionScale = 1;
     private IReadOnlyDictionary<string, string?> _templateValues =
         new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
@@ -84,10 +85,43 @@ public partial class XeniaCustomConfigEditorViewModel : ObservableObject
         set => SetProperty(ref _status, value);
     }
 
+    public XeniaCustomConfigSectionViewModel? SelectedSection
+    {
+        get => _selectedSection;
+        set
+        {
+            if (!SetProperty(ref _selectedSection, value))
+                return;
+
+            var index = value == null ? 0 : Sections.IndexOf(value);
+            if (index >= 0 && _selectedTabIndex != index)
+            {
+                _selectedTabIndex = index;
+                OnPropertyChanged(nameof(SelectedTabIndex));
+            }
+
+            OnPropertyChanged(nameof(SelectedSectionHeader));
+        }
+    }
+
+    public string SelectedSectionHeader =>
+        SelectedSection?.Header ?? "Options";
+
     public int SelectedTabIndex
     {
         get => _selectedTabIndex;
-        set => SetProperty(ref _selectedTabIndex, value);
+        set
+        {
+            if (!SetProperty(ref _selectedTabIndex, value))
+                return;
+
+            if (value >= 0 && value < Sections.Count)
+            {
+                _selectedSection = Sections[value];
+                OnPropertyChanged(nameof(SelectedSection));
+                OnPropertyChanged(nameof(SelectedSectionHeader));
+            }
+        }
     }
 
     public int DrawResolutionScaleMin => XeniaCustomConfigService.DrawResolutionScaleMin;
@@ -143,6 +177,8 @@ public partial class XeniaCustomConfigEditorViewModel : ObservableObject
             var mergedValues = await Task.Run(() => XeniaCustomConfigService.ReadMergedValues(emulatorDirectory, overrides)).ConfigureAwait(true);
             BuildSections(mergedValues);
             LoadDrawResolutionScale(mergedValues);
+            SelectedSection = Sections.FirstOrDefault();
+            SelectedTabIndex = 0;
 
             ConfigFilePath = XeniaCustomConfigService.GetJsonConfigPath(emulatorDirectory, titleId);
             Status = File.Exists(ConfigFilePath)
@@ -165,6 +201,9 @@ public partial class XeniaCustomConfigEditorViewModel : ObservableObject
         GameTitle = null;
         ConfigFilePath = null;
         Sections.Clear();
+        _selectedSection = null;
+        OnPropertyChanged(nameof(SelectedSection));
+        OnPropertyChanged(nameof(SelectedSectionHeader));
         _drawResolutionScale = 1;
         OnPropertyChanged(nameof(DrawResolutionScale));
         Status = "Select an Xbox 360 game to edit custom config.";
@@ -264,6 +303,9 @@ public partial class XeniaCustomConfigEditorViewModel : ObservableObject
 
             Sections.Add(new XeniaCustomConfigSectionViewModel(sectionHeader, fields, this));
         }
+
+        if (Sections.Count > 0 && _selectedSection == null)
+            SelectedSection = Sections[0];
     }
 
     private void ApplyValuesToFields(IReadOnlyDictionary<string, string?> values)

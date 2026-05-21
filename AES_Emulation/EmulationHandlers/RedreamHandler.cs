@@ -41,7 +41,6 @@ public sealed class RedreamHandler : EmulatorHandlerBase
         return startInfo;
     }
 
-    public override void PrepareProcessForCapture(Process process) => HideProcessWindowsForCapture(process);
 
     public override void PrepareWindowForCapture(IntPtr hwnd) => HideWindowForCapture(hwnd);
 

@@ -157,6 +157,8 @@ namespace AES_Lacrima.ViewModels
         private string _xeniaPatchesStatus = "Select an Xbox 360 game to manage patches.";
         private string? _xeniaDetectedTitleId;
         private string? _xeniaDetectedMediaId;
+        private string? _xeniaPatchOverlayGameTitle;
+        private XeniaPatchFileItem? _selectedCurrentSectionXeniaPatchFileItem;
         private string? _selectedCurrentSectionXeniaPatchFile;
         private string? _pendingCurrentSectionXeniaPatchFile;
         private string? _activeXeniaPatchDocumentPath;
@@ -3146,6 +3148,33 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         public AvaloniaList<XeniaPatchFileItem> CurrentSectionXeniaPatchFiles => _currentSectionXeniaPatchFiles;
 
+        public string XeniaPatchOverlayHeader =>
+            string.IsNullOrWhiteSpace(_xeniaPatchOverlayGameTitle)
+                ? "Xenia Patches"
+                : $"{_xeniaPatchOverlayGameTitle} — Patches";
+
+        public XeniaPatchFileItem? SelectedCurrentSectionXeniaPatchFileItem
+        {
+            get => _selectedCurrentSectionXeniaPatchFileItem;
+            set
+            {
+                if (ReferenceEquals(_selectedCurrentSectionXeniaPatchFileItem, value))
+                    return;
+
+                SelectedCurrentSectionXeniaPatchFile = value?.FilePath;
+
+                if (!IsXeniaPatchSwitchPromptVisible)
+                {
+                    _selectedCurrentSectionXeniaPatchFileItem = value;
+                    OnPropertyChanged();
+                }
+                else
+                {
+                    OnPropertyChanged(nameof(SelectedCurrentSectionXeniaPatchFileItem));
+                }
+            }
+        }
+
         public string? SelectedCurrentSectionXeniaPatchFile
         {
             get => _selectedCurrentSectionXeniaPatchFile;
@@ -3163,12 +3192,14 @@ private bool _isShadPs4PatchesOverlayOpen;
                     IsXeniaPatchSwitchPromptVisible = true;
                     XeniaPatchesStatus = "You have unsaved patch changes. Save or Skip before switching patch file.";
                     OnPropertyChanged(nameof(SelectedCurrentSectionXeniaPatchFile));
+                    OnPropertyChanged(nameof(SelectedCurrentSectionXeniaPatchFileItem));
                     return;
                 }
 
                 _selectedCurrentSectionXeniaPatchFile = value;
                 OnPropertyChanged();
                 IsXeniaPatchSwitchPromptVisible = false;
+                SyncSelectedXeniaPatchFileItemFromPath();
                 LoadSelectedXeniaPatchEntries(value);
             }
         }
@@ -4277,6 +4308,8 @@ private bool _isShadPs4PatchesOverlayOpen;
                 IsXeniaPatchesOverlayOpen = false;
                 XeniaDetectedTitleId = null;
                 XeniaDetectedMediaId = null;
+                _xeniaPatchOverlayGameTitle = null;
+                OnPropertyChanged(nameof(XeniaPatchOverlayHeader));
                 XeniaPatchesStatus = "Select an Xbox 360 game to manage patches.";
                 IsXeniaPatchSwitchPromptVisible = false;
                 IsCurrentSectionXeniaPatchDirty = false;
@@ -4286,6 +4319,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 CurrentSectionXeniaPatchFiles.Clear();
                 DetachXeniaPatchEntryListeners();
                 CurrentSectionXeniaPatchEntries.Clear();
+                _selectedCurrentSectionXeniaPatchFileItem = null;
                 SelectedCurrentSectionXeniaPatchFile = null;
             }
 
@@ -5449,6 +5483,8 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             IsXeniaPatchesOverlayOpen = true;
             IsXeniaPatchesBusy = true;
+            _xeniaPatchOverlayGameTitle = target.Title;
+            OnPropertyChanged(nameof(XeniaPatchOverlayHeader));
             XeniaPatchesStatus = "Detecting title ID and loading patches...";
             XeniaDetectedTitleId = null;
             XeniaDetectedMediaId = null;
@@ -5570,7 +5606,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 entry.IsEnabled = true;
 
             if (CurrentSectionXeniaPatchEntries.Count > 0)
-                XeniaPatchesStatus = $"Selected {CurrentSectionXeniaPatchEntries.Count} patch option(s).";
+                XeniaPatchesStatus = $"Enabled {CurrentSectionXeniaPatchEntries.Count} patch option(s).";
         }
 
         [RelayCommand]
@@ -5583,7 +5619,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 entry.IsEnabled = false;
 
             if (CurrentSectionXeniaPatchEntries.Count > 0)
-                XeniaPatchesStatus = $"Unselected {CurrentSectionXeniaPatchEntries.Count} patch option(s).";
+                XeniaPatchesStatus = $"Disabled {CurrentSectionXeniaPatchEntries.Count} patch option(s).";
         }
 
         private async Task<bool> SaveCurrentSectionXeniaPatchesCore()
@@ -5672,6 +5708,16 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 _isSwitchingCurrentSectionXeniaPatchFile = false;
             }
+        }
+
+        private void SyncSelectedXeniaPatchFileItemFromPath()
+        {
+            _selectedCurrentSectionXeniaPatchFileItem = string.IsNullOrWhiteSpace(_selectedCurrentSectionXeniaPatchFile)
+                ? null
+                : CurrentSectionXeniaPatchFiles.FirstOrDefault(file =>
+                    string.Equals(file.FilePath, _selectedCurrentSectionXeniaPatchFile, StringComparison.OrdinalIgnoreCase));
+
+            OnPropertyChanged(nameof(SelectedCurrentSectionXeniaPatchFileItem));
         }
 
         private void LoadSelectedXeniaPatchEntries(string? patchFilePath)
@@ -8357,7 +8403,9 @@ private bool _isShadPs4PatchesOverlayOpen;
                         runtimeProcess = process;
                     }
 
-                    if (handler.HideUntilCaptured && runtimeProcess != null)
+                    if (handler.HideUntilCaptured &&
+                        !handler.DeferWindowHidingUntilCaptured &&
+                        runtimeProcess != null)
                     {
                         try
                         {

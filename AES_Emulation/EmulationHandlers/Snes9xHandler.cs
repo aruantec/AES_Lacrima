@@ -48,7 +48,6 @@ public sealed class Snes9xHandler : EmulatorHandlerBase
     // Snes9x usually starts quickly but needs a moment for the window to settle.
     public override int CaptureStartupDelayMs => 500;
 
-    public override void PrepareProcessForCapture(Process process) => HideProcessWindowsForCapture(process);
 
     public override void PrepareWindowForCapture(IntPtr hwnd) => HideWindowForCapture(hwnd);
 

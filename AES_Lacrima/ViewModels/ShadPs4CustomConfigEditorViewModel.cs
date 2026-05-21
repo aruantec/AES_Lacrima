@@ -20,6 +20,18 @@ public partial class ShadPs4CustomConfigEditorViewModel : ObservableObject
     private bool _isDirty;
     private string _status = "Select a PlayStation 4 game to edit custom config.";
     private int _selectedTabIndex;
+    private ShadPs4ConfigSectionItem? _selectedConfigSection;
+
+    public static IReadOnlyList<ShadPs4ConfigSectionItem> ConfigSections { get; } =
+    [
+        new(0, "General"),
+        new(1, "GPU"),
+        new(2, "Vulkan"),
+        new(3, "Audio"),
+        new(4, "Input"),
+        new(5, "Log"),
+        new(6, "Debug")
+    ];
 
     [ObservableProperty] private int _audioBackend;
     [ObservableProperty] private string _sdlMainOutputDevice = "Default Device";
@@ -158,10 +170,70 @@ public partial class ShadPs4CustomConfigEditorViewModel : ObservableObject
         set => SetProperty(ref _status, value);
     }
 
+    public ShadPs4ConfigSectionItem? SelectedConfigSection
+    {
+        get => _selectedConfigSection;
+        set
+        {
+            if (!SetProperty(ref _selectedConfigSection, value))
+                return;
+
+            var index = value?.Index ?? 0;
+            if (_selectedTabIndex != index)
+            {
+                _selectedTabIndex = index;
+                OnPropertyChanged(nameof(SelectedTabIndex));
+            }
+
+            NotifyConfigSectionVisibility();
+            OnPropertyChanged(nameof(SelectedConfigSectionHeader));
+        }
+    }
+
+    public string SelectedConfigSectionHeader =>
+        SelectedConfigSection?.Header ?? "Options";
+
     public int SelectedTabIndex
     {
         get => _selectedTabIndex;
-        set => SetProperty(ref _selectedTabIndex, value);
+        set
+        {
+            if (!SetProperty(ref _selectedTabIndex, value))
+                return;
+
+            _selectedConfigSection = value >= 0 && value < ConfigSections.Count
+                ? ConfigSections[value]
+                : ConfigSections[0];
+
+            OnPropertyChanged(nameof(SelectedConfigSection));
+            NotifyConfigSectionVisibility();
+            OnPropertyChanged(nameof(SelectedConfigSectionHeader));
+        }
+    }
+
+    public bool IsGeneralConfigSectionVisible => SelectedTabIndex == 0;
+
+    public bool IsGpuConfigSectionVisible => SelectedTabIndex == 1;
+
+    public bool IsVulkanConfigSectionVisible => SelectedTabIndex == 2;
+
+    public bool IsAudioConfigSectionVisible => SelectedTabIndex == 3;
+
+    public bool IsInputConfigSectionVisible => SelectedTabIndex == 4;
+
+    public bool IsLogConfigSectionVisible => SelectedTabIndex == 5;
+
+    public bool IsDebugConfigSectionVisible => SelectedTabIndex == 6;
+
+    private void NotifyConfigSectionVisibility()
+    {
+        OnPropertyChanged(nameof(IsGeneralConfigSectionVisible));
+        OnPropertyChanged(nameof(IsGpuConfigSectionVisible));
+        OnPropertyChanged(nameof(IsVulkanConfigSectionVisible));
+        OnPropertyChanged(nameof(IsAudioConfigSectionVisible));
+        OnPropertyChanged(nameof(IsInputConfigSectionVisible));
+        OnPropertyChanged(nameof(IsLogConfigSectionVisible));
+        OnPropertyChanged(nameof(IsDebugConfigSectionVisible));
     }
 
     public int SelectedGpuAdapterIndex
@@ -231,6 +303,9 @@ public partial class ShadPs4CustomConfigEditorViewModel : ObservableObject
 
             var document = await Task.Run(() => ShadPs4CustomConfigService.LoadOrDefault(emulatorDirectory, titleId)).ConfigureAwait(true);
             ApplyDocument(document);
+            SelectedTabIndex = 0;
+            SelectedConfigSection = ConfigSections[0];
+            NotifyConfigSectionVisibility();
 
             ConfigFilePath = ShadPs4CustomConfigService.GetConfigFilePath(emulatorDirectory, titleId);
             Status = File.Exists(ConfigFilePath)
@@ -367,6 +442,9 @@ public partial class ShadPs4CustomConfigEditorViewModel : ObservableObject
         ConfigFilePath = null;
         _emulatorDirectory = null;
         Status = "Select a PlayStation 4 game to edit custom config.";
+        SelectedTabIndex = 0;
+        SelectedConfigSection = ConfigSections[0];
+        NotifyConfigSectionVisibility();
         ApplyDocument(ShadPs4CustomConfigService.CreateDefault());
     }
 

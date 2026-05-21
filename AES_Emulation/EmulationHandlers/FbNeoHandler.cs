@@ -25,7 +25,7 @@ public sealed class FbNeoHandler : EmulatorHandlerBase
 
     public override bool ForceUseTargetClientAreaCapture => true;
 
-    public override int CaptureStartupDelayMs => 1000;
+    public override int CaptureStartupDelayMs => 200;
 
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
