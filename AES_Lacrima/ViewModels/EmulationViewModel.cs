@@ -83,8 +83,6 @@ namespace AES_Lacrima.ViewModels
         }
     }
 
-    public sealed record ShadPs4PatchFileItem(string FilePath, string TitleId);
-
     public partial class EmulationAlbumItem : FolderMediaItem
     {
         [ObservableProperty]
@@ -189,6 +187,23 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         public string ShadPs4PatchOverlayHeader =>
             string.IsNullOrWhiteSpace(ShadPs4PatchGameTitle) ? "ShadPS4 Patches" : $"{ShadPs4PatchGameTitle} Patches";
+
+        public IReadOnlyList<ShadPs4ContentRepository> ShadPs4PatchRepositories => ShadPs4ContentRepository.All;
+
+        private ShadPs4ContentRepository _selectedShadPs4PatchRepository = ShadPs4ContentRepository.ShadPs4;
+
+        public ShadPs4ContentRepository SelectedShadPs4PatchRepository
+        {
+            get => _selectedShadPs4PatchRepository;
+            set
+            {
+                if (_selectedShadPs4PatchRepository == value)
+                    return;
+
+                _selectedShadPs4PatchRepository = value;
+                OnPropertyChanged();
+            }
+        }
 
         private readonly AvaloniaList<ShadPs4PatchFileItem> _currentSectionShadPs4PatchFiles = [];
         private readonly AvaloniaList<ShadPs4PatchEntry> _currentSectionShadPs4PatchEntries = [];
@@ -5943,7 +5958,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                     return;
                 }
 
-                var patchFile = await Task.Run(() => FindShadPs4PatchFile(shadPs4Directory, titleId)).ConfigureAwait(false);
+                var patchFile = await Task.Run(() => ShadPs4PatchesService.FindPatchFile(shadPs4Directory, titleId)).ConfigureAwait(false);
 
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
@@ -6031,6 +6046,68 @@ private bool _isShadPs4PatchesOverlayOpen;
             IsShadPs4PatchesOverlayOpen = false;
             _activeShadPs4PatchDocumentPath = null;
             _activeShadPs4PatchDocumentText = null;
+        }
+
+        [RelayCommand]
+        private async Task DownloadCurrentSectionShadPs4Patches()
+        {
+            if (IsShadPs4PatchesBusy)
+                return;
+
+            var shadPs4Directory = CurrentSectionShadPs4EmulatorPath;
+            if (string.IsNullOrWhiteSpace(shadPs4Directory))
+            {
+                ShadPs4PatchesStatus = "Emulator directory is not configured.";
+                return;
+            }
+
+            IsShadPs4PatchesBusy = true;
+            ShadPs4PatchesStatus = $"Downloading patches from {SelectedShadPs4PatchRepository.DisplayName}...";
+
+            try
+            {
+                var result = await ShadPs4ContentDownloadService.DownloadPatchesAsync(
+                    shadPs4Directory,
+                    SelectedShadPs4PatchRepository).ConfigureAwait(true);
+
+                ShadPs4PatchesStatus = result.Message;
+
+                if (!result.Success)
+                    return;
+
+                if (!string.IsNullOrWhiteSpace(ShadPs4DetectedTitleId))
+                    await ReloadCurrentSectionShadPs4PatchesAsync().ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                ShadPs4PatchesStatus = $"Failed to download patches: {ex.Message}";
+            }
+            finally
+            {
+                IsShadPs4PatchesBusy = false;
+            }
+        }
+
+        private async Task ReloadCurrentSectionShadPs4PatchesAsync()
+        {
+            var shadPs4Directory = CurrentSectionShadPs4EmulatorPath;
+            var titleId = ShadPs4DetectedTitleId;
+            if (string.IsNullOrWhiteSpace(shadPs4Directory) || string.IsNullOrWhiteSpace(titleId))
+                return;
+
+            var patchFile = await Task.Run(() => ShadPs4PatchesService.FindPatchFile(shadPs4Directory, titleId)).ConfigureAwait(true);
+            CurrentSectionShadPs4PatchFiles.Clear();
+            if (patchFile != null)
+            {
+                CurrentSectionShadPs4PatchFiles.Add(patchFile);
+                LoadSelectedShadPs4PatchEntries(patchFile.FilePath);
+            }
+            else
+            {
+                DetachShadPs4PatchEntryListeners();
+                CurrentSectionShadPs4PatchEntries.Clear();
+                ShadPs4PatchesStatus = "No patch file found for this title ID after download.";
+            }
         }
 
         [RelayCommand]
@@ -6128,53 +6205,6 @@ private bool _isShadPs4PatchesOverlayOpen;
             catch (Exception ex)
             {
                 ShadPs4PatchesStatus = $"Failed to load patch file: {ex.Message}";
-            }
-        }
-
-        private static ShadPs4PatchFileItem? FindShadPs4PatchFile(string? emulatorDirectory, string titleId)
-        {
-            if (string.IsNullOrWhiteSpace(emulatorDirectory))
-                return null;
-
-            var patchesDir = Path.Combine(emulatorDirectory, "user", "patches", "shadps4");
-            if (!Directory.Exists(patchesDir))
-                return null;
-
-            var normalizedTitleId = titleId.ToUpperInvariant();
-
-            try
-            {
-                var matchingFile = Directory
-                    .EnumerateFiles(patchesDir, "*.xml", SearchOption.TopDirectoryOnly)
-                    .FirstOrDefault(path =>
-                    {
-                        try
-                        {
-                            var doc = XDocument.Load(path);
-                            var idElements = doc.Descendants("TitleID").Elements("ID").ToList();
-                            if (idElements.Count == 0)
-                            {
-                                var legacyTitleId = doc.Descendants("TitleID").FirstOrDefault()?.Value?.Trim();
-                                return !string.IsNullOrWhiteSpace(legacyTitleId) &&
-                                       string.Equals(legacyTitleId.ToUpperInvariant(), normalizedTitleId, StringComparison.OrdinalIgnoreCase);
-                            }
-                            return idElements.Any(id =>
-                                string.Equals(id.Value.Trim().ToUpperInvariant(), normalizedTitleId, StringComparison.OrdinalIgnoreCase));
-                        }
-                        catch
-                        {
-                            return false;
-                        }
-                    });
-
-                if (matchingFile == null)
-                    return null;
-
-                return new ShadPs4PatchFileItem(matchingFile, Path.GetFileNameWithoutExtension(matchingFile));
-            }
-            catch
-            {
-                return null;
             }
         }
 
