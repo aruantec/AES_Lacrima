@@ -10,9 +10,6 @@ namespace AES_Emulation.EmulationHandlers;
 
 public sealed class DuckStationHandler : EmulatorHandlerBase
 {
-    private const int CaptureWindowWidth = 1920;
-    private const int CaptureWindowHeight = 1080;
-
     public static DuckStationHandler Instance { get; } = new();
 
     private DuckStationHandler()
@@ -89,16 +86,6 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
         }
     }
 
-    public override void PrepareProcessForCapture(Process process)
-    {
-        base.PrepareProcessForCapture(process);
-    }
-
-    public override void PrepareWindowForCapture(IntPtr hwnd)
-    {
-        base.PrepareWindowForCapture(hwnd);
-    }
-
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
         const int maxAttempts = 120;
@@ -136,10 +123,7 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
                 }
 
                 if (observedStableAttempts >= stableAttemptsBeforeAssign)
-                {
-                    TryApplyCaptureWindowSize(hwnd);
                     return hwnd;
-                }
             }
             else
             {
@@ -152,16 +136,9 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
 
         var targetHwnd = await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
         if (targetHwnd != IntPtr.Zero)
-        {
-            TryApplyCaptureWindowSize(targetHwnd);
             return targetHwnd;
-        }
 
-        targetHwnd = FindFallbackQtGameWindow(process);
-        if (targetHwnd != IntPtr.Zero)
-            TryApplyCaptureWindowSize(targetHwnd);
-
-        return targetHwnd;
+        return FindFallbackQtGameWindow(process);
     }
 
     public override IntPtr FindPreferredWindowHandle(Process process)
@@ -298,28 +275,6 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
         }
 
         return best;
-    }
-
-    private static void TryApplyCaptureWindowSize(IntPtr hwnd)
-    {
-        if (!OperatingSystem.IsWindows() || hwnd == IntPtr.Zero)
-            return;
-
-        try
-        {
-            if (Win32API.TryGetVirtualScreenBounds(out var x, out var y, out var width, out var height) && width > 0 && height > 0)
-            {
-                var targetWidth = Math.Min(CaptureWindowWidth, width);
-                var targetHeight = Math.Min(CaptureWindowHeight, height);
-                Win32API.SetWindowBounds(hwnd, x, y, targetWidth, targetHeight);
-                return;
-            }
-
-            Win32API.SetWindowSize(hwnd, CaptureWindowWidth, CaptureWindowHeight);
-        }
-        catch
-        {
-        }
     }
 
     [DllImport("user32.dll")]

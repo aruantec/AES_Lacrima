@@ -54,6 +54,11 @@ public interface IEmulatorHandler : INotifyPropertyChanged
 
     bool HideUntilCaptured { get; }
 
+    /// <summary>
+    /// When true, hide/move/opacity run only after capture attaches (PCSX2-style), not during HWND resolution.
+    /// </summary>
+    bool DeferWindowHidingUntilCaptured { get; }
+
     bool ForceUseTargetClientAreaCapture { get; }
 
     bool EnableCapturePillarboxCrop { get; }

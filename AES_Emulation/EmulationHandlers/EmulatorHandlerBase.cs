@@ -111,6 +111,8 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual bool HideUntilCaptured => false;
 
+    public virtual bool DeferWindowHidingUntilCaptured => HideUntilCaptured;
+
     public virtual bool ForceUseTargetClientAreaCapture => false;
 
     /// <summary>
@@ -334,13 +336,25 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         return Path.GetDirectoryName(launcherPath);
     }
 
-    public virtual int CaptureStartupDelayMs => 3000;
+    public virtual int CaptureStartupDelayMs => HideUntilCaptured ? 200 : 3000;
 
     public virtual bool IsWindowEmbeddingSupported => false;
 
-    public virtual void PrepareProcessForCapture(Process process) => CaptureService?.PrepareProcessForCapture(process);
+    public virtual void PrepareProcessForCapture(Process process)
+    {
+        if (DeferWindowHidingUntilCaptured)
+            return;
 
-    public virtual void PrepareWindowForCapture(IntPtr hwnd) => CaptureService?.PrepareWindowForCapture(hwnd);
+        CaptureService?.PrepareProcessForCapture(process);
+    }
+
+    public virtual void PrepareWindowForCapture(IntPtr hwnd)
+    {
+        if (DeferWindowHidingUntilCaptured || hwnd == IntPtr.Zero)
+            return;
+
+        CaptureService?.PrepareWindowForCapture(hwnd);
+    }
 
     public virtual IntPtr FindPreferredWindowHandle(Process process) => CaptureService?.FindPreferredWindowHandle(process) ?? process.MainWindowHandle;
     protected static IReadOnlyList<IntPtr> EnumerateProcessTopLevelWindows(Process process, bool includeHiddenWindows = false, string? fallbackTitleHint = null)
@@ -778,6 +792,69 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle) => hwnd != IntPtr.Zero;
 
+    protected virtual bool IsStableGameWindowCandidate(IntPtr hwnd, IntPtr mainWindowHandle)
+    {
+        if (!CanAssignWindow(hwnd, mainWindowHandle))
+            return false;
+
+        if (OperatingSystem.IsWindows() && IsIconic(hwnd))
+            return false;
+
+        if (!Win32API.GetClientAreaOffsets(hwnd, out _, out _, out var width, out var height))
+            return false;
+
+        return width >= 640 && height >= 360;
+    }
+
+    protected async Task<IntPtr> ResolveStableGameWindowAsync(Process process, CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 120;
+        const int delayMs = 40;
+        const int stableAttemptsRequired = 6;
+
+        IntPtr observedHwnd = IntPtr.Zero;
+        var observedStableAttempts = 0;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            IntPtr mainWindowHandle = IntPtr.Zero;
+            try
+            {
+                process.Refresh();
+                mainWindowHandle = process.MainWindowHandle;
+            }
+            catch
+            {
+            }
+
+            var hwnd = FindPreferredWindowHandle(process);
+            if (hwnd != IntPtr.Zero && IsStableGameWindowCandidate(hwnd, mainWindowHandle))
+            {
+                if (hwnd == observedHwnd)
+                    observedStableAttempts++;
+                else
+                {
+                    observedHwnd = hwnd;
+                    observedStableAttempts = 1;
+                }
+
+                if (observedStableAttempts >= stableAttemptsRequired)
+                    return hwnd;
+            }
+            else
+            {
+                observedHwnd = IntPtr.Zero;
+                observedStableAttempts = 0;
+            }
+
+            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+        }
+
+        return IntPtr.Zero;
+    }
+
     public virtual Task<Process?> ResolveRuntimeProcessAsync(Process process, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -838,6 +915,13 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             }
 
             return IntPtr.Zero;
+        }
+
+        if (DeferWindowHidingUntilCaptured)
+        {
+            var stableHwnd = await ResolveStableGameWindowAsync(process, cancellationToken).ConfigureAwait(false);
+            if (stableHwnd != IntPtr.Zero)
+                return stableHwnd;
         }
 
         if (CaptureService != null)
@@ -1000,6 +1084,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     protected const uint GW_OWNER = 4;
     protected const int WS_CAPTION = 0x00C00000;
     protected const int WS_THICKFRAME = 0x00040000;
+
+    [DllImport("user32.dll")]
+    protected static extern bool IsIconic(IntPtr hWnd);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT

@@ -31,7 +31,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
     public override bool ForceUseTargetClientAreaCapture => true;
 
-    public override int CaptureStartupDelayMs => 1200;
+    public override int CaptureStartupDelayMs => 200;
 
     public override bool UsesRetroArchCores => true;
 
@@ -1075,6 +1075,9 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
         return FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: true, isPreferredRenderWindow: null);
     }
+
+    public override bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle)
+        => IsLikelyRetroArchRenderWindow(hwnd, mainWindowHandle);
 
     private static bool IsLikelyRetroArchRenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
     {
