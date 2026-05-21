@@ -79,8 +79,13 @@ public partial class ShadPs4CheatsEditorViewModel : ObservableObject
 
     public ObservableCollection<ShadPs4CheatEntryViewModel> CheatEntries { get; } = [];
 
+    public IReadOnlyList<ShadPs4ContentRepository> CheatRepositories => ShadPs4ContentRepository.All;
+
     public string OverlayHeader =>
         string.IsNullOrWhiteSpace(GameTitle) ? "shadPS4 Cheats" : $"{GameTitle} — Cheats";
+
+    [ObservableProperty]
+    private ShadPs4ContentRepository _selectedCheatRepository = ShadPs4ContentRepository.GoldHen;
 
     [ObservableProperty]
     private ShadPs4CheatFileItem? _selectedCheatFileItem;
@@ -174,28 +179,90 @@ public partial class ShadPs4CheatsEditorViewModel : ObservableObject
                 return;
             }
 
-            var cheatFiles = await Task.Run(() =>
-                ShadPs4CheatsService.FindCheatFiles(emulatorDirectory, titleId, version)).ConfigureAwait(true);
-
-            CheatFiles.Clear();
-            foreach (var file in cheatFiles)
-                CheatFiles.Add(file);
-
-            if (cheatFiles.Count == 0)
-            {
-                Status = string.IsNullOrWhiteSpace(version)
-                    ? $"No cheat files found for title ID {titleId} in user/cheats."
-                    : $"No cheat files found for title ID {titleId} and version {version} in user/cheats.";
-                return;
-            }
-
-            SelectedCheatFileItem = cheatFiles[0];
-            Status = $"Loaded {cheatFiles.Count} cheat file(s) for title ID {titleId}.";
+            await RefreshCheatFilesAsync().ConfigureAwait(true);
         }
         finally
         {
             IsBusy = false;
         }
+    }
+
+    [RelayCommand]
+    private async Task DownloadCheatsFromRepository()
+    {
+        if (IsBusy)
+            return;
+
+        if (string.IsNullOrWhiteSpace(_emulatorDirectory))
+        {
+            Status = "Emulator directory is not configured.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(TitleId))
+        {
+            Status = "Title ID is required before downloading cheats.";
+            return;
+        }
+
+        IsBusy = true;
+        Status = $"Downloading cheats from {SelectedCheatRepository.DisplayName}...";
+
+        try
+        {
+            var result = await ShadPs4ContentDownloadService.DownloadCheatsAsync(
+                _emulatorDirectory,
+                TitleId,
+                GameVersion,
+                SelectedCheatRepository,
+                replaceExisting: true).ConfigureAwait(true);
+
+            Status = result.Message;
+            if (result.Success)
+                await RefreshCheatFilesAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            Status = $"Failed to download cheats: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task RefreshCheatFilesAsync()
+    {
+        if (string.IsNullOrWhiteSpace(TitleId) || string.IsNullOrWhiteSpace(_emulatorDirectory))
+            return;
+
+        var previousSelection = SelectedCheatFileItem?.FilePath;
+        var cheatFiles = await Task.Run(() =>
+            ShadPs4CheatsService.FindCheatFiles(_emulatorDirectory, TitleId, GameVersion)).ConfigureAwait(true);
+
+        CheatFiles.Clear();
+        foreach (var file in cheatFiles)
+            CheatFiles.Add(file);
+
+        if (cheatFiles.Count == 0)
+        {
+            SelectedCheatFileItem = null;
+            CheatEntries.Clear();
+            CreditsText = null;
+            Status = string.IsNullOrWhiteSpace(GameVersion)
+                ? $"No cheat files found for title ID {TitleId} in user/cheats."
+                : $"No cheat files found for title ID {TitleId} and version {GameVersion} in user/cheats.";
+            return;
+        }
+
+        SelectedCheatFileItem =
+            previousSelection == null
+                ? cheatFiles[0]
+                : cheatFiles.FirstOrDefault(file =>
+                      string.Equals(file.FilePath, previousSelection, StringComparison.OrdinalIgnoreCase)) ??
+                  cheatFiles[0];
+
+        Status = $"Loaded {cheatFiles.Count} cheat file(s) for title ID {TitleId}.";
     }
 
     [RelayCommand]

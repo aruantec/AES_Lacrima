@@ -2454,7 +2454,7 @@
                                    VerticalAlignment="Center" />
                     </Grid>
 
-                    <Grid Grid.Row="1" ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                    <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
                         <TextBlock Grid.Column="0"
                                    Text="Detected Title ID"
                                    Foreground="White"
@@ -2465,6 +2465,17 @@
                                    Foreground="#E0E0E0"
                                    VerticalAlignment="Center"
                                    FontSize="24" />
+                        <ComboBox Grid.Column="2"
+                                  MinWidth="160"
+                                  ItemsSource="{Binding ShadPs4PatchRepositories}"
+                                  SelectedItem="{Binding SelectedShadPs4PatchRepository, Mode=TwoWay}"
+                                  VerticalAlignment="Center" />
+                        <Button Grid.Column="3"
+                                Content="Download Patches"
+                                Command="{Binding DownloadCurrentSectionShadPs4PatchesCommand}"
+                                IsEnabled="{Binding !IsShadPs4PatchesBusy}"
+                                Padding="14,8"
+                                VerticalAlignment="Center" />
                     </Grid>
 
                     <Border Grid.Row="2"

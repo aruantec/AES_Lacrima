@@ -50,12 +50,26 @@
                     <Grid ColumnDefinitions="280,*"
                           ColumnSpacing="12"
                           IsVisible="{Binding !IsBusy}">
-                        <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="8">
+                        <Grid Grid.Column="0" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="8">
                             <TextBlock Text="Cheat Files"
                                        Foreground="White"
                                        FontSize="22"
                                        FontWeight="SemiBold" />
-                            <ListBox Grid.Row="1"
+                            <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                <TextBlock Text="Repository"
+                                           Foreground="#D8D8D8"
+                                           FontSize="16"
+                                           VerticalAlignment="Center" />
+                                <ComboBox Grid.Column="1"
+                                          ItemsSource="{Binding CheatRepositories}"
+                                          SelectedItem="{Binding SelectedCheatRepository, Mode=TwoWay}" />
+                                <Button Grid.Column="2"
+                                        Content="Download"
+                                        Command="{Binding DownloadCheatsFromRepositoryCommand}"
+                                        IsEnabled="{Binding !IsBusy}"
+                                        Padding="12,6" />
+                            </Grid>
+                            <ListBox Grid.Row="3"
                                      ItemsSource="{Binding CheatFiles}"
                                      SelectedItem="{Binding SelectedCheatFileItem, Mode=TwoWay}">
                                 <ListBox.ItemTemplate>
