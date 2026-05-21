@@ -216,6 +216,19 @@
                                    Stretch="Uniform" />
                          </MenuItem.Icon>
                      </MenuItem>
+                     <MenuItem Header="Cheats"
+                               CornerRadius="8"
+                               Command="{Binding OpenCurrentSectionShadPs4CheatsCommand}"
+                               CommandParameter="{Binding SelectedIndex}"
+                               IsVisible="{Binding ShowCurrentSectionShadPs4CheatsMenuItem}">
+                         <MenuItem.Icon>
+                             <Path Data="M22,30 H118 C124,30 128,34 128,40 V116 C128,122 124,126 118,126 H22 C16,126 12,122 12,116 V40 C12,34 16,30 22,30 Z M34,56 H54 V76 H34 Z M62,56 H82 V76 H62 Z M90,56 H110 V76 H90 Z M34,84 H54 V104 H34 Z M62,84 H82 V104 H62 Z M90,84 H110 V104 H90 Z"
+                                   Fill="#CCFFFFFF"
+                                   Width="32"
+                                   Height="32"
+                                   Stretch="Uniform" />
+                         </MenuItem.Icon>
+                     </MenuItem>
                      <MenuItem Header="Delete Item"
                                CornerRadius="8"
                                Command="{Binding DeleteItemCommand}"
@@ -1936,6 +1949,46 @@
                 <Button Height="60"
                         Width="60"
                         VerticalAlignment="Center"
+                        HorizontalContentAlignment="Center"
+                        VerticalContentAlignment="Center"
+                        Cursor="Hand"
+                        Command="{Binding ToggleShadPs4CheatsOverlayCommand}"
+                        IsVisible="{Binding ShowShadPs4InGameCheatsButton}"
+                        ToolTip.Tip="Game cheats">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform"
+                             Opacity="0.9"
+                             Margin="4"
+                             HorizontalAlignment="Center"
+                             VerticalAlignment="Center">
+                        <Rectangle Width="192"
+                                   Height="192"
+                                   Fill="{Binding ShadPs4CheatsEditor.IsOpen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}">
+                            <Rectangle.OpacityMask>
+                                <ImageBrush Source="/Assets/ShadPs4GameCheat.png"
+                                            Stretch="Uniform" />
+                            </Rectangle.OpacityMask>
+                            <Rectangle.Transitions>
+                                <Transitions>
+                                    <BrushTransition Property="Fill" Duration="0:0:0.32" />
+                                </Transitions>
+                            </Rectangle.Transitions>
+                        </Rectangle>
+                    </Viewbox>
+                </Button>
+
+                <Button Height="60"
+                        Width="60"
+                        VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding ToggleFullscreenCommand}"
                         IsVisible="{Binding IsEmulatorRunning}"
@@ -2072,6 +2125,10 @@
         <common:ShadPs4CustomConfigOverlay Grid.RowSpan="3"
                                            ZIndex="2103"
                                            DataContext="{Binding ShadPs4CustomConfigEditor}" />
+
+        <common:ShadPs4CheatsOverlay Grid.RowSpan="3"
+                                     ZIndex="2105"
+                                     DataContext="{Binding ShadPs4CheatsEditor}" />
 
         <common:XeniaCustomConfigOverlay Grid.RowSpan="3"
                                          ZIndex="2104"

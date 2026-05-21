@@ -25,6 +25,14 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     private string? _launchTranscriptPath;
 
+    public string? CurrentLaunchTranscriptPath => _launchTranscriptPath;
+
+    /// <summary>
+    /// When true, launches shadPS4 with SHADPS4_ENABLE_IPC and redirected stdin for live cheats (qt-launcher protocol).
+    /// When false, uses a cmd wrapper without IPC (no live memory patches).
+    /// </summary>
+    public bool UseIpcForCheatsLaunch { get; set; } = true;
+
     private ShadPs4Handler()
     {
     }
@@ -66,9 +74,20 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
     {
         var resolvedExecutablePath = ResolveShadPs4ExecutablePath(launcherPath);
         var resolvedGamePath = ResolveShadPs4GamePath(romPath);
-        var userDirectory = ResolveShadPs4UserDirectory(resolvedExecutablePath);
         var launchTranscriptPath = CreateLaunchTranscriptPath(resolvedExecutablePath);
         _launchTranscriptPath = launchTranscriptPath;
+
+        if (UseIpcForCheatsLaunch)
+        {
+            TerminateOtherShadPs4Instances();
+            return BuildIpcStartInfo(resolvedExecutablePath, resolvedGamePath, launchTranscriptPath);
+        }
+
+        return BuildScriptStartInfo(resolvedExecutablePath, resolvedGamePath, launchTranscriptPath);
+    }
+
+    private ProcessStartInfo BuildScriptStartInfo(string resolvedExecutablePath, string resolvedGamePath, string launchTranscriptPath)
+    {
         var launchScriptPath = CreateLaunchScriptPath(resolvedExecutablePath, resolvedGamePath, launchTranscriptPath);
 
         var startInfo = new ProcessStartInfo
@@ -80,19 +99,71 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             WorkingDirectory = ResolveShadPs4WorkingDirectory(resolvedExecutablePath)
         };
 
-        if (!string.IsNullOrWhiteSpace(userDirectory))
-        {
-            startInfo.Environment["SHADPS4_USER_DIR"] = userDirectory;
-            startInfo.Environment["APPDATA"] = userDirectory;
-            startInfo.Environment["LOCALAPPDATA"] = userDirectory;
-            startInfo.Environment["XDG_CONFIG_HOME"] = userDirectory;
-            startInfo.Environment["XDG_DATA_HOME"] = userDirectory;
-        }
-
+        ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath);
         startInfo.Arguments = $"/d /c call \"{launchScriptPath}\"";
 
-        Log.Debug($"shadPS4 start info: FileName='{startInfo.FileName}', WorkingDirectory='{startInfo.WorkingDirectory}', Arguments='{startInfo.Arguments}', UseShellExecute={startInfo.UseShellExecute}, TranscriptPath='{launchTranscriptPath}', ScriptPath='{launchScriptPath}'");
+        Log.Debug($"shadPS4 start info: FileName='{startInfo.FileName}', WorkingDirectory='{startInfo.WorkingDirectory}', Arguments='{startInfo.Arguments}', UseShellExecute={startInfo.UseShellExecute}, TranscriptPath='{launchTranscriptPath}', ScriptPath='{launchScriptPath}', IpcEnabled=false");
         return startInfo;
+    }
+
+    private ProcessStartInfo BuildIpcStartInfo(string resolvedExecutablePath, string resolvedGamePath, string launchTranscriptPath)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = resolvedExecutablePath,
+            UseShellExecute = false,
+            CreateNoWindow = false,
+            RedirectStandardInput = true,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            WorkingDirectory = ResolveShadPs4WorkingDirectory(resolvedExecutablePath)
+        };
+
+        ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath);
+        startInfo.Environment["SHADPS4_ENABLE_IPC"] = "true";
+
+        startInfo.ArgumentList.Add("-g");
+        startInfo.ArgumentList.Add(resolvedGamePath);
+        startInfo.ArgumentList.Add("-f");
+        startInfo.ArgumentList.Add("false");
+
+        Log.Debug($"shadPS4 start info: FileName='{startInfo.FileName}', WorkingDirectory='{startInfo.WorkingDirectory}', UseShellExecute={startInfo.UseShellExecute}, TranscriptPath='{launchTranscriptPath}', IpcEnabled=true");
+        return startInfo;
+    }
+
+    private static void ApplyShadPs4UserEnvironment(ProcessStartInfo startInfo, string resolvedExecutablePath)
+    {
+        var userDirectory = ResolveShadPs4UserDirectory(resolvedExecutablePath);
+        if (string.IsNullOrWhiteSpace(userDirectory))
+            return;
+
+        startInfo.Environment["SHADPS4_USER_DIR"] = userDirectory;
+        startInfo.Environment["APPDATA"] = userDirectory;
+        startInfo.Environment["LOCALAPPDATA"] = userDirectory;
+        startInfo.Environment["XDG_CONFIG_HOME"] = userDirectory;
+        startInfo.Environment["XDG_DATA_HOME"] = userDirectory;
+    }
+
+    private static void TerminateOtherShadPs4Instances()
+    {
+        foreach (var process in Process.GetProcesses())
+        {
+            try
+            {
+                if (!IsLikelyCoreProcessName(process.ProcessName))
+                    continue;
+
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+            }
+            finally
+            {
+                process.Dispose();
+            }
+        }
     }
 
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
@@ -424,6 +495,15 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     public override async Task<Process?> ResolveRuntimeProcessAsync(Process process, CancellationToken cancellationToken)
     {
+        try
+        {
+            if (!process.HasExited && IsLikelyCoreProcessName(process.ProcessName))
+                return process;
+        }
+        catch
+        {
+        }
+
         var launcherStartTimeUtc = GetProcessStartTimeUtc(process);
         var launcherProcessId = TryGetProcessId(process);
 

@@ -318,6 +318,7 @@ public sealed class EmulationViewModelTests
             File.WriteAllText(Path.Combine(gamePath, "eboot.bin"), string.Empty);
             File.WriteAllText(Path.Combine(gamePath, "sce_sys", "param.sfo"), string.Empty);
 
+            ShadPs4Handler.Instance.UseIpcForCheatsLaunch = false;
             ProcessStartInfo startInfo = ShadPs4Handler.Instance.BuildStartInfo(tempExe, gamePath, false);
 
             Assert.Equal("cmd.exe", startInfo.FileName);
@@ -330,6 +331,43 @@ public sealed class EmulationViewModelTests
             var scriptPath = startInfo.Arguments.Substring(scriptPathStart, scriptPathEnd - scriptPathStart);
             var scriptText = File.ReadAllText(scriptPath);
             Assert.Contains("1> \"%SHADPS4_TRANSCRIPT%\" 2>&1", scriptText);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(tempExe);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void ShadPs4Handler_BuildStartInfo_IpcModeRedirectsStreamsAndEnablesIpc()
+    {
+        var tempExe = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + "shadPS4.exe");
+        File.WriteAllText(tempExe, string.Empty);
+
+        try
+        {
+            using var tempGameDir = new TempDirectory();
+            var gamePath = Path.Combine(tempGameDir.Path, "CUSA00900");
+            Directory.CreateDirectory(Path.Combine(gamePath, "sce_sys"));
+            File.WriteAllText(Path.Combine(gamePath, "eboot.bin"), string.Empty);
+            File.WriteAllText(Path.Combine(gamePath, "sce_sys", "param.sfo"), string.Empty);
+
+            ShadPs4Handler.Instance.UseIpcForCheatsLaunch = true;
+            ProcessStartInfo startInfo = ShadPs4Handler.Instance.BuildStartInfo(tempExe, gamePath, false);
+
+            Assert.Equal(tempExe, startInfo.FileName);
+            Assert.True(startInfo.RedirectStandardInput);
+            Assert.True(startInfo.RedirectStandardError);
+            Assert.True(startInfo.RedirectStandardOutput);
+            Assert.Equal("true", startInfo.Environment["SHADPS4_ENABLE_IPC"]);
+            Assert.Contains("-g", startInfo.ArgumentList);
+            Assert.Contains(gamePath, startInfo.ArgumentList);
         }
         finally
         {
