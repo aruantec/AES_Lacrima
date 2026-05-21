@@ -197,6 +197,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         private string? _activeGameplayPreviewItemPath;
         private long _gameplayPreviewRequestVersion;
         private Process? _activeEmulatorProcess;
+        private string? _activeEmulatorRomPath;
+        private string? _activeEmulatorGameTitle;
+        private ShadPs4IpcSession? _shadPs4IpcSession;
         private CancellationTokenSource? _retroArchLogWatcherCts;
         private CancellationTokenSource? _activeEmulatorWatchdogCts;
         private CancellationTokenSource? _appTopmostRestoreCts;
@@ -772,6 +775,8 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         public ShadPs4CustomConfigEditorViewModel ShadPs4CustomConfigEditor { get; } = new();
 
+        public ShadPs4CheatsEditorViewModel ShadPs4CheatsEditor { get; } = new();
+
         public XeniaCustomConfigEditorViewModel XeniaCustomConfigEditor { get; } = new();
 
         public EmulationViewModel()
@@ -995,6 +1000,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         partial void OnIsEmulatorRunningChanged(bool value)
         {
             OnPropertyChanged(nameof(CanShowRenderOptions));
+            OnPropertyChanged(nameof(ShowShadPs4InGameCheatsButton));
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
             OnPropertyChanged(nameof(ShowCurrentSectionDuckStationSetupLaunchButton));
             OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
@@ -3645,6 +3651,13 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool ShowCurrentSectionShadPs4CustomConfigMenuItem =>
             ShowCurrentSectionShadPs4UpdateControls && HasActiveAlbumItems;
 
+        public bool ShowCurrentSectionShadPs4CheatsMenuItem =>
+            ShowCurrentSectionShadPs4UpdateControls && HasActiveAlbumItems;
+
+        public bool ShowShadPs4InGameCheatsButton =>
+            IsEmulatorRunning &&
+            string.Equals(CurrentEmulatorHandler?.HandlerId, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase);
+
         public bool ShowCurrentSectionXeniaCustomConfigMenuItem =>
             ShowCurrentSectionXeniaUpdateControls && HasActiveAlbumItems;
 
@@ -3792,6 +3805,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4PatchesMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4CustomConfigMenuItem));
+            OnPropertyChanged(nameof(ShowCurrentSectionShadPs4CheatsMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaPatchesMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaCustomConfigMenuItem));
@@ -4273,6 +4287,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 DetachShadPs4PatchEntryListeners();
                 CurrentSectionShadPs4PatchEntries.Clear();
                 ShadPs4CustomConfigEditor.Reset();
+                ShadPs4CheatsEditor.ClearSession();
             }
         }
 
@@ -6029,6 +6044,23 @@ private bool _isShadPs4PatchesOverlayOpen;
                 return;
 
             await ShadPs4CustomConfigEditor.LoadAsync(
+                CurrentSectionShadPs4EmulatorPath,
+                target.FileName,
+                target.Title).ConfigureAwait(true);
+        }
+
+        [RelayCommand]
+        private async Task OpenCurrentSectionShadPs4Cheats(object? parameter)
+        {
+            if (!ShowCurrentSectionShadPs4CheatsMenuItem)
+                return;
+
+            var target = ResolveShadPs4ContextMenuTarget(parameter);
+            if (target == null || string.IsNullOrWhiteSpace(target.FileName))
+                return;
+
+            UpdateShadPs4CheatsIpcState();
+            await ShadPs4CheatsEditor.LoadAsync(
                 CurrentSectionShadPs4EmulatorPath,
                 target.FileName,
                 target.Title).ConfigureAwait(true);
@@ -8254,6 +8286,9 @@ private bool _isShadPs4PatchesOverlayOpen;
                     }
                 }
 
+                if (handler is ShadPs4Handler shadPs4LaunchHandler)
+                    shadPs4LaunchHandler.UseIpcForCheatsLaunch = true;
+
                 var startInfo = handler.BuildStartInfo(
                     handler.LauncherPath ?? string.Empty,
                     launchRomPath,
@@ -8269,6 +8304,8 @@ private bool _isShadPs4PatchesOverlayOpen;
                 {
                     SLog.Info($"Emulator process launched: pid={process.Id}, name={process.ProcessName}, hasExited={process.HasExited}.");
                 }
+
+                AttachShadPs4IpcSessionIfNeeded(handler, process);
 
                 RestoreHostWindowFocus();
 
@@ -8318,7 +8355,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                         }
                     }
 
-                    TrackEmulatorProcess(runtimeProcess, request.RomPath, handler);
+                    TrackEmulatorProcess(runtimeProcess, request.RomPath, handler, request.ItemTitle);
                 }, DispatcherPriority.Background);
             }
             catch (Exception ex)
@@ -8622,7 +8659,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             await Task.Delay(150).ConfigureAwait(false);
         }
 
-        private void TrackEmulatorProcess(Process? process, string romPath, IEmulatorHandler handler)
+        private void TrackEmulatorProcess(Process? process, string romPath, IEmulatorHandler handler, string? gameTitle = null)
         {
             EmulatorTargetHwnd = IntPtr.Zero;
 
@@ -8651,7 +8688,15 @@ private bool _isShadPs4PatchesOverlayOpen;
             _activeEmulatorWatchdogCts = null;
 
             _activeEmulatorProcess = process;
+            _activeEmulatorRomPath = romPath;
+            _activeEmulatorGameTitle = gameTitle;
             EmulatorTargetProcessId = process?.Id ?? 0;
+
+            if (_shadPs4IpcSession == null)
+                AttachShadPs4IpcSessionIfNeeded(handler, process);
+
+            UpdateShadPs4CheatsIpcState();
+            OnPropertyChanged(nameof(ShowShadPs4InGameCheatsButton));
 
             CancelAppTopmostRestoreTimeout();
 
@@ -8831,9 +8876,89 @@ private bool _isShadPs4PatchesOverlayOpen;
             finally
             {
                 _activeEmulatorProcess = null;
+                _activeEmulatorRomPath = null;
+                _activeEmulatorGameTitle = null;
                 EmulatorTargetHwnd = IntPtr.Zero;
                 EmulatorTargetProcessId = 0;
+                DetachShadPs4IpcSession();
+                OnPropertyChanged(nameof(ShowShadPs4InGameCheatsButton));
             }
+        }
+
+        private void AttachShadPs4IpcSessionIfNeeded(IEmulatorHandler handler, Process? process)
+        {
+            if (handler is not ShadPs4Handler shadPs4Handler || !shadPs4Handler.UseIpcForCheatsLaunch || process == null)
+                return;
+
+            try
+            {
+                if (process.HasExited)
+                    return;
+            }
+            catch
+            {
+                return;
+            }
+
+            if (_shadPs4IpcSession != null && _shadPs4IpcSession.ProcessId == process.Id)
+                return;
+
+            DetachShadPs4IpcSession();
+            _shadPs4IpcSession = ShadPs4IpcSession.TryAttach(process, shadPs4Handler.CurrentLaunchTranscriptPath);
+            if (_shadPs4IpcSession != null)
+                _shadPs4IpcSession.CapabilitiesChanged += OnShadPs4IpcCapabilitiesChanged;
+        }
+
+        private void DetachShadPs4IpcSession()
+        {
+            if (_shadPs4IpcSession != null)
+                _shadPs4IpcSession.CapabilitiesChanged -= OnShadPs4IpcCapabilitiesChanged;
+
+            _shadPs4IpcSession?.Dispose();
+            _shadPs4IpcSession = null;
+            UpdateShadPs4CheatsIpcState();
+        }
+
+        private void OnShadPs4IpcCapabilitiesChanged()
+        {
+            Dispatcher.UIThread.Post(UpdateShadPs4CheatsIpcState, DispatcherPriority.Background);
+        }
+
+        private void UpdateShadPs4CheatsIpcState()
+        {
+            var isShadPs4Running = IsEmulatorRunning &&
+                                   string.Equals(CurrentEmulatorHandler?.HandlerId, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase);
+            ShadPs4CheatsEditor.SetIpcSession(_shadPs4IpcSession, isShadPs4Running);
+
+            if (isShadPs4Running && !string.IsNullOrWhiteSpace(_activeEmulatorRomPath))
+            {
+                _ = ShadPs4CheatsEditor.EnsureLoadedForGameAsync(
+                    CurrentSectionShadPs4EmulatorPath,
+                    _activeEmulatorRomPath,
+                    _activeEmulatorGameTitle);
+            }
+        }
+
+        [RelayCommand]
+        private async Task ToggleShadPs4CheatsOverlay()
+        {
+            if (!ShowShadPs4InGameCheatsButton)
+                return;
+
+            if (ShadPs4CheatsEditor.IsOpen)
+            {
+                ShadPs4CheatsEditor.IsOpen = false;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(_activeEmulatorRomPath))
+                return;
+
+            UpdateShadPs4CheatsIpcState();
+            await ShadPs4CheatsEditor.LoadAsync(
+                CurrentSectionShadPs4EmulatorPath,
+                _activeEmulatorRomPath,
+                _activeEmulatorGameTitle).ConfigureAwait(true);
         }
 
         [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "IsWindow")]
