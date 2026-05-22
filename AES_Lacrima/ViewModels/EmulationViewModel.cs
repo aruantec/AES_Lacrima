@@ -84,6 +84,40 @@ namespace AES_Lacrima.ViewModels
         }
     }
 
+    public partial class Rpcs3PatchEntry : ObservableObject
+    {
+        [ObservableProperty]
+        private bool _isEnabled;
+
+        public string EntryKey { get; }
+        public string PpuHash { get; }
+        public string GameTitle { get; }
+        public string Serial { get; }
+        public string Name { get; }
+        public string? Subtitle { get; }
+        public string AppVersion { get; }
+
+        public Rpcs3PatchEntry(
+            bool isEnabled,
+            string entryKey,
+            string ppuHash,
+            string name,
+            string gameTitle,
+            string serial,
+            string appVersion,
+            string? subtitle)
+        {
+            _isEnabled = isEnabled;
+            EntryKey = entryKey;
+            PpuHash = ppuHash;
+            Name = name;
+            GameTitle = gameTitle;
+            Serial = serial;
+            AppVersion = appVersion;
+            Subtitle = subtitle;
+        }
+    }
+
     public partial class EmulationAlbumItem : FolderMediaItem
     {
         [ObservableProperty]
@@ -180,6 +214,14 @@ private bool _isShadPs4PatchesOverlayOpen;
         private string? _selectedCurrentSectionShadPs4PatchFile;
         private string _shadPs4PatchesStatus = "Select a PlayStation 4 game to manage patches.";
         private string? _shadPs4PatchGameTitle;
+        private bool _isRpcs3PatchesOverlayOpen;
+        private bool _isRpcs3PatchesBusy;
+        private bool _isCurrentSectionRpcs3PatchDirty;
+        private string _rpcs3PatchesStatus = "Select a PlayStation 3 game to manage patches.";
+        private string? _rpcs3PatchGameTitle;
+        private string? _rpcs3DetectedTitleId;
+        private string? _rpcs3DetectedAppVersion;
+        private readonly AvaloniaList<Rpcs3PatchEntry> _currentSectionRpcs3PatchEntries = [];
 
         public string? ShadPs4PatchGameTitle
         {
@@ -3194,6 +3236,99 @@ private bool _isShadPs4PatchesOverlayOpen;
             }
         }
 
+        public bool IsRpcs3PatchesOverlayOpen
+        {
+            get => _isRpcs3PatchesOverlayOpen;
+            set
+            {
+                if (_isRpcs3PatchesOverlayOpen == value)
+                    return;
+
+                _isRpcs3PatchesOverlayOpen = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public bool IsRpcs3PatchesBusy
+        {
+            get => _isRpcs3PatchesBusy;
+            set
+            {
+                if (_isRpcs3PatchesBusy == value)
+                    return;
+
+                _isRpcs3PatchesBusy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string Rpcs3PatchesStatus
+        {
+            get => _rpcs3PatchesStatus;
+            set
+            {
+                if (string.Equals(_rpcs3PatchesStatus, value, StringComparison.Ordinal))
+                    return;
+
+                _rpcs3PatchesStatus = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string? Rpcs3PatchGameTitle
+        {
+            get => _rpcs3PatchGameTitle;
+            set
+            {
+                if (SetProperty(ref _rpcs3PatchGameTitle, value))
+                    OnPropertyChanged(nameof(Rpcs3PatchOverlayHeader));
+            }
+        }
+
+        public string Rpcs3PatchOverlayHeader =>
+            string.IsNullOrWhiteSpace(Rpcs3PatchGameTitle) ? "RPCS3 Patches" : $"{Rpcs3PatchGameTitle} Patches";
+
+        public string? Rpcs3DetectedTitleId
+        {
+            get => _rpcs3DetectedTitleId;
+            private set
+            {
+                if (string.Equals(_rpcs3DetectedTitleId, value, StringComparison.Ordinal))
+                    return;
+
+                _rpcs3DetectedTitleId = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string? Rpcs3DetectedAppVersion
+        {
+            get => _rpcs3DetectedAppVersion;
+            private set
+            {
+                if (string.Equals(_rpcs3DetectedAppVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _rpcs3DetectedAppVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public AvaloniaList<Rpcs3PatchEntry> CurrentSectionRpcs3PatchEntries => _currentSectionRpcs3PatchEntries;
+
+        public bool IsCurrentSectionRpcs3PatchDirty
+        {
+            get => _isCurrentSectionRpcs3PatchDirty;
+            set
+            {
+                if (_isCurrentSectionRpcs3PatchDirty == value)
+                    return;
+
+                _isCurrentSectionRpcs3PatchDirty = value;
+                OnPropertyChanged();
+            }
+        }
+
         public AvaloniaList<XeniaPatchFileItem> CurrentSectionXeniaPatchFiles => _currentSectionXeniaPatchFiles;
 
         public string XeniaPatchOverlayHeader =>
@@ -3758,6 +3893,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool ShowCurrentSectionRpcs3CustomConfigMenuItem =>
             ShowCurrentSectionRpcs3UpdateControls && HasActiveAlbumItems;
 
+        public bool ShowCurrentSectionRpcs3PatchesMenuItem =>
+            ShowCurrentSectionRpcs3UpdateControls && HasActiveAlbumItems;
+
         public bool IsCurrentSectionHandlerUpdateAvailable =>
             (ShowCurrentSectionRetroArchUpdateControls && IsCurrentSectionRetroArchUpdateAvailable) ||
             (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable) ||
@@ -3907,6 +4045,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaPatchesMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaCustomConfigMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3CustomConfigMenuItem));
+            OnPropertyChanged(nameof(ShowCurrentSectionRpcs3PatchesMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionDolphinUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionFlycastUpdateControls));
@@ -4395,7 +4534,17 @@ private bool _isShadPs4PatchesOverlayOpen;
             }
 
             if (!ShowCurrentSectionRpcs3UpdateControls)
+            {
+                IsRpcs3PatchesOverlayOpen = false;
+                Rpcs3DetectedTitleId = null;
+                Rpcs3DetectedAppVersion = null;
+                Rpcs3PatchGameTitle = null;
+                Rpcs3PatchesStatus = "Select a PlayStation 3 game to manage patches.";
+                IsCurrentSectionRpcs3PatchDirty = false;
+                DetachRpcs3PatchEntryListeners();
+                CurrentSectionRpcs3PatchEntries.Clear();
                 Rpcs3CustomConfigEditor.Reset();
+            }
         }
 
         private async Task RefreshCurrentSectionRetroArchInfo()
@@ -6353,6 +6502,305 @@ private bool _isShadPs4PatchesOverlayOpen;
                 emulatorDirectory,
                 target.FileName,
                 target.Title).ConfigureAwait(true);
+        }
+
+        // --- RPCS3 Patches ---
+
+        [RelayCommand]
+        private async Task OpenCurrentSectionRpcs3Patches(object? parameter)
+        {
+            if (!ShowCurrentSectionRpcs3PatchesMenuItem)
+                return;
+
+            var target = ResolveRpcs3ContextMenuTarget(parameter);
+            if (target == null || string.IsNullOrWhiteSpace(target.FileName))
+                return;
+
+            IsRpcs3PatchesOverlayOpen = true;
+            IsRpcs3PatchesBusy = true;
+            Rpcs3PatchesStatus = "Detecting PS3 Title ID and loading patches...";
+            Rpcs3DetectedTitleId = null;
+            Rpcs3DetectedAppVersion = null;
+            Rpcs3PatchGameTitle = target.Title;
+            DetachRpcs3PatchEntryListeners();
+            CurrentSectionRpcs3PatchEntries.Clear();
+            IsCurrentSectionRpcs3PatchDirty = false;
+
+            try
+            {
+            var emulatorDirectory = Rpcs3PatchesService.ResolveEmulatorDirectory(
+                CurrentSectionRpcs3EmulatorPath,
+                CurrentEmulatorHandler?.LauncherPath);
+
+            var titleId = Rpcs3CustomConfigService.NormalizeTitleId(
+                Ps3InstalledGameHelper.ResolveTitleId(target.FileName));
+                var appVersion = Ps3InstalledGameHelper.GetVersion(target.FileName);
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    Rpcs3DetectedTitleId = titleId;
+                    Rpcs3DetectedAppVersion = appVersion;
+                });
+
+                if (string.IsNullOrWhiteSpace(titleId))
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        Rpcs3PatchesStatus = "Unable to detect PS3 Title ID for the selected game.";
+                    });
+                    return;
+                }
+
+                await LoadCurrentSectionRpcs3PatchesAsync(emulatorDirectory, titleId).ConfigureAwait(false);
+            }
+            finally
+            {
+                IsRpcs3PatchesBusy = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task DownloadCurrentSectionRpcs3Patches()
+        {
+            if (IsRpcs3PatchesBusy)
+                return;
+
+            var emulatorDirectory = Rpcs3PatchesService.ResolveEmulatorDirectory(
+                CurrentSectionRpcs3EmulatorPath,
+                CurrentEmulatorHandler?.LauncherPath);
+
+            if (string.IsNullOrWhiteSpace(emulatorDirectory))
+            {
+                Rpcs3PatchesStatus = "Emulator directory is not configured.";
+                return;
+            }
+
+            IsRpcs3PatchesBusy = true;
+            Rpcs3PatchesStatus = "Downloading latest RPCS3 patches...";
+
+            try
+            {
+                var result = await Rpcs3PatchesDownloadService.DownloadLatestAsync(emulatorDirectory).ConfigureAwait(true);
+                Rpcs3PatchesStatus = result.Message;
+
+                if (!result.Success)
+                    return;
+
+                if (!string.IsNullOrWhiteSpace(Rpcs3DetectedTitleId))
+                    await LoadCurrentSectionRpcs3PatchesAsync(emulatorDirectory, Rpcs3DetectedTitleId).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                Rpcs3PatchesStatus = $"Failed to download patches: {ex.Message}";
+            }
+            finally
+            {
+                IsRpcs3PatchesBusy = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task SaveCurrentSectionRpcs3Patches()
+        {
+            var saved = await SaveCurrentSectionRpcs3PatchesCore().ConfigureAwait(false);
+            if (saved)
+                CloseCurrentSectionRpcs3Patches();
+        }
+
+        private async Task<bool> SaveCurrentSectionRpcs3PatchesCore()
+        {
+            if (!IsRpcs3PatchesOverlayOpen)
+                return false;
+
+            if (CurrentSectionRpcs3PatchEntries.Count == 0)
+            {
+                Rpcs3PatchesStatus = "No patches loaded to save.";
+                return false;
+            }
+
+            var emulatorDirectory = Rpcs3PatchesService.ResolveEmulatorDirectory(
+                CurrentSectionRpcs3EmulatorPath,
+                CurrentEmulatorHandler?.LauncherPath);
+
+            if (string.IsNullOrWhiteSpace(emulatorDirectory))
+            {
+                Rpcs3PatchesStatus = "Emulator directory is not configured.";
+                return false;
+            }
+
+            IsRpcs3PatchesBusy = true;
+            try
+            {
+                var toggles = CurrentSectionRpcs3PatchEntries
+                    .Select(static entry => new Rpcs3PatchToggle(
+                        entry.EntryKey,
+                        entry.PpuHash,
+                        entry.Name,
+                        entry.GameTitle,
+                        entry.Serial,
+                        entry.AppVersion,
+                        entry.IsEnabled))
+                    .ToArray();
+
+                await Task.Run(() => Rpcs3PatchesService.SaveEnabledStates(emulatorDirectory, toggles)).ConfigureAwait(false);
+                IsCurrentSectionRpcs3PatchDirty = false;
+                Rpcs3PatchesStatus = "Patch settings saved.";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Rpcs3PatchesStatus = $"Failed to save patches: {ex.Message}";
+                return false;
+            }
+            finally
+            {
+                IsRpcs3PatchesBusy = false;
+            }
+        }
+
+        [RelayCommand]
+        private void SelectAllCurrentSectionRpcs3Patches()
+        {
+            if (IsRpcs3PatchesBusy)
+                return;
+
+            foreach (var entry in CurrentSectionRpcs3PatchEntries)
+                entry.IsEnabled = true;
+
+            if (CurrentSectionRpcs3PatchEntries.Count > 0)
+                Rpcs3PatchesStatus = $"Enabled {CurrentSectionRpcs3PatchEntries.Count} patch(es).";
+        }
+
+        [RelayCommand]
+        private void UnselectAllCurrentSectionRpcs3Patches()
+        {
+            if (IsRpcs3PatchesBusy)
+                return;
+
+            foreach (var entry in CurrentSectionRpcs3PatchEntries)
+                entry.IsEnabled = false;
+
+            if (CurrentSectionRpcs3PatchEntries.Count > 0)
+                Rpcs3PatchesStatus = $"Disabled {CurrentSectionRpcs3PatchEntries.Count} patch(es).";
+        }
+
+        [RelayCommand]
+        private void CloseCurrentSectionRpcs3Patches()
+        {
+            IsRpcs3PatchesOverlayOpen = false;
+            DetachRpcs3PatchEntryListeners();
+            CurrentSectionRpcs3PatchEntries.Clear();
+            IsCurrentSectionRpcs3PatchDirty = false;
+        }
+
+        private async Task LoadCurrentSectionRpcs3PatchesAsync(string? emulatorDirectory, string titleId)
+        {
+            var patchPath = Rpcs3PatchesService.GetPatchYmlPath(emulatorDirectory);
+
+            var loadResult = await Task.Run(() =>
+            {
+                var success = Rpcs3PatchesService.TryGetPatchesForTitleId(
+                    emulatorDirectory,
+                    titleId,
+                    appVersion: null,
+                    out var definitions,
+                    out var errorMessage);
+                return (success, definitions, errorMessage);
+            }).ConfigureAwait(false);
+
+            var configPath = Rpcs3PatchesService.GetPatchConfigPath(emulatorDirectory);
+            var enabledMap = await Task.Run(() => Rpcs3PatchesService.BuildEnabledStateMap(loadResult.definitions, configPath))
+                .ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                DetachRpcs3PatchEntryListeners();
+                CurrentSectionRpcs3PatchEntries.Clear();
+                IsCurrentSectionRpcs3PatchDirty = false;
+
+                foreach (var definition in loadResult.definitions)
+                {
+                    var entryKey = Rpcs3PatchesService.BuildEntryKey(definition);
+                    enabledMap.TryGetValue(entryKey, out var isEnabled);
+
+                    var entry = new Rpcs3PatchEntry(
+                        isEnabled,
+                        entryKey,
+                        definition.PpuHash,
+                        definition.Name,
+                        definition.GameTitle,
+                        definition.Serial,
+                        definition.AppVersion,
+                        BuildRpcs3PatchSubtitle(definition));
+
+                    entry.PropertyChanged += OnRpcs3PatchEntryPropertyChanged;
+                    CurrentSectionRpcs3PatchEntries.Add(entry);
+                }
+
+                if (!loadResult.success)
+                {
+                    Rpcs3PatchesStatus = loadResult.errorMessage ?? "Failed to load patches.";
+                }
+                else if (!Rpcs3PatchesService.PatchFileExists(emulatorDirectory))
+                {
+                    Rpcs3PatchesStatus = "No patch.yml found. Download patches to get started.";
+                }
+                else if (CurrentSectionRpcs3PatchEntries.Count == 0)
+                {
+                    Rpcs3PatchesStatus = $"No patches found for title ID {titleId} in '{patchPath}'.";
+                }
+                else
+                {
+                    var gameCount = CurrentSectionRpcs3PatchEntries
+                        .Select(static e => e.GameTitle)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Count();
+                    Rpcs3PatchesStatus = gameCount > 1
+                        ? $"Loaded {CurrentSectionRpcs3PatchEntries.Count} patch(es) for title ID {titleId} across {gameCount} game entries."
+                        : $"Loaded {CurrentSectionRpcs3PatchEntries.Count} patch(es) for title ID {titleId}.";
+                }
+            });
+        }
+
+        private static string? BuildRpcs3PatchSubtitle(Rpcs3PatchDefinition definition)
+        {
+            var parts = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(definition.GameTitle))
+            {
+                var versionLabel = string.Equals(definition.AppVersion, "All", StringComparison.OrdinalIgnoreCase)
+                    ? "All versions"
+                    : $"v{definition.AppVersion.Trim()}";
+                parts.Add($"{definition.GameTitle.Trim()} · {definition.Serial} · {versionLabel}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(definition.Author))
+                parts.Add(definition.Author.Trim());
+
+            if (!string.IsNullOrWhiteSpace(definition.Group))
+                parts.Add($"Group: {definition.Group.Trim()}");
+
+            if (!string.IsNullOrWhiteSpace(definition.PatchVersion))
+                parts.Add($"Patch v{definition.PatchVersion.Trim()}");
+
+            if (!string.IsNullOrWhiteSpace(definition.Notes))
+                parts.Add(definition.Notes.Trim());
+
+            return parts.Count == 0 ? null : string.Join(" — ", parts);
+        }
+
+        private void OnRpcs3PatchEntryPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (!string.Equals(e.PropertyName, nameof(Rpcs3PatchEntry.IsEnabled), StringComparison.Ordinal))
+                return;
+
+            IsCurrentSectionRpcs3PatchDirty = true;
+        }
+
+        private void DetachRpcs3PatchEntryListeners()
+        {
+            foreach (var entry in CurrentSectionRpcs3PatchEntries)
+                entry.PropertyChanged -= OnRpcs3PatchEntryPropertyChanged;
         }
 
         private MediaItem? ResolveXeniaContextMenuTarget(object? parameter) =>
@@ -8538,6 +8986,14 @@ private bool _isShadPs4PatchesOverlayOpen;
                     request.LaunchSettings?.StartFullscreen == true,
                     request.AlbumTitle,
                     request.LaunchSettings?.SelectedRetroArchCore);
+
+                if (string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(_activeRpcs3SessionEmulatorDirectory))
+                {
+                    Rpcs3CustomConfigService.ApplyConfigDirectoryEnvironment(
+                        startInfo,
+                        _activeRpcs3SessionEmulatorDirectory);
+                }
 
                 PrepareLinuxAppImageStartInfo(startInfo);
                 var process = Process.Start(startInfo);
