@@ -1,12 +1,21 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
+using AES_Controls.Helpers;
+using AES_Core.IO;
 
 namespace AES_Lacrima.Services
 {
     internal static class Ps3InstalledGameHelper
     {
+        private const string GameIdBootPrefix = "%RPCS3_GAMEID%:";
+
+        private static readonly Regex TitleIdPathRegex = new(
+            @"\b(BLUS|BLES|BLJM|BLJS|NPUB|NPEB|NPJB|NPUJ|NPUX)\d{5}\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
         public static string? GetPreferredBootPath(string? path)
         {
             if (string.IsNullOrWhiteSpace(path))
@@ -58,14 +67,25 @@ namespace AES_Lacrima.Services
             }
         }
 
-        public static string? GetTitleId(string? path)
+        public static string? GetTitleId(string? path) => ResolveTitleId(path);
+
+        public static string? ResolveTitleId(string? path)
         {
             if (string.IsNullOrWhiteSpace(path))
                 return null;
 
+            var normalizedPath = path.Trim();
+
+            if (normalizedPath.StartsWith(GameIdBootPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                var bootTitleId = normalizedPath[GameIdBootPrefix.Length..].Trim();
+                if (!string.IsNullOrWhiteSpace(bootTitleId))
+                    return bootTitleId;
+            }
+
             try
             {
-                foreach (var candidateDirectory in GetCandidateDirectories(path))
+                foreach (var candidateDirectory in GetCandidateDirectories(normalizedPath))
                 {
                     var paramSfoPath = Path.Combine(candidateDirectory, "PARAM.SFO");
                     if (!File.Exists(paramSfoPath))
@@ -80,7 +100,51 @@ namespace AES_Lacrima.Services
             {
             }
 
+            var cachedTitleId = TryReadTitleIdFromMetadataCache(normalizedPath);
+            if (!string.IsNullOrWhiteSpace(cachedTitleId))
+                return cachedTitleId;
+
+            return TryExtractTitleIdFromPath(normalizedPath);
+        }
+
+        private static string? TryReadTitleIdFromMetadataCache(string path)
+        {
+            try
+            {
+                var cacheId = BinaryMetadataHelper.GetCacheId(path);
+                var cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
+                return string.IsNullOrWhiteSpace(metadata?.Ps3TitleId) ? null : metadata.Ps3TitleId.Trim();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string? TryExtractTitleIdFromPath(string path)
+        {
+            foreach (var segment in EnumeratePathSegments(path))
+            {
+                var match = TitleIdPathRegex.Match(segment);
+                if (match.Success)
+                    return match.Value.ToUpperInvariant();
+            }
+
             return null;
+        }
+
+        private static IEnumerable<string> EnumeratePathSegments(string path)
+        {
+            var current = path;
+            while (!string.IsNullOrWhiteSpace(current))
+            {
+                yield return Path.GetFileName(current);
+                var parent = Path.GetDirectoryName(current);
+                if (string.IsNullOrWhiteSpace(parent) || string.Equals(parent, current, StringComparison.Ordinal))
+                    yield break;
+                current = parent;
+            }
         }
 
         public static string? GetTitleName(string? path)

@@ -100,12 +100,8 @@ internal static class Rpcs3YamlConfigHelper
         return new YamlMappingNode();
     }
 
-    private static void SaveRootMapping(YamlMappingNode root, string outputPath)
-    {
-        var stream = new YamlStream(new YamlDocument(root));
-        using var writer = new StreamWriter(outputPath);
-        stream.Save(writer, assignAnchors: false);
-    }
+    private static void SaveRootMapping(YamlMappingNode root, string outputPath) =>
+        Rpcs3YamlSaveHelper.SaveMapping(root, outputPath);
 
     private static YamlMappingNode GetOrCreateSection(YamlMappingNode root, string section, string? parentSection)
     {
