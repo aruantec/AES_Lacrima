@@ -1746,13 +1746,43 @@ struct CaptureSession
         if (dcompSwapChain && dcompWidth == targetWidth && dcompHeight == targetHeight)
             return true;
 
+        const bool requestTearing = dcompDisableVsync.load(std::memory_order_relaxed);
+
+        if (dcompSwapChain && dcompWidth > 0 && dcompHeight > 0)
+        {
+            const UINT resizeFlags = dcompSwapChainAllowTearing.load(std::memory_order_relaxed)
+                ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING
+                : 0u;
+            HRESULT resizeHr = dcompSwapChain->ResizeBuffers(
+                2,
+                targetWidth,
+                targetHeight,
+                DXGI_FORMAT_B8G8R8A8_UNORM,
+                resizeFlags);
+
+            if (SUCCEEDED(resizeHr))
+            {
+                dcompRenderTargetView = nullptr;
+                rt::com_ptr<ID3D11Texture2D> backBuffer;
+                resizeHr = dcompSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), backBuffer.put_void());
+                if (SUCCEEDED(resizeHr) && backBuffer)
+                {
+                    resizeHr = d3dDevice->CreateRenderTargetView(backBuffer.get(), nullptr, dcompRenderTargetView.put());
+                    if (SUCCEEDED(resizeHr) && dcompRenderTargetView)
+                    {
+                        dcompWidth = targetWidth;
+                        dcompHeight = targetHeight;
+                        return true;
+                    }
+                }
+            }
+        }
+
         dcompSwapChain = nullptr;
         dcompRenderTargetView = nullptr;
         dcompWidth = 0;
         dcompHeight = 0;
         dcompSwapChainAllowTearing.store(false, std::memory_order_relaxed);
-
-        const bool requestTearing = dcompDisableVsync.load(std::memory_order_relaxed);
 
         DXGI_SWAP_CHAIN_DESC1 desc = {};
         desc.Width = targetWidth;
@@ -2312,7 +2342,14 @@ struct CaptureSession
 
             if (presentationHwnd)
             {
+                // DirectComposition sessions present on a dedicated worker thread.
+                // Skip CPU staging/readback entirely (same as OBS-style GPU-only capture).
                 QueueDirectCompositionFrame(currentGpu.get(), currentW, currentH);
+                width.store(currentW);
+                height.store(currentH);
+                frameCount.fetch_add(1);
+                frame.Close();
+                return;
             }
 
             // Interop-only fast path:

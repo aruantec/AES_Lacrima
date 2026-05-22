@@ -171,6 +171,7 @@ public partial class EmulationView : UserControl
     private PixelPoint _portalWindowFullscreenPosition;
     private Size _portalWindowFullscreenSize;
     private PortalFullscreenOverlayWindow? _portalFullscreenOverlayWindow;
+    private DateTime _lastPortalGraphUpdateUtc = DateTime.MinValue;
 
     private static bool UseInlineCaptureHost => false;
 
@@ -908,7 +909,13 @@ public partial class EmulationView : UserControl
         _portalFullscreenOverlayWindow.Focus();
 
         _isPortalWindowFullscreen = true;
-        _portalWindow.CaptureHostControl?.InvalidateArrange();
+
+        // Let Win32/DComp settle on the final fullscreen client size before resizing the swapchain.
+        Dispatcher.UIThread.Post(() =>
+        {
+            _portalWindow?.CaptureHostControl?.InvalidateArrange();
+            _portalWindow?.CaptureHostControl?.InvalidateVisual();
+        }, DispatcherPriority.Background);
     }
 
     private void ExitPortalFullscreen()
@@ -1202,6 +1209,13 @@ public partial class EmulationView : UserControl
 
     private void UpdatePortalFrametimeGraph(double latestMs)
     {
+        var now = DateTime.UtcNow;
+        var minIntervalMs = _isPortalWindowFullscreen ? 200 : 50;
+        if ((now - _lastPortalGraphUpdateUtc).TotalMilliseconds < minIntervalMs)
+            return;
+
+        _lastPortalGraphUpdateUtc = now;
+
         if (_portalFrameSamples.Count >= PortalFrameSampleCount)
         {
             _portalFrameSamples.Dequeue();
