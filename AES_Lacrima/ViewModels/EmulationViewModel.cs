@@ -10,6 +10,7 @@ using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
 using AES_Lacrima.Services.Emulation;
+using AES_Lacrima.Services.Cemu;
 using AES_Lacrima.Services.Rpcs3;
 using AES_Lacrima.Services.ShadPs4;
 using AES_Lacrima.Services.Xenia;
@@ -118,6 +119,59 @@ namespace AES_Lacrima.ViewModels
         }
     }
 
+    public partial class CemuGraphicPackPresetGroupEntry : ObservableObject
+    {
+        [ObservableProperty]
+        private string? _selectedPresetName;
+
+        public string Category { get; }
+        public string CategoryLabel { get; }
+        public IReadOnlyList<string> PresetNames { get; }
+
+        public CemuGraphicPackPresetGroupEntry(
+            string category,
+            string categoryLabel,
+            IReadOnlyList<string> presetNames,
+            string? selectedPresetName)
+        {
+            Category = category;
+            CategoryLabel = categoryLabel;
+            PresetNames = presetNames;
+            _selectedPresetName = selectedPresetName;
+        }
+    }
+
+    public partial class CemuGraphicPackEntry : ObservableObject
+    {
+        [ObservableProperty]
+        private bool _isEnabled;
+
+        public string EntryKey { get; }
+        public string RelativeRulesPath { get; }
+        public string Name { get; }
+        public string? Subtitle { get; }
+        public AvaloniaList<CemuGraphicPackPresetGroupEntry> PresetGroups { get; } = [];
+        public bool HasPresets => PresetGroups.Count > 0;
+
+        public CemuGraphicPackEntry(
+            bool isEnabled,
+            string entryKey,
+            string relativeRulesPath,
+            string name,
+            string? subtitle,
+            IEnumerable<CemuGraphicPackPresetGroupEntry>? presetGroups)
+        {
+            _isEnabled = isEnabled;
+            EntryKey = entryKey;
+            RelativeRulesPath = relativeRulesPath;
+            Name = name;
+            Subtitle = subtitle;
+
+            if (presetGroups != null)
+                PresetGroups.AddRange(presetGroups);
+        }
+    }
+
     public partial class EmulationAlbumItem : FolderMediaItem
     {
         [ObservableProperty]
@@ -222,6 +276,13 @@ private bool _isShadPs4PatchesOverlayOpen;
         private string? _rpcs3DetectedTitleId;
         private string? _rpcs3DetectedAppVersion;
         private readonly AvaloniaList<Rpcs3PatchEntry> _currentSectionRpcs3PatchEntries = [];
+        private bool _isCemuGraphicPacksOverlayOpen;
+        private bool _isCemuGraphicPacksBusy;
+        private bool _isCurrentSectionCemuGraphicPackDirty;
+        private string _cemuGraphicPacksStatus = "Select a Wii U game to manage graphic packs.";
+        private string? _cemuGraphicPackGameTitle;
+        private string? _cemuDetectedTitleId;
+        private readonly AvaloniaList<CemuGraphicPackEntry> _currentSectionCemuGraphicPackEntries = [];
 
         public string? ShadPs4PatchGameTitle
         {
@@ -3329,6 +3390,86 @@ private bool _isShadPs4PatchesOverlayOpen;
             }
         }
 
+        public bool IsCemuGraphicPacksOverlayOpen
+        {
+            get => _isCemuGraphicPacksOverlayOpen;
+            set
+            {
+                if (_isCemuGraphicPacksOverlayOpen == value)
+                    return;
+
+                _isCemuGraphicPacksOverlayOpen = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public bool IsCemuGraphicPacksBusy
+        {
+            get => _isCemuGraphicPacksBusy;
+            set
+            {
+                if (_isCemuGraphicPacksBusy == value)
+                    return;
+
+                _isCemuGraphicPacksBusy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string CemuGraphicPacksStatus
+        {
+            get => _cemuGraphicPacksStatus;
+            set
+            {
+                if (string.Equals(_cemuGraphicPacksStatus, value, StringComparison.Ordinal))
+                    return;
+
+                _cemuGraphicPacksStatus = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string? CemuGraphicPackGameTitle
+        {
+            get => _cemuGraphicPackGameTitle;
+            set
+            {
+                if (SetProperty(ref _cemuGraphicPackGameTitle, value))
+                    OnPropertyChanged(nameof(CemuGraphicPackOverlayHeader));
+            }
+        }
+
+        public string CemuGraphicPackOverlayHeader =>
+            string.IsNullOrWhiteSpace(CemuGraphicPackGameTitle) ? "Cemu Graphic Packs" : $"{CemuGraphicPackGameTitle} Graphic Packs";
+
+        public string? CemuDetectedTitleId
+        {
+            get => _cemuDetectedTitleId;
+            private set
+            {
+                if (string.Equals(_cemuDetectedTitleId, value, StringComparison.Ordinal))
+                    return;
+
+                _cemuDetectedTitleId = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public AvaloniaList<CemuGraphicPackEntry> CurrentSectionCemuGraphicPackEntries => _currentSectionCemuGraphicPackEntries;
+
+        public bool IsCurrentSectionCemuGraphicPackDirty
+        {
+            get => _isCurrentSectionCemuGraphicPackDirty;
+            set
+            {
+                if (_isCurrentSectionCemuGraphicPackDirty == value)
+                    return;
+
+                _isCurrentSectionCemuGraphicPackDirty = value;
+                OnPropertyChanged();
+            }
+        }
+
         public AvaloniaList<XeniaPatchFileItem> CurrentSectionXeniaPatchFiles => _currentSectionXeniaPatchFiles;
 
         public string XeniaPatchOverlayHeader =>
@@ -3896,6 +4037,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool ShowCurrentSectionRpcs3PatchesMenuItem =>
             ShowCurrentSectionRpcs3UpdateControls && HasActiveAlbumItems;
 
+        public bool ShowCurrentSectionCemuGraphicPacksMenuItem =>
+            ShowCurrentSectionCemuSection && HasActiveAlbumItems;
+
         public bool IsCurrentSectionHandlerUpdateAvailable =>
             (ShowCurrentSectionRetroArchUpdateControls && IsCurrentSectionRetroArchUpdateAvailable) ||
             (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable) ||
@@ -4046,6 +4190,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaCustomConfigMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3CustomConfigMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3PatchesMenuItem));
+            OnPropertyChanged(nameof(ShowCurrentSectionCemuGraphicPacksMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionDolphinUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionFlycastUpdateControls));
@@ -4544,6 +4689,17 @@ private bool _isShadPs4PatchesOverlayOpen;
                 DetachRpcs3PatchEntryListeners();
                 CurrentSectionRpcs3PatchEntries.Clear();
                 Rpcs3CustomConfigEditor.Reset();
+            }
+
+            if (!ShowCurrentSectionCemuSection)
+            {
+                IsCemuGraphicPacksOverlayOpen = false;
+                CemuDetectedTitleId = null;
+                CemuGraphicPackGameTitle = null;
+                CemuGraphicPacksStatus = "Select a Wii U game to manage graphic packs.";
+                IsCurrentSectionCemuGraphicPackDirty = false;
+                DetachCemuGraphicPackEntryListeners();
+                CurrentSectionCemuGraphicPackEntries.Clear();
             }
         }
 
@@ -6761,6 +6917,317 @@ private bool _isShadPs4PatchesOverlayOpen;
                 }
             });
         }
+
+        // --- Cemu Graphic Packs ---
+
+        [RelayCommand]
+        private async Task OpenCurrentSectionCemuGraphicPacks(object? parameter)
+        {
+            if (!ShowCurrentSectionCemuGraphicPacksMenuItem)
+                return;
+
+            var target = ResolveCemuContextMenuTarget(parameter);
+            if (target == null || string.IsNullOrWhiteSpace(target.FileName))
+                return;
+
+            IsCemuGraphicPacksOverlayOpen = true;
+            IsCemuGraphicPacksBusy = true;
+            CemuGraphicPacksStatus = "Detecting Wii U Title ID and loading graphic packs...";
+            CemuDetectedTitleId = null;
+            CemuGraphicPackGameTitle = target.Title;
+            DetachCemuGraphicPackEntryListeners();
+            CurrentSectionCemuGraphicPackEntries.Clear();
+            IsCurrentSectionCemuGraphicPackDirty = false;
+
+            try
+            {
+                var emulatorDirectory = !string.IsNullOrWhiteSpace(CurrentSectionCemuEmulatorPath)
+                    ? CurrentSectionCemuEmulatorPath
+                    : CemuPathsService.ResolveEmulatorDirectory(null, CurrentEmulatorHandler?.LauncherPath);
+
+                var titleId = ResolveWiiUTitleId(target);
+                await Dispatcher.UIThread.InvokeAsync(() => CemuDetectedTitleId = titleId);
+
+                if (string.IsNullOrWhiteSpace(titleId))
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                        CemuGraphicPacksStatus = "Unable to detect Wii U Title ID for the selected game.");
+                    return;
+                }
+
+                await LoadCurrentSectionCemuGraphicPacksAsync(emulatorDirectory, titleId).ConfigureAwait(false);
+            }
+            finally
+            {
+                IsCemuGraphicPacksBusy = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task DownloadCurrentSectionCemuGraphicPacks()
+        {
+            if (IsCemuGraphicPacksBusy)
+                return;
+
+            var emulatorDirectory = !string.IsNullOrWhiteSpace(CurrentSectionCemuEmulatorPath)
+                ? CurrentSectionCemuEmulatorPath
+                : CemuPathsService.ResolveEmulatorDirectory(null, CurrentEmulatorHandler?.LauncherPath);
+
+            if (string.IsNullOrWhiteSpace(emulatorDirectory))
+            {
+                CemuGraphicPacksStatus = "Emulator directory is not configured.";
+                return;
+            }
+
+            IsCemuGraphicPacksBusy = true;
+            CemuGraphicPacksStatus = "Downloading latest Cemu graphic packs...";
+
+            try
+            {
+                var result = await CemuGraphicPacksDownloadService.DownloadLatestAsync(
+                    emulatorDirectory,
+                    CurrentEmulatorHandler?.LauncherPath).ConfigureAwait(true);
+
+                CemuGraphicPacksStatus = result.Message;
+                if (!result.Success || string.IsNullOrWhiteSpace(CemuDetectedTitleId))
+                    return;
+
+                await LoadCurrentSectionCemuGraphicPacksAsync(emulatorDirectory, CemuDetectedTitleId).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                CemuGraphicPacksStatus = $"Failed to download graphic packs: {ex.Message}";
+            }
+            finally
+            {
+                IsCemuGraphicPacksBusy = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task SaveCurrentSectionCemuGraphicPacks()
+        {
+            var saved = await SaveCurrentSectionCemuGraphicPacksCore().ConfigureAwait(false);
+            if (saved)
+                CloseCurrentSectionCemuGraphicPacks();
+        }
+
+        private async Task<bool> SaveCurrentSectionCemuGraphicPacksCore()
+        {
+            if (!IsCemuGraphicPacksOverlayOpen)
+                return false;
+
+            if (CurrentSectionCemuGraphicPackEntries.Count == 0)
+            {
+                CemuGraphicPacksStatus = "No graphic packs loaded to save.";
+                return false;
+            }
+
+            var emulatorDirectory = !string.IsNullOrWhiteSpace(CurrentSectionCemuEmulatorPath)
+                ? CurrentSectionCemuEmulatorPath
+                : CemuPathsService.ResolveEmulatorDirectory(null, CurrentEmulatorHandler?.LauncherPath);
+
+            if (string.IsNullOrWhiteSpace(emulatorDirectory))
+            {
+                CemuGraphicPacksStatus = "Emulator directory is not configured.";
+                return false;
+            }
+
+            IsCemuGraphicPacksBusy = true;
+            try
+            {
+                var toggles = CurrentSectionCemuGraphicPackEntries
+                    .Select(BuildCemuGraphicPackToggle)
+                    .ToArray();
+
+                await Task.Run(() => CemuGraphicPacksService.SaveEnabledStates(
+                    emulatorDirectory,
+                    CurrentEmulatorHandler?.LauncherPath,
+                    toggles)).ConfigureAwait(false);
+
+                IsCurrentSectionCemuGraphicPackDirty = false;
+                CemuGraphicPacksStatus = "Graphic pack settings saved.";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                CemuGraphicPacksStatus = $"Failed to save graphic packs: {ex.Message}";
+                return false;
+            }
+            finally
+            {
+                IsCemuGraphicPacksBusy = false;
+            }
+        }
+
+        [RelayCommand]
+        private void SelectAllCurrentSectionCemuGraphicPacks()
+        {
+            if (IsCemuGraphicPacksBusy)
+                return;
+
+            foreach (var entry in CurrentSectionCemuGraphicPackEntries)
+                entry.IsEnabled = true;
+
+            if (CurrentSectionCemuGraphicPackEntries.Count > 0)
+                CemuGraphicPacksStatus = $"Enabled {CurrentSectionCemuGraphicPackEntries.Count} graphic pack(s).";
+        }
+
+        [RelayCommand]
+        private void UnselectAllCurrentSectionCemuGraphicPacks()
+        {
+            if (IsCemuGraphicPacksBusy)
+                return;
+
+            foreach (var entry in CurrentSectionCemuGraphicPackEntries)
+                entry.IsEnabled = false;
+
+            if (CurrentSectionCemuGraphicPackEntries.Count > 0)
+                CemuGraphicPacksStatus = $"Disabled {CurrentSectionCemuGraphicPackEntries.Count} graphic pack(s).";
+        }
+
+        [RelayCommand]
+        private void CloseCurrentSectionCemuGraphicPacks()
+        {
+            IsCemuGraphicPacksOverlayOpen = false;
+            DetachCemuGraphicPackEntryListeners();
+            CurrentSectionCemuGraphicPackEntries.Clear();
+            IsCurrentSectionCemuGraphicPackDirty = false;
+        }
+
+        private async Task LoadCurrentSectionCemuGraphicPacksAsync(string? emulatorDirectory, string titleId)
+        {
+            var loadResult = await Task.Run(() =>
+            {
+                var success = CemuGraphicPacksService.TryGetGraphicPacksForTitleId(
+                    emulatorDirectory,
+                    CurrentEmulatorHandler?.LauncherPath,
+                    titleId,
+                    out var packs,
+                    out var errorMessage);
+                return (success, packs, errorMessage);
+            }).ConfigureAwait(false);
+
+            string? settingsPath = null;
+            if (CemuPathsService.TryResolveSettingsPath(emulatorDirectory, CurrentEmulatorHandler?.LauncherPath, out var resolvedSettingsPath))
+                settingsPath = resolvedSettingsPath;
+
+            var enabledMap = await Task.Run(() =>
+                CemuGraphicPacksService.BuildEnabledStateMap(loadResult.packs, settingsPath)).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                DetachCemuGraphicPackEntryListeners();
+                CurrentSectionCemuGraphicPackEntries.Clear();
+                IsCurrentSectionCemuGraphicPackDirty = false;
+
+                foreach (var pack in loadResult.packs)
+                {
+                    enabledMap.TryGetValue(pack.EntryKey, out var isEnabled);
+                    var entry = new CemuGraphicPackEntry(
+                        isEnabled,
+                        pack.EntryKey,
+                        pack.RelativeRulesPath,
+                        pack.Name,
+                        BuildCemuGraphicPackSubtitle(pack),
+                        pack.PresetGroups.Select(static group => new CemuGraphicPackPresetGroupEntry(
+                            group.Category,
+                            group.CategoryLabel,
+                            group.PresetNames,
+                            group.SelectedPresetName)));
+
+                    entry.PropertyChanged += OnCemuGraphicPackEntryPropertyChanged;
+                    foreach (var presetGroup in entry.PresetGroups)
+                        presetGroup.PropertyChanged += OnCemuGraphicPackPresetGroupPropertyChanged;
+
+                    CurrentSectionCemuGraphicPackEntries.Add(entry);
+                }
+
+                if (!loadResult.success)
+                {
+                    CemuGraphicPacksStatus = loadResult.errorMessage ?? "Failed to load graphic packs.";
+                }
+                else if (CurrentSectionCemuGraphicPackEntries.Count == 0)
+                {
+                    CemuGraphicPacksStatus = $"No graphic packs found for title ID {titleId}. Download packs to get started.";
+                }
+                else
+                {
+                    CemuGraphicPacksStatus = $"Loaded {CurrentSectionCemuGraphicPackEntries.Count} graphic pack(s) for title ID {titleId}.";
+                }
+            });
+        }
+
+        private static string? BuildCemuGraphicPackSubtitle(CemuGraphicPackEntryModel pack)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(pack.UiPath))
+                parts.Add(pack.UiPath.Trim());
+
+            if (!string.IsNullOrWhiteSpace(pack.Description))
+                parts.Add(pack.Description.Trim());
+
+            return parts.Count == 0 ? pack.RelativeRulesPath : string.Join(" — ", parts);
+        }
+
+        private static string? ResolveWiiUTitleId(MediaItem target)
+        {
+            try
+            {
+                var cachePath = GetLocalMetadataCachePath(target.FileName);
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
+                var fromCache = CemuTitleIdHelper.NormalizeDisplayTitleId(metadata?.WiiUTitleId);
+                if (!string.IsNullOrWhiteSpace(fromCache))
+                    return fromCache;
+            }
+            catch
+            {
+            }
+
+            return CemuTitleIdHelper.NormalizeDisplayTitleId(WiiUInstalledGameHelper.GetTitleId(target.FileName));
+        }
+
+        private static CemuGraphicPackToggle BuildCemuGraphicPackToggle(CemuGraphicPackEntry entry)
+        {
+            var activePresets = entry.PresetGroups
+                .Where(static group => !string.IsNullOrWhiteSpace(group.SelectedPresetName))
+                .ToDictionary(static group => group.Category, static group => group.SelectedPresetName!, StringComparer.OrdinalIgnoreCase);
+
+            return new CemuGraphicPackToggle(
+                entry.EntryKey,
+                entry.RelativeRulesPath,
+                entry.IsEnabled,
+                activePresets);
+        }
+
+        private void OnCemuGraphicPackEntryPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (!string.Equals(e.PropertyName, nameof(CemuGraphicPackEntry.IsEnabled), StringComparison.Ordinal))
+                return;
+
+            IsCurrentSectionCemuGraphicPackDirty = true;
+        }
+
+        private void OnCemuGraphicPackPresetGroupPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (!string.Equals(e.PropertyName, nameof(CemuGraphicPackPresetGroupEntry.SelectedPresetName), StringComparison.Ordinal))
+                return;
+
+            IsCurrentSectionCemuGraphicPackDirty = true;
+        }
+
+        private void DetachCemuGraphicPackEntryListeners()
+        {
+            foreach (var entry in CurrentSectionCemuGraphicPackEntries)
+            {
+                entry.PropertyChanged -= OnCemuGraphicPackEntryPropertyChanged;
+                foreach (var presetGroup in entry.PresetGroups)
+                    presetGroup.PropertyChanged -= OnCemuGraphicPackPresetGroupPropertyChanged;
+            }
+        }
+
+        private MediaItem? ResolveCemuContextMenuTarget(object? parameter) =>
+            ResolveShadPs4ContextMenuTarget(parameter);
 
         private static string? BuildRpcs3PatchSubtitle(Rpcs3PatchDefinition definition)
         {
