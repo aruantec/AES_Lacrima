@@ -659,7 +659,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
         _lastCropWidth = int.MinValue;
         _lastCropHeight = int.MinValue;
         ApplyCropRectCore(settings);
-        WgcBridgeApi.SetCaptureMaxResolution(_session, 4096, 1080);
+        // Cap WGC readback/scaler work if a non-DComp consumer ever requests CPU frames.
+        WgcBridgeApi.SetCaptureMaxResolution(_session, 1920, 1080);
         _lastFrameCount = 0;
         _lastPresentCount = 0;
         _lastFpsSampleUtc = DateTime.UtcNow;
