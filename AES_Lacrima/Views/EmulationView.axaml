@@ -2138,6 +2138,10 @@
                                     ZIndex="2101"
                                     DataContext="{Binding}" />
 
+        <common:ShadPs4PatchesOverlay Grid.RowSpan="3"
+                                      ZIndex="2102"
+                                      DataContext="{Binding}" />
+
         <!-- Search overlay (like music view) -->
         <Grid Background="#E0000000"
               Grid.RowSpan="3"
@@ -2235,153 +2239,5 @@
             </Border>
         </Grid>
 
-        <Grid Background="#E0000000"
-              Grid.RowSpan="3"
-              IsVisible="{Binding IsShadPs4PatchesOverlayOpen}"
-              IsHitTestVisible="{Binding IsShadPs4PatchesOverlayOpen}"
-              Opacity="{Binding IsShadPs4PatchesOverlayOpen, Converter={StaticResource BoolToOpacityConverter}}"
-              ZIndex="2102">
-            <Grid.Transitions>
-                <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut"/>
-                </Transitions>
-            </Grid.Transitions>
-
-            <Border Width="1240"
-                    Height="760"
-                    Padding="24"
-                    Background="#F0202020"
-                    BorderBrush="#55FFFFFF"
-                    BorderThickness="1"
-                    CornerRadius="12"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center">
-                <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="10">
-                    <Grid ColumnDefinitions="*" Margin="0,0,0,4">
-                        <TextBlock Grid.Column="0"
-                                    Text="{Binding ShadPs4PatchOverlayHeader}"
-                                   Foreground="White"
-                                   FontSize="42"
-                                   FontWeight="SemiBold"
-                                   VerticalAlignment="Center" />
-                    </Grid>
-
-                    <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
-                        <TextBlock Grid.Column="0"
-                                   Text="Detected Title ID"
-                                   Foreground="White"
-                                   VerticalAlignment="Center"
-                                   FontSize="24" />
-                        <TextBlock Grid.Column="1"
-                                   Text="{Binding ShadPs4DetectedTitleId, FallbackValue=Unknown, TargetNullValue=Unknown}"
-                                   Foreground="#E0E0E0"
-                                   VerticalAlignment="Center"
-                                   FontSize="24" />
-                        <ComboBox Grid.Column="2"
-                                  MinWidth="160"
-                                  ItemsSource="{Binding ShadPs4PatchRepositories}"
-                                  SelectedItem="{Binding SelectedShadPs4PatchRepository, Mode=TwoWay}"
-                                  VerticalAlignment="Center" />
-                        <Button Grid.Column="3"
-                                Content="Download Patches"
-                                Command="{Binding DownloadCurrentSectionShadPs4PatchesCommand}"
-                                IsEnabled="{Binding !IsShadPs4PatchesBusy}"
-                                Padding="14,8"
-                                VerticalAlignment="Center" />
-                    </Grid>
-
-                    <Border Grid.Row="2"
-                            BorderBrush="#55FFFFFF"
-                            BorderThickness="1"
-                            CornerRadius="8"
-                            Padding="8">
-                        <Grid RowDefinitions="Auto,*" RowSpacing="8">
-                            <Grid ColumnDefinitions="380,*,Auto,Auto,80,160" ColumnSpacing="10">
-                                <TextBlock Grid.Column="0" Text="Name" Foreground="#F0F0F0" FontSize="22" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" Text="Note" Foreground="#F0F0F0" FontSize="22" FontWeight="SemiBold" />
-                                <Button Grid.Column="2"
-                                        Content="Select All"
-                                        Command="{Binding SelectAllCurrentSectionShadPs4PatchesCommand}"
-                                        IsEnabled="{Binding !IsShadPs4PatchesBusy}"
-                                        Padding="12,6" />
-                                <Button Grid.Column="3"
-                                        Content="Unselect All"
-                                        Command="{Binding UnselectAllCurrentSectionShadPs4PatchesCommand}"
-                                        IsEnabled="{Binding !IsShadPs4PatchesBusy}"
-                                        Padding="12,6" />
-                                <TextBlock Grid.Column="4" Text="AppVer" Foreground="#F0F0F0" FontSize="22" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="5" Text="Enabled" Foreground="#F0F0F0" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Right" />
-                            </Grid>
-
-                            <Grid Grid.Row="1" Height="500">
-                                <controls:LoadingControl Width="72"
-                                                         Height="72"
-                                                         Foreground="#FFFFFFFF"
-                                                         HorizontalAlignment="Center"
-                                                         VerticalAlignment="Center"
-                                                         IsVisible="{Binding IsShadPs4PatchesBusy}" />
-
-                                 <ScrollViewer HorizontalScrollBarVisibility="Disabled"
-                                               VerticalScrollBarVisibility="Auto"
-                                               IsVisible="{Binding !IsShadPs4PatchesBusy}">
-                                    <ItemsControl ItemsSource="{Binding CurrentSectionShadPs4PatchEntries}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border Background="#1AFFFFFF" CornerRadius="8" Padding="12" Margin="0,4,0,4">
-                                                    <Grid ColumnDefinitions="380,*,80,160" ColumnSpacing="10">
-                                                    <TextBlock Grid.Column="0"
-                                                                Text="{Binding Name}"
-                                                                Foreground="#E0E0E0"
-                                                                VerticalAlignment="Center"
-                                                                FontSize="20"
-                                                                TextTrimming="CharacterEllipsis"
-                                                                Margin="0,0,8,0"/>
-                                                    <TextBlock Grid.Column="1"
-                                                                Text="{Binding Note}"
-                                                                Foreground="#CCCCCC"
-                                                                VerticalAlignment="Center"
-                                                                FontSize="19"
-                                                                TextWrapping="Wrap"
-                                                                Margin="0,0,4,0"/>
-                                                    <TextBlock Grid.Column="2"
-                                                                Text="{Binding AppVer}"
-                                                                Foreground="#CCCCCC"
-                                                                VerticalAlignment="Center"
-                                                                FontSize="19"
-                                                                TextTrimming="CharacterEllipsis" />
-                                                    <StackPanel Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                                        <ToggleSwitch IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
-                                                    </StackPanel>
-                                                    </Grid>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                 </ScrollViewer>
-                            </Grid>
-                        </Grid>
-                    </Border>
-
-                    <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="0,6,0,0">
-                        <TextBlock Grid.Column="0"
-                                   Text="{Binding ShadPs4PatchesStatus}"
-                                   Foreground="#D0D0D0"
-                                   FontSize="20"
-                                   VerticalAlignment="Center"
-                                   TextWrapping="Wrap" />
-                        <Button Grid.Column="1"
-                                Content="Save"
-                                Command="{Binding SaveCurrentSectionShadPs4PatchesCommand}"
-                                IsEnabled="{Binding !IsShadPs4PatchesBusy}"
-                                Padding="14,8" />
-                        <Button Grid.Column="2"
-                                Content="Cancel"
-                                Command="{Binding CloseCurrentSectionShadPs4PatchesCommand}"
-                                IsEnabled="{Binding !IsShadPs4PatchesBusy}"
-                                Padding="14,8" />
-                    </Grid>
-                </Grid>
-            </Border>
-        </Grid>
     </Grid>
 </UserControl>
