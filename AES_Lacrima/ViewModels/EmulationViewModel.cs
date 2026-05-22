@@ -271,6 +271,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         private bool _isRpcs3PatchesOverlayOpen;
         private bool _isRpcs3PatchesBusy;
         private bool _isCurrentSectionRpcs3PatchDirty;
+        private Rpcs3PatchCatalog _rpcs3ActivePatchCatalog = Rpcs3PatchCatalog.Official;
         private string _rpcs3PatchesStatus = "Select a PlayStation 3 game to manage patches.";
         private string? _rpcs3PatchGameTitle;
         private string? _rpcs3DetectedTitleId;
@@ -3346,8 +3347,21 @@ private bool _isShadPs4PatchesOverlayOpen;
             }
         }
 
+        public bool IsRpcs3CheatsOverlayMode =>
+            _rpcs3ActivePatchCatalog == Rpcs3PatchCatalog.ArtemisCheats;
+
         public string Rpcs3PatchOverlayHeader =>
-            string.IsNullOrWhiteSpace(Rpcs3PatchGameTitle) ? "RPCS3 Patches" : $"{Rpcs3PatchGameTitle} Patches";
+            string.IsNullOrWhiteSpace(Rpcs3PatchGameTitle)
+                ? IsRpcs3CheatsOverlayMode ? "RPCS3 Cheats" : "RPCS3 Patches"
+                : IsRpcs3CheatsOverlayMode
+                    ? $"{Rpcs3PatchGameTitle} Cheats"
+                    : $"{Rpcs3PatchGameTitle} Patches";
+
+        public string Rpcs3PatchesSectionLabel =>
+            IsRpcs3CheatsOverlayMode ? "Cheats" : "Patches";
+
+        public string Rpcs3DownloadPatchesButtonText =>
+            IsRpcs3CheatsOverlayMode ? "Download Artemis Cheats" : "Download Patches";
 
         public string? Rpcs3DetectedTitleId
         {
@@ -4037,6 +4051,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool ShowCurrentSectionRpcs3PatchesMenuItem =>
             ShowCurrentSectionRpcs3UpdateControls && HasActiveAlbumItems;
 
+        public bool ShowCurrentSectionRpcs3CheatsMenuItem =>
+            ShowCurrentSectionRpcs3PatchesMenuItem;
+
         public bool ShowCurrentSectionCemuGraphicPacksMenuItem =>
             ShowCurrentSectionCemuSection && HasActiveAlbumItems;
 
@@ -4190,6 +4207,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaCustomConfigMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3CustomConfigMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3PatchesMenuItem));
+            OnPropertyChanged(nameof(ShowCurrentSectionRpcs3CheatsMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionCemuGraphicPacksMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionDolphinUpdateControls));
@@ -6663,18 +6681,40 @@ private bool _isShadPs4PatchesOverlayOpen;
         // --- RPCS3 Patches ---
 
         [RelayCommand]
+        private async Task OpenCurrentSectionRpcs3Cheats(object? parameter)
+        {
+            if (!ShowCurrentSectionRpcs3CheatsMenuItem)
+                return;
+
+            await OpenCurrentSectionRpcs3PatchesCore(parameter, Rpcs3PatchCatalog.ArtemisCheats).ConfigureAwait(false);
+        }
+
+        [RelayCommand]
         private async Task OpenCurrentSectionRpcs3Patches(object? parameter)
         {
             if (!ShowCurrentSectionRpcs3PatchesMenuItem)
                 return;
 
+            await OpenCurrentSectionRpcs3PatchesCore(parameter, Rpcs3PatchCatalog.Official).ConfigureAwait(false);
+        }
+
+        private async Task OpenCurrentSectionRpcs3PatchesCore(object? parameter, Rpcs3PatchCatalog catalog)
+        {
             var target = ResolveRpcs3ContextMenuTarget(parameter);
             if (target == null || string.IsNullOrWhiteSpace(target.FileName))
                 return;
 
+            _rpcs3ActivePatchCatalog = catalog;
+            OnPropertyChanged(nameof(IsRpcs3CheatsOverlayMode));
+            OnPropertyChanged(nameof(Rpcs3PatchOverlayHeader));
+            OnPropertyChanged(nameof(Rpcs3PatchesSectionLabel));
+            OnPropertyChanged(nameof(Rpcs3DownloadPatchesButtonText));
+
             IsRpcs3PatchesOverlayOpen = true;
             IsRpcs3PatchesBusy = true;
-            Rpcs3PatchesStatus = "Detecting PS3 Title ID and loading patches...";
+            Rpcs3PatchesStatus = catalog == Rpcs3PatchCatalog.ArtemisCheats
+                ? "Detecting PS3 Title ID and loading Artemis cheats..."
+                : "Detecting PS3 Title ID and loading patches...";
             Rpcs3DetectedTitleId = null;
             Rpcs3DetectedAppVersion = null;
             Rpcs3PatchGameTitle = target.Title;
@@ -6707,7 +6747,30 @@ private bool _isShadPs4PatchesOverlayOpen;
                     return;
                 }
 
-                await LoadCurrentSectionRpcs3PatchesAsync(emulatorDirectory, titleId).ConfigureAwait(false);
+                await LoadCurrentSectionRpcs3PatchesAsync(emulatorDirectory, titleId, catalog, appVersion)
+                    .ConfigureAwait(false);
+
+                if (catalog == Rpcs3PatchCatalog.ArtemisCheats &&
+                    CurrentSectionRpcs3PatchEntries.Count == 0 &&
+                    !string.IsNullOrWhiteSpace(emulatorDirectory))
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        Rpcs3PatchesStatus = "Downloading Artemis cheats for this game...";
+                    });
+
+                    var downloadResult = await Rpcs3ArtemisCheatsDownloadService
+                        .DownloadForTitleIdAsync(emulatorDirectory, titleId)
+                        .ConfigureAwait(false);
+
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        Rpcs3PatchesStatus = downloadResult.Message;
+                    });
+
+                    if (downloadResult.Success)
+                        await LoadCurrentSectionRpcs3PatchesAsync(emulatorDirectory, titleId, catalog).ConfigureAwait(false);
+                }
             }
             finally
             {
@@ -6732,22 +6795,59 @@ private bool _isShadPs4PatchesOverlayOpen;
             }
 
             IsRpcs3PatchesBusy = true;
-            Rpcs3PatchesStatus = "Downloading latest RPCS3 patches...";
+            Rpcs3PatchesStatus = IsRpcs3CheatsOverlayMode
+                ? "Downloading Artemis cheats..."
+                : "Downloading latest RPCS3 patches...";
 
             try
             {
-                var result = await Rpcs3PatchesDownloadService.DownloadLatestAsync(emulatorDirectory).ConfigureAwait(true);
-                Rpcs3PatchesStatus = result.Message;
+                if (IsRpcs3CheatsOverlayMode)
+                {
+                    if (string.IsNullOrWhiteSpace(Rpcs3DetectedTitleId))
+                    {
+                        Rpcs3PatchesStatus = "Unable to detect PS3 Title ID for the selected game.";
+                        return;
+                    }
 
-                if (!result.Success)
-                    return;
+                    var artemisResult = await Rpcs3ArtemisCheatsDownloadService
+                        .DownloadForTitleIdAsync(emulatorDirectory, Rpcs3DetectedTitleId)
+                        .ConfigureAwait(true);
+                    Rpcs3PatchesStatus = artemisResult.Message;
 
-                if (!string.IsNullOrWhiteSpace(Rpcs3DetectedTitleId))
-                    await LoadCurrentSectionRpcs3PatchesAsync(emulatorDirectory, Rpcs3DetectedTitleId).ConfigureAwait(true);
+                    if (!artemisResult.Success)
+                        return;
+
+                    if (!string.IsNullOrWhiteSpace(Rpcs3DetectedTitleId))
+                    {
+                        await LoadCurrentSectionRpcs3PatchesAsync(
+                            emulatorDirectory,
+                            Rpcs3DetectedTitleId,
+                            _rpcs3ActivePatchCatalog).ConfigureAwait(true);
+                    }
+                }
+                else
+                {
+                    var result = await Rpcs3PatchesDownloadService.DownloadLatestAsync(emulatorDirectory)
+                        .ConfigureAwait(true);
+                    Rpcs3PatchesStatus = result.Message;
+
+                    if (!result.Success)
+                        return;
+
+                    if (!string.IsNullOrWhiteSpace(Rpcs3DetectedTitleId))
+                    {
+                        await LoadCurrentSectionRpcs3PatchesAsync(
+                            emulatorDirectory,
+                            Rpcs3DetectedTitleId,
+                            _rpcs3ActivePatchCatalog).ConfigureAwait(true);
+                    }
+                }
             }
             catch (Exception ex)
             {
-                Rpcs3PatchesStatus = $"Failed to download patches: {ex.Message}";
+                Rpcs3PatchesStatus = IsRpcs3CheatsOverlayMode
+                    ? $"Failed to download Artemis cheats: {ex.Message}"
+                    : $"Failed to download patches: {ex.Message}";
             }
             finally
             {
@@ -6770,7 +6870,9 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             if (CurrentSectionRpcs3PatchEntries.Count == 0)
             {
-                Rpcs3PatchesStatus = "No patches loaded to save.";
+                Rpcs3PatchesStatus = IsRpcs3CheatsOverlayMode
+                    ? "No cheats loaded to save."
+                    : "No patches loaded to save.";
                 return false;
             }
 
@@ -6800,12 +6902,16 @@ private bool _isShadPs4PatchesOverlayOpen;
 
                 await Task.Run(() => Rpcs3PatchesService.SaveEnabledStates(emulatorDirectory, toggles)).ConfigureAwait(false);
                 IsCurrentSectionRpcs3PatchDirty = false;
-                Rpcs3PatchesStatus = "Patch settings saved.";
+                Rpcs3PatchesStatus = IsRpcs3CheatsOverlayMode
+                    ? "Cheat settings saved."
+                    : "Patch settings saved.";
                 return true;
             }
             catch (Exception ex)
             {
-                Rpcs3PatchesStatus = $"Failed to save patches: {ex.Message}";
+                Rpcs3PatchesStatus = IsRpcs3CheatsOverlayMode
+                    ? $"Failed to save cheats: {ex.Message}"
+                    : $"Failed to save patches: {ex.Message}";
                 return false;
             }
             finally
@@ -6824,7 +6930,11 @@ private bool _isShadPs4PatchesOverlayOpen;
                 entry.IsEnabled = true;
 
             if (CurrentSectionRpcs3PatchEntries.Count > 0)
-                Rpcs3PatchesStatus = $"Enabled {CurrentSectionRpcs3PatchEntries.Count} patch(es).";
+            {
+                Rpcs3PatchesStatus = IsRpcs3CheatsOverlayMode
+                    ? $"Enabled {CurrentSectionRpcs3PatchEntries.Count} cheat(s)."
+                    : $"Enabled {CurrentSectionRpcs3PatchEntries.Count} patch(es).";
+            }
         }
 
         [RelayCommand]
@@ -6837,7 +6947,11 @@ private bool _isShadPs4PatchesOverlayOpen;
                 entry.IsEnabled = false;
 
             if (CurrentSectionRpcs3PatchEntries.Count > 0)
-                Rpcs3PatchesStatus = $"Disabled {CurrentSectionRpcs3PatchEntries.Count} patch(es).";
+            {
+                Rpcs3PatchesStatus = IsRpcs3CheatsOverlayMode
+                    ? $"Disabled {CurrentSectionRpcs3PatchEntries.Count} cheat(s)."
+                    : $"Disabled {CurrentSectionRpcs3PatchEntries.Count} patch(es).";
+            }
         }
 
         [RelayCommand]
@@ -6849,16 +6963,24 @@ private bool _isShadPs4PatchesOverlayOpen;
             IsCurrentSectionRpcs3PatchDirty = false;
         }
 
-        private async Task LoadCurrentSectionRpcs3PatchesAsync(string? emulatorDirectory, string titleId)
+        private async Task LoadCurrentSectionRpcs3PatchesAsync(
+            string? emulatorDirectory,
+            string titleId,
+            Rpcs3PatchCatalog? catalog = null,
+            string? appVersion = null)
         {
-            var patchPath = Rpcs3PatchesService.GetPatchYmlPath(emulatorDirectory);
+            var activeCatalog = catalog ?? _rpcs3ActivePatchCatalog;
+            var patchPath = Rpcs3PatchesService.GetPatchYmlPath(emulatorDirectory, activeCatalog);
+            var entryLabel = activeCatalog == Rpcs3PatchCatalog.ArtemisCheats ? "cheat" : "patch";
+            var resolvedAppVersion = appVersion ?? Rpcs3DetectedAppVersion;
 
             var loadResult = await Task.Run(() =>
             {
                 var success = Rpcs3PatchesService.TryGetPatchesForTitleId(
                     emulatorDirectory,
                     titleId,
-                    appVersion: null,
+                    resolvedAppVersion,
+                    activeCatalog,
                     out var definitions,
                     out var errorMessage);
                 return (success, definitions, errorMessage);
@@ -6895,15 +7017,22 @@ private bool _isShadPs4PatchesOverlayOpen;
 
                 if (!loadResult.success)
                 {
-                    Rpcs3PatchesStatus = loadResult.errorMessage ?? "Failed to load patches.";
+                    Rpcs3PatchesStatus = loadResult.errorMessage ??
+                                         (activeCatalog == Rpcs3PatchCatalog.ArtemisCheats
+                                             ? "Failed to load Artemis cheats."
+                                             : "Failed to load patches.");
                 }
-                else if (!Rpcs3PatchesService.PatchFileExists(emulatorDirectory))
+                else if (!Rpcs3PatchesService.PatchFileExists(emulatorDirectory, activeCatalog))
                 {
-                    Rpcs3PatchesStatus = "No patch.yml found. Download patches to get started.";
+                    Rpcs3PatchesStatus = activeCatalog == Rpcs3PatchCatalog.ArtemisCheats
+                        ? "No artemis_cheats.yml found. Download Artemis cheats to get started."
+                        : "No patch.yml found. Download patches to get started.";
                 }
                 else if (CurrentSectionRpcs3PatchEntries.Count == 0)
                 {
-                    Rpcs3PatchesStatus = $"No patches found for title ID {titleId} in '{patchPath}'.";
+                    Rpcs3PatchesStatus = activeCatalog == Rpcs3PatchCatalog.ArtemisCheats
+                        ? $"No Artemis cheats found for title ID {titleId} in '{patchPath}'. Download cheats for this game."
+                        : $"No patches found for title ID {titleId} in '{patchPath}'.";
                 }
                 else
                 {
@@ -6912,8 +7041,8 @@ private bool _isShadPs4PatchesOverlayOpen;
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .Count();
                     Rpcs3PatchesStatus = gameCount > 1
-                        ? $"Loaded {CurrentSectionRpcs3PatchEntries.Count} patch(es) for title ID {titleId} across {gameCount} game entries."
-                        : $"Loaded {CurrentSectionRpcs3PatchEntries.Count} patch(es) for title ID {titleId}.";
+                        ? $"Loaded {CurrentSectionRpcs3PatchEntries.Count} {entryLabel}(es) for title ID {titleId} across {gameCount} game entries."
+                        : $"Loaded {CurrentSectionRpcs3PatchEntries.Count} {entryLabel}(es) for title ID {titleId}.";
                 }
             });
         }
