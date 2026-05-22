@@ -9,6 +9,11 @@ using AES_Code.Models;
 namespace AES_Controls.Helpers;
 
 /// <summary>
+/// Editor/cache image entry used when serializing metadata artwork.
+/// </summary>
+public readonly record struct MetadataImageEntry(TagImageKind Kind, byte[] Data, string MimeType);
+
+/// <summary>
 /// Represents a container for media metadata and associated binary resources (images, videos).
 /// </summary>
 public class CustomMetadata
@@ -189,6 +194,128 @@ public static class BinaryMetadataHelper
         using var sha = SHA1.Create();
         var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(path));
         return BitConverter.ToString(hash).Replace("-", "").ToLower();
+    }
+
+    /// <summary>
+    /// Writes editor images to <see cref="CustomMetadata"/> without duplicating live wallpapers in both lists.
+    /// </summary>
+    public static void WriteMetadataImages(CustomMetadata metadata, IEnumerable<MetadataImageEntry> entries)
+    {
+        metadata.Images = [];
+        metadata.Videos = [];
+
+        foreach (var entry in DeduplicateMetadataImageEntries(entries))
+        {
+            if (entry.Data is not { Length: > 0 })
+                continue;
+
+            var data = entry.Data.ToArray();
+            var mimeType = string.IsNullOrWhiteSpace(entry.MimeType)
+                ? (entry.Kind == TagImageKind.LiveWallpaper ? "video/mp4" : "image/png")
+                : entry.MimeType;
+
+            if (entry.Kind == TagImageKind.LiveWallpaper)
+            {
+                metadata.Videos.Add(new VideoData
+                {
+                    Kind = entry.Kind,
+                    Data = data,
+                    MimeType = mimeType
+                });
+            }
+            else
+            {
+                metadata.Images.Add(new ImageData
+                {
+                    Kind = entry.Kind,
+                    Data = data,
+                    MimeType = mimeType
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reads artwork from cache metadata, deduplicating legacy rows stored in both <see cref="CustomMetadata.Images"/> and <see cref="CustomMetadata.Videos"/>.
+    /// Identical image bytes stored under multiple kinds (for example Cover and BoxArt) are collapsed to a single entry.
+    /// </summary>
+    public static List<MetadataImageEntry> ReadMetadataImages(CustomMetadata metadata)
+    {
+        var candidates = new List<MetadataImageEntry>();
+
+        foreach (var image in metadata.Images ?? [])
+        {
+            if (image.Kind == TagImageKind.LiveWallpaper)
+                continue;
+
+            if (image.Data is not { Length: > 0 })
+                continue;
+
+            candidates.Add(new MetadataImageEntry(
+                image.Kind,
+                image.Data.ToArray(),
+                string.IsNullOrWhiteSpace(image.MimeType) ? "image/png" : image.MimeType));
+        }
+
+        foreach (var video in metadata.Videos ?? [])
+        {
+            if (video.Data is not { Length: > 0 })
+                continue;
+
+            candidates.Add(new MetadataImageEntry(
+                video.Kind,
+                video.Data.ToArray(),
+                string.IsNullOrWhiteSpace(video.MimeType) ? "video/mp4" : video.MimeType));
+        }
+
+        return DeduplicateMetadataImageEntries(candidates);
+    }
+
+    /// <summary>
+    /// Removes duplicate image payloads while preserving the most specific tag kind for each unique bitmap.
+    /// </summary>
+    public static List<MetadataImageEntry> DeduplicateMetadataImageEntries(IEnumerable<MetadataImageEntry> entries)
+    {
+        var bestByContent = new Dictionary<string, MetadataImageEntry>(StringComparer.Ordinal);
+
+        foreach (var entry in entries)
+        {
+            if (entry.Data is not { Length: > 0 })
+                continue;
+
+            var fingerprint = ComputeImageContentFingerprint(entry.Data);
+            if (!bestByContent.TryGetValue(fingerprint, out var existing)
+                || CompareMetadataImageKindPriority(entry.Kind, existing.Kind) > 0)
+            {
+                bestByContent[fingerprint] = new MetadataImageEntry(entry.Kind, entry.Data.ToArray(), entry.MimeType);
+            }
+        }
+
+        return bestByContent.Values
+            .OrderByDescending(entry => CompareMetadataImageKindPriority(entry.Kind, TagImageKind.Cover))
+            .ThenBy(entry => entry.Kind)
+            .ToList();
+    }
+
+    private static int CompareMetadataImageKindPriority(TagImageKind candidate, TagImageKind baseline)
+        => GetMetadataImageKindPriority(candidate) - GetMetadataImageKindPriority(baseline);
+
+    private static int GetMetadataImageKindPriority(TagImageKind kind) => kind switch
+    {
+        TagImageKind.Gameplay => 7,
+        TagImageKind.BoxArt => 6,
+        TagImageKind.Other => 5,
+        TagImageKind.Artist => 4,
+        TagImageKind.LiveWallpaper => 3,
+        TagImageKind.Wallpaper => 2,
+        TagImageKind.BackCover => 1,
+        _ => 0
+    };
+
+    private static string ComputeImageContentFingerprint(byte[] data)
+    {
+        var hash = SHA256.HashData(data);
+        return Convert.ToHexString(hash);
     }
 
     private static void TryDeleteTempFile(string tempPath)

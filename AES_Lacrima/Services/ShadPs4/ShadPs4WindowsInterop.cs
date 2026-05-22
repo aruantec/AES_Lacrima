@@ -1,9 +1,11 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Threading;
 
 namespace AES_Lacrima.Services.ShadPs4;
 
+[SupportedOSPlatform("windows")]
 internal static class ShadPs4WindowsInterop
 {
     private const uint CoinitApartmentThreaded = 0x2;

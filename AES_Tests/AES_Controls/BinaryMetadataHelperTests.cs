@@ -56,6 +56,68 @@ public sealed class BinaryMetadataHelperTests : IDisposable
     }
 
     [Fact]
+    public void ReadMetadataImages_DeduplicatesLegacyLiveWallpaperStoredInBothLists()
+    {
+        var sharedBytes = new byte[] { 9, 8, 7, 6 };
+        var metadata = new CustomMetadata
+        {
+            Images =
+            [
+                new ImageData { Kind = TagImageKind.Cover, MimeType = "image/png", Data = [1, 2, 3] },
+                new ImageData { Kind = TagImageKind.LiveWallpaper, MimeType = "video/mp4", Data = sharedBytes }
+            ],
+            Videos =
+            [
+                new VideoData { Kind = TagImageKind.LiveWallpaper, MimeType = "video/mp4", Data = sharedBytes }
+            ]
+        };
+
+        var loaded = BinaryMetadataHelper.ReadMetadataImages(metadata);
+
+        Assert.Equal(2, loaded.Count);
+        Assert.Equal(TagImageKind.Cover, loaded[0].Kind);
+        Assert.Equal(TagImageKind.LiveWallpaper, loaded[1].Kind);
+    }
+
+    [Fact]
+    public void ReadMetadataImages_CollapsesDuplicateBytesAcrossKindsPreferringBoxArt()
+    {
+        var sharedBytes = new byte[] { 4, 5, 6, 7 };
+        var metadata = new CustomMetadata
+        {
+            Images =
+            [
+                new ImageData { Kind = TagImageKind.Cover, MimeType = "image/png", Data = sharedBytes },
+                new ImageData { Kind = TagImageKind.BoxArt, MimeType = "image/png", Data = sharedBytes },
+                new ImageData { Kind = TagImageKind.Cover, MimeType = "image/png", Data = sharedBytes },
+                new ImageData { Kind = TagImageKind.BoxArt, MimeType = "image/png", Data = sharedBytes }
+            ]
+        };
+
+        var loaded = BinaryMetadataHelper.ReadMetadataImages(metadata);
+
+        Assert.Single(loaded);
+        Assert.Equal(TagImageKind.BoxArt, loaded[0].Kind);
+    }
+
+    [Fact]
+    public void WriteMetadataImages_StoresLiveWallpaperOnlyInVideos()
+    {
+        var metadata = new CustomMetadata();
+        BinaryMetadataHelper.WriteMetadataImages(metadata,
+        [
+            new MetadataImageEntry(TagImageKind.Cover, [1, 2], "image/png"),
+            new MetadataImageEntry(TagImageKind.Other, [3, 4], "image/jpeg"),
+            new MetadataImageEntry(TagImageKind.LiveWallpaper, [5, 6], "video/mp4")
+        ]);
+
+        Assert.Equal(2, metadata.Images.Count);
+        Assert.Single(metadata.Videos);
+        Assert.DoesNotContain(metadata.Images, image => image.Kind == TagImageKind.LiveWallpaper);
+        Assert.Equal(TagImageKind.LiveWallpaper, metadata.Videos[0].Kind);
+    }
+
+    [Fact]
     public void GetCacheId_ReturnsStableHashAndUnknownForEmptyInput()
     {
         var first = BinaryMetadataHelper.GetCacheId("/music/track.mp3");

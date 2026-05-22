@@ -2,12 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using AES_Core.Logging;
 using log4net;
 using Vortice.DXGI;
 
 namespace AES_Lacrima.Services.ShadPs4;
 
+[SupportedOSPlatform("windows")]
 public static class ShadPs4HardwareEnumeration
 {
     private static readonly ILog Log = LogHelper.For(typeof(ShadPs4HardwareEnumeration));

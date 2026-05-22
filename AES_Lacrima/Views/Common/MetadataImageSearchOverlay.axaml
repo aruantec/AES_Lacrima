@@ -1,0 +1,119 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:services="using:AES_Lacrima.Services"
+             xmlns:controls="using:AES_Controls"
+             xmlns:asyncImageLoader="clr-namespace:AsyncImageLoader;assembly=AsyncImageLoader.Avalonia"
+             x:Class="AES_Lacrima.MetadataImageSearchOverlay"
+             x:Name="ImageSearchOverlayRoot"
+             x:DataType="services:MetadataService"
+             IsHitTestVisible="{Binding IsImageSearchOverlayOpen}"
+             IsVisible="{Binding IsImageSearchOverlayOpen}"
+             Opacity="{Binding IsImageSearchOverlayOpen, Converter={StaticResource BoolToOpacityConverter}}">
+
+    <UserControl.Transitions>
+        <Transitions>
+            <DoubleTransition Property="Opacity" Duration="0:0:0.32" />
+        </Transitions>
+    </UserControl.Transitions>
+
+    <Grid Background="#E6000000">
+        <Grid RowDefinitions="Auto,*,Auto" Margin="24,16,24,20">
+            <StackPanel Grid.Row="0" Spacing="4" Margin="6,0,0,12">
+                <TextBlock Text="{Binding ImageSearchOverlayHeader}"
+                           FontSize="42"
+                           FontWeight="SemiBold"
+                           Foreground="White" />
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <TextBlock Text="Query" Foreground="#D8D8D8" FontSize="20" />
+                    <TextBlock Text="{Binding ImageSearchQuery, FallbackValue=Unknown, TargetNullValue=Unknown}"
+                               Foreground="White"
+                               FontSize="20"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="Results" Foreground="#D8D8D8" FontSize="20" />
+                    <TextBlock Text="{Binding ImageSearchResults.Count}"
+                               Foreground="White"
+                               FontSize="20" />
+                    <TextBlock Text="/ 24" Foreground="#D8D8D8" FontSize="20" />
+                </StackPanel>
+            </StackPanel>
+
+            <Border Grid.Row="1"
+                    Background="#1AFFFFFF"
+                    BorderBrush="#3FFFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="12">
+                <Grid>
+                    <controls:LoadingControl Width="72"
+                                             Height="72"
+                                             Foreground="#FFFFFFFF"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             IsVisible="{Binding IsImageSearchLoading}" />
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                  IsVisible="{Binding !IsImageSearchLoading}">
+                        <ItemsControl ItemsSource="{Binding ImageSearchResults}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="services:WebImageSearchResult">
+                                    <Button Margin="0,0,8,8"
+                                            Padding="0"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Command="{Binding $parent[ItemsControl].((services:MetadataService)DataContext).SelectSearchImageCommand}"
+                                            CommandParameter="{Binding}">
+                                        <Border Background="#14000000"
+                                                BorderBrush="#33FFFFFF"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Width="200"
+                                                Padding="8">
+                                            <StackPanel Spacing="6">
+                                                <Border CornerRadius="6"
+                                                        ClipToBounds="True"
+                                                        Height="150">
+                                                    <Image Stretch="UniformToFill"
+                                                           asyncImageLoader:ImageLoader.Source="{Binding ThumbnailUrl}" />
+                                                </Border>
+                                                <TextBlock Text="{Binding Title}"
+                                                           Foreground="White"
+                                                           FontSize="15"
+                                                           FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           MaxLines="2"
+                                                           TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding Artist}"
+                                                           Foreground="#B0B0B0"
+                                                           FontSize="13"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           IsVisible="{Binding Artist, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="6,12,0,0">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding ImageSearchStatus}"
+                           Foreground="#D8D8D8"
+                           FontSize="18"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center" />
+                <Button Grid.Column="1"
+                        Content="Close"
+                        Command="{Binding CloseImageSearchOverlayCommand}"
+                        Padding="14,8" />
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

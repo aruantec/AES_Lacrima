@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
 using Microsoft.Win32;
 
 namespace AES_Lacrima.Services.ShadPs4;
 
+[SupportedOSPlatform("windows")]
 internal static class ShadPs4WinMmAudioEnumeration
 {
     private const uint MmsyserrNoerror = 0;
