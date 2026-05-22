@@ -69,6 +69,7 @@
     <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
     <PackageReference Include="System.Management" Version="9.0.0" />
     <PackageReference Include="Tomlyn" Version="0.19.0" />
+    <PackageReference Include="YamlDotNet" Version="16.3.0" />
     <PackageReference Include="Vortice.DXGI" Version="3.6.2" />
     <PackageReference Include="HotAvalonia" Version="3.*" PrivateAssets="All" Publish="True" Condition="'$(PublishAot)' != 'true'" />
   </ItemGroup>

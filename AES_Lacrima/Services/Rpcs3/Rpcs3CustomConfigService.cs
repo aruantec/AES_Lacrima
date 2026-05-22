@@ -93,6 +93,44 @@ public static class Rpcs3CustomConfigService
     public static bool HasCustomConfig(string? emulatorDirectory, string titleId) =>
         File.Exists(GetAesCustomConfigPath(emulatorDirectory, titleId));
 
+    public static IReadOnlyDictionary<string, string?> ReadMergedValues(string? emulatorDirectory, string titleId)
+    {
+        EnsureDefaultTemplate(emulatorDirectory);
+        var normalizedTitleId = NormalizeTitleId(titleId);
+        var configPath = GetAesCustomConfigPath(emulatorDirectory, normalizedTitleId);
+        if (!File.Exists(configPath))
+        {
+            var templatePath = GetDefaultTemplatePath(emulatorDirectory);
+            return Rpcs3YamlConfigHelper.ReadFlatValues(templatePath);
+        }
+
+        return Rpcs3YamlConfigHelper.ReadFlatValues(configPath);
+    }
+
+    public static IReadOnlyDictionary<string, string?> ReadTemplateValues(string? emulatorDirectory)
+    {
+        EnsureDefaultTemplate(emulatorDirectory);
+        return Rpcs3YamlConfigHelper.ReadFlatValues(GetDefaultTemplatePath(emulatorDirectory));
+    }
+
+    public static void SaveValues(string? emulatorDirectory, string titleId, IReadOnlyDictionary<string, string?> values)
+    {
+        if (string.IsNullOrWhiteSpace(emulatorDirectory))
+            throw new InvalidOperationException("Emulator directory is required.");
+
+        var normalizedTitleId = NormalizeTitleId(titleId);
+        Directory.CreateDirectory(GetAesCustomConfigsDirectory(emulatorDirectory));
+        EnsureDefaultTemplate(emulatorDirectory);
+
+        var configPath = GetAesCustomConfigPath(emulatorDirectory, normalizedTitleId);
+        var sourcePath = File.Exists(configPath)
+            ? configPath
+            : GetDefaultTemplatePath(emulatorDirectory);
+
+        Rpcs3YamlConfigHelper.ApplyFlatValues(sourcePath, values, configPath);
+        Log.Info($"Saved RPCS3 custom config for {normalizedTitleId} to '{configPath}'.");
+    }
+
     public static string NormalizeTitleId(string? titleId) =>
         string.IsNullOrWhiteSpace(titleId) ? string.Empty : titleId.Trim().ToUpperInvariant();
 

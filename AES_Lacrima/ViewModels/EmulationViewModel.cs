@@ -802,6 +802,8 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         public XeniaCustomConfigEditorViewModel XeniaCustomConfigEditor { get; } = new();
 
+        public Rpcs3CustomConfigEditorViewModel Rpcs3CustomConfigEditor { get; } = new();
+
         public EmulationViewModel()
         {
             AlbumList.CollectionChanged += AlbumList_CollectionChanged;
@@ -3753,6 +3755,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool ShowCurrentSectionXeniaCustomConfigMenuItem =>
             ShowCurrentSectionXeniaUpdateControls && HasActiveAlbumItems;
 
+        public bool ShowCurrentSectionRpcs3CustomConfigMenuItem =>
+            ShowCurrentSectionRpcs3UpdateControls && HasActiveAlbumItems;
+
         public bool IsCurrentSectionHandlerUpdateAvailable =>
             (ShowCurrentSectionRetroArchUpdateControls && IsCurrentSectionRetroArchUpdateAvailable) ||
             (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable) ||
@@ -3901,6 +3906,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaPatchesMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaCustomConfigMenuItem));
+            OnPropertyChanged(nameof(ShowCurrentSectionRpcs3CustomConfigMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionDolphinUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionFlycastUpdateControls));
@@ -4387,6 +4393,9 @@ private bool _isShadPs4PatchesOverlayOpen;
                 ShadPs4CustomConfigEditor.Reset();
                 ShadPs4CheatsEditor.ClearSession();
             }
+
+            if (!ShowCurrentSectionRpcs3UpdateControls)
+                Rpcs3CustomConfigEditor.Reset();
         }
 
         private async Task RefreshCurrentSectionRetroArchInfo()
@@ -6326,7 +6335,30 @@ private bool _isShadPs4PatchesOverlayOpen;
                 target.Title).ConfigureAwait(true);
         }
 
+        [RelayCommand]
+        private async Task OpenCurrentSectionRpcs3CustomConfig(object? parameter)
+        {
+            if (!ShowCurrentSectionRpcs3CustomConfigMenuItem)
+                return;
+
+            var target = ResolveRpcs3ContextMenuTarget(parameter);
+            if (target == null || string.IsNullOrWhiteSpace(target.FileName))
+                return;
+
+            var emulatorDirectory = !string.IsNullOrWhiteSpace(CurrentSectionRpcs3EmulatorPath)
+                ? CurrentSectionRpcs3EmulatorPath
+                : Rpcs3CustomConfigService.ResolveEmulatorDirectory(CurrentEmulatorHandler?.LauncherPath);
+
+            await Rpcs3CustomConfigEditor.LoadAsync(
+                emulatorDirectory,
+                target.FileName,
+                target.Title).ConfigureAwait(true);
+        }
+
         private MediaItem? ResolveXeniaContextMenuTarget(object? parameter) =>
+            ResolveShadPs4ContextMenuTarget(parameter);
+
+        private MediaItem? ResolveRpcs3ContextMenuTarget(object? parameter) =>
             ResolveShadPs4ContextMenuTarget(parameter);
 
         private MediaItem? ResolveShadPs4ContextMenuTarget(object? parameter)
