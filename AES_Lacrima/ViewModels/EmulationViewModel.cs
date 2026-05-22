@@ -10,6 +10,7 @@ using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
 using AES_Lacrima.Services.Emulation;
+using AES_Lacrima.Services.Rpcs3;
 using AES_Lacrima.Services.ShadPs4;
 using AES_Lacrima.Services.Xenia;
 using Avalonia;
@@ -226,6 +227,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         private string? _currentSetupLaunchIconExecutablePath;
         private Bitmap? _currentSetupLaunchIcon;
         private PendingEmulatorLaunchRequest? _pendingEmulatorLaunchRequest;
+        private string? _activeRpcs3SessionTitleId;
+        private string? _activeRpcs3SessionEmulatorDirectory;
         private bool _isClosingActiveEmulatorForRelaunch;
         private bool _appTopmostOverride;
         private bool _appWasTopmostBeforeEmulatorLaunch;
@@ -8459,7 +8462,21 @@ private bool _isShadPs4PatchesOverlayOpen;
                     ? Ps3InstalledGameHelper.GetTitleId(request.RomPath)
                     : null;
                 if (!string.IsNullOrWhiteSpace(rpcs3TitleId))
+                {
                     SLog.Info($"EmulationViewModel resolved RPCS3 title id '{rpcs3TitleId}' for '{request.RomPath}'.");
+                    var rpcs3Directory = !string.IsNullOrWhiteSpace(CurrentSectionRpcs3EmulatorPath)
+                        ? CurrentSectionRpcs3EmulatorPath
+                        : Rpcs3CustomConfigService.ResolveEmulatorDirectory(handler.LauncherPath);
+                    await Task.Run(() => Rpcs3CustomConfigService.PrepareConfigForLaunch(rpcs3Directory, rpcs3TitleId))
+                        .ConfigureAwait(false);
+                    _activeRpcs3SessionTitleId = Rpcs3CustomConfigService.NormalizeTitleId(rpcs3TitleId);
+                    _activeRpcs3SessionEmulatorDirectory = rpcs3Directory;
+                }
+                else
+                {
+                    _activeRpcs3SessionTitleId = null;
+                    _activeRpcs3SessionEmulatorDirectory = null;
+                }
 
                 EnsureAppTopMostBeforeLaunch();
 
@@ -9023,6 +9040,18 @@ private bool _isShadPs4PatchesOverlayOpen;
 
                 return;
             }
+
+            if (string.Equals(currentHandler?.HandlerId, Rpcs3Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(_activeRpcs3SessionTitleId) &&
+                !string.IsNullOrWhiteSpace(_activeRpcs3SessionEmulatorDirectory))
+            {
+                var rpcs3TitleId = _activeRpcs3SessionTitleId;
+                var rpcs3Directory = _activeRpcs3SessionEmulatorDirectory;
+                _ = Task.Run(() => Rpcs3CustomConfigService.ImportFromRpcs3AfterSession(rpcs3Directory, rpcs3TitleId));
+            }
+
+            _activeRpcs3SessionTitleId = null;
+            _activeRpcs3SessionEmulatorDirectory = null;
 
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
