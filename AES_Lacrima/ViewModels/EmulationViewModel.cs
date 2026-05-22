@@ -170,6 +170,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         private bool _isShadPs4PatchesBusy;
         private bool _isCurrentSectionShadPs4PatchDirty;
         private bool _isSwitchingCurrentSectionShadPs4PatchFile;
+        private bool _isShadPs4PatchSwitchPromptVisible;
+        private ShadPs4PatchFileItem? _selectedCurrentSectionShadPs4PatchFileItem;
+        private string? _pendingCurrentSectionShadPs4PatchFile;
 #pragma warning restore CS0649
         private string? _activeShadPs4PatchDocumentPath;
         private string? _activeShadPs4PatchDocumentText;
@@ -3093,6 +3096,41 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         public AvaloniaList<ShadPs4PatchFileItem> CurrentSectionShadPs4PatchFiles => _currentSectionShadPs4PatchFiles;
 
+        public bool IsShadPs4PatchSwitchPromptVisible
+        {
+            get => _isShadPs4PatchSwitchPromptVisible;
+            private set
+            {
+                if (_isShadPs4PatchSwitchPromptVisible == value)
+                    return;
+
+                _isShadPs4PatchSwitchPromptVisible = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public ShadPs4PatchFileItem? SelectedCurrentSectionShadPs4PatchFileItem
+        {
+            get => _selectedCurrentSectionShadPs4PatchFileItem;
+            set
+            {
+                if (ReferenceEquals(_selectedCurrentSectionShadPs4PatchFileItem, value))
+                    return;
+
+                SelectedCurrentSectionShadPs4PatchFile = value?.FilePath;
+
+                if (!IsShadPs4PatchSwitchPromptVisible)
+                {
+                    _selectedCurrentSectionShadPs4PatchFileItem = value;
+                    OnPropertyChanged();
+                }
+                else
+                {
+                    OnPropertyChanged(nameof(SelectedCurrentSectionShadPs4PatchFileItem));
+                }
+            }
+        }
+
         public string? SelectedCurrentSectionShadPs4PatchFile
         {
             get => _selectedCurrentSectionShadPs4PatchFile;
@@ -3106,13 +3144,18 @@ private bool _isShadPs4PatchesOverlayOpen;
                     hasUnsavedChanges &&
                     !string.Equals(value, _activeShadPs4PatchDocumentPath, StringComparison.OrdinalIgnoreCase))
                 {
-                    IsShadPs4PatchesOverlayOpen = false;
-                    ShadPs4PatchesStatus = "You have unsaved patch changes. Save or reopen the overlay.";
+                    _pendingCurrentSectionShadPs4PatchFile = value;
+                    IsShadPs4PatchSwitchPromptVisible = true;
+                    ShadPs4PatchesStatus = "You have unsaved patch changes. Save or Skip before switching patch file.";
+                    OnPropertyChanged(nameof(SelectedCurrentSectionShadPs4PatchFile));
+                    OnPropertyChanged(nameof(SelectedCurrentSectionShadPs4PatchFileItem));
                     return;
                 }
 
                 _selectedCurrentSectionShadPs4PatchFile = value;
                 OnPropertyChanged();
+                IsShadPs4PatchSwitchPromptVisible = false;
+                SyncSelectedShadPs4PatchFileItemFromPath();
                 LoadSelectedShadPs4PatchEntries(value);
             }
         }
@@ -4326,12 +4369,15 @@ private bool _isShadPs4PatchesOverlayOpen;
             if (!ShowCurrentSectionShadPs4UpdateControls)
             {
                 IsShadPs4PatchesOverlayOpen = false;
+                IsShadPs4PatchSwitchPromptVisible = false;
                 ShadPs4DetectedTitleId = null;
                 ShadPs4PatchesStatus = "Select a PlayStation 4 game to manage patches.";
                 IsCurrentSectionShadPs4PatchDirty = false;
                 _activeShadPs4PatchDocumentPath = null;
                 _activeShadPs4PatchDocumentText = null;
                 _selectedCurrentSectionShadPs4PatchFile = null;
+                _selectedCurrentSectionShadPs4PatchFileItem = null;
+                _pendingCurrentSectionShadPs4PatchFile = null;
                 CurrentSectionShadPs4PatchFiles.Clear();
                 DetachShadPs4PatchEntryListeners();
                 CurrentSectionShadPs4PatchEntries.Clear();
@@ -5981,6 +6027,9 @@ private bool _isShadPs4PatchesOverlayOpen;
             CurrentSectionShadPs4PatchEntries.Clear();
             IsCurrentSectionShadPs4PatchDirty = false;
             _selectedCurrentSectionShadPs4PatchFile = null;
+            _selectedCurrentSectionShadPs4PatchFileItem = null;
+            IsShadPs4PatchSwitchPromptVisible = false;
+            _pendingCurrentSectionShadPs4PatchFile = null;
 
             try
             {
@@ -6016,7 +6065,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                         : $"Loaded patch file for title ID {titleId}.";
 
                     if (patchFile != null)
-                        LoadSelectedShadPs4PatchEntries(patchFile.FilePath);
+                        SelectedCurrentSectionShadPs4PatchFile = patchFile.FilePath;
                 });
             }
             finally
@@ -6028,15 +6077,22 @@ private bool _isShadPs4PatchesOverlayOpen;
         [RelayCommand]
         private async Task SaveCurrentSectionShadPs4Patches()
         {
+            var saved = await SaveCurrentSectionShadPs4PatchesCore().ConfigureAwait(false);
+            if (saved)
+                CloseCurrentSectionShadPs4Patches();
+        }
+
+        private async Task<bool> SaveCurrentSectionShadPs4PatchesCore()
+        {
             if (!IsShadPs4PatchesOverlayOpen)
-                return;
+                return false;
 
             var activePath = _activeShadPs4PatchDocumentPath;
             var activeText = _activeShadPs4PatchDocumentText;
             if (string.IsNullOrWhiteSpace(activePath) || string.IsNullOrWhiteSpace(activeText))
             {
                 ShadPs4PatchesStatus = "No patch file loaded to save.";
-                return;
+                return false;
             }
 
             IsShadPs4PatchesBusy = true;
@@ -6047,17 +6103,43 @@ private bool _isShadPs4PatchesOverlayOpen;
                 _activeShadPs4PatchDocumentText = updated;
                 IsCurrentSectionShadPs4PatchDirty = false;
                 ShadPs4PatchesStatus = "Patch settings saved.";
-                //Close the overlay
-                CloseCurrentSectionShadPs4Patches();
+                return true;
             }
             catch (Exception ex)
             {
                 ShadPs4PatchesStatus = $"Failed to save patches: {ex.Message}";
+                return false;
             }
             finally
             {
                 IsShadPs4PatchesBusy = false;
             }
+        }
+
+        private void ApplyPendingCurrentSectionShadPs4PatchFileSelection(string patchFilePath)
+        {
+            _pendingCurrentSectionShadPs4PatchFile = null;
+            IsShadPs4PatchSwitchPromptVisible = false;
+
+            try
+            {
+                _isSwitchingCurrentSectionShadPs4PatchFile = true;
+                SelectedCurrentSectionShadPs4PatchFile = patchFilePath;
+            }
+            finally
+            {
+                _isSwitchingCurrentSectionShadPs4PatchFile = false;
+            }
+        }
+
+        private void SyncSelectedShadPs4PatchFileItemFromPath()
+        {
+            _selectedCurrentSectionShadPs4PatchFileItem = string.IsNullOrWhiteSpace(_selectedCurrentSectionShadPs4PatchFile)
+                ? null
+                : CurrentSectionShadPs4PatchFiles.FirstOrDefault(item =>
+                    string.Equals(item.FilePath, _selectedCurrentSectionShadPs4PatchFile, StringComparison.OrdinalIgnoreCase));
+
+            OnPropertyChanged(nameof(SelectedCurrentSectionShadPs4PatchFileItem));
         }
 
         [RelayCommand]
@@ -6087,9 +6169,41 @@ private bool _isShadPs4PatchesOverlayOpen;
         }
 
         [RelayCommand]
+        private async Task SaveAndSwitchCurrentSectionShadPs4PatchFile()
+        {
+            var pending = _pendingCurrentSectionShadPs4PatchFile;
+            if (string.IsNullOrWhiteSpace(pending))
+            {
+                IsShadPs4PatchSwitchPromptVisible = false;
+                return;
+            }
+
+            var saved = await SaveCurrentSectionShadPs4PatchesCore().ConfigureAwait(false);
+            if (!saved)
+                return;
+
+            ApplyPendingCurrentSectionShadPs4PatchFileSelection(pending);
+        }
+
+        [RelayCommand]
+        private void SkipAndSwitchCurrentSectionShadPs4PatchFile()
+        {
+            var pending = _pendingCurrentSectionShadPs4PatchFile;
+            if (string.IsNullOrWhiteSpace(pending))
+            {
+                IsShadPs4PatchSwitchPromptVisible = false;
+                return;
+            }
+
+            ApplyPendingCurrentSectionShadPs4PatchFileSelection(pending);
+        }
+
+        [RelayCommand]
         private void CloseCurrentSectionShadPs4Patches()
         {
             IsShadPs4PatchesOverlayOpen = false;
+            IsShadPs4PatchSwitchPromptVisible = false;
+            _pendingCurrentSectionShadPs4PatchFile = null;
             _activeShadPs4PatchDocumentPath = null;
             _activeShadPs4PatchDocumentText = null;
         }
@@ -6146,12 +6260,16 @@ private bool _isShadPs4PatchesOverlayOpen;
             if (patchFile != null)
             {
                 CurrentSectionShadPs4PatchFiles.Add(patchFile);
-                LoadSelectedShadPs4PatchEntries(patchFile.FilePath);
+                SelectedCurrentSectionShadPs4PatchFile = patchFile.FilePath;
             }
             else
             {
                 DetachShadPs4PatchEntryListeners();
                 CurrentSectionShadPs4PatchEntries.Clear();
+                _selectedCurrentSectionShadPs4PatchFile = null;
+                _selectedCurrentSectionShadPs4PatchFileItem = null;
+                OnPropertyChanged(nameof(SelectedCurrentSectionShadPs4PatchFile));
+                OnPropertyChanged(nameof(SelectedCurrentSectionShadPs4PatchFileItem));
                 ShadPs4PatchesStatus = "No patch file found for this title ID after download.";
             }
         }
