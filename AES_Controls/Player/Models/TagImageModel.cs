@@ -175,7 +175,7 @@ public partial class TagImageModel : ObservableObject, IDisposable
     public TagImageModel(TagImageKind kind, byte[] data, string mimeType, string? description = null)
     {
         Kind = kind;
-        Data = data;
+        Data = data.ToArray();
         MimeType = mimeType;
         Description = description!;
     }

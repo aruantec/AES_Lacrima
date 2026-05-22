@@ -142,6 +142,11 @@ namespace AES_Lacrima.Services
         [ObservableProperty] private string _imageSearchStatus = string.Empty;
         [ObservableProperty] private AvaloniaList<WebImageSearchResult> _imageSearchResults = [];
 
+        public string ImageSearchOverlayHeader =>
+            _searchMode == MetadataSearchMode.GameplayVideo
+                ? "Select Gameplay Video"
+                : "Select Cover Image";
+
         [AutoResolve]
         private MusicViewModel? _musicViewModel;
 
@@ -340,7 +345,6 @@ namespace AES_Lacrima.Services
 
             await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyTitleFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
-            await TryApplyCoverFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyTitleFromPsxGameAsync(item, CancellationToken.None).ConfigureAwait(false);
 
             try
@@ -369,9 +373,9 @@ namespace AES_Lacrima.Services
                         return BinaryMetadataHelper.LoadMetadata(metaData);
                     });
 
-                    var newImages = (metadata?.Images ?? [])
-                        .Select(img => new TagImageModel(img.Kind, img.Data, img.MimeType ?? "image/png") { OnDeleteImage = OnDeleteImage })
-                        .ToList();
+                    var newImages = metadata == null
+                        ? []
+                        : CreateTagImageModelsFromMetadata(metadata, OnDeleteImage);
 
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
@@ -420,10 +424,19 @@ namespace AES_Lacrima.Services
                     foreach (var p in pics)
                     {
                         var kind = MapPictureToKind(p);
-                        var data = p.Data.Data;
+                        var data = p.Data.Data.ToArray();
                         var mime = p.MimeType;
                         var desc = StripImageKindMarker(p.Description);
                         imagesToAdd.Add(new TagImageModel(kind, data, mime, desc) { OnDeleteImage = OnDeleteImage });
+                    }
+
+                    var cachePath = GetMetadataCachePath(resolvedPath);
+                    var cachedMetadata = BinaryMetadataHelper.LoadMetadata(cachePath);
+                    if (cachedMetadata != null)
+                    {
+                        var cachedImages = CreateTagImageModelsFromMetadata(cachedMetadata, OnDeleteImage);
+                        if (cachedImages.Count > 0)
+                            imagesToAdd = cachedImages;
                     }
 
                     return new
@@ -511,7 +524,6 @@ namespace AES_Lacrima.Services
 
              await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyTitleFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
-            await TryApplyCoverFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyTitleFromPsxGameAsync(item, CancellationToken.None).ConfigureAwait(false);
 
             Title = item.Title;
@@ -584,28 +596,9 @@ namespace AES_Lacrima.Services
                     ReplayGainAlbumGain = metadata.ReplayGainAlbumGain;
                 item.VideoUrl = metadata.VideoUrl;
 
-                foreach (var image in metadata.Images ?? [])
+                foreach (var model in CreateTagImageModelsFromMetadata(metadata, OnDeleteImage))
                 {
-                    if (image.Data == null || image.Data.Length == 0)
-                        continue;
-
-                    Images.Add(new TagImageModel(image.Kind, image.Data, image.MimeType ?? "image/png")
-                    {
-                        OnDeleteImage = OnDeleteImage
-                    });
-                }
-
-                foreach (var video in metadata.Videos ?? [])
-                {
-                    if (video.Data == null || video.Data.Length == 0)
-                        continue;
-
-                    var model = new TagImageModel(video.Kind, video.Data, video.MimeType ?? "video/mp4")
-                    {
-                        OnDeleteImage = OnDeleteImage
-                    };
                     Images.Add(model);
-
                     if (model.Kind == TagImageKind.LiveWallpaper)
                         await LoadImageAsync(model);
                 }
@@ -620,6 +613,18 @@ namespace AES_Lacrima.Services
                 {
                     OnDeleteImage = OnDeleteImage
                 });
+            }
+
+            if (Images.Count == 0 && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                if (IsPs4Metadata && await TryApplyCoverFromPs4InstalledGameAsync(item, CancellationToken.None, persistToCache: true).ConfigureAwait(false))
+                {
+                    await ReloadImagesFromMetadataCacheAsync(item.FileName).ConfigureAwait(false);
+                }
+                else if (IsPs3Metadata && await TryApplyCoverFromPs3InstalledGameAsync(item, CancellationToken.None, persistToCache: true).ConfigureAwait(false))
+                {
+                    await ReloadImagesFromMetadataCacheAsync(item.FileName).ConfigureAwait(false);
+                }
             }
 
             IsMetadataLoaded = true;
@@ -749,25 +754,18 @@ namespace AES_Lacrima.Services
                 if (string.IsNullOrWhiteSpace(path))
                     path = FilePath;
 
+                await SaveToMetadataCacheAsync(path);
+
                 var isMissingFile = string.IsNullOrWhiteSpace(path) || !File.Exists(path);
 
                 if (isMissingFile || (path != null && path.Contains("youtu", StringComparison.OrdinalIgnoreCase)))
-                {
-                    await SaveToMetadataCacheAsync(path);
                     return;
-                }
 
-                if (Images.Any(img => IsLocalMetadataOnlyKind(img.Kind)))
-                {
-                    await SaveToMetadataCacheAsync(path);
+                if (!IsAudioMetadataFile(path))
                     return;
-                }
 
                 if (!string.IsNullOrWhiteSpace(VideoUrl))
-                {
-                    await SaveToMetadataCacheAsync(path);
                     return;
-                }
 
                 try
                 {
@@ -800,7 +798,7 @@ namespace AES_Lacrima.Services
                                 coverImage = img;
                         }
 
-                        var pic = new Picture([.. img.Data])
+                        var pic = new Picture(img.Data.ToArray())
                         {
                             Type = MapKindToPictureType(img),
                             MimeType = img.MimeType,
@@ -882,21 +880,9 @@ namespace AES_Lacrima.Services
                      ReplayGainTrackGain = ReplayGainTrackGain,
                     ReplayGainAlbumGain = ReplayGainAlbumGain,
                     Duration = _currentSelectedMedia?.Duration ?? 0.0,
-                    Images = [.. Images.Select(img => new ImageData
-                    {
-                        Data = img.Data,
-                        MimeType = img.MimeType,
-                        Kind = img.Kind
-                    })],
-                    Videos = [.. Images.Where(img => img.Kind == TagImageKind.LiveWallpaper)
-                        .Select(img => new VideoData
-                        {
-                            MimeType = img.MimeType,
-                            Data = img.Data,
-                            Kind = img.Kind
-                        })]
                 };
 
+                BinaryMetadataHelper.WriteMetadataImages(customMetadata, ToMetadataImageEntries(Images));
                 BinaryMetadataHelper.SaveMetadata(metaDataPath, customMetadata);
             }
             catch (Exception e)
@@ -1137,6 +1123,7 @@ namespace AES_Lacrima.Services
                 return;
 
             _searchMode = MetadataSearchMode.Images;
+            NotifyImageSearchOverlayPresentationChanged();
             var activeQuery = searchQueries[0];
             ImageSearchQuery = activeQuery;
             await SearchImagesCoreAsync(activeQuery, searchQueries, isRomSearch: _currentSelectedMedia != null);
@@ -1153,6 +1140,7 @@ namespace AES_Lacrima.Services
                 return;
 
             _searchMode = MetadataSearchMode.GameplayVideo;
+            NotifyImageSearchOverlayPresentationChanged();
             ImageSearchQuery = gameplayQuery;
             IsImageSearchOverlayOpen = true;
             IsImageSearchLoading = true;
@@ -1186,7 +1174,13 @@ namespace AES_Lacrima.Services
                 return;
 
             _searchMode = MetadataSearchMode.Images;
+            NotifyImageSearchOverlayPresentationChanged();
             await SearchImagesCoreAsync(activeQuery.Trim(), [activeQuery.Trim()], isRomSearch: true);
+        }
+
+        private void NotifyImageSearchOverlayPresentationChanged()
+        {
+            OnPropertyChanged(nameof(ImageSearchOverlayHeader));
         }
 
         private async Task SearchImagesCoreAsync(string activeQuery, IReadOnlyList<string> searchQueries, bool isRomSearch = false)
@@ -1336,8 +1330,39 @@ namespace AES_Lacrima.Services
             }
         }
 
+        [RelayCommand]
+        private void CloseMetadata()
+        {
+            Close();
+        }
+
+        private async Task ReloadImagesFromMetadataCacheAsync(string? filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            var metadata = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(GetMetadataCachePath(filePath))).ConfigureAwait(false);
+            if (metadata == null)
+                return;
+
+            foreach (var old in Images)
+                old.Dispose();
+
+            Images.Clear();
+            foreach (var model in CreateTagImageModelsFromMetadata(metadata, OnDeleteImage))
+            {
+                Images.Add(model);
+                if (model.Kind == TagImageKind.LiveWallpaper)
+                    await LoadImageAsync(model).ConfigureAwait(false);
+            }
+        }
+
         private void Close()
         {
+            foreach (var image in Images)
+                image.Dispose();
+
+            Images.Clear();
             IsXbox360Metadata = false;
             Xbox360TitleId = null;
             Xbox360MediaId = null;
@@ -2069,8 +2094,37 @@ namespace AES_Lacrima.Services
             return ImageKindDescriptionRegex.Replace(description, string.Empty).Trim();
         }
 
-        private static bool IsLocalMetadataOnlyKind(TagImageKind kind)
-            => kind is TagImageKind.Gameplay or TagImageKind.BoxArt;
+        private static readonly HashSet<string> AudioMetadataExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".wav", ".wma",
+            ".ape", ".wv", ".mpc", ".aiff", ".aif", ".alac"
+        };
+
+        private static bool IsAudioMetadataFile(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+
+            var extension = Path.GetExtension(path);
+            return !string.IsNullOrEmpty(extension) && AudioMetadataExtensions.Contains(extension);
+        }
+
+        private static IEnumerable<MetadataImageEntry> ToMetadataImageEntries(IEnumerable<TagImageModel> images) =>
+            images
+                .Where(img => img.Data is { Length: > 0 })
+                .Select(img => new MetadataImageEntry(img.Kind, img.Data.ToArray(), img.MimeType));
+
+        private static List<TagImageModel> CreateTagImageModelsFromMetadata(
+            CustomMetadata metadata,
+            Action<TagImageModel> onDeleteImage)
+        {
+            return BinaryMetadataHelper.ReadMetadataImages(metadata)
+                .Select(entry => new TagImageModel(entry.Kind, entry.Data, entry.MimeType)
+                {
+                    OnDeleteImage = onDeleteImage
+                })
+                .ToList();
+        }
 
         private static string BuildGameplayVideoQuery(MediaItem item, string? albumName)
         {
@@ -2652,7 +2706,10 @@ namespace AES_Lacrima.Services
             }, cancellationToken).ConfigureAwait(false);
         }
 
-        private async Task<bool> TryApplyCoverFromPs3InstalledGameAsync(MediaItem item, CancellationToken cancellationToken)
+        private async Task<bool> TryApplyCoverFromPs3InstalledGameAsync(
+            MediaItem item,
+            CancellationToken cancellationToken,
+            bool persistToCache = true)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -2714,7 +2771,8 @@ namespace AES_Lacrima.Services
                 mimeType = GuessMimeTypeFromBytes(iconBytes);
 
             await ApplyCoverBytesToItemAsync(item, iconBytes, mimeType, cancellationToken).ConfigureAwait(false);
-            await SaveCoverToMetadataCacheAsync(item, iconBytes, mimeType, backCoverBytes, backCoverMimeType).ConfigureAwait(false);
+            if (persistToCache)
+                await SaveCoverToMetadataCacheAsync(item, iconBytes, mimeType, backCoverBytes, backCoverMimeType).ConfigureAwait(false);
 
             return true;
         }
@@ -2934,7 +2992,10 @@ namespace AES_Lacrima.Services
             }, cancellationToken).ConfigureAwait(false);
         }
 
-        private async Task<bool> TryApplyCoverFromPs4InstalledGameAsync(MediaItem item, CancellationToken cancellationToken)
+        private async Task<bool> TryApplyCoverFromPs4InstalledGameAsync(
+            MediaItem item,
+            CancellationToken cancellationToken,
+            bool persistToCache = true)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -2965,7 +3026,8 @@ namespace AES_Lacrima.Services
                 mimeType = GuessMimeTypeFromBytes(bytes);
 
             await ApplyCoverBytesToItemAsync(item, bytes, mimeType, cancellationToken).ConfigureAwait(false);
-            await SaveCoverToMetadataCacheAsync(item, bytes, mimeType).ConfigureAwait(false);
+            if (persistToCache)
+                await SaveCoverToMetadataCacheAsync(item, bytes, mimeType).ConfigureAwait(false);
             return true;
         }
 
@@ -3149,25 +3211,22 @@ namespace AES_Lacrima.Services
                 metadata.Lyrics = string.IsNullOrWhiteSpace(item.Lyrics) ? metadata.Lyrics : item.Lyrics;
                 metadata.ReplayGainTrackGain = item.ReplayGainTrackGain;
                 metadata.ReplayGainAlbumGain = item.ReplayGainAlbumGain;
-                metadata.Images ??= [];
-                metadata.Images.RemoveAll(image => image.Kind == TagImageKind.Cover || image.Kind == TagImageKind.BackCover);
-                metadata.Images.Insert(0, new ImageData
-                {
-                    Data = bytes,
-                    MimeType = mimeType,
-                    Kind = TagImageKind.Cover
-                });
+
+                var preserved = BinaryMetadataHelper.ReadMetadataImages(metadata)
+                    .Where(entry => entry.Kind is not TagImageKind.Cover and not TagImageKind.BackCover)
+                    .ToList();
+
+                preserved.Insert(0, new MetadataImageEntry(TagImageKind.Cover, bytes.ToArray(), mimeType));
 
                 if (backCoverBytes is { Length: > 0 })
                 {
-                    metadata.Images.Insert(1, new ImageData
-                    {
-                        Data = backCoverBytes,
-                        MimeType = backCoverMimeType ?? GuessMimeTypeFromBytes(backCoverBytes),
-                        Kind = TagImageKind.BackCover
-                    });
+                    preserved.Insert(1, new MetadataImageEntry(
+                        TagImageKind.BackCover,
+                        backCoverBytes.ToArray(),
+                        backCoverMimeType ?? GuessMimeTypeFromBytes(backCoverBytes)));
                 }
 
+                BinaryMetadataHelper.WriteMetadataImages(metadata, preserved);
                 BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
             }).ConfigureAwait(false);
         }

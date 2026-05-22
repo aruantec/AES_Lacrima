@@ -3,12 +3,15 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:services="using:AES_Lacrima.Services"
+             xmlns:models="using:AES_Code.Models"
              xmlns:vm="using:AES_Lacrima.ViewModels"
+             xmlns:controls="using:AES_Controls"
              mc:Ignorable="d"
              x:Name="Root"
              x:Class="AES_Lacrima.EmulationMetadataOverlay"
              x:DataType="services:MetadataService"
              IsHitTestVisible="{Binding IsMetadataLoaded}"
+             IsVisible="{Binding IsMetadataLoaded}"
              Opacity="{Binding IsMetadataLoaded, Converter={StaticResource BoolToOpacityConverter}}">
 
     <UserControl.Transitions>
@@ -18,404 +21,242 @@
     </UserControl.Transitions>
 
     <Design.DataContext>
-        <vm:MusicViewModel />
+        <vm:EmulationViewModel />
     </Design.DataContext>
 
     <Grid Background="#E6000000">
-        <StackPanel>
-            <Grid Margin="30,20,0,50" ColumnDefinitions="*, Auto">
-                <Label Grid.Column="0"
-                       Grid.ColumnSpan="2"
-                       Content="Metadata Editor"
-                       FontSize="45"
-                       Foreground="White"
-                       VerticalAlignment="Center"
-                       HorizontalAlignment="Left" />
-
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,20,0">
-                    <Button HorizontalAlignment="Right" Command="{Binding SaveMetadataCommand}">
-                        <ToolTip.Tip>
-                            <TextBlock FontSize="16" Text="Save metadata" />
-                        </ToolTip.Tip>
-                        <Button.Template>
-                            <ControlTemplate>
-                                <StackPanel Orientation="Horizontal" Background="Transparent">
-                                    <Label Content="SAVE"
-                                           Foreground="White"
-                                           FontSize="27"
-                                           VerticalAlignment="Center"
-                                           Margin="0,0,-10,0"/>
-                                    <Viewbox Height="55" Width="100" Stretch="Uniform">
-                                        <Canvas Width="100" Height="100">
-                                            <Rectangle Canvas.Left="8" Canvas.Top="8" Width="84" Height="84" RadiusX="14" RadiusY="14"
-                                                       Stroke="White" StrokeThickness="10" Fill="Transparent" />
-                                            <Rectangle Canvas.Left="28" Canvas.Top="18" Width="44" Height="28" RadiusX="8" RadiusY="8"
-                                                       Stroke="White" StrokeThickness="10" Fill="Transparent" />
-                                            <Rectangle Canvas.Left="62" Canvas.Top="32" Width="8" Height="20" RadiusX="4" RadiusY="4"
-                                                       Fill="White" />
-                                        </Canvas>
-                                    </Viewbox>
-                                </StackPanel>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
-                </StackPanel>
-            </Grid>
-
-            <Grid ColumnDefinitions="Auto, *, Auto, Auto">
-                <Grid Grid.Column="0"
-                      ColumnDefinitions="Auto, 450"
-                       RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto"
-                      RowSpacing="10"
-                      Margin="20,0,0,0">
-                    <Grid.Styles>
-                        <Style Selector="Label">
-                            <Setter Property="FontSize" Value="22" />
-                        </Style>
-                        <Style Selector="TextBox">
-                            <Setter Property="FontSize" Value="22" />
-                        </Style>
-                    </Grid.Styles>
-
-                    <!-- Title -->
-                    <Label Grid.Row="0" Grid.Column="0" Content="Title: "
-                           Foreground="White"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Right" />
-                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Title, Mode=TwoWay}" VerticalAlignment="Center" />
-
-                    <!-- Developer -->
-                    <Label Grid.Row="1" Grid.Column="0" Content="Developer: "
-                           Foreground="White"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Right" />
-                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Artists, Mode=TwoWay}" VerticalAlignment="Center" />
-
-                    <!-- Platform -->
-                    <Label Grid.Row="2" Grid.Column="0" Content="Platform: "
-                           Foreground="White"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Right" />
-                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Album, Mode=TwoWay}" VerticalAlignment="Center" />
-
-                    <!-- Year -->
-                    <Label Grid.Row="3" Grid.Column="0" Content="Year: "
-                           Foreground="White"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Right" />
-                    <TextBox Grid.Row="3" Grid.Column="1" Width="100" HorizontalAlignment="Left" Text="{Binding Year, Mode=TwoWay}" VerticalAlignment="Center" />
-
-                    <!-- Genre -->
-                    <Label Grid.Row="4" Grid.Column="0" Content="Genre: "
-                           Foreground="White"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Right" />
-                    <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Genres, Mode=TwoWay}" VerticalAlignment="Center" />
-
-                    <!-- Game Info -->
-                    <Label Grid.Row="5" Grid.Column="0" Content="Game Info: "
-                           Foreground="White"
-                           VerticalAlignment="Top"
-                           HorizontalAlignment="Right" />
-                    <TextBox Grid.Row="5" Grid.Column="1"
-                             Text="{Binding Comment, Mode=TwoWay}"
-                             VerticalAlignment="Center"
-                             TextWrapping="Wrap"
-                             Height="130" />
-
-                    <!-- Url -->
-                    <Label Grid.Row="6" Grid.Column="0" Content="Url: "
-                           Foreground="White"
-                           VerticalAlignment="Top"
-                           HorizontalAlignment="Right" />
-                    <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding FilePath, Mode=TwoWay}" VerticalAlignment="Center" />
-
-                    <!-- Gameplay Url -->
-                    <Label Grid.Row="7" Grid.Column="0" Content="Gameplay Url: "
-                           Foreground="White"
-                           VerticalAlignment="Top"
-                           HorizontalAlignment="Right" />
-                    <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding VideoUrl, Mode=TwoWay}" VerticalAlignment="Center" />
-
-                    <!-- Xbox 360 Title ID -->
-                    <Label Grid.Row="8" Grid.Column="0" Content="Title ID: "
-                           Foreground="White"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Right"
-                           IsVisible="{Binding IsXbox360Metadata}" />
-                    <TextBox Grid.Row="8" Grid.Column="1"
-                             Text="{Binding Xbox360TitleId, Mode=OneWay}"
-                             IsReadOnly="True"
-                             VerticalAlignment="Center"
-                             IsVisible="{Binding IsXbox360Metadata}" />
-
-                    <!-- Xbox 360 Media ID -->
-                    <Label Grid.Row="9" Grid.Column="0" Content="Media ID: "
-                           Foreground="White"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Right"
-                           IsVisible="{Binding IsXbox360Metadata}" />
-                    <TextBox Grid.Row="9" Grid.Column="1"
-                              Text="{Binding Xbox360MediaId, Mode=OneWay}"
-                              IsReadOnly="True"
-                              VerticalAlignment="Center"
-                              IsVisible="{Binding IsXbox360Metadata}" />
-
-                    <!-- PS3 Title ID -->
-                    <Label Grid.Row="10" Grid.Column="0" Content="Title ID (Serial): "
-                           Foreground="White"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Right"
-                           IsVisible="{Binding IsPs3Metadata}" />
-                    <TextBox Grid.Row="10" Grid.Column="1"
-                              Text="{Binding Ps3TitleId, Mode=OneWay}"
-                              IsReadOnly="True"
-                              VerticalAlignment="Center"
-                              IsVisible="{Binding IsPs3Metadata}" />
-
-                    <!-- PS3 Version -->
-                    <Label Grid.Row="11" Grid.Column="0" Content="Version: "
-                           Foreground="White"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Right"
-                           IsVisible="{Binding IsPs3Metadata}" />
-                    <TextBox Grid.Row="11" Grid.Column="1"
-                              Text="{Binding Ps3Version, Mode=OneWay}"
-                              IsReadOnly="True"
-                              VerticalAlignment="Center"
-                              IsVisible="{Binding IsPs3Metadata}" />
-
-                    <!-- PS4 Title ID -->
-                    <Label Grid.Row="12" Grid.Column="0" Content="Title ID (Serial): "
-                           Foreground="White"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Right"
-                           IsVisible="{Binding IsPs4Metadata}" />
-                    <TextBox Grid.Row="12" Grid.Column="1"
-                              Text="{Binding Ps4TitleId, Mode=OneWay}"
-                              IsReadOnly="True"
-                              VerticalAlignment="Center"
-                              IsVisible="{Binding IsPs4Metadata}" />
-
-                     <!-- PS4 Version -->
-                     <Label Grid.Row="13" Grid.Column="0" Content="Version: "
-                            Foreground="White"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Right"
-                            IsVisible="{Binding IsPs4Metadata}" />
-                     <TextBox Grid.Row="13" Grid.Column="1"
-                               Text="{Binding Ps4Version, Mode=OneWay}"
-                               IsReadOnly="True"
-                               VerticalAlignment="Center"
-                               IsVisible="{Binding IsPs4Metadata}" />
-
-                     <!-- PSX Title ID -->
-                     <Label Grid.Row="14" Grid.Column="0" Content="Title ID (Serial): "
-                            Foreground="White"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Right"
-                            IsVisible="{Binding IsPsXMetadata}" />
-                     <TextBox Grid.Row="14" Grid.Column="1"
-                               Text="{Binding PsXTitleId, Mode=OneWay}"
-                               IsReadOnly="True"
-                               VerticalAlignment="Center"
-                               IsVisible="{Binding IsPsXMetadata}" />
-
-                     <!-- PS2 Title ID -->
-                    <Label Grid.Row="15" Grid.Column="0" Content="Title ID (Serial): "
-                            Foreground="White"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Right"
-                            IsVisible="{Binding IsPs2Metadata}" />
-                    <TextBox Grid.Row="15" Grid.Column="1"
-                               Text="{Binding Ps2TitleId, Mode=OneWay}"
-                               IsReadOnly="True"
-                               VerticalAlignment="Center"
-                               IsVisible="{Binding IsPs2Metadata}" />
-
-                     <!-- GameCube Game ID -->
-                    <Label Grid.Row="16" Grid.Column="0" Content="Game ID: "
-                            Foreground="White"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Right"
-                            IsVisible="{Binding IsGameCubeMetadata}" />
-                    <TextBox Grid.Row="16" Grid.Column="1"
-                               Text="{Binding GameCubeTitleId, Mode=OneWay}"
-                               IsReadOnly="True"
-                               VerticalAlignment="Center"
-                               IsVisible="{Binding IsGameCubeMetadata}" />
-
-                     <!-- Wii Game ID -->
-                    <Label Grid.Row="17" Grid.Column="0" Content="Game ID: "
-                            Foreground="White"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Right"
-                            IsVisible="{Binding IsWiiMetadata}" />
-                    <TextBox Grid.Row="17" Grid.Column="1"
-                               Text="{Binding WiiTitleId, Mode=OneWay}"
-                               IsReadOnly="True"
-                               VerticalAlignment="Center"
-                               IsVisible="{Binding IsWiiMetadata}" />
-
-                     <!-- Wii U Title ID -->
-                    <Label Grid.Row="18" Grid.Column="0" Content="Title ID: "
-                            Foreground="White"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Right"
-                            IsVisible="{Binding IsWiiUMetadata}" />
-                    <TextBox Grid.Row="18" Grid.Column="1"
-                               Text="{Binding WiiUTitleId, Mode=OneWay}"
-                               IsReadOnly="True"
-                               VerticalAlignment="Center"
-                               IsVisible="{Binding IsWiiUMetadata}" />
-
-                     <!-- Nintendo 3DS Title ID -->
-                    <Label Grid.Row="19" Grid.Column="0" Content="Title ID: "
-                            Foreground="White"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Right"
-                            IsVisible="{Binding IsNintendo3dsMetadata}" />
-                    <TextBox Grid.Row="19" Grid.Column="1"
-                               Text="{Binding Nintendo3dsTitleId, Mode=OneWay}"
-                               IsReadOnly="True"
-                               VerticalAlignment="Center"
-                               IsVisible="{Binding IsNintendo3dsMetadata}" />
-
-                        <Button Grid.Row="20"
-                             Grid.Column="1"
-                             HorizontalAlignment="Stretch"
-                             Height="38"
-                             FontSize="22"
-                             FontWeight="SemiBold"
-                             Content="Add Gameplay"
-                             Command="{Binding AddGameplayCommand}" />
-                 </Grid>
-
-                <StackPanel Grid.Column="1" Margin="50,0,0,0" VerticalAlignment="Stretch">
-                    <StackPanel Orientation="Horizontal" Spacing="30">
-                        <Label Content="Images"
-                               FontSize="35"
+        <Grid RowDefinitions="Auto,*,Auto" Margin="24,16,24,20">
+            <StackPanel Grid.Row="0" Spacing="4" Margin="6,0,0,12">
+                <TextBlock Text="Metadata Editor"
+                           FontSize="42"
+                           FontWeight="SemiBold"
+                           Foreground="White" />
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <TextBlock Text="Title" Foreground="#D8D8D8" FontSize="20" />
+                    <TextBlock Text="{Binding Title, FallbackValue=Unknown, TargetNullValue=Unknown}"
                                Foreground="White"
-                               VerticalAlignment="Top" />
-                        <ComboBox ItemsSource="{Binding MetadataImageKinds}"
-                                  SelectedItem="{Binding SelectedImageKind, Mode=TwoWay}"
-                                  VerticalAlignment="Center"
-                                  FontSize="22" />
+                               FontSize="20" />
+                    <TextBlock Text="Platform" Foreground="#D8D8D8" FontSize="20" />
+                    <TextBlock Text="{Binding Album, FallbackValue=Unknown, TargetNullValue=Unknown}"
+                               Foreground="White"
+                               FontSize="20" />
+                </StackPanel>
+            </StackPanel>
 
-                        <Button Command="{Binding OpenAddImageDialogCommand}">
-                            <ToolTip.Tip>
-                                <TextBlock FontSize="16" Text="Add Image" />
-                            </ToolTip.Tip>
-                            <Button.Template>
-                                <ControlTemplate>
-                                    <Viewbox Height="45" Width="100" Stretch="Uniform">
-                                        <Canvas Width="100" Height="100">
-                                            <Rectangle Canvas.Left="2" Canvas.Top="2" Width="96" Height="96" RadiusX="22" RadiusY="22" Stroke="White" StrokeThickness="8" Fill="Transparent" />
-                                            <Rectangle Canvas.Left="46" Canvas.Top="32" Width="8" Height="36" RadiusX="4" RadiusY="4" Fill="White" />
-                                            <Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="White" />
-                                        </Canvas>
-                                    </Viewbox>
-                                </ControlTemplate>
-                            </Button.Template>
-                        </Button>
-                    </StackPanel>
+            <Border Grid.Row="1"
+                    Background="#1AFFFFFF"
+                    BorderBrush="#3FFFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="12">
+                <Grid ColumnDefinitions="340,*" ColumnSpacing="12">
+                    <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="8">
+                        <TextBlock Text="Details"
+                                   Foreground="White"
+                                   FontSize="22"
+                                   FontWeight="SemiBold" />
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Spacing="10">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Title" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Title, Mode=TwoWay}" FontSize="16" />
+                                </StackPanel>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Developer" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Artists, Mode=TwoWay}" FontSize="16" />
+                                </StackPanel>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Platform" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Album, Mode=TwoWay}" FontSize="16" />
+                                </StackPanel>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Year" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Year, Mode=TwoWay}" FontSize="16" Width="120" HorizontalAlignment="Left" />
+                                </StackPanel>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Genre" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Genres, Mode=TwoWay}" FontSize="16" />
+                                </StackPanel>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Game Info" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Comment, Mode=TwoWay}"
+                                             FontSize="16"
+                                             TextWrapping="Wrap"
+                                             MinHeight="90"
+                                             AcceptsReturn="True" />
+                                </StackPanel>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="File Path" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding FilePath, Mode=TwoWay}" FontSize="14" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Gameplay URL" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding VideoUrl, Mode=TwoWay}" FontSize="14" TextWrapping="Wrap" />
+                                </StackPanel>
 
-                    <Border Margin="0,12,30,0"
-                            HorizontalAlignment="Left"
-                            Padding="12"
-                            Background="#1AFFFFFF"
-                            BorderBrush="#3FFFFFFF"
-                            BorderThickness="1"
-                            CornerRadius="10">
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="Cover From Clipboard / URL / Web Search"
+                                <StackPanel Spacing="4" IsVisible="{Binding IsXbox360Metadata}">
+                                    <TextBlock Text="Title ID" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Xbox360TitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                </StackPanel>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsXbox360Metadata}">
+                                    <TextBlock Text="Media ID" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Xbox360MediaId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                </StackPanel>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsPs3Metadata}">
+                                    <TextBlock Text="Title ID (Serial)" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Ps3TitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                </StackPanel>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsPs3Metadata}">
+                                    <TextBlock Text="Version" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Ps3Version, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                </StackPanel>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsPs4Metadata}">
+                                    <TextBlock Text="Title ID (Serial)" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Ps4TitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                </StackPanel>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsPs4Metadata}">
+                                    <TextBlock Text="Version" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Ps4Version, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                </StackPanel>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsPsXMetadata}">
+                                    <TextBlock Text="Title ID (Serial)" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding PsXTitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                </StackPanel>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsPs2Metadata}">
+                                    <TextBlock Text="Title ID (Serial)" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Ps2TitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                </StackPanel>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsGameCubeMetadata}">
+                                    <TextBlock Text="Game ID" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding GameCubeTitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                </StackPanel>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsWiiMetadata}">
+                                    <TextBlock Text="Game ID" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding WiiTitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                </StackPanel>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsWiiUMetadata}">
+                                    <TextBlock Text="Title ID" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding WiiUTitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                </StackPanel>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsNintendo3dsMetadata}">
+                                    <TextBlock Text="Title ID" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding Nintendo3dsTitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                </StackPanel>
+
+                                <Button Content="Add Gameplay"
+                                        Command="{Binding AddGameplayCommand}"
+                                        HorizontalAlignment="Stretch"
+                                        Padding="12,8"
+                                        Margin="0,4,0,0" />
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+
+                    <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" RowSpacing="8">
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                            <TextBlock Text="Images"
                                        Foreground="White"
-                                       FontSize="16"
-                                       FontWeight="SemiBold" />
-                            <Grid ColumnDefinitions="300,Auto,Auto" ColumnSpacing="8">
-                                <TextBox Grid.Column="0"
-                                         Text="{Binding AddImageUrl, Mode=TwoWay}"
-                                         PlaceholderText="Paste image URL..." />
-                                <Button Grid.Column="1"
-                                        Content="Add URL"
-                                        Command="{Binding AddImageFromUrlCommand}" />
-                                <Button Grid.Column="2"
-                                        Content="Paste"
-                                        Command="{Binding PasteImageFromClipboardCommand}" />
-                            </Grid>
-                            <Grid ColumnDefinitions="300,Auto,Auto" ColumnSpacing="8">
-                                <TextBox Grid.Column="0"
-                                         Text="{Binding ImageSearchQuery, Mode=TwoWay}"
-                                         PlaceholderText="Search cover images..." />
-                                <Button Grid.Column="1"
-                                        Content="Search"
-                                        Command="{Binding SearchImagesCommand}" />
-                                <Button Grid.Column="2"
-                                        Content="Use Title"
-                                        Command="{Binding SearchImagesByTitleCommand}" />
-                            </Grid>
-                            <TextBlock Text="{Binding ImageSearchStatus}"
-                                       Foreground="#FFE4E4E4"
-                                       FontSize="12"
-                                       IsVisible="{Binding ImageSearchStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        </StackPanel>
-                    </Border>
+                                       FontSize="22"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
+                            <ComboBox Grid.Column="1"
+                                      ItemsSource="{Binding EmulationImageKinds}"
+                                      SelectedItem="{Binding SelectedImageKind, Mode=TwoWay}"
+                                      MinWidth="140"
+                                      VerticalAlignment="Center" />
+                            <Button Grid.Column="2"
+                                    Content="Add Image"
+                                    Command="{Binding OpenAddImageDialogCommand}"
+                                    Padding="12,6"
+                                    VerticalAlignment="Center" />
+                        </Grid>
 
-                    <Border Margin="0,40,0,0">
-                        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                            <ItemsControl Margin="0,0,30,0" ItemsSource="{Binding Images}" HorizontalAlignment="Stretch">
+                        <Border Grid.Row="1"
+                                Background="#14000000"
+                                BorderBrush="#33FFFFFF"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="12">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Cover From Clipboard / URL / Web Search"
+                                           Foreground="White"
+                                           FontSize="16"
+                                           FontWeight="SemiBold" />
+                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                    <TextBox Grid.Column="0"
+                                             Text="{Binding AddImageUrl, Mode=TwoWay}"
+                                             PlaceholderText="Paste image URL..." />
+                                    <Button Grid.Column="1" Content="Add URL" Command="{Binding AddImageFromUrlCommand}" Padding="12,6" />
+                                    <Button Grid.Column="2" Content="Paste" Command="{Binding PasteImageFromClipboardCommand}" Padding="12,6" />
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                    <TextBox Grid.Column="0"
+                                             Text="{Binding ImageSearchQuery, Mode=TwoWay}"
+                                             PlaceholderText="Search cover images..." />
+                                    <Button Grid.Column="1" Content="Search" Command="{Binding SearchImagesCommand}" Padding="12,6" />
+                                    <Button Grid.Column="2" Content="Use Title" Command="{Binding SearchImagesByTitleCommand}" Padding="12,6" />
+                                </Grid>
+                                <TextBlock Text="{Binding ImageSearchStatus}"
+                                           Foreground="#B0B0B0"
+                                           FontSize="14"
+                                           TextWrapping="Wrap"
+                                           IsVisible="{Binding ImageSearchStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            </StackPanel>
+                        </Border>
+
+                        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding Images}">
                                 <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Background="DimGray"
+                                    <DataTemplate x:DataType="models:TagImageModel">
+                                        <Border Background="#14000000"
+                                                BorderBrush="#33FFFFFF"
+                                                BorderThickness="1"
                                                 CornerRadius="8"
-                                                ClipToBounds="True"
-                                                Padding="5">
-                                            <StackPanel>
+                                                Padding="12"
+                                                Margin="0,0,8,8"
+                                                Width="220">
+                                            <StackPanel Spacing="8">
                                                 <ComboBox ItemsSource="{Binding #Root.DataContext.EmulationImageKinds}"
                                                           SelectedItem="{Binding Kind, Mode=TwoWay}"
-                                                          HorizontalAlignment="Stretch"
-                                                          Margin="-5,-3,-5,0" />
-                                                <Image Source="{Binding PreviewImage}" Stretch="UniformToFill" Width="250" Height="200" />
-
-                                                <!-- delete -->
-                                                <Button HorizontalAlignment="Right"
-                                                        Padding="5"
-                                                        Command="{Binding DeleteImageCommand}">
-                                                    <ToolTip.Tip>
-                                                        <TextBlock FontSize="16" Text="Add Image" />
-                                                    </ToolTip.Tip>
-                                                    <Button.Template>
-                                                        <ControlTemplate>
-                                                            <StackPanel Orientation="Horizontal">
-                                                                <Label Content="DELETE"
-                                                                       VerticalAlignment="Center"
-                                                                       Foreground="White" />
-                                                                <Viewbox Height="35" Width="35" Stretch="Uniform">
-                                                                    <Canvas Width="100" Height="100">
-                                                                        <Rectangle Canvas.Left="15" Canvas.Top="28" Width="70" Height="12" RadiusX="6" RadiusY="6" Fill="White" />
-                                                                        <Rectangle Canvas.Left="36" Canvas.Top="10" Width="28" Height="26" RadiusX="10" RadiusY="10" Fill="White" />
-                                                                        <Rectangle Canvas.Left="18" Canvas.Top="40" Width="64" Height="48" RadiusX="8" RadiusY="8" Stroke="White" StrokeThickness="10" Fill="Transparent" />
-                                                                    </Canvas>
-                                                                </Viewbox>
-                                                            </StackPanel>
-                                                        </ControlTemplate>
-                                                    </Button.Template>
-                                                </Button>
+                                                          HorizontalAlignment="Stretch" />
+                                                <Image Source="{Binding PreviewImage}"
+                                                       Stretch="UniformToFill"
+                                                       Height="160" />
+                                                <Button Content="Remove"
+                                                        Command="{Binding DeleteImageCommand}"
+                                                        HorizontalAlignment="Right"
+                                                        Padding="12,6" />
                                             </StackPanel>
                                         </Border>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <WrapPanel ItemSpacing="20" LineSpacing="20" />
+                                        <WrapPanel Orientation="Horizontal" />
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                             </ItemsControl>
                         </ScrollViewer>
-                    </Border>
-                </StackPanel>
-            </Grid>
+                    </Grid>
+                </Grid>
+            </Border>
 
-        </StackPanel>
+            <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="6,12,0,0">
+                <TextBlock Grid.Column="0"
+                           Text="Edit metadata and images for the selected game."
+                           Foreground="#D8D8D8"
+                           FontSize="18"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center" />
+                <Button Grid.Column="1"
+                        Content="Save"
+                        Command="{Binding SaveMetadataCommand}"
+                        Padding="14,8" />
+                <Button Grid.Column="2"
+                        Content="Close"
+                        Command="{Binding CloseMetadataCommand}"
+                        Padding="14,8" />
+            </Grid>
+        </Grid>
     </Grid>
 </UserControl>
