@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using AES_Core.Logging;
 using log4net;
 using YamlDotNet.RepresentationModel;
@@ -24,8 +25,15 @@ public static class Rpcs3PatchesService
     private static readonly ILog Log = LogHelper.For(typeof(Rpcs3PatchesService));
 
     public const string PatchEngineVersion = "1.2";
+    public const string OfficialPatchFileName = "patch.yml";
+    public const string ArtemisCheatsPatchFileName = "artemis_cheats.yml";
+    public const string ArtemisGameTitleMarker = "(Artemis)";
     /// <summary>Matches RPCS3 <c>patch_key::enabled</c> in Utilities/bin_patch.h.</summary>
     public const string EnabledKey = "Enabled";
+
+    private static readonly Regex TitleIdTokenRegex = new(
+        @"\b(BLUS|BLES|BLJM|BLJS|NPUB|NPEB|NPJB|NPUJ|NPUA|NPUX|BCUS|BCES|MRTC)\d{5}\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private const string VersionKey = "Version";
     private const string GamesKey = "Games";
     private const string AuthorKey = "Author";
@@ -43,7 +51,16 @@ public static class Rpcs3PatchesService
     }
 
     public static string GetPatchYmlPath(string? emulatorDirectory) =>
-        Path.Combine(GetPatchesDirectory(emulatorDirectory), "patch.yml");
+        GetPatchYmlPath(emulatorDirectory, Rpcs3PatchCatalog.Official);
+
+    public static string GetPatchYmlPath(string? emulatorDirectory, Rpcs3PatchCatalog catalog) =>
+        Path.Combine(GetPatchesDirectory(emulatorDirectory), GetPatchFileName(catalog));
+
+    public static string GetPatchFileName(Rpcs3PatchCatalog catalog) =>
+        catalog == Rpcs3PatchCatalog.ArtemisCheats ? ArtemisCheatsPatchFileName : OfficialPatchFileName;
+
+    public static bool IsArtemisCheatPatch(Rpcs3PatchDefinition definition) =>
+        definition.GameTitle.Contains(ArtemisGameTitleMarker, StringComparison.OrdinalIgnoreCase);
 
     public static string GetPatchConfigPath(string? emulatorDirectory)
     {
@@ -54,7 +71,10 @@ public static class Rpcs3PatchesService
     }
 
     public static bool PatchFileExists(string? emulatorDirectory) =>
-        File.Exists(GetPatchYmlPath(emulatorDirectory));
+        PatchFileExists(emulatorDirectory, Rpcs3PatchCatalog.Official);
+
+    public static bool PatchFileExists(string? emulatorDirectory, Rpcs3PatchCatalog catalog) =>
+        File.Exists(GetPatchYmlPath(emulatorDirectory, catalog));
 
     /// <summary>
     /// Resolves the RPCS3 root directory that contains <c>patches/patch.yml</c>.
@@ -136,9 +156,10 @@ public static class Rpcs3PatchesService
     public static IReadOnlyList<Rpcs3PatchDefinition> GetPatchesForTitleId(
         string? emulatorDirectory,
         string titleId,
-        string? appVersion = null)
+        string? appVersion = null,
+        Rpcs3PatchCatalog catalog = Rpcs3PatchCatalog.Official)
     {
-        _ = TryGetPatchesForTitleId(emulatorDirectory, titleId, appVersion, out var patches, out _);
+        _ = TryGetPatchesForTitleId(emulatorDirectory, titleId, appVersion, catalog, out var patches, out _);
         return patches;
     }
 
@@ -147,16 +168,28 @@ public static class Rpcs3PatchesService
         string titleId,
         string? appVersion,
         out IReadOnlyList<Rpcs3PatchDefinition> patches,
+        out string? errorMessage) =>
+        TryGetPatchesForTitleId(emulatorDirectory, titleId, appVersion, Rpcs3PatchCatalog.Official, out patches, out errorMessage);
+
+    public static bool TryGetPatchesForTitleId(
+        string? emulatorDirectory,
+        string titleId,
+        string? appVersion,
+        Rpcs3PatchCatalog catalog,
+        out IReadOnlyList<Rpcs3PatchDefinition> patches,
         out string? errorMessage)
     {
         patches = Array.Empty<Rpcs3PatchDefinition>();
         errorMessage = null;
 
         var normalizedTitleId = titleId.Trim().ToUpperInvariant();
-        var patchPath = GetPatchYmlPath(emulatorDirectory);
+        var patchPath = GetPatchYmlPath(emulatorDirectory, catalog);
+        var patchFileLabel = GetPatchFileName(catalog);
         if (!File.Exists(patchPath))
         {
-            errorMessage = $"patch.yml was not found at '{patchPath}'.";
+            errorMessage = catalog == Rpcs3PatchCatalog.ArtemisCheats
+                ? $"{patchFileLabel} was not found at '{patchPath}'. Download Artemis cheats to get started."
+                : $"{patchFileLabel} was not found at '{patchPath}'.";
             return false;
         }
 
@@ -200,7 +233,7 @@ public static class Rpcs3PatchesService
                         if (!IsAppVersionApplicable(target.AppVersion, normalizedAppVersion))
                             continue;
 
-                        matches.Add(new Rpcs3PatchDefinition(
+                        var definition = new Rpcs3PatchDefinition(
                             hash,
                             patchName,
                             target.GameTitle,
@@ -209,7 +242,12 @@ public static class Rpcs3PatchesService
                             author,
                             notes,
                             group,
-                            patchVersion));
+                            patchVersion);
+
+                        if (!MatchesCatalog(catalog, definition))
+                            continue;
+
+                        matches.Add(definition);
                     }
                 }
             }
@@ -223,9 +261,28 @@ public static class Rpcs3PatchesService
         catch (Exception ex)
         {
             Log.Warn($"Failed to parse RPCS3 patch file '{patchPath}' for title ID '{normalizedTitleId}'.", ex);
-            errorMessage ??= $"Failed to read patch.yml: {ex.Message}";
+            errorMessage ??= $"Failed to read {patchFileLabel}: {ex.Message}";
             return false;
         }
+    }
+
+    private static bool MatchesCatalog(Rpcs3PatchCatalog catalog, Rpcs3PatchDefinition definition) =>
+        catalog switch
+        {
+            Rpcs3PatchCatalog.ArtemisCheats => IsArtemisCheatPatch(definition),
+            Rpcs3PatchCatalog.Official => !IsArtemisCheatPatch(definition),
+            _ => true,
+        };
+
+    public static IReadOnlyList<string> ExtractTitleIdsFromText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return Array.Empty<string>();
+
+        return TitleIdTokenRegex.Matches(text)
+            .Select(static match => match.Value.ToUpperInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     public static IReadOnlyDictionary<string, bool> BuildEnabledStateMap(

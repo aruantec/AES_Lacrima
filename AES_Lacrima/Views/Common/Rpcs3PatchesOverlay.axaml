@@ -53,13 +53,13 @@
                     <Grid RowDefinitions="Auto,*" RowSpacing="8"
                           IsVisible="{Binding !IsRpcs3PatchesBusy}">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                            <TextBlock Text="Patches"
+                            <TextBlock Text="{Binding Rpcs3PatchesSectionLabel}"
                                        Foreground="White"
                                        FontSize="22"
                                        FontWeight="SemiBold"
                                        VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                <Button Content="Download Patches"
+                                <Button Content="{Binding Rpcs3DownloadPatchesButtonText}"
                                         Command="{Binding DownloadCurrentSectionRpcs3PatchesCommand}"
                                         IsEnabled="{Binding !IsRpcs3PatchesBusy}"
                                         Padding="12,6" />

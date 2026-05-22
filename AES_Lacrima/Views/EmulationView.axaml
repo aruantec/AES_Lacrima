@@ -229,6 +229,19 @@
                                    Stretch="Uniform" />
                          </MenuItem.Icon>
                      </MenuItem>
+                     <MenuItem Header="Cheats"
+                               CornerRadius="8"
+                               Command="{Binding OpenCurrentSectionRpcs3CheatsCommand}"
+                               CommandParameter="{Binding SelectedIndex}"
+                               IsVisible="{Binding ShowCurrentSectionRpcs3CheatsMenuItem}">
+                         <MenuItem.Icon>
+                             <Path Data="M70,24 C44,24 24,44 24,70 C24,96 44,116 70,116 C96,116 116,96 116,70 C116,44 96,24 70,24 Z M70,36 C89,36 104,51 104,70 C104,89 89,104 70,104 C51,104 36,89 36,70 C36,51 51,36 70,36 Z M58,58 H82 V64 H58 Z M58,72 H82 V78 H58 Z"
+                                   Fill="#CCFFFFFF"
+                                   Width="32"
+                                   Height="32"
+                                   Stretch="Uniform" />
+                         </MenuItem.Icon>
+                     </MenuItem>
                      <MenuItem Header="Patches"
                                CornerRadius="8"
                                Command="{Binding OpenCurrentSectionShadPs4PatchesCommand}"
