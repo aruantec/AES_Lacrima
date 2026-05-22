@@ -182,19 +182,48 @@
                                            Foreground="White"
                                            FontSize="16"
                                            FontWeight="SemiBold" />
-                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                                    <TextBox Grid.Column="0"
+                                <Grid ColumnDefinitions="*,104,104"
+                                      RowDefinitions="Auto,Auto"
+                                      ColumnSpacing="8"
+                                      RowSpacing="8">
+                                    <TextBox Grid.Row="0"
+                                             Grid.Column="0"
                                              Text="{Binding AddImageUrl, Mode=TwoWay}"
-                                             PlaceholderText="Paste image URL..." />
-                                    <Button Grid.Column="1" Content="Add URL" Command="{Binding AddImageFromUrlCommand}" Padding="12,6" />
-                                    <Button Grid.Column="2" Content="Paste" Command="{Binding PasteImageFromClipboardCommand}" Padding="12,6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                                    <TextBox Grid.Column="0"
+                                             PlaceholderText="Paste image URL..."
+                                             VerticalAlignment="Center" />
+                                    <Button Grid.Row="0"
+                                            Grid.Column="1"
+                                            Content="Add URL"
+                                            Command="{Binding AddImageFromUrlCommand}"
+                                            Padding="12,6"
+                                            HorizontalAlignment="Stretch"
+                                            VerticalAlignment="Center" />
+                                    <Button Grid.Row="0"
+                                            Grid.Column="2"
+                                            Content="Paste"
+                                            Command="{Binding PasteImageFromClipboardCommand}"
+                                            Padding="12,6"
+                                            HorizontalAlignment="Stretch"
+                                            VerticalAlignment="Center" />
+                                    <TextBox Grid.Row="1"
+                                             Grid.Column="0"
                                              Text="{Binding ImageSearchQuery, Mode=TwoWay}"
-                                             PlaceholderText="Search cover images..." />
-                                    <Button Grid.Column="1" Content="Search" Command="{Binding SearchImagesCommand}" Padding="12,6" />
-                                    <Button Grid.Column="2" Content="Use Title" Command="{Binding SearchImagesByTitleCommand}" Padding="12,6" />
+                                             PlaceholderText="Search cover images..."
+                                             VerticalAlignment="Center" />
+                                    <Button Grid.Row="1"
+                                            Grid.Column="1"
+                                            Content="Search"
+                                            Command="{Binding SearchImagesCommand}"
+                                            Padding="12,6"
+                                            HorizontalAlignment="Stretch"
+                                            VerticalAlignment="Center" />
+                                    <Button Grid.Row="1"
+                                            Grid.Column="2"
+                                            Content="Use Title"
+                                            Command="{Binding SearchImagesByTitleCommand}"
+                                            Padding="12,6"
+                                            HorizontalAlignment="Stretch"
+                                            VerticalAlignment="Center" />
                                 </Grid>
                                 <TextBlock Text="{Binding ImageSearchStatus}"
                                            Foreground="#B0B0B0"
