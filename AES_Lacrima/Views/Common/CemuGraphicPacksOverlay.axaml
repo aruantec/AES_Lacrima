@@ -1,0 +1,143 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AES_Lacrima.ViewModels"
+             xmlns:controls="using:AES_Controls"
+             x:Class="AES_Lacrima.CemuGraphicPacksOverlay"
+             x:Name="GraphicPacksOverlayRoot"
+             x:DataType="vm:EmulationViewModel"
+             IsHitTestVisible="{Binding IsCemuGraphicPacksOverlayOpen}"
+             IsVisible="{Binding IsCemuGraphicPacksOverlayOpen}"
+             Opacity="{Binding IsCemuGraphicPacksOverlayOpen, Converter={StaticResource BoolToOpacityConverter}}">
+
+    <UserControl.Transitions>
+        <Transitions>
+            <DoubleTransition Property="Opacity" Duration="0:0:0.32" />
+        </Transitions>
+    </UserControl.Transitions>
+
+    <Grid Background="#E6000000">
+        <Grid RowDefinitions="Auto,*,Auto" Margin="24,16,24,20">
+            <StackPanel Grid.Row="0" Spacing="4" Margin="6,0,0,12">
+                <TextBlock Text="{Binding CemuGraphicPackOverlayHeader}"
+                           FontSize="42"
+                           FontWeight="SemiBold"
+                           Foreground="White" />
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <TextBlock Text="Title ID" Foreground="#D8D8D8" FontSize="20" />
+                    <TextBlock Text="{Binding CemuDetectedTitleId, FallbackValue=Unknown, TargetNullValue=Unknown}"
+                               Foreground="White"
+                               FontSize="20" />
+                </StackPanel>
+            </StackPanel>
+
+            <Border Grid.Row="1"
+                    Background="#1AFFFFFF"
+                    BorderBrush="#3FFFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="12">
+                <Grid>
+                    <controls:LoadingControl Width="72"
+                                             Height="72"
+                                             Foreground="#FFFFFFFF"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             IsVisible="{Binding IsCemuGraphicPacksBusy}" />
+
+                    <Grid RowDefinitions="Auto,*" RowSpacing="8"
+                          IsVisible="{Binding !IsCemuGraphicPacksBusy}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <TextBlock Text="Graphic packs"
+                                       Foreground="White"
+                                       FontSize="22"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <Button Content="Download Packs"
+                                        Command="{Binding DownloadCurrentSectionCemuGraphicPacksCommand}"
+                                        IsEnabled="{Binding !IsCemuGraphicPacksBusy}"
+                                        Padding="12,6" />
+                                <Button Content="Enable All"
+                                        Command="{Binding SelectAllCurrentSectionCemuGraphicPacksCommand}"
+                                        IsEnabled="{Binding !IsCemuGraphicPacksBusy}"
+                                        Padding="12,6" />
+                                <Button Content="Disable All"
+                                        Command="{Binding UnselectAllCurrentSectionCemuGraphicPacksCommand}"
+                                        IsEnabled="{Binding !IsCemuGraphicPacksBusy}"
+                                        Padding="12,6" />
+                            </StackPanel>
+                        </Grid>
+
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding CurrentSectionCemuGraphicPackEntries}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:CemuGraphicPackEntry">
+                                        <Border Background="#14000000"
+                                                BorderBrush="#33FFFFFF"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Padding="12"
+                                                Margin="0,0,0,8">
+                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                                <StackPanel Grid.Column="0" Spacing="6">
+                                                    <TextBlock Text="{Binding Name}"
+                                                               Foreground="White"
+                                                               FontSize="20"
+                                                               FontWeight="SemiBold" />
+                                                    <TextBlock Text="{Binding Subtitle}"
+                                                               Foreground="#B0B0B0"
+                                                               FontSize="15"
+                                                               TextWrapping="Wrap"
+                                                               IsVisible="{Binding Subtitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                    <ItemsControl ItemsSource="{Binding PresetGroups}"
+                                                                    IsVisible="{Binding HasPresets}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate x:DataType="vm:CemuGraphicPackPresetGroupEntry">
+                                                                <StackPanel Spacing="4" Margin="0,4,0,0">
+                                                                    <TextBlock Text="{Binding CategoryLabel}"
+                                                                               Foreground="#D0D0D0"
+                                                                               FontSize="14" />
+                                                                    <ComboBox ItemsSource="{Binding PresetNames}"
+                                                                              SelectedItem="{Binding SelectedPresetName, Mode=TwoWay}"
+                                                                              MinWidth="280"
+                                                                              HorizontalAlignment="Left" />
+                                                                </StackPanel>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </StackPanel>
+                                                <ToggleSwitch Grid.Column="1"
+                                                              IsChecked="{Binding IsEnabled, Mode=TwoWay}"
+                                                              VerticalAlignment="Top"
+                                                              Margin="0,4,0,0" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="6,12,0,0">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding CemuGraphicPacksStatus}"
+                           Foreground="#D8D8D8"
+                           FontSize="18"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center" />
+                <Button Grid.Column="1"
+                        Content="Save"
+                        Command="{Binding SaveCurrentSectionCemuGraphicPacksCommand}"
+                        IsEnabled="{Binding !IsCemuGraphicPacksBusy}"
+                        Padding="14,8" />
+                <Button Grid.Column="2"
+                        Content="Close"
+                        Command="{Binding CloseCurrentSectionCemuGraphicPacksCommand}"
+                        IsEnabled="{Binding !IsCemuGraphicPacksBusy}"
+                        Padding="14,8" />
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>
