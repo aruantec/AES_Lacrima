@@ -1,4 +1,5 @@
 ﻿using AES_Core.DI;
+using AES_Lacrima.Services;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -38,26 +39,21 @@ namespace AES_Lacrima.Views
             if (music == null)
                 return;
 
-            switch (e.Key)
-            {
-                case Key.MediaNextTrack:
-                    if (music.PlayNextCommand.CanExecute(null))
-                        music.PlayNextCommand.Execute(null);
-                    e.Handled = true;
-                    break;
+            MediaKeyRouting.TryHandle(
+                e,
+                new MediaKeyHandlers(
+                    () => ExecuteIfCan(music.PlayNextCommand),
+                    () => ExecuteIfCan(music.PlayPreviousCommand),
+                    () => ExecuteIfCan(music.TogglePlayCommand)));
+        }
 
-                case Key.MediaPreviousTrack:
-                    if (music.PlayPreviousCommand.CanExecute(null))
-                        music.PlayPreviousCommand.Execute(null);
-                    e.Handled = true;
-                    break;
+        private static bool ExecuteIfCan(System.Windows.Input.ICommand? command)
+        {
+            if (command?.CanExecute(null) != true)
+                return false;
 
-                case Key.MediaPlayPause:
-                    if (music.TogglePlayCommand.CanExecute(null))
-                        music.TogglePlayCommand.Execute(null);
-                    e.Handled = true;
-                    break;
-            }
+            command.Execute(null);
+            return true;
         }
 
         private void OnOpened(object? sender, EventArgs e)

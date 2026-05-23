@@ -1,6 +1,8 @@
 using AES_Core.DI;
+using AES_Lacrima.Services;
 using Avalonia.Controls;
 using Avalonia.Input;
+using System.Windows.Input;
 
 namespace AES_Lacrima.Mini.Views;
 
@@ -21,25 +23,20 @@ public partial class CustomWindow : Window
         if (DataContext is not ViewModels.MinViewModel vm)
             return;
 
-        switch (e.Key)
-        {
-            case Key.MediaNextTrack:
-                if (vm.NextCommand.CanExecute(null))
-                    vm.NextCommand.Execute(null);
-                e.Handled = true;
-                break;
+        MediaKeyRouting.TryHandle(
+            e,
+            new MediaKeyHandlers(
+                () => ExecuteIfCan(vm.NextCommand),
+                () => ExecuteIfCan(vm.PreviousCommand),
+                () => ExecuteIfCan(vm.PlayPauseCommand)));
+    }
 
-            case Key.MediaPreviousTrack:
-                if (vm.PreviousCommand.CanExecute(null))
-                    vm.PreviousCommand.Execute(null);
-                e.Handled = true;
-                break;
+    private static bool ExecuteIfCan(ICommand? command)
+    {
+        if (command?.CanExecute(null) != true)
+            return false;
 
-            case Key.MediaPlayPause:
-                if (vm.PlayPauseCommand.CanExecute(null))
-                    vm.PlayPauseCommand.Execute(null);
-                e.Handled = true;
-                break;
-        }
+        command.Execute(null);
+        return true;
     }
 }

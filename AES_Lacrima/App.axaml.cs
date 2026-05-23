@@ -11,12 +11,15 @@ using AES_Lacrima.Services;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Data.Core.Plugins;
 using Avalonia.Threading;
 using Avalonia.Markup.Xaml;
 using log4net;
 using System;
 using System.Diagnostics;
+using System.Windows.Input;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading.Tasks;
@@ -192,23 +195,47 @@ namespace AES_Lacrima
 
         private void TryInitializeGlobalMediaKeys()
         {
-            if (!OperatingSystem.IsWindows())
+            if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop || desktop.MainWindow == null)
                 return;
 
-            if (_globalMediaKeyHook != null)
+            if (OperatingSystem.IsWindows())
+            {
+                if (_globalMediaKeyHook != null)
+                    return;
+
+                try
+                {
+                    _globalMediaKeyHook = new WindowsGlobalMediaKeyHook();
+                    _globalMediaKeyHook.MediaKeyPressed += OnGlobalMediaKeyPressed;
+                    _globalMediaKeyHook.Start();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn("Failed to initialize global media key hook", ex);
+                    _globalMediaKeyHook = null;
+                }
+
+                return;
+            }
+
+            if (OperatingSystem.IsLinux())
+            {
+                // Tunnel handler catches XF86 media keys before focused controls on X11/Wayland.
+                desktop.MainWindow.AddHandler(
+                    InputElement.KeyDownEvent,
+                    OnMainWindowMediaKeyDown,
+                    RoutingStrategies.Tunnel,
+                    handledEventsToo: true);
+            }
+        }
+
+        private void OnMainWindowMediaKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (!OperatingSystem.IsLinux())
                 return;
 
-            try
-            {
-                _globalMediaKeyHook = new WindowsGlobalMediaKeyHook();
-                _globalMediaKeyHook.MediaKeyPressed += OnGlobalMediaKeyPressed;
-                _globalMediaKeyHook.Start();
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn("Failed to initialize global media key hook", ex);
-                _globalMediaKeyHook = null;
-            }
+            if (TryGetMediaKeyHandlers(out var handlers))
+                MediaKeyRouting.TryHandle(e, handlers);
         }
 
         private void OnGlobalMediaKeyPressed(GlobalMediaKey key)
@@ -221,48 +248,65 @@ namespace AES_Lacrima
             if (desktop.MainWindow.IsActive)
                 return;
 
+            if (!TryGetMediaKeyHandlers(out var handlers))
+                return;
+
+            switch (key)
+            {
+                case GlobalMediaKey.Next:
+                    handlers.PlayNext();
+                    break;
+                case GlobalMediaKey.Previous:
+                    handlers.PlayPrevious();
+                    break;
+                case GlobalMediaKey.PlayPause:
+                    handlers.TogglePlayPause();
+                    break;
+            }
+        }
+
+        private static bool TryGetMediaKeyHandlers(out MediaKeyHandlers handlers)
+        {
+            handlers = default;
+
+            if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop ||
+                desktop.MainWindow?.DataContext == null)
+            {
+                return false;
+            }
+
             if (desktop.MainWindow.DataContext is MainWindowViewModel mainVm)
             {
                 var music = mainVm.MusicViewModel;
                 if (music == null)
-                    return;
+                    return false;
 
-                switch (key)
-                {
-                    case GlobalMediaKey.Next:
-                        if (music.PlayNextCommand.CanExecute(null))
-                            music.PlayNextCommand.Execute(null);
-                        break;
-                    case GlobalMediaKey.Previous:
-                        if (music.PlayPreviousCommand.CanExecute(null))
-                            music.PlayPreviousCommand.Execute(null);
-                        break;
-                    case GlobalMediaKey.PlayPause:
-                        if (music.TogglePlayCommand.CanExecute(null))
-                            music.TogglePlayCommand.Execute(null);
-                        break;
-                }
-                return;
+                handlers = new MediaKeyHandlers(
+                    () => ExecuteIfCan(music.PlayNextCommand),
+                    () => ExecuteIfCan(music.PlayPreviousCommand),
+                    () => ExecuteIfCan(music.TogglePlayCommand));
+                return true;
             }
 
             if (desktop.MainWindow.DataContext is MinViewModel minVm)
             {
-                switch (key)
-                {
-                    case GlobalMediaKey.Next:
-                        if (minVm.NextCommand.CanExecute(null))
-                            minVm.NextCommand.Execute(null);
-                        break;
-                    case GlobalMediaKey.Previous:
-                        if (minVm.PreviousCommand.CanExecute(null))
-                            minVm.PreviousCommand.Execute(null);
-                        break;
-                    case GlobalMediaKey.PlayPause:
-                        if (minVm.PlayPauseCommand.CanExecute(null))
-                            minVm.PlayPauseCommand.Execute(null);
-                        break;
-                }
+                handlers = new MediaKeyHandlers(
+                    () => ExecuteIfCan(minVm.NextCommand),
+                    () => ExecuteIfCan(minVm.PreviousCommand),
+                    () => ExecuteIfCan(minVm.PlayPauseCommand));
+                return true;
             }
+
+            return false;
+        }
+
+        private static bool ExecuteIfCan(ICommand? command)
+        {
+            if (command?.CanExecute(null) != true)
+                return false;
+
+            command.Execute(null);
+            return true;
         }
 
         private async Task PerformPostStartupInitializationAsync(Window mainWindow)
