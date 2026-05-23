@@ -239,9 +239,14 @@ struct CaptureSession
     int dcompPendingWidth = 0;
     int dcompPendingHeight = 0;
     bool dcompHasPendingFrame = false;
-    // Stable copy target + cached SRV to avoid per-present resource creation.
+    // Optional copy target when capture texture cannot be bound as SRV.
     rt::com_ptr<ID3D11Texture2D> dcompPresentationTexture;
     rt::com_ptr<ID3D11ShaderResourceView> dcompPresentationSrv;
+    // Cached SRV for the live WGC texture (direct present path — no extra GPU copy).
+    rt::com_ptr<ID3D11ShaderResourceView> dcompCaptureSrv;
+    ID3D11Texture2D* dcompCaptureSrvTexture = nullptr;
+    DXGI_FORMAT dcompCaptureSourceFormat = DXGI_FORMAT_UNKNOWN;
+    rt::com_ptr<ID3D11Texture2D> dcompLastPresentedTexture;
     int dcompPresentationWidth = 0;
     int dcompPresentationHeight = 0;
     DXGI_FORMAT dcompPresentationFormat = DXGI_FORMAT_UNKNOWN;
@@ -1465,7 +1470,7 @@ struct CaptureSession
         if (!ShouldPresentSyntheticNow())
             return;
 
-        if (!dcompPresentationTexture || !dcompPreviousTexture)
+        if (!dcompPreviousTexture || (!dcompCaptureSrv && !dcompPresentationSrv))
         {
             dcompPendingSynthetic.store(false, std::memory_order_relaxed);
             return;
@@ -1508,6 +1513,34 @@ struct CaptureSession
         dcompHasPreviousFrame.store(false, std::memory_order_relaxed);
         dcompLastCaptureWidth = 0;
         dcompLastCaptureHeight = 0;
+        dcompCaptureSrv = nullptr;
+        dcompCaptureSrvTexture = nullptr;
+        dcompCaptureSourceFormat = DXGI_FORMAT_UNKNOWN;
+        dcompLastPresentedTexture = nullptr;
+    }
+
+    bool EnsureCaptureSourceSrv(ID3D11Texture2D* texture)
+    {
+        if (!texture || !d3dDevice)
+            return false;
+
+        if (dcompCaptureSrv && dcompCaptureSrvTexture == texture)
+            return true;
+
+        D3D11_TEXTURE2D_DESC desc{};
+        texture->GetDesc(&desc);
+
+        dcompCaptureSrv = nullptr;
+        dcompCaptureSrvTexture = nullptr;
+        dcompCaptureSourceFormat = DXGI_FORMAT_UNKNOWN;
+
+        HRESULT hr = d3dDevice->CreateShaderResourceView(texture, nullptr, dcompCaptureSrv.put());
+        if (FAILED(hr) || !dcompCaptureSrv)
+            return false;
+
+        dcompCaptureSrvTexture = texture;
+        dcompCaptureSourceFormat = desc.Format;
+        return true;
     }
 
     void QueueDirectCompositionFrame(ID3D11Texture2D* texture, int width, int height)
@@ -1738,8 +1771,11 @@ struct CaptureSession
 
     void PresentDcompFrame(float blendFactor, bool isSynthetic = false)
     {
+        ID3D11ShaderResourceView* srcSrv = dcompCaptureSrv ? dcompCaptureSrv.get() : dcompPresentationSrv.get();
+        DXGI_FORMAT sourceFormat = dcompCaptureSrv ? dcompCaptureSourceFormat : dcompPresentationFormat;
+
         if (closing.load(std::memory_order_relaxed) ||
-            !presentationHwnd || !d3dContext || !dcompPresentationTexture || !dcompPresentationSrv || !dcompRenderTargetView)
+            !presentationHwnd || !d3dContext || !srcSrv || !dcompRenderTargetView)
             return;
 
         const int width = dcompLastCaptureWidth;
@@ -1756,9 +1792,6 @@ struct CaptureSession
         const bool useBlend = blendFactor > 0.01f && dcompPreviousSrv && dcompFrameGenPixelShader;
         if (useBlend && !EnsureDcompFrameGenPixelShader())
             return;
-
-        D3D11_TEXTURE2D_DESC texDesc{};
-        dcompPresentationTexture->GetDesc(&texDesc);
 
         float viewAspect = dcompHeight > 0 ? static_cast<float>(dcompWidth) / static_cast<float>(dcompHeight) : 1.0f;
         float frameAspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
@@ -1856,7 +1889,7 @@ struct CaptureSession
         constants.tint[3] = dcompTintA.load();
         constants.outputWidth = static_cast<float>(dcompWidth);
         constants.outputHeight = static_cast<float>(dcompHeight);
-        constants.sourceIsSrgb = (texDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || texDesc.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB) ? 1.0f : 0.0f;
+        constants.sourceIsSrgb = (sourceFormat == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || sourceFormat == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB) ? 1.0f : 0.0f;
         constants.frameGenBlend = useBlend ? blendFactor : 0.0f;
         d3dContext->UpdateSubresource(dcompConstantBuffer.get(), 0, nullptr, &constants, 0, 0);
 
@@ -1878,7 +1911,7 @@ struct CaptureSession
         ID3D11Buffer* vb = dcompVertexBuffer.get();
         ID3D11SamplerState* samplerPtr = dcompSamplerState.get();
         ID3D11Buffer* cbPtr = dcompConstantBuffer.get();
-        ID3D11ShaderResourceView* srv0 = dcompPresentationSrv.get();
+        ID3D11ShaderResourceView* srv0 = srcSrv;
         ID3D11ShaderResourceView* srv1 = dcompPreviousSrv.get();
         ID3D11PixelShader* ps = useBlend ? dcompFrameGenPixelShader.get() : dcompPixelShader.get();
 
@@ -1950,30 +1983,65 @@ struct CaptureSession
             return;
         }
 
-        if (!EnsureDcompPresentationResources(texture, width, height))
-        {
-            MarkDirectCompositionFailed("EnsureDcompPresentationResources failed");
-            return;
-        }
-
         D3D11_TEXTURE2D_DESC texDesc{};
         texture->GetDesc(&texDesc);
 
-        if (dcompHasPreviousFrame.load(std::memory_order_relaxed) && dcompPresentationTexture)
-        {
-            if (EnsureDcompPreviousResources(width, height, texDesc.Format))
-                d3dContext->CopyResource(dcompPreviousTexture.get(), dcompPresentationTexture.get());
-        }
+        dcompCaptureSrv = nullptr;
+        dcompCaptureSrvTexture = nullptr;
+        dcompCaptureSourceFormat = DXGI_FORMAT_UNKNOWN;
 
-        d3dContext->CopySubresourceRegion(
-            dcompPresentationTexture.get(),
-            0,
-            0,
-            0,
-            0,
-            texture,
-            0,
-            nullptr);
+        const bool directPresent = EnsureCaptureSourceSrv(texture);
+        const bool frameGen = dcompFrameGenEnabled.load(std::memory_order_relaxed);
+
+        if (directPresent)
+        {
+            if (frameGen &&
+                dcompHasPreviousFrame.load(std::memory_order_relaxed) &&
+                dcompLastPresentedTexture)
+            {
+                if (EnsureDcompPreviousResources(width, height, texDesc.Format))
+                {
+                    d3dContext->CopyResource(
+                        dcompPreviousTexture.get(),
+                        dcompLastPresentedTexture.get());
+                }
+            }
+
+            dcompLastPresentedTexture.copy_from(texture);
+        }
+        else
+        {
+            if (!EnsureDcompPresentationResources(texture, width, height))
+            {
+                MarkDirectCompositionFailed("EnsureDcompPresentationResources failed");
+                return;
+            }
+
+            if (dcompHasPreviousFrame.load(std::memory_order_relaxed) && dcompPresentationTexture)
+            {
+                if (EnsureDcompPreviousResources(width, height, texDesc.Format))
+                {
+                    d3dContext->CopyResource(
+                        dcompPreviousTexture.get(),
+                        dcompPresentationTexture.get());
+                }
+            }
+
+            d3dContext->CopySubresourceRegion(
+                dcompPresentationTexture.get(),
+                0,
+                0,
+                0,
+                0,
+                texture,
+                0,
+                nullptr);
+
+            if (frameGen)
+                dcompLastPresentedTexture = dcompPresentationTexture;
+            else
+                dcompLastPresentedTexture = nullptr; // com_ptr assignment from nullptr is OK
+        }
 
         dcompHasPreviousFrame.store(true, std::memory_order_release);
         dcompLastCaptureWidth = width;
@@ -1981,7 +2049,7 @@ struct CaptureSession
 
         PresentDcompFrame(0.0f, false);
 
-        if (dcompFrameGenEnabled.load(std::memory_order_relaxed))
+        if (frameGen)
             ArmSyntheticPresent();
     }
 
