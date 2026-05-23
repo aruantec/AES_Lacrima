@@ -100,6 +100,7 @@ namespace AES_Lacrima.ViewModels
                 ? stretchValue
                 : Stretch.Uniform;
             DisableVSync = ReadBoolSetting(section, nameof(DisableVSync), false);
+            LowLatencyCapture = ReadBoolSetting(section, nameof(LowLatencyCapture), true);
             FrameGenerationMode = ReadIntSetting(section, nameof(FrameGenerationMode), (int)EmulationFrameGenerationMode.Off) switch
             {
                 (int)EmulationFrameGenerationMode.Software120Hz => EmulationFrameGenerationMode.Software120Hz,
@@ -126,6 +127,7 @@ namespace AES_Lacrima.ViewModels
             WriteSetting(section, nameof(RenderOverlayOpacity), RenderOverlayOpacity);
             WriteSetting(section, nameof(SelectedStretch), SelectedStretch.ToString());
             WriteSetting(section, nameof(DisableVSync), DisableVSync);
+            WriteSetting(section, nameof(LowLatencyCapture), LowLatencyCapture);
             WriteSetting(section, nameof(FrameGenerationMode), (int)FrameGenerationMode);
             WriteSetting(section, nameof(RenderBrightness), RenderBrightness);
             WriteSetting(section, nameof(RenderSaturation), RenderSaturation);

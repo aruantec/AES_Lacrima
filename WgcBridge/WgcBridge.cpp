@@ -265,6 +265,17 @@ struct CaptureSession
     int dcompLastCaptureWidth = 0;
     int dcompLastCaptureHeight = 0;
     std::mutex dcompPresentMutex;
+    std::atomic<bool> dcompLowLatencyCapture{ true };
+    int dcompSourceFullWidth = 0;
+    int dcompSourceFullHeight = 0;
+    int dcompSourceCropX = 0;
+    int dcompSourceCropY = 0;
+    int dcompSourceCropW = 0;
+    int dcompSourceCropH = 0;
+    rt::com_ptr<ID3D11Texture2D> pillarboxDetectTexture;
+    rt::com_ptr<ID3D11RenderTargetView> pillarboxDetectRtv;
+    int pillarboxDetectWidth = 0;
+    int pillarboxDetectHeight = 0;
 
     static std::wstring GetShaderCompilerErrorLogPath()
     {
@@ -1543,6 +1554,53 @@ struct CaptureSession
         return true;
     }
 
+    void SetDirectCompositionSourceLayout(int fullWidth, int fullHeight, int cropX, int cropY, int cropW, int cropH)
+    {
+        dcompSourceFullWidth = fullWidth;
+        dcompSourceFullHeight = fullHeight;
+        dcompSourceCropX = cropX;
+        dcompSourceCropY = cropY;
+        dcompSourceCropW = cropW;
+        dcompSourceCropH = cropH;
+    }
+
+    void GetSourceUvCrop(float& u0, float& v0, float& u1, float& v1) const
+    {
+        u0 = 0.0f;
+        v0 = 0.0f;
+        u1 = 1.0f;
+        v1 = 1.0f;
+        const int fullWidth = dcompSourceFullWidth;
+        const int fullHeight = dcompSourceFullHeight;
+        if (dcompSourceCropW > 0 && dcompSourceCropH > 0 && fullWidth > 0 && fullHeight > 0)
+        {
+            u0 = static_cast<float>(dcompSourceCropX) / static_cast<float>(fullWidth);
+            v0 = static_cast<float>(dcompSourceCropY) / static_cast<float>(fullHeight);
+            u1 = static_cast<float>(dcompSourceCropX + dcompSourceCropW) / static_cast<float>(fullWidth);
+            v1 = static_cast<float>(dcompSourceCropY + dcompSourceCropH) / static_cast<float>(fullHeight);
+        }
+    }
+
+    void ResetContentBarCrop()
+    {
+        dcompPillarboxLeft.store(0, std::memory_order_relaxed);
+        dcompPillarboxRight.store(0, std::memory_order_relaxed);
+        dcompPillarboxDetectCounter.store(0, std::memory_order_relaxed);
+    }
+
+    static void ApplyHalfTexelInset(float& u0, float& v0, float& u1, float& v1, int texWidth, int texHeight)
+    {
+        if (texWidth <= 1 || texHeight <= 1)
+            return;
+
+        const float du = 0.5f / static_cast<float>(texWidth);
+        const float dv = 0.5f / static_cast<float>(texHeight);
+        u0 = (std::min)(u1 - du, u0 + du);
+        v0 = (std::min)(v1 - dv, v0 + dv);
+        u1 = (std::max)(u0 + du, u1 - du);
+        v1 = (std::max)(v0 + dv, v1 - dv);
+    }
+
     void QueueDirectCompositionFrame(ID3D11Texture2D* texture, int width, int height)
     {
         if (!presentationHwnd || !texture || !dcompWorkerRunning.load())
@@ -1578,10 +1636,11 @@ struct CaptureSession
 
             {
                 std::unique_lock<std::mutex> lock(dcompWorkerMutex);
-                auto ready = [this]()
+                const bool lowLatency = dcompLowLatencyCapture.load(std::memory_order_relaxed);
+                auto ready = [this, lowLatency]()
                 {
                     return !dcompWorkerRunning.load() ||
-                        dcompHasPendingFrame ||
+                        (!lowLatency && dcompHasPendingFrame) ||
                         dcompShaderDirty.load() ||
                         ShouldPresentSyntheticNow();
                 };
@@ -1803,6 +1862,16 @@ struct CaptureSession
         float v0 = 0.0f;
         float u1 = 1.0f;
         float v1 = 1.0f;
+        const int fullWidth = dcompSourceFullWidth > 0 ? dcompSourceFullWidth : width;
+        const int fullHeight = dcompSourceFullHeight > 0 ? dcompSourceFullHeight : height;
+        if (dcompSourceCropW > 0 && dcompSourceCropH > 0 && fullWidth > 0 && fullHeight > 0)
+        {
+            u0 = static_cast<float>(dcompSourceCropX) / static_cast<float>(fullWidth);
+            v0 = static_cast<float>(dcompSourceCropY) / static_cast<float>(fullHeight);
+            u1 = static_cast<float>(dcompSourceCropX + dcompSourceCropW) / static_cast<float>(fullWidth);
+            v1 = static_cast<float>(dcompSourceCropY + dcompSourceCropH) / static_cast<float>(fullHeight);
+        }
+
         int stretch = dcompStretch.load();
 
         if (stretch == 1)
@@ -1838,14 +1907,17 @@ struct CaptureSession
             }
         }
 
-        if (dcompPillarboxCropEnabled.load(std::memory_order_relaxed) && width > 0)
+        static constexpr int kContentBarWarmupFrames = 60;
+        if (dcompPillarboxCropEnabled.load(std::memory_order_relaxed) &&
+            frameCount.load(std::memory_order_relaxed) >= kContentBarWarmupFrames &&
+            fullWidth > 0)
         {
             const int cropLeft = dcompPillarboxLeft.load(std::memory_order_relaxed);
             const int cropRight = dcompPillarboxRight.load(std::memory_order_relaxed);
             if (cropLeft > 0 || cropRight > 0)
             {
-                const float insetLeft = static_cast<float>(cropLeft) / static_cast<float>(width);
-                const float insetRight = static_cast<float>(cropRight) / static_cast<float>(width);
+                const float insetLeft = static_cast<float>(cropLeft) / static_cast<float>(fullWidth);
+                const float insetRight = static_cast<float>(cropRight) / static_cast<float>(fullWidth);
                 u0 = (std::min)(1.0f, (std::max)(0.0f, u0 + insetLeft));
                 u1 = (std::max)(0.0f, (std::min)(1.0f, u1 - insetRight));
                 if (u1 - u0 > 0.02f)
@@ -1857,6 +1929,8 @@ struct CaptureSession
                 }
             }
         }
+
+        ApplyHalfTexelInset(u0, v0, u1, v1, fullWidth, fullHeight);
 
         DcompVertex vertices[4] =
         {
@@ -1967,7 +2041,9 @@ struct CaptureSession
         if (closing.load(std::memory_order_relaxed) || !presentationHwnd || !texture || !d3dContext)
             return;
 
-        UpdatePillarboxCropFromTexture(texture, width, height);
+        const int fullWidth = dcompSourceFullWidth > 0 ? dcompSourceFullWidth : width;
+        const int fullHeight = dcompSourceFullHeight > 0 ? dcompSourceFullHeight : height;
+        UpdatePillarboxCropFromTexture(texture, fullWidth, fullHeight);
 
         std::lock_guard<std::mutex> lock(dcompPresentMutex);
 
@@ -2027,6 +2103,19 @@ struct CaptureSession
                 }
             }
 
+            const D3D11_BOX* copyBox = nullptr;
+            D3D11_BOX cropBox{};
+            if (dcompSourceCropW > 0 && dcompSourceCropH > 0)
+            {
+                cropBox.left = static_cast<UINT>(dcompSourceCropX);
+                cropBox.top = static_cast<UINT>(dcompSourceCropY);
+                cropBox.front = 0;
+                cropBox.right = static_cast<UINT>(dcompSourceCropX + dcompSourceCropW);
+                cropBox.bottom = static_cast<UINT>(dcompSourceCropY + dcompSourceCropH);
+                cropBox.back = 1;
+                copyBox = &cropBox;
+            }
+
             d3dContext->CopySubresourceRegion(
                 dcompPresentationTexture.get(),
                 0,
@@ -2035,7 +2124,7 @@ struct CaptureSession
                 0,
                 texture,
                 0,
-                nullptr);
+                copyBox);
 
             if (frameGen)
                 dcompLastPresentedTexture = dcompPresentationTexture;
@@ -2417,7 +2506,7 @@ struct CaptureSession
         dcompSmoothedFps.store(1000.0 / smoothedFrameTimeMs, std::memory_order_relaxed);
     }
 
-    static void DetectPillarboxColumns(const uint8_t* pixels, int stride, int width, int height, int& outLeft, int& outRight)
+    static void DetectContentBarInsets(const uint8_t* pixels, int stride, int width, int height, int& outLeft, int& outRight)
     {
         outLeft = 0;
         outRight = 0;
@@ -2451,7 +2540,6 @@ struct CaptureSession
         if (!hasContent)
             return;
 
-        int detectedLeft = 0;
         for (int x = 0; x < maxScan; ++x)
         {
             bool hasContentInCol = false;
@@ -2466,12 +2554,11 @@ struct CaptureSession
             }
             if (hasContentInCol)
             {
-                detectedLeft = (std::max)(0, x - 1);
+                outLeft = x;
                 break;
             }
         }
 
-        int detectedRight = 0;
         for (int x = width - 1; x > width - 1 - maxScan; --x)
         {
             bool hasContentInCol = false;
@@ -2486,13 +2573,129 @@ struct CaptureSession
             }
             if (hasContentInCol)
             {
-                detectedRight = (std::max)(0, (width - 1 - x) - 1);
+                outRight = (std::max)(0, width - 1 - x);
                 break;
             }
         }
+    }
 
-        outLeft = detectedLeft;
-        outRight = detectedRight;
+    static constexpr int kPillarboxDetectTargetWidth = 320;
+
+    bool EnsurePillarboxDetectDownscale(int fullWidth, int fullHeight)
+    {
+        if (!d3dDevice || fullWidth < 100 || fullHeight < 100)
+            return false;
+
+        const int targetW = kPillarboxDetectTargetWidth;
+        const int targetH = (std::max)(1, (fullHeight * targetW) / fullWidth);
+
+        if (pillarboxDetectTexture && pillarboxDetectWidth == targetW && pillarboxDetectHeight == targetH)
+            return true;
+
+        pillarboxDetectTexture = nullptr;
+        pillarboxDetectRtv = nullptr;
+        pillarboxStagingTexture = nullptr;
+
+        D3D11_TEXTURE2D_DESC td{};
+        td.Width = static_cast<UINT>(targetW);
+        td.Height = static_cast<UINT>(targetH);
+        td.MipLevels = 1;
+        td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_DEFAULT;
+        td.BindFlags = D3D11_BIND_RENDER_TARGET;
+        td.CPUAccessFlags = 0;
+
+        HRESULT hr = d3dDevice->CreateTexture2D(&td, nullptr, pillarboxDetectTexture.put());
+        if (FAILED(hr) || !pillarboxDetectTexture)
+            return false;
+
+        hr = d3dDevice->CreateRenderTargetView(pillarboxDetectTexture.get(), nullptr, pillarboxDetectRtv.put());
+        if (FAILED(hr) || !pillarboxDetectRtv)
+        {
+            pillarboxDetectTexture = nullptr;
+            return false;
+        }
+
+        D3D11_TEXTURE2D_DESC stagingDesc = td;
+        stagingDesc.BindFlags = 0;
+        stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        stagingDesc.Usage = D3D11_USAGE_STAGING;
+        hr = d3dDevice->CreateTexture2D(&stagingDesc, nullptr, pillarboxStagingTexture.put());
+        if (FAILED(hr) || !pillarboxStagingTexture)
+        {
+            pillarboxDetectTexture = nullptr;
+            pillarboxDetectRtv = nullptr;
+            return false;
+        }
+
+        pillarboxDetectWidth = targetW;
+        pillarboxDetectHeight = targetH;
+        pillarboxStagingWidth = targetW;
+        pillarboxStagingHeight = targetH;
+        return true;
+    }
+
+    bool DownscaleTextureForPillarboxDetect(ID3D11Texture2D* texture)
+    {
+        if (!texture || !pillarboxDetectRtv || !d3dContext)
+            return false;
+
+        if (!EnsureCaptureSourceSrv(texture) || !EnsureDirectCompositionRenderer())
+            return false;
+
+        float detectU0 = 0.0f;
+        float detectV0 = 0.0f;
+        float detectU1 = 1.0f;
+        float detectV1 = 1.0f;
+        GetSourceUvCrop(detectU0, detectV0, detectU1, detectV1);
+
+        D3D11_VIEWPORT viewport{};
+        viewport.Width = static_cast<float>(pillarboxDetectWidth);
+        viewport.Height = static_cast<float>(pillarboxDetectHeight);
+        viewport.MinDepth = 0.0f;
+        viewport.MaxDepth = 1.0f;
+
+        float clearColor[4] = { 0, 0, 0, 1 };
+        ID3D11RenderTargetView* rtv = pillarboxDetectRtv.get();
+        d3dContext->OMSetRenderTargets(1, &rtv, nullptr);
+        d3dContext->ClearRenderTargetView(pillarboxDetectRtv.get(), clearColor);
+        d3dContext->RSSetViewports(1, &viewport);
+
+        DcompVertex vertices[4] =
+        {
+            { -1.0f,  1.0f, 0.0f, detectU0, detectV0 },
+            {  1.0f,  1.0f, 0.0f, detectU1, detectV0 },
+            { -1.0f, -1.0f, 0.0f, detectU0, detectV1 },
+            {  1.0f, -1.0f, 0.0f, detectU1, detectV1 }
+        };
+
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(d3dContext->Map(dcompVertexBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            return false;
+
+        memcpy(mapped.pData, vertices, sizeof(vertices));
+        d3dContext->Unmap(dcompVertexBuffer.get(), 0);
+
+        ID3D11ShaderResourceView* srv = dcompCaptureSrv.get();
+        ID3D11SamplerState* sampler = dcompSamplerState.get();
+        UINT stride = sizeof(DcompVertex);
+        UINT offset = 0;
+        ID3D11Buffer* vb = dcompVertexBuffer.get();
+
+        d3dContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        d3dContext->IASetInputLayout(dcompInputLayout.get());
+        d3dContext->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+        d3dContext->VSSetShader(dcompVertexShader.get(), nullptr, 0);
+        d3dContext->PSSetShader(dcompPixelShader.get(), nullptr, 0);
+        d3dContext->PSSetShaderResources(0, 1, &srv);
+        d3dContext->PSSetSamplers(0, 1, &sampler);
+        d3dContext->Draw(4, 0);
+
+        ID3D11ShaderResourceView* nullSrv = nullptr;
+        d3dContext->PSSetShaderResources(0, 1, &nullSrv);
+        return true;
     }
 
     void UpdatePillarboxCropFromTexture(ID3D11Texture2D* texture, int width, int height)
@@ -2507,27 +2710,13 @@ struct CaptureSession
         if (width < 100 || height < 100)
             return;
 
-        if (!pillarboxStagingTexture || pillarboxStagingWidth != width || pillarboxStagingHeight != height)
-        {
-            D3D11_TEXTURE2D_DESC sourceDesc{};
-            texture->GetDesc(&sourceDesc);
-            D3D11_TEXTURE2D_DESC stagingDesc = sourceDesc;
-            stagingDesc.BindFlags = 0;
-            stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-            stagingDesc.Usage = D3D11_USAGE_STAGING;
-            stagingDesc.MiscFlags = 0;
-            stagingDesc.MipLevels = 1;
-            stagingDesc.ArraySize = 1;
+        if (!EnsurePillarboxDetectDownscale(width, height))
+            return;
 
-            pillarboxStagingTexture = nullptr;
-            if (FAILED(d3dDevice->CreateTexture2D(&stagingDesc, nullptr, pillarboxStagingTexture.put())))
-                return;
+        if (!DownscaleTextureForPillarboxDetect(texture))
+            return;
 
-            pillarboxStagingWidth = width;
-            pillarboxStagingHeight = height;
-        }
-
-        d3dContext->CopyResource(pillarboxStagingTexture.get(), texture);
+        d3dContext->CopyResource(pillarboxStagingTexture.get(), pillarboxDetectTexture.get());
 
         D3D11_MAPPED_SUBRESOURCE mapped{};
         if (FAILED(d3dContext->Map(pillarboxStagingTexture.get(), 0, D3D11_MAP_READ, 0, &mapped)))
@@ -2535,14 +2724,20 @@ struct CaptureSession
 
         int detectedLeft = 0;
         int detectedRight = 0;
-        DetectPillarboxColumns(
+        DetectContentBarInsets(
             static_cast<const uint8_t*>(mapped.pData),
             static_cast<int>(mapped.RowPitch),
-            width,
-            height,
+            pillarboxDetectWidth,
+            pillarboxDetectHeight,
             detectedLeft,
             detectedRight);
         d3dContext->Unmap(pillarboxStagingTexture.get(), 0);
+
+        const int cropW = dcompSourceCropW > 0 ? dcompSourceCropW : width;
+        if (pillarboxDetectWidth > 0)
+            detectedLeft = (detectedLeft * cropW) / pillarboxDetectWidth;
+        if (pillarboxDetectWidth > 0)
+            detectedRight = (detectedRight * cropW) / pillarboxDetectWidth;
 
         const int currentLeft = dcompPillarboxLeft.load(std::memory_order_relaxed);
         const int currentRight = dcompPillarboxRight.load(std::memory_order_relaxed);
@@ -2644,10 +2839,49 @@ struct CaptureSession
             }
 
             rt::com_ptr<ID3D11Texture2D> currentGpu = gpuTexture;
-            int currentW = desc.Width;
-            int currentH = desc.Height;
+            const int fullW = static_cast<int>(desc.Width);
+            const int fullH = static_cast<int>(desc.Height);
+            int presentW = fullW;
+            int presentH = fullH;
+            int cropX = 0;
+            int cropY = 0;
+            int cropW = 0;
+            int cropH = 0;
 
-            // GPU Crop if requested
+            latestGpuTexture = currentGpu;
+
+            if (presentationHwnd)
+            {
+                if (localCropW > 0 && localCropH > 0)
+                {
+                    cropX = localCropX;
+                    cropY = localCropY;
+                    cropW = localCropW;
+                    cropH = localCropH;
+                    presentW = localCropW;
+                    presentH = localCropH;
+                }
+
+                SetDirectCompositionSourceLayout(fullW, fullH, cropX, cropY, cropW, cropH);
+
+                if (dcompLowLatencyCapture.load(std::memory_order_relaxed))
+                {
+                    ProcessCapturedFrame(currentGpu.get(), presentW, presentH);
+                    dcompWorkerCv.notify_one();
+                }
+                else
+                {
+                    QueueDirectCompositionFrame(currentGpu.get(), presentW, presentH);
+                }
+
+                width.store(presentW);
+                height.store(presentH);
+                frameCount.fetch_add(1);
+                frame.Close();
+                return;
+            }
+
+            // CPU / interop paths: keep GPU copy crop when requested.
             if (localCropW > 0 && localCropH > 0)
             {
                 if (!croppedTexture || croppedTextureWidth != localCropW || croppedTextureHeight != localCropH)
@@ -2670,24 +2904,14 @@ struct CaptureSession
                     D3D11_BOX box = { (UINT)localCropX, (UINT)localCropY, 0, (UINT)(localCropX + localCropW), (UINT)(localCropY + localCropH), 1 };
                     d3dContext->CopySubresourceRegion(croppedTexture.get(), 0, 0, 0, 0, gpuTexture.get(), 0, &box);
                     currentGpu = croppedTexture;
-                    currentW = localCropW;
-                    currentH = localCropH;
+                    presentW = localCropW;
+                    presentH = localCropH;
                 }
             }
 
             latestGpuTexture = currentGpu;
-
-            if (presentationHwnd)
-            {
-                // DirectComposition sessions present on a dedicated worker thread.
-                // Skip CPU staging/readback entirely (same as OBS-style GPU-only capture).
-                QueueDirectCompositionFrame(currentGpu.get(), currentW, currentH);
-                width.store(currentW);
-                height.store(currentH);
-                frameCount.fetch_add(1);
-                frame.Close();
-                return;
-            }
+            const int currentW = presentW;
+            const int currentH = presentH;
 
             // Interop-only fast path:
             // when enabled, keep everything on GPU and avoid CPU staging/readback work.
@@ -3017,7 +3241,7 @@ static HWND FindBestCaptureWindowForCurrentProcess()
 }
 
 extern "C" {
-    void* CreateCaptureSessionInternal(HWND targetHwnd, HWND presentationHwnd)
+    void* CreateCaptureSessionInternal(HWND targetHwnd, HWND presentationHwnd, int lowLatencyCapture)
     {
         try
         {
@@ -3036,6 +3260,7 @@ extern "C" {
 
             auto s = new CaptureSession();
             s->presentationHwnd = presentationHwnd;
+            s->dcompLowLatencyCapture.store(lowLatencyCapture != 0 && presentationHwnd != nullptr, std::memory_order_relaxed);
 
             HRESULT hr = D3D11CreateDevice(
                 nullptr,
@@ -3202,11 +3427,11 @@ extern "C" {
                 _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] Capture item size: %d x %d\n", (int)size.Width, (int)size.Height);
                 OutputDebugStringA(buf);
 
-                // Use 10 buffers for high refresh rate stability
+                const int poolBuffers = (presentationHwnd && s->dcompLowLatencyCapture.load(std::memory_order_relaxed)) ? 3 : 10;
                 s->framePool = wgc::Direct3D11CaptureFramePool::CreateFreeThreaded(
                     s->winrtDevice,
                     rt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized,
-                    10,
+                    poolBuffers,
                     size);
 
                 if (!s->framePool)
@@ -3280,12 +3505,12 @@ extern "C" {
 
     __declspec(dllexport) void* CreateCaptureSession(HWND targetHwnd)
     {
-        return CreateCaptureSessionInternal(targetHwnd, nullptr);
+        return CreateCaptureSessionInternal(targetHwnd, nullptr, 0);
     }
 
-    __declspec(dllexport) void* CreateDirectCompositionCaptureSession(HWND targetHwnd, HWND presentationHwnd)
+    __declspec(dllexport) void* CreateDirectCompositionCaptureSession(HWND targetHwnd, HWND presentationHwnd, int lowLatencyCapture)
     {
-        return CreateCaptureSessionInternal(targetHwnd, presentationHwnd);
+        return CreateCaptureSessionInternal(targetHwnd, presentationHwnd, lowLatencyCapture);
     }
 
     __declspec(dllexport) void DestroyCaptureSession(void* ptr) {
@@ -3368,11 +3593,7 @@ extern "C" {
         const bool enable = enabled != 0;
         s->dcompPillarboxCropEnabled.store(enable, std::memory_order_relaxed);
         if (!enable)
-        {
-            s->dcompPillarboxLeft.store(0, std::memory_order_relaxed);
-            s->dcompPillarboxRight.store(0, std::memory_order_relaxed);
-            s->dcompPillarboxDetectCounter.store(0, std::memory_order_relaxed);
-        }
+            s->ResetContentBarCrop();
     }
 
     __declspec(dllexport) void SetDirectCompositionFrameGeneration(void* ptr, int enabled, int targetHz) {
@@ -3516,10 +3737,16 @@ extern "C" {
         if (height < 0) height = 0;
         if (width > SAFE_MAX) width = SAFE_MAX;
         if (height > SAFE_MAX) height = SAFE_MAX;
+        const int prevX = s->cropX.load();
+        const int prevY = s->cropY.load();
+        const int prevW = s->cropW.load();
+        const int prevH = s->cropH.load();
         s->cropX.store(x);
         s->cropY.store(y);
         s->cropW.store(width);
         s->cropH.store(height);
+        if (prevX != x || prevY != y || prevW != width || prevH != height)
+            s->ResetContentBarCrop();
         char buf[256]; _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] SetCaptureCropRect: %d,%d %dx%d\n", x, y, width, height); OutputDebugStringA(buf);
     }
 
