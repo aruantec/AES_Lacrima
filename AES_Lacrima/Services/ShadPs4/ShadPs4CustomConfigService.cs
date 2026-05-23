@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using AES_Lacrima.Serialization;
 
 namespace AES_Lacrima.Services.ShadPs4;
 
@@ -58,13 +59,6 @@ public static class ShadPs4CustomConfigService
 
     public static readonly IReadOnlyList<string> LogTypeLabels = ["wincolor", "msvc"];
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = null,
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
-    };
-
     public static string GetCustomConfigsDirectory(string? emulatorDirectory)
     {
         if (string.IsNullOrWhiteSpace(emulatorDirectory))
@@ -98,7 +92,7 @@ public static class ShadPs4CustomConfigService
         try
         {
             var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<ShadPs4CustomConfigDocument>(json, JsonOptions) ?? CreateDefault();
+            return JsonSerializer.Deserialize(json, ShadPs4JsonContext.Default.ShadPs4CustomConfigDocument) ?? CreateDefault();
         }
         catch
         {
@@ -113,7 +107,7 @@ public static class ShadPs4CustomConfigService
         if (!string.IsNullOrWhiteSpace(directory))
             Directory.CreateDirectory(directory);
 
-        var json = JsonSerializer.Serialize(document, JsonOptions);
+        var json = JsonSerializer.Serialize(document, ShadPs4JsonContext.Default.ShadPs4CustomConfigDocument);
         File.WriteAllText(path, json);
     }
 

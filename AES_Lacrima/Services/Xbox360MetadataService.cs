@@ -9,6 +9,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using AES_Core.DI;
 using AES_Lacrima.Helpers;
+using AES_Lacrima.Serialization;
 
 namespace AES_Lacrima.Services;
 
@@ -264,7 +265,7 @@ public partial class Xbox360MetadataService
             {
                 try
                 {
-                    var entries = JsonSerializer.Deserialize<List<Xbox360TitleEntry>>(json) ?? [];
+                    var entries = JsonSerializer.Deserialize(json, RomTitleDatabaseJsonContext.Default.ListXbox360TitleEntry) ?? [];
 
                     foreach (var entry in entries)
                     {
@@ -284,15 +285,6 @@ public partial class Xbox360MetadataService
             _titleLookup = lookup;
             return lookup;
         }
-    }
-
-    private sealed class Xbox360TitleEntry
-    {
-        [JsonPropertyName("titleid")]
-        public string? TitleId { get; set; }
-
-        [JsonPropertyName("title")]
-        public string? Title { get; set; }
     }
 
     private static bool TryReadXgdLayout(Stream stream, out (long BaseSector, uint RootDirSector, uint RootDirSize) layout)

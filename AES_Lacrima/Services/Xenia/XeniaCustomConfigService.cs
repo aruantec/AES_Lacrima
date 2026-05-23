@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Core.Logging;
+using AES_Lacrima.Serialization;
 using log4net;
 using Tomlyn;
 using Tomlyn.Model;
@@ -32,12 +33,6 @@ public static class XeniaCustomConfigService
         "https://raw.githubusercontent.com/xenia-canary/xenia-canary/canary/xenia-canary.config.toml",
         "https://raw.githubusercontent.com/xenia-canary/xenia-canary/master/xenia-canary.config.toml"
     ];
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
 
     private static readonly HttpClient HttpClient = new()
     {
@@ -80,7 +75,8 @@ public static class XeniaCustomConfigService
         try
         {
             var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<XeniaCustomConfigDocument>(json, JsonOptions) ?? new XeniaCustomConfigDocument();
+            return JsonSerializer.Deserialize(json, XeniaCustomConfigJsonContext.Default.XeniaCustomConfigDocument)
+                   ?? new XeniaCustomConfigDocument();
         }
         catch (Exception ex)
         {
@@ -96,7 +92,7 @@ public static class XeniaCustomConfigService
         if (!string.IsNullOrWhiteSpace(directory))
             Directory.CreateDirectory(directory);
 
-        var json = JsonSerializer.Serialize(document, JsonOptions);
+        var json = JsonSerializer.Serialize(document, XeniaCustomConfigJsonContext.Default.XeniaCustomConfigDocument);
         File.WriteAllText(path, json);
     }
 

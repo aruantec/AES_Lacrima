@@ -4,7 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using AES_Lacrima.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
@@ -16,11 +18,6 @@ public static class ShadPs4ContentDownloadService
     private static readonly HttpClient Client = new()
     {
         Timeout = TimeSpan.FromMinutes(5)
-    };
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
     };
 
     public static string GetPatchesRootDirectory(string? emulatorDirectory)
@@ -174,7 +171,7 @@ public static class ShadPs4ContentDownloadService
         List<GitHubContentEntry>? entries;
         try
         {
-            entries = JsonSerializer.Deserialize<List<GitHubContentEntry>>(json, JsonOptions);
+            entries = JsonSerializer.Deserialize(json, ShadPs4JsonContext.Default.ListGitHubContentEntry);
         }
         catch (Exception ex)
         {
@@ -250,7 +247,7 @@ public static class ShadPs4ContentDownloadService
         }
 
         var jsonPath = Path.Combine(repositoryDirectory, "files.json");
-        var json = JsonSerializer.Serialize(filesObject, new JsonSerializerOptions { WriteIndented = true });
+        var json = JsonSerializer.Serialize(filesObject, ShadPs4JsonContext.Default.DictionaryStringListString);
         File.WriteAllText(jsonPath, json);
     }
 
@@ -266,11 +263,4 @@ public static class ShadPs4ContentDownloadService
 
     private static ShadPs4DownloadResult Fail(string message) =>
         new() { Success = false, Message = message };
-
-    private sealed class GitHubContentEntry
-    {
-        public string Name { get; set; } = string.Empty;
-
-        public string DownloadUrl { get; set; } = string.Empty;
-    }
 }

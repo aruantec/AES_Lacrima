@@ -15,6 +15,7 @@ using System.Threading.Tasks;
 using System.Xml.Linq;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Lacrima.Serialization;
 using AES_Emulation.EmulationHandlers;
 using log4net;
 
@@ -48,14 +49,6 @@ public partial class FlycastEmulatorUpdateService
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(20);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
-
-    private sealed class ReleaseCache
-    {
-        public string? Repository { get; set; }
-        public string? ETag { get; set; }
-        public string? Payload { get; set; }
-        public DateTimeOffset FetchedAtUtc { get; set; }
-    }
 
     private sealed record ReleaseInfo(
         string Tag,
@@ -284,7 +277,7 @@ public partial class FlycastEmulatorUpdateService
     private async Task<IReadOnlyList<ReleaseInfo>> GetGitHubReleasesAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath) ?? new ReleaseCache();
+        var cache = LoadCache(cachePath) ?? new FlycastReleaseCache();
         if (!forceRefresh &&
             cache.Repository != null &&
             string.Equals(cache.Repository, ReleaseCacheKey, StringComparison.OrdinalIgnoreCase) &&
@@ -317,7 +310,7 @@ public partial class FlycastEmulatorUpdateService
         {
             response.EnsureSuccessStatusCode();
             json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            cache = new ReleaseCache
+            cache = new FlycastReleaseCache
             {
                 Repository = ReleaseCacheKey,
                 ETag = response.Headers.ETag?.Tag,
@@ -336,7 +329,7 @@ public partial class FlycastEmulatorUpdateService
     private async Task<IReadOnlyList<ReleaseInfo>> GetNightlyReleasesAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath) ?? new ReleaseCache();
+        var cache = LoadCache(cachePath) ?? new FlycastReleaseCache();
         if (!forceRefresh &&
             cache.Repository != null &&
             string.Equals(cache.Repository, NightlyCacheKey, StringComparison.OrdinalIgnoreCase) &&
@@ -353,7 +346,7 @@ public partial class FlycastEmulatorUpdateService
         using var response = await Client.GetAsync(NightlyBuildsEndpoint, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         var xml = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        cache = new ReleaseCache
+        cache = new FlycastReleaseCache
         {
             Repository = NightlyCacheKey,
             Payload = xml,
@@ -909,32 +902,9 @@ public partial class FlycastEmulatorUpdateService
         return string.IsNullOrWhiteSpace(sanitized) ? "Unknown" : sanitized;
     }
 
-    private static ReleaseCache? LoadCache(string cachePath)
-    {
-        if (!File.Exists(cachePath))
-            return null;
+    private static FlycastReleaseCache? LoadCache(string cachePath) =>
+        FlycastReleaseCachePersistence.Load(cachePath);
 
-        try
-        {
-            var json = File.ReadAllText(cachePath);
-            return JsonSerializer.Deserialize<ReleaseCache>(json);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static void SaveCache(string cachePath, ReleaseCache cache)
-    {
-        try
-        {
-            var json = JsonSerializer.Serialize(cache, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(cachePath, json);
-        }
-        catch
-        {
-        }
-    }
-
+    private static void SaveCache(string cachePath, FlycastReleaseCache cache) =>
+        FlycastReleaseCachePersistence.Save(cachePath, cache);
 }
