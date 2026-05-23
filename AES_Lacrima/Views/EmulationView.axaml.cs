@@ -172,6 +172,10 @@ public partial class EmulationView : UserControl
     private PortalFullscreenOverlayWindow? _portalFullscreenOverlayWindow;
     private DateTime _lastPortalGraphUpdateUtc = DateTime.MinValue;
 
+    /// <summary>
+    /// When <see langword="true"/>, composition capture renders in <c>InlineCaptureControl</c> on this view.
+    /// When <see langword="false"/> (default), capture uses <see cref="PortalWindow"/> instead.
+    /// </summary>
     private static bool UseInlineCaptureHost => false;
 
     private EmulatorCaptureHostControl? ActiveCaptureHost

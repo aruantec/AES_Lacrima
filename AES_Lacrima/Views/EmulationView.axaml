@@ -395,6 +395,7 @@
                     VerticalAlignment="Stretch"
                     Background="Transparent"
                     ClipToBounds="True">
+                <!-- Compiled bindings (AOT-safe). Keep in sync with CaptureControl in PortalWindow.axaml. -->
                 <emuControls:EmulatorCaptureHost x:Name="InlineCaptureControl"
                                                  IsVisible="False"
                                                  HorizontalAlignment="Stretch"

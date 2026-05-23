@@ -5,6 +5,7 @@ using AES_Lacrima.Services.ShadPs4;
 
 namespace AES_Lacrima.Serialization;
 
+/// <summary>JSON source generation for shadPS4 configs, cheats, and patch metadata.</summary>
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     PropertyNameCaseInsensitive = true,
@@ -32,6 +33,7 @@ namespace AES_Lacrima.Serialization;
 [JsonSerializable(typeof(List<GitHubContentEntry>))]
 internal partial class ShadPs4JsonContext : JsonSerializerContext;
 
+/// <summary>GitHub API entry from a repository contents listing (patch download index).</summary>
 internal sealed class GitHubContentEntry
 {
     [JsonPropertyName("name")]

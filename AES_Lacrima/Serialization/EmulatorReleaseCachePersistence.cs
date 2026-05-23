@@ -4,8 +4,12 @@ using System.Text.Json;
 
 namespace AES_Lacrima.Serialization;
 
+/// <summary>
+/// Reads and writes <see cref="EmulatorReleaseCache"/> files for emulator updater services.
+/// </summary>
 internal static class EmulatorReleaseCachePersistence
 {
+    /// <summary>Loads a cache file, or <see langword="null" /> if missing or invalid.</summary>
     public static EmulatorReleaseCache? Load(string cachePath)
     {
         try
@@ -22,6 +26,7 @@ internal static class EmulatorReleaseCachePersistence
         }
     }
 
+    /// <summary>Persists a cache file, creating parent directories when needed.</summary>
     public static void Save(string cachePath, EmulatorReleaseCache cache)
     {
         try

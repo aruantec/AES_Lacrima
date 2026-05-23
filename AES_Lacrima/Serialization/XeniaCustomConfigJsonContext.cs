@@ -4,6 +4,7 @@ using AES_Lacrima.Services.Xenia;
 
 namespace AES_Lacrima.Serialization;
 
+/// <summary>JSON source generation for per-game Xenia custom config documents.</summary>
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

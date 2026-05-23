@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 namespace AES_Lacrima.Serialization;
 
 /// <summary>
-/// Flycast stores either GitHub release JSON or nightly S3 listing XML in <see cref="Payload"/>.
+/// Flycast updater cache. <see cref="Payload"/> holds GitHub releases JSON or nightly S3 listing XML.
 /// </summary>
 internal sealed class FlycastReleaseCache
 {
@@ -19,12 +19,15 @@ internal sealed class FlycastReleaseCache
     public DateTimeOffset FetchedAtUtc { get; set; }
 }
 
+/// <summary>JSON source generation for <see cref="FlycastReleaseCache"/>.</summary>
 [JsonSourceGenerationOptions(WriteIndented = true)]
 [JsonSerializable(typeof(FlycastReleaseCache))]
 internal partial class FlycastUpdateJsonContext : JsonSerializerContext;
 
+/// <summary>Reads and writes <see cref="FlycastReleaseCache"/> files.</summary>
 internal static class FlycastReleaseCachePersistence
 {
+    /// <inheritdoc cref="EmulatorReleaseCachePersistence.Load"/>
     public static FlycastReleaseCache? Load(string cachePath)
     {
         try
@@ -41,6 +44,7 @@ internal static class FlycastReleaseCachePersistence
         }
     }
 
+    /// <inheritdoc cref="EmulatorReleaseCachePersistence.Save"/>
     public static void Save(string cachePath, FlycastReleaseCache cache)
     {
         try

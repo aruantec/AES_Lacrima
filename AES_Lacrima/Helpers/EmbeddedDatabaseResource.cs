@@ -6,10 +6,18 @@ using System.Text;
 
 namespace AES_Lacrima.Helpers;
 
+/// <summary>
+/// Loads embedded <c>Database/*.json</c> resources (title lists) from the app assembly or disk fallbacks.
+/// Consumers deserialize JSON via <c>AES_Lacrima.Serialization.RomTitleDatabaseJsonContext</c> (AOT-safe).
+/// </summary>
 internal static class EmbeddedDatabaseResource
 {
     private static readonly Assembly Assembly = typeof(EmbeddedDatabaseResource).Assembly;
 
+    /// <summary>
+    /// Reads a database file by name (for example <c>psx.json</c>).
+    /// Checks embedded resources first, then <c>Database/</c> next to the executable.
+    /// </summary>
     public static string? ReadText(string fileName)
     {
         if (string.IsNullOrWhiteSpace(fileName))
