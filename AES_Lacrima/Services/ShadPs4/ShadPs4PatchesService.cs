@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Xml.Linq;
+using AES_Lacrima.Serialization;
 
 namespace AES_Lacrima.Services.ShadPs4;
 
@@ -12,11 +13,6 @@ public sealed record ShadPs4PatchFileItem(string FilePath, string TitleId);
 public static class ShadPs4PatchesService
 {
     private static readonly string[] PreferredRepositoryOrder = ["shadPS4", "shadps4", "GoldHEN"];
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
 
     public static ShadPs4PatchFileItem? FindPatchFile(string? emulatorDirectory, string titleId)
     {
@@ -60,7 +56,7 @@ public static class ShadPs4PatchesService
             try
             {
                 var json = File.ReadAllText(filesJsonPath);
-                var map = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(json, JsonOptions);
+                var map = JsonSerializer.Deserialize(json, ShadPs4JsonContext.Default.DictionaryStringListString);
                 if (map != null)
                 {
                     foreach (var (fileName, titleIds) in map)

@@ -13,6 +13,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Lacrima.Serialization;
 using log4net;
 
 namespace AES_Lacrima.Services;
@@ -42,14 +43,6 @@ public partial class Pcsx2EmulatorUpdateService
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(20);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
-
-    private sealed class ReleaseCache
-    {
-        public string? Repository { get; set; }
-        public string? ETag { get; set; }
-        public string? ReleasesJson { get; set; }
-        public DateTimeOffset FetchedAtUtc { get; set; }
-    }
 
     private sealed record ReleaseInfo(
         string Tag,
@@ -237,7 +230,7 @@ public partial class Pcsx2EmulatorUpdateService
     private async Task<IReadOnlyList<ReleaseInfo>> GetReleasesAsync(bool includePrereleases, bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
-        var cache = LoadCache(cachePath) ?? new ReleaseCache();
+        var cache = LoadCache(cachePath) ?? new EmulatorReleaseCache();
         if (!forceRefresh &&
             cache.Repository != null &&
             string.Equals(cache.Repository, CacheKey, StringComparison.OrdinalIgnoreCase) &&
@@ -274,7 +267,7 @@ public partial class Pcsx2EmulatorUpdateService
         {
             response.EnsureSuccessStatusCode();
             json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            cache = new ReleaseCache
+            cache = new EmulatorReleaseCache
             {
                 Repository = CacheKey,
                 ETag = response.Headers.ETag?.Tag,
@@ -786,31 +779,9 @@ public partial class Pcsx2EmulatorUpdateService
         return string.IsNullOrWhiteSpace(sanitized) ? "Unknown" : sanitized;
     }
 
-    private static ReleaseCache? LoadCache(string cachePath)
-    {
-        try
-        {
-            if (!File.Exists(cachePath))
-                return null;
+    private static EmulatorReleaseCache? LoadCache(string cachePath) =>
+        EmulatorReleaseCachePersistence.Load(cachePath);
 
-            var json = File.ReadAllText(cachePath);
-            return JsonSerializer.Deserialize<ReleaseCache>(json);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static void SaveCache(string cachePath, ReleaseCache cache)
-    {
-        try
-        {
-            var json = JsonSerializer.Serialize(cache);
-            File.WriteAllText(cachePath, json);
-        }
-        catch
-        {
-        }
-    }
+    private static void SaveCache(string cachePath, EmulatorReleaseCache cache) =>
+        EmulatorReleaseCachePersistence.Save(cachePath, cache);
 }

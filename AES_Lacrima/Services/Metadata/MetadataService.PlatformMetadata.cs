@@ -4,6 +4,7 @@ using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
 using AES_Lacrima.Helpers;
+using AES_Lacrima.Serialization;
 using AES_Lacrima.Services.Emulation;
 using AES_Lacrima.ViewModels;
 using Avalonia;
@@ -886,7 +887,7 @@ namespace AES_Lacrima.Services
 
             try
             {
-                var entries = JsonSerializer.Deserialize<List<RomTitleEntry>>(json) ?? [];
+                var entries = JsonSerializer.Deserialize(json, RomTitleDatabaseJsonContext.Default.ListRomTitleEntry) ?? [];
 
                 foreach (var entry in entries)
                 {
@@ -916,15 +917,6 @@ namespace AES_Lacrima.Services
                          .Replace('_', '-')
                          .Replace('.', '-')
                          .ToUpperInvariant();
-        }
-
-        private sealed class RomTitleEntry
-        {
-            [JsonPropertyName("serial")]
-            public string? Serial { get; set; }
-
-            [JsonPropertyName("title")]
-            public string? Title { get; set; }
         }
 
         private async Task SavePs3TitleToMetadataCacheAsync(MediaItem item, string titleName, CancellationToken cancellationToken)

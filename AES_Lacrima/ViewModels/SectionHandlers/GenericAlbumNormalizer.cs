@@ -2,6 +2,7 @@ using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
 using AES_Core.IO;
 using AES_Lacrima.Helpers;
+using AES_Lacrima.Serialization;
 using AES_Lacrima.Services;
 using AES_Lacrima.Services.Emulation;
 using System.Collections.Concurrent;
@@ -615,7 +616,7 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
 
             try
             {
-                var entries = JsonSerializer.Deserialize<List<RomTitleEntry>>(json) ?? [];
+                var entries = JsonSerializer.Deserialize(json, RomTitleDatabaseJsonContext.Default.ListRomTitleEntry) ?? [];
 
                 foreach (var entry in entries)
                 {
@@ -652,13 +653,5 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
             return ApplicationPaths.GetCacheFile(cacheId + ".meta");
         }
 
-        private sealed class RomTitleEntry
-        {
-            [JsonPropertyName("serial")]
-            public string? Serial { get; set; }
-
-            [JsonPropertyName("title")]
-            public string? Title { get; set; }
-        }
     }
 }

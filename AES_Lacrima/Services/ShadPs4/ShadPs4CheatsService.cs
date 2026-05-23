@@ -3,23 +3,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using AES_Lacrima.Serialization;
 
 namespace AES_Lacrima.Services.ShadPs4;
 
 public static class ShadPs4CheatsService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true
-    };
-
-    private static readonly JsonSerializerOptions WriteOptions = new()
-    {
-        WriteIndented = true
-    };
-
     public static string GetCheatsDirectory(string? emulatorDirectory)
     {
         if (string.IsNullOrWhiteSpace(emulatorDirectory))
@@ -76,7 +65,7 @@ public static class ShadPs4CheatsService
         try
         {
             var json = File.ReadAllText(cheatFilePath);
-            return JsonSerializer.Deserialize<ShadPs4CheatDocument>(json, JsonOptions);
+            return JsonSerializer.Deserialize(json, ShadPs4JsonContext.Default.ShadPs4CheatDocument);
         }
         catch
         {
@@ -93,7 +82,7 @@ public static class ShadPs4CheatsService
         try
         {
             var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<ShadPs4CheatEnabledStateDocument>(json, JsonOptions)
+            return JsonSerializer.Deserialize(json, ShadPs4JsonContext.Default.ShadPs4CheatEnabledStateDocument)
                    ?? new ShadPs4CheatEnabledStateDocument();
         }
         catch
@@ -109,7 +98,7 @@ public static class ShadPs4CheatsService
         if (!string.IsNullOrWhiteSpace(directory))
             Directory.CreateDirectory(directory);
 
-        var json = JsonSerializer.Serialize(state, WriteOptions);
+        var json = JsonSerializer.Serialize(state, ShadPs4JsonContext.Default.ShadPs4CheatEnabledStateDocument);
         File.WriteAllText(path, json);
     }
 

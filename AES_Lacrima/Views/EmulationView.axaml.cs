@@ -6,7 +6,6 @@ using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
-using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -452,12 +451,7 @@ public partial class EmulationView : UserControl
 
         if (_inlineCaptureHost != null)
         {
-            if (this.FindControl<Border>("EmulatorCaptureHost") is { } captureHostBorder &&
-                ReferenceEquals(captureHostBorder.Child, _inlineCaptureHost))
-            {
-                captureHostBorder.Child = null;
-            }
-
+            _inlineCaptureHost.IsVisible = false;
             _inlineCaptureHost = null;
         }
 
@@ -1162,41 +1156,9 @@ public partial class EmulationView : UserControl
         if (!UseInlineCaptureHost || _inlineCaptureHost != null)
             return;
 
-        var captureHostBorder = this.FindControl<Border>("EmulatorCaptureHost");
-        if (captureHostBorder == null)
+        _inlineCaptureHost = this.FindControl<EmulatorCaptureHostControl>("InlineCaptureControl");
+        if (_inlineCaptureHost == null)
             return;
-
-        var captureHost = new EmulatorCaptureHostControl
-        {
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch,
-            IsVisible = false
-        };
-
-        captureHost.Bind(EmulatorCaptureHostControl.TargetHwndProperty, new Binding("EmulatorTargetHwnd"));
-        captureHost.Bind(EmulatorCaptureHostControl.TargetProcessIdProperty, new Binding("EmulatorTargetProcessId"));
-        captureHost.Bind(EmulatorCaptureHostControl.TargetWindowTitleHintProperty, new Binding("CurrentEmulatorWindowTitleHint"));
-        captureHost.Bind(EmulatorCaptureHostControl.ForceUseTargetClientAreaProperty, new Binding("ForceUseTargetClientAreaCapture"));
-        captureHost.Bind(EmulatorCaptureHostControl.EnablePillarboxCropProperty, new Binding("EnableCapturePillarboxCrop"));
-        captureHost.Bind(EmulatorCaptureHostControl.ClientAreaCropLeftInsetProperty, new Binding("ClientAreaCropLeftInset"));
-        captureHost.Bind(EmulatorCaptureHostControl.ClientAreaCropTopInsetProperty, new Binding("ClientAreaCropTopInset"));
-        captureHost.Bind(EmulatorCaptureHostControl.ClientAreaCropRightInsetProperty, new Binding("ClientAreaCropRightInset"));
-        captureHost.Bind(EmulatorCaptureHostControl.ClientAreaCropBottomInsetProperty, new Binding("ClientAreaCropBottomInset"));
-        captureHost.Bind(EmulatorCaptureHostControl.CaptureWindowAspectRatioProperty, new Binding("CaptureWindowAspectRatio"));
-        captureHost.Bind(EmulatorCaptureHostControl.HideTargetWindowAfterCaptureStartsProperty, new Binding("HideTargetWindowAfterCaptureStarts"));
-        captureHost.Bind(EmulatorCaptureHostControl.StretchProperty, new Binding("CurrentCaptureStretch"));
-        captureHost.Bind(EmulatorCaptureHostControl.BrightnessProperty, new Binding("PortalCaptureBrightness") { Mode = BindingMode.TwoWay });
-        captureHost.Bind(EmulatorCaptureHostControl.SaturationProperty, new Binding("RenderSaturation") { Mode = BindingMode.TwoWay });
-        captureHost.Bind(EmulatorCaptureHostControl.DisableVSyncProperty, new Binding("DisableVSync") { Mode = BindingMode.TwoWay });
-        captureHost.Bind(EmulatorCaptureHostControl.LowLatencyCaptureProperty, new Binding("LowLatencyCapture") { Mode = BindingMode.TwoWay });
-        captureHost.Bind(EmulatorCaptureHostControl.FrameGenerationModeProperty, new Binding("FrameGenerationMode") { Mode = BindingMode.TwoWay });
-        captureHost.Bind(EmulatorCaptureHostControl.ShaderPathProperty, new Binding("SelectedShaderPath"));
-        captureHost.Bind(EmulatorCaptureHostControl.ClearShaderWhenPathEmptyProperty, new Binding("ClearShaderWhenPathEmpty"));
-        captureHost.Bind(EmulatorCaptureHostControl.RequestStopSessionProperty, new Binding("RequestStopEmulatorCapture") { Mode = BindingMode.TwoWay });
-        captureHost.Bind(EmulatorCaptureHostControl.CaptureModeProperty, new Binding("SelectedCaptureMode"));
-
-        captureHostBorder.Child = captureHost;
-        _inlineCaptureHost = captureHost;
 
         if (DataContext is EmulationViewModel vm)
             UpdateInlineCaptureHostVisibility(vm);
