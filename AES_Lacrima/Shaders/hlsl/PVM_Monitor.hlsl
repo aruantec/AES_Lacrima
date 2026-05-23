@@ -29,28 +29,26 @@ float3 ApplyDisplayScanlines(float3 color, float pixelY, float strength)
 
 float4 main(PSIn input) : SV_TARGET
 {
-    float2 sourceSize = float2(max(sourceWidth, 1.0), max(sourceHeight, 1.0));
-    float2 uv = input.uv;
-    float chroma = 1.5 / sourceSize.x;
+    float3 color = src.Sample(samp, input.uv).rgb;
 
-    float3 color;
-    color.r = src.Sample(samp, uv + float2(chroma, 0.0)).r;
-    color.g = src.Sample(samp, uv).g;
-    color.b = src.Sample(samp, uv - float2(chroma, 0.0)).b;
+    float3 mask;
+    float x = input.pos.x;
+    float r = 0.5 + 0.5 * sin(x * 3.14159265 * 0.5);
+    float g = 0.5 + 0.5 * sin(x * 3.14159265 * 0.5 + 2.094);
+    float b = 0.5 + 0.5 * sin(x * 3.14159265 * 0.5 + 4.189);
+    mask = float3(r, g, b);
+    mask = lerp(float3(1.0, 1.0, 1.0), mask, 0.22);
+    color *= mask;
 
-    color = ApplyDisplayScanlines(color, input.pos.y, 0.24);
+    color = ApplyDisplayScanlines(color, input.pos.y, 0.18);
 
-    float slot = 0.94 + 0.06 * sin(input.pos.x * 3.14159265);
-    color *= slot;
-
-    float2 dist = uv - 0.5;
-    float vignette = saturate(1.0 - dot(dist, dist) * 0.35);
-    color *= vignette;
+    float2 dist = input.uv - 0.5;
+    color *= saturate(1.0 - dot(dist, dist) * 0.38);
 
     float luma = dot(color, float3(0.299, 0.587, 0.114));
-    color = lerp(float3(luma, luma, luma), color, saturation * 1.08);
+    color = lerp(float3(luma, luma, luma), color, saturation);
     color *= brightness;
     color *= tint.rgb;
 
-    return float4(color, tint.a);
+    return float4(saturate(color), tint.a);
 }

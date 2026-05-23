@@ -225,6 +225,8 @@ struct CaptureSession
     std::wstring dcompShaderPath;
     std::mutex dcompShaderMutex;
     std::atomic<bool> dcompShaderDirty{ false };
+    std::chrono::steady_clock::time_point dcompEffectTimeOrigin{};
+    bool dcompEffectTimeOriginSet = false;
     std::wstring adapterDescription;
     std::wstring adapterVendor;
     std::string dcompLastError;
@@ -1964,7 +1966,20 @@ struct CaptureSession
         constants.outputWidth = static_cast<float>(dcompWidth);
         constants.outputHeight = static_cast<float>(dcompHeight);
         constants.sourceIsSrgb = (sourceFormat == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || sourceFormat == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB) ? 1.0f : 0.0f;
-        constants.frameGenBlend = useBlend ? blendFactor : 0.0f;
+        if (useBlend)
+        {
+            constants.frameGenBlend = blendFactor;
+        }
+        else
+        {
+            const auto now = std::chrono::steady_clock::now();
+            if (!dcompEffectTimeOriginSet)
+            {
+                dcompEffectTimeOrigin = now;
+                dcompEffectTimeOriginSet = true;
+            }
+            constants.frameGenBlend = std::chrono::duration<float>(now - dcompEffectTimeOrigin).count();
+        }
         d3dContext->UpdateSubresource(dcompConstantBuffer.get(), 0, nullptr, &constants, 0, 0);
 
         D3D11_VIEWPORT viewport{};
@@ -3671,6 +3686,7 @@ extern "C" {
             s->dcompShaderPath.clear();
         }
         s->dcompShaderDirty.store(true);
+        s->dcompEffectTimeOriginSet = false;
 
         if (shaderPath && shaderPath[0] != L'\0')
         {

@@ -155,6 +155,7 @@ namespace AES_Lacrima.ViewModels
                     Title = title,
                     Album = title,
                     FileName = imagePath,
+                    LocalCoverPath = imagePath,
                     CoverBitmap = previewBitmap,
                     Children = RestoreAlbumRoms(albumKey, title, previewBitmap)
                 });
@@ -180,6 +181,7 @@ namespace AES_Lacrima.ViewModels
                         Title = title,
                         Album = title,
                         FileName = imagePath,
+                        LocalCoverPath = imagePath,
                         CoverBitmap = previewBitmap,
                         Children = RestoreAlbumRoms(albumKey, title, previewBitmap)
                     };
@@ -938,9 +940,21 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 var itemsToLoad = await Dispatcher.UIThread.InvokeAsync(() =>
-                    album.Children.Where(item => NeedsCoverLookup(item, album)).ToList(), DispatcherPriority.Background);
+                {
+                    var candidates = album.Children
+                        .Select((item, index) => (item, index))
+                        .Where(pair => NeedsCoverLookup(pair.item, album))
+                        .ToList();
+
+                    int centerIndex = GetRoundedSelectedIndex(SelectedIndex);
+                    return candidates
+                        .OrderBy(pair => Math.Abs(pair.index - centerIndex))
+                        .Select(pair => pair.item)
+                        .ToList();
+                }, DispatcherPriority.Background);
                 SLog.Debug($"Starting emulation cover scan for album '{album.Title}'. {itemsToLoad.Count} roms need lookup.");
 
+                const int coverLookupDelayMs = 80;
                 foreach (var item in itemsToLoad)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -951,15 +965,9 @@ namespace AES_Lacrima.ViewModels
                             ? $"Auto cover resolved for rom '{item.Title}' in album '{album.Title}'."
                             : $"Auto cover not found for rom '{item.Title}' in album '{album.Title}'.");
 
-                    await Dispatcher.UIThread.InvokeAsync(() =>
-                    {
-                        if (ReferenceEquals(LoadedAlbum, album) && ReferenceEquals(HighlightedItem, item))
-                            HighlightedItem = item;
-                    }, DispatcherPriority.Background);
-
                     try
                     {
-                        await Task.Delay(10, cancellationToken);
+                        await Task.Delay(coverLookupDelayMs, cancellationToken);
                     }
                     catch (OperationCanceledException)
                     {
@@ -1223,7 +1231,7 @@ namespace AES_Lacrima.ViewModels
                     foreach (var (item, title) in snapshot)
                         item.Title = title;
 
-                    if (ReferenceEquals(LoadedAlbum, album))
+                    if (ReferenceEquals(LoadedAlbum, album) && !string.IsNullOrWhiteSpace(SearchText?.Trim()))
                         ApplyFilter();
                 }, DispatcherPriority.Background);
             }

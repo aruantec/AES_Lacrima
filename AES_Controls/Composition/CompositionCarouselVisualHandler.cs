@@ -86,6 +86,8 @@ namespace AES_Controls.Composition
         private bool _fullCoverSizeInitialized;
         private float _fullCoverSizeFactor;
         private float _fullCoverSizeVelocity;
+        private float _reflectionReveal = 1f;
+        private bool _reflectionRevealPending;
 
         private static float ClampFullCoverAspectRatio(float aspect)
             => Math.Clamp(aspect, 0.01f, MaxFullCoverAspectRatio);
@@ -405,6 +407,20 @@ namespace AES_Controls.Composition
                 Invalidate();
             }
 
+            bool activelyScrolling = IsActivelyScrolling;
+            if (activelyScrolling)
+            {
+                _reflectionReveal = 0f;
+                _reflectionRevealPending = true;
+            }
+            else if (_reflectionRevealPending && _reflectionReveal < 1f)
+            {
+                _reflectionReveal = Math.Min(1f, _reflectionReveal + (float)(dt / 0.42));
+                if (_reflectionReveal >= 1f)
+                    _reflectionRevealPending = false;
+                Invalidate();
+            }
+
             bool isAnimating = _directIndexFollow ||
                 _draggingIndex != -1 ||
                 Math.Abs(distance) > 0.0001 ||
@@ -412,7 +428,8 @@ namespace AES_Controls.Composition
                 _globalTransitionAlpha < 1.0f ||
                 Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.001f ||
                 Math.Abs(_fullCoverSizeFactor - targetFactor) > 0.001f ||
-                _isDropping;
+                _isDropping ||
+                _reflectionReveal < 0.999f;
             if (isAnimating || _loadingIndices.Count > 0) 
             {
                 RegisterForNextAnimationFrameUpdate();
@@ -678,23 +695,37 @@ namespace AES_Controls.Composition
 
             if (isLoading) DrawSpinner(canvas, center, matrix);
 
-            // Skip reflections while scrolling — they roughly double draw cost per card.
-            if (!IsActivelyScrolling && _draggingIndex == -1)
+            if (_draggingIndex == -1)
+                DrawItemReflection(canvas, itemW, itemH, matrix, img, baseOpacity, center, absDiff);
+        }
+
+        private void DrawItemReflection(SKCanvas canvas, float itemW, float itemH, Matrix4x4 matrix, SKImage? img, float baseOpacity, Vector2 center, float absDiff)
+        {
+            if (img == null) return;
+
+            bool cheapScroll = IsActivelyScrolling;
+            float reflectionRange = cheapScroll ? 2.6f : 4.8f;
+            if (cheapScroll && absDiff > reflectionRange) return;
+
+            float reflectionStrength = cheapScroll ? 0.055f : 0.072f;
+            float normalizedReflectionDistance = absDiff / reflectionRange;
+            float reflectionFalloff = normalizedReflectionDistance >= 1.0f
+                ? 0.0f
+                : (float)Math.Pow(1.0f - normalizedReflectionDistance, cheapScroll ? 1.45f : 1.2f);
+            float reflectionBaseOpacity = ((baseOpacity * 0.45f) + 0.55f) * _globalTransitionAlpha * _currentGlobalOpacity;
+            float reflectionAlpha = reflectionBaseOpacity * reflectionStrength * reflectionFalloff;
+
+            const float cheapScrollCutoff = 2.6f;
+            if (!cheapScroll && absDiff > cheapScrollCutoff)
             {
-                float reflectionRange = 4.8f;
-                float reflectionStrength = 0.072f;
-                float normalizedReflectionDistance = absDiff / reflectionRange;
-                float reflectionFalloff = normalizedReflectionDistance >= 1.0f
-                    ? 0.0f
-                    : (float)Math.Pow(1.0f - normalizedReflectionDistance, 1.2f);
-                float reflectionBaseOpacity = ((baseOpacity * 0.45f) + 0.55f) * _globalTransitionAlpha * _currentGlobalOpacity;
-                float reflectionAlpha = reflectionBaseOpacity * reflectionStrength * reflectionFalloff;
-                if (reflectionAlpha > 0.0015f)
-                {
-                    var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
-                    DrawQuad(canvas, itemW, itemH, refMat, img, reflectionAlpha, center, 0f, true);
-                }
+                float eased = _reflectionReveal * _reflectionReveal * (3f - 2f * _reflectionReveal);
+                reflectionAlpha *= eased;
             }
+
+            if (reflectionAlpha <= 0.0015f) return;
+
+            var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
+            DrawQuad(canvas, itemW, itemH, refMat, img, reflectionAlpha, center, 0f, isReflection: true, horizontalSegmentsOverride: cheapScroll ? 1 : null);
         }
 
         private void DisposeShaderOnly(SKImage? img) { if (img != null && _shaderCache.Remove(img, out var shader)) shader.Dispose(); }
@@ -713,7 +744,7 @@ namespace AES_Controls.Composition
             } 
         }
 
-        private void DrawQuad(SKCanvas canvas, float w, float h, Matrix4x4 model, SKImage? image, float opacity, Vector2 center, float rotationYAbs, bool isReflection = false)
+        private void DrawQuad(SKCanvas canvas, float w, float h, Matrix4x4 model, SKImage? image, float opacity, Vector2 center, float rotationYAbs, bool isReflection = false, int? horizontalSegmentsOverride = null)
         {
             if (opacity < 0.01f || image == null) return;
 
@@ -738,7 +769,7 @@ namespace AES_Controls.Composition
 
             // Approximate perspective with multiple vertical strips so the existing
             // 3D card motion stays intact without visibly bending the artwork.
-            int horizontalSegments = isReflection
+            int horizontalSegments = horizontalSegmentsOverride ?? (isReflection
                 ? 4
                 : (_draggingIndex != -1 && !_directIndexFollow
                     ? Math.Clamp(3 + (int)MathF.Ceiling(rotationYAbs * 4f), 3, 6)
@@ -746,7 +777,7 @@ namespace AES_Controls.Composition
                         ? 1
                         : (UseReducedMotionQuality
                             ? Math.Clamp(2 + (int)MathF.Ceiling(rotationYAbs * 4f), 2, 4)
-                            : Math.Clamp(4 + (int)MathF.Ceiling(rotationYAbs * 8f), 4, 10))));
+                            : Math.Clamp(4 + (int)MathF.Ceiling(rotationYAbs * 8f), 4, 10)))));
 
             int vertCount = 2 * (horizontalSegments + 1);
             if (_meshVBuffer.Length != vertCount) _meshVBuffer = new SKPoint[vertCount];

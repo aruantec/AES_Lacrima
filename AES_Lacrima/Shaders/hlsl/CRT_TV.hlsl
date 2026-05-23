@@ -7,7 +7,8 @@ cbuffer Params : register(b0)
     float4 tint;
     float outputWidth;
     float outputHeight;
-    float2 _padding0;
+    float sourceIsSrgb;
+    float timeSeconds;
 };
 
 Texture2D src : register(t0);
@@ -18,6 +19,13 @@ struct PSIn
     float4 pos : SV_POSITION;
     float2 uv : TEXCOORD;
 };
+
+float3 ApplyDisplayScanlines(float3 color, float pixelY, float strength)
+{
+    float scan = sin(pixelY * 3.14159265);
+    scan = scan * scan;
+    return color * (1.0 - scan * strength);
+}
 
 float2 crt(float2 uv)
 {
@@ -32,22 +40,17 @@ float2 crt(float2 uv)
 
 float4 main(PSIn input) : SV_TARGET
 {
-    float2 textureSize = float2(max(sourceWidth, 1.0), max(sourceHeight, 1.0));
-    float2 outputSize = float2(max(outputWidth, 1.0), max(outputHeight, 1.0));
+    float2 sourceSize = float2(max(sourceWidth, 1.0), max(sourceHeight, 1.0));
     float2 q = input.uv;
     float2 uv = crt(q);
 
-    float chroma = 0.0025;
+    float chroma = 1.5 / sourceSize.x;
     float3 color;
     color.r = src.Sample(samp, uv + float2(chroma, 0.0)).r;
     color.g = src.Sample(samp, uv).g;
     color.b = src.Sample(samp, uv - float2(chroma, 0.0)).b;
 
-    float scanlineDensity = min(textureSize.y, outputSize.y);
-    float scanWave = sin(q.y * scanlineDensity * 6.28318);
-    scanWave *= scanWave;
-    float scanline = 1.0 - (0.5 * scanWave * 0.8);
-    color *= scanline;
+    color = ApplyDisplayScanlines(color, input.pos.y, 0.22);
 
     float2 centerDist = q - 0.5;
     float vignette = 1.0 - dot(centerDist, centerDist) * 0.5;
