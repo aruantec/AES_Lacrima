@@ -1,34 +1,51 @@
-cbuffer Params : register(b0)
-{
-    float brightness;
-    float saturation;
-    float sourceWidth;
-    float sourceHeight;
-    float4 tint;
-    float outputWidth;
-    float outputHeight;
-    float sourceIsSrgb;
-    float timeSeconds;
-};
+#ifdef VERTEX
 
-Texture2D src : register(t0);
-SamplerState samp : register(s0);
+layout(location = 0) in vec2 VertexCoord;
+layout(location = 1) in vec2 TexCoord;
+out vec2 vTex;
 
-struct PSIn
+void main()
 {
-    float4 pos : SV_POSITION;
-    float2 uv : TEXCOORD;
-};
-
-float rand(float2 co)
-{
-    return frac(sin(dot(co, float2(12.9898, 78.233))) * 43758.5453);
+    vTex = TexCoord;
+    gl_Position = vec4(VertexCoord, 0.0, 1.0);
 }
 
-float FilmGrain(float2 uv, float2 outputSize, float t, float luma)
+#endif
+
+#ifdef FRAGMENT
+
+uniform sampler2D Texture;
+uniform float FrameCount;
+uniform float FrameDirection;
+uniform vec2 TextureSize;
+uniform vec2 InputSize;
+uniform vec2 OutputSize;
+uniform float uBrightness;
+uniform float uSaturation;
+uniform vec4 uColorTint;
+
+in vec2 vTex;
+out vec4 fragColor;
+
+#define timeSeconds (FrameCount / 60.0)
+#define brightness uBrightness
+#define saturation uSaturation
+#define tint uColorTint
+#define sourceWidth TextureSize.x
+#define sourceHeight TextureSize.y
+#define outputWidth OutputSize.x
+#define outputHeight OutputSize.y
+#define sourceIsSrgb 1.0
+
+float rand(vec2 co)
 {
-    float2 px = uv * outputSize;
-    float2 seed = px * 1.55 + float2(t * 37.1, t * 19.7);
+    return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+float FilmGrain(vec2 uv, vec2 outputSize, float t, float luma)
+{
+    vec2 px = uv * outputSize;
+    vec2 seed = px * 1.55 + vec2(t * 37.1, t * 19.7);
     float fine = rand(seed) - 0.5;
     float coarse = rand(floor(seed * 0.32) + t * 4.0) - 0.5;
     float grain = fine * 0.74 + coarse * 0.26;
@@ -36,12 +53,12 @@ float FilmGrain(float2 uv, float2 outputSize, float t, float luma)
     return grain * lumaMask;
 }
 
-float3 ApplyFilmGrain(float3 color, float2 uv, float2 outputSize, float t)
+vec3 ApplyFilmGrain(vec3 color, vec2 uv, vec2 outputSize, float t)
 {
-    float luma = dot(color, float3(0.299, 0.587, 0.114));
+    float luma = dot(color, vec3(0.299, 0.587, 0.114));
     float grain = FilmGrain(uv, outputSize, t, luma);
-    float2 px = uv * outputSize;
-    float3 chromaGrain;
+    vec2 px = uv * outputSize;
+    vec3 chromaGrain;
     chromaGrain.r = (rand(px * 2.05 + t * 23.0) - 0.5);
     chromaGrain.g = (rand(px * 1.72 - t * 19.0) - 0.5);
     chromaGrain.b = (rand(px * 1.91 + t * 27.0) - 0.5);
@@ -49,37 +66,37 @@ float3 ApplyFilmGrain(float3 color, float2 uv, float2 outputSize, float t)
     return color + grain * 0.075 + chromaGrain * 0.025 * mask;
 }
 
-float3 ApplyVhsSignalNoise(float3 color, float2 uv, float2 outputSize, float t, float headMask, float bandIntensity)
+vec3 ApplyVhsSignalNoise(vec3 color, vec2 uv, vec2 outputSize, float t, float headMask, float bandIntensity)
 {
-    float2 px = uv * outputSize;
-    float hiss = (rand(px * 1.35 + float2(t * 41.0, t * 29.0)) - 0.5) * 0.09;
+    vec2 px = uv * outputSize;
+    float hiss = (rand(px * 1.35 + vec2(t * 41.0, t * 29.0)) - 0.5) * 0.09;
     float blockHiss = (rand(floor(px * 0.72) + t * 6.5) - 0.5) * 0.062;
     float snow = (rand(uv * 640.0 + t * 13.0) - 0.5) * 0.08;
     float bandStatic = (rand(uv * 320.0 + t * 9.0) - 0.5) * 0.55 * bandIntensity;
     float sparkle = step(0.988, rand(floor(px * 0.45) + t * 2.7)) * (rand(px + t) * 0.30 + 0.06);
-    float dropout = step(0.996, rand(float2(t * 0.35, floor(uv.y * 120.0)))) * (rand(uv + t) - 0.2) * 0.48;
+    float dropout = step(0.996, rand(vec2(t * 0.35, floor(uv.y * 120.0)))) * (rand(uv + t) - 0.2) * 0.48;
     float noise = hiss + blockHiss + snow + bandStatic + sparkle + dropout;
     noise *= 1.0 + headMask * 0.24;
     return color + noise;
 }
 
-float3 ApplyDisplayScanlines(float3 color, float pixelY, float strength)
+vec3 ApplyDisplayScanlines(vec3 color, float pixelY, float strength)
 {
     float scan = sin(pixelY * 3.14159265);
     scan = scan * scan;
     return color * (1.0 - scan * strength);
 }
 
-float Rect(float2 p, float2 origin, float2 size)
+float Rect(vec2 p, vec2 origin, vec2 size)
 {
-    float2 d = p - origin;
+    vec2 d = p - origin;
     return step(0.0, d.x) * step(0.0, d.y) * step(d.x, size.x) * step(d.y, size.y);
 }
 
 // 5x7 OSD font (row 0 = top of glyph box). Each row is 5 bits, MSB = left column.
-float Font5x7Glyph(float2 p, uint r0, uint r1, uint r2, uint r3, uint r4, uint r5, uint r6)
+float Font5x7Glyph(vec2 p, uint r0, uint r1, uint r2, uint r3, uint r4, uint r5, uint r6)
 {
-    p = saturate(p);
+    p = clamp(p, 0.0, 1.0);
     int col = clamp((int)(p.x * 5.0), 0, 4);
     int row = clamp((int)(p.y * 7.0), 0, 6);
     uint bits = r0;
@@ -92,13 +109,13 @@ float Font5x7Glyph(float2 p, uint r0, uint r1, uint r2, uint r3, uint r4, uint r
     return float((bits >> (4 - col)) & 1u);
 }
 
-float DrawHudCharP(float2 p) { return Font5x7Glyph(p, 31u, 17u, 17u, 30u, 16u, 16u, 16u); }
-float DrawHudCharL(float2 p) { return Font5x7Glyph(p, 16u, 16u, 16u, 16u, 16u, 16u, 31u); }
-float DrawHudCharA(float2 p) { return Font5x7Glyph(p, 14u, 17u, 17u, 31u, 17u, 17u, 17u); }
-float DrawHudCharY(float2 p) { return Font5x7Glyph(p, 17u, 17u, 17u, 14u, 4u, 4u, 4u); }
-float DrawHudCharS(float2 p) { return Font5x7Glyph(p, 15u, 16u, 16u, 14u, 1u, 1u, 30u); }
+float DrawHudCharP(vec2 p) { return Font5x7Glyph(p, 31u, 17u, 17u, 30u, 16u, 16u, 16u); }
+float DrawHudCharL(vec2 p) { return Font5x7Glyph(p, 16u, 16u, 16u, 16u, 16u, 16u, 31u); }
+float DrawHudCharA(vec2 p) { return Font5x7Glyph(p, 14u, 17u, 17u, 31u, 17u, 17u, 17u); }
+float DrawHudCharY(vec2 p) { return Font5x7Glyph(p, 17u, 17u, 17u, 14u, 4u, 4u, 4u); }
+float DrawHudCharS(vec2 p) { return Font5x7Glyph(p, 15u, 16u, 16u, 14u, 1u, 1u, 30u); }
 
-float DrawHudChar(float2 p, int code)
+float DrawHudChar(vec2 p, int code)
 {
     if (code == 0) return DrawHudCharP(p);
     if (code == 1) return DrawHudCharL(p);
@@ -108,7 +125,7 @@ float DrawHudChar(float2 p, int code)
     return 0.0;
 }
 
-float DrawHudDigit(float2 p, int digit)
+float DrawHudDigit(vec2 p, int digit)
 {
     digit = digit % 10;
     if (digit == 0) return Font5x7Glyph(p, 31u, 17u, 17u, 17u, 17u, 17u, 31u);
@@ -123,86 +140,86 @@ float DrawHudDigit(float2 p, int digit)
     return Font5x7Glyph(p, 14u, 17u, 17u, 14u, 1u, 1u, 14u);
 }
 
-float DrawHudColon(float2 p)
+float DrawHudColon(vec2 p)
 {
-    return Rect(p, float2(0.34, 0.60), float2(0.32, 0.16))
-         + Rect(p, float2(0.34, 0.24), float2(0.32, 0.16));
+    return Rect(p, vec2(0.34, 0.60), vec2(0.32, 0.16))
+         + Rect(p, vec2(0.34, 0.24), vec2(0.32, 0.16));
 }
 
-float DrawPlayTriangle(float2 p)
+float DrawPlayTriangle(vec2 p)
 {
-    float2 v0 = float2(0.07, 0.08);
-    float2 v1 = float2(0.07, 0.92);
-    float2 v2 = float2(0.96, 0.50);
-    float2 e0 = v1 - v0;
-    float2 e1 = v2 - v1;
-    float2 e2 = v0 - v2;
-    float2 c0 = p - v0;
-    float2 c1 = p - v1;
-    float2 c2 = p - v2;
+    vec2 v0 = vec2(0.07, 0.08);
+    vec2 v1 = vec2(0.07, 0.92);
+    vec2 v2 = vec2(0.96, 0.50);
+    vec2 e0 = v1 - v0;
+    vec2 e1 = v2 - v1;
+    vec2 e2 = v0 - v2;
+    vec2 c0 = p - v0;
+    vec2 c1 = p - v1;
+    vec2 c2 = p - v2;
     float s0 = e0.x * c0.y - e0.y * c0.x;
     float s1 = e1.x * c1.y - e1.y * c1.x;
     float s2 = e2.x * c2.y - e2.y * c2.x;
     float inside = step(0.0, s0) * step(0.0, s1) * step(0.0, s2);
     float outside = step(s0, 0.0) * step(s1, 0.0) * step(s2, 0.0);
-    return saturate(inside + outside);
+    return clamp(inside + outside, 0.0, 1.0);
 }
 
-float2 HudLocalUv(float2 screenUv, float2 outputSize, float2 originPx, float2 sizePx)
+vec2 HudLocalUv(vec2 screenUv, vec2 outputSize, vec2 originPx, vec2 sizePx)
 {
-    float2 px = screenUv * outputSize;
-    return (px - originPx) / max(sizePx, float2(1.0, 1.0));
+    vec2 px = screenUv * outputSize;
+    return (px - originPx) / max(sizePx, vec2(1.0, 1.0));
 }
 
-float HudGlyphInBox(float2 localUv)
+float HudGlyphInBox(vec2 localUv)
 {
     if (localUv.x < 0.0 || localUv.x > 1.0 || localUv.y < 0.0 || localUv.y > 1.0)
         return 0.0;
     return 1.0;
 }
 
-float3 ApplyHudGlyph(float3 color, float glyph)
+vec3 ApplyHudGlyph(vec3 color, float glyph)
 {
-    float3 white = float3(0.94, 0.96, 0.98);
+    vec3 white = vec3(0.94, 0.96, 0.98);
     float glow = glyph * 0.92;
-    color = lerp(color, white, glow);
+    color = mix(color, white, glow);
     color.r += glyph * 0.03;
     color.b += glyph * 0.04;
     return color;
 }
 
-float3 DrawVcrHud(float3 color, float2 screenUv, float2 outputSize, float t)
+vec3 DrawVcrHud(vec3 color, vec2 screenUv, vec2 outputSize, float t)
 {
     float scale = max(outputSize.y, 480.0) / 720.0;
     float margin = 22.0 * scale;
-    float3 hudColor = color;
+    vec3 hudColor = color;
 
     // Top-left: PLAY + solid triangle (VCR OSD style).
     float letterW = 22.0 * scale;
     float letterH = 30.0 * scale;
     float letterGap = 4.0 * scale;
-    float2 playOrigin = float2(margin, margin);
+    vec2 playOrigin = vec2(margin, margin);
 
-    float2 luvP = HudLocalUv(screenUv, outputSize, playOrigin, float2(letterW, letterH));
+    vec2 luvP = HudLocalUv(screenUv, outputSize, playOrigin, vec2(letterW, letterH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(luvP) * DrawHudChar(luvP, 0));
-    float2 luvL = HudLocalUv(screenUv, outputSize, playOrigin + float2(letterW + letterGap, 0.0), float2(letterW, letterH));
+    vec2 luvL = HudLocalUv(screenUv, outputSize, playOrigin + vec2(letterW + letterGap, 0.0), vec2(letterW, letterH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(luvL) * DrawHudChar(luvL, 1));
-    float2 luvA = HudLocalUv(screenUv, outputSize, playOrigin + float2((letterW + letterGap) * 2.0, 0.0), float2(letterW, letterH));
+    vec2 luvA = HudLocalUv(screenUv, outputSize, playOrigin + vec2((letterW + letterGap) * 2.0, 0.0), vec2(letterW, letterH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(luvA) * DrawHudChar(luvA, 2));
-    float2 luvY = HudLocalUv(screenUv, outputSize, playOrigin + float2((letterW + letterGap) * 3.0, 0.0), float2(letterW, letterH));
+    vec2 luvY = HudLocalUv(screenUv, outputSize, playOrigin + vec2((letterW + letterGap) * 3.0, 0.0), vec2(letterW, letterH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(luvY) * DrawHudChar(luvY, 3));
 
     float triW = 36.0 * scale;
     float triH = letterH * 1.06;
-    float2 triOrigin = playOrigin + float2((letterW + letterGap) * 4.0 + 8.0 * scale, (letterH - triH) * 0.5);
-    float2 tuv = HudLocalUv(screenUv, outputSize, triOrigin, float2(triW, triH));
+    vec2 triOrigin = playOrigin + vec2((letterW + letterGap) * 4.0 + 8.0 * scale, (letterH - triH) * 0.5);
+    vec2 tuv = HudLocalUv(screenUv, outputSize, triOrigin, vec2(triW, triH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(tuv) * DrawPlayTriangle(tuv));
 
     // Bottom-left: SP.
-    float2 spOrigin = float2(margin, outputSize.y - margin - letterH);
-    float2 sUv = HudLocalUv(screenUv, outputSize, spOrigin, float2(letterW, letterH));
+    vec2 spOrigin = vec2(margin, outputSize.y - margin - letterH);
+    vec2 sUv = HudLocalUv(screenUv, outputSize, spOrigin, vec2(letterW, letterH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(sUv) * DrawHudChar(sUv, 4));
-    float2 pUv = HudLocalUv(screenUv, outputSize, spOrigin + float2(letterW + letterGap, 0.0), float2(letterW, letterH));
+    vec2 pUv = HudLocalUv(screenUv, outputSize, spOrigin + vec2(letterW + letterGap, 0.0), vec2(letterW, letterH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(pUv) * DrawHudChar(pUv, 0));
 
     // Bottom-right: HH:MM:SS timecode (e.g. 00:00:03).
@@ -219,52 +236,52 @@ float3 DrawVcrHud(float3 color, float2 screenUv, float2 outputSize, float t)
     float colonW = 12.0 * scale;
     float digitGap = 2.0 * scale;
     float clockW = digitW * 6.0 + colonW * 2.0 + digitGap * 5.0;
-    float2 clockOrigin = float2(outputSize.x - margin - clockW, outputSize.y - margin - digitH);
+    vec2 clockOrigin = vec2(outputSize.x - margin - clockW, outputSize.y - margin - digitH);
     float x = clockOrigin.x;
 
-    float2 duv;
-    duv = HudLocalUv(screenUv, outputSize, float2(x, clockOrigin.y), float2(digitW, digitH));
+    vec2 duv;
+    duv = HudLocalUv(screenUv, outputSize, vec2(x, clockOrigin.y), vec2(digitW, digitH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(duv) * DrawHudDigit(duv, h0));
     x += digitW + digitGap;
-    duv = HudLocalUv(screenUv, outputSize, float2(x, clockOrigin.y), float2(digitW, digitH));
+    duv = HudLocalUv(screenUv, outputSize, vec2(x, clockOrigin.y), vec2(digitW, digitH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(duv) * DrawHudDigit(duv, h1));
     x += digitW + digitGap;
-    float2 cuv = HudLocalUv(screenUv, outputSize, float2(x, clockOrigin.y), float2(colonW, digitH));
+    vec2 cuv = HudLocalUv(screenUv, outputSize, vec2(x, clockOrigin.y), vec2(colonW, digitH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(cuv) * DrawHudColon(cuv));
     x += colonW + digitGap;
-    duv = HudLocalUv(screenUv, outputSize, float2(x, clockOrigin.y), float2(digitW, digitH));
+    duv = HudLocalUv(screenUv, outputSize, vec2(x, clockOrigin.y), vec2(digitW, digitH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(duv) * DrawHudDigit(duv, m0));
     x += digitW + digitGap;
-    duv = HudLocalUv(screenUv, outputSize, float2(x, clockOrigin.y), float2(digitW, digitH));
+    duv = HudLocalUv(screenUv, outputSize, vec2(x, clockOrigin.y), vec2(digitW, digitH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(duv) * DrawHudDigit(duv, m1));
     x += digitW + digitGap;
-    cuv = HudLocalUv(screenUv, outputSize, float2(x, clockOrigin.y), float2(colonW, digitH));
+    cuv = HudLocalUv(screenUv, outputSize, vec2(x, clockOrigin.y), vec2(colonW, digitH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(cuv) * DrawHudColon(cuv));
     x += colonW + digitGap;
-    duv = HudLocalUv(screenUv, outputSize, float2(x, clockOrigin.y), float2(digitW, digitH));
+    duv = HudLocalUv(screenUv, outputSize, vec2(x, clockOrigin.y), vec2(digitW, digitH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(duv) * DrawHudDigit(duv, s0));
     x += digitW + digitGap;
-    duv = HudLocalUv(screenUv, outputSize, float2(x, clockOrigin.y), float2(digitW, digitH));
+    duv = HudLocalUv(screenUv, outputSize, vec2(x, clockOrigin.y), vec2(digitW, digitH));
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(duv) * DrawHudDigit(duv, s1));
 
     return hudColor;
 }
 
-float4 main(PSIn input) : SV_TARGET
+void main()
 {
     float iTime = timeSeconds;
-    float2 uv = input.uv;
-    float2 outputSize = float2(max(outputWidth, 1.0), max(outputHeight, 1.0));
+    vec2 uv = vTex;
+    vec2 outputSize = vec2(max(outputWidth, 1.0), max(outputHeight, 1.0));
 
-    float jump = (rand(float2(iTime, 0.0)) > 0.992 ? 0.008 * sin(iTime * 20.0) : 0.0);
-    uv.y = frac(uv.y + jump);
+    float jump = (rand(vec2(iTime, 0.0)) > 0.992 ? 0.008 * sin(iTime * 20.0) : 0.0);
+    uv.y = fract(uv.y + jump);
 
     float bandSpeed = 0.06 + 0.04 * sin(iTime * 0.4);
-    float bandPos = frac(-iTime * bandSpeed);
+    float bandPos = fract(-iTime * bandSpeed);
     float bandDist = abs(uv.y - bandPos);
     float bandIntensity = smoothstep(0.12, 0.0, bandDist);
 
-    float tear = (rand(float2(iTime, uv.y * 0.2)) - 0.5) * 0.05 * bandIntensity;
+    float tear = (rand(vec2(iTime, uv.y * 0.2)) - 0.5) * 0.05 * bandIntensity;
     uv.x += tear;
 
     float wobble = sin(iTime * 4.0 + uv.y * 10.0) * 0.0012;
@@ -274,15 +291,15 @@ float4 main(PSIn input) : SV_TARGET
     float headMask = smoothstep(headArea, 0.0, uv.y);
     float headSwirl = sin(uv.y * 40.0 - iTime * 6.0) * 0.015 * headMask;
     uv.x += headSwirl;
-    float headNoise = (rand(float2(iTime * 1.0, uv.y)) - 0.5) * 0.04 * headMask;
+    float headNoise = (rand(vec2(iTime * 1.0, uv.y)) - 0.5) * 0.04 * headMask;
     uv.x += headNoise;
 
-    float2 sampledUv = saturate(uv);
+    vec2 sampledUv = clamp(uv, 0.0, 1.0);
     float chroma = (0.003 + 0.001 * sin(iTime * 0.5)) / max(sourceWidth, 1.0) * 3.0;
-    float3 color;
-    color.r = src.Sample(samp, sampledUv + float2(chroma, 0.0)).r;
-    color.g = src.Sample(samp, sampledUv).g;
-    color.b = src.Sample(samp, sampledUv - float2(chroma, 0.0)).b;
+    vec3 color;
+    color.r = texture(Texture, sampledUv + vec2(chroma, 0.0)).r;
+    color.g = texture(Texture, sampledUv).g;
+    color.b = texture(Texture, sampledUv - vec2(chroma, 0.0)).b;
 
     float snow = (rand(sampledUv + iTime) - 0.5) * 0.09;
     float bandStatic = (rand(sampledUv * 0.5 + iTime) - 0.5) * 0.50 * bandIntensity;
@@ -291,21 +308,23 @@ float4 main(PSIn input) : SV_TARGET
     color = ApplyFilmGrain(color, sampledUv, outputSize, iTime);
     color = ApplyVhsSignalNoise(color, sampledUv, outputSize, iTime, headMask, bandIntensity);
 
-    color = ApplyDisplayScanlines(color, input.pos.y, 0.12);
+    color = ApplyDisplayScanlines(color, gl_FragCoord.y, 0.12);
 
-    float postGrain = (rand(input.uv * outputSize * 2.4 + iTime * 5.5) - 0.5) * 0.030;
+    float postGrain = (rand(vTex * outputSize * 2.4 + iTime * 5.5) - 0.5) * 0.030;
     color += postGrain;
 
-    float2 vigCenter = input.uv - 0.5;
+    vec2 vigCenter = vTex - 0.5;
     float vig = 1.0 - dot(vigCenter, vigCenter) * 0.4;
     color *= vig;
 
-    float luma = dot(color, float3(0.299, 0.587, 0.114));
-    color = lerp(float3(luma, luma, luma), color, saturation * 0.9);
+    float luma = dot(color, vec3(0.299, 0.587, 0.114));
+    color = mix(vec3(luma, luma, luma), color, saturation * 0.9);
     color *= brightness;
     color *= tint.rgb;
 
-    color = DrawVcrHud(color, input.uv, outputSize, iTime);
+    color = DrawVcrHud(color, vTex, outputSize, iTime);
 
-    return float4(saturate(color), tint.a);
+    fragColor = vec4(clamp(color, 0.0, 1.0), tint.a);
 }
+
+#endif
