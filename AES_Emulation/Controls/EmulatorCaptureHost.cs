@@ -57,6 +57,9 @@ public class EmulatorCaptureHost : ContentControl
     public static readonly StyledProperty<bool> DisableVSyncProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(DisableVSync), false);
 
+    public static readonly StyledProperty<EmulationFrameGenerationMode> FrameGenerationModeProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, EmulationFrameGenerationMode>(nameof(FrameGenerationMode), EmulationFrameGenerationMode.Off);
+
     public static readonly StyledProperty<string?> ShaderPathProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, string?>(nameof(ShaderPath), null);
 
@@ -197,6 +200,12 @@ public class EmulatorCaptureHost : ContentControl
     {
         get => GetValue(DisableVSyncProperty);
         set => SetValue(DisableVSyncProperty, value);
+    }
+
+    public EmulationFrameGenerationMode FrameGenerationMode
+    {
+        get => GetValue(FrameGenerationModeProperty);
+        set => SetValue(FrameGenerationModeProperty, value);
     }
 
     public string? ShaderPath
@@ -465,6 +474,7 @@ public class EmulatorCaptureHost : ContentControl
                 windowsBackend.Saturation = Saturation;
                 windowsBackend.ColorTint = ColorTint;
                 windowsBackend.DisableVSync = DisableVSync;
+                windowsBackend.FrameGenerationMode = FrameGenerationMode;
                 windowsBackend.ShaderPath = ShaderPath;
                 windowsBackend.ClearShaderWhenPathEmpty = ClearShaderWhenPathEmpty;
                 windowsBackend.ForceUseTargetClientArea = ForceUseTargetClientArea;

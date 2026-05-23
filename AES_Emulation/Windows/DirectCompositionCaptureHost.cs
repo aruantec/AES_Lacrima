@@ -49,6 +49,9 @@ public class DirectCompositionCaptureHost : NativeControlHost
     public static readonly StyledProperty<bool> DisableVSyncProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, bool>(nameof(DisableVSync), false);
 
+    public static readonly StyledProperty<EmulationFrameGenerationMode> FrameGenerationModeProperty =
+        AvaloniaProperty.Register<DirectCompositionCaptureHost, EmulationFrameGenerationMode>(nameof(FrameGenerationMode), EmulationFrameGenerationMode.Off);
+
     public static readonly StyledProperty<string?> ShaderPathProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, string?>(nameof(ShaderPath), null);
 
@@ -125,6 +128,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         double Saturation,
         Color ColorTint,
         bool DisableVSync,
+        EmulationFrameGenerationMode FrameGenerationMode,
         string? ShaderPath,
         bool ClearShaderWhenPathEmpty,
         bool EnablePillarboxCrop);
@@ -160,6 +164,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
     private string _lastStatusText = string.Empty;
     private CaptureSessionSettings _currentSettings;
     private bool _pendingRenderOptionsRefreshAfterActive;
+    private EmulationFrameGenerationMode _lastAppliedFrameGenerationMode = EmulationFrameGenerationMode.Off;
 
     public DirectCompositionCaptureHost()
     {
@@ -272,6 +277,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
             Saturation,
             ColorTint,
             DisableVSync,
+            FrameGenerationMode,
             ShaderPath,
             ClearShaderWhenPathEmpty,
             EnablePillarboxCrop);
@@ -369,6 +375,12 @@ public class DirectCompositionCaptureHost : NativeControlHost
     {
         get => GetValue(DisableVSyncProperty);
         set => SetValue(DisableVSyncProperty, value);
+    }
+
+    public EmulationFrameGenerationMode FrameGenerationMode
+    {
+        get => GetValue(FrameGenerationModeProperty);
+        set => SetValue(FrameGenerationModeProperty, value);
     }
 
     public string? ShaderPath
@@ -499,6 +511,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
                  change.Property == SaturationProperty ||
                  change.Property == ColorTintProperty ||
                  change.Property == DisableVSyncProperty ||
+                 change.Property == FrameGenerationModeProperty ||
                  change.Property == ShaderPathProperty ||
                  change.Property == ClearShaderWhenPathEmptyProperty)
         {
@@ -776,6 +789,9 @@ public class DirectCompositionCaptureHost : NativeControlHost
             WgcBridgeApi.SetVrrEnabled(_session, settings.DisableVSync);
         }
 
+        if (force || settings.FrameGenerationMode != _lastAppliedFrameGenerationMode || renderOptionsChanged)
+            ApplyFrameGenerationCore(settings);
+
         if (!shaderPathChanged)
         {
             _lastAppliedRenderSettings = settings;
@@ -785,6 +801,27 @@ public class DirectCompositionCaptureHost : NativeControlHost
         WgcBridgeApi.SetDirectCompositionShader(_session, requestedShaderPath);
         _lastAppliedShaderPath = requestedShaderPath;
         _lastAppliedRenderSettings = settings;
+    }
+
+    private void ApplyFrameGenerationCore(CaptureSessionSettings settings)
+    {
+        _lastAppliedFrameGenerationMode = settings.FrameGenerationMode;
+
+        var software = settings.FrameGenerationMode == EmulationFrameGenerationMode.Software120Hz;
+        WgcBridgeApi.SetDirectCompositionFrameGeneration(_session, software, 120);
+
+        if (settings.FrameGenerationMode != EmulationFrameGenerationMode.AmdAfmf)
+            return;
+
+        var (renderer, vendor) = WgcBridgeApi.GetDirectCompositionAdapterInfo(_session);
+        if (!AmdAfmfCaptureService.IsAmdGpu(renderer, vendor))
+        {
+            Debug.WriteLine("[DCompHost] AFMF selected but capture GPU does not appear to be AMD.");
+            return;
+        }
+
+        var status = AmdAfmfCaptureService.TryEnableAfmfViaAdlx();
+        Debug.WriteLine($"[DCompHost] AFMF: {status}");
     }
 
     private void RefreshStatusCore()
@@ -870,10 +907,22 @@ public class DirectCompositionCaptureHost : NativeControlHost
             RunOnUiThread(() => IsCaptureInitializing = false);
         }
 
+        var syntheticPresents = WgcBridgeApi.GetDirectCompositionSyntheticPresentCount(_session);
+        var frameGenSuffix = _lastAppliedFrameGenerationMode switch
+        {
+            EmulationFrameGenerationMode.Software120Hz when syntheticPresents > 0 =>
+                $" | FG ~{syntheticPresents} synth",
+            EmulationFrameGenerationMode.Software120Hz =>
+                " | FG on (waiting)",
+            EmulationFrameGenerationMode.AmdAfmf =>
+                " | AFMF (driver)",
+            _ => string.Empty,
+        };
+
         var statusText = state switch
         {
-            2 when Fps <= 0.01 && (frames > 0 || presents > 0) => $"DirectComposition active (stalled) | frames {frames} | presents {presents}",
-            2 => $"DirectComposition active | frames {frames} | presents {presents}",
+            2 when Fps <= 0.01 && (frames > 0 || presents > 0) => $"DirectComposition active (stalled) | frames {frames} | presents {presents}{frameGenSuffix}",
+            2 => $"DirectComposition active | frames {frames} | presents {presents}{frameGenSuffix}",
             1 => $"DirectComposition initializing | frames {frames} | presents {presents}",
             -1 when !string.IsNullOrWhiteSpace(lastError) => $"DirectComposition failed ({lastError}) | frames {frames} | presents {presents}",
             -1 => $"DirectComposition failed | frames {frames} | presents {presents}",

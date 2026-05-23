@@ -3,6 +3,7 @@ using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Emulation;
 using AES_Emulation.Controls;
 using AES_Emulation.EmulationHandlers;
 using AES_Emulation.Platform;
@@ -297,6 +298,10 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         [ObservableProperty]
         private bool _disableVSync;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(FrameGenerationModeIndex))]
+        private EmulationFrameGenerationMode _frameGenerationMode;
 
         [ObservableProperty]
         private int _emulatorCaptureDelayMs = 3000;
@@ -1195,6 +1200,20 @@ private bool _isShadPs4PatchesOverlayOpen;
         }
 
         partial void OnDisableVSyncChanged(bool value) => AutoSave();
+
+        partial void OnFrameGenerationModeChanged(EmulationFrameGenerationMode value)
+        {
+            if (value == EmulationFrameGenerationMode.Software120Hz && !DisableVSync)
+                DisableVSync = true;
+
+            AutoSave();
+        }
+
+        public int FrameGenerationModeIndex
+        {
+            get => (int)FrameGenerationMode;
+            set => FrameGenerationMode = (EmulationFrameGenerationMode)Math.Clamp(value, 0, 2);
+        }
 
         partial void OnRenderBrightnessChanged(double value)
         {

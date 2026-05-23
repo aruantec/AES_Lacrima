@@ -523,6 +523,24 @@
                                         <ToggleSwitch IsChecked="{Binding DisableVSync, Mode=TwoWay}" />
                                     </StackPanel>
 
+                                    <StackPanel Spacing="8">
+                                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                            <TextBlock Text="Frame generation" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
+                                            <ComboBox MinWidth="320"
+                                                      SelectedIndex="{Binding FrameGenerationModeIndex, Mode=TwoWay}"
+                                                      ToolTip.Tip="Affects only the Lacrima capture/portal window—not the emulator's own window. Software 120 Hz needs a high-refresh display and VSync disabled.">
+                                                <ComboBoxItem Content="Off" />
+                                                <ComboBoxItem Content="Software 120 Hz (portal only)" />
+                                                <ComboBoxItem Content="AMD AFMF (driver / portal)" />
+                                            </ComboBox>
+                                        </StackPanel>
+                                        <TextBlock Text="Only smooths the capture portal. The emulator game window is unchanged. With stats overlay on, present FPS should rise when Software 120 Hz is working (synth count in status)."
+                                                   Foreground="#AAAAAA"
+                                                   FontSize="13"
+                                                   TextWrapping="Wrap"
+                                                   MaxWidth="560" />
+                                    </StackPanel>
+
                                     <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                         <TextBlock Text="Show Stats Overlay" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                         <ToggleSwitch IsChecked="{Binding ShowStatisticsOverlay, Mode=TwoWay}" />
