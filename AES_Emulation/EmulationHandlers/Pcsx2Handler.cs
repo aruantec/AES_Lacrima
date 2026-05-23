@@ -261,5 +261,5 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
     }
 
     [DllImport("user32.dll")]
-    private static extern bool IsIconic(IntPtr hWnd);
+    private static new extern bool IsIconic(IntPtr hWnd);
 }

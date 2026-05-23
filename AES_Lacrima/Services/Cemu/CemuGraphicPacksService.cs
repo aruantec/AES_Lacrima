@@ -201,10 +201,10 @@ public static class CemuGraphicPacksService
 
     private sealed record GraphicPackConfigState(bool IsEnabled, Dictionary<string, string> ActivePresetsByCategory);
 
-    private static Dictionary<string, GraphicPackConfigState> LoadConfigLookup(string settingsPath)
+    private static Dictionary<string, GraphicPackConfigState> LoadConfigLookup(string? settingsPath)
     {
         var lookup = new Dictionary<string, GraphicPackConfigState>(StringComparer.OrdinalIgnoreCase);
-        if (!File.Exists(settingsPath))
+        if (string.IsNullOrWhiteSpace(settingsPath) || !File.Exists(settingsPath))
             return lookup;
 
         try
