@@ -39,6 +39,9 @@ namespace AES_Lacrima.Services
 {
     public partial class MetadataService : ViewModelBase, IMetadataService 
     {
+        public Task<bool> TryHydrateCoverFromLocalMetadataAsync(MediaItem item, CancellationToken cancellationToken = default)
+            => TryApplyCoverFromLocalMetadataAsync(item, cancellationToken);
+
         public async Task<bool> TryPopulateCoverFromLocalMetadataOrGoogleAsync(MediaItem item, string? albumName, CancellationToken cancellationToken = default)
         {
             if (item == null || string.IsNullOrWhiteSpace(item.FileName))
@@ -51,7 +54,16 @@ namespace AES_Lacrima.Services
                 acquired = true;
 
                 if (await TryApplyCoverFromLocalMetadataAsync(item, cancellationToken).ConfigureAwait(false))
+                {
+                    await MarkCoverLookupCompleteAsync(item, coverFound: item.CoverFound).ConfigureAwait(false);
                     return true;
+                }
+
+                if (await IsCoverLookupAlreadyScannedAsync(item.FileName, cancellationToken).ConfigureAwait(false))
+                {
+                    await MarkCoverLookupCompleteAsync(item, coverFound: false).ConfigureAwait(false);
+                    return false;
+                }
 
                 await TryApplyTitleFromPs3InstalledGameAsync(item, cancellationToken).ConfigureAwait(false);
 
@@ -97,6 +109,7 @@ namespace AES_Lacrima.Services
 
                             await ApplyCoverBytesToItemAsync(item, download.Bytes, download.MimeType, cancellationToken).ConfigureAwait(false);
                             await SaveCoverToMetadataCacheAsync(item, download.Bytes, download.MimeType).ConfigureAwait(false);
+                            await MarkCoverLookupCompleteAsync(item, coverFound: true).ConfigureAwait(false);
                             SLog.Info($"Auto cover applied for '{item.Title}' from '{candidate.FullImageUrl}' using query '{searchQuery}'.");
                             return true;
                         }
@@ -112,6 +125,7 @@ namespace AES_Lacrima.Services
                 }
 
                 SLog.Warn($"Auto cover lookup found no usable Bing candidates for '{item.FileName}'.");
+                await MarkCoverLookupCompleteAsync(item, coverFound: false).ConfigureAwait(false);
                 return false;
             }
             catch (OperationCanceledException)

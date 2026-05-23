@@ -1,3 +1,4 @@
+using AES_Code.Models;
 using AES_Controls.Helpers;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
@@ -159,7 +160,10 @@ namespace AES_Lacrima.ViewModels
                     CoverBitmap = previewBitmap,
                     Children = RestoreAlbumRoms(albumKey, title, previewBitmap)
                 });
-                UpdatePreviewItems(AlbumList.Last() as EmulationAlbumItem);
+                var addedAlbum = AlbumList.Last() as EmulationAlbumItem;
+                UpdatePreviewItems(addedAlbum);
+                if (addedAlbum?.Children.Count > 0)
+                    QueueAlbumPreviewCoverLoad(addedAlbum);
             }
 
             ApplySavedAlbumOrder();
@@ -203,12 +207,10 @@ namespace AES_Lacrima.ViewModels
 
                 ApplySavedAlbumOrder();
 
-                foreach (var album in AlbumList)
+                foreach (var album in AlbumList.OfType<EmulationAlbumItem>())
                 {
                     if (album.Children.Count > 0)
-                    {
-                        QueueSelectedAlbumCoverScan(album);
-                    }
+                        QueueAlbumPreviewCoverLoad(album);
                 }
 
                 SelectedAlbum = AlbumList.FirstOrDefault();
@@ -380,7 +382,9 @@ namespace AES_Lacrima.ViewModels
             if (album.Children.Remove(target))
             {
                 ApplyFilter();
-                UpdatePreviewItems(album as EmulationAlbumItem);
+                var emulationAlbum = album as EmulationAlbumItem;
+                UpdatePreviewItems(emulationAlbum);
+                QueueAlbumPreviewCoverLoad(emulationAlbum);
                 SaveSettings();
             }
         }
@@ -427,6 +431,27 @@ namespace AES_Lacrima.ViewModels
                     SLog.Warn($"Failed to clear metadata cache for album '{album.Title}'", ex);
                 }
             }
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var placeholder = album.CoverBitmap;
+                foreach (var child in album.Children)
+                {
+                    child.MetadataProcessed = false;
+                    child.CoverFound = false;
+                    child.CoverBitmap = placeholder;
+                    child.LocalCoverPath = null;
+                }
+
+                lock (_albumsWithMetadataScanned)
+                {
+                    _albumsWithMetadataScanned.Remove(album);
+                }
+
+                ApplyFilter();
+                QueueAlbumPreviewCoverLoad(album as EmulationAlbumItem);
+                QueueSelectedAlbumCoverScan(album);
+            }, DispatcherPriority.Background);
         }
 
         [RelayCommand(CanExecute = nameof(CanClearLoadedAlbum))]
@@ -554,7 +579,7 @@ namespace AES_Lacrima.ViewModels
             return Path.GetFileName(normalized).Trim();
         }
 
-        private void UpdatePreviewItems(EmulationAlbumItem? album)
+        private void UpdatePreviewItems(EmulationAlbumItem? album, bool rebuildStructure = true)
         {
             if (album == null)
                 return;
@@ -564,22 +589,24 @@ namespace AES_Lacrima.ViewModels
             var firstChild = album.Children.FirstOrDefault();
 
             if (useFirstItemCover && firstChild != null)
-            {
                 topCover = firstChild.CoverBitmap ?? album.CoverBitmap;
+
+            if (!rebuildStructure && album.PreviewItems.Count > 0)
+            {
+                var topItem = album.PreviewItems[^1];
+                if (!album.Children.Contains(topItem))
+                    topItem.CoverBitmap = topCover;
+
+                return;
             }
 
+            var fanSource = useFirstItemCover && firstChild != null
+                ? album.Children.Skip(1)
+                : album.Children;
+
             var previewItems = new AvaloniaList<MediaItem>();
-            foreach (var child in album.Children)
+            foreach (var child in fanSource)
             {
-                if (child == firstChild)
-                    continue;
-
-                if (child.CoverBitmap == null)
-                    continue;
-
-                if (topCover != null && ReferenceEquals(child.CoverBitmap, topCover))
-                    continue;
-
                 previewItems.Add(child);
                 if (previewItems.Count >= 2)
                     break;
@@ -594,6 +621,131 @@ namespace AES_Lacrima.ViewModels
             });
 
             album.PreviewItems = previewItems;
+        }
+
+        private List<MediaItem> GetAlbumPreviewCoverBatch(FolderMediaItem album)
+        {
+            return album.Children
+                .Take(FolderPreviewCoverCount)
+                .Where(item => NeedsCoverLookup(item, album))
+                .ToList();
+        }
+
+        private bool TryBeginAlbumPreviewCoverLoad(FolderMediaItem album)
+        {
+            lock (_albumPreviewCoverLoadGate)
+            {
+                return _activeAlbumPreviewCoverLoads.Add(album);
+            }
+        }
+
+        private void EndAlbumPreviewCoverLoad(FolderMediaItem album)
+        {
+            lock (_albumPreviewCoverLoadGate)
+            {
+                _activeAlbumPreviewCoverLoads.Remove(album);
+            }
+        }
+
+        private void QueueAlbumPreviewCoverLoad(EmulationAlbumItem? album)
+        {
+            if (album == null || album.Children.Count == 0 || MetadataService == null)
+                return;
+
+            if (!TryBeginAlbumPreviewCoverLoad(album))
+                return;
+
+            try
+            {
+                if (_albumTilePreviewCtsMap.TryGetValue(album, out var existingCts))
+                {
+                    existingCts.Cancel();
+                    existingCts.Dispose();
+                    _albumTilePreviewCtsMap.Remove(album);
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to cancel previous album preview cover load for '{album.Title}'.", ex);
+            }
+
+            var cts = new CancellationTokenSource();
+            _albumTilePreviewCtsMap[album] = cts;
+            var token = cts.Token;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await LoadAlbumPreviewCoversAsync(album, token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    EndAlbumPreviewCoverLoad(album);
+                }
+            }, token);
+        }
+
+        private async Task LoadAlbumPreviewCoversAsync(EmulationAlbumItem album, CancellationToken cancellationToken)
+        {
+            if (MetadataService == null)
+                return;
+
+            List<MediaItem> itemsToLoad;
+            try
+            {
+                itemsToLoad = await Dispatcher.UIThread.InvokeAsync(
+                    () => GetAlbumPreviewCoverBatch(album),
+                    DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to collect album preview cover targets for '{album.Title}'.", ex);
+                return;
+            }
+
+            if (itemsToLoad.Count == 0)
+                return;
+
+            const int coverLookupDelayMs = 80;
+            foreach (var item in itemsToLoad)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var wasPreviouslyScanned = IsRomCoverAlreadyScanned(item.FileName);
+                try
+                {
+                    await MetadataService.TryPopulateCoverFromLocalMetadataOrGoogleAsync(
+                            item,
+                            album.Title,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+
+                    await Dispatcher.UIThread.InvokeAsync(
+                        () => UpdatePreviewItems(album, rebuildStructure: false),
+                        DispatcherPriority.Background);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn($"Failed to load album preview cover for '{item.Title}'.", ex);
+                }
+
+                if (!wasPreviouslyScanned)
+                {
+                    try
+                    {
+                        await Task.Delay(coverLookupDelayMs, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                }
+            }
         }
 
         private bool CanAddRoms() => SelectedAlbum != null;
@@ -632,6 +784,7 @@ namespace AES_Lacrima.ViewModels
                 ApplyFilter();
 
             UpdatePreviewItems(album as EmulationAlbumItem);
+            QueueAlbumPreviewCoverLoad(album as EmulationAlbumItem);
             QueueSelectedAlbumCoverScan(album);
             SaveSettings();
         }
@@ -959,26 +1112,30 @@ namespace AES_Lacrima.ViewModels
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
+                    var wasPreviouslyScanned = IsRomCoverAlreadyScanned(item.FileName);
                     var populated = await MetadataService.TryPopulateCoverFromLocalMetadataOrGoogleAsync(item, album.Title, cancellationToken);
                     SLog.Debug(
                         populated
                             ? $"Auto cover resolved for rom '{item.Title}' in album '{album.Title}'."
                             : $"Auto cover not found for rom '{item.Title}' in album '{album.Title}'.");
 
-                    try
+                    if (!wasPreviouslyScanned && !populated)
                     {
-                        await Task.Delay(coverLookupDelayMs, cancellationToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
+                        try
+                        {
+                            await Task.Delay(coverLookupDelayMs, cancellationToken);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
                     }
                 }
 
                 // Update preview tiles once per album scan pass to avoid flickering from incremental updates.
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    UpdatePreviewItems(album as EmulationAlbumItem);
+                    UpdatePreviewItems(album as EmulationAlbumItem, rebuildStructure: false);
                 }, DispatcherPriority.Background);
             }
             catch (OperationCanceledException)
@@ -1006,17 +1163,22 @@ namespace AES_Lacrima.ViewModels
 
         private static MediaItem CreateRomItem(string filePath, FolderMediaItem album)
         {
-            var title = SectionHandlers.GenericAlbumNormalizer.ResolveRomTitle(filePath, album.Title);
+            var title = TryReadCachedMetadataTitle(filePath);
             if (string.IsNullOrWhiteSpace(title))
                 title = SectionHandlers.RomTitleNormalizationUtil.GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(filePath));
 
-            return new MediaItem
+            var item = new MediaItem
             {
                 FileName = filePath,
                 Title = title,
                 Album = album.Title,
                 CoverBitmap = album.CoverBitmap
             };
+
+            if (IsRomCoverAlreadyScanned(filePath))
+                item.MetadataProcessed = true;
+
+            return item;
         }
 
         private async Task ApplyXbox360TitlesFromDatabaseAsync(FolderMediaItem album, CancellationToken cancellationToken = default)
@@ -1285,10 +1447,51 @@ namespace AES_Lacrima.ViewModels
 
         private static bool NeedsCoverLookup(MediaItem item, FolderMediaItem album)
         {
+            if (item.MetadataProcessed || item.CoverFound)
+                return false;
+
+            if (IsRomCoverAlreadyScanned(item.FileName))
+            {
+                return HasLocalCoverInMetadata(item.FileName) &&
+                       (item.CoverBitmap == null || ReferenceEquals(item.CoverBitmap, album.CoverBitmap));
+            }
+
             if (item.CoverBitmap == null)
                 return true;
 
             return ReferenceEquals(item.CoverBitmap, album.CoverBitmap);
+        }
+
+        private static bool IsRomCoverAlreadyScanned(string? filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return false;
+
+            try
+            {
+                var metadata = BinaryMetadataHelper.LoadMetadata(GetLocalMetadataCachePath(filePath));
+                return metadata?.CoverScanned == true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool HasLocalCoverInMetadata(string? filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return false;
+
+            try
+            {
+                var metadata = BinaryMetadataHelper.LoadMetadata(GetLocalMetadataCachePath(filePath));
+                return metadata?.Images?.Any(image => image.Kind == TagImageKind.Cover && image.Data.Length > 0) == true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private void ApplyFilter()
