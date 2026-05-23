@@ -1136,7 +1136,7 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private static string GetLocalMetadataCachePath(string filePath)
+        private static string GetLocalMetadataCachePath(string? filePath)
         {
             var cacheId = BinaryMetadataHelper.GetCacheId(filePath ?? string.Empty);
             return ApplicationPaths.GetCacheFile(cacheId + ".meta");
