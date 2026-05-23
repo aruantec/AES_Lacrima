@@ -83,7 +83,7 @@
                                                 ItemsSource="{Binding CoverItems}"
                                                 ImageBitmapProperty="CoverBitmap"
                                                 ImageFileNameProperty="LocalCoverPath"
-                                                PublishSelectedItemBounds="True"
+                                                PublishSelectedItemBounds="{Binding IsGameplayPreviewViewportVisible}"
                                                 SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
                                                 PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
                                                 ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"

@@ -105,14 +105,6 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnSelectedIndexChanged(double value)
         {
-            if (!_suppressSelectionStopForGameplayPreview &&
-                !double.IsNaN(_lastSelectedIndexForPreview) &&
-                Math.Abs(value - _lastSelectedIndexForPreview) > 0.0001)
-            {
-                StopGameplayPreview();
-            }
-            _lastSelectedIndexForPreview = value;
-
             if (Math.Abs(value - Math.Round(value)) > 0.001)
                 return;
 
@@ -120,6 +112,14 @@ namespace AES_Lacrima.ViewModels
             if (roundedIndex < 0 || roundedIndex >= CoverItems.Count)
                 return;
 
+            if (!_suppressSelectionStopForGameplayPreview &&
+                roundedIndex != _lastRoundedSelectedIndexForPreview)
+            {
+                StopGameplayPreview();
+            }
+
+            _lastRoundedSelectedIndexForPreview = roundedIndex;
+            _lastSelectedIndexForPreview = value;
             ScheduleHighlightedItemUpdate(roundedIndex);
         }
 

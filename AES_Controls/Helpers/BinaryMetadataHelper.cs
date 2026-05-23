@@ -76,6 +76,11 @@ public class CustomMetadata
     /// (typical for headerless cartridge dumps) across application restarts.
     /// </summary>
     public bool RomScanned { get; set; }
+    /// <summary>
+    /// Marks the file as having completed an auto cover lookup (local cache and/or online).
+    /// Prevents repeated Bing/Google queries when no cover was found.
+    /// </summary>
+    public bool CoverScanned { get; set; }
     /// <summary>Gets or sets the list of associated images.</summary>
     public List<ImageData> Images { get; set; } = [];
     /// <summary>Gets or sets the list of associated video data.</summary>

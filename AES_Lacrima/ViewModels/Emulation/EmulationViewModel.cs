@@ -73,6 +73,11 @@ namespace AES_Lacrima.ViewModels
         ];
 
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumScanCtsMap = [];
+        private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumTilePreviewCtsMap = [];
+        private readonly HashSet<FolderMediaItem> _activeAlbumPreviewCoverLoads = [];
+        private readonly object _albumPreviewCoverLoadGate = new();
+
+        private const int FolderPreviewCoverCount = 3;
         private readonly HashSet<FolderMediaItem> _albumsWithMetadataScanned = [];
         private AvaloniaList<string> _pendingAlbumOrder = [];
         private Dictionary<string, List<MediaItem>> _pendingAlbumRoms = new(StringComparer.OrdinalIgnoreCase);
@@ -184,6 +189,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         private readonly AvaloniaList<ShadPs4PatchFileItem> _currentSectionShadPs4PatchFiles = [];
         private readonly AvaloniaList<ShadPs4PatchEntry> _currentSectionShadPs4PatchEntries = [];
         private double _lastSelectedIndexForPreview = double.NaN;
+        private int _lastRoundedSelectedIndexForPreview = -1;
         private DispatcherTimer? _carouselHighlightDebounceTimer;
         private int _pendingHighlightedCarouselIndex = -1;
         private string? _pendingGameplayPreviewItemPath;
@@ -1053,7 +1059,11 @@ private bool _isShadPs4PatchesOverlayOpen;
         private void RefreshAlbumPreviews()
         {
             foreach (var album in AlbumList.OfType<EmulationAlbumItem>())
+            {
                 UpdatePreviewItems(album);
+                if (album.Children.Count > 0)
+                    QueueAlbumPreviewCoverLoad(album);
+            }
 
             // Force update of album list for view refresh.
             AlbumList = new AvaloniaList<FolderMediaItem>(AlbumList);

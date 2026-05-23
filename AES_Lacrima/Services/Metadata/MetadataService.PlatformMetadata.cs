@@ -216,6 +216,17 @@ namespace AES_Lacrima.Services
 
             if (cover == null)
             {
+                if (metadata?.CoverScanned == true)
+                {
+                    if (shouldApplyTitle)
+                        await Dispatcher.UIThread.InvokeAsync(() => item.Title = metadata!.Title);
+
+                    if (shouldApplyAlbum)
+                        await Dispatcher.UIThread.InvokeAsync(() => item.Album = metadata!.Album);
+
+                    return true;
+                }
+
                 if (!shouldApplyTitle && !shouldApplyAlbum)
                     return false;
 
@@ -1171,9 +1182,47 @@ namespace AES_Lacrima.Services
                         backCoverMimeType ?? GuessMimeTypeFromBytes(backCoverBytes)));
                 }
 
+                metadata.CoverScanned = true;
                 BinaryMetadataHelper.WriteMetadataImages(metadata, preserved);
                 BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
             }).ConfigureAwait(false);
+        }
+
+        private static Task<bool> IsCoverLookupAlreadyScannedAsync(string? filePath, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return Task.FromResult(false);
+
+            return Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var metadata = BinaryMetadataHelper.LoadMetadata(GetMetadataCachePath(filePath));
+                return metadata?.CoverScanned == true;
+            }, cancellationToken);
+        }
+
+        private async Task MarkCoverLookupCompleteAsync(MediaItem item, bool coverFound)
+        {
+            if (string.IsNullOrWhiteSpace(item.FileName))
+                return;
+
+            await Task.Run(() =>
+            {
+                var cachePath = GetMetadataCachePath(item.FileName);
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                metadata.CoverScanned = true;
+                if (!string.IsNullOrWhiteSpace(item.Title))
+                    metadata.Title = item.Title;
+                if (!string.IsNullOrWhiteSpace(item.Album))
+                    metadata.Album = item.Album;
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            }).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                item.MetadataProcessed = true;
+                item.CoverFound = true;
+            }, DispatcherPriority.Background);
         }
 
         private async Task ApplyCoverBytesToItemAsync(MediaItem item, byte[] bytes, string mimeType, CancellationToken cancellationToken, string? cachePath = null)
