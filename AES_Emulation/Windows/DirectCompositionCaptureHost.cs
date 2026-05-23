@@ -82,6 +82,9 @@ public class DirectCompositionCaptureHost : NativeControlHost
     public static readonly StyledProperty<double> CaptureWindowAspectRatioProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, double>(nameof(CaptureWindowAspectRatio), 0);
 
+    public static readonly StyledProperty<bool> LowLatencyCaptureProperty =
+        AvaloniaProperty.Register<DirectCompositionCaptureHost, bool>(nameof(LowLatencyCapture), true);
+
     public static readonly DirectProperty<DirectCompositionCaptureHost, string> StatusTextProperty =
         AvaloniaProperty.RegisterDirect<DirectCompositionCaptureHost, string>(
             nameof(StatusText),
@@ -135,7 +138,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
         string? ShaderPath,
         bool ClearShaderWhenPathEmpty,
         bool EnablePillarboxCrop,
-        double CaptureWindowAspectRatio);
+        double CaptureWindowAspectRatio,
+        bool LowLatencyCapture);
 
     private readonly BlockingCollection<Action> _rendererQueue = new();
     private readonly Thread _rendererThread;
@@ -285,7 +289,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
             ShaderPath,
             ClearShaderWhenPathEmpty,
             EnablePillarboxCrop,
-            CaptureWindowAspectRatio);
+            CaptureWindowAspectRatio,
+            LowLatencyCapture);
     }
 
     private void RequestEnsureSession()
@@ -449,6 +454,12 @@ public class DirectCompositionCaptureHost : NativeControlHost
         set => SetValue(CaptureWindowAspectRatioProperty, value);
     }
 
+    public bool LowLatencyCapture
+    {
+        get => GetValue(LowLatencyCaptureProperty);
+        set => SetValue(LowLatencyCaptureProperty, value);
+    }
+
     public string StatusText
     {
         get => _statusText;
@@ -513,7 +524,9 @@ public class DirectCompositionCaptureHost : NativeControlHost
     {
         base.OnPropertyChanged(change);
 
-        if (change.Property == TargetHwndProperty || change.Property == TargetProcessIdProperty)
+        if (change.Property == TargetHwndProperty ||
+            change.Property == TargetProcessIdProperty ||
+            change.Property == LowLatencyCaptureProperty)
         {
             RequestEnsureSession();
         }
@@ -658,7 +671,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         RunOnUiThread(() => IsCaptureInitializing = true);
         RunOnUiThread(() => IsDirectCompositionActive = false);
         RunOnUiThread(() => StatusText = "Starting DirectComposition capture...");
-        _session = WgcBridgeApi.CreateDirectCompositionCaptureSession(settings.TargetHwnd, _childHwnd);
+        _session = WgcBridgeApi.CreateDirectCompositionCaptureSession(settings.TargetHwnd, _childHwnd, settings.LowLatencyCapture);
         _activeTargetHwnd = settings.TargetHwnd;
         _currentSettings = settings;
 

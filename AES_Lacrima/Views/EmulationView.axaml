@@ -525,6 +525,19 @@
 
                                     <StackPanel Spacing="8">
                                         <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                            <TextBlock Text="Low-latency capture" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
+                                            <ToggleSwitch IsChecked="{Binding LowLatencyCapture, Mode=TwoWay}"
+                                                          ToolTip.Tip="Smaller WGC frame pool and presents on the capture thread. Restart capture (relaunch game) to apply."/>
+                                        </StackPanel>
+                                        <TextBlock Text="Reduces capture delay; turn off if you see a gray portal or other capture glitches."
+                                                   Foreground="#AAAAAA"
+                                                   FontSize="13"
+                                                   TextWrapping="Wrap"
+                                                   MaxWidth="560" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="8">
+                                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                             <TextBlock Text="Frame generation" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                             <ComboBox MinWidth="320"
                                                       SelectedIndex="{Binding FrameGenerationModeIndex, Mode=TwoWay}"

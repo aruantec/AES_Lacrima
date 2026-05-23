@@ -1188,6 +1188,7 @@ public partial class EmulationView : UserControl
         captureHost.Bind(EmulatorCaptureHostControl.BrightnessProperty, new Binding("PortalCaptureBrightness") { Mode = BindingMode.TwoWay });
         captureHost.Bind(EmulatorCaptureHostControl.SaturationProperty, new Binding("RenderSaturation") { Mode = BindingMode.TwoWay });
         captureHost.Bind(EmulatorCaptureHostControl.DisableVSyncProperty, new Binding("DisableVSync") { Mode = BindingMode.TwoWay });
+        captureHost.Bind(EmulatorCaptureHostControl.LowLatencyCaptureProperty, new Binding("LowLatencyCapture") { Mode = BindingMode.TwoWay });
         captureHost.Bind(EmulatorCaptureHostControl.FrameGenerationModeProperty, new Binding("FrameGenerationMode") { Mode = BindingMode.TwoWay });
         captureHost.Bind(EmulatorCaptureHostControl.ShaderPathProperty, new Binding("SelectedShaderPath"));
         captureHost.Bind(EmulatorCaptureHostControl.ClearShaderWhenPathEmptyProperty, new Binding("ClearShaderWhenPathEmpty"));

@@ -101,7 +101,7 @@ public static class WgcBridgeApi
     private static CreateCaptureSessionDel? s_createCaptureSession;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate nint CreateDirectCompositionCaptureSessionDel(nint targetHwnd, nint presentationHwnd);
+    private delegate nint CreateDirectCompositionCaptureSessionDel(nint targetHwnd, nint presentationHwnd, int lowLatencyCapture);
     private static CreateDirectCompositionCaptureSessionDel? s_createDirectCompositionCaptureSession;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -307,7 +307,7 @@ public static class WgcBridgeApi
     private static extern nint CreateCaptureSessionNative(nint targetHwnd);
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "CreateDirectCompositionCaptureSession")]
-    private static extern nint CreateDirectCompositionCaptureSessionNative(nint targetHwnd, nint presentationHwnd);
+    private static extern nint CreateDirectCompositionCaptureSessionNative(nint targetHwnd, nint presentationHwnd, int lowLatencyCapture);
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "GetLatestFrame")]
     private static extern bool GetLatestFrameNative(nint session, nint outBuffer, nuint bufferSize, out int width, out int height);
@@ -400,23 +400,24 @@ public static class WgcBridgeApi
         }
     }
 
-    public static nint CreateDirectCompositionCaptureSession(nint targetHwnd, nint presentationHwnd)
+    public static nint CreateDirectCompositionCaptureSession(nint targetHwnd, nint presentationHwnd, bool lowLatencyCapture = true)
     {
         try
         {
             LogDebugOnce(ref s_loggedCreateDirectCompositionCaptureSession, "[WGC] CreateDirectCompositionCaptureSession invoked for the first time.");
+            var lowLatency = lowLatencyCapture ? 1 : 0;
             if (s_createDirectCompositionCaptureSession != null)
             {
-                var result = s_createDirectCompositionCaptureSession(targetHwnd, presentationHwnd);
+                var result = s_createDirectCompositionCaptureSession(targetHwnd, presentationHwnd, lowLatency);
                 if (result == nint.Zero)
                 {
                     LogWarn("[WGC] CreateDirectCompositionCaptureSession (delegate) returned NULL");
                 }
-                else LogInfo($"[WGC] CreateDirectCompositionCaptureSession (delegate) succeeded: 0x{result.ToString("X")}");
+                else LogInfo($"[WGC] CreateDirectCompositionCaptureSession (delegate) succeeded: 0x{result.ToString("X")} lowLatency={lowLatencyCapture}");
                 return result;
             }
 
-            var res = CreateDirectCompositionCaptureSessionNative(targetHwnd, presentationHwnd);
+            var res = CreateDirectCompositionCaptureSessionNative(targetHwnd, presentationHwnd, lowLatency);
             if (res == nint.Zero)
             {
                 int err = Marshal.GetLastWin32Error();

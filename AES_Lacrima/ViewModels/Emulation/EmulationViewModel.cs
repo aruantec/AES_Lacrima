@@ -300,6 +300,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         private bool _disableVSync;
 
         [ObservableProperty]
+        private bool _lowLatencyCapture = true;
+
+        [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(FrameGenerationModeIndex))]
         private EmulationFrameGenerationMode _frameGenerationMode;
 
@@ -1202,6 +1205,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         }
 
         partial void OnDisableVSyncChanged(bool value) => AutoSave();
+
+        partial void OnLowLatencyCaptureChanged(bool value) => AutoSave();
 
         partial void OnFrameGenerationModeChanged(EmulationFrameGenerationMode value)
         {
