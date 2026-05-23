@@ -34,6 +34,7 @@ namespace AES_Controls.Composition
     internal record DragPositionMessage(Vector2 Position);
     internal record DropTargetMessage(int Index);
     internal record SliderPressedMessage(bool IsPressed);
+    internal record DirectIndexFollowMessage(bool Enabled);
 
     public class CompositionCarouselVisualHandler : CompositionCustomVisualHandler
     {
@@ -80,6 +81,7 @@ namespace AES_Controls.Composition
         private float _targetGlobalOpacity = 1.0f;
         private float _currentGlobalOpacityVelocity;
         private bool _isSliderPressed;
+        private bool _directIndexFollow;
         private bool _useFullCoverSize;
         private bool _fullCoverSizeInitialized;
         private float _fullCoverSizeFactor;
@@ -124,6 +126,10 @@ namespace AES_Controls.Composition
         private bool UseReducedMotionQuality =>
             _draggingIndex != -1 ||
             _isDropping ||
+            Math.Abs(_targetIndex - _currentIndex) > 0.02 ||
+            Math.Abs(_currentVelocity) > 0.35;
+
+        private bool IsActivelyScrolling =>
             Math.Abs(_targetIndex - _currentIndex) > 0.02 ||
             Math.Abs(_currentVelocity) > 0.35;
 
@@ -227,14 +233,30 @@ namespace AES_Controls.Composition
                 Invalidate(); 
             }
             else if (message is DragPositionMessage dp) {
-                if (_smoothDragPosition.X == 0 && _smoothDragPosition.Y == 0) _smoothDragPosition = dp.Position;
+                _dragPosition = dp.Position;
+                if (_draggingIndex != -1)
+                {
+                    _smoothDragPosition = dp.Position;
+                    _smoothDragVelocity = Vector2.Zero;
+                    if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
+                    RegisterForNextAnimationFrameUpdate();
+                    Invalidate();
+                }
+                else if (_smoothDragPosition.X == 0 && _smoothDragPosition.Y == 0)
+                {
+                    _smoothDragPosition = dp.Position;
+                    Invalidate();
+                }
                 else if (Vector2.DistanceSquared(_smoothDragPosition, dp.Position) > 2500f)
                 {
                     _smoothDragPosition = dp.Position;
                     _smoothDragVelocity = Vector2.Zero;
+                    Invalidate();
                 }
-                _dragPosition = dp.Position;
-                Invalidate();
+                else if (Vector2.DistanceSquared(_dragPosition, dp.Position) > 4f)
+                {
+                    Invalidate();
+                }
             }
             else if (message is DropTargetMessage dtm) { _dropTargetIndex = dtm.Index; Invalidate(); }
             else if (message is SpacingMessage spacing) { _itemSpacing = (float)spacing.Value; _visibleRangeDirty = true; Invalidate(); }
@@ -254,6 +276,7 @@ namespace AES_Controls.Composition
                 RegisterForNextAnimationFrameUpdate();
             }
             else if (message is SliderPressedMessage spm) { _isSliderPressed = spm.IsPressed; Invalidate(); }
+            else if (message is DirectIndexFollowMessage dif) { _directIndexFollow = dif.Enabled; Invalidate(); }
             else if (message is UseFullCoverSizeMessage ufcs) 
             { 
                 _useFullCoverSize = ufcs.Value; 
@@ -287,12 +310,22 @@ namespace AES_Controls.Composition
             if (dt > 0.1) dt = 0.1;
 
             double distance = _targetIndex - _currentIndex;
-            // Favor responsive tracking over a slower, floaty feel.
-            double animStiffness = 78.0;
-            double animDamping = 2.0 * Math.Sqrt(animStiffness) * 0.98;
-            _currentVelocity += (distance * animStiffness - _currentVelocity * animDamping) * dt;
-            _currentIndex += _currentVelocity * dt;
-            _spinnerRotation = (_spinnerRotation + 8f) % 360f;
+            if (_directIndexFollow)
+            {
+                _currentIndex = _targetIndex;
+                _currentVelocity = 0;
+            }
+            else
+            {
+                // Favor responsive tracking over a slower, floaty feel.
+                double animStiffness = 78.0;
+                double animDamping = 2.0 * Math.Sqrt(animStiffness) * 0.98;
+                _currentVelocity += (distance * animStiffness - _currentVelocity * animDamping) * dt;
+                _currentIndex += _currentVelocity * dt;
+            }
+
+            if (!_directIndexFollow)
+                _spinnerRotation = (_spinnerRotation + 8f) % 360f;
 
             if (!_isSliderPressed && _draggingIndex == -1 && !_isDropping)
             {
@@ -325,7 +358,7 @@ namespace AES_Controls.Composition
                 {
                     // Smooth the slot response, but keep a clear gap opening where
                     // the dragged cover can land.
-                    double tau = 0.18;
+                    double tau = 0.12;
                     double alpha = 1.0 - Math.Exp(-dt / Math.Max(1e-6, tau));
                     _smoothDropTargetIndex += (_dropTargetIndex - _smoothDropTargetIndex) * alpha;
                 }
@@ -372,7 +405,14 @@ namespace AES_Controls.Composition
                 Invalidate();
             }
 
-            bool isAnimating = Math.Abs(distance) > 0.0001 || Math.Abs(_currentVelocity) > 0.0001 || _globalTransitionAlpha < 1.0f || Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.001f || Math.Abs(_fullCoverSizeFactor - targetFactor) > 0.001f || _isDropping || _draggingIndex != -1;
+            bool isAnimating = _directIndexFollow ||
+                _draggingIndex != -1 ||
+                Math.Abs(distance) > 0.0001 ||
+                Math.Abs(_currentVelocity) > 0.0001 ||
+                _globalTransitionAlpha < 1.0f ||
+                Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.001f ||
+                Math.Abs(_fullCoverSizeFactor - targetFactor) > 0.001f ||
+                _isDropping;
             if (isAnimating || _loadingIndices.Count > 0) 
             {
                 RegisterForNextAnimationFrameUpdate();
@@ -404,7 +444,9 @@ namespace AES_Controls.Composition
                 _visibleRangeDirty = false;
             }
             
-            int vRange = (int)_visibleRange;
+            int vRange = _directIndexFollow && _draggingIndex == -1
+                ? Math.Min((int)_visibleRange, 4)
+                : (int)_visibleRange;
             int total = _images.Count;
             int centerIdx = (int)Math.Round(_currentIndex);
             int start = Math.Max(0, centerIdx - vRange);
@@ -573,7 +615,7 @@ namespace AES_Controls.Composition
                 float slotDiff = rank - (float)_smoothDropTargetIndex;
                 // A gentler tanh keeps the gap readable while avoiding the harsh
                 // shove from the steeper curve.
-                float shiftStrength = 0.5f + 0.5f * (float)Math.Tanh((slotDiff + 0.5f) * 3.2f);
+                float shiftStrength = 0.5f + 0.5f * (float)Math.Tanh((slotDiff + 0.5f) * 2.5f);
                 float partedVisualI = rank + shiftStrength;
 
                 if (_isDropping) visualI = partedVisualI + (i - partedVisualI) * (float)(1.0 - Math.Pow(1.0 - _dropAlpha, 3));
@@ -636,20 +678,22 @@ namespace AES_Controls.Composition
 
             if (isLoading) DrawSpinner(canvas, center, matrix);
 
-            // Keep reflection visibility continuous so it does not pop when motion quality
-            // mode changes or when an item crosses a hard distance threshold.
-            float reflectionRange = 4.8f;
-            float reflectionStrength = 0.072f;
-            float normalizedReflectionDistance = absDiff / reflectionRange;
-            float reflectionFalloff = normalizedReflectionDistance >= 1.0f
-                ? 0.0f
-                : (float)Math.Pow(1.0f - normalizedReflectionDistance, 1.2f);
-            float reflectionBaseOpacity = ((baseOpacity * 0.45f) + 0.55f) * _globalTransitionAlpha * _currentGlobalOpacity;
-            float reflectionAlpha = reflectionBaseOpacity * reflectionStrength * reflectionFalloff;
-            if (reflectionAlpha > 0.0015f)
+            // Skip reflections while scrolling — they roughly double draw cost per card.
+            if (!IsActivelyScrolling && _draggingIndex == -1)
             {
-                var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
-                DrawQuad(canvas, itemW, itemH, refMat, img, reflectionAlpha, center, 0f, true);
+                float reflectionRange = 4.8f;
+                float reflectionStrength = 0.072f;
+                float normalizedReflectionDistance = absDiff / reflectionRange;
+                float reflectionFalloff = normalizedReflectionDistance >= 1.0f
+                    ? 0.0f
+                    : (float)Math.Pow(1.0f - normalizedReflectionDistance, 1.2f);
+                float reflectionBaseOpacity = ((baseOpacity * 0.45f) + 0.55f) * _globalTransitionAlpha * _currentGlobalOpacity;
+                float reflectionAlpha = reflectionBaseOpacity * reflectionStrength * reflectionFalloff;
+                if (reflectionAlpha > 0.0015f)
+                {
+                    var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
+                    DrawQuad(canvas, itemW, itemH, refMat, img, reflectionAlpha, center, 0f, true);
+                }
             }
         }
 
@@ -679,9 +723,9 @@ namespace AES_Controls.Composition
             if (dims.Width <= 0 || dims.Height <= 0) return;
 
             _quadPaint.Color = SKColors.White.WithAlpha((byte)(255 * opacity));
-            _quadPaint.FilterQuality = isReflection
+            _quadPaint.FilterQuality = (isReflection || UseReducedMotionQuality)
                 ? SKFilterQuality.Low
-                : (UseReducedMotionQuality ? SKFilterQuality.Low : SKFilterQuality.Medium);
+                : SKFilterQuality.Medium;
             if (!_shaderCache.TryGetValue(image, out var shader)) { 
                 try { _shaderCache[image] = shader = image.ToShader(); } catch { return; }
             }
@@ -696,9 +740,13 @@ namespace AES_Controls.Composition
             // 3D card motion stays intact without visibly bending the artwork.
             int horizontalSegments = isReflection
                 ? 4
-                : (UseReducedMotionQuality
-                    ? Math.Clamp(2 + (int)MathF.Ceiling(rotationYAbs * 6f), 2, 6)
-                    : Math.Clamp(6 + (int)MathF.Ceiling(rotationYAbs * 10f), 6, 14));
+                : (_draggingIndex != -1 && !_directIndexFollow
+                    ? Math.Clamp(3 + (int)MathF.Ceiling(rotationYAbs * 4f), 3, 6)
+                    : (_directIndexFollow
+                        ? 1
+                        : (UseReducedMotionQuality
+                            ? Math.Clamp(2 + (int)MathF.Ceiling(rotationYAbs * 4f), 2, 4)
+                            : Math.Clamp(4 + (int)MathF.Ceiling(rotationYAbs * 8f), 4, 10))));
 
             int vertCount = 2 * (horizontalSegments + 1);
             if (_meshVBuffer.Length != vertCount) _meshVBuffer = new SKPoint[vertCount];

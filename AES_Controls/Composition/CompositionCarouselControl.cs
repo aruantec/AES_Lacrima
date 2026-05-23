@@ -42,8 +42,11 @@ namespace AES_Controls.Composition
         private static readonly ILog Log = AES_Core.Logging.LogHelper.For<CompositionCarouselControl>();
         private const int CachedCarouselImageSize = 384;
         private const int AnimationHeartbeatMs = 16;
-        private const int ActiveScrollVirtualizationDebounceMs = 120;
+        private const int ActiveScrollVirtualizationDebounceMs = 180;
         private const int IdleVirtualizationDebounceMs = 32;
+        private const int ScrollSelectedIndexCoalesceMs = 32;
+        private const double SelectedIndexCoalesceDelta = 0.035;
+        private const double SelectedItemBoundsEpsilon = 0.75;
         private const float MaxFullCoverAspectRatio = 1.35f;
 
         private CompositionCustomVisual? _visual;
@@ -82,6 +85,12 @@ namespace AES_Controls.Composition
         private DispatcherTimer? _settleCommitTimer;
         private IEnumerable? _subscribedItemsSource;
         private bool _isInternalMove;
+        private bool _isPointerScrolling;
+        private bool _visualDirectIndexFollow;
+        private bool _suppressSelectedIndexSideEffects;
+        private double _lastPublishedSelectedIndex = double.NaN;
+        private long _lastSelectedItemBoundsUpdateTicks;
+        private Rect _lastPublishedSelectedItemBounds = default;
 
         private DispatcherTimer? _longPressTimer;
         private bool _isDragging;
@@ -91,9 +100,13 @@ namespace AES_Controls.Composition
         private int _draggingIndex = -1;
         private int _dragStartIndex = -1;
         private int _currentDragTargetIndex = -1;
+        private int _lastSentDropTargetIndex = -1;
+        private int _cachedDragTargetIndex = -1;
+        private Point _cachedDragTargetPoint;
+        private long _lastDragTargetCalcTicks;
+        private double _dragSlotFloat = double.NaN;
         private Avalonia.Vector _dragPointerOffset;
         private DispatcherTimer? _autoScrollTimer;
-        private double _autoScrollVelocity;
         private Rect _selectedItemBounds = default;
 
         // Projection cache to reduce heavy math during hit-testing and pointer moves
@@ -424,7 +437,8 @@ namespace AES_Controls.Composition
                     _uiSyncTimer?.Stop();
                 }
 
-                UpdateSelectedItemBounds();
+                if (ShouldUpdateSelectedItemBoundsThisFrame())
+                    UpdateSelectedItemBounds();
             });
 
             _settleCommitTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(SettleCommitDelayMs) };
@@ -799,19 +813,144 @@ namespace AES_Controls.Composition
             _projCacheSize = new Vector2(0,0);
         }
 
+        private bool UsesDirectIndexFollow => _isPointerScrolling || _isSliderPressed || _isDragging;
+
+        private double IndexForInteraction => _visualDirectIndexFollow ? _uiTargetIndex : _uiCurrentIndex;
+
+        private void SetVisualDirectIndexFollow(bool enabled)
+        {
+            if (_visualDirectIndexFollow == enabled)
+                return;
+
+            _visualDirectIndexFollow = enabled;
+            _visual?.SendHandlerMessage(new DirectIndexFollowMessage(enabled));
+        }
+
+        private bool ShouldUpdateSelectedItemBoundsThisFrame()
+        {
+            if (_isPointerScrolling || _isDragging)
+                return false;
+
+            if (!IsSelectionInMotion())
+                return true;
+
+            long now = Stopwatch.GetTimestamp();
+            if (_lastSelectedItemBoundsUpdateTicks == 0)
+            {
+                _lastSelectedItemBoundsUpdateTicks = now;
+                return true;
+            }
+
+            double elapsedMs = (now - _lastSelectedItemBoundsUpdateTicks) * 1000.0 / Stopwatch.Frequency;
+            if (elapsedMs < ScrollSelectedIndexCoalesceMs)
+                return false;
+
+            _lastSelectedItemBoundsUpdateTicks = now;
+            return true;
+        }
+
+        private static bool BoundsNearlyEqual(Rect a, Rect b, double epsilon = SelectedItemBoundsEpsilon)
+        {
+            if (a == default && b == default)
+                return true;
+
+            return Math.Abs(a.X - b.X) < epsilon &&
+                   Math.Abs(a.Y - b.Y) < epsilon &&
+                   Math.Abs(a.Width - b.Width) < epsilon &&
+                   Math.Abs(a.Height - b.Height) < epsilon;
+        }
+
         private void UpdateSelectedItemBounds()
         {
             if (_images.Count == 0 || Bounds.Width <= 0 || Bounds.Height <= 0)
             {
-                SelectedItemBounds = default;
+                if (_lastPublishedSelectedItemBounds != default)
+                {
+                    _lastPublishedSelectedItemBounds = default;
+                    SelectedItemBounds = default;
+                }
                 return;
             }
 
             int index = (int)Math.Clamp(Math.Round(_uiCurrentIndex), 0, Math.Max(0, _images.Count - 1));
             if (TryGetProjectedItemBounds(index, _uiCurrentIndex, out var bounds))
-                SelectedItemBounds = bounds;
-            else
+            {
+                if (!BoundsNearlyEqual(_lastPublishedSelectedItemBounds, bounds))
+                {
+                    _lastPublishedSelectedItemBounds = bounds;
+                    SelectedItemBounds = bounds;
+                }
+            }
+            else if (_lastPublishedSelectedItemBounds != default)
+            {
+                _lastPublishedSelectedItemBounds = default;
                 SelectedItemBounds = default;
+            }
+        }
+
+        private void PublishSelectedIndex(double index, bool force = false)
+        {
+            double clamped = Math.Clamp(index, 0, Math.Max(0, _images.Count - 1));
+            _uiTargetIndex = clamped;
+            _visual?.SendHandlerMessage(clamped);
+
+            bool directFollow = UsesDirectIndexFollow;
+            SetVisualDirectIndexFollow(directFollow);
+            if (directFollow)
+            {
+                _uiCurrentIndex = clamped;
+                _uiVelocity = 0;
+                _uiLastTicks = 0;
+                _uiSyncTimer?.Stop();
+            }
+            else if (_uiSyncTimer != null && !_uiSyncTimer.IsEnabled)
+            {
+                _uiSyncTimer.Start();
+            }
+
+            if (!force && (_isPointerScrolling || _isDragging))
+            {
+                int rounded = (int)Math.Round(clamped);
+                int lastRounded = double.IsNaN(_lastPublishedSelectedIndex)
+                    ? rounded
+                    : (int)Math.Round(_lastPublishedSelectedIndex);
+                if (rounded == lastRounded)
+                    return;
+            }
+            else if (!force &&
+                     !double.IsNaN(_lastPublishedSelectedIndex) &&
+                     Math.Abs(clamped - _lastPublishedSelectedIndex) < SelectedIndexCoalesceDelta)
+            {
+                return;
+            }
+
+            _lastPublishedSelectedIndex = clamped;
+            if (Math.Abs(SelectedIndex - clamped) < 0.0001)
+                return;
+
+            _suppressSelectedIndexSideEffects = (_isPointerScrolling || _isDragging) && !force;
+            try
+            {
+                SelectedIndex = clamped;
+            }
+            finally
+            {
+                _suppressSelectedIndexSideEffects = false;
+            }
+        }
+
+        private void EndPointerScrollInteraction(bool forcePublishSelectedIndex)
+        {
+            _isPointerScrolling = false;
+            _lastSelectedItemBoundsUpdateTicks = 0;
+            SetVisualDirectIndexFollow(_isSliderPressed);
+            if (forcePublishSelectedIndex)
+                PublishSelectedIndex(SelectedIndex, force: true);
+            else if (!_isSliderPressed && _uiSyncTimer != null && !_uiSyncTimer.IsEnabled)
+                _uiSyncTimer.Start();
+
+            UpdateVirtualization();
+            UpdateSelectedItemBounds();
         }
 
         private bool TryGetProjectedItemBounds(int index, double currentIndex, out Rect bounds)
@@ -864,70 +1003,159 @@ namespace AES_Controls.Composition
             var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
 
             // Primary approach: Use robust hit testing to identify an actual item being clicked
-            int hit = HitTest(point, size, _uiCurrentIndex);
+            double interactionIndex = IndexForInteraction;
+            int hit = HitTest(point, size, interactionIndex);
             if (hit != -1) return hit;
 
             // Fallback: map pointer X to a slot using linear mapping for "empty space" clicks
             double centerX = size.X / 2.0;
             double itemWidth = ItemWidth * ItemScale * ItemSpacing;
             double relativeX = point.X - centerX;
-            double targetFloat = _uiCurrentIndex + (relativeX / (itemWidth * 1.5));
+            double targetFloat = interactionIndex + (relativeX / (itemWidth * 1.5));
             return (int)Math.Clamp(Math.Round(targetFloat), 0, Math.Max(0, _images.Count - 1));
         }
 
         private Point GetDragVisualPoint(Point pointerPoint)
             => new(pointerPoint.X + _dragPointerOffset.X, pointerPoint.Y + _dragPointerOffset.Y);
 
+        private int GetDragTargetIndexThrottled(Point pointerPoint)
+        {
+            long now = Stopwatch.GetTimestamp();
+            double elapsedMs = _lastDragTargetCalcTicks == 0
+                ? double.MaxValue
+                : (now - _lastDragTargetCalcTicks) * 1000.0 / Stopwatch.Frequency;
+
+            if (_cachedDragTargetIndex >= 0 &&
+                elapsedMs < 24 &&
+                Point.Distance(pointerPoint, _cachedDragTargetPoint) < 10.0)
+            {
+                return _cachedDragTargetIndex;
+            }
+
+            _cachedDragTargetIndex = GetDragTargetIndex(pointerPoint);
+            _cachedDragTargetPoint = pointerPoint;
+            _lastDragTargetCalcTicks = now;
+            return _cachedDragTargetIndex;
+        }
+
         private int GetDragTargetIndex(Point pointerPoint)
         {
             if (_images.Count == 0)
                 return -1;
 
+            int maxIndex = Math.Max(0, _images.Count - 1);
             if (_images.Count == 1 || _draggingIndex < 0)
-                return Math.Clamp(IndexAtPoint(pointerPoint), 0, Math.Max(0, _images.Count - 1));
-
-            var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
-            EnsureProjectionCache(_uiCurrentIndex, size);
+                return 0;
 
             var dragCenter = GetDragVisualPoint(pointerPoint);
-            var projectedCenters = new List<(int TargetIndex, double CenterX)>(_projPolyCache.Count);
+            double centerX = Bounds.Width / 2.0;
+            double pitch = Math.Max(52.0, ItemWidth * ItemScale * ItemSpacing * 0.62);
+            double floatSlot = IndexForInteraction + (dragCenter.X - centerX) / pitch;
+            floatSlot = Math.Clamp(floatSlot, 0, maxIndex);
 
-            foreach (int index in _projPolyCache.Keys.OrderBy(i => i))
+            if (double.IsNaN(_dragSlotFloat))
             {
-                if (index == _draggingIndex)
-                    continue;
-
-                if (!TryGetProjectedItemBounds(index, _uiCurrentIndex, out var bounds))
-                    continue;
-
-                int targetIndex = index < _draggingIndex ? index : index - 1;
-                projectedCenters.Add((targetIndex, bounds.X + bounds.Width * 0.5));
-            }
-
-            if (projectedCenters.Count == 0)
-                return Math.Clamp(IndexAtPoint(dragCenter), 0, Math.Max(0, _images.Count - 1));
-
-            projectedCenters.Sort((a, b) => a.CenterX.CompareTo(b.CenterX));
-
-            int insertionSlot = projectedCenters[^1].TargetIndex + 1;
-            if (dragCenter.X <= projectedCenters[0].CenterX)
-            {
-                insertionSlot = projectedCenters[0].TargetIndex;
+                _dragSlotFloat = floatSlot;
             }
             else
             {
-                for (int i = 0; i < projectedCenters.Count - 1; i++)
-                {
-                    double midpoint = (projectedCenters[i].CenterX + projectedCenters[i + 1].CenterX) * 0.5;
-                    if (dragCenter.X < midpoint)
-                    {
-                        insertionSlot = projectedCenters[i + 1].TargetIndex;
-                        break;
-                    }
-                }
+                const double deadZone = 0.4;
+                int prevSlot = (int)Math.Round(_dragSlotFloat);
+                int nextSlot = (int)Math.Round(floatSlot);
+                if (nextSlot > prevSlot && floatSlot < prevSlot + deadZone)
+                    floatSlot = _dragSlotFloat;
+                else if (nextSlot < prevSlot && floatSlot > prevSlot - deadZone)
+                    floatSlot = _dragSlotFloat;
+                else
+                    _dragSlotFloat = floatSlot;
             }
 
-            return Math.Clamp(insertionSlot, 0, Math.Max(0, _images.Count - 1));
+            return (int)Math.Round(Math.Clamp(_dragSlotFloat, 0, maxIndex));
+        }
+
+        private void UpdateDragInteraction(Point pointerPoint)
+        {
+            var dragPoint = GetDragVisualPoint(pointerPoint);
+            _visual?.SendHandlerMessage(new DragPositionMessage(new Vector2((float)dragPoint.X, (float)dragPoint.Y)));
+
+            int targetIndex = GetDragTargetIndexThrottled(pointerPoint);
+            _currentDragTargetIndex = targetIndex;
+            if (targetIndex != _lastSentDropTargetIndex)
+            {
+                _lastSentDropTargetIndex = targetIndex;
+                _visual?.SendHandlerMessage(new DropTargetMessage(targetIndex));
+            }
+        }
+
+        /// <summary>
+        /// Edge-only auto-scroll while reorder-dragging. Uses the lifted card position so
+        /// holding near an edge scrolls the row without fighting the drop-slot logic.
+        /// </summary>
+        private void UpdateDragAutoScroll(Point pointerPoint)
+        {
+            if (!_isDragging || _images.Count <= 1 || Bounds.Width <= 0)
+                return;
+
+            var dragPoint = GetDragVisualPoint(pointerPoint);
+            double w = Bounds.Width;
+            double maxIndex = Math.Max(0, _images.Count - 1);
+            double scrollDelta = 0;
+
+            double zone = Math.Clamp(w * 0.16, 64, 140);
+            double x = dragPoint.X;
+
+            if (x < zone)
+            {
+                double t = (zone - x) / zone;
+                scrollDelta = -(t * t);
+            }
+            else if (x > w - zone)
+            {
+                double t = (x - (w - zone)) / zone;
+                scrollDelta = t * t;
+            }
+
+            if (Math.Abs(scrollDelta) < 0.02)
+                return;
+
+            const double scrollSpeed = 0.11;
+            double nextIndex = Math.Clamp(_uiTargetIndex + scrollDelta * scrollSpeed, 0, maxIndex);
+            if (Math.Abs(nextIndex - _uiTargetIndex) < 0.0005)
+                return;
+
+            PublishSelectedIndex(nextIndex);
+        }
+
+        private void BeginItemDrag(int hit)
+        {
+            _isDragging = true;
+            _draggingIndex = hit;
+            _dragStartIndex = hit;
+            _currentDragTargetIndex = hit;
+            _lastSentDropTargetIndex = hit;
+            _cachedDragTargetIndex = -1;
+            _dragSlotFloat = hit;
+            _isPointerScrolling = false;
+
+            if (TryGetProjectedItemBounds(hit, IndexForInteraction, out var dragBounds))
+            {
+                var dragCenter = new Point(dragBounds.X + dragBounds.Width * 0.5, dragBounds.Y + dragBounds.Height * 0.5);
+                _dragPointerOffset = dragCenter - _prevPoint;
+            }
+            else
+            {
+                _dragPointerOffset = default;
+            }
+
+            SetVisualDirectIndexFollow(true);
+            _uiCurrentIndex = _uiTargetIndex;
+            _uiVelocity = 0;
+            _uiLastTicks = 0;
+            _uiSyncTimer?.Stop();
+
+            _visual?.SendHandlerMessage(new DragStateMessage(hit, true));
+            UpdateDragInteraction(_prevPoint);
+            _autoScrollTimer?.Start();
         }
 
         private void ClearResources()
@@ -999,7 +1227,7 @@ namespace AES_Controls.Composition
 
         private bool IsSelectionInMotion()
         {
-            if (_isPressed || _isDragging || _isSliderPressed)
+            if (_isPressed || _isPointerScrolling || _isDragging || _isSliderPressed)
                 return true;
 
             if (_uiSyncTimer?.IsEnabled == true)
@@ -1013,11 +1241,15 @@ namespace AES_Controls.Composition
             base.OnPropertyChanged(change);
             if (change.Property == SelectedIndexProperty)
             {
-                _uiTargetIndex = change.GetNewValue<double>();
-                _visual?.SendHandlerMessage(change.GetNewValue<double>());
-                UpdateVirtualization();
-                ClearProjectionCache();
-                if (_uiSyncTimer != null && !_uiSyncTimer.IsEnabled) _uiSyncTimer.Start();
+                var newIndex = change.GetNewValue<double>();
+                _uiTargetIndex = newIndex;
+                _lastPublishedSelectedIndex = newIndex;
+                if (!_visualDirectIndexFollow)
+                    _visual?.SendHandlerMessage(newIndex);
+                if (!_suppressSelectedIndexSideEffects)
+                    UpdateVirtualization();
+                if (!_visualDirectIndexFollow && _uiSyncTimer != null && !_uiSyncTimer.IsEnabled)
+                    _uiSyncTimer.Start();
             }
             else if (change.Property == ItemSpacingProperty)
                 _visual?.SendHandlerMessage(new SpacingMessage(change.GetNewValue<double>()));
@@ -1698,6 +1930,7 @@ namespace AES_Controls.Composition
                     _longPressTimer?.Stop();
                     _autoScrollTimer?.Stop();
                     _isPressed = false;
+                    _isPointerScrolling = false;
                     _isSliderPressed = false;
                     _pressedItemIndex = -1;
                     _currentDragTargetIndex = -1;
@@ -1719,7 +1952,7 @@ namespace AES_Controls.Composition
                 var newIndex = Math.Clamp(Math.Round(SelectedIndex + delta), 0, Math.Max(0, _images.Count - 1));
                 if (newIndex != SelectedIndex || e.Key == Key.Home || e.Key == Key.End)
                 {
-                    SelectedIndex = newIndex;
+                    PublishSelectedIndex(newIndex, force: true);
                     ItemSelectedCommand?.Execute((int)newIndex);
                     e.Handled = true;
                 }
@@ -1733,55 +1966,22 @@ namespace AES_Controls.Composition
             {
                 int hit = _pressedItemIndex;
                 if (hit == -1)
-                    hit = HitTest(_prevPoint, new Vector2((float)Bounds.Width, (float)Bounds.Height), _uiCurrentIndex);
+                    hit = HitTest(_prevPoint, new Vector2((float)Bounds.Width, (float)Bounds.Height), IndexForInteraction);
                 if (hit != -1)
-                {
-                    _isDragging = true;
-                    _draggingIndex = hit;
-                    _dragStartIndex = hit;
-                    _currentDragTargetIndex = hit;
-                    _dragPointerOffset = default;
-                    if (TryGetProjectedItemBounds(hit, _uiCurrentIndex, out var dragBounds))
-                    {
-                        var dragCenter = new Point(dragBounds.X + dragBounds.Width * 0.5, dragBounds.Y + dragBounds.Height * 0.5);
-                        _dragPointerOffset = dragCenter - _prevPoint;
-                    }
-
-                    var dragPoint = GetDragVisualPoint(_prevPoint);
-                    _visual?.SendHandlerMessage(new DragStateMessage(_draggingIndex, true));
-                    _visual?.SendHandlerMessage(new DragPositionMessage(new Vector2((float)dragPoint.X, (float)dragPoint.Y)));
-                    _visual?.SendHandlerMessage(new DropTargetMessage(_currentDragTargetIndex));
-                }
+                    BeginItemDrag(hit);
             }
         }
 
         private void AutoScrollTimer_Tick(object? sender, EventArgs e)
         {
-            if (!_isDragging) { _autoScrollTimer?.Stop(); return; }
-            
-            double threshold = 120;
-            double mouseX = _prevPoint.X;
-            double w = Bounds.Width;
-            
-            double delta = 0;
-            if (mouseX < threshold) delta = -(threshold - mouseX) / threshold;
-            else if (mouseX > w - threshold) delta = (mouseX - (w - threshold)) / threshold;
-            
-            if (Math.Abs(delta) > 0.01)
+            if (!_isDragging)
             {
-                _autoScrollVelocity = delta * 0.08;
-                SelectedIndex = Math.Clamp(SelectedIndex + _autoScrollVelocity, 0, Math.Max(0, _images.Count - 1));
-            }
-            else
-            {
-                _autoScrollVelocity = 0;
+                _autoScrollTimer?.Stop();
+                return;
             }
 
-            var dragPoint = GetDragVisualPoint(_prevPoint);
-            _visual?.SendHandlerMessage(new DragPositionMessage(new Vector2((float)dragPoint.X, (float)dragPoint.Y)));
-
-            _currentDragTargetIndex = GetDragTargetIndex(_prevPoint);
-            _visual?.SendHandlerMessage(new DropTargetMessage(_currentDragTargetIndex));
+            UpdateDragInteraction(_prevPoint);
+            UpdateDragAutoScroll(_prevPoint);
         }
 
         private void QueueSettleCommit()
@@ -1797,7 +1997,7 @@ namespace AES_Controls.Composition
 
             double committedIndex = Math.Clamp(Math.Round(SelectedIndex), 0, Math.Max(0, _images.Count - 1));
             if (Math.Abs(committedIndex - SelectedIndex) > 0.0001)
-                SelectedIndex = committedIndex;
+                PublishSelectedIndex(committedIndex, force: true);
         }
 
         protected override void OnPointerPressed(PointerPressedEventArgs e)
@@ -1807,7 +2007,7 @@ namespace AES_Controls.Composition
             if (pointerProps.IsRightButtonPressed)
             {
                 var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
-                PointedItemIndex = HitTest(pos, size, _uiCurrentIndex);
+                PointedItemIndex = HitTest(pos, size, IndexForInteraction);
                 e.Handled = true;
                 return;
             }
@@ -1819,7 +2019,7 @@ namespace AES_Controls.Composition
             int hitIndex = IndexAtPoint(pos);
             if (e.ClickCount == 2 && hitIndex != -1)
             {
-                SelectedIndex = hitIndex;
+                PublishSelectedIndex(hitIndex, force: true);
                 ItemSelectedCommand?.Execute(hitIndex);
                 ItemDoubleClickedCommand?.Execute(hitIndex);
                 e.Handled = true;
@@ -1827,6 +2027,7 @@ namespace AES_Controls.Composition
             }
 
             _isPressed = true;
+            _isPointerScrolling = false;
             _startPoint = _prevPoint = pos;
             _prevTime = e.Timestamp;
             _velocity = 0;
@@ -1837,6 +2038,7 @@ namespace AES_Controls.Composition
             if (SliderBounds.Inflate(new Thickness(40, 30)).Contains(pos))
             {
                 _isSliderPressed = true;
+                SetVisualDirectIndexFollow(true);
                 _visual?.SendHandlerMessage(new SliderPressedMessage(true));
                 UpdateSliderPosition(pos.X);
                 return;
@@ -1867,7 +2069,7 @@ namespace AES_Controls.Composition
             const double thumbW = 45.0;
             double clickableWidth = Math.Max(1.0, bounds.Width - thumbW);
             double pct = Math.Clamp((x - bounds.Left - thumbW / 2) / clickableWidth, 0, 1);
-            SelectedIndex = Math.Clamp(pct * Math.Max(0, _images.Count - 1), 0, Math.Max(0, _images.Count - 1));
+            PublishSelectedIndex(Math.Clamp(pct * Math.Max(0, _images.Count - 1), 0, Math.Max(0, _images.Count - 1)), force: true);
         }
 
         protected override void OnPointerMoved(PointerEventArgs e)
@@ -1881,13 +2083,10 @@ namespace AES_Controls.Composition
             }
             else if (_isDragging)
             {
-                var dragPoint = GetDragVisualPoint(point);
-                _visual?.SendHandlerMessage(new DragPositionMessage(new Vector2((float)dragPoint.X, (float)dragPoint.Y)));
+                UpdateDragInteraction(point);
 
-                _currentDragTargetIndex = GetDragTargetIndex(point);
-                _visual?.SendHandlerMessage(new DropTargetMessage(_currentDragTargetIndex));
-
-                if (!_autoScrollTimer!.IsEnabled) _autoScrollTimer.Start();
+                if (_autoScrollTimer != null && !_autoScrollTimer.IsEnabled)
+                    _autoScrollTimer.Start();
             }
             else if (_isPressed)
             {
@@ -1912,13 +2111,14 @@ namespace AES_Controls.Composition
                     double dx = point.X - _prevPoint.X;
                     _velocity = -dx / (250.0 * dt);
                 }
+                _isPointerScrolling = true;
                 var deltaX = point.X - _startPoint.X;
-                SelectedIndex = Math.Clamp(_pressIndex - deltaX / 250.0, 0, Math.Max(0, _images.Count - 1));
+                PublishSelectedIndex(_pressIndex - deltaX / 250.0);
             }
             _prevPoint = point;
             _prevTime = e.Timestamp;
 
-            if (!_isDragging && !_isSliderPressed)
+            if (!_isDragging && !_isSliderPressed && !_isPointerScrolling)
             {
                 int hIdx = IndexAtPoint(point);
                 int hBtn = 0;
@@ -1968,13 +2168,13 @@ namespace AES_Controls.Composition
                     _visual?.SendHandlerMessage(_images);
 
                     MoveItem(_draggingIndex, targetIndex);
-                    SelectedIndex = targetIndex;
+                    PublishSelectedIndex(targetIndex, force: true);
                 }
                 finally { _isInternalMove = false; }
             }
             else if (cancel && _dragStartIndex >= 0)
             {
-                SelectedIndex = _dragStartIndex;
+                PublishSelectedIndex(_dragStartIndex, force: true);
             }
 
             _isDragging = false;
@@ -1984,10 +2184,16 @@ namespace AES_Controls.Composition
             _dragStartIndex = -1;
             _pressedItemIndex = -1;
             _currentDragTargetIndex = -1;
+            _lastSentDropTargetIndex = -1;
+            _cachedDragTargetIndex = -1;
+            _dragSlotFloat = double.NaN;
             _dragPointerOffset = default;
-            _autoScrollVelocity = 0;
             _isPressed = false;
             _isSliderPressed = false;
+            SetVisualDirectIndexFollow(UsesDirectIndexFollow);
+            if (!_visualDirectIndexFollow && _uiSyncTimer != null && !_uiSyncTimer.IsEnabled)
+                _uiSyncTimer.Start();
+            UpdateSelectedItemBounds();
             pointer?.Capture(null);
         }
 
@@ -2014,15 +2220,15 @@ namespace AES_Controls.Composition
             {
                 _isSliderPressed = false;
                 _visual?.SendHandlerMessage(new SliderPressedMessage(false));
+                EndPointerScrollInteraction(forcePublishSelectedIndex: true);
                 QueueSettleCommit();
             }
 
             if (_isDragging)
             {
-                // Determine drop target one last time to be sure
-                int targetIndex = _currentDragTargetIndex != -1
-                    ? _currentDragTargetIndex
-                    : GetDragTargetIndex(e.GetPosition(this));
+                _cachedDragTargetIndex = -1;
+                _dragSlotFloat = double.NaN;
+                int targetIndex = GetDragTargetIndex(e.GetPosition(this));
 
                 FinishDrag(targetIndex, cancel: false, e.Pointer);
                 return;
@@ -2039,7 +2245,8 @@ namespace AES_Controls.Composition
                 e.Pointer.Capture(null);
                 var point = e.GetPosition(this);
                 double projectedIndex = SelectedIndex + _velocity * 100.0;
-                SelectedIndex = Math.Clamp(Math.Round(projectedIndex), 0, Math.Max(0, _images.Count - 1));
+                PublishSelectedIndex(Math.Clamp(Math.Round(projectedIndex), 0, Math.Max(0, _images.Count - 1)), force: true);
+                EndPointerScrollInteraction(forcePublishSelectedIndex: false);
                 if (Point.Distance(_startPoint, point) < 5)
                 {
                     int hitIndex = IndexAtPoint(point);
@@ -2066,7 +2273,7 @@ namespace AES_Controls.Composition
                             }
                         }
 
-                        SelectedIndex = hitIndex;
+                        PublishSelectedIndex(hitIndex, force: true);
                         ItemSelectedCommand?.Execute(hitIndex);
                     }
                 }
@@ -2074,6 +2281,10 @@ namespace AES_Controls.Composition
                 {
                     QueueSettleCommit();
                 }
+            }
+            else
+            {
+                EndPointerScrollInteraction(forcePublishSelectedIndex: false);
             }
         }
 
@@ -2085,7 +2296,7 @@ namespace AES_Controls.Composition
             double nextTargetIndex = Math.Clamp(SelectedIndex - (e.Delta.Y * WheelScrollSensitivity), 0, maxIndex);
             if (Math.Abs(nextTargetIndex - SelectedIndex) > 0.0001)
             {
-                SelectedIndex = nextTargetIndex;
+                PublishSelectedIndex(nextTargetIndex, force: true);
                 QueueSettleCommit();
             }
 
@@ -2185,7 +2396,7 @@ namespace AES_Controls.Composition
                 if (aspect > 0.01f) w = h * aspect;
             }
 
-            float currentIndex = (float)_uiCurrentIndex;
+            float currentIndex = (float)IndexForInteraction;
             var center = new Vector2(size.X / 2, (float)(size.Y / 2 + VerticalOffset));
             float diff = (float)(i - currentIndex);
             float absDiff = Math.Abs(diff);
