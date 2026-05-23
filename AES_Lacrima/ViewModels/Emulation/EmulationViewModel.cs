@@ -453,6 +453,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(ClientAreaCropTopInset));
             OnPropertyChanged(nameof(ClientAreaCropRightInset));
             OnPropertyChanged(nameof(ClientAreaCropBottomInset));
+            OnPropertyChanged(nameof(CaptureWindowAspectRatio));
             OnPropertyChanged(nameof(CurrentEmulatorWindowTitleHint));
             OnPropertyChanged(nameof(CurrentCaptureStretch));
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
@@ -698,6 +699,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         public int ClientAreaCropTopInset => CurrentEmulatorHandler?.ClientAreaCropTopInset ?? 0;
         public int ClientAreaCropRightInset => CurrentEmulatorHandler?.ClientAreaCropRightInset ?? 0;
         public int ClientAreaCropBottomInset => CurrentEmulatorHandler?.ClientAreaCropBottomInset ?? 0;
+        public double CaptureWindowAspectRatio => CurrentEmulatorHandler?.CaptureWindowAspectRatio ?? 0;
         public Stretch CurrentCaptureStretch => _sessionCaptureStretchOverride ?? SelectedStretch;
         public string? CurrentEmulatorWindowTitleHint
         {

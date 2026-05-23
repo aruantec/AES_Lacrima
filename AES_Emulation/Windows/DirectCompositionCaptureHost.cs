@@ -79,6 +79,9 @@ public class DirectCompositionCaptureHost : NativeControlHost
     public static readonly StyledProperty<int> ClientAreaCropBottomInsetProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, int>(nameof(ClientAreaCropBottomInset), 0);
 
+    public static readonly StyledProperty<double> CaptureWindowAspectRatioProperty =
+        AvaloniaProperty.Register<DirectCompositionCaptureHost, double>(nameof(CaptureWindowAspectRatio), 0);
+
     public static readonly DirectProperty<DirectCompositionCaptureHost, string> StatusTextProperty =
         AvaloniaProperty.RegisterDirect<DirectCompositionCaptureHost, string>(
             nameof(StatusText),
@@ -131,7 +134,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
         EmulationFrameGenerationMode FrameGenerationMode,
         string? ShaderPath,
         bool ClearShaderWhenPathEmpty,
-        bool EnablePillarboxCrop);
+        bool EnablePillarboxCrop,
+        double CaptureWindowAspectRatio);
 
     private readonly BlockingCollection<Action> _rendererQueue = new();
     private readonly Thread _rendererThread;
@@ -280,7 +284,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
             FrameGenerationMode,
             ShaderPath,
             ClearShaderWhenPathEmpty,
-            EnablePillarboxCrop);
+            EnablePillarboxCrop,
+            CaptureWindowAspectRatio);
     }
 
     private void RequestEnsureSession()
@@ -437,6 +442,13 @@ public class DirectCompositionCaptureHost : NativeControlHost
         set => SetValue(ClientAreaCropBottomInsetProperty, value);
     }
 
+    /// <summary>Width/height ratio for the embedded emulator window (0 = use full host size).</summary>
+    public double CaptureWindowAspectRatio
+    {
+        get => GetValue(CaptureWindowAspectRatioProperty);
+        set => SetValue(CaptureWindowAspectRatioProperty, value);
+    }
+
     public string StatusText
     {
         get => _statusText;
@@ -523,6 +535,10 @@ public class DirectCompositionCaptureHost : NativeControlHost
                  change.Property == ClientAreaCropBottomInsetProperty)
         {
             RequestCropRectUpdate();
+        }
+        else if (change.Property == CaptureWindowAspectRatioProperty)
+        {
+            RequestEnsureSession();
         }
         else if (change.Property == RequestStopSessionProperty && change.GetNewValue<bool>())
         {
@@ -625,6 +641,11 @@ public class DirectCompositionCaptureHost : NativeControlHost
         try
         {
             _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
+            if (settings.CaptureWindowAspectRatio > 0)
+            {
+                _windowHandler.LockTargetAspectRatio = true;
+                _windowHandler.FixedAspectRatio = settings.CaptureWindowAspectRatio;
+            }
             _windowHandler.SetMoveToHost(true);
             _windowHandler.Start(_hostHwnd != IntPtr.Zero ? _hostHwnd : _childHwnd, settings.TargetHwnd);
         }
