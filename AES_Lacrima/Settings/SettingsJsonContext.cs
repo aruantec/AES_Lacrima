@@ -6,6 +6,10 @@ using AES_Lacrima.ViewModels;
 
 namespace AES_Lacrima.Settings
 {
+    /// <summary>
+    /// JSON source generation for persisted settings and view-model snapshots.
+    /// New types used with <c>WriteObjectSetting&lt;T&gt;</c> must be listed here. See Serialization/README.md.
+    /// </summary>
     [JsonSourceGenerationOptions(
     WriteIndented = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

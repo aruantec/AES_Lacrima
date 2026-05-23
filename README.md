@@ -26,7 +26,9 @@ This repo uses [NUKE](https://nuke.build/) for solution builds and app publishin
 - Publish an app build: `./build.sh Publish --configuration Release --runtime <rid>`
 - Android APK build (NUKE): `./build.sh PublishAndroidApk --configuration Release`
 
-See `BUILDING.md` for platform packaging details, AppImage guidance, CI artifacts, and GitHub Release workflow notes.
+See [BUILDING.md](BUILDING.md) for platform packaging details, AppImage guidance, CI artifacts, GitHub Release workflow notes, and **Native AOT** builds.
+
+Developer reference for AOT-safe JSON: [AES_Lacrima/Serialization/README.md](AES_Lacrima/Serialization/README.md).
 
 Showcase:
 

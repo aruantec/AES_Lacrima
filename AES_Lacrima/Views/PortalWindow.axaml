@@ -1,9 +1,9 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:emulation="using:AES_Emulation.Controls"
-    xmlns:vm="using:AES_Lacrima.ViewModels"
+        xmlns:vm="using:AES_Lacrima.ViewModels"
         x:Class="AES_Lacrima.Views.PortalWindow"
-    x:DataType="vm:EmulationViewModel"
+        x:DataType="vm:EmulationViewModel"
         Title="PortalWindow"
         Background="#FF000000"
         WindowDecorations="None"
@@ -14,6 +14,7 @@
         WindowStartupLocation="Manual">
     <Grid ClipToBounds="True">
         <Border Background="#FF000000"/>
+        <!-- Compiled bindings (AOT-safe). Keep in sync with InlineCaptureControl in EmulationView.axaml. -->
         <emulation:EmulatorCaptureHost x:Name="CaptureControl"
                                        HorizontalAlignment="Stretch"
                                        VerticalAlignment="Stretch"
@@ -21,20 +22,22 @@
                                        TargetProcessId="{Binding EmulatorTargetProcessId}"
                                        TargetWindowTitleHint="{Binding CurrentEmulatorWindowTitleHint}"
                                        ForceUseTargetClientArea="{Binding ForceUseTargetClientAreaCapture}"
+                                       EnablePillarboxCrop="{Binding EnableCapturePillarboxCrop}"
                                        ClientAreaCropLeftInset="{Binding ClientAreaCropLeftInset}"
                                        ClientAreaCropTopInset="{Binding ClientAreaCropTopInset}"
                                        ClientAreaCropRightInset="{Binding ClientAreaCropRightInset}"
                                        ClientAreaCropBottomInset="{Binding ClientAreaCropBottomInset}"
+                                       CaptureWindowAspectRatio="{Binding CaptureWindowAspectRatio}"
                                        HideTargetWindowAfterCaptureStarts="{Binding HideTargetWindowAfterCaptureStarts}"
-                                       Stretch="{Binding SelectedStretch, Mode=TwoWay}"
+                                       Stretch="{Binding CurrentCaptureStretch}"
                                        Brightness="{Binding PortalCaptureBrightness, Mode=TwoWay}"
                                        Saturation="{Binding RenderSaturation, Mode=TwoWay}"
                                        DisableVSync="{Binding DisableVSync, Mode=TwoWay}"
+                                       LowLatencyCapture="{Binding LowLatencyCapture, Mode=TwoWay}"
                                        FrameGenerationMode="{Binding FrameGenerationMode, Mode=TwoWay}"
                                        ShaderPath="{Binding SelectedShaderPath}"
                                        ClearShaderWhenPathEmpty="{Binding ClearShaderWhenPathEmpty}"
                                        RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}"
                                        CaptureMode="{Binding SelectedCaptureMode}" />
-
     </Grid>
 </Window>

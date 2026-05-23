@@ -51,6 +51,39 @@ Common NUKE targets:
 
 Test results and coverage reports are written under `output/test-results`.
 
+## Native AOT
+
+The desktop app supports **Native AOT** publishes for smaller, faster startup binaries. Enable it by passing MSBuild property `PublishAot=true`.
+
+### Compile (AOT)
+
+```bash
+dotnet build AES_Lacrima/AES_Lacrima.csproj -c Release /p:PublishAot=true
+```
+
+### Publish (AOT)
+
+```bash
+dotnet publish AES_Lacrima/AES_Lacrima.csproj -c Release -r win-x64 /p:PublishAot=true --self-contained
+```
+
+Replace `win-x64` with your target RID (`linux-x64`, `osx-arm64`, etc.).
+
+### AOT-specific project behavior
+
+When `PublishAot=true`:
+
+- `NATIVE_AOT` is defined for conditional compilation.
+- **HotAvalonia** is excluded (not compatible with AOT).
+- **AES_Di.Generator** is referenced as a pre-built analyzer assembly instead of a Roslyn source generator project reference.
+- Trimmer roots and [AES_Lacrima/rd.xml](AES_Lacrima/rd.xml) keep Autofac, log4net, TagLib#, and related dependencies usable at runtime.
+
+### JSON and UI binding requirements
+
+All JSON persistence must use source-generated `JsonSerializerContext` types. See [AES_Lacrima/Serialization/README.md](AES_Lacrima/Serialization/README.md).
+
+UI views must use **compiled AXAML bindings** (`x:DataType` on the root). Avoid `new Binding("PropertyName")` in code-behind.
+
 ## Publishing
 
 Published output is written under `output/publish/<Configuration>/<RuntimeIdentifier>`.
