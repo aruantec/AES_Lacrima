@@ -116,10 +116,11 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     public virtual bool ForceUseTargetClientAreaCapture => false;
 
     /// <summary>
-    /// When true, the capture pipeline trims baked-in letterbox/pillarbox bars from the frame
-    /// (common when emulators keep aspect ratio inside a 16:9 window).
+    /// When true, the capture pipeline trims baked-in pillarbox bars from the frame.
+    /// Off by default — auto-detection often mis-reads dark edges as bars (right-edge artifacts).
+    /// Prefer <see cref="CaptureWindowAspectRatio"/> so the emulator window matches content aspect.
     /// </summary>
-    public virtual bool EnableCapturePillarboxCrop => ForceUseTargetClientAreaCapture;
+    public virtual bool EnableCapturePillarboxCrop => false;
 
     public virtual int ClientAreaCropLeftInset => 0;
 
@@ -475,23 +476,35 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     }
 
     protected static void ResizeCaptureWindowToSixteenByNine(IntPtr hwnd)
+        => ResizeCaptureWindowToAspectRatio(hwnd, 16.0 / 9.0);
+
+    protected static void ResizeCaptureWindowToAspectRatio(IntPtr hwnd, double aspectRatio, int preferredWidth = 1920)
     {
-        if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
+        if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows() || aspectRatio <= 0.0)
             return;
 
-        const int targetWidth = 1920;
-        const int targetHeight = 1080;
+        var targetWidth = Math.Max(1, preferredWidth);
+        var targetHeight = Math.Max(1, (int)Math.Round(targetWidth / aspectRatio));
 
         try
         {
-            if (Win32API.TryGetVirtualScreenBounds(out var x, out var y, out var width, out var height) && width > 0 && height > 0)
+            if (Win32API.TryGetVirtualScreenBounds(out var x, out var y, out var screenWidth, out var screenHeight) &&
+                screenWidth > 0 &&
+                screenHeight > 0)
             {
-                Win32API.SetWindowBounds(
-                    hwnd,
-                    x,
-                    y,
-                    Math.Min(targetWidth, width),
-                    Math.Min(targetHeight, height));
+                if (targetWidth > screenWidth)
+                {
+                    targetWidth = screenWidth;
+                    targetHeight = Math.Max(1, (int)Math.Round(targetWidth / aspectRatio));
+                }
+
+                if (targetHeight > screenHeight)
+                {
+                    targetHeight = screenHeight;
+                    targetWidth = Math.Max(1, (int)Math.Round(targetHeight * aspectRatio));
+                }
+
+                Win32API.SetWindowBounds(hwnd, x, y, targetWidth, targetHeight);
             }
             else
             {

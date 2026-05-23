@@ -294,7 +294,7 @@ namespace AES_Lacrima.ViewModels
             if (!string.IsNullOrWhiteSpace(pack.Description))
                 parts.Add(pack.Description.Trim());
 
-            return parts.Count == 0 ? pack.RelativeRulesPath : string.Join(" ΓÇö ", parts);
+            return parts.Count == 0 ? pack.RelativeRulesPath : string.Join(" \u2014 ", parts);
         }
 
         private static string? ResolveWiiUTitleId(MediaItem target)
@@ -365,7 +365,7 @@ namespace AES_Lacrima.ViewModels
                 var versionLabel = string.Equals(definition.AppVersion, "All", StringComparison.OrdinalIgnoreCase)
                     ? "All versions"
                     : $"v{definition.AppVersion.Trim()}";
-                parts.Add($"{definition.GameTitle.Trim()} ┬╖ {definition.Serial} ┬╖ {versionLabel}");
+                parts.Add($"{definition.GameTitle.Trim()} \u00B7 {definition.Serial} \u00B7 {versionLabel}");
             }
 
             if (!string.IsNullOrWhiteSpace(definition.Author))
@@ -380,7 +380,7 @@ namespace AES_Lacrima.ViewModels
             if (!string.IsNullOrWhiteSpace(definition.Notes))
                 parts.Add(definition.Notes.Trim());
 
-            return parts.Count == 0 ? null : string.Join(" ΓÇö ", parts);
+            return parts.Count == 0 ? null : string.Join(" \u2014 ", parts);
         }
 
         private void OnRpcs3PatchEntryPropertyChanged(object? sender, PropertyChangedEventArgs e)

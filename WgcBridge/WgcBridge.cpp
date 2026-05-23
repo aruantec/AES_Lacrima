@@ -2577,6 +2577,12 @@ struct CaptureSession
                 break;
             }
         }
+
+        static constexpr int kMinBarWidthPx = 4;
+        if (outLeft < kMinBarWidthPx)
+            outLeft = 0;
+        if (outRight < kMinBarWidthPx)
+            outRight = 0;
     }
 
     static constexpr int kPillarboxDetectTargetWidth = 320;

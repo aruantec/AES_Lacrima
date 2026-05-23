@@ -1134,7 +1134,7 @@ namespace AES_Lacrima.ViewModels
         public string XeniaPatchOverlayHeader =>
             string.IsNullOrWhiteSpace(_xeniaPatchOverlayGameTitle)
                 ? "Xenia Patches"
-                : $"{_xeniaPatchOverlayGameTitle} ΓÇö Patches";
+                : $"{_xeniaPatchOverlayGameTitle} \u2014 Patches";
 
         public XeniaPatchFileItem? SelectedCurrentSectionXeniaPatchFileItem
         {
