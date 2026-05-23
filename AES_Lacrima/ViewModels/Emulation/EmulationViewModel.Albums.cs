@@ -201,7 +201,7 @@ namespace AES_Lacrima.ViewModels
 
                 SelectedAlbum = AlbumList.FirstOrDefault();
                 LoadedAlbum = null;
-                UpdateCurrentEmulatorHandlerForSelection(LoadedAlbum);
+                UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationAlbum());
                 _sharedAlbumCache = new AvaloniaList<FolderMediaItem>(AlbumList);
                 IsPrepared = true;
                 _isPreparing = false;

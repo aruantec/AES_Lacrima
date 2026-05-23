@@ -70,7 +70,7 @@ namespace AES_Lacrima.ViewModels
             {
                 var emulatorDirectory = !string.IsNullOrWhiteSpace(CurrentSectionCemuEmulatorPath)
                     ? CurrentSectionCemuEmulatorPath
-                    : CemuPathsService.ResolveEmulatorDirectory(null, CurrentEmulatorHandler?.LauncherPath);
+                    : CemuPathsService.ResolveEmulatorDirectory(null, CurrentSectionEmulatorHandler?.LauncherPath);
 
                 var titleId = ResolveWiiUTitleId(target);
                 await Dispatcher.UIThread.InvokeAsync(() => CemuDetectedTitleId = titleId);
@@ -98,7 +98,7 @@ namespace AES_Lacrima.ViewModels
 
             var emulatorDirectory = !string.IsNullOrWhiteSpace(CurrentSectionCemuEmulatorPath)
                 ? CurrentSectionCemuEmulatorPath
-                : CemuPathsService.ResolveEmulatorDirectory(null, CurrentEmulatorHandler?.LauncherPath);
+                : CemuPathsService.ResolveEmulatorDirectory(null, CurrentSectionEmulatorHandler?.LauncherPath);
 
             if (string.IsNullOrWhiteSpace(emulatorDirectory))
             {
@@ -113,7 +113,7 @@ namespace AES_Lacrima.ViewModels
             {
                 var result = await CemuGraphicPacksDownloadService.DownloadLatestAsync(
                     emulatorDirectory,
-                    CurrentEmulatorHandler?.LauncherPath).ConfigureAwait(true);
+                    CurrentSectionEmulatorHandler?.LauncherPath).ConfigureAwait(true);
 
                 CemuGraphicPacksStatus = result.Message;
                 if (!result.Success || string.IsNullOrWhiteSpace(CemuDetectedTitleId))
@@ -152,7 +152,7 @@ namespace AES_Lacrima.ViewModels
 
             var emulatorDirectory = !string.IsNullOrWhiteSpace(CurrentSectionCemuEmulatorPath)
                 ? CurrentSectionCemuEmulatorPath
-                : CemuPathsService.ResolveEmulatorDirectory(null, CurrentEmulatorHandler?.LauncherPath);
+                : CemuPathsService.ResolveEmulatorDirectory(null, CurrentSectionEmulatorHandler?.LauncherPath);
 
             if (string.IsNullOrWhiteSpace(emulatorDirectory))
             {
@@ -169,7 +169,7 @@ namespace AES_Lacrima.ViewModels
 
                 await Task.Run(() => CemuGraphicPacksService.SaveEnabledStates(
                     emulatorDirectory,
-                    CurrentEmulatorHandler?.LauncherPath,
+                    CurrentSectionEmulatorHandler?.LauncherPath,
                     toggles)).ConfigureAwait(false);
 
                 IsCurrentSectionCemuGraphicPackDirty = false;
@@ -228,7 +228,7 @@ namespace AES_Lacrima.ViewModels
             {
                 var success = CemuGraphicPacksService.TryGetGraphicPacksForTitleId(
                     emulatorDirectory,
-                    CurrentEmulatorHandler?.LauncherPath,
+                    CurrentSectionEmulatorHandler?.LauncherPath,
                     titleId,
                     out var packs,
                     out var errorMessage);
@@ -236,7 +236,7 @@ namespace AES_Lacrima.ViewModels
             }).ConfigureAwait(false);
 
             string? settingsPath = null;
-            if (CemuPathsService.TryResolveSettingsPath(emulatorDirectory, CurrentEmulatorHandler?.LauncherPath, out var resolvedSettingsPath))
+            if (CemuPathsService.TryResolveSettingsPath(emulatorDirectory, CurrentSectionEmulatorHandler?.LauncherPath, out var resolvedSettingsPath))
                 settingsPath = resolvedSettingsPath;
 
             var enabledMap = await Task.Run(() =>

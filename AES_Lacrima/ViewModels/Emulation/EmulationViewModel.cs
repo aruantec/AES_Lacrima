@@ -898,22 +898,14 @@ private bool _isShadPs4PatchesOverlayOpen;
                 return;
             }
 
-            var sectionTitle = LoadedAlbum?.Title;
-            if (string.IsNullOrWhiteSpace(sectionTitle) ||
-                !string.Equals(section.SectionTitle, sectionTitle, StringComparison.OrdinalIgnoreCase))
-            {
+            var activeSection = TryResolveEmulationSection(GetActiveEmulationAlbum());
+            if (activeSection == null || !ReferenceEquals(activeSection, section))
                 return;
-            }
 
-            RefreshCurrentSectionHandlerState();
+            SyncCurrentSectionEmulatorContext();
         }
 
-        private void RefreshCurrentSectionHandlerState()
-        {
-            OnPropertyChanged(nameof(CurrentEmulationSectionItem));
-            UpdateCurrentEmulatorHandlerForSelection(LoadedAlbum);
-            RefreshCurrentSectionLaunchOptionsState();
-        }
+        private void RefreshCurrentSectionHandlerState() => SyncCurrentSectionEmulatorContext();
 
         private void EnsureMetadataServiceSubscription()
         {
@@ -1015,7 +1007,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             IsRenderOptionsOpen = false;
             ClearRetroArchErrorState();
-            UpdateCurrentEmulatorHandlerForSelection(LoadedAlbum);
+            SyncCurrentSectionEmulatorContext();
 
             if (IsActive && IsGameplayPreviewAvailable)
                 QueueGameplayPreview(HighlightedItem, immediate: true);
@@ -1226,7 +1218,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 IsEmulatorViewportDismissed = true;
 
             SyncSelectedAlbumIndexFromAlbum(value);
-            RefreshCurrentSectionLaunchOptionsState();
+            SyncCurrentSectionEmulatorContext();
             AutoSave();
         }
 
@@ -1234,9 +1226,6 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             if (IsEmulatorRunning && !IsEmulatorViewportDismissed)
                 IsEmulatorViewportDismissed = true;
-
-            if (!IsEmulatorRunning)
-                UpdateCurrentEmulatorHandlerForSelection(value);
 
             IsEmulatorUpdateNoticeOverlayOpen = false;
 
@@ -1249,7 +1238,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             ApplyFilter();
             QueueSelectedAlbumCoverScan(value);
             RefreshActiveAlbumState();
-            RefreshCurrentSectionLaunchOptionsState();
+            SyncCurrentSectionEmulatorContext();
         }
 
     }
