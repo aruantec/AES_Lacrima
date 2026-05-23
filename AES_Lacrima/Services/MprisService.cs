@@ -186,16 +186,19 @@ public sealed class MprisService : IMethodHandler, IDisposable
         await _connection.ConnectAsync().ConfigureAwait(false);
         _connection.AddMethodHandler(this);
 
+        // AllowReplacement (1): become the media player even if another instance held the name.
+        const uint allowReplacement = 1u;
         var requestResult = await CallBusUInt32MethodAsync("RequestName", "su", w =>
         {
             w.WriteString(BusName);
-            w.WriteUInt32(0u);
+            w.WriteUInt32(allowReplacement);
         }).ConfigureAwait(false);
 
-        _started = requestResult == 1u || requestResult == 4u;
+        // 1 = acquired, 4 = already primary owner.
+        _started = requestResult is 1u or 4u;
         if (!_started)
         {
-            Log.Warn($"MPRIS RequestName returned {requestResult}. Service may not be active.");
+            Log.Warn($"MPRIS RequestName for '{BusName}' returned {requestResult}. Desktop media keys may not reach this app.");
         }
         else
         {

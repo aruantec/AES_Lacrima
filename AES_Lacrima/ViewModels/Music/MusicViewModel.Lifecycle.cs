@@ -281,9 +281,9 @@ namespace AES_Lacrima.ViewModels
             {
                 await _mprisService.StartAsync();
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore MPRIS startup errors so normal playback remains unaffected.
+                Log.Warn("MPRIS startup failed; Fn/media keys may not work when the app is unfocused on Linux.", ex);
             }
         }
 
