@@ -62,7 +62,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _retroArchEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -95,7 +95,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _retroArchEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -226,7 +226,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _edenEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -271,7 +271,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _xeniaEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -303,7 +303,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _xeniaEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -357,7 +357,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _rpcs3EmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -390,7 +390,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _rpcs3EmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -445,7 +445,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _pcsx2EmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -489,7 +489,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _dolphinEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -533,7 +533,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _flycastEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -566,7 +566,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _flycastEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -621,7 +621,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _duckStationEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -654,7 +654,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _duckStationEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -698,7 +698,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _pcsx2EmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -742,7 +742,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _dolphinEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -797,7 +797,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _shadPs4EmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -831,7 +831,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _shadPs4EmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -876,7 +876,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _edenEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;

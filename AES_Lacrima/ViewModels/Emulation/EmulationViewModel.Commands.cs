@@ -45,6 +45,35 @@ namespace AES_Lacrima.ViewModels
 {
     public partial class EmulationViewModel : ViewModelBase, IEmulationViewModel
     {
+        private FolderMediaItem? GetActiveEmulationAlbum() => LoadedAlbum ?? SelectedAlbum;
+
+        private EmulationSectionItem? TryResolveEmulationSection(FolderMediaItem? album)
+        {
+            if (album == null || SettingsViewModel == null)
+                return null;
+
+            var sectionKey = GetAlbumPersistenceKey(album);
+            if (!string.IsNullOrWhiteSpace(sectionKey))
+            {
+                var byKey = SettingsViewModel.FindEmulationSection(sectionKey);
+                if (byKey != null)
+                    return byKey;
+            }
+
+            return SettingsViewModel.FindEmulationSection(album.Title);
+        }
+
+        private void SyncCurrentSectionEmulatorContext()
+        {
+            OnPropertyChanged(nameof(CurrentEmulationSectionItem));
+            OnPropertyChanged(nameof(CurrentSectionEmulatorHandler));
+
+            if (!IsEmulatorRunning)
+                UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationAlbum());
+
+            RefreshCurrentSectionLaunchOptionsState();
+        }
+
         private void UpdateCurrentEmulatorHandlerForSelection(FolderMediaItem? album)
         {
             if (album == null)
@@ -53,12 +82,9 @@ namespace AES_Lacrima.ViewModels
                 return;
             }
 
-            var configuredHandler = SettingsViewModel?.GetConfiguredEmulatorHandler(album.Title);
-            if (configuredHandler == null)
-            {
-                CurrentEmulatorHandler = null;
-                return;
-            }
+            var configuredHandler = TryResolveEmulationSection(album) is { } section
+                ? SettingsViewModel?.GetConfiguredEmulatorHandlerForSection(section)
+                : null;
 
             CurrentEmulatorHandler = configuredHandler;
         }
@@ -145,7 +171,7 @@ namespace AES_Lacrima.ViewModels
             if (!CanLaunchCurrentSectionHandlerSetup)
                 return;
 
-            var handlerId = CurrentEmulatorHandler?.HandlerId;
+            var handlerId = CurrentSectionEmulatorHandler?.HandlerId;
             if (string.Equals(handlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
             {
                 LaunchCurrentSectionDuckStationSetup();
@@ -170,7 +196,7 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void LaunchCurrentSectionDolphinSetup()
         {
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             if (handler == null ||
                 !string.Equals(handler.HandlerId, DolphinHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
             {
@@ -221,7 +247,7 @@ namespace AES_Lacrima.ViewModels
             if (!OperatingSystem.IsWindows())
                 return null;
 
-            var executablePath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(CurrentEmulatorHandler?.LauncherPath);
+            var executablePath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(CurrentSectionEmulatorHandler?.LauncherPath);
             if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
                 return null;
 
@@ -265,7 +291,7 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void LaunchCurrentSectionGenericHandlerSetup()
         {
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             if (handler == null)
                 return;
 
@@ -300,7 +326,7 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void LaunchCurrentSectionPcsx2Setup()
         {
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             if (handler == null ||
                 !string.Equals(handler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
             {
@@ -340,7 +366,7 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void LaunchCurrentSectionDuckStationSetup()
         {
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             if (handler == null ||
                 !string.Equals(handler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
             {
@@ -497,7 +523,7 @@ namespace AES_Lacrima.ViewModels
             RequestStopEmulatorCapture = true;
             EmulatorTargetHwnd = IntPtr.Zero;
             IsEmulatorRunning = false;
-            UpdateCurrentEmulatorHandlerForSelection(LoadedAlbum);
+            UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationAlbum());
             DetachTrackedEmulatorProcess();
         }
 

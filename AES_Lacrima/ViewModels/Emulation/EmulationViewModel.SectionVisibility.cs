@@ -46,69 +46,69 @@ namespace AES_Lacrima.ViewModels
     public partial class EmulationViewModel : ViewModelBase, IEmulationViewModel
     {
         public bool ShowCurrentSectionRetroArchCoreSelection =>
-            CurrentEmulatorHandler?.UsesRetroArchCores == true &&
+            CurrentSectionEmulatorHandler?.UsesRetroArchCores == true &&
             CurrentSectionRetroArchCores.Count > 0;
 
         public bool ShowCurrentSectionRetroArchUpdateControls =>
-            CurrentEmulatorHandler?.UsesRetroArchCores == true &&
+            CurrentSectionEmulatorHandler?.UsesRetroArchCores == true &&
             CurrentEmulationSectionItem != null;
 
         public bool ShowCurrentSectionEdenUpdateControls =>
-            CurrentEmulatorHandler != null &&
-            string.Equals(CurrentEmulatorHandler.HandlerId, EdenHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentSectionEmulatorHandler != null &&
+            string.Equals(CurrentSectionEmulatorHandler.HandlerId, EdenHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
         public bool ShowCurrentSectionShadPs4UpdateControls =>
-            CurrentEmulatorHandler != null &&
-            string.Equals(CurrentEmulatorHandler.HandlerId, ShadPs4Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentSectionEmulatorHandler != null &&
+            string.Equals(CurrentSectionEmulatorHandler.HandlerId, ShadPs4Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
         public bool ShowCurrentSectionXeniaUpdateControls =>
-            CurrentEmulatorHandler != null &&
-            string.Equals(CurrentEmulatorHandler.HandlerId, XeniaHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentSectionEmulatorHandler != null &&
+            string.Equals(CurrentSectionEmulatorHandler.HandlerId, XeniaHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
         public bool ShowCurrentSectionRpcs3UpdateControls =>
-            CurrentEmulatorHandler != null &&
-            string.Equals(CurrentEmulatorHandler.HandlerId, Rpcs3Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentSectionEmulatorHandler != null &&
+            string.Equals(CurrentSectionEmulatorHandler.HandlerId, Rpcs3Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
         public bool ShowCurrentSectionPcsx2UpdateControls =>
-            CurrentEmulatorHandler != null &&
-            string.Equals(CurrentEmulatorHandler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentSectionEmulatorHandler != null &&
+            string.Equals(CurrentSectionEmulatorHandler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
         public bool ShowCurrentSectionDolphinUpdateControls =>
-            CurrentEmulatorHandler != null &&
-            string.Equals(CurrentEmulatorHandler.HandlerId, DolphinHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentSectionEmulatorHandler != null &&
+            string.Equals(CurrentSectionEmulatorHandler.HandlerId, DolphinHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
         public bool ShowCurrentSectionFlycastUpdateControls =>
-            CurrentEmulatorHandler != null &&
-            string.Equals(CurrentEmulatorHandler.HandlerId, FlyCastHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentSectionEmulatorHandler != null &&
+            string.Equals(CurrentSectionEmulatorHandler.HandlerId, FlyCastHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
         public bool ShowCurrentSectionDuckStationUpdateControls =>
-            CurrentEmulatorHandler != null &&
-            string.Equals(CurrentEmulatorHandler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentSectionEmulatorHandler != null &&
+            string.Equals(CurrentSectionEmulatorHandler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
         public bool ShowCurrentSectionCemuSection =>
-            CurrentEmulatorHandler != null &&
-            string.Equals(CurrentEmulatorHandler.HandlerId, CemuHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentSectionEmulatorHandler != null &&
+            string.Equals(CurrentSectionEmulatorHandler.HandlerId, CemuHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
         public bool ShowCurrentSectionPcsx2SetupLaunchButton =>
-            CurrentEmulatorHandler != null &&
-            string.Equals(CurrentEmulatorHandler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
-            CurrentEmulatorHandler.IsLauncherPathValid(CurrentEmulatorHandler.LauncherPath) &&
+            CurrentSectionEmulatorHandler != null &&
+            string.Equals(CurrentSectionEmulatorHandler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentSectionEmulatorHandler.IsLauncherPathValid(CurrentSectionEmulatorHandler.LauncherPath) &&
             !IsEmulatorRunning &&
             !IsEmulatorLaunchInProgress;
 
         public bool ShowCurrentSectionDuckStationSetupLaunchButton =>
-            CurrentEmulatorHandler != null &&
-            string.Equals(CurrentEmulatorHandler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
-            CurrentEmulatorHandler.IsLauncherPathValid(CurrentEmulatorHandler.LauncherPath) &&
+            CurrentSectionEmulatorHandler != null &&
+            string.Equals(CurrentSectionEmulatorHandler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentSectionEmulatorHandler.IsLauncherPathValid(CurrentSectionEmulatorHandler.LauncherPath) &&
             !IsEmulatorRunning &&
             !IsEmulatorLaunchInProgress;
 
@@ -117,13 +117,13 @@ namespace AES_Lacrima.ViewModels
         public bool HasCurrentSectionSetupLaunchIcon => CurrentSectionSetupLaunchIcon != null;
 
         public string CurrentSectionSetupLaunchToolTip =>
-            CurrentEmulatorHandler?.DisplayName is { Length: > 0 } handlerName
+            CurrentSectionEmulatorHandler?.DisplayName is { Length: > 0 } handlerName
                 ? $"Launch {handlerName}"
                 : "Launch emulator";
 
         public bool CanLaunchCurrentSectionHandlerSetup =>
-            CurrentEmulatorHandler != null &&
-            CurrentEmulatorHandler?.IsLauncherPathValid(CurrentEmulatorHandler.LauncherPath) == true &&
+            CurrentSectionEmulatorHandler != null &&
+            CurrentSectionEmulatorHandler?.IsLauncherPathValid(CurrentSectionEmulatorHandler.LauncherPath) == true &&
             !IsEmulatorRunning &&
             !IsEmulatorLaunchInProgress;
 
@@ -295,6 +295,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             OnPropertyChanged(nameof(CurrentEmulationSectionItem));
+            OnPropertyChanged(nameof(CurrentSectionEmulatorHandler));
             OnPropertyChanged(nameof(CurrentSectionRetroArchCores));
             OnPropertyChanged(nameof(ShowCurrentSectionRetroArchCoreSelection));
             OnPropertyChanged(nameof(ShowCurrentSectionRetroArchUpdateControls));

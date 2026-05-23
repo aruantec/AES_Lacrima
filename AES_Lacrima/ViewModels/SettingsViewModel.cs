@@ -2086,15 +2086,29 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         return filters;
     }
 
-    public IEmulatorHandler? GetConfiguredEmulatorHandler(string? sectionTitle)
+    public EmulationSectionItem? FindEmulationSection(string? sectionKeyOrTitle)
     {
-        if (string.IsNullOrWhiteSpace(sectionTitle))
+        if (string.IsNullOrWhiteSpace(sectionKeyOrTitle))
             return null;
 
-        var match = EmulationSections.FirstOrDefault(item =>
-            string.Equals(item.SectionTitle, sectionTitle, StringComparison.OrdinalIgnoreCase));
+        var byKey = EmulationSections.FirstOrDefault(item =>
+            string.Equals(item.SectionKey, sectionKeyOrTitle, StringComparison.OrdinalIgnoreCase));
+        if (byKey != null)
+            return byKey;
 
-        if (match == null || match.Handlers.Count == 0)
+        return EmulationSections.FirstOrDefault(item =>
+            string.Equals(item.SectionTitle, sectionKeyOrTitle, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public IEmulatorHandler? GetConfiguredEmulatorHandler(string? sectionKeyOrTitle)
+    {
+        var match = FindEmulationSection(sectionKeyOrTitle);
+        return match == null ? null : GetConfiguredEmulatorHandlerForSection(match);
+    }
+
+    public IEmulatorHandler? GetConfiguredEmulatorHandlerForSection(EmulationSectionItem match)
+    {
+        if (match.Handlers.Count == 0)
             return null;
 
         if (!string.IsNullOrWhiteSpace(match.SelectedHandlerId))

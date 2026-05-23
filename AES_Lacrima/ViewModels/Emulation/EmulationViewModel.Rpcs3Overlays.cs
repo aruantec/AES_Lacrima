@@ -93,7 +93,7 @@ namespace AES_Lacrima.ViewModels
             {
             var emulatorDirectory = Rpcs3PatchesService.ResolveEmulatorDirectory(
                 CurrentSectionRpcs3EmulatorPath,
-                CurrentEmulatorHandler?.LauncherPath);
+                CurrentSectionEmulatorHandler?.LauncherPath);
 
             var titleId = Rpcs3CustomConfigService.NormalizeTitleId(
                 Ps3InstalledGameHelper.ResolveTitleId(target.FileName));
@@ -153,7 +153,7 @@ namespace AES_Lacrima.ViewModels
 
             var emulatorDirectory = Rpcs3PatchesService.ResolveEmulatorDirectory(
                 CurrentSectionRpcs3EmulatorPath,
-                CurrentEmulatorHandler?.LauncherPath);
+                CurrentSectionEmulatorHandler?.LauncherPath);
 
             if (string.IsNullOrWhiteSpace(emulatorDirectory))
             {
@@ -245,7 +245,7 @@ namespace AES_Lacrima.ViewModels
 
             var emulatorDirectory = Rpcs3PatchesService.ResolveEmulatorDirectory(
                 CurrentSectionRpcs3EmulatorPath,
-                CurrentEmulatorHandler?.LauncherPath);
+                CurrentSectionEmulatorHandler?.LauncherPath);
 
             if (string.IsNullOrWhiteSpace(emulatorDirectory))
             {

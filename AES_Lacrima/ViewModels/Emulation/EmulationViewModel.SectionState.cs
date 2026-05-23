@@ -45,18 +45,18 @@ namespace AES_Lacrima.ViewModels
 {
     public partial class EmulationViewModel : ViewModelBase, IEmulationViewModel
     {
-        public EmulationSectionItem? CurrentEmulationSectionItem
-        {
-            get
-            {
-                var sectionTitle = LoadedAlbum?.Title;
-                if (string.IsNullOrWhiteSpace(sectionTitle))
-                    return null;
+        public EmulationSectionItem? CurrentEmulationSectionItem =>
+            TryResolveEmulationSection(GetActiveEmulationAlbum());
 
-                return SettingsViewModel?.EmulationSections.FirstOrDefault(section =>
-                    string.Equals(section.SectionTitle, sectionTitle, StringComparison.OrdinalIgnoreCase));
-            }
-        }
+        /// <summary>
+        /// Configured handler for the active emulation section (carousel/loaded album).
+        /// Unlike <see cref="CurrentEmulatorHandler"/>, this stays aligned with the section
+        /// even while a game is running in another emulator.
+        /// </summary>
+        public IEmulatorHandler? CurrentSectionEmulatorHandler =>
+            CurrentEmulationSectionItem is { } section
+                ? SettingsViewModel?.GetConfiguredEmulatorHandlerForSection(section)
+                : null;
 
         public IReadOnlyList<string> CurrentSectionRetroArchCores =>
             (IReadOnlyList<string>?)CurrentEmulationSectionItem?.RetroArchCores ?? Array.Empty<string>();

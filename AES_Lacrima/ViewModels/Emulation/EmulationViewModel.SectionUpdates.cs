@@ -182,7 +182,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _cemuEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
@@ -256,7 +256,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var section = CurrentEmulationSectionItem;
-            var handler = CurrentEmulatorHandler;
+            var handler = CurrentSectionEmulatorHandler;
             var updater = _cemuEmulatorUpdateService;
             if (section == null || handler == null || updater == null)
                 return;
