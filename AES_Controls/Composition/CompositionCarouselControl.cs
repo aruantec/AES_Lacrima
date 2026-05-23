@@ -738,7 +738,7 @@ namespace AES_Controls.Composition
             if (_sharedImageCache.TryGetValue(sourceKey, out var existing))
             {
                 existing.RefCount++;
-                image.Dispose();
+                QueueImageDisposal(image);
                 return existing.Image;
             }
 
@@ -1633,7 +1633,8 @@ namespace AES_Controls.Composition
 
             if (ct.IsCancellationRequested)
             {
-                realImage?.Dispose();
+                if (realImage != null)
+                    DisposeImage(realImage);
                 return true;
             }
 
@@ -1643,13 +1644,13 @@ namespace AES_Controls.Composition
                 {
                     if (ct.IsCancellationRequested)
                     {
-                        realImage.Dispose();
+                        DisposeImage(realImage);
                         return;
                     }
 
                     if (!IsCurrentSnapshotItem(item, index))
                     {
-                        realImage.Dispose();
+                        DisposeImage(realImage);
                         return;
                     }
 

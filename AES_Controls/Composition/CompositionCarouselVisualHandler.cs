@@ -151,18 +151,20 @@ namespace AES_Controls.Composition
                 var imgs = enumerableImgs.ToArray();
                 var newImgs = new HashSet<SKImage>(imgs.Where(i => i != null));
                 var previousImages = _images.ToArray();
+                _images = imgs.ToList();
                 foreach (var img in previousImages) 
                 {
-                    if (!newImgs.Contains(img)) 
+                    if (img != null && !newImgs.Contains(img) && !IsImageReferencedByCarousel(img)) 
                     {
-                        if (img != null)
-                        {
-                            _dimCache.Remove(img);
-                            DisposeShaderOnly(img);
-                        }
+                        _dimCache.Remove(img);
+                        DisposeShaderOnly(img);
                     }
                 }
-                _images = imgs.ToList();
+                foreach (var img in _images)
+                {
+                    if (img != null)
+                        CacheImageDimensions(img);
+                }
                 double maxIndex = Math.Max(0, _images.Count - 1);
                 if (_images.Count == 0)
                 {
@@ -184,27 +186,28 @@ namespace AES_Controls.Composition
                     var oldImg = _images[update.Index];
                     var newImg = update.Image;
 
-                    if (oldImg != newImg)
-                    {
-                        if (oldImg != null)
-                        {
-                            _dimCache.Remove(oldImg);
-                            DisposeShaderOnly(oldImg);
-                        }
-                    }
-
                     if (newImg != null)
                     {
-                        _images[update.Index] = newImg; 
+                        _images[update.Index] = newImg;
+                        CacheImageDimensions(newImg);
                         _loadingIndices.Remove(update.Index);
                     }
-                    
-                    if (update.IsLoading) _loadingIndices.Add(update.Index);
-                    else if (newImg == null)
+                    else if (update.IsLoading)
                     {
-                        _images[update.Index] = null!; 
+                        _loadingIndices.Add(update.Index);
+                    }
+                    else
+                    {
+                        _images[update.Index] = null!;
                         _loadingIndices.Remove(update.Index);
                     }
+
+                    if (oldImg != null && !ReferenceEquals(oldImg, newImg) && !IsImageReferencedByCarousel(oldImg))
+                    {
+                        _dimCache.Remove(oldImg);
+                        DisposeShaderOnly(oldImg);
+                    }
+
                     Invalidate();
                 }
             }
@@ -213,7 +216,9 @@ namespace AES_Controls.Composition
                 if (dispose.Image != null)
                 {
                     _dimCache.Remove(dispose.Image);
-                    DisposeImageAndShader(dispose.Image);
+                    DisposeShaderOnly(dispose.Image);
+                    if (!IsImageReferencedByCarousel(dispose.Image))
+                        DisposeNativeImage(dispose.Image);
                 }
             }
             else if (message is DragStateMessage ds) 
@@ -615,8 +620,7 @@ namespace AES_Controls.Composition
             float itemH = baseHeight;
             if (img != null && !isLoading && _fullCoverSizeFactor > 0.001f)
             {
-                if (!_dimCache.TryGetValue(img, out var dims)) { try { dims = _dimCache[img] = (img.Width, img.Height); } catch { dims = (0, 0); } }
-                if (dims.Width > 0 && dims.Height > 0)
+                if (TryGetImageDimensions(img, out var dims) && dims.Width > 0 && dims.Height > 0)
                 {
                     float aspect = ClampFullCoverAspectRatio((float)dims.Width / dims.Height);
                     // Off => regular cover dimensions (fill-crop), On => full cover aspect.
@@ -729,38 +733,119 @@ namespace AES_Controls.Composition
         }
 
         private void DisposeShaderOnly(SKImage? img) { if (img != null && _shaderCache.Remove(img, out var shader)) shader.Dispose(); }
-        private void DisposeImageAndShader(SKImage? img) 
-        { 
-            if (img == null) return; 
-            DisposeShaderOnly(img); 
-            try 
-            { 
-                // Always dispose if requested from UI thread as it means it's removed from UI-side cache
-                img.Dispose();
-            } 
-            catch (Exception ex) 
+
+        private static void DisposeNativeImage(SKImage img)
+        {
+            try
             {
-                Log.Warn("Failed to dispose image", ex);
-            } 
+                img.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Failed to dispose SKImage", ex);
+            }
+        }
+
+        private bool IsImageReferencedByCarousel(SKImage? image)
+        {
+            if (image == null)
+                return false;
+
+            for (int i = 0; i < _images.Count; i++)
+            {
+                if (ReferenceEquals(_images[i], image))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private void CacheImageDimensions(SKImage image)
+        {
+            if (!TryGetImageDimensions(image, out _))
+                _dimCache.Remove(image);
+        }
+
+        private bool TryGetImageDimensions(SKImage image, out (int Width, int Height) dims)
+        {
+            dims = default;
+            if (!IsImageReferencedByCarousel(image))
+            {
+                _dimCache.Remove(image);
+                return false;
+            }
+
+            if (_dimCache.TryGetValue(image, out dims))
+                return dims.Width > 0 && dims.Height > 0;
+
+            try
+            {
+                int width = image.Width;
+                int height = image.Height;
+                if (width <= 0 || height <= 0)
+                    return false;
+
+                dims = (width, height);
+                _dimCache[image] = dims;
+                return true;
+            }
+            catch (ObjectDisposedException)
+            {
+                _dimCache.Remove(image);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Failed to read SKImage dimensions", ex);
+                _dimCache.Remove(image);
+                return false;
+            }
+        }
+
+        private bool TryAcquireShader(SKImage image, out SKShader? shader)
+        {
+            shader = null;
+            if (!IsImageReferencedByCarousel(image))
+            {
+                _shaderCache.Remove(image, out var staleShader);
+                staleShader?.Dispose();
+                return false;
+            }
+
+            if (_shaderCache.TryGetValue(image, out shader))
+                return shader != null;
+
+            try
+            {
+                shader = image.ToShader();
+                if (shader != null)
+                    _shaderCache[image] = shader;
+                return shader != null;
+            }
+            catch (ObjectDisposedException)
+            {
+                _dimCache.Remove(image);
+                _shaderCache.Remove(image, out var staleShader);
+                staleShader?.Dispose();
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Failed to create SKShader for carousel image", ex);
+                return false;
+            }
         }
 
         private void DrawQuad(SKCanvas canvas, float w, float h, Matrix4x4 model, SKImage? image, float opacity, Vector2 center, float rotationYAbs, bool isReflection = false, int? horizontalSegmentsOverride = null)
         {
             if (opacity < 0.01f || image == null) return;
-
-            if (!_dimCache.TryGetValue(image, out var dims)) { 
-                try { dims = _dimCache[image] = (image.Width, image.Height); } catch { return; }
-            }
-            if (dims.Width <= 0 || dims.Height <= 0) return;
+            if (!TryGetImageDimensions(image, out var dims)) return;
 
             _quadPaint.Color = SKColors.White.WithAlpha((byte)(255 * opacity));
             _quadPaint.FilterQuality = (isReflection || UseReducedMotionQuality)
                 ? SKFilterQuality.Low
                 : SKFilterQuality.Medium;
-            if (!_shaderCache.TryGetValue(image, out var shader)) { 
-                try { _shaderCache[image] = shader = image.ToShader(); } catch { return; }
-            }
-            if (shader == null) return;
+            if (!TryAcquireShader(image, out var shader)) return;
 
             _quadPaint.Shader = shader;
             float sc = Math.Max(w / (float)dims.Width, h / (float)dims.Height);
