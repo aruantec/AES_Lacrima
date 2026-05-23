@@ -58,6 +58,13 @@ static void DebugLog(char const* message)
     FileDebugLog(message);
 }
 
+static uint64_t QueryQpcTicks()
+{
+    LARGE_INTEGER counter{};
+    QueryPerformanceCounter(&counter);
+    return static_cast<uint64_t>(counter.QuadPart);
+}
+
 namespace rt = winrt;
 namespace wgc = winrt::Windows::Graphics::Capture;
 namespace d3d = winrt::Windows::Graphics::DirectX::Direct3D11;
@@ -104,7 +111,7 @@ struct CaptureSession
         float outputWidth;
         float outputHeight;
         float sourceIsSrgb;
-        float padding1;
+        float frameGenBlend;
     };
 
     wgc::GraphicsCaptureItem item{ nullptr };
@@ -238,6 +245,21 @@ struct CaptureSession
     int dcompPresentationWidth = 0;
     int dcompPresentationHeight = 0;
     DXGI_FORMAT dcompPresentationFormat = DXGI_FORMAT_UNKNOWN;
+    rt::com_ptr<ID3D11Texture2D> dcompPreviousTexture;
+    rt::com_ptr<ID3D11ShaderResourceView> dcompPreviousSrv;
+    int dcompPreviousWidth = 0;
+    int dcompPreviousHeight = 0;
+    DXGI_FORMAT dcompPreviousFormat = DXGI_FORMAT_UNKNOWN;
+    rt::com_ptr<ID3D11PixelShader> dcompFrameGenPixelShader;
+    std::atomic<bool> dcompHasPreviousFrame{ false };
+    std::atomic<bool> dcompFrameGenEnabled{ false };
+    std::atomic<int> dcompFrameGenTargetHz{ 120 };
+    std::atomic<int> dcompSyntheticPresentCount{ 0 };
+    std::atomic<bool> dcompPendingSynthetic{ false };
+    std::atomic<uint64_t> dcompSyntheticDueQpc{ 0 };
+    int dcompLastCaptureWidth = 0;
+    int dcompLastCaptureHeight = 0;
+    std::mutex dcompPresentMutex;
 
     static std::wstring GetShaderCompilerErrorLogPath()
     {
@@ -1378,8 +1400,86 @@ struct CaptureSession
         }
     }
 
+    void StopFrameGen()
+    {
+        dcompPendingSynthetic.store(false, std::memory_order_relaxed);
+        dcompSyntheticDueQpc.store(0, std::memory_order_relaxed);
+    }
+
+    bool ShouldPresentSyntheticNow() const
+    {
+        if (closing.load(std::memory_order_relaxed) ||
+            !dcompWorkerRunning.load(std::memory_order_relaxed) ||
+            !dcompPendingSynthetic.load(std::memory_order_relaxed) ||
+            !dcompFrameGenEnabled.load(std::memory_order_relaxed))
+        {
+            return false;
+        }
+
+        const uint64_t due = dcompSyntheticDueQpc.load(std::memory_order_relaxed);
+        return due != 0 && QueryQpcTicks() >= due;
+    }
+
+    DWORD MillisecondsUntilSyntheticDue() const
+    {
+        const uint64_t due = dcompSyntheticDueQpc.load(std::memory_order_relaxed);
+        if (due == 0)
+            return 0;
+
+        const uint64_t now = QueryQpcTicks();
+        if (now >= due)
+            return 0;
+
+        LARGE_INTEGER freq{};
+        if (!QueryPerformanceFrequency(&freq) || freq.QuadPart <= 0)
+            return 1;
+
+        const uint64_t remainTicks = due - now;
+        const uint64_t ms = (remainTicks * 1000) / static_cast<uint64_t>(freq.QuadPart);
+        return static_cast<DWORD>((std::min)(ms + 1ull, 50ull));
+    }
+
+    void ArmSyntheticPresent()
+    {
+        if (closing.load(std::memory_order_relaxed) ||
+            !dcompFrameGenEnabled.load(std::memory_order_relaxed) ||
+            !dcompHasPreviousFrame.load(std::memory_order_relaxed))
+        {
+            return;
+        }
+
+        LARGE_INTEGER freq{};
+        LARGE_INTEGER now{};
+        if (!QueryPerformanceFrequency(&freq) || !QueryPerformanceCounter(&now) || freq.QuadPart <= 0)
+            return;
+
+        const int targetHz = (std::max)(60, dcompFrameGenTargetHz.load(std::memory_order_relaxed));
+        const uint64_t halfTicks = static_cast<uint64_t>(freq.QuadPart) / (static_cast<uint64_t>(targetHz) * 2ull);
+
+        dcompSyntheticDueQpc.store(static_cast<uint64_t>(now.QuadPart) + halfTicks, std::memory_order_relaxed);
+        dcompPendingSynthetic.store(true, std::memory_order_release);
+    }
+
+    void TryPresentSyntheticFrame()
+    {
+        if (!ShouldPresentSyntheticNow())
+            return;
+
+        if (!dcompPresentationTexture || !dcompPreviousTexture)
+        {
+            dcompPendingSynthetic.store(false, std::memory_order_relaxed);
+            return;
+        }
+
+        dcompPendingSynthetic.store(false, std::memory_order_relaxed);
+        PresentDcompFrame(1.0f, true);
+    }
+
     void StopDirectCompositionWorker()
     {
+        StopFrameGen();
+        dcompFrameGenEnabled.store(false, std::memory_order_relaxed);
+
         bool wasRunning = dcompWorkerRunning.exchange(false);
         if (wasRunning)
         {
@@ -1400,6 +1500,14 @@ struct CaptureSession
         dcompPresentationWidth = 0;
         dcompPresentationHeight = 0;
         dcompPresentationFormat = DXGI_FORMAT_UNKNOWN;
+        dcompPreviousTexture = nullptr;
+        dcompPreviousSrv = nullptr;
+        dcompPreviousWidth = 0;
+        dcompPreviousHeight = 0;
+        dcompPreviousFormat = DXGI_FORMAT_UNKNOWN;
+        dcompHasPreviousFrame.store(false, std::memory_order_relaxed);
+        dcompLastCaptureWidth = 0;
+        dcompLastCaptureHeight = 0;
     }
 
     void QueueDirectCompositionFrame(ID3D11Texture2D* texture, int width, int height)
@@ -1437,10 +1545,27 @@ struct CaptureSession
 
             {
                 std::unique_lock<std::mutex> lock(dcompWorkerMutex);
-                dcompWorkerCv.wait(lock, [this]()
+                auto ready = [this]()
                 {
-                    return !dcompWorkerRunning.load() || dcompHasPendingFrame || dcompShaderDirty.load();
-                });
+                    return !dcompWorkerRunning.load() ||
+                        dcompHasPendingFrame ||
+                        dcompShaderDirty.load() ||
+                        ShouldPresentSyntheticNow();
+                };
+
+                if (!ready())
+                {
+                    if (dcompPendingSynthetic.load(std::memory_order_relaxed))
+                    {
+                        const DWORD waitMs = MillisecondsUntilSyntheticDue();
+                        if (waitMs > 0)
+                            dcompWorkerCv.wait_for(lock, std::chrono::milliseconds(waitMs), ready);
+                    }
+                    else
+                    {
+                        dcompWorkerCv.wait(lock, ready);
+                    }
+                }
 
                 if (!dcompWorkerRunning.load())
                     break;
@@ -1453,6 +1578,7 @@ struct CaptureSession
                     height = dcompPendingHeight;
                     dcompHasPendingFrame = false;
                     hadFrame = true;
+                    dcompPendingSynthetic.store(false, std::memory_order_relaxed);
                 }
             }
 
@@ -1462,10 +1588,18 @@ struct CaptureSession
                     continue;
             }
 
+            if (closing.load(std::memory_order_relaxed))
+                continue;
+
             if (hadFrame && texture)
             {
                 PresentToDirectComposition(texture.get(), width, height);
                 dcompFrameQueued.store(false, std::memory_order_release);
+                dcompWorkerCv.notify_one();
+            }
+            else
+            {
+                TryPresentSyntheticFrame();
             }
         }
     }
@@ -1514,6 +1648,321 @@ struct CaptureSession
             dcompPresentationWidth = width;
             dcompPresentationHeight = height;
             dcompPresentationFormat = srcDesc.Format;
+            dcompPreviousTexture = nullptr;
+            dcompPreviousSrv = nullptr;
+            dcompPreviousWidth = 0;
+            dcompPreviousHeight = 0;
+            dcompPreviousFormat = DXGI_FORMAT_UNKNOWN;
+            dcompHasPreviousFrame.store(false, std::memory_order_relaxed);
+        }
+
+        return true;
+    }
+
+    bool EnsureDcompPreviousResources(int width, int height, DXGI_FORMAT format)
+    {
+        if (!d3dDevice || width <= 0 || height <= 0 || format == DXGI_FORMAT_UNKNOWN)
+            return false;
+
+        const bool needsRecreate =
+            !dcompPreviousTexture ||
+            !dcompPreviousSrv ||
+            dcompPreviousWidth != width ||
+            dcompPreviousHeight != height ||
+            dcompPreviousFormat != format;
+
+        if (!needsRecreate)
+            return true;
+
+        dcompPreviousTexture = nullptr;
+        dcompPreviousSrv = nullptr;
+
+        D3D11_TEXTURE2D_DESC td{};
+        td.Width = static_cast<UINT>(width);
+        td.Height = static_cast<UINT>(height);
+        td.MipLevels = 1;
+        td.ArraySize = 1;
+        td.Format = format;
+        td.SampleDesc.Count = 1;
+        td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        td.Usage = D3D11_USAGE_DEFAULT;
+
+        HRESULT hr = d3dDevice->CreateTexture2D(&td, nullptr, dcompPreviousTexture.put());
+        if (FAILED(hr) || !dcompPreviousTexture)
+            return false;
+
+        hr = d3dDevice->CreateShaderResourceView(dcompPreviousTexture.get(), nullptr, dcompPreviousSrv.put());
+        if (FAILED(hr) || !dcompPreviousSrv)
+        {
+            dcompPreviousTexture = nullptr;
+            return false;
+        }
+
+        dcompPreviousWidth = width;
+        dcompPreviousHeight = height;
+        dcompPreviousFormat = format;
+        return true;
+    }
+
+    bool EnsureDcompFrameGenPixelShader()
+    {
+        if (dcompFrameGenPixelShader || !d3dDevice)
+            return dcompFrameGenPixelShader != nullptr;
+
+        const char* psFrameGenSrc =
+            "cbuffer Params : register(b0) { float brightness; float saturation; float sourceWidth; float sourceHeight; float4 tint; float outputWidth; float outputHeight; float sourceIsSrgb; float frameGenBlend; };"
+            "Texture2D src : register(t0);"
+            "Texture2D prev : register(t1);"
+            "SamplerState samp : register(s0);"
+            "struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD; };"
+            "float4 main(PSIn input) : SV_TARGET {"
+            "  float4 col = src.Sample(samp, input.uv);"
+            "  if (frameGenBlend > 0.5) { float4 pcol = prev.Sample(samp, input.uv); col = lerp(pcol, col, 0.5); }"
+            "  col.rgb *= brightness;"
+            "  float gray = dot(col.rgb, float3(0.299, 0.587, 0.114));"
+            "  col.rgb = lerp(float3(gray, gray, gray), col.rgb, saturation);"
+            "  col *= tint;"
+            "  if (sourceIsSrgb > 0.5) { col.rgb = pow(saturate(col.rgb), 1.0 / 2.2); }"
+            "  return col;"
+            "}";
+
+        rt::com_ptr<ID3DBlob> psBlob;
+        rt::com_ptr<ID3DBlob> errBlob;
+        HRESULT hr = D3DCompile(psFrameGenSrc, (SIZE_T)strlen(psFrameGenSrc), nullptr, nullptr, nullptr, "main", "ps_4_0", 0, 0, psBlob.put(), errBlob.put());
+        if (FAILED(hr) || !psBlob)
+            return false;
+
+        hr = d3dDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, dcompFrameGenPixelShader.put());
+        return SUCCEEDED(hr) && dcompFrameGenPixelShader;
+    }
+
+    void PresentDcompFrame(float blendFactor, bool isSynthetic = false)
+    {
+        if (closing.load(std::memory_order_relaxed) ||
+            !presentationHwnd || !d3dContext || !dcompPresentationTexture || !dcompPresentationSrv || !dcompRenderTargetView)
+            return;
+
+        const int width = dcompLastCaptureWidth;
+        const int height = dcompLastCaptureHeight;
+        if (width <= 0 || height <= 0)
+            return;
+
+        if (!EnsureDirectCompositionSwapChain(width, height))
+            return;
+
+        if (!EnsureDirectCompositionRenderer())
+            return;
+
+        const bool useBlend = blendFactor > 0.01f && dcompPreviousSrv && dcompFrameGenPixelShader;
+        if (useBlend && !EnsureDcompFrameGenPixelShader())
+            return;
+
+        D3D11_TEXTURE2D_DESC texDesc{};
+        dcompPresentationTexture->GetDesc(&texDesc);
+
+        float viewAspect = dcompHeight > 0 ? static_cast<float>(dcompWidth) / static_cast<float>(dcompHeight) : 1.0f;
+        float frameAspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
+        float left = -1.0f;
+        float right = 1.0f;
+        float top = 1.0f;
+        float bottom = -1.0f;
+        float u0 = 0.0f;
+        float v0 = 0.0f;
+        float u1 = 1.0f;
+        float v1 = 1.0f;
+        int stretch = dcompStretch.load();
+
+        if (stretch == 1)
+        {
+            if (frameAspect > viewAspect)
+            {
+                float scaleY = viewAspect / frameAspect;
+                top = scaleY;
+                bottom = -scaleY;
+            }
+            else
+            {
+                float scaleX = frameAspect / viewAspect;
+                left = -scaleX;
+                right = scaleX;
+            }
+        }
+        else if (stretch == 2)
+        {
+            if (frameAspect > viewAspect)
+            {
+                float visibleRatio = viewAspect / frameAspect;
+                float crop = (1.0f - visibleRatio) * 0.5f;
+                u0 = crop;
+                u1 = 1.0f - crop;
+            }
+            else
+            {
+                float visibleRatio = frameAspect / viewAspect;
+                float crop = (1.0f - visibleRatio) * 0.5f;
+                v0 = crop;
+                v1 = 1.0f - crop;
+            }
+        }
+
+        if (dcompPillarboxCropEnabled.load(std::memory_order_relaxed) && width > 0)
+        {
+            const int cropLeft = dcompPillarboxLeft.load(std::memory_order_relaxed);
+            const int cropRight = dcompPillarboxRight.load(std::memory_order_relaxed);
+            if (cropLeft > 0 || cropRight > 0)
+            {
+                const float insetLeft = static_cast<float>(cropLeft) / static_cast<float>(width);
+                const float insetRight = static_cast<float>(cropRight) / static_cast<float>(width);
+                u0 = (std::min)(1.0f, (std::max)(0.0f, u0 + insetLeft));
+                u1 = (std::max)(0.0f, (std::min)(1.0f, u1 - insetRight));
+                if (u1 - u0 > 0.02f)
+                {
+                    left = -1.0f;
+                    right = 1.0f;
+                    top = 1.0f;
+                    bottom = -1.0f;
+                }
+            }
+        }
+
+        DcompVertex vertices[4] =
+        {
+            { left,  top,    0.0f, u0, v0 },
+            { right, top,    0.0f, u1, v0 },
+            { left,  bottom, 0.0f, u0, v1 },
+            { right, bottom, 0.0f, u1, v1 }
+        };
+
+        HRESULT hr = S_OK;
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        hr = d3dContext->Map(dcompVertexBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("Map vertex buffer failed");
+            return;
+        }
+
+        memcpy(mapped.pData, vertices, sizeof(vertices));
+        d3dContext->Unmap(dcompVertexBuffer.get(), 0);
+
+        DcompConstants constants{};
+        constants.brightness = dcompBrightness.load();
+        constants.saturation = dcompSaturation.load();
+        constants.sourceWidth = static_cast<float>(width);
+        constants.sourceHeight = static_cast<float>(height);
+        constants.tint[0] = dcompTintR.load();
+        constants.tint[1] = dcompTintG.load();
+        constants.tint[2] = dcompTintB.load();
+        constants.tint[3] = dcompTintA.load();
+        constants.outputWidth = static_cast<float>(dcompWidth);
+        constants.outputHeight = static_cast<float>(dcompHeight);
+        constants.sourceIsSrgb = (texDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || texDesc.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB) ? 1.0f : 0.0f;
+        constants.frameGenBlend = useBlend ? blendFactor : 0.0f;
+        d3dContext->UpdateSubresource(dcompConstantBuffer.get(), 0, nullptr, &constants, 0, 0);
+
+        D3D11_VIEWPORT viewport{};
+        viewport.Width = static_cast<float>(dcompWidth);
+        viewport.Height = static_cast<float>(dcompHeight);
+        viewport.MinDepth = 0.0f;
+        viewport.MaxDepth = 1.0f;
+
+        float clearColor[4] = { 0, 0, 0, 1 };
+        ID3D11RenderTargetView* rtvPtr = dcompRenderTargetView.get();
+        d3dContext->OMSetRenderTargets(1, &rtvPtr, nullptr);
+        d3dContext->ClearRenderTargetView(dcompRenderTargetView.get(), clearColor);
+        d3dContext->RSSetState(dcompRasterizerState.get());
+        d3dContext->RSSetViewports(1, &viewport);
+
+        UINT stride = sizeof(DcompVertex);
+        UINT offset = 0;
+        ID3D11Buffer* vb = dcompVertexBuffer.get();
+        ID3D11SamplerState* samplerPtr = dcompSamplerState.get();
+        ID3D11Buffer* cbPtr = dcompConstantBuffer.get();
+        ID3D11ShaderResourceView* srv0 = dcompPresentationSrv.get();
+        ID3D11ShaderResourceView* srv1 = dcompPreviousSrv.get();
+        ID3D11PixelShader* ps = useBlend ? dcompFrameGenPixelShader.get() : dcompPixelShader.get();
+
+        d3dContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        d3dContext->IASetInputLayout(dcompInputLayout.get());
+        d3dContext->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+        d3dContext->VSSetShader(dcompVertexShader.get(), nullptr, 0);
+        d3dContext->PSSetShader(ps, nullptr, 0);
+        d3dContext->PSSetShaderResources(0, 1, &srv0);
+        if (useBlend)
+            d3dContext->PSSetShaderResources(1, 1, &srv1);
+        d3dContext->PSSetSamplers(0, 1, &samplerPtr);
+        d3dContext->PSSetConstantBuffers(0, 1, &cbPtr);
+        d3dContext->Draw(4, 0);
+
+        ID3D11ShaderResourceView* nullSrvs[2] = { nullptr, nullptr };
+        d3dContext->PSSetShaderResources(0, 2, nullSrvs);
+
+        const bool vsync = !dcompDisableVsync.load(std::memory_order_relaxed);
+        const UINT syncInterval = vsync ? 1u : 0u;
+        UINT presentFlags = 0;
+        if (!vsync && dcompSwapChainAllowTearing.load(std::memory_order_relaxed))
+            presentFlags = DXGI_PRESENT_ALLOW_TEARING;
+
+        hr = dcompSwapChain->Present(syncInterval, presentFlags);
+        if (hr == DXGI_ERROR_WAS_STILL_DRAWING)
+            return;
+
+        if (FAILED(hr))
+        {
+            char buf[128];
+            _snprintf_s(buf, sizeof(buf), _TRUNCATE, "Present failed (0x%08X)", static_cast<unsigned>(hr));
+            MarkDirectCompositionFailed(buf);
+            return;
+        }
+
+        hr = dcompDevice->Commit();
+        if (FAILED(hr))
+        {
+            MarkDirectCompositionFailed("Commit after present failed");
+            return;
+        }
+
+        dcompState.store(2);
+        dcompPresentCount.fetch_add(1);
+        if (isSynthetic)
+            dcompSyntheticPresentCount.fetch_add(1, std::memory_order_relaxed);
+        RecordDirectCompositionPresentTiming();
+    }
+
+    void ProcessCapturedFrame(ID3D11Texture2D* texture, int width, int height)
+    {
+        if (closing.load(std::memory_order_relaxed) || !presentationHwnd || !texture || !d3dContext)
+            return;
+
+        UpdatePillarboxCropFromTexture(texture, width, height);
+
+        std::lock_guard<std::mutex> lock(dcompPresentMutex);
+
+        if (!EnsureDirectCompositionSwapChain(width, height))
+            return;
+
+        if (!EnsureDirectCompositionRenderer())
+            return;
+
+        if (!dcompRenderTargetView)
+        {
+            MarkDirectCompositionFailed("cached render target view missing");
+            return;
+        }
+
+        if (!EnsureDcompPresentationResources(texture, width, height))
+        {
+            MarkDirectCompositionFailed("EnsureDcompPresentationResources failed");
+            return;
+        }
+
+        D3D11_TEXTURE2D_DESC texDesc{};
+        texture->GetDesc(&texDesc);
+
+        if (dcompHasPreviousFrame.load(std::memory_order_relaxed) && dcompPresentationTexture)
+        {
+            if (EnsureDcompPreviousResources(width, height, texDesc.Format))
+                d3dContext->CopyResource(dcompPreviousTexture.get(), dcompPresentationTexture.get());
         }
 
         d3dContext->CopySubresourceRegion(
@@ -1522,11 +1971,18 @@ struct CaptureSession
             0,
             0,
             0,
-            source,
+            texture,
             0,
             nullptr);
 
-        return true;
+        dcompHasPreviousFrame.store(true, std::memory_order_release);
+        dcompLastCaptureWidth = width;
+        dcompLastCaptureHeight = height;
+
+        PresentDcompFrame(0.0f, false);
+
+        if (dcompFrameGenEnabled.load(std::memory_order_relaxed))
+            ArmSyntheticPresent();
     }
 
     bool EnsureDirectCompositionRenderer()
@@ -2041,194 +2497,7 @@ struct CaptureSession
 
     void PresentToDirectComposition(ID3D11Texture2D* texture, int width, int height)
     {
-        if (!presentationHwnd || !texture || !d3dContext)
-            return;
-
-        UpdatePillarboxCropFromTexture(texture, width, height);
-
-        if (!EnsureDirectCompositionSwapChain(width, height))
-            return;
-
-        if (!EnsureDirectCompositionRenderer())
-            return;
-
-        if (!dcompRenderTargetView)
-        {
-            MarkDirectCompositionFailed("cached render target view missing");
-            return;
-        }
-
-        if (!EnsureDcompPresentationResources(texture, width, height))
-        {
-            MarkDirectCompositionFailed("EnsureDcompPresentationResources failed");
-            return;
-        }
-
-        D3D11_TEXTURE2D_DESC texDesc{};
-        dcompPresentationTexture->GetDesc(&texDesc);
-
-        ID3D11ShaderResourceView* srvPtr = dcompPresentationSrv.get();
-
-        float viewAspect = dcompHeight > 0 ? static_cast<float>(dcompWidth) / static_cast<float>(dcompHeight) : 1.0f;
-        float frameAspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
-        float left = -1.0f;
-        float right = 1.0f;
-        float top = 1.0f;
-        float bottom = -1.0f;
-        float u0 = 0.0f;
-        float v0 = 0.0f;
-        float u1 = 1.0f;
-        float v1 = 1.0f;
-        int stretch = dcompStretch.load();
-
-        if (stretch == 1)
-        {
-            if (frameAspect > viewAspect)
-            {
-                float scaleY = viewAspect / frameAspect;
-                top = scaleY;
-                bottom = -scaleY;
-            }
-            else
-            {
-                float scaleX = frameAspect / viewAspect;
-                left = -scaleX;
-                right = scaleX;
-            }
-        }
-        else if (stretch == 2)
-        {
-            // UniformToFill: fill the viewport and crop source UVs as needed.
-            if (frameAspect > viewAspect)
-            {
-                float visibleRatio = viewAspect / frameAspect;
-                float crop = (1.0f - visibleRatio) * 0.5f;
-                u0 = crop;
-                u1 = 1.0f - crop;
-            }
-            else
-            {
-                float visibleRatio = frameAspect / viewAspect;
-                float crop = (1.0f - visibleRatio) * 0.5f;
-                v0 = crop;
-                v1 = 1.0f - crop;
-            }
-        }
-
-        if (dcompPillarboxCropEnabled.load(std::memory_order_relaxed) && width > 0)
-        {
-            const int cropLeft = dcompPillarboxLeft.load(std::memory_order_relaxed);
-            const int cropRight = dcompPillarboxRight.load(std::memory_order_relaxed);
-            if (cropLeft > 0 || cropRight > 0)
-            {
-                const float insetLeft = static_cast<float>(cropLeft) / static_cast<float>(width);
-                const float insetRight = static_cast<float>(cropRight) / static_cast<float>(width);
-                u0 = (std::min)(1.0f, (std::max)(0.0f, u0 + insetLeft));
-                u1 = (std::max)(0.0f, (std::min)(1.0f, u1 - insetRight));
-                if (u1 - u0 > 0.02f)
-                {
-                    left = -1.0f;
-                    right = 1.0f;
-                    top = 1.0f;
-                    bottom = -1.0f;
-                }
-            }
-        }
-
-        DcompVertex vertices[4] =
-        {
-            { left,  top,    0.0f, u0, v0 },
-            { right, top,    0.0f, u1, v0 },
-            { left,  bottom, 0.0f, u0, v1 },
-            { right, bottom, 0.0f, u1, v1 }
-        };
-
-        HRESULT hr = S_OK;
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        hr = d3dContext->Map(dcompVertexBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-        if (FAILED(hr))
-        {
-            MarkDirectCompositionFailed("Map vertex buffer failed");
-            return;
-        }
-
-        memcpy(mapped.pData, vertices, sizeof(vertices));
-        d3dContext->Unmap(dcompVertexBuffer.get(), 0);
-
-        DcompConstants constants{};
-        constants.brightness = dcompBrightness.load();
-        constants.saturation = dcompSaturation.load();
-        constants.sourceWidth = static_cast<float>(width);
-        constants.sourceHeight = static_cast<float>(height);
-        constants.tint[0] = dcompTintR.load();
-        constants.tint[1] = dcompTintG.load();
-        constants.tint[2] = dcompTintB.load();
-        constants.tint[3] = dcompTintA.load();
-        constants.outputWidth = static_cast<float>(dcompWidth);
-        constants.outputHeight = static_cast<float>(dcompHeight);
-        constants.sourceIsSrgb = (texDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || texDesc.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB) ? 1.0f : 0.0f;
-        d3dContext->UpdateSubresource(dcompConstantBuffer.get(), 0, nullptr, &constants, 0, 0);
-
-        D3D11_VIEWPORT viewport{};
-        viewport.Width = static_cast<float>(dcompWidth);
-        viewport.Height = static_cast<float>(dcompHeight);
-        viewport.MinDepth = 0.0f;
-        viewport.MaxDepth = 1.0f;
-
-        float clearColor[4] = { 0, 0, 0, 1 };
-        ID3D11RenderTargetView* rtvPtr = dcompRenderTargetView.get();
-        d3dContext->OMSetRenderTargets(1, &rtvPtr, nullptr);
-        d3dContext->ClearRenderTargetView(dcompRenderTargetView.get(), clearColor);
-        d3dContext->RSSetState(dcompRasterizerState.get());
-        d3dContext->RSSetViewports(1, &viewport);
-
-        UINT stride = sizeof(DcompVertex);
-        UINT offset = 0;
-        ID3D11Buffer* vb = dcompVertexBuffer.get();
-        ID3D11SamplerState* samplerPtr = dcompSamplerState.get();
-        ID3D11Buffer* cbPtr = dcompConstantBuffer.get();
-
-        d3dContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-        d3dContext->IASetInputLayout(dcompInputLayout.get());
-        d3dContext->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
-        d3dContext->VSSetShader(dcompVertexShader.get(), nullptr, 0);
-        d3dContext->PSSetShader(dcompPixelShader.get(), nullptr, 0);
-        d3dContext->PSSetShaderResources(0, 1, &srvPtr);
-        d3dContext->PSSetSamplers(0, 1, &samplerPtr);
-        d3dContext->PSSetConstantBuffers(0, 1, &cbPtr);
-        d3dContext->Draw(4, 0);
-
-        ID3D11ShaderResourceView* nullSrv = nullptr;
-        d3dContext->PSSetShaderResources(0, 1, &nullSrv);
-
-        const bool vsync = !dcompDisableVsync.load(std::memory_order_relaxed);
-        const UINT syncInterval = vsync ? 1u : 0u;
-        UINT presentFlags = 0;
-        if (!vsync && dcompSwapChainAllowTearing.load(std::memory_order_relaxed))
-            presentFlags = DXGI_PRESENT_ALLOW_TEARING;
-
-        hr = dcompSwapChain->Present(syncInterval, presentFlags);
-        if (hr == DXGI_ERROR_WAS_STILL_DRAWING)
-            return;
-
-        if (FAILED(hr))
-        {
-            char buf[128];
-            _snprintf_s(buf, sizeof(buf), _TRUNCATE, "Present failed (0x%08X)", static_cast<unsigned>(hr));
-            MarkDirectCompositionFailed(buf);
-            return;
-        }
-
-        hr = dcompDevice->Commit();
-        if (FAILED(hr))
-        {
-            MarkDirectCompositionFailed("Commit after present failed");
-            return;
-        }
-
-        dcompState.store(2);
-        dcompPresentCount.fetch_add(1);
-        RecordDirectCompositionPresentTiming();
+        ProcessCapturedFrame(texture, width, height);
     }
 
     // OnFrameArrived
@@ -3036,6 +3305,31 @@ extern "C" {
             s->dcompPillarboxRight.store(0, std::memory_order_relaxed);
             s->dcompPillarboxDetectCounter.store(0, std::memory_order_relaxed);
         }
+    }
+
+    __declspec(dllexport) void SetDirectCompositionFrameGeneration(void* ptr, int enabled, int targetHz) {
+        auto s = static_cast<CaptureSession*>(ptr);
+        if (!s) return;
+
+        const bool enable = enabled != 0;
+        if (targetHz > 0)
+            s->dcompFrameGenTargetHz.store(targetHz, std::memory_order_relaxed);
+
+        if (!enable)
+        {
+            s->dcompFrameGenEnabled.store(false, std::memory_order_relaxed);
+            s->StopFrameGen();
+            s->dcompSyntheticPresentCount.store(0, std::memory_order_relaxed);
+            return;
+        }
+
+        s->dcompFrameGenEnabled.store(true, std::memory_order_relaxed);
+    }
+
+    __declspec(dllexport) int GetDirectCompositionSyntheticPresentCount(void* ptr) {
+        auto s = static_cast<CaptureSession*>(ptr);
+        if (!s) return 0;
+        return s->dcompSyntheticPresentCount.load(std::memory_order_relaxed);
     }
 
     __declspec(dllexport) void SetDirectCompositionRenderOptions(void* ptr, int stretch, float brightness, float saturation, float tintR, float tintG, float tintB, float tintA, int disableVsync) {

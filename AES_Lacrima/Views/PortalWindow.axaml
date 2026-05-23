@@ -30,6 +30,7 @@
                                        Brightness="{Binding PortalCaptureBrightness, Mode=TwoWay}"
                                        Saturation="{Binding RenderSaturation, Mode=TwoWay}"
                                        DisableVSync="{Binding DisableVSync, Mode=TwoWay}"
+                                       FrameGenerationMode="{Binding FrameGenerationMode, Mode=TwoWay}"
                                        ShaderPath="{Binding SelectedShaderPath}"
                                        ClearShaderWhenPathEmpty="{Binding ClearShaderWhenPathEmpty}"
                                        RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}"

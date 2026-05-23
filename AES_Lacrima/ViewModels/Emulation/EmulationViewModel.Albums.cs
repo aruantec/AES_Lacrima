@@ -3,6 +3,7 @@ using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Emulation;
 using AES_Emulation.Controls;
 using AES_Emulation.EmulationHandlers;
 using AES_Emulation.Platform;
@@ -99,6 +100,12 @@ namespace AES_Lacrima.ViewModels
                 ? stretchValue
                 : Stretch.Uniform;
             DisableVSync = ReadBoolSetting(section, nameof(DisableVSync), false);
+            FrameGenerationMode = ReadIntSetting(section, nameof(FrameGenerationMode), (int)EmulationFrameGenerationMode.Off) switch
+            {
+                (int)EmulationFrameGenerationMode.Software120Hz => EmulationFrameGenerationMode.Software120Hz,
+                (int)EmulationFrameGenerationMode.AmdAfmf => EmulationFrameGenerationMode.AmdAfmf,
+                _ => EmulationFrameGenerationMode.Off,
+            };
             RenderBrightness = ReadDoubleSetting(section, nameof(RenderBrightness), 1.0);
             RenderSaturation = ReadDoubleSetting(section, nameof(RenderSaturation), 1.0);
             SelectedShaderPath = ReadStringSetting(section, nameof(SelectedShaderPath), string.Empty) ?? string.Empty;
@@ -119,6 +126,7 @@ namespace AES_Lacrima.ViewModels
             WriteSetting(section, nameof(RenderOverlayOpacity), RenderOverlayOpacity);
             WriteSetting(section, nameof(SelectedStretch), SelectedStretch.ToString());
             WriteSetting(section, nameof(DisableVSync), DisableVSync);
+            WriteSetting(section, nameof(FrameGenerationMode), (int)FrameGenerationMode);
             WriteSetting(section, nameof(RenderBrightness), RenderBrightness);
             WriteSetting(section, nameof(RenderSaturation), RenderSaturation);
             WriteSetting(section, nameof(SelectedShaderPath), SelectedShaderPath);

@@ -141,6 +141,14 @@ public static class WgcBridgeApi
     private static SetDirectCompositionPillarboxCropEnabledDel? s_setDirectCompositionPillarboxCropEnabled;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SetDirectCompositionFrameGenerationDel(nint session, int enabled, int targetHz);
+    private static SetDirectCompositionFrameGenerationDel? s_setDirectCompositionFrameGeneration;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int GetDirectCompositionSyntheticPresentCountDel(nint session);
+    private static GetDirectCompositionSyntheticPresentCountDel? s_getDirectCompositionSyntheticPresentCount;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void SetDirectCompositionShaderDel(nint session, [MarshalAs(UnmanagedType.LPWStr)] string? shaderPath);
     private static SetDirectCompositionShaderDel? s_setDirectCompositionShader;
 
@@ -194,6 +202,8 @@ public static class WgcBridgeApi
                     "GetDirectCompositionLastError",
                     "SetDirectCompositionRenderOptions",
                     "SetDirectCompositionPillarboxCropEnabled",
+                    "SetDirectCompositionFrameGeneration",
+                    "GetDirectCompositionSyntheticPresentCount",
                     "SetDirectCompositionShader",
                     "GetDirectCompositionAdapterInfo",
                     "PeekLatestFrame",
@@ -263,6 +273,12 @@ public static class WgcBridgeApi
                 if (NativeLibrary.TryGetExport(handle, "SetDirectCompositionPillarboxCropEnabled", out IntPtr pDCompPillarbox))
                     s_setDirectCompositionPillarboxCropEnabled = Marshal.GetDelegateForFunctionPointer<SetDirectCompositionPillarboxCropEnabledDel>(pDCompPillarbox);
 
+                if (NativeLibrary.TryGetExport(handle, "SetDirectCompositionFrameGeneration", out IntPtr pDCompFrameGen))
+                    s_setDirectCompositionFrameGeneration = Marshal.GetDelegateForFunctionPointer<SetDirectCompositionFrameGenerationDel>(pDCompFrameGen);
+
+                if (NativeLibrary.TryGetExport(handle, "GetDirectCompositionSyntheticPresentCount", out IntPtr pDCompSynth))
+                    s_getDirectCompositionSyntheticPresentCount = Marshal.GetDelegateForFunctionPointer<GetDirectCompositionSyntheticPresentCountDel>(pDCompSynth);
+
                 if (NativeLibrary.TryGetExport(handle, "SetDirectCompositionShader", out IntPtr pDCompShader))
                     s_setDirectCompositionShader = Marshal.GetDelegateForFunctionPointer<SetDirectCompositionShaderDel>(pDCompShader);
 
@@ -322,6 +338,12 @@ public static class WgcBridgeApi
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "SetDirectCompositionPillarboxCropEnabled")]
     private static extern void SetDirectCompositionPillarboxCropEnabledNative(nint session, int enabled);
+
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "SetDirectCompositionFrameGeneration")]
+    private static extern void SetDirectCompositionFrameGenerationNative(nint session, int enabled, int targetHz);
+
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "GetDirectCompositionSyntheticPresentCount")]
+    private static extern int GetDirectCompositionSyntheticPresentCountNative(nint session);
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "SetDirectCompositionShader")]
     private static extern void SetDirectCompositionShaderNative(nint session, [MarshalAs(UnmanagedType.LPWStr)] string? shaderPath);
@@ -532,6 +554,39 @@ public static class WgcBridgeApi
         }
 
         SetDirectCompositionPillarboxCropEnabledNative(session, enabled ? 1 : 0);
+    }
+
+    public static void SetDirectCompositionFrameGeneration(nint session, bool enabled, int targetHz = 120)
+    {
+        if (s_setDirectCompositionFrameGeneration != null)
+        {
+            s_setDirectCompositionFrameGeneration(session, enabled ? 1 : 0, targetHz);
+            return;
+        }
+
+        try
+        {
+            SetDirectCompositionFrameGenerationNative(session, enabled ? 1 : 0, targetHz);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            LogWarn("[WGC] SetDirectCompositionFrameGeneration export missing from WgcBridge.dll");
+        }
+    }
+
+    public static int GetDirectCompositionSyntheticPresentCount(nint session)
+    {
+        if (s_getDirectCompositionSyntheticPresentCount != null)
+            return s_getDirectCompositionSyntheticPresentCount(session);
+
+        try
+        {
+            return GetDirectCompositionSyntheticPresentCountNative(session);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return 0;
+        }
     }
 
     public static void SetDirectCompositionShader(nint session, string? shaderPath)
