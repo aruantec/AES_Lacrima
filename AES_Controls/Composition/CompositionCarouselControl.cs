@@ -44,6 +44,7 @@ namespace AES_Controls.Composition
         private const int AnimationHeartbeatMs = 16;
         private const int ActiveScrollVirtualizationDebounceMs = 180;
         private const int IdleVirtualizationDebounceMs = 32;
+        private const int CoverImageReloadDebounceMs = 120;
         private const int ScrollSelectedIndexCoalesceMs = 32;
         private const double SelectedIndexCoalesceDelta = 0.035;
         private const double SelectedItemBoundsEpsilon = 0.75;
@@ -81,6 +82,8 @@ namespace AES_Controls.Composition
         private long _uiLastTicks;
         private CancellationTokenSource? _loadCts;
         private DispatcherTimer? _virtualizeDebounceTimer;
+        private DispatcherTimer? _coverImageReloadDebounceTimer;
+        private readonly Dictionary<object, int> _pendingCoverImageReloads = new(ReferenceEqualityComparer.Instance);
         private DispatcherTimer? _uiSyncTimer;
         private DispatcherTimer? _settleCommitTimer;
         private IEnumerable? _subscribedItemsSource;
@@ -90,6 +93,7 @@ namespace AES_Controls.Composition
         private bool _suppressSelectedIndexSideEffects;
         private double _lastPublishedSelectedIndex = double.NaN;
         private long _lastSelectedItemBoundsUpdateTicks;
+        private long _lastProjectionCacheBuildTicks;
         private Rect _lastPublishedSelectedItemBounds = default;
 
         private DispatcherTimer? _longPressTimer;
@@ -177,6 +181,9 @@ namespace AES_Controls.Composition
 
         public static readonly StyledProperty<bool> ShowCoverFoundOverlayProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, bool>(nameof(ShowCoverFoundOverlay), true);
+
+        public static readonly StyledProperty<bool> PublishSelectedItemBoundsProperty =
+            AvaloniaProperty.Register<CompositionCarouselControl, bool>(nameof(PublishSelectedItemBounds), false);
 
         public static readonly DirectProperty<CompositionCarouselControl, Rect> SelectedItemBoundsProperty =
             AvaloniaProperty.RegisterDirect<CompositionCarouselControl, Rect>(
@@ -282,6 +289,12 @@ namespace AES_Controls.Composition
         {
             get => GetValue(ShowCoverFoundOverlayProperty);
             set => SetValue(ShowCoverFoundOverlayProperty, value);
+        }
+
+        public bool PublishSelectedItemBounds
+        {
+            get => GetValue(PublishSelectedItemBoundsProperty);
+            set => SetValue(PublishSelectedItemBoundsProperty, value);
         }
 
         /// <summary>
@@ -514,11 +527,48 @@ namespace AES_Controls.Composition
 
         private string? GetFileNameValue(object item, string? propertyName)
         {
-            return item switch
+            if (item is not MediaItem mediaItem || string.IsNullOrEmpty(propertyName))
+                return null;
+
+            if (string.Equals(propertyName, nameof(MediaItem.FileName), StringComparison.Ordinal))
+                return mediaItem.FileName;
+            if (string.Equals(propertyName, nameof(MediaItem.LocalCoverPath), StringComparison.Ordinal))
+                return mediaItem.LocalCoverPath;
+
+            return null;
+        }
+
+        private static bool IsLikelyImageFile(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+
+            return Path.GetExtension(path) switch
             {
-                MediaItem mediaItem when string.Equals(propertyName, nameof(MediaItem.FileName), StringComparison.Ordinal) => mediaItem.FileName,
-                _ => null
+                ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif" => true,
+                _ => false
             };
+        }
+
+        private string? ResolveCoverImagePath(object? item, string? configuredFileProp)
+        {
+            if (item is not MediaItem mediaItem)
+                return null;
+
+            if (!string.IsNullOrWhiteSpace(mediaItem.LocalCoverPath) &&
+                File.Exists(mediaItem.LocalCoverPath))
+            {
+                return mediaItem.LocalCoverPath;
+            }
+
+            var configuredPath = GetFileNameValue(mediaItem, configuredFileProp);
+            if (IsLikelyImageFile(configuredPath) && File.Exists(configuredPath))
+                return configuredPath;
+
+            if (IsLikelyImageFile(mediaItem.FileName) && File.Exists(mediaItem.FileName))
+                return mediaItem.FileName;
+
+            return null;
         }
 
         private bool TryGetItemBool(object? item, string propertyName, out bool value)
@@ -739,9 +789,19 @@ namespace AES_Controls.Composition
         // Ensure projection cache is populated for the relevant visible range around currentIndex
         private void EnsureProjectionCache(double currentIndex, Vector2 size)
         {
-            // simple invalidation heuristics: if size changed significantly or index moved enough, rebuild
-            if (_projCacheCenterIdx >= 0 && _projCacheSize == size && Math.Abs(_projCacheForIndex - currentIndex) < 0.001) return;
+            long now = Stopwatch.GetTimestamp();
+            if (_projCacheCenterIdx >= 0 &&
+                _projCacheSize == size &&
+                Math.Abs(_projCacheForIndex - currentIndex) < 0.12)
+            {
+                double elapsedMs = _lastProjectionCacheBuildTicks == 0
+                    ? double.MaxValue
+                    : (now - _lastProjectionCacheBuildTicks) * 1000.0 / Stopwatch.Frequency;
+                if (elapsedMs < 48)
+                    return;
+            }
 
+            _lastProjectionCacheBuildTicks = now;
             _projPolyCache.Clear();
             _projCacheSize = size;
             _projCacheForIndex = currentIndex;
@@ -862,6 +922,9 @@ namespace AES_Controls.Composition
 
         private void UpdateSelectedItemBounds()
         {
+            if (!PublishSelectedItemBounds)
+                return;
+
             if (_images.Count == 0 || Bounds.Width <= 0 || Bounds.Height <= 0)
             {
                 if (_lastPublishedSelectedItemBounds != default)
@@ -1178,6 +1241,8 @@ namespace AES_Controls.Composition
 
             foreach (var item in _subscribedItems) item.PropertyChanged -= Item_PropertyChanged;
             _subscribedItems.Clear();
+            _pendingCoverImageReloads.Clear();
+            _coverImageReloadDebounceTimer?.Stop();
             
             // Notify visual handler of empty list first so it stops rendering old items
 
@@ -1334,7 +1399,7 @@ namespace AES_Controls.Composition
                 var item = items[i];
                 if (item != null && _imageCache.TryGetValue(item, out var cached))
                 {
-                    var currentSourceKey = GetImageSourceKey(GetBitmapValue(item, bitmapProp), GetFileNameValue(item, fileProp));
+                    var currentSourceKey = GetImageSourceKey(GetBitmapValue(item, bitmapProp), ResolveCoverImagePath(item, fileProp));
                     bool hasMatchingSource = _itemImageSourceKeys.TryGetValue(item, out var cachedSourceKey) && Equals(cachedSourceKey, currentSourceKey);
 
                     if (hasMatchingSource)
@@ -1495,7 +1560,7 @@ namespace AES_Controls.Composition
             {
                 bitmapValue = GetBitmapValue(item, bitmapProp);
                 if (bitmapValue == null)
-                    fileName = GetFileNameValue(item, fileProp);
+                    fileName = ResolveCoverImagePath(item, fileProp);
             }
             catch (Exception ex)
             {
@@ -1602,12 +1667,13 @@ namespace AES_Controls.Composition
 
         private void Item_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            Dispatcher.UIThread.Post(async void () =>
+            Dispatcher.UIThread.Post(() =>
             {
                 string? bitmapProp = ImageBitmapProperty;
                 string? fileProp = ImageFileNameProperty;
 
-                if (sender == null || (e.PropertyName != bitmapProp && e.PropertyName != fileProp && e.PropertyName != "CoverFound")) return;
+                if (sender == null || (e.PropertyName != bitmapProp && e.PropertyName != fileProp && e.PropertyName != "CoverFound"))
+                    return;
 
                 if (!_itemIndices.TryGetValue(sender, out var idx))
                     return;
@@ -1615,8 +1681,7 @@ namespace AES_Controls.Composition
                 if (idx < 0 || idx >= _itemsSnapshot.Length || !ReferenceEquals(_itemsSnapshot[idx], sender))
                 {
                     UpdateItems();
-                    if (!_itemIndices.TryGetValue(sender, out idx))
-                        return;
+                    return;
                 }
 
                 if (e.PropertyName == "CoverFound")
@@ -1626,29 +1691,82 @@ namespace AES_Controls.Composition
                     return;
                 }
 
+                ScheduleCoverImageReload(sender);
+            });
+        }
+
+        private void ScheduleCoverImageReload(object sender)
+        {
+            if (!_itemIndices.ContainsKey(sender))
+                return;
+
+            _pendingCoverImageReloads[sender] = _itemIndices[sender];
+
+            if (_coverImageReloadDebounceTimer == null)
+            {
+                _coverImageReloadDebounceTimer = new DispatcherTimer();
+                _coverImageReloadDebounceTimer.Tick += (_, _) => ProcessPendingCoverImageReloads();
+            }
+
+            _coverImageReloadDebounceTimer.Interval = TimeSpan.FromMilliseconds(
+                IsSelectionInMotion() ? ActiveScrollVirtualizationDebounceMs : CoverImageReloadDebounceMs);
+            _coverImageReloadDebounceTimer.Stop();
+            _coverImageReloadDebounceTimer.Start();
+        }
+
+        private void ProcessPendingCoverImageReloads()
+        {
+            _coverImageReloadDebounceTimer?.Stop();
+            if (_pendingCoverImageReloads.Count == 0)
+                return;
+
+            if (IsSelectionInMotion())
+            {
+                _coverImageReloadDebounceTimer?.Start();
+                return;
+            }
+
+            var pending = _pendingCoverImageReloads.ToArray();
+            _pendingCoverImageReloads.Clear();
+            _ = ReloadCoverImagesBatchAsync(pending);
+        }
+
+        private async Task ReloadCoverImagesBatchAsync(KeyValuePair<object, int>[] pending)
+        {
+            string? bitmapProp = ImageBitmapProperty;
+            string? fileProp = ImageFileNameProperty;
+            bool visualsChanged = false;
+
+            foreach (var (sender, idx) in pending)
+            {
+                if (idx < 0 || idx >= _itemsSnapshot.Length || !ReferenceEquals(_itemsSnapshot[idx], sender))
+                    continue;
+
                 Bitmap? bitmapValue = null;
                 string? fileName = null;
                 try
                 {
                     bitmapValue = GetBitmapValue(sender, bitmapProp);
-                    if (bitmapValue == null)
-                        fileName = GetFileNameValue(sender, fileProp);
+                    fileName = ResolveCoverImagePath(sender, fileProp);
                 }
-                catch (Exception ex) { Log.Warn("Failed to read image properties in PropertyChanged", ex); }
+                catch (Exception ex)
+                {
+                    Log.Warn("Failed to read image properties in batched cover reload", ex);
+                    continue;
+                }
 
                 object? sourceKey = GetImageSourceKey(bitmapValue, fileName);
                 if (_itemImageSourceKeys.TryGetValue(sender, out var existingSourceKey) && Equals(existingSourceKey, sourceKey))
                 {
                     TouchCacheItem(sender);
-                    return;
+                    continue;
                 }
 
                 if (TryAcquireSharedImage(sourceKey, out var sharedImage))
                 {
                     AssignItemImage(sender, idx, sharedImage!, sourceKey);
-                    ClearProjectionCache();
-                    UpdateSelectedItemBounds();
-                    return;
+                    visualsChanged = true;
+                    continue;
                 }
 
                 SKImage? realImage = null;
@@ -1656,14 +1774,16 @@ namespace AES_Controls.Composition
                 {
                     realImage = await LoadImageAsync(bitmapValue, fileName, CancellationToken.None);
                 }
-                catch (Exception ex) { Log.Warn("Failed to load image in PropertyChanged", ex); }
+                catch (Exception ex)
+                {
+                    Log.Warn("Failed to load image in batched cover reload", ex);
+                }
 
                 if (realImage != null)
                 {
                     var imageToUse = RegisterSharedImage(sourceKey, realImage);
                     AssignItemImage(sender, idx, imageToUse, sourceKey);
-                    ClearProjectionCache();
-                    UpdateSelectedItemBounds();
+                    visualsChanged = true;
                 }
                 else if (_imageCache.ContainsKey(sender))
                 {
@@ -1671,10 +1791,15 @@ namespace AES_Controls.Composition
                     var placeholder = GetPlaceholder();
                     if (idx < _images.Count) _images[idx] = placeholder;
                     _visual?.SendHandlerMessage(new UpdateImageMessage(idx, placeholder));
-                    ClearProjectionCache();
-                    UpdateSelectedItemBounds();
+                    visualsChanged = true;
                 }
-            });
+            }
+
+            if (visualsChanged)
+            {
+                ClearProjectionCache();
+                UpdateSelectedItemBounds();
+            }
         }
 
         private async Task<SKImage?> ToSkImageAsync(Bitmap bitmap)
@@ -1769,10 +1894,10 @@ namespace AES_Controls.Composition
         private async Task<SKImage?> LoadImageAsync(Bitmap? bitmapValue, string? fileName, CancellationToken ct)
         {
             if (ct.IsCancellationRequested) return null;
-            if (bitmapValue != null)
-                return await ToSkImageAsync(bitmapValue);
             if (!string.IsNullOrEmpty(fileName) && File.Exists(fileName))
                 return await Task.Run(() => LoadAndResize(fileName), ct);
+            if (bitmapValue != null)
+                return await ToSkImageAsync(bitmapValue);
             return null;
         }
 

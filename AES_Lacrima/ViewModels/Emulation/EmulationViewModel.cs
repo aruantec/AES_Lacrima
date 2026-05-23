@@ -184,6 +184,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         private readonly AvaloniaList<ShadPs4PatchFileItem> _currentSectionShadPs4PatchFiles = [];
         private readonly AvaloniaList<ShadPs4PatchEntry> _currentSectionShadPs4PatchEntries = [];
         private double _lastSelectedIndexForPreview = double.NaN;
+        private DispatcherTimer? _carouselHighlightDebounceTimer;
+        private int _pendingHighlightedCarouselIndex = -1;
         private string? _pendingGameplayPreviewItemPath;
         private string? _activeGameplayPreviewItemPath;
         private long _gameplayPreviewRequestVersion;
@@ -741,8 +743,14 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         private static IReadOnlyList<ShaderFileItem> LoadShaderFileItems()
         {
-            var extensions = new[] { "*.glsl", "*.slang", "*.hlsl" };
-            var subDirs = new[] { "glsl", "hlsl" };
+            // Windows portal capture compiles pixel shaders via D3DCompileFromFile (.hlsl only).
+            // GLSL/slang presets belong to the OpenGL path on Linux/macOS and must not appear on Windows.
+            var extensions = OperatingSystem.IsWindows()
+                ? new[] { "*.hlsl" }
+                : new[] { "*.glsl", "*.slang" };
+            var subDirs = OperatingSystem.IsWindows()
+                ? new[] { "hlsl" }
+                : new[] { "glsl" };
 
             var files = new List<string>();
             foreach (var subDir in subDirs)
@@ -763,14 +771,16 @@ private bool _isShadPs4PatchesOverlayOpen;
                 .Select(path =>
                 {
                     var extension = Path.GetExtension(path);
-                    var isSupportedInDirectComposition =
-                        extension.Equals(".hlsl", StringComparison.OrdinalIgnoreCase);
+                    var isSupported = OperatingSystem.IsWindows()
+                        ? extension.Equals(".hlsl", StringComparison.OrdinalIgnoreCase)
+                        : extension.Equals(".glsl", StringComparison.OrdinalIgnoreCase)
+                          || extension.Equals(".slang", StringComparison.OrdinalIgnoreCase);
 
-                    var displayName = isSupportedInDirectComposition
+                    var displayName = isSupported
                         ? Path.GetFileName(path)
-                        : $"{Path.GetFileName(path)} (OpenGL only)";
+                        : $"{Path.GetFileName(path)} (unsupported on this platform)";
 
-                    return new ShaderFileItem(path, displayName, isSupportedInDirectComposition);
+                    return new ShaderFileItem(path, displayName, isSupported);
                 }));
             return entries;
         }

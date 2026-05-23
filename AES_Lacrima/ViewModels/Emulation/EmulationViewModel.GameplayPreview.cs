@@ -51,7 +51,12 @@ namespace AES_Lacrima.ViewModels
             {
                 if (immediate)
                     _suppressSelectionStopForGameplayPreview = false;
-                StopGameplayPreview();
+                if (_isGameplayPreviewActive ||
+                    !string.IsNullOrWhiteSpace(_pendingGameplayPreviewItemPath) ||
+                    _gameplayPreviewCts != null)
+                {
+                    StopGameplayPreview();
+                }
                 return;
             }
 
@@ -284,12 +289,22 @@ namespace AES_Lacrima.ViewModels
             AudioPlayer.RepeatMode = RepeatMode.One;
         }
 
+        private const int CarouselCoverDecodeSize = 384;
+
         private static Bitmap? LoadBitmap(string imagePath)
         {
             try
             {
                 using var stream = File.OpenRead(imagePath);
-                return new Bitmap(stream);
+                try
+                {
+                    return Bitmap.DecodeToWidth(stream, CarouselCoverDecodeSize);
+                }
+                catch
+                {
+                    stream.Position = 0;
+                    return new Bitmap(stream);
+                }
             }
             catch (Exception ex)
             {

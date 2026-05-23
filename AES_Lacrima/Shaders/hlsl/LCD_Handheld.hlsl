@@ -7,7 +7,8 @@ cbuffer Params : register(b0)
     float4 tint;
     float outputWidth;
     float outputHeight;
-    float2 _padding0;
+    float sourceIsSrgb;
+    float timeSeconds;
 };
 
 Texture2D src : register(t0);

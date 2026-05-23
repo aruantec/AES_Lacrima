@@ -117,15 +117,43 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             int roundedIndex = GetRoundedSelectedIndex(value);
-            if (roundedIndex >= 0 && roundedIndex < CoverItems.Count)
-            {
-                HighlightedItem = CoverItems[roundedIndex];
-            }
+            if (roundedIndex < 0 || roundedIndex >= CoverItems.Count)
+                return;
+
+            ScheduleHighlightedItemUpdate(roundedIndex);
         }
 
         partial void OnHighlightedItemChanged(MediaItem value)
         {
             QueueGameplayPreview(value);
+        }
+
+        private void ScheduleHighlightedItemUpdate(int roundedIndex)
+        {
+            _pendingHighlightedCarouselIndex = roundedIndex;
+
+            _carouselHighlightDebounceTimer ??= new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(140)
+            };
+
+            _carouselHighlightDebounceTimer.Tick -= OnCarouselHighlightDebounceTick;
+            _carouselHighlightDebounceTimer.Tick += OnCarouselHighlightDebounceTick;
+            _carouselHighlightDebounceTimer.Stop();
+            _carouselHighlightDebounceTimer.Start();
+        }
+
+        private void OnCarouselHighlightDebounceTick(object? sender, EventArgs e)
+        {
+            _carouselHighlightDebounceTimer?.Stop();
+
+            int index = _pendingHighlightedCarouselIndex;
+            if (index < 0 || index >= CoverItems.Count)
+                return;
+
+            var item = CoverItems[index];
+            if (!ReferenceEquals(HighlightedItem, item))
+                HighlightedItem = item;
         }
 
         [RelayCommand]
