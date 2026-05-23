@@ -47,6 +47,8 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     public override bool ForceUseTargetClientAreaCapture => true;
 
+    public override double? CaptureWindowAspectRatio => 16.0 / 9.0;
+
     public override bool HideUntilCaptured => true;
 
     public override int CaptureStartupDelayMs => 0;
@@ -170,7 +172,11 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
     {
         await WaitForCoreLinkerOutputAsync(process, _launchTranscriptPath, cancellationToken).ConfigureAwait(false);
 
-        return await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
+        var hwnd = await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
+        if (hwnd != IntPtr.Zero)
+            ResizeCaptureWindowToSixteenByNine(hwnd);
+
+        return hwnd;
     }
 
     private static string CreateLaunchTranscriptPath(string executablePath)
@@ -469,6 +475,10 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     public override void PrepareWindowForCapture(IntPtr hwnd)
     {
+        if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
+            return;
+
+        ResizeCaptureWindowToSixteenByNine(hwnd);
     }
 
     public override IntPtr FindPreferredWindowHandle(Process process)

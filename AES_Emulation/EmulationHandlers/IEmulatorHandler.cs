@@ -73,6 +73,11 @@ public interface IEmulatorHandler : INotifyPropertyChanged
 
     int ClientAreaCropBottomInset { get; }
 
+    /// <summary>
+    /// When set, the embedded capture window is sized to this width/height ratio (e.g. 16:9 for PS4).
+    /// </summary>
+    double? CaptureWindowAspectRatio { get; }
+
     int CaptureStartupDelayMs { get; }
     
     bool IsWindowEmbeddingSupported { get; }

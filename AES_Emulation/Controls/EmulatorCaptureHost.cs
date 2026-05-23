@@ -87,6 +87,9 @@ public class EmulatorCaptureHost : ContentControl
     public static readonly StyledProperty<int> ClientAreaCropBottomInsetProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, int>(nameof(ClientAreaCropBottomInset), 0);
 
+    public static readonly StyledProperty<double> CaptureWindowAspectRatioProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, double>(nameof(CaptureWindowAspectRatio), 0);
+
     public static readonly DirectProperty<EmulatorCaptureHost, string> StatusTextProperty =
         AvaloniaProperty.RegisterDirect<EmulatorCaptureHost, string>(
             nameof(StatusText),
@@ -260,6 +263,12 @@ public class EmulatorCaptureHost : ContentControl
     {
         get => GetValue(ClientAreaCropBottomInsetProperty);
         set => SetValue(ClientAreaCropBottomInsetProperty, value);
+    }
+
+    public double CaptureWindowAspectRatio
+    {
+        get => GetValue(CaptureWindowAspectRatioProperty);
+        set => SetValue(CaptureWindowAspectRatioProperty, value);
     }
 
     public string StatusText
@@ -484,6 +493,7 @@ public class EmulatorCaptureHost : ContentControl
                 windowsBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
                 windowsBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
                 windowsBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
+                windowsBackend.CaptureWindowAspectRatio = CaptureWindowAspectRatio;
                 break;
             case ScreenCaptureKitCaptureHost macBackend:
                 macBackend.TargetHwnd = TargetHwnd;

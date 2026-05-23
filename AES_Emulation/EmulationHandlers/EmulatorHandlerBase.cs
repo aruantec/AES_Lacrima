@@ -128,7 +128,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     public virtual int ClientAreaCropRightInset => 0;
 
     public virtual int ClientAreaCropBottomInset => 0;
-    
+
+    public virtual double? CaptureWindowAspectRatio => null;
+
     public virtual EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.DirectComposition;
 
     public virtual bool UsesRetroArchCores => false;
