@@ -1600,15 +1600,14 @@ public class WgcCaptureControl : OpenGlControlBase
 
             string ext = Path.GetExtension(path).ToLowerInvariant();
 
-            if (ext == ".glsl" || ext == ".glslp" || ext == ".slang" || ext == ".slangp" || ext == ".cgp")
+            if (ext is ".glsl" or ".glslp" or ".slang" or ".slangp" or ".cgp" or ".hlsl")
             {
                 string shaderToLoad = path;
 
                 // For OpenGL compatibility (WgcCaptureControl is an OpenGlControlBase), 
                 // try to redirect .slang to .glsl equivalents if they exist.
-                if (ext.Contains(".slang"))
+                if (ext.Contains(".slang", StringComparison.Ordinal))
                 {
-                    string glslExt = ext.Replace(".slang", ".glsl");
                     string? glslPath = path.Replace(".slang", ".glsl")
                                           .Replace("\\slang\\", "\\glsl\\")
                                           .Replace("/slang/", "/glsl/");
@@ -1616,6 +1615,18 @@ public class WgcCaptureControl : OpenGlControlBase
                     if (File.Exists(glslPath))
                     {
                         Debug.WriteLine($"[WGC] Redirecting .slang shader to .glsl for OpenGL compatibility: {glslPath}");
+                        shaderToLoad = glslPath;
+                    }
+                }
+                else if (ext == ".hlsl")
+                {
+                    string glslPath = path.Replace(".hlsl", ".glsl")
+                        .Replace("\\hlsl\\", "\\glsl\\", StringComparison.Ordinal)
+                        .Replace("/hlsl/", "/glsl/", StringComparison.Ordinal);
+
+                    if (File.Exists(glslPath))
+                    {
+                        Debug.WriteLine($"[WGC] Redirecting .hlsl shader to .glsl for OpenGL compatibility: {glslPath}");
                         shaderToLoad = glslPath;
                     }
                 }

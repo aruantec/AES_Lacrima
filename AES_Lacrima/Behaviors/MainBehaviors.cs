@@ -2,6 +2,7 @@
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
@@ -120,7 +121,7 @@ namespace AES_Lacrima.Behaviors
             if (sender is not Window window)
                 return;
 
-            if (!CanResize(window))
+            if (!CanResize(window) || ShouldSuppressResize(window, e))
             {
                 _currentEdge = null;
                 window.Cursor = null;
@@ -139,7 +140,7 @@ namespace AES_Lacrima.Behaviors
             if (sender is not Window window)
                 return;
 
-            if (!CanResize(window))
+            if (!CanResize(window) || ShouldSuppressResize(window, e))
                 return;
 
             if (TopLevel.GetTopLevel(window) == null)
@@ -158,6 +159,23 @@ namespace AES_Lacrima.Behaviors
 
             window.BeginResizeDrag(_currentEdge.Value, e);
             e.Handled = true;
+        }
+
+        private static bool ShouldSuppressResize(Window window, PointerEventArgs e)
+        {
+            if (IsPointerOverComboDropDown(e))
+                return true;
+
+            return window.GetVisualDescendants().OfType<ComboBox>().Any(combo => combo.IsDropDownOpen);
+        }
+
+        private static bool IsPointerOverComboDropDown(PointerEventArgs e)
+        {
+            if (e.Source is not Visual sourceVisual)
+                return false;
+
+            return sourceVisual.GetSelfAndVisualAncestors().Any(visual =>
+                visual is ComboBoxItem or Popup);
         }
 
         private bool CanResize(Window window)

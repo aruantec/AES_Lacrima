@@ -16,6 +16,10 @@ public class ComboBoxPopupScaler : Behavior<ComboBox>
 {
     private readonly Dictionary<ComboBox, IDisposable> _subscriptions = new();
 
+    public double ResizeBorderMargin { get; set; } = 16d;
+
+    public double MinDropDownHeight { get; set; } = 120d;
+
     protected override void OnAttached()
     {
         base.OnAttached();
@@ -37,20 +41,13 @@ public class ComboBoxPopupScaler : Behavior<ComboBox>
         AssociatedObject.DetachedFromVisualTree -= OnDetachedFromVisualTree;
     }
 
-    private void OnAttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
-    {
-        TryAttachPopup();
-    }
+    private void OnAttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e) => TryAttachPopup();
 
-    private void OnDetachedFromVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
-    {
-        DetachPopup();
-    }
+    private void OnDetachedFromVisualTree(object? sender, VisualTreeAttachmentEventArgs e) => DetachPopup();
 
     private void TryAttachPopup()
     {
         if (AssociatedObject == null) return;
-        if (AssociatedObject.FindAncestorOfType<ScalableDecorator>() == null) return;
         StartListening(AssociatedObject);
     }
 
@@ -67,10 +64,10 @@ public class ComboBoxPopupScaler : Behavior<ComboBox>
         var subscription = combo.GetObservable(ComboBox.IsDropDownOpenProperty)
             .Subscribe(new PopupOpenObserver(isOpen =>
             {
-                if (isOpen)
-                {
-                    Dispatcher.UIThread.Post(() => AdjustPopupWidth(combo), DispatcherPriority.Background);
-                }
+                if (!isOpen) return;
+
+                Dispatcher.UIThread.Post(() => AdjustPopup(combo), DispatcherPriority.Background);
+                Dispatcher.UIThread.Post(() => AdjustPopup(combo), DispatcherPriority.Loaded);
             }));
 
         _subscriptions[combo] = subscription;
@@ -83,6 +80,14 @@ public class ComboBoxPopupScaler : Behavior<ComboBox>
             subscription.Dispose();
             _subscriptions.Remove(combo);
         }
+    }
+
+    private void AdjustPopup(ComboBox combo)
+    {
+        if (combo.FindAncestorOfType<ScalableDecorator>() != null)
+            AdjustPopupWidth(combo);
+
+        AdjustPopupMaxHeight(combo);
     }
 
     private static void AdjustPopupWidth(ComboBox combo)
@@ -106,6 +111,44 @@ public class ComboBoxPopupScaler : Behavior<ComboBox>
         }
 
         popup.Width = currentWidth;
+    }
+
+    private void AdjustPopupMaxHeight(ComboBox combo)
+    {
+        var topLevel = TopLevel.GetTopLevel(combo);
+        if (topLevel == null)
+            return;
+
+        var topLeft = combo.TranslatePoint(new Point(0, 0), topLevel);
+        if (topLeft == null)
+            return;
+
+        var comboHeight = combo.Bounds.Height;
+        if (comboHeight <= 0)
+            comboHeight = combo.DesiredSize.Height;
+
+        var windowHeight = topLevel.Bounds.Height;
+        if (windowHeight <= 0)
+            return;
+
+        var margin = Math.Max(1d, ResizeBorderMargin);
+        var spaceBelow = windowHeight - topLeft.Value.Y - comboHeight - margin;
+        var spaceAbove = topLeft.Value.Y - margin;
+
+        var maxHeight = Math.Max(MinDropDownHeight, spaceBelow);
+        if (spaceBelow < MinDropDownHeight && spaceAbove > spaceBelow)
+            maxHeight = Math.Max(MinDropDownHeight, spaceAbove);
+
+        combo.MaxDropDownHeight = maxHeight;
+
+        var popup = combo.GetVisualDescendants().OfType<Popup>().FirstOrDefault();
+        if (popup?.Child is Control child)
+        {
+            child.MaxHeight = maxHeight;
+            var scrollViewer = child.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+            if (scrollViewer != null)
+                scrollViewer.MaxHeight = maxHeight;
+        }
     }
 
     private sealed class PopupOpenObserver : IObserver<bool>

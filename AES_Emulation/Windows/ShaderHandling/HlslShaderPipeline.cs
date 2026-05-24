@@ -1,3 +1,4 @@
+using AES_Controls.GL;
 using Avalonia.OpenGL;
 using System;
 using System.Diagnostics;
@@ -248,6 +249,16 @@ public class HlslShaderPipeline : IDisposable
             // Extract shaders (these use substrings which is acceptable - only done at load time)
             string vertexSource = fullHeader + ExtractVertexShader(source);
             string fragmentSource = fullHeader + ExtractFragmentShader(source);
+            var cacheKey = GlProgramBinaryCache.ComputeKey(vertexSource, fragmentSource);
+
+            int cachedProgram = GlProgramBinaryCache.TryLoadProgram(_gl, GlProgramBinaryCache.EmulationCategory, cacheKey);
+            if (cachedProgram != 0)
+            {
+                _program = cachedProgram;
+                Debug.WriteLine($"[HLSL] Shader loaded from cache: {path}");
+                LastError = null;
+                return;
+            }
 
             int vs = CompileShader(GlConsts.GL_VERTEX_SHADER, vertexSource);
             int fs = CompileShader(GlConsts.GL_FRAGMENT_SHADER, fragmentSource);
@@ -281,6 +292,7 @@ public class HlslShaderPipeline : IDisposable
                 _gl.GetProgramiv(_program, GL_LINK_STATUS, &status);
                 if (status != 0)
                 {
+                    GlProgramBinaryCache.SaveProgram(_gl, _program, GlProgramBinaryCache.EmulationCategory, cacheKey);
                     Debug.WriteLine($"[HLSL] Shader linked successfully: {path}");
                     LastError = null;
                 }

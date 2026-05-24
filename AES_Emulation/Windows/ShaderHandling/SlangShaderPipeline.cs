@@ -1,3 +1,4 @@
+using AES_Controls.GL;
 using AES_Emulation.Windows;
 using AES_Emulation.Windows.ShaderHandling;
 using Avalonia.OpenGL;
@@ -239,13 +240,25 @@ public class SlangShaderPipeline : IDisposable
             }
 
             string fullHeader = _shaderVersionHeader + "\n" + (_isEs ? "precision mediump float;\n" : "");
+            string vertexSource = fullHeader + "#define VERTEX\n" + source;
+            string fragmentSource = fullHeader + "#define FRAGMENT\n" + source;
+            var cacheKey = GlProgramBinaryCache.ComputeKey(vertexSource, fragmentSource);
+
+            int cachedProgram = GlProgramBinaryCache.TryLoadProgram(_gl, GlProgramBinaryCache.EmulationCategory, cacheKey);
+            if (cachedProgram != 0)
+            {
+                _passes.Add(new ShaderPass { ProgramId = cachedProgram });
+                Debug.WriteLine($"[Pipeline] Shader loaded from cache: {path}");
+                LastError = null;
+                return;
+            }
 
             int vs = 0, fs = 0;
             bool compiledReal = false;
             try
             {
-                vs = CompileShader(GlConsts.GL_VERTEX_SHADER, fullHeader + "#define VERTEX\n" + source);
-                fs = CompileShader(GlConsts.GL_FRAGMENT_SHADER, fullHeader + "#define FRAGMENT\n" + source);
+                vs = CompileShader(GlConsts.GL_VERTEX_SHADER, vertexSource);
+                fs = CompileShader(GlConsts.GL_FRAGMENT_SHADER, fragmentSource);
                 if (vs != 0 && fs != 0)
                 {
                     // Link test
@@ -359,6 +372,7 @@ void main(){
                     _gl.GetProgramiv(prog, GL_LINK_STATUS, &status);
                     if (status != 0)
                     {
+                        GlProgramBinaryCache.SaveProgram(_gl, prog, GlProgramBinaryCache.EmulationCategory, cacheKey);
                         _passes.Add(new ShaderPass { ProgramId = prog });
                         Debug.WriteLine($"[Pipeline] Shader linked and added: {path}");
                         LastError = null;
