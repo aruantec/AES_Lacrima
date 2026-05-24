@@ -8,6 +8,7 @@ using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Core.Logging;
+using AES_Emulation.Windows.API;
 using log4net;
 
 namespace AES_Emulation.EmulationHandlers;
@@ -15,6 +16,8 @@ namespace AES_Emulation.EmulationHandlers;
 public sealed class ShadPs4Handler : EmulatorHandlerBase
 {
     private static readonly ILog Log = LogHelper.For<ShadPs4Handler>();
+
+    private const uint WS_CHILD = 0x40000000;
 
     private const string CoreProcessName = "shadPS4";
     private const string CoreLinkerOutputToken = "[Core.Linker]";
@@ -46,6 +49,8 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
     public override string DisplayName => "shadPS4";
 
     public override bool ForceUseTargetClientAreaCapture => true;
+
+    public override bool EnableCapturePillarboxCrop => true;
 
     public override double? CaptureWindowAspectRatio => 16.0 / 9.0;
 
@@ -483,21 +488,24 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     public override IntPtr FindPreferredWindowHandle(Process process)
     {
-        var preferred = FindBestProcessWindowHandle(
+        var topLevel = FindBestProcessWindowHandle(
             process,
             preferSpecificRenderWindow: true,
             allowHiddenWindows: true,
             isPreferredRenderWindow: IsLikelyShadPs4RenderWindow,
             fallbackTitleHint: CoreProcessName);
 
-        return preferred != IntPtr.Zero
-            ? preferred
-            : FindBestProcessWindowHandle(
-                process,
-                preferSpecificRenderWindow: false,
-                allowHiddenWindows: true,
-                isPreferredRenderWindow: null,
-                fallbackTitleHint: CoreProcessName);
+        if (topLevel == IntPtr.Zero)
+            return IntPtr.Zero;
+
+        if (OperatingSystem.IsWindows())
+        {
+            var renderChild = FindBestRenderChildWindow(process, topLevel);
+            if (renderChild != IntPtr.Zero)
+                return renderChild;
+        }
+
+        return topLevel;
     }
 
     public override bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle)
@@ -540,8 +548,14 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         var className = GetWindowClassName(hwnd).Trim();
         var lowerTitle = title.ToLowerInvariant();
         var lowerClass = className.ToLowerInvariant();
+        var style = GetWindowStyle(hwnd);
+        var hasChildStyle = (style & WS_CHILD) == WS_CHILD;
+        var parent = GetParent(hwnd);
+        var hasCaption = (style & WS_CAPTION) == WS_CAPTION;
+        var looksLikePrimaryUi = hwnd == mainWindowHandle;
 
-        if (string.IsNullOrWhiteSpace(lowerTitle) && string.IsNullOrWhiteSpace(lowerClass))
+        // WGC on child HWNDs (nested SDL/Qt surfaces) produces edge corruption on the right.
+        if (hasChildStyle || parent != IntPtr.Zero)
             return false;
 
         if (lowerTitle.Contains(QtLauncherTitleToken, StringComparison.Ordinal) ||
@@ -551,6 +565,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             lowerTitle.Contains("compatibility", StringComparison.Ordinal) ||
             lowerTitle.Contains("version manager", StringComparison.Ordinal) ||
             lowerTitle.Contains("game install", StringComparison.Ordinal) ||
+            lowerTitle.Contains("launcher", StringComparison.Ordinal) ||
             lowerClass.Contains("ime") ||
             lowerClass.Contains("tooltip") ||
             lowerClass.Contains("observer"))
@@ -558,14 +573,107 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             return false;
         }
 
-        if (lowerTitle.Contains("shadps4", StringComparison.Ordinal))
+        if (lowerClass.Contains("sdl") ||
+            lowerClass.Contains("vulkan") ||
+            lowerClass.Contains("render"))
+        {
             return true;
+        }
 
-        if (lowerClass.Contains("sdl") || lowerClass.Contains("render") || lowerClass.Contains("vulkan"))
+        if (lowerTitle.StartsWith("fps:", StringComparison.OrdinalIgnoreCase) ||
+            lowerTitle.Contains("vulkan", StringComparison.Ordinal) ||
+            lowerTitle.Contains("opengl", StringComparison.Ordinal))
+        {
             return true;
+        }
 
-        return hwnd != mainWindowHandle && !string.IsNullOrWhiteSpace(title);
+        if (!string.IsNullOrWhiteSpace(lowerTitle))
+        {
+            if (lowerTitle.Contains("shadps4", StringComparison.Ordinal) ||
+                lowerTitle.Contains("qt", StringComparison.Ordinal))
+            {
+                looksLikePrimaryUi = true;
+            }
+            else if (hwnd == mainWindowHandle && lowerTitle.Length >= 2)
+            {
+                return true;
+            }
+            else if (!looksLikePrimaryUi && lowerTitle.Length >= 2)
+            {
+                return true;
+            }
+        }
+
+        if (lowerClass.Contains("qt") && looksLikePrimaryUi)
+            return false;
+
+        return !looksLikePrimaryUi && (!hasCaption || !string.IsNullOrWhiteSpace(title));
     }
+
+    private static IntPtr FindBestRenderChildWindow(Process process, IntPtr parentHwnd)
+    {
+        if (!OperatingSystem.IsWindows() || parentHwnd == IntPtr.Zero)
+            return IntPtr.Zero;
+
+        uint processId;
+        try
+        {
+            process.Refresh();
+            processId = (uint)process.Id;
+        }
+        catch
+        {
+            return IntPtr.Zero;
+        }
+
+        IntPtr bestHwnd = IntPtr.Zero;
+        long bestScore = long.MinValue;
+
+        Win32API.EnumChildWindows(parentHwnd, (child, _) =>
+        {
+            if (GetParent(child) != parentHwnd)
+                return true;
+
+            var score = ScoreRenderChildWindow(child, processId);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestHwnd = child;
+            }
+
+            return true;
+        }, IntPtr.Zero);
+
+        return bestScore > long.MinValue ? bestHwnd : IntPtr.Zero;
+    }
+
+    private static long ScoreRenderChildWindow(IntPtr hwnd, uint processId)
+    {
+        if (hwnd == IntPtr.Zero)
+            return long.MinValue;
+
+        if (GetWindowThreadProcessId(hwnd, out uint windowPid) == 0 || windowPid != processId)
+            return long.MinValue;
+
+        if (!Win32API.GetClientAreaOffsets(hwnd, out _, out _, out var clientWidth, out var clientHeight))
+            return long.MinValue;
+
+        if (clientWidth < 320 || clientHeight < 180)
+            return long.MinValue;
+
+        var className = GetWindowClassName(hwnd).Trim().ToLowerInvariant();
+        if (!className.Contains("sdl") &&
+            !className.Contains("vulkan") &&
+            !className.Contains("render"))
+        {
+            return long.MinValue;
+        }
+
+        return (long)clientWidth * clientHeight;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
     private static Process? TryResolveCoreProcess(int launcherProcessId, DateTime launcherStartTimeUtc)
     {
@@ -765,4 +873,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetParent(IntPtr hWnd);
 }

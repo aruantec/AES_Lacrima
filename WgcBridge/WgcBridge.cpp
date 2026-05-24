@@ -218,6 +218,8 @@ struct CaptureSession
     std::atomic<bool> dcompPillarboxCropEnabled{ false };
     std::atomic<int> dcompPillarboxLeft{ 0 };
     std::atomic<int> dcompPillarboxRight{ 0 };
+    std::atomic<int> dcompPillarboxTop{ 0 };
+    std::atomic<int> dcompPillarboxBottom{ 0 };
     std::atomic<int> dcompPillarboxDetectCounter{ 0 };
     rt::com_ptr<ID3D11Texture2D> pillarboxStagingTexture;
     int pillarboxStagingWidth = 0;
@@ -1587,6 +1589,8 @@ struct CaptureSession
     {
         dcompPillarboxLeft.store(0, std::memory_order_relaxed);
         dcompPillarboxRight.store(0, std::memory_order_relaxed);
+        dcompPillarboxTop.store(0, std::memory_order_relaxed);
+        dcompPillarboxBottom.store(0, std::memory_order_relaxed);
         dcompPillarboxDetectCounter.store(0, std::memory_order_relaxed);
     }
 
@@ -1866,13 +1870,20 @@ struct CaptureSession
         float v1 = 1.0f;
         const int fullWidth = dcompSourceFullWidth > 0 ? dcompSourceFullWidth : width;
         const int fullHeight = dcompSourceFullHeight > 0 ? dcompSourceFullHeight : height;
-        if (dcompSourceCropW > 0 && dcompSourceCropH > 0 && fullWidth > 0 && fullHeight > 0)
+        const bool useFullCaptureTexture = dcompCaptureSrv != nullptr;
+        if (useFullCaptureTexture &&
+            dcompSourceCropW > 0 && dcompSourceCropH > 0 && fullWidth > 0 && fullHeight > 0)
         {
             u0 = static_cast<float>(dcompSourceCropX) / static_cast<float>(fullWidth);
             v0 = static_cast<float>(dcompSourceCropY) / static_cast<float>(fullHeight);
             u1 = static_cast<float>(dcompSourceCropX + dcompSourceCropW) / static_cast<float>(fullWidth);
             v1 = static_cast<float>(dcompSourceCropY + dcompSourceCropH) / static_cast<float>(fullHeight);
         }
+
+        const float uSpan = u1 - u0;
+        const float vSpan = v1 - v0;
+        const int contentWidth = dcompSourceCropW > 0 ? dcompSourceCropW : width;
+        const int contentHeight = dcompSourceCropH > 0 ? dcompSourceCropH : height;
 
         int stretch = dcompStretch.load();
 
@@ -1897,32 +1908,38 @@ struct CaptureSession
             {
                 float visibleRatio = viewAspect / frameAspect;
                 float crop = (1.0f - visibleRatio) * 0.5f;
-                u0 = crop;
-                u1 = 1.0f - crop;
+                u0 += crop * uSpan;
+                u1 -= crop * uSpan;
             }
             else
             {
                 float visibleRatio = frameAspect / viewAspect;
                 float crop = (1.0f - visibleRatio) * 0.5f;
-                v0 = crop;
-                v1 = 1.0f - crop;
+                v0 += crop * vSpan;
+                v1 -= crop * vSpan;
             }
         }
 
-        static constexpr int kContentBarWarmupFrames = 60;
+        static constexpr int kContentBarWarmupFrames = 30;
         if (dcompPillarboxCropEnabled.load(std::memory_order_relaxed) &&
             frameCount.load(std::memory_order_relaxed) >= kContentBarWarmupFrames &&
-            fullWidth > 0)
+            contentWidth > 0 && contentHeight > 0)
         {
             const int cropLeft = dcompPillarboxLeft.load(std::memory_order_relaxed);
             const int cropRight = dcompPillarboxRight.load(std::memory_order_relaxed);
-            if (cropLeft > 0 || cropRight > 0)
+            const int cropTop = dcompPillarboxTop.load(std::memory_order_relaxed);
+            const int cropBottom = dcompPillarboxBottom.load(std::memory_order_relaxed);
+            if (cropLeft > 0 || cropRight > 0 || cropTop > 0 || cropBottom > 0)
             {
-                const float insetLeft = static_cast<float>(cropLeft) / static_cast<float>(fullWidth);
-                const float insetRight = static_cast<float>(cropRight) / static_cast<float>(fullWidth);
+                const float insetLeft = (static_cast<float>(cropLeft) / static_cast<float>(contentWidth)) * uSpan;
+                const float insetRight = (static_cast<float>(cropRight) / static_cast<float>(contentWidth)) * uSpan;
+                const float insetTop = (static_cast<float>(cropTop) / static_cast<float>(contentHeight)) * vSpan;
+                const float insetBottom = (static_cast<float>(cropBottom) / static_cast<float>(contentHeight)) * vSpan;
                 u0 = (std::min)(1.0f, (std::max)(0.0f, u0 + insetLeft));
                 u1 = (std::max)(0.0f, (std::min)(1.0f, u1 - insetRight));
-                if (u1 - u0 > 0.02f)
+                v0 = (std::min)(1.0f, (std::max)(0.0f, v0 + insetTop));
+                v1 = (std::max)(0.0f, (std::min)(1.0f, v1 - insetBottom));
+                if (u1 - u0 > 0.02f && v1 - v0 > 0.02f)
                 {
                     left = -1.0f;
                     right = 1.0f;
@@ -1932,7 +1949,9 @@ struct CaptureSession
             }
         }
 
-        ApplyHalfTexelInset(u0, v0, u1, v1, fullWidth, fullHeight);
+        const int insetTexWidth = (std::max)(1, static_cast<int>(std::lround(uSpan * static_cast<float>(fullWidth))));
+        const int insetTexHeight = (std::max)(1, static_cast<int>(std::lround(vSpan * static_cast<float>(fullHeight))));
+        ApplyHalfTexelInset(u0, v0, u1, v1, insetTexWidth, insetTexHeight);
 
         DcompVertex vertices[4] =
         {
@@ -2081,7 +2100,8 @@ struct CaptureSession
         dcompCaptureSrvTexture = nullptr;
         dcompCaptureSourceFormat = DXGI_FORMAT_UNKNOWN;
 
-        const bool directPresent = EnsureCaptureSourceSrv(texture);
+        const bool hasSourceCrop = dcompSourceCropW > 0 && dcompSourceCropH > 0;
+        const bool directPresent = !hasSourceCrop && EnsureCaptureSourceSrv(texture);
         const bool frameGen = dcompFrameGenEnabled.load(std::memory_order_relaxed);
 
         if (directPresent)
@@ -2521,20 +2541,37 @@ struct CaptureSession
         dcompSmoothedFps.store(1000.0 / smoothedFrameTimeMs, std::memory_order_relaxed);
     }
 
-    static void DetectContentBarInsets(const uint8_t* pixels, int stride, int width, int height, int& outLeft, int& outRight)
+    static void DetectContentBarInsets(
+        const uint8_t* pixels,
+        int stride,
+        int width,
+        int height,
+        int& outLeft,
+        int& outRight,
+        int& outTop,
+        int& outBottom)
     {
         outLeft = 0;
         outRight = 0;
+        outTop = 0;
+        outBottom = 0;
         if (!pixels || width < 100 || height < 100)
             return;
 
-        const int maxScan = width / 4;
+        const int maxScanX = width / 4;
+        const int maxScanY = height / 4;
         const int contentThreshold = 3;
         const int rowCount = 15;
+        const int colCount = 15;
         int rows[15] = {
             height / 16, height / 8, 3 * height / 16, height / 4, 5 * height / 16,
             3 * height / 8, 7 * height / 16, height / 2, 9 * height / 16, 5 * height / 8,
             11 * height / 16, 3 * height / 4, 13 * height / 16, 7 * height / 8, 15 * height / 16
+        };
+        int cols[15] = {
+            width / 16, width / 8, 3 * width / 16, width / 4, 5 * width / 16,
+            3 * width / 8, 7 * width / 16, width / 2, 9 * width / 16, 5 * width / 8,
+            11 * width / 16, 3 * width / 4, 13 * width / 16, 7 * width / 8, 15 * width / 16
         };
 
         bool hasContent = false;
@@ -2555,7 +2592,7 @@ struct CaptureSession
         if (!hasContent)
             return;
 
-        for (int x = 0; x < maxScan; ++x)
+        for (int x = 0; x < maxScanX; ++x)
         {
             bool hasContentInCol = false;
             for (int r = 0; r < rowCount; ++r)
@@ -2574,7 +2611,7 @@ struct CaptureSession
             }
         }
 
-        for (int x = width - 1; x > width - 1 - maxScan; --x)
+        for (int x = width - 1; x > width - 1 - maxScanX; --x)
         {
             bool hasContentInCol = false;
             for (int r = 0; r < rowCount; ++r)
@@ -2593,11 +2630,53 @@ struct CaptureSession
             }
         }
 
-        static constexpr int kMinBarWidthPx = 4;
-        if (outLeft < kMinBarWidthPx)
+        for (int y = 0; y < maxScanY; ++y)
+        {
+            bool hasContentInRow = false;
+            for (int c = 0; c < colCount; ++c)
+            {
+                const uint8_t* p = pixels + (y * stride) + (cols[c] * 4);
+                if (p[0] > contentThreshold || p[1] > contentThreshold || p[2] > contentThreshold)
+                {
+                    hasContentInRow = true;
+                    break;
+                }
+            }
+            if (hasContentInRow)
+            {
+                outTop = y;
+                break;
+            }
+        }
+
+        for (int y = height - 1; y > height - 1 - maxScanY; --y)
+        {
+            bool hasContentInRow = false;
+            for (int c = 0; c < colCount; ++c)
+            {
+                const uint8_t* p = pixels + (y * stride) + (cols[c] * 4);
+                if (p[0] > contentThreshold || p[1] > contentThreshold || p[2] > contentThreshold)
+                {
+                    hasContentInRow = true;
+                    break;
+                }
+            }
+            if (hasContentInRow)
+            {
+                outBottom = (std::max)(0, height - 1 - y);
+                break;
+            }
+        }
+
+        static constexpr int kMinBarPx = 4;
+        if (outLeft < kMinBarPx)
             outLeft = 0;
-        if (outRight < kMinBarWidthPx)
+        if (outRight < kMinBarPx)
             outRight = 0;
+        if (outTop < kMinBarPx)
+            outTop = 0;
+        if (outBottom < kMinBarPx)
+            outBottom = 0;
     }
 
     static constexpr int kPillarboxDetectTargetWidth = 320;
@@ -2745,36 +2824,54 @@ struct CaptureSession
 
         int detectedLeft = 0;
         int detectedRight = 0;
+        int detectedTop = 0;
+        int detectedBottom = 0;
         DetectContentBarInsets(
             static_cast<const uint8_t*>(mapped.pData),
             static_cast<int>(mapped.RowPitch),
             pillarboxDetectWidth,
             pillarboxDetectHeight,
             detectedLeft,
-            detectedRight);
+            detectedRight,
+            detectedTop,
+            detectedBottom);
         d3dContext->Unmap(pillarboxStagingTexture.get(), 0);
 
         const int cropW = dcompSourceCropW > 0 ? dcompSourceCropW : width;
+        const int cropH = dcompSourceCropH > 0 ? dcompSourceCropH : height;
         if (pillarboxDetectWidth > 0)
             detectedLeft = (detectedLeft * cropW) / pillarboxDetectWidth;
         if (pillarboxDetectWidth > 0)
             detectedRight = (detectedRight * cropW) / pillarboxDetectWidth;
+        if (pillarboxDetectHeight > 0)
+            detectedTop = (detectedTop * cropH) / pillarboxDetectHeight;
+        if (pillarboxDetectHeight > 0)
+            detectedBottom = (detectedBottom * cropH) / pillarboxDetectHeight;
 
         const int currentLeft = dcompPillarboxLeft.load(std::memory_order_relaxed);
         const int currentRight = dcompPillarboxRight.load(std::memory_order_relaxed);
+        const int currentTop = dcompPillarboxTop.load(std::memory_order_relaxed);
+        const int currentBottom = dcompPillarboxBottom.load(std::memory_order_relaxed);
 
         if (detectedLeft < currentLeft)
             dcompPillarboxLeft.store(detectedLeft, std::memory_order_relaxed);
         if (detectedRight < currentRight)
             dcompPillarboxRight.store(detectedRight, std::memory_order_relaxed);
+        if (detectedTop < currentTop)
+            dcompPillarboxTop.store(detectedTop, std::memory_order_relaxed);
+        if (detectedBottom < currentBottom)
+            dcompPillarboxBottom.store(detectedBottom, std::memory_order_relaxed);
 
-        if (detectedLeft > currentLeft || detectedRight > currentRight)
+        if (detectedLeft > currentLeft || detectedRight > currentRight ||
+            detectedTop > currentTop || detectedBottom > currentBottom)
         {
             const int pending = dcompPillarboxDetectCounter.load(std::memory_order_relaxed);
             if ((pending % 30) == 0)
             {
                 dcompPillarboxLeft.store(detectedLeft, std::memory_order_relaxed);
                 dcompPillarboxRight.store(detectedRight, std::memory_order_relaxed);
+                dcompPillarboxTop.store(detectedTop, std::memory_order_relaxed);
+                dcompPillarboxBottom.store(detectedBottom, std::memory_order_relaxed);
             }
         }
     }
