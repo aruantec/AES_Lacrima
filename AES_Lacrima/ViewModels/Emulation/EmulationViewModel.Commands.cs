@@ -573,7 +573,6 @@ namespace AES_Lacrima.ViewModels
             {
                 IsEmulatorRunning = false;
                 CurrentEmulatorHandler = null;
-                ClearSessionCaptureStretchOverride();
                 DetachTrackedEmulatorProcess();
                 return;
             }
@@ -647,7 +646,6 @@ namespace AES_Lacrima.ViewModels
             {
                 IsEmulatorRunning = false;
                 CurrentEmulatorHandler = null;
-                ClearSessionCaptureStretchOverride();
                 DetachTrackedEmulatorProcess();
                 SLog.Info("EmulationViewModel.ShutdownForApplicationExit finished.");
             }

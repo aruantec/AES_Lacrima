@@ -15,5 +15,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AES_Core\AES_Core.csproj" />
+    <ProjectReference Include="..\AES_Controls\AES_Controls.csproj" />
   </ItemGroup>
 </Project>

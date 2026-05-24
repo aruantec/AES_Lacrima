@@ -29,7 +29,7 @@
                                        ClientAreaCropBottomInset="{Binding ClientAreaCropBottomInset}"
                                        CaptureWindowAspectRatio="{Binding CaptureWindowAspectRatio}"
                                        HideTargetWindowAfterCaptureStarts="{Binding HideTargetWindowAfterCaptureStarts}"
-                                       Stretch="{Binding CurrentCaptureStretch}"
+                                       Stretch="{Binding SelectedStretch}"
                                        Brightness="{Binding PortalCaptureBrightness, Mode=TwoWay}"
                                        Saturation="{Binding RenderSaturation, Mode=TwoWay}"
                                        DisableVSync="{Binding DisableVSync, Mode=TwoWay}"

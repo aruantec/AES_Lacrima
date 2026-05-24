@@ -12,7 +12,6 @@ using Avalonia.Threading;
 using System.Diagnostics;
 using System.Buffers;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
 using log4net;
 
@@ -63,9 +62,7 @@ public class GlShaderToyControl : OpenGlControlBase
     private const double ColorTransitionDurationSeconds = 2.0;
     private const float ColorTargetEpsilon = 0.0035f;
 
-    private static string CachePath => Path.Combine(ApplicationPaths.CacheDirectory, "ShaderCache");
     private static string LogPath => ApplicationPaths.LogsDirectory;
-    private const int GlProgramBinaryLength = 0x8741;
     private const int GlLinkStatus = 0x8B82;
 
     #region Styled Properties
@@ -521,18 +518,14 @@ public class GlShaderToyControl : OpenGlControlBase
     private void UpdateProgram(GlInterface gl)
     {
         if (string.IsNullOrEmpty(_processedShaderCode)) return;
-        string hash = GetStringHash(_processedShaderCode);
-        string cacheFile = Path.Combine(CachePath, $"{hash}.bin");
+        string hash = GlProgramBinaryCache.ComputeKey(_processedShaderCode);
 
-        if (File.Exists(cacheFile))
+        int loadedPrg = GlProgramBinaryCache.TryLoadProgram(gl, GlProgramBinaryCache.ShaderToyCategory, hash);
+        if (loadedPrg != 0)
         {
-            int loadedPrg = LoadProgramBinary(gl, cacheFile);
-            if (loadedPrg != 0)
-            {
-                if (_program != 0) gl.DeleteProgram(_program);
-                _program = loadedPrg;
-                return;
-            }
+            if (_program != 0) gl.DeleteProgram(_program);
+            _program = loadedPrg;
+            return;
         }
 
         var shaderInfo = GlHelper.GetShaderVersion(gl);
@@ -578,65 +571,8 @@ public class GlShaderToyControl : OpenGlControlBase
         }
         else
         {
-            SaveProgramBinary(gl, _program, cacheFile);
+            GlProgramBinaryCache.SaveProgram(gl, _program, GlProgramBinaryCache.ShaderToyCategory, hash);
         }
-    }
-
-    private unsafe int LoadProgramBinary(GlInterface gl, string file)
-    {
-        try
-        {
-            using var reader = new BinaryReader(File.Open(file, FileMode.Open));
-            int format = reader.ReadInt32();
-            byte[] data = reader.ReadBytes((int)(reader.BaseStream.Length - 4));
-            int prg = gl.CreateProgram();
-            fixed (byte* pData = data)
-            {
-                var func =
-                    (delegate* unmanaged[Stdcall]<int, int, void*, int, void>)gl.GetProcAddress("glProgramBinary");
-                if (func != null) func(prg, format, pData, data.Length);
-            }
-
-            int success = 0;
-            gl.GetProgramiv(prg, GlLinkStatus, &success);
-            if (success != 0) return prg;
-            gl.DeleteProgram(prg);
-            reader.Close();
-            File.Delete(file);
-        }
-        catch
-        {
-            // ignored
-        }
-
-        return 0;
-    }
-
-    private unsafe void SaveProgramBinary(GlInterface gl, int prg, string file)
-    {
-        int length = 0;
-        gl.GetProgramiv(prg, GlProgramBinaryLength, &length);
-        if (length <= 0) return;
-        byte[] buffer = new byte[length];
-        int retLen = 0, format = 0;
-        fixed (byte* pBuf = buffer)
-        {
-            var func =
-                (delegate* unmanaged[Stdcall]<int, int, int*, int*, void*, void>)gl.GetProcAddress(
-                    "glGetProgramBinary");
-            if (func != null) func(prg, length, &retLen, &format, pBuf);
-        }
-
-        if (!Directory.Exists(CachePath)) Directory.CreateDirectory(CachePath);
-        using var writer = new BinaryWriter(File.Open(file, FileMode.Create));
-        writer.Write(format);
-        writer.Write(buffer);
-    }
-
-    private string GetStringHash(string text)
-    {
-        using var sha = SHA256.Create();
-        return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(text))).Replace("-", string.Empty)[..16];
     }
 
     private void SetUniforms(GlInterface gl, int width, int height)

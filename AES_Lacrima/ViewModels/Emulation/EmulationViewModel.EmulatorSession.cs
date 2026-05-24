@@ -94,10 +94,7 @@ namespace AES_Lacrima.ViewModels
 
                 var handler = request.Handler;
                 CurrentEmulatorHandler = handler;
-                SetSessionCaptureStretchOverride(string.Equals(handler.HandlerId, "duckstation", StringComparison.OrdinalIgnoreCase)
-                    ? Stretch.UniformToFill
-                    : null);
-                
+
                 SelectedCaptureMode = handler.PreferredCaptureMode;
                 EmulatorCaptureDelayMs = handler.IsWindowEmbeddingSupported
                     ? 0
@@ -246,25 +243,10 @@ namespace AES_Lacrima.ViewModels
                 SLog.Warn($"Failed to launch emulator for '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
                 if (request.Handler is CemuHandler cemuHandler)
                     cemuHandler.RestoreFullscreenScalingWorkaround(request.Handler.LauncherPath ?? string.Empty);
-                ClearSessionCaptureStretchOverride();
                 RestoreAppTopMost();
                 RestoreHostWindowFocus();
                 IsEmulatorLaunchInProgress = false;
             }
-        }
-
-        private void SetSessionCaptureStretchOverride(Stretch? stretch)
-        {
-            if (_sessionCaptureStretchOverride == stretch)
-                return;
-
-            _sessionCaptureStretchOverride = stretch;
-            OnPropertyChanged(nameof(CurrentCaptureStretch));
-        }
-
-        private void ClearSessionCaptureStretchOverride()
-        {
-            SetSessionCaptureStretchOverride(null);
         }
 
         private static void PrepareLinuxAppImageStartInfo(ProcessStartInfo startInfo)
@@ -726,7 +708,6 @@ namespace AES_Lacrima.ViewModels
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
             RequestStopEmulatorCapture = true;
-            ClearSessionCaptureStretchOverride();
             if (currentHandler is CemuHandler cemuHandler)
                 cemuHandler.RestoreFullscreenScalingWorkaround(currentHandler.LauncherPath ?? string.Empty);
             RestoreAppTopMost();

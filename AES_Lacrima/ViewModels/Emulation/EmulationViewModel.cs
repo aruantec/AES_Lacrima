@@ -297,9 +297,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         private double _renderOverlayOpacity = 0.55;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(CurrentCaptureStretch))]
         private Stretch _selectedStretch = Stretch.Uniform;
-
-        private Stretch? _sessionCaptureStretchOverride;
 
         [ObservableProperty]
         private bool _useHostWindowCapture;
@@ -466,7 +465,6 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(ClientAreaCropBottomInset));
             OnPropertyChanged(nameof(CaptureWindowAspectRatio));
             OnPropertyChanged(nameof(CurrentEmulatorWindowTitleHint));
-            OnPropertyChanged(nameof(CurrentCaptureStretch));
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
             OnPropertyChanged(nameof(ShowCurrentSectionDuckStationSetupLaunchButton));
             RefreshCurrentSectionLaunchOptionsState();
@@ -711,7 +709,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         public int ClientAreaCropRightInset => CurrentEmulatorHandler?.ClientAreaCropRightInset ?? 0;
         public int ClientAreaCropBottomInset => CurrentEmulatorHandler?.ClientAreaCropBottomInset ?? 0;
         public double CaptureWindowAspectRatio => CurrentEmulatorHandler?.CaptureWindowAspectRatio ?? 0;
-        public Stretch CurrentCaptureStretch => _sessionCaptureStretchOverride ?? SelectedStretch;
+        public Stretch CurrentCaptureStretch => SelectedStretch;
         public string? CurrentEmulatorWindowTitleHint
         {
             get
@@ -1218,11 +1216,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         partial void OnRenderOverlayOpacityChanged(double value) => AutoSave();
 
-        partial void OnSelectedStretchChanged(Stretch value)
-        {
-            OnPropertyChanged(nameof(CurrentCaptureStretch));
-            AutoSave();
-        }
+        partial void OnSelectedStretchChanged(Stretch value) => AutoSave();
 
         partial void OnDisableVSyncChanged(bool value) => AutoSave();
 
