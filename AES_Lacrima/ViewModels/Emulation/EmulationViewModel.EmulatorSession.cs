@@ -95,7 +95,6 @@ namespace AES_Lacrima.ViewModels
                 var handler = request.Handler;
                 CurrentEmulatorHandler = handler;
                 SetSessionCaptureStretchOverride(string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase) ||
-                                                 string.Equals(handler.HandlerId, "cemu", StringComparison.OrdinalIgnoreCase) ||
                                                  string.Equals(handler.HandlerId, "duckstation", StringComparison.OrdinalIgnoreCase)
                     ? Stretch.UniformToFill
                     : null);
