@@ -11,7 +11,21 @@ namespace AES_Emulation.Controls;
 
 public enum EmulatorCaptureMode
 {
+    /// <summary>
+    /// Renders captured frames inside Avalonia via a composition custom visual (WGC + GPU upload).
+    /// Avoids native child HWND airspace so overlays and particles render correctly on top.
+    /// </summary>
     DirectComposition,
+
+    /// <summary>
+    /// Legacy path: presents frames in a separate native DirectComposition child window (HWND).
+    /// Highest presentation throughput but always draws above Avalonia content on Windows.
+    /// </summary>
+    NativeWindow,
+
+    /// <summary>
+    /// Injected / alternate WGC host (OpenGL control).
+    /// </summary>
     Injected
 }
 
@@ -130,6 +144,9 @@ public class EmulatorCaptureHost : ContentControl
 
     public static readonly StyledProperty<EmulatorCaptureMode> CaptureModeProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, EmulatorCaptureMode>(nameof(CaptureMode), EmulatorCaptureMode.DirectComposition);
+
+    public static readonly StyledProperty<int> CaptureSessionStartDelayMsProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, int>(nameof(CaptureSessionStartDelayMs), 0);
 
     private Control _backend;
     private string _statusText = "Capture unavailable";
@@ -280,6 +297,12 @@ public class EmulatorCaptureHost : ContentControl
         set => SetValue(LowLatencyCaptureProperty, value);
     }
 
+    public int CaptureSessionStartDelayMs
+    {
+        get => GetValue(CaptureSessionStartDelayMsProperty);
+        set => SetValue(CaptureSessionStartDelayMsProperty, value);
+    }
+
     public string StatusText
     {
         get => _statusText;
@@ -324,6 +347,18 @@ public class EmulatorCaptureHost : ContentControl
 
     public void ForwardFocusToTarget()
     {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        switch (_backend)
+        {
+            case CompositionWgcCaptureControl compositionBackend:
+                compositionBackend.ForwardFocusToTarget();
+                break;
+            case WgcCaptureControl wgcBackend:
+                wgcBackend.ForwardFocusToTarget();
+                break;
+        }
     }
 
     [SupportedOSPlatform("windows")]
@@ -349,7 +384,6 @@ public class EmulatorCaptureHost : ContentControl
     {
         wgcBackend.TargetHwnd = TargetHwnd;
         wgcBackend.TargetProcessId = TargetProcessId;
-        wgcBackend.RequestStopSession = RequestStopSession;
         wgcBackend.Stretch = Stretch;
         wgcBackend.Brightness = Brightness;
         wgcBackend.Saturation = Saturation;
@@ -369,10 +403,39 @@ public class EmulatorCaptureHost : ContentControl
             return;
         }
 
-        SyncBackendProperties();
+        if (change.Property == CaptureSessionStartDelayMsProperty)
+        {
+            SyncBackendProperties();
+            return;
+        }
 
         if (change.Property == RequestStopSessionProperty && change.GetNewValue<bool>())
+        {
+            PropagateStopSession();
             SetCurrentValue(RequestStopSessionProperty, false);
+            return;
+        }
+
+        SyncBackendProperties();
+    }
+
+    private void PropagateStopSession()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        switch (_backend)
+        {
+            case CompositionWgcCaptureControl compositionBackend:
+                compositionBackend.RequestStopSession = true;
+                break;
+            case WgcCaptureControl wgcBackend:
+                wgcBackend.RequestStopSession = true;
+                break;
+            case DirectCompositionCaptureHost windowsBackend:
+                windowsBackend.RequestStopSession = true;
+                break;
+        }
     }
 
     private void RecreateBackend()
@@ -388,7 +451,12 @@ public class EmulatorCaptureHost : ContentControl
     {
         if (OperatingSystem.IsWindows())
         {
-            return new DirectCompositionCaptureHost();
+            return CaptureMode switch
+            {
+                EmulatorCaptureMode.NativeWindow => new DirectCompositionCaptureHost(),
+                EmulatorCaptureMode.Injected => new WgcCaptureControl(),
+                _ => new CompositionWgcCaptureControl()
+            };
         }
 
         if (OperatingSystem.IsMacOS())
@@ -405,11 +473,24 @@ public class EmulatorCaptureHost : ContentControl
 
     private void HookBackendObservables()
     {
+        if (OperatingSystem.IsWindows())
+        {
+            switch (_backend)
+            {
+                case CompositionWgcCaptureControl compositionBackend:
+                    BindToCompositionBackend(compositionBackend);
+                    return;
+                case DirectCompositionCaptureHost windowsBackend:
+                    BindToWindowsBackend(windowsBackend);
+                    return;
+                case WgcCaptureControl wgcBackend:
+                    BindToWgcBackend(wgcBackend);
+                    return;
+            }
+        }
+
         switch (_backend)
         {
-            case DirectCompositionCaptureHost windowsBackend:
-                BindToWindowsBackend(windowsBackend);
-                break;
             case ScreenCaptureKitCaptureHost macBackend:
                 BindToMacBackend(macBackend);
                 break;
@@ -420,6 +501,20 @@ public class EmulatorCaptureHost : ContentControl
                 StatusText = "Capture backend unavailable on this platform";
                 break;
         }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private void BindToCompositionBackend(CompositionWgcCaptureControl backend)
+    {
+        StatusText = "Avalonia composition capture (WGC)";
+        IsDirectCompositionActive = true;
+
+        backend.GetObservable(CompositionWgcCaptureControl.IsCaptureInitializingProperty)
+            .Subscribe(new LambdaObserver<bool>(value => IsCaptureInitializing = value));
+        backend.GetObservable(CompositionWgcCaptureControl.FpsProperty)
+            .Subscribe(new LambdaObserver<double>(value => Fps = value));
+        backend.GetObservable(CompositionWgcCaptureControl.FrameTimeMsProperty)
+            .Subscribe(new LambdaObserver<double>(value => FrameTimeMs = value));
     }
 
     private void BindToWindowsBackend(DirectCompositionCaptureHost backend)
@@ -480,35 +575,60 @@ public class EmulatorCaptureHost : ContentControl
 
     private void SyncBackendProperties()
     {
+        if (OperatingSystem.IsWindows())
+        {
+            switch (_backend)
+            {
+                case CompositionWgcCaptureControl compositionBackend:
+                    compositionBackend.TargetHwnd = TargetHwnd;
+                    compositionBackend.Stretch = Stretch;
+                    compositionBackend.Brightness = Brightness;
+                    compositionBackend.Saturation = Saturation;
+                    compositionBackend.ColorTint = ColorTint;
+                    compositionBackend.DisableVSync = DisableVSync;
+                    compositionBackend.RetroarchShaderFile = string.IsNullOrWhiteSpace(ShaderPath) && ClearShaderWhenPathEmpty ? null : ShaderPath;
+                    compositionBackend.ForceUseTargetClientSize = ForceUseTargetClientArea;
+                    compositionBackend.EnableAutoCrop = EnablePillarboxCrop;
+                    compositionBackend.CaptureSessionStartDelayMs = CaptureSessionStartDelayMs;
+                    compositionBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
+                    compositionBackend.CaptureWindowAspectRatio = CaptureWindowAspectRatio;
+                    compositionBackend.ShowStatisticsOverlay = false;
+                    compositionBackend.ShowFrametimeGraph = false;
+                    compositionBackend.ShowDetailedGpuInfo = false;
+                    return;
+                case WgcCaptureControl wgcBackend:
+                    SyncWgcProperties(wgcBackend);
+                    return;
+                case DirectCompositionCaptureHost windowsBackend:
+                    windowsBackend.TargetHwnd = TargetHwnd;
+                    windowsBackend.TargetProcessId = TargetProcessId;
+                    windowsBackend.TargetWindowTitleHint = TargetWindowTitleHint;
+                    windowsBackend.Stretch = Stretch;
+                    windowsBackend.Brightness = Brightness;
+                    windowsBackend.Saturation = Saturation;
+                    windowsBackend.ColorTint = ColorTint;
+                    windowsBackend.DisableVSync = DisableVSync;
+                    windowsBackend.FrameGenerationMode = FrameGenerationMode;
+                    windowsBackend.ShaderPath = ShaderPath;
+                    windowsBackend.ClearShaderWhenPathEmpty = ClearShaderWhenPathEmpty;
+                    windowsBackend.ForceUseTargetClientArea = ForceUseTargetClientArea;
+                    windowsBackend.EnablePillarboxCrop = EnablePillarboxCrop;
+                    windowsBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
+                    windowsBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
+                    windowsBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
+                    windowsBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
+                    windowsBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
+                    windowsBackend.CaptureWindowAspectRatio = CaptureWindowAspectRatio;
+                    windowsBackend.LowLatencyCapture = LowLatencyCapture;
+                    return;
+            }
+        }
+
         switch (_backend)
         {
-            case DirectCompositionCaptureHost windowsBackend:
-                windowsBackend.TargetHwnd = TargetHwnd;
-                windowsBackend.TargetProcessId = TargetProcessId;
-                windowsBackend.TargetWindowTitleHint = TargetWindowTitleHint;
-                windowsBackend.RequestStopSession = RequestStopSession;
-                windowsBackend.Stretch = Stretch;
-                windowsBackend.Brightness = Brightness;
-                windowsBackend.Saturation = Saturation;
-                windowsBackend.ColorTint = ColorTint;
-                windowsBackend.DisableVSync = DisableVSync;
-                windowsBackend.FrameGenerationMode = FrameGenerationMode;
-                windowsBackend.ShaderPath = ShaderPath;
-                windowsBackend.ClearShaderWhenPathEmpty = ClearShaderWhenPathEmpty;
-                windowsBackend.ForceUseTargetClientArea = ForceUseTargetClientArea;
-                windowsBackend.EnablePillarboxCrop = EnablePillarboxCrop;
-                windowsBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
-                windowsBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
-                windowsBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
-                windowsBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
-                windowsBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
-                windowsBackend.CaptureWindowAspectRatio = CaptureWindowAspectRatio;
-                windowsBackend.LowLatencyCapture = LowLatencyCapture;
-                break;
             case ScreenCaptureKitCaptureHost macBackend:
                 macBackend.TargetHwnd = TargetHwnd;
                 macBackend.TargetWindowTitleHint = TargetWindowTitleHint;
-                macBackend.RequestStopSession = RequestStopSession;
                 macBackend.Stretch = Stretch;
                 macBackend.Brightness = Brightness;
                 macBackend.Saturation = Saturation;
@@ -526,7 +646,6 @@ public class EmulatorCaptureHost : ContentControl
             case LinuxCaptureHost linuxBackend:
                 linuxBackend.TargetHwnd = TargetHwnd;
                 linuxBackend.TargetWindowTitleHint = TargetWindowTitleHint;
-                linuxBackend.RequestStopSession = RequestStopSession;
                 linuxBackend.Stretch = Stretch;
                 linuxBackend.Brightness = Brightness;
                 linuxBackend.Saturation = Saturation;

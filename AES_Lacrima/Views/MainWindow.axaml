@@ -61,11 +61,13 @@
         <Border x:Name="MainBorder" ClipToBounds="True" CornerRadius="10" BorderBrush="DimGray" BorderThickness="0.5" Background="Black">
             <Grid x:Name="MainBorderContent">
                 <!-- Background -->
-                <Image asyncImageLoader:ImageLoader.Source="{Binding SettingsViewModel.BackgroundImagePath}" 
-                    IsVisible="{Binding SettingsViewModel.ShowBackground}"
-                    Stretch="UniformToFill"/>
+                <Image x:Name="BackgroundImageLayer"
+                       asyncImageLoader:ImageLoader.Source="{Binding SettingsViewModel.BackgroundImagePath}" 
+                       IsVisible="{Binding SettingsViewModel.ShowBackground}"
+                       Stretch="UniformToFill"/>
                 <!--Shadertoy-->
-                <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
+                <gl:GlShaderToyControl x:Name="ShaderToyLayer"
+                                    ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
                                     IsRenderingPaused="{Binding IsShaderToyRenderingPaused}"
                                     IsVisible="{Binding IsShaderToyVisible}"
                                     Spectrum="{Binding Spectrum}"
@@ -77,7 +79,7 @@
                 <controls:ScalableDecorator Scale="{Binding SettingsViewModel.ScaleFactor}">
                     <Grid RowDefinitions="Auto,*" ColumnDefinitions="60*,40*">
                         <!-- Top bar -->
-                        <common:MainTopBar Grid.Row="0" Grid.ColumnSpan="2"/>
+                        <common:MainTopBar x:Name="MainTopBar" Grid.Row="0" Grid.ColumnSpan="2"/>
                         <!-- Main content -->
                         <nav:CachedContentPresenter Grid.Row="1"
                                                     Grid.ColumnSpan="2" Grid.Column="0"
@@ -117,11 +119,13 @@
                     </Grid>
                 </controls:ScalableDecorator>
                 <!--Particle control-->
-                <composition:ParticleCompositionControl ParticleCount="{Binding SettingsViewModel.ParticleCount}"
+                <composition:ParticleCompositionControl x:Name="ParticleLayer"
+                                                        ParticleCount="{Binding SettingsViewModel.ParticleCount}"
                                                         IsVisible="{Binding SettingsViewModel.ShowParticles}"/>
             </Grid>
         </Border>
-        <composition:EdgeBorderCompositionControl IsHitTestVisible="False"
+        <composition:EdgeBorderCompositionControl x:Name="EdgeBorderLayer"
+                                                 IsHitTestVisible="False"
                                                  IsVisible="{Binding SettingsViewModel.ShowEdgeBorder}"
                                                  Margin="-2"
                                                  BorderThickness="0.9"

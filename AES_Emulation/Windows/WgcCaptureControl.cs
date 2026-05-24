@@ -148,7 +148,7 @@ public class WgcCaptureControl : OpenGlControlBase
     private IntPtr _wglObjectHandle = IntPtr.Zero;
     private IntPtr _dxDevicePtr = IntPtr.Zero;
     private IntPtr _dxTexturePtr = IntPtr.Zero;
-    private int _lastCropX, _lastCropY, _lastCropW, _lastCropH;
+    private int _lastCropX, _lastCropY, _lastCropW;
 
 
     // Delegates for WGL_NV_DX_interop (resolved from context)
@@ -742,7 +742,7 @@ public class WgcCaptureControl : OpenGlControlBase
         if (ForceUseTargetClientSize && _session != nint.Zero && _lastCropW != 0)
         {
             WgcBridgeApi.SetCaptureCropRect(_session, 0, 0, 0, 0);
-            _lastCropX = _lastCropY = _lastCropW = _lastCropH = 0;
+            _lastCropX = _lastCropY = _lastCropW = 0;
         }
 
         if (DisableVSync && !_vsyncDisabledOnce)
@@ -1432,20 +1432,33 @@ public class WgcCaptureControl : OpenGlControlBase
         if (e.NewValue is not bool requested || !requested)
             return;
 
+        nint sessionToDestroy;
         lock (_sessionLock)
         {
-            if (_session != nint.Zero)
-            {
-                WgcBridgeApi.DestroyCaptureSession(_session);
-                _session = nint.Zero;
-            }
+            sessionToDestroy = _session;
+            _session = nint.Zero;
             ResetCaptureFrameState();
+        }
+
+        if (sessionToDestroy != nint.Zero)
+        {
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    WgcBridgeApi.DestroyCaptureSession(sessionToDestroy);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"WgcCaptureControl failed to destroy capture session 0x{sessionToDestroy.ToInt64():X}. {ex}");
+                }
+            });
         }
 
         if (_injectionActive)
             CleanupInjectionSession();
 
-        SetValue(RequestStopSessionProperty, false);
+        SetCurrentValue(RequestStopSessionProperty, false);
     }
 
     private void WgcCaptureControl_Loaded(object? sender, RoutedEventArgs e)
@@ -1572,7 +1585,7 @@ public class WgcCaptureControl : OpenGlControlBase
                 if (_session != nint.Zero)
                 {
                     WgcBridgeApi.SetCaptureCropRect(_session, 0, 0, 0, 0);
-                    _lastCropX = _lastCropY = _lastCropW = _lastCropH = 0;
+                    _lastCropX = _lastCropY = _lastCropW = 0;
                 }
             }
         }

@@ -179,6 +179,13 @@ struct CaptureSession
     int stagingTextureWidth = 0;
     int stagingTextureHeight = 0;
 
+    // Offscreen output for Avalonia composition interop (HLSL processed, shared texture).
+    rt::com_ptr<ID3D11Texture2D> interopOutputTexture;
+    rt::com_ptr<ID3D11RenderTargetView> interopOutputRtv;
+    int interopOutputWidth = 0;
+    int interopOutputHeight = 0;
+    std::atomic<bool> interopMirrorProcessedToCpu{ false };
+
     // Optional DXGI swapchain used to influence VRR timing
     rt::com_ptr<IDXGISwapChain1> swapChain;
     bool vrrEnabled = false;
@@ -1834,13 +1841,20 @@ struct CaptureSession
         return SUCCEEDED(hr) && dcompFrameGenPixelShader;
     }
 
-    void PresentDcompFrame(float blendFactor, bool isSynthetic = false)
+    void PresentDcompFrame(float blendFactor, bool isSynthetic = false, ID3D11RenderTargetView* overrideRtv = nullptr, int overrideWidth = 0, int overrideHeight = 0)
     {
+        const bool offscreen = overrideRtv != nullptr;
         ID3D11ShaderResourceView* srcSrv = dcompCaptureSrv ? dcompCaptureSrv.get() : dcompPresentationSrv.get();
         DXGI_FORMAT sourceFormat = dcompCaptureSrv ? dcompCaptureSourceFormat : dcompPresentationFormat;
 
-        if (closing.load(std::memory_order_relaxed) ||
-            !presentationHwnd || !d3dContext || !srcSrv || !dcompRenderTargetView)
+        if (closing.load(std::memory_order_relaxed) || !d3dContext || !srcSrv)
+            return;
+
+        ID3D11RenderTargetView* targetRtv = offscreen ? overrideRtv : dcompRenderTargetView.get();
+        if (!targetRtv)
+            return;
+
+        if (!offscreen && !presentationHwnd)
             return;
 
         const int width = dcompLastCaptureWidth;
@@ -1848,17 +1862,25 @@ struct CaptureSession
         if (width <= 0 || height <= 0)
             return;
 
-        if (!EnsureDirectCompositionSwapChain(width, height))
-            return;
+        if (!offscreen)
+        {
+            if (!EnsureDirectCompositionSwapChain(width, height))
+                return;
+        }
 
         if (!EnsureDirectCompositionRenderer())
+            return;
+
+        const int renderWidth = offscreen ? overrideWidth : dcompWidth;
+        const int renderHeight = offscreen ? overrideHeight : dcompHeight;
+        if (renderWidth <= 0 || renderHeight <= 0)
             return;
 
         const bool useBlend = blendFactor > 0.01f && dcompPreviousSrv && dcompFrameGenPixelShader;
         if (useBlend && !EnsureDcompFrameGenPixelShader())
             return;
 
-        float viewAspect = dcompHeight > 0 ? static_cast<float>(dcompWidth) / static_cast<float>(dcompHeight) : 1.0f;
+        float viewAspect = renderHeight > 0 ? static_cast<float>(renderWidth) / static_cast<float>(renderHeight) : 1.0f;
         float frameAspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
         float left = -1.0f;
         float right = 1.0f;
@@ -1982,8 +2004,8 @@ struct CaptureSession
         constants.tint[1] = dcompTintG.load();
         constants.tint[2] = dcompTintB.load();
         constants.tint[3] = dcompTintA.load();
-        constants.outputWidth = static_cast<float>(dcompWidth);
-        constants.outputHeight = static_cast<float>(dcompHeight);
+        constants.outputWidth = static_cast<float>(renderWidth);
+        constants.outputHeight = static_cast<float>(renderHeight);
         constants.sourceIsSrgb = (sourceFormat == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || sourceFormat == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB) ? 1.0f : 0.0f;
         if (useBlend)
         {
@@ -2002,15 +2024,15 @@ struct CaptureSession
         d3dContext->UpdateSubresource(dcompConstantBuffer.get(), 0, nullptr, &constants, 0, 0);
 
         D3D11_VIEWPORT viewport{};
-        viewport.Width = static_cast<float>(dcompWidth);
-        viewport.Height = static_cast<float>(dcompHeight);
+        viewport.Width = static_cast<float>(renderWidth);
+        viewport.Height = static_cast<float>(renderHeight);
         viewport.MinDepth = 0.0f;
         viewport.MaxDepth = 1.0f;
 
         float clearColor[4] = { 0, 0, 0, 1 };
-        ID3D11RenderTargetView* rtvPtr = dcompRenderTargetView.get();
+        ID3D11RenderTargetView* rtvPtr = targetRtv;
         d3dContext->OMSetRenderTargets(1, &rtvPtr, nullptr);
-        d3dContext->ClearRenderTargetView(dcompRenderTargetView.get(), clearColor);
+        d3dContext->ClearRenderTargetView(targetRtv, clearColor);
         d3dContext->RSSetState(dcompRasterizerState.get());
         d3dContext->RSSetViewports(1, &viewport);
 
@@ -2037,6 +2059,9 @@ struct CaptureSession
 
         ID3D11ShaderResourceView* nullSrvs[2] = { nullptr, nullptr };
         d3dContext->PSSetShaderResources(0, 2, nullSrvs);
+
+        if (offscreen)
+            return;
 
         const bool vsync = !dcompDisableVsync.load(std::memory_order_relaxed);
         const UINT syncInterval = vsync ? 1u : 0u;
@@ -2068,6 +2093,146 @@ struct CaptureSession
         if (isSynthetic)
             dcompSyntheticPresentCount.fetch_add(1, std::memory_order_relaxed);
         RecordDirectCompositionPresentTiming();
+    }
+
+    bool EnsureInteropOutputResources(int width, int height)
+    {
+        if (!d3dDevice || width <= 0 || height <= 0)
+            return false;
+
+        if (interopOutputTexture && interopOutputRtv &&
+            interopOutputWidth == width && interopOutputHeight == height)
+            return true;
+
+        interopOutputTexture = nullptr;
+        interopOutputRtv = nullptr;
+        interopOutputWidth = 0;
+        interopOutputHeight = 0;
+
+        D3D11_TEXTURE2D_DESC td{};
+        td.Width = static_cast<UINT>(width);
+        td.Height = static_cast<UINT>(height);
+        td.MipLevels = 1;
+        td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        td.SampleDesc.Count = 1;
+        td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        td.Usage = D3D11_USAGE_DEFAULT;
+        td.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
+
+        HRESULT hr = d3dDevice->CreateTexture2D(&td, nullptr, interopOutputTexture.put());
+        if (FAILED(hr) || !interopOutputTexture)
+            return false;
+
+        hr = d3dDevice->CreateRenderTargetView(interopOutputTexture.get(), nullptr, interopOutputRtv.put());
+        if (FAILED(hr) || !interopOutputRtv)
+        {
+            interopOutputTexture = nullptr;
+            return false;
+        }
+
+        interopOutputWidth = width;
+        interopOutputHeight = height;
+        return true;
+    }
+
+    void ProcessInteropPresentationFrame(ID3D11Texture2D* texture, int width, int height)
+    {
+        if (closing.load(std::memory_order_relaxed) || !texture || !d3dContext || width <= 0 || height <= 0)
+            return;
+
+        std::lock_guard<std::mutex> lock(dcompPresentMutex);
+
+        if (!EnsureDirectCompositionRenderer())
+            return;
+
+        if (!EnsureDcompPresentationResources(texture, width, height))
+            return;
+
+        if (!EnsureInteropOutputResources(width, height))
+            return;
+
+        d3dContext->CopyResource(dcompPresentationTexture.get(), texture);
+
+        dcompCaptureSrv = nullptr;
+        dcompCaptureSrvTexture = nullptr;
+        dcompCaptureSourceFormat = DXGI_FORMAT_UNKNOWN;
+
+        dcompLastCaptureWidth = width;
+        dcompLastCaptureHeight = height;
+        dcompHasPreviousFrame.store(false, std::memory_order_release);
+
+        const int savedW = dcompWidth;
+        const int savedH = dcompHeight;
+        dcompWidth = width;
+        dcompHeight = height;
+
+        PresentDcompFrame(0.0f, false, interopOutputRtv.get(), width, height);
+
+        dcompWidth = savedW;
+        dcompHeight = savedH;
+
+        latestGpuTexture = interopOutputTexture;
+        if (interopMirrorProcessedToCpu.load(std::memory_order_relaxed))
+            MirrorInteropOutputToCpu(width, height);
+    }
+
+    void MirrorInteropOutputToCpu(int width, int height)
+    {
+        if (!interopOutputTexture || !d3dContext || !d3dDevice || width <= 0 || height <= 0)
+            return;
+
+        if (!stagingTexture || stagingTextureWidth != width || stagingTextureHeight != height)
+        {
+            D3D11_TEXTURE2D_DESC sd{};
+            sd.Width = static_cast<UINT>(width);
+            sd.Height = static_cast<UINT>(height);
+            sd.MipLevels = 1;
+            sd.ArraySize = 1;
+            sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+            sd.SampleDesc.Count = 1;
+            sd.Usage = D3D11_USAGE_STAGING;
+            sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            stagingTexture = nullptr;
+            if (FAILED(d3dDevice->CreateTexture2D(&sd, nullptr, stagingTexture.put())))
+                return;
+            stagingTextureWidth = width;
+            stagingTextureHeight = height;
+        }
+
+        d3dContext->CopyResource(stagingTexture.get(), interopOutputTexture.get());
+
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(d3dContext->Map(stagingTexture.get(), 0, D3D11_MAP_READ, 0, &mapped)))
+            return;
+
+        const size_t rowBytes = static_cast<size_t>(width) * 4u;
+        const size_t totalBytes = rowBytes * static_cast<size_t>(height);
+        std::vector<unsigned char> localBuffer(totalBytes);
+
+        if (static_cast<size_t>(mapped.RowPitch) == rowBytes)
+        {
+            memcpy(localBuffer.data(), mapped.pData, totalBytes);
+        }
+        else
+        {
+            for (int y = 0; y < height; ++y)
+            {
+                memcpy(
+                    localBuffer.data() + (static_cast<size_t>(y) * rowBytes),
+                    static_cast<uint8_t*>(mapped.pData) + (static_cast<size_t>(y) * mapped.RowPitch),
+                    rowBytes);
+            }
+        }
+
+        d3dContext->Unmap(stagingTexture.get(), 0);
+
+        if (readers.load(std::memory_order_acquire) != 0)
+            return;
+
+        std::lock_guard<std::mutex> lock(dataMutex);
+        if (readers.load(std::memory_order_relaxed) == 0)
+            latestData.swap(localBuffer);
     }
 
     void ProcessCapturedFrame(ID3D11Texture2D* texture, int width, int height)
@@ -3032,16 +3197,16 @@ struct CaptureSession
             const int currentH = presentH;
 
             // Interop-only fast path:
-            // when enabled, keep everything on GPU and avoid CPU staging/readback work.
+            // when enabled, keep everything on GPU and run the native HLSL pipeline offscreen.
             if (interopEnabled.load(std::memory_order_relaxed))
             {
-                width.store(currentW);
-                height.store(currentH);
+                ProcessInteropPresentationFrame(currentGpu.get(), presentW, presentH);
+                width.store(presentW);
+                height.store(presentH);
                 frameCount.fetch_add(1);
 
                 if (swapChain && vrrEnabled)
                 {
-                    // Optional VRR timing signal; keep disabled unless explicitly requested.
                     swapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
                 }
 
@@ -3892,11 +4057,26 @@ extern "C" {
         auto s = static_cast<CaptureSession*>(ptr);
         if (!s) return false;
         std::lock_guard<std::mutex> lock(s->dataMutex);
-        if (s->latestData.empty()) return false;
-        if (outWidth) *outWidth = s->width.load();
-        if (outHeight) *outHeight = s->height.load();
-        if (outRequiredSize) *outRequiredSize = s->latestData.size();
-        return true;
+        const int frameW = s->width.load();
+        const int frameH = s->height.load();
+        if (!s->latestData.empty())
+        {
+            if (outWidth) *outWidth = frameW;
+            if (outHeight) *outHeight = frameH;
+            if (outRequiredSize) *outRequiredSize = s->latestData.size();
+            return true;
+        }
+
+        // Interop GPU path may have frames without a CPU mirror; still expose dimensions.
+        if (frameW > 0 && frameH > 0 && s->frameCount.load(std::memory_order_relaxed) > 0)
+        {
+            if (outWidth) *outWidth = frameW;
+            if (outHeight) *outHeight = frameH;
+            if (outRequiredSize) *outRequiredSize = static_cast<size_t>(frameW) * 4u * static_cast<size_t>(frameH);
+            return true;
+        }
+
+        return false;
     }
 
     __declspec(dllexport) bool AcquireLatestFrame(void* ptr, unsigned char** outBuffer, size_t* outSize, int* w, int* h) {
@@ -3955,5 +4135,11 @@ extern "C" {
         if (!s) return;
         s->interopEnabled.store(enabled != 0);
         char buf[128]; _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] SetInteropEnabled: %d\n", enabled); OutputDebugStringA(buf);
+    }
+
+    __declspec(dllexport) void SetInteropCpuMirrorEnabled(void* ptr, int enabled) {
+        auto s = static_cast<CaptureSession*>(ptr);
+        if (!s) return;
+        s->interopMirrorProcessedToCpu.store(enabled != 0);
     }
 }

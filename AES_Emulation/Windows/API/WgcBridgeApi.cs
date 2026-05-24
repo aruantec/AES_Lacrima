@@ -72,6 +72,10 @@ public static class WgcBridgeApi
     private static SetInteropEnabledDel? s_setInteropEnabled;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SetInteropCpuMirrorEnabledDel(nint session, int enabled);
+    private static SetInteropCpuMirrorEnabledDel? s_setInteropCpuMirrorEnabled;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate IntPtr GetSharedHandleDel(nint session);
     private static GetSharedHandleDel? s_getSharedHandle;
 
@@ -212,6 +216,7 @@ public static class WgcBridgeApi
                     "GetD3D11Device",
                     "GetLatestD3DTexture",
                     "SetInteropEnabled",
+                    "SetInteropCpuMirrorEnabled",
                     "GetSharedHandle",
                     "AcquireLatestFrame",
                     "ReleaseLatestFrame",
@@ -236,6 +241,8 @@ public static class WgcBridgeApi
                     s_getLatestD3DTexture = Marshal.GetDelegateForFunctionPointer<GetLatestD3DTextureDel>(pGetTex);
                 if (NativeLibrary.TryGetExport(handle, "SetInteropEnabled", out IntPtr pSetInterop))
                     s_setInteropEnabled = Marshal.GetDelegateForFunctionPointer<SetInteropEnabledDel>(pSetInterop);
+                if (NativeLibrary.TryGetExport(handle, "SetInteropCpuMirrorEnabled", out IntPtr pSetInteropMirror))
+                    s_setInteropCpuMirrorEnabled = Marshal.GetDelegateForFunctionPointer<SetInteropCpuMirrorEnabledDel>(pSetInteropMirror);
                 if (NativeLibrary.TryGetExport(handle, "GetSharedHandle", out IntPtr pGetShared))
                     s_getSharedHandle = Marshal.GetDelegateForFunctionPointer<GetSharedHandleDel>(pGetShared);
                 if (NativeLibrary.TryGetExport(handle, "AcquireLatestFrame", out IntPtr pAcquire))
@@ -678,6 +685,16 @@ public static class WgcBridgeApi
     public static void SetInteropEnabled(nint session, int enabled)
     {
         if (s_setInteropEnabled != null) s_setInteropEnabled(session, enabled);
+    }
+
+    public static bool SupportsInteropPresentationPipeline => s_setInteropCpuMirrorEnabled != null;
+
+    public static void SetInteropCpuMirrorEnabled(nint session, bool enabled)
+    {
+        if (session == IntPtr.Zero || s_setInteropCpuMirrorEnabled == null)
+            return;
+
+        s_setInteropCpuMirrorEnabled(session, enabled ? 1 : 0);
     }
 
     public static IntPtr GetSharedHandle(nint session)

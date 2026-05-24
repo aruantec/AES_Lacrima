@@ -709,7 +709,7 @@ namespace AES_Emulation.Windows.API
         /// <summary>
         /// Keeps GPU capture alive without pulling the window onto the desktop.
         /// </summary>
-        public static void EnsureRenderActiveForCapture(IntPtr hwnd, bool bringOnScreen = false)
+        public static void EnsureRenderActiveForCapture(IntPtr hwnd, bool bringOnScreen = false, bool preserveHiddenOpacity = false)
         {
             if (hwnd == IntPtr.Zero)
                 return;
@@ -722,7 +722,8 @@ namespace AES_Emulation.Windows.API
                 if (bringOnScreen)
                     ShowWindow(hwnd, SW_SHOWNA);
 
-                SetWindowOpacity(hwnd, 255);
+                if (!preserveHiddenOpacity)
+                    SetWindowOpacity(hwnd, 255);
             }
             catch
             {
@@ -809,6 +810,90 @@ namespace AES_Emulation.Windows.API
                 SetWindowCloaked(hwnd, cloaked: true);
                 MoveAway(hwnd, useCloak: true);
                 EnsureRenderActiveForCapture(hwnd, bringOnScreen: false);
+            }
+            catch
+            {
+            }
+        }
+
+        /// <summary>
+        /// Hides the capture target in place using DWM cloak and near-zero layered alpha.
+        /// Keeps position and size unchanged so WGC/DComp can continue capturing at full resolution.
+        /// </summary>
+        public static void HideWindowForInPlaceCapture(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            try
+            {
+                EnsureSavedStateIsForWindow(hwnd);
+
+                if (!_savedRects.ContainsKey(hwnd) && GetWindowRect(hwnd, out RECT savedRect))
+                    _savedRects[hwnd] = savedRect;
+
+                try
+                {
+                    long exStyle = GetWindowLongPtrCompat(hwnd, GWL_EXSTYLE).ToInt64();
+                    exStyle |= WS_EX_LAYERED | WS_EX_TOOLWINDOW;
+                    exStyle &= ~WS_EX_APPWINDOW;
+                    SetWindowLongPtrCompat(hwnd, GWL_EXSTYLE, new IntPtr(exStyle));
+                    SetLayeredWindowAttributes(hwnd, 0, 1, LWA_ALPHA);
+                }
+                catch
+                {
+                }
+
+                SetWindowCloaked(hwnd, cloaked: true);
+                WindowsStealth.RemoveFromTaskbar(hwnd);
+                EnsureRenderActiveForCapture(hwnd, bringOnScreen: false, preserveHiddenOpacity: true);
+            }
+            catch
+            {
+            }
+        }
+
+        /// <summary>
+        /// One-time placement for static capture dock mode: size to aspect ratio and park at a fixed
+        /// on-desktop location. Does not hide the window.
+        /// </summary>
+        public static void ParkCaptureWindowAtStaticDock(IntPtr hwnd, double aspectRatio = 0, int preferredWidth = 1920)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            try
+            {
+                EnsureSavedStateIsForWindow(hwnd);
+
+                if (!_savedRects.ContainsKey(hwnd) && GetWindowRect(hwnd, out RECT savedRect))
+                    _savedRects[hwnd] = savedRect;
+
+                if (aspectRatio > 0.0)
+                    ResizeWindowToAspectRatioInPlace(hwnd, aspectRatio, preferredWidth);
+                else if (!TryGetWindowClientSize(hwnd, out var clientWidth, out var clientHeight) ||
+                         clientWidth < 64 ||
+                         clientHeight < 64)
+                {
+                    var height = Math.Max(1, (int)Math.Round(preferredWidth / (16.0 / 9.0)));
+                    SetWindowSize(hwnd, preferredWidth, height);
+                }
+
+                const int margin = 8;
+                if (!TryGetVirtualScreenBounds(out var virtualX, out var virtualY, out _, out _))
+                {
+                    SetWindowPos(hwnd, IntPtr.Zero, margin, margin, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                    return;
+                }
+
+                SetWindowPos(
+                    hwnd,
+                    IntPtr.Zero,
+                    virtualX + margin,
+                    virtualY + margin,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             }
             catch
             {

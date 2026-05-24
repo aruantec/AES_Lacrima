@@ -14,6 +14,12 @@ namespace AES_Emulation.Windows;
 
 public class DirectCompositionCaptureHost : NativeControlHost
 {
+    /// <summary>
+    /// When true (Windows default), the emulator is parked once at a fixed on-desktop location and
+    /// hidden in place for capture. AES does not mirror or continuously reposition the target HWND.
+    /// </summary>
+    public static bool UseStaticCaptureDock { get; set; } = true;
+
     private const uint WsChild = 0x40000000;
     private const uint WsVisible = 0x10000000;
     private const uint WsClipSiblings = 0x04000000;
@@ -656,17 +662,20 @@ public class DirectCompositionCaptureHost : NativeControlHost
         StopSessionCore(restoreTargetWindow: true);
         _targetHiddenAfterCapture = false;
 
-        try
+        if (!UseStaticCaptureDock)
         {
-            var mirrorHostHwnd = _childHwnd != IntPtr.Zero ? _childHwnd : _hostHwnd;
-            _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
-            _windowHandler.SetMoveToHost(true);
-            _windowHandler.Start(mirrorHostHwnd, settings.TargetHwnd);
-        }
-        catch
-        {
-            _windowHandler?.Stop();
-            _windowHandler = null;
+            try
+            {
+                var mirrorHostHwnd = _childHwnd != IntPtr.Zero ? _childHwnd : _hostHwnd;
+                _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
+                _windowHandler.SetMoveToHost(true);
+                _windowHandler.Start(mirrorHostHwnd, settings.TargetHwnd);
+            }
+            catch
+            {
+                _windowHandler?.Stop();
+                _windowHandler = null;
+            }
         }
 
         RunOnUiThread(() => IsCaptureInitializing = true);
@@ -694,7 +703,22 @@ public class DirectCompositionCaptureHost : NativeControlHost
             Win32API.TryExitFullscreenWindow(settings.TargetHwnd);
             if (Win32API.HasWindowCaption(settings.TargetHwnd))
                 Win32API.RemoveWindowDecorations(settings.TargetHwnd);
-            ApplyCaptureTargetVisibilityPolicy(settings.TargetHwnd, settings.HideTargetWindowAfterCaptureStarts);
+
+            if (UseStaticCaptureDock)
+            {
+                var aspect = settings.CaptureWindowAspectRatio > 0.0 ? settings.CaptureWindowAspectRatio : 0.0;
+                Win32API.ParkCaptureWindowAtStaticDock(settings.TargetHwnd, aspect);
+
+                if (settings.HideTargetWindowAfterCaptureStarts)
+                {
+                    _targetHiddenAfterCapture = true;
+                    HideCaptureTarget(settings.TargetHwnd);
+                }
+            }
+            else
+            {
+                ApplyCaptureTargetVisibilityPolicy(settings.TargetHwnd, settings.HideTargetWindowAfterCaptureStarts);
+            }
         }
         catch
         {
@@ -729,11 +753,19 @@ public class DirectCompositionCaptureHost : NativeControlHost
         if (hideAfterCaptureStarts)
         {
             if (_targetHiddenAfterCapture)
-                Win32API.HideWindowForOffScreenCapture(targetHwnd);
+                HideCaptureTarget(targetHwnd);
             return;
         }
 
         Win32API.EnsureVisibleForCapture(targetHwnd);
+    }
+
+    private void HideCaptureTarget(IntPtr targetHwnd)
+    {
+        if (UseStaticCaptureDock)
+            Win32API.HideWindowForInPlaceCapture(targetHwnd);
+        else
+            Win32API.HideWindowForOffScreenCapture(targetHwnd);
     }
 
     private void TryHideTargetAfterCaptureStarted(int frames, int presents, int state, double captureFps)
@@ -753,14 +785,14 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
         try
         {
-            if (_windowHandler != null)
+            if (!UseStaticCaptureDock && _windowHandler != null)
             {
                 _windowHandler.Stop();
                 _windowHandler = null;
             }
 
             if (_activeTargetHwnd != IntPtr.Zero)
-                Win32API.HideWindowForOffScreenCapture(_activeTargetHwnd);
+                HideCaptureTarget(_activeTargetHwnd);
         }
         catch
         {
@@ -774,7 +806,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
         try
         {
-            Win32API.HideWindowForOffScreenCapture(_activeTargetHwnd);
+            HideCaptureTarget(_activeTargetHwnd);
         }
         catch
         {
