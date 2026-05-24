@@ -37,6 +37,9 @@ public class CompositionWgcCaptureControl : Control
     private nint _activeTargetHwnd = nint.Zero;
     private bool _isAttachedToVisualTree;
     private bool _isStoppingSession;
+    private string? _lastNativeShaderPath;
+    private Stretch _lastNativeStretch = Stretch.UniformToFill;
+    private bool _nativeGpuImportFailed;
     private bool _useOwnerRenderFallback;
     private bool _loggedFallbackRenderPath;
     private long _lastSettingsLogTickMs;
@@ -262,6 +265,24 @@ public class CompositionWgcCaptureControl : Control
     {
         get => GetValue(EnableAutoCropProperty);
         set => SetValue(EnableAutoCropProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
+
+    public bool HideTargetWindowAfterCaptureStarts
+    {
+        get => GetValue(HideTargetWindowAfterCaptureStartsProperty);
+        set => SetValue(HideTargetWindowAfterCaptureStartsProperty, value);
+    }
+
+    public static readonly StyledProperty<double> CaptureWindowAspectRatioProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, double>(nameof(CaptureWindowAspectRatio), 0);
+
+    public double CaptureWindowAspectRatio
+    {
+        get => GetValue(CaptureWindowAspectRatioProperty);
+        set => SetValue(CaptureWindowAspectRatioProperty, value);
     }
 
     // New: request the control to stop the active capture session immediately.
@@ -507,7 +528,18 @@ public class CompositionWgcCaptureControl : Control
 
         if (_visual != null)
         {
-            _visual.SendHandlerMessage(null!); // Cleanup signal
+            var visual = _visual;
+            Dispatcher.UIThread.Post(() =>
+            {
+                try
+                {
+                    visual.SendHandlerMessage(null!);
+                }
+                catch (Exception ex)
+                {
+                    LogInfo($"CompositionWgcCaptureControl deferred cleanup notification failed: {ex.Message}");
+                }
+            }, DispatcherPriority.Background);
             ElementComposition.SetElementChildVisual(this, null!);
             _visual = null;
         }
@@ -574,19 +606,37 @@ public class CompositionWgcCaptureControl : Control
 
         try
         {
-            _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
-            _windowHandler.EnableRoundedCorners(44);
-            _windowHandler.SetMoveToHost(false);
-            _windowHandler.Start(_hostHandle, nextTargetHwnd);
+            if (!DirectCompositionCaptureHost.UseStaticCaptureDock)
+            {
+                _windowHandler = new WindowHandler(10, 4, 4, 4, 4);
+                _windowHandler.EnableRoundedCorners(44);
+                _windowHandler.SetMoveToHost(false);
+                _windowHandler.Start(_hostHandle, nextTargetHwnd);
+            }
 
             _session = await CreateCaptureSessionWithRetryAsync(nextTargetHwnd, cancellationToken).ConfigureAwait(true);
             if (_session != nint.Zero)
             {
                 try
                 {
-                    Win32API.RemoveWindowDecorations(nextTargetHwnd);
-                    Win32API.MoveAway(nextTargetHwnd, false);
-                    Win32API.SetWindowOpacity(nextTargetHwnd, 0);
+                    Win32API.TryExitFullscreenWindow(nextTargetHwnd);
+                    if (Win32API.HasWindowCaption(nextTargetHwnd))
+                        Win32API.RemoveWindowDecorations(nextTargetHwnd);
+
+                    if (DirectCompositionCaptureHost.UseStaticCaptureDock)
+                    {
+                        var aspect = CaptureWindowAspectRatio > 0.0 ? CaptureWindowAspectRatio : 0.0;
+                        Win32API.ParkCaptureWindowAtStaticDock(nextTargetHwnd, aspect);
+
+                        if (HideTargetWindowAfterCaptureStarts)
+                            Win32API.HideWindowForInPlaceCapture(nextTargetHwnd);
+                    }
+                    else
+                    {
+                        Win32API.RemoveWindowDecorations(nextTargetHwnd);
+                        Win32API.MoveAway(nextTargetHwnd, false);
+                        Win32API.SetWindowOpacity(nextTargetHwnd, 0);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -601,6 +651,20 @@ public class CompositionWgcCaptureControl : Control
                     WgcBridgeApi.SetCaptureMaxResolution(_session, 0, 0);
                 else
                     WgcBridgeApi.SetCaptureMaxResolution(_session, 4096, 1080);
+
+                if (WgcBridgeApi.SupportsInteropPresentationPipeline)
+                {
+                    WgcBridgeApi.SetInteropEnabled(_session, 1);
+                    // Keep frames on GPU; CPU mirror causes readback stalls in the composition visual.
+                    WgcBridgeApi.SetInteropCpuMirrorEnabled(_session, false);
+                    _nativeGpuImportFailed = false;
+                    UpdateNativePresentationPipeline(force: true);
+                }
+                else
+                {
+                    WgcBridgeApi.SetInteropEnabled(_session, 0);
+                    LogInfo("CompositionWgcCaptureControl using legacy CPU capture; rebuild WgcBridge for native HLSL interop.");
+                }
 
                 UpdateHandlerSession();
                 UpdateHandlerSettings();
@@ -695,42 +759,58 @@ public class CompositionWgcCaptureControl : Control
         var previousTargetHwnd = _activeTargetHwnd;
         var canRestoreTargetWindow = previousTargetHwnd != IntPtr.Zero && IsWindow(previousTargetHwnd);
 
-        if (_windowHandler != null)
-        {
-            _windowHandler.Stop();
-            if (canRestoreTargetWindow)
-                _windowHandler.RestoreOriginalPosition();
-            _windowHandler = null;
-
-            if (canRestoreTargetWindow)
-            {
-                Win32API.RestoreWindowDecorations(previousTargetHwnd);
-                Win32API.SetWindowOpacity(previousTargetHwnd, 255);
-            }
-        }
+        WindowHandler? windowHandlerToStop = _windowHandler;
+        _windowHandler = null;
 
         var sessionToDestroy = _session;
         _session = nint.Zero;
+        _activeTargetHwnd = IntPtr.Zero;
+        IsCaptureInitializing = false;
 
-        if (sessionToDestroy != nint.Zero)
+        // Suspend the handler synchronously before native teardown so OnRender/animation
+        // cannot call AcquireLatestFrame on a session that is being destroyed.
+        UpdateHandlerSession(deferCompositorNotification: true);
+        UpdateFallbackRenderLoop();
+        _fallbackRenderTimer?.Stop();
+        _handler?.TryWaitForRenderIdle(TimeSpan.FromMilliseconds(50));
+
+        if (windowHandlerToStop != null || canRestoreTargetWindow)
         {
+            var hwndToRestore = previousTargetHwnd;
             _ = Task.Run(() =>
             {
                 try
                 {
-                    DestroyCaptureSessionSafely(sessionToDestroy);
+                    windowHandlerToStop?.Stop();
+                    if (canRestoreTargetWindow)
+                    {
+                        windowHandlerToStop?.RestoreOriginalPosition();
+                        Win32API.RestoreWindowDecorations(hwndToRestore);
+                        Win32API.SetWindowOpacity(hwndToRestore, 255);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    LogError($"CompositionWgcCaptureControl failed to destroy capture session 0x{sessionToDestroy.ToInt64():X}.", ex);
+                    LogInfo($"CompositionWgcCaptureControl deferred window cleanup failed: {ex.Message}");
                 }
             });
         }
 
-        _activeTargetHwnd = IntPtr.Zero;
-        IsCaptureInitializing = false;
-        UpdateHandlerSession();
-        UpdateFallbackRenderLoop();
+        if (sessionToDestroy != nint.Zero)
+        {
+            var sessionHandle = sessionToDestroy;
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    DestroyCaptureSessionSafely(sessionHandle);
+                }
+                catch (Exception ex)
+                {
+                    LogError($"CompositionWgcCaptureControl failed to destroy capture session 0x{sessionHandle.ToInt64():X}.", ex);
+                }
+            });
+        }
         }
         finally
         {
@@ -744,8 +824,8 @@ public class CompositionWgcCaptureControl : Control
             return;
 
         // Give render/release callbacks a brief window to flush before destroying the native session.
-        const int maxWaitIterations = 60;
-        const int waitDelayMs = 16;
+        const int maxWaitIterations = 12;
+        const int waitDelayMs = 5;
 
         for (var i = 0; i < maxWaitIterations; i++)
         {
@@ -817,8 +897,11 @@ public class CompositionWgcCaptureControl : Control
                 var nextHwnd = change.NewValue is IntPtr p ? p : IntPtr.Zero;
                 if (nextHwnd == IntPtr.Zero)
                 {
-                    LogInfo("CompositionWgcCaptureControl TargetHwnd cleared, stopping session.");
-                    StopSession();
+                    if (_session != IntPtr.Zero || _activeTargetHwnd != IntPtr.Zero)
+                    {
+                        LogInfo("CompositionWgcCaptureControl TargetHwnd cleared, stopping session.");
+                        StopSession();
+                    }
                 }
                 else
                 {
@@ -836,7 +919,7 @@ public class CompositionWgcCaptureControl : Control
                 {
                     LogInfo("CompositionWgcCaptureControl RequestStopSession triggered.");
                     StopSession();
-                    SetValue(RequestStopSessionProperty, false);
+                    SetCurrentValue(RequestStopSessionProperty, false);
                 }
             }
             catch (Exception ex)
@@ -892,7 +975,7 @@ public class CompositionWgcCaptureControl : Control
         SendHandlerMessage(size);
     }
 
-    private void UpdateHandlerSession()
+    private void UpdateHandlerSession(bool deferCompositorNotification = false)
     {
         if (!IsWindowsPlatform)
             return;
@@ -900,13 +983,49 @@ public class CompositionWgcCaptureControl : Control
         LogInfo(
             $"CompositionWgcCaptureControl UpdateHandlerSession: session=0x{_session.ToInt64():X}, " +
             $"target=0x{_activeTargetHwnd.ToInt64():X}, useOwnerInvalidation={_useOwnerRenderFallback}.");
-        SendHandlerMessage(new WgcSessionMessage
+        var sessionMessage = new WgcSessionMessage
         {
             Session = _session,
             TargetHwnd = _activeTargetHwnd,
             Owner = new WeakReference<CompositionWgcCaptureControl>(this),
             UseOwnerInvalidation = _useOwnerRenderFallback
-        });
+        };
+        _handler?.ApplySessionStateCore(sessionMessage);
+        if (deferCompositorNotification)
+            QueueHandlerSessionNotification(sessionMessage);
+        else
+            SendHandlerMessage(sessionMessage);
+    }
+
+    private void QueueHandlerSessionNotification(WgcSessionMessage sessionMessage)
+    {
+        if (!IsWindowsPlatform)
+            return;
+
+        // Stop path: ApplySessionStateCore already ran; skip compositor invalidate entirely.
+        if (sessionMessage.Session == nint.Zero)
+            return;
+
+        if (_visual != null)
+        {
+            // Never block the UI thread waiting for the compositor lock while OnRender
+            // may be stuck in AcquireLatestFrame on a closing emulator window.
+            var visual = _visual;
+            Dispatcher.UIThread.Post(() =>
+            {
+                try
+                {
+                    visual.SendHandlerMessage(sessionMessage);
+                }
+                catch (Exception ex)
+                {
+                    LogInfo($"CompositionWgcCaptureControl deferred session notification failed: {ex.Message}");
+                }
+            }, DispatcherPriority.Background);
+            return;
+        }
+
+        _handler?.OnMessage(sessionMessage);
     }
 
     private bool TryResolveHostHandle()
@@ -951,6 +1070,7 @@ public class CompositionWgcCaptureControl : Control
             Tint = ColorTint,
             ForceUseTargetClientSize = ForceUseTargetClientSize,
             RetroarchShaderFile = RetroarchShaderFile,
+            UseNativeHlslPipeline = true,
             FpsSmoothingFactor = FpsSmoothingFactor,
             DisableVSync = DisableVSync,
             ShowStatisticsOverlay = ShowStatisticsOverlay,
@@ -961,6 +1081,57 @@ public class CompositionWgcCaptureControl : Control
             EnableAutoCrop = effectiveEnableAutoCrop,
             OverlayPosition = new Vector2((float)OverlayPosition.X, (float)OverlayPosition.Y)
         });
+
+        UpdateNativePresentationPipeline(force: false);
+    }
+
+    private void UpdateNativePresentationPipeline(bool force)
+    {
+        if (!IsWindowsPlatform || _session == IntPtr.Zero)
+            return;
+
+        var shaderPath = string.IsNullOrWhiteSpace(RetroarchShaderFile) ? null : RetroarchShaderFile;
+        var shaderChanged = force || !string.Equals(_lastNativeShaderPath, shaderPath, StringComparison.OrdinalIgnoreCase);
+
+        WgcBridgeApi.SetDirectCompositionRenderOptions(
+            _session,
+            MapStretch(Stretch),
+            (float)Brightness,
+            (float)Saturation,
+            ColorTint.R / 255f,
+            ColorTint.G / 255f,
+            ColorTint.B / 255f,
+            ColorTint.A / 255f,
+            DisableVSync);
+        _lastNativeStretch = Stretch;
+
+        if (shaderChanged)
+        {
+            WgcBridgeApi.SetDirectCompositionShader(_session, shaderPath);
+            _lastNativeShaderPath = shaderPath;
+        }
+    }
+
+    private static int MapStretch(Stretch stretch)
+    {
+        return stretch switch
+        {
+            Stretch.Fill => 0,
+            Stretch.Uniform => 1,
+            Stretch.UniformToFill => 2,
+            _ => 2
+        };
+    }
+
+    internal void EnableInteropCpuMirrorFallback()
+    {
+        if (_nativeGpuImportFailed || _session == IntPtr.Zero)
+            return;
+
+        _nativeGpuImportFailed = true;
+        WgcBridgeApi.SetInteropCpuMirrorEnabled(_session, true);
+        _handler?.SetInteropCpuMirrorEnabled(true);
+        LogInfo("CompositionWgcCaptureControl enabled interop CPU mirror fallback because GPU texture import failed.");
     }
 
     private void SendHandlerMessage(object? message)
@@ -1049,6 +1220,7 @@ internal class WgcSettingsMessage
     public Color Tint;
     public bool ForceUseTargetClientSize;
     public string? RetroarchShaderFile;
+    public bool UseNativeHlslPipeline;
     public double FpsSmoothingFactor;
     public bool DisableVSync;
     public bool ShowStatisticsOverlay;
@@ -1088,10 +1260,11 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private WeakReference<CompositionWgcCaptureControl>? _ownerRef;
     private bool _useOwnerInvalidation;
     private bool _forceUseTargetClientSize = false;
-    private int _lastCropX, _lastCropY, _lastCropW, _lastCropH;
+    private int _lastCropX, _lastCropY, _lastCropW;
 
     // FPS Tracking
     private int _lastNativeFrameCount = -1;
+    private int _pillarboxScanCounter;
     private long _lastFrameTicks = 0;
     private double _smoothedFps = 0.0;
     private double _smoothedFrameTimeMs = 0.0;
@@ -1140,11 +1313,22 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private SKPaint _paint = new SKPaint { FilterQuality = SKFilterQuality.Medium, IsAntialias = true };
     private bool _settingsDirty = true;
 
-    // Shader Pipeline
+    // Shader Pipeline (legacy GLSL - disabled when native HLSL interop is active)
     private SlangShaderPipeline? _shaderPipeline;
     private string? _retroarchShaderFile;
+    private bool _useNativeHlslPipeline = true;
+    private bool _interopCpuMirrorEnabled;
+    private WgcAngleInterop? _angleInterop;
+    private WgcWglDxInterop? _wglDxInterop;
+    private int _sharedHandleFailures;
+    private int _gpuPresentFailures;
+    private bool _loggedSharedHandlePath;
+    private bool _loggedSharedHandleFailure;
+    private bool _loggedWglDxPath;
+    private bool _loggedCpuMirrorFallback;
     private GlInterface? _gl;
     private readonly object _renderLock = new();
+    private volatile bool _renderSuspended;
     private IntPtr _glTexSubImage2DPtr = IntPtr.Zero;
     private int _captureTextureId;
     private int _intermediateFbo;
@@ -1156,6 +1340,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private bool _loggedRenderEntry;
     private bool _loggedLeaseMissing;
     private bool _loggedGlDiscovery;
+    private bool _loggedGlBootstrap;
     private bool _loggedAcquireLatestFrame;
     private bool _loggedCopyLatestFrame;
     private bool _loggedNoFrameAvailable;
@@ -1198,29 +1383,9 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
         if (message is WgcSessionMessage sm)
         {
-            _session = sm.Session;
-            _targetHwnd = sm.TargetHwnd;
-            _ownerRef = sm.Owner;
-            _useOwnerInvalidation = sm.UseOwnerInvalidation;
-            _lastNativeFrameCount = -1;
-            _ownerInvalidateQueued = 0;
-            _ownerStatsUpdateQueued = 0;
-            _loggedRenderEntry = false;
-            _loggedLeaseMissing = false;
-            _loggedGlDiscovery = false;
-            _loggedAcquireLatestFrame = false;
-            _loggedCopyLatestFrame = false;
-            _loggedNoFrameAvailable = false;
-            _loggedGlRenderPath = false;
-            _loggedSimpleRenderPath = false;
-            _glRenderFailed = false;
-            LogDebugOnce(
-                ref _loggedSessionMessage,
-                $"WgcCaptureVisualHandler received session message. session=0x{_session.ToInt64():X}, " +
-                $"target=0x{_targetHwnd.ToInt64():X}, useOwnerInvalidation={_useOwnerInvalidation}.");
-            if (_session != nint.Zero && !_useOwnerInvalidation)
-                RegisterForNextAnimationFrameUpdate();
-            RequestRender();
+            ApplySessionStateCore(sm);
+            NotifyCompositorAfterSessionChange();
+            return;
         }
         else if (message is Vector2 size)
         {
@@ -1252,6 +1417,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _enableAutoCrop = st.EnableAutoCrop;
             _overlayPosition = st.OverlayPosition;
             _settingsDirty = true;
+            _useNativeHlslPipeline = st.UseNativeHlslPipeline;
 
             if (!_enableAutoCrop && (_cropLeft != 0 || _cropRight != 0))
             {
@@ -1260,12 +1426,15 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 _rectDirty = true;
             }
 
-            if (_retroarchShaderFile != st.RetroarchShaderFile)
+            if (!_useNativeHlslPipeline && _retroarchShaderFile != st.RetroarchShaderFile)
             {
                 _retroarchShaderFile = st.RetroarchShaderFile;
-                // Pipeline will be re-initialized in OnRender when _gl is available
                 _shaderPipeline?.Dispose();
                 _shaderPipeline = null;
+            }
+            else if (_useNativeHlslPipeline)
+            {
+                _retroarchShaderFile = st.RetroarchShaderFile;
             }
 
             if (_session != nint.Zero && _vrrActive != st.DisableVSync)
@@ -1280,11 +1449,19 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     private void Cleanup()
     {
+        _renderSuspended = true;
         lock (_renderLock)
         {
             _session = nint.Zero;
             _shaderPipeline?.Dispose();
             _shaderPipeline = null;
+        _angleInterop?.Dispose();
+        _angleInterop = null;
+        _wglDxInterop?.Dispose();
+        _wglDxInterop = null;
+        _interopCpuMirrorEnabled = false;
+        _gpuPresentFailures = 0;
+        _sharedHandleFailures = 0;
 
             if (_gl != null && _gl.ContextInfo != null)
             {
@@ -1332,23 +1509,44 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         _overlayTypefaceRegular = null;
     }
 
-    private void EnsureGl(ImmediateDrawingContext context, GRContext? grContext)
+    private void EnsureGl(ImmediateDrawingContext context, GRContext? grContext, GlInterface? platformLeaseGl = null)
     {
-        if (_gl != null) return;
+        if (_gl != null)
+            return;
 
-        // Try multiple ways to get GL interface
-        var glContext = context.TryGetFeature<IGlContext>();
-        if (glContext != null)
+        _gl = platformLeaseGl;
+
+        _gl ??= context.TryGetFeature<IPlatformGraphicsContext>()?.TryGetFeature<IGlContext>()?.GlInterface;
+
+        if (_gl == null)
         {
-            _gl = glContext.GlInterface;
+            var glContext = context.TryGetFeature<IGlContext>();
+            if (glContext != null)
+                _gl = glContext.GlInterface;
+        }
+
+        if (_gl == null && grContext != null)
+        {
+            try
+            {
+                var method = grContext.GetType().GetMethod("GetGlInterface");
+                if (method?.Invoke(grContext, null) is GlInterface glInterface)
+                    _gl = glInterface;
+            }
+            catch
+            {
+                // ignored
+            }
         }
 
         if (_gl == null)
         {
-            var graphicsContext = context.TryGetFeature<IPlatformGraphicsContext>();
-            if (graphicsContext != null)
+            _gl = WgcGlBootstrap.TryCreateFromCurrentContext();
+            if (_gl != null)
             {
-                _gl = graphicsContext.TryGetFeature<IGlContext>()?.GlInterface;
+                LogDebugOnce(
+                    ref _loggedGlBootstrap,
+                    "WgcCaptureVisualHandler bootstrapped GlInterface from the current GL/EGL context.");
             }
         }
 
@@ -1394,7 +1592,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     public override void OnAnimationFrameUpdate()
     {
-        if (_session == nint.Zero)
+        if (_session == nint.Zero || _renderSuspended)
             return;
 
         try
@@ -1452,17 +1650,13 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             if (_forceUseTargetClientSize && _session != IntPtr.Zero && _lastCropW != 0)
             {
                 WgcBridgeApi.SetCaptureCropRect(_session, 0, 0, 0, 0);
-                _lastCropX = _lastCropY = _lastCropW = _lastCropH = 0;
+                _lastCropX = _lastCropY = _lastCropW = 0;
             }
 
             int nativeCount = WgcBridgeApi.GetCaptureStatus(_session);
             if (nativeCount != _lastNativeFrameCount)
-            {
                 _lastNativeFrameCount = nativeCount;
-            }
 
-            // Under NativeAOT the composition custom visual can stall if we only redraw on
-            // capture-status transitions, so keep the visual invalidating while a session is active.
             if (!_useOwnerInvalidation)
                 RequestRender();
         }
@@ -1474,7 +1668,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         }
         finally
         {
-            if (!_useOwnerInvalidation && _session != nint.Zero)
+            if (!_useOwnerInvalidation && _session != nint.Zero && !_renderSuspended)
                 RegisterForNextAnimationFrameUpdate();
         }
     }
@@ -1506,15 +1700,191 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         Invalidate();
     }
 
+    private void RequestInteropCpuMirrorFallback()
+    {
+        if (_interopCpuMirrorEnabled)
+            return;
+
+        if (_ownerRef?.TryGetTarget(out var owner) == true)
+            owner.EnableInteropCpuMirrorFallback();
+
+        _interopCpuMirrorEnabled = true;
+        LogWarnOnce(
+            ref _loggedCpuMirrorFallback,
+            "WgcCaptureVisualHandler enabled interop CPU mirror fallback after GPU texture import failed.");
+    }
+
+    private bool TryDrawImportedGpuTexture(
+        SKCanvas canvas,
+        GRContext grContext,
+        int textureId,
+        int w,
+        int h,
+        string pathLabel)
+    {
+        if (_rectDirty || _texWidth != w || _texHeight != h)
+        {
+            _cachedDestRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, w - _cropLeft - _cropRight, h);
+            _rectDirty = false;
+        }
+
+        var glInfo = new GRGlTextureInfo
+        {
+            Id = (uint)textureId,
+            Target = 0x0DE1,
+            Format = 0x8058
+        };
+
+        using var backendTexture = new GRBackendTexture(w, h, false, glInfo);
+        using var skImage = SKImage.FromTexture(grContext, backendTexture, GRSurfaceOrigin.TopLeft, SKColorType.Rgba8888);
+        if (skImage == null)
+            return false;
+
+        grContext.ResetContext();
+        var srcRect = new SKRect(_cropLeft, 0, w - _cropRight, h);
+        canvas.DrawImage(skImage, srcRect, _cachedDestRect);
+
+        _gpuPresentFailures = 0;
+        _sharedHandleFailures = 0;
+        LogDebugOnce(ref _loggedSharedHandlePath, $"WgcCaptureVisualHandler is rendering through the {pathLabel}.");
+        return true;
+    }
+
+    internal void SetInteropCpuMirrorEnabled(bool enabled) => _interopCpuMirrorEnabled = enabled;
+
+    private bool TryRenderSharedHandle(
+        SKCanvas canvas,
+        GRContext? grContext,
+        ImmediateDrawingContext context,
+        nint activeSession)
+    {
+        if (_interopCpuMirrorEnabled || !_useNativeHlslPipeline || grContext == null)
+            return false;
+
+        if (!WgcBridgeApi.PeekLatestFrame(activeSession, out int w, out int h, out _))
+            return false;
+
+        if (w <= 0 || h <= 0)
+            return false;
+
+        EnsureGl(context, grContext);
+        if (_gl == null)
+        {
+            _gpuPresentFailures++;
+            if (_gpuPresentFailures >= 15)
+                RequestInteropCpuMirrorFallback();
+            return false;
+        }
+
+        // 1) Desktop GL NV_DX_interop (preferred on AMD/NVIDIA with native GL).
+        var dxTexture = WgcBridgeApi.GetLatestD3DTexture(activeSession);
+        if (dxTexture != nint.Zero)
+        {
+            _wglDxInterop ??= new WgcWglDxInterop();
+            if (_wglDxInterop.TryInitialize(_gl, activeSession) &&
+                _wglDxInterop.TryBindD3DTexture(dxTexture) &&
+                TryDrawImportedGpuTexture(canvas, grContext, _wglDxInterop.TextureId, w, h, "WGL DX interop GPU path"))
+            {
+                LogDebugOnce(ref _loggedWglDxPath, "WgcCaptureVisualHandler is using WGL DX interop for capture frames.");
+                return true;
+            }
+        }
+
+        // 2) ANGLE EGL shared-handle import.
+        var shared = WgcBridgeApi.GetSharedHandle(activeSession);
+        if (shared != IntPtr.Zero)
+        {
+            _angleInterop ??= new WgcAngleInterop();
+            if (_angleInterop.TryInitialize(_gl) &&
+                _angleInterop.TryBindSharedHandle(shared) &&
+                TryDrawImportedGpuTexture(canvas, grContext, _angleInterop.TextureId, w, h, "ANGLE shared-texture GPU path"))
+            {
+                return true;
+            }
+        }
+
+        _sharedHandleFailures++;
+        _gpuPresentFailures++;
+
+        // Frames are reported by PeekLatestFrame but we cannot import them — enable CPU mirror quickly.
+        if (dxTexture == nint.Zero && shared == nint.Zero && _gpuPresentFailures >= 3)
+            RequestInteropCpuMirrorFallback();
+        else if (_gpuPresentFailures >= 15)
+            RequestInteropCpuMirrorFallback();
+
+        LogWarnOnce(
+            ref _loggedSharedHandleFailure,
+            $"WgcCaptureVisualHandler GPU import failed (dxTex=0x{dxTexture.ToInt64():X}, shared=0x{shared.ToInt64():X}, failures={_gpuPresentFailures}, cpuMirror={_interopCpuMirrorEnabled}).");
+        return false;
+    }
+
+    internal void ApplySessionStateCore(WgcSessionMessage sm)
+    {
+        _session = sm.Session;
+        _targetHwnd = sm.TargetHwnd;
+        _ownerRef = sm.Owner;
+        _useOwnerInvalidation = sm.UseOwnerInvalidation;
+        _renderSuspended = sm.Session == nint.Zero;
+        _lastNativeFrameCount = -1;
+        _pillarboxScanCounter = 0;
+        _ownerInvalidateQueued = 0;
+        _ownerStatsUpdateQueued = 0;
+        _loggedRenderEntry = false;
+        _loggedLeaseMissing = false;
+        _loggedGlDiscovery = false;
+        _loggedAcquireLatestFrame = false;
+        _loggedCopyLatestFrame = false;
+        _loggedNoFrameAvailable = false;
+        _loggedGlRenderPath = false;
+        _loggedSimpleRenderPath = false;
+        _glRenderFailed = false;
+        _interopCpuMirrorEnabled = false;
+        _gpuPresentFailures = 0;
+        _sharedHandleFailures = 0;
+        _loggedCpuMirrorFallback = false;
+        _loggedWglDxPath = false;
+        _loggedSharedHandleFailure = false;
+        LogDebugOnce(
+            ref _loggedSessionMessage,
+            $"WgcCaptureVisualHandler received session message. session=0x{_session.ToInt64():X}, " +
+            $"target=0x{_targetHwnd.ToInt64():X}, useOwnerInvalidation={_useOwnerInvalidation}.");
+    }
+
+    internal void TryWaitForRenderIdle(TimeSpan timeout)
+    {
+        if (Monitor.TryEnter(_renderLock, timeout))
+            Monitor.Exit(_renderLock);
+    }
+
+    private void NotifyCompositorAfterSessionChange()
+    {
+        if (_useOwnerInvalidation)
+        {
+            RequestRender();
+            return;
+        }
+
+        if (_session != nint.Zero && !_renderSuspended)
+            RegisterForNextAnimationFrameUpdate();
+        else
+            Invalidate();
+    }
+
     public override void OnRender(ImmediateDrawingContext context)
     {
         if (_visualSize.X < 1 || _visualSize.Y < 1)
+            return;
+
+        if (_renderSuspended || _session == nint.Zero)
             return;
 
         lock (_renderLock)
         {
             try
             {
+                if (_renderSuspended || _session == nint.Zero)
+                    return;
+
                 var leaseFeature = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
                 if (leaseFeature == null)
                 {
@@ -1523,11 +1893,21 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 }
 
                 using var lease = leaseFeature.Lease();
+                GlInterface? platformLeaseGl = null;
+                try
+                {
+                    using var platformLease = lease.TryLeasePlatformGraphicsApi();
+                    platformLeaseGl = platformLease?.Context.TryGetFeature<IGlContext>()?.GlInterface;
+                }
+                catch
+                {
+                    // ignored
+                }
+
                 var canvas = lease.SkCanvas;
                 var grContext = lease.GrContext;
 
-                // Always clear the target first.
-                // This ensures the previous captured frame is not left behind when the session is stopped.
+                // Clear then always draw — returning after Invalidate without painting causes flicker.
                 canvas.Clear(SKColors.Black);
 
                 var activeSession = _session;
@@ -1539,7 +1919,24 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                     $"WgcCaptureVisualHandler OnRender entered. session=0x{activeSession.ToInt64():X}, size={_visualSize.X}x{_visualSize.Y}, " +
                     $"ownerInvalidation={_useOwnerInvalidation}.");
 
-                EnsureGl(context, grContext);
+                EnsureGl(context, grContext, platformLeaseGl);
+
+                if (TryRenderSharedHandle(canvas, grContext, context, activeSession))
+                {
+                    if (_showStatisticsOverlay)
+                        RenderOverlay(canvas);
+                    return;
+                }
+
+                if (_useNativeHlslPipeline && !_interopCpuMirrorEnabled)
+                {
+                    if (_showStatisticsOverlay)
+                        RenderOverlay(canvas);
+                    return;
+                }
+
+                if (_renderSuspended || _session == nint.Zero)
+                    return;
 
                 if (WgcBridgeApi.AcquireLatestFrame(activeSession, out IntPtr ptr, out nuint size, out int w, out int h))
                 {
@@ -1549,84 +1946,21 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                     try
                     {
                         if (w > 0 && h > 0 && ptr != IntPtr.Zero)
-                        {
-                            AutoDetectPillarboxes(ptr, w, h);
-
-                            if (_rectDirty || _texWidth != w || _texHeight != h)
-                            {
-                                _cachedDestRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, w - _cropLeft - _cropRight, h);
-                                _rectDirty = false;
-                            }
-
-                            if (_gl != null && !_glRenderFailed)
-                            {
-                                try
-                                {
-                                    LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL path.");
-                                    RenderInternal(canvas, ptr, w, h, grContext);
-                                }
-                                catch (Exception glEx)
-                                {
-                                    _glRenderFailed = true;
-                                    Log.Warn($"WgcCaptureVisualHandler GL render failed, falling back to CPU Skia path for this session. {glEx}");
-                                    RenderSimpleFallback(canvas, ptr, w, h);
-                                }
-                            }
-                            else
-                            {
-                                LogDebugOnce(ref _loggedSimpleRenderPath, "WgcCaptureVisualHandler is rendering through the CPU Skia path.");
-                                RenderSimpleFallback(canvas, ptr, w, h);
-                            }
-
-                            if (_showStatisticsOverlay)
-                            {
-                                RenderOverlay(canvas);
-                            }
-                        }
+                            DrawCapturedFrame(canvas, grContext, ptr, w, h);
                     }
                     finally
                     {
                         WgcBridgeApi.ReleaseLatestFrame(activeSession);
                     }
                 }
-                else if (TryCopyLatestFrame(activeSession, out ptr, out w, out h))
+                else if (!(_renderSuspended || _session == nint.Zero) &&
+                         TryCopyLatestFrame(activeSession, out ptr, out w, out h))
                 {
                     LogDebugOnce(
                         ref _loggedCopyLatestFrame,
                         $"WgcCaptureVisualHandler acquired latest frame through copy fallback. size={w}x{h}, ptr={(ptr != IntPtr.Zero ? "valid" : "null")}.");
                     if (w > 0 && h > 0 && ptr != IntPtr.Zero)
-                    {
-                        AutoDetectPillarboxes(ptr, w, h);
-
-                        if (_rectDirty || _texWidth != w || _texHeight != h)
-                        {
-                            _cachedDestRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, w - _cropLeft - _cropRight, h);
-                            _rectDirty = false;
-                        }
-
-                        if (_gl != null && !_glRenderFailed)
-                        {
-                            try
-                            {
-                                LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL path.");
-                                RenderInternal(canvas, ptr, w, h, grContext);
-                            }
-                            catch (Exception glEx)
-                            {
-                                _glRenderFailed = true;
-                                Log.Warn($"WgcCaptureVisualHandler GL render failed, falling back to CPU Skia path for this session. {glEx}");
-                                RenderSimpleFallback(canvas, ptr, w, h);
-                            }
-                        }
-                        else
-                        {
-                            LogDebugOnce(ref _loggedSimpleRenderPath, "WgcCaptureVisualHandler is rendering through the CPU Skia path.");
-                            RenderSimpleFallback(canvas, ptr, w, h);
-                        }
-
-                        if (_showStatisticsOverlay)
-                            RenderOverlay(canvas);
-                    }
+                        DrawCapturedFrame(canvas, grContext, ptr, w, h);
                 }
                 else
                 {
@@ -1640,6 +1974,43 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 Trace.WriteLine($"WgcCaptureVisualHandler OnRender failed. {ex}");
             }
         }
+    }
+
+    private void DrawCapturedFrame(SKCanvas canvas, GRContext? grContext, IntPtr ptr, int w, int h)
+    {
+        if (_enableAutoCrop && ++_pillarboxScanCounter % 60 == 0)
+            AutoDetectPillarboxes(ptr, w, h);
+
+        if (_rectDirty || _texWidth != w || _texHeight != h)
+        {
+            _cachedDestRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, w - _cropLeft - _cropRight, h);
+            _texWidth = w;
+            _texHeight = h;
+            _rectDirty = false;
+        }
+
+        if (_gl != null && !_glRenderFailed)
+        {
+            try
+            {
+                LogDebugOnce(ref _loggedGlRenderPath, "WgcCaptureVisualHandler is rendering through the GL texSubImage2D path.");
+                RenderInternal(canvas, ptr, w, h, grContext);
+            }
+            catch (Exception glEx)
+            {
+                _glRenderFailed = true;
+                Log.Warn($"WgcCaptureVisualHandler GL render failed, falling back to CPU Skia path for this session. {glEx}");
+                RenderCpuFrame(canvas, ptr, w, h);
+            }
+        }
+        else
+        {
+            LogDebugOnce(ref _loggedSimpleRenderPath, "WgcCaptureVisualHandler is rendering through the zero-copy CPU Skia path.");
+            RenderCpuFrame(canvas, ptr, w, h);
+        }
+
+        if (_showStatisticsOverlay)
+            RenderOverlay(canvas);
     }
 
     private bool TryCopyLatestFrame(nint session, out IntPtr ptr, out int width, out int height)
@@ -1872,6 +2243,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 _consecutiveBlackFrames = 0;
                 changed = true;
             }
+
         }
         else _consecutiveBlackFrames = 0;
 
@@ -1883,7 +2255,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     {
         if (_gl == null || grContext == null) return;
 
-        var shaderFile = _retroarchShaderFile;
+        var shaderFile = _useNativeHlslPipeline ? null : _retroarchShaderFile;
         bool hasShader = !string.IsNullOrEmpty(shaderFile);
 
         // Initialize or Update Pipeline if shader is present
@@ -1957,7 +2329,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         }
     }
 
-    private void RenderSimpleFallback(SKCanvas canvas, IntPtr ptr, int w, int h)
+    private void RenderCpuFrame(SKCanvas canvas, IntPtr ptr, int w, int h)
     {
         if (w <= 0 || h <= 0 || ptr == IntPtr.Zero)
             return;
@@ -1973,12 +2345,26 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
         var info = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
 
-        // Copy the source pixels into Skia-owned memory to avoid lifetime issues with native frame buffers.
-        using var image = SKImage.FromPixelCopy(info, ptr, info.RowBytes);
+        // Borrow native WGC buffer for this draw (valid until ReleaseLatestFrame).
+        using var pixmap = new SKPixmap(info, ptr, info.RowBytes);
+        using var image = SKImage.FromPixels(pixmap);
         if (image == null)
+        {
+            RenderCpuFrameCopy(canvas, ptr, w, h, srcRect, info);
             return;
+        }
 
-        if (_settingsDirty) { UpdatePaint(); _settingsDirty = false; }
+        if (_useNativeHlslPipeline)
+        {
+            canvas.DrawImage(image, srcRect, _cachedDestRect);
+            return;
+        }
+
+        if (_settingsDirty)
+        {
+            UpdatePaint();
+            _settingsDirty = false;
+        }
 
         var paint = _paint;
         if (paint == null)
@@ -1990,8 +2376,33 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         }
         catch (Exception ex)
         {
-            Log.Error("WgcCaptureVisualHandler RenderSimpleFallback.DrawImage failed.", ex);
+            Log.Error("WgcCaptureVisualHandler RenderCpuFrame.DrawImage failed.", ex);
         }
+    }
+
+    private void RenderCpuFrameCopy(SKCanvas canvas, IntPtr ptr, int w, int h, SKRect srcRect, SKImageInfo info)
+    {
+        using var image = SKImage.FromPixelCopy(info, ptr, info.RowBytes);
+        if (image == null)
+            return;
+
+        if (_useNativeHlslPipeline)
+        {
+            canvas.DrawImage(image, srcRect, _cachedDestRect);
+            return;
+        }
+
+        if (_settingsDirty)
+        {
+            UpdatePaint();
+            _settingsDirty = false;
+        }
+
+        var paint = _paint;
+        if (paint == null)
+            return;
+
+        canvas.DrawImage(image, srcRect, _cachedDestRect, paint);
     }
 
     private void InitializeGlResources(int w, int h)

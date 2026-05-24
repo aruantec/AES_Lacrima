@@ -67,6 +67,7 @@
         <Border Background="#FF000000" Grid.RowSpan="3"/>
         <!--Removes the background on purpose and forces transparency-->
         <composition:TransparentComposition x:Name="PortalPortal"
+                            IsVisible="{Binding ElementName=RootView, Path=IsPortalChromeVisible}"
                             IsHitTestVisible="False"
                             Opacity="{Binding ElementName=RootView, Path=IsPortalSurfaceVisible, Converter={StaticResource BoolToOpacityConverter}}">
             <composition:TransparentComposition.Transitions>
@@ -77,6 +78,7 @@
         </composition:TransparentComposition>
         <Border x:Name="PortalFallbackOverlay"
                 Background="#FF000000"
+                IsVisible="{Binding ElementName=RootView, Path=IsPortalChromeVisible}"
                 IsHitTestVisible="False"
                 Opacity="{Binding ElementName=RootView, Path=PortalFallbackOpacity}"/>
 
@@ -99,11 +101,11 @@
                                                 UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
                                                 IsHitTestVisible="{Binding !IsEmulatorViewportVisible}"
                                                 Opacity="{Binding ElementName=RootView, Path=CarouselOpacity}"
-                                                GlobalOpacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
+                                                GlobalOpacity="1"
                                                 ClipToBounds="False">
             <composition:CompositionCarouselControl.Transitions>
                 <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.24" Easing="CubicEaseOut" />
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.30" Easing="CubicEaseInOut" />
                 </Transitions>
             </composition:CompositionCarouselControl.Transitions>
             <composition:CompositionCarouselControl.ContextMenu>
@@ -366,8 +368,10 @@
             </Border>
         </Canvas>
 
-        <Grid Grid.Row="0"
-              Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
+        <Grid x:Name="EmulatorCaptureOverlay"
+              Grid.Row="0"
+              Opacity="{Binding ElementName=RootView, Path=CapturePresentationOpacity}"
+              IsVisible="{Binding ElementName=RootView, Path=IsCaptureChromeVisible}"
               ZIndex="5"
               Margin="{Binding IsRenderOptionsOpen, Converter={StaticResource BoolToValueConverter}, ConverterParameter='0,0,660,0'}">
             <Grid.IsHitTestVisible>
@@ -377,27 +381,19 @@
                     <Binding Path="IsRetroArchErrorOverlayOpen"/>
                 </MultiBinding>
             </Grid.IsHitTestVisible>
-            <Grid.IsVisible>
-                <MultiBinding Converter="{StaticResource BoolOrConverter}">
-                    <Binding Path="IsCompositionCaptureVisible"/>
-                    <Binding Path="IsEmulatorLaunchInProgress"/>
-                    <Binding ElementName="RootView" Path="IsPortalCaptureInitializing"/>
-                    <Binding Path="IsRenderOptionsOpen"/>
-                </MultiBinding>
-            </Grid.IsVisible>
             <Grid.Transitions>
                 <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut" />
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.30" Easing="CubicEaseInOut" />
                 </Transitions>
             </Grid.Transitions>
             <Border x:Name="EmulatorCaptureHost"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch"
                     Background="Transparent"
-                    ClipToBounds="True">
+                    ClipToBounds="True"
+                    ZIndex="0">
                 <!-- Compiled bindings (AOT-safe). Keep in sync with CaptureControl in PortalWindow.axaml. -->
                 <emuControls:EmulatorCaptureHost x:Name="InlineCaptureControl"
-                                                 IsVisible="False"
                                                  HorizontalAlignment="Stretch"
                                                  VerticalAlignment="Stretch"
                                                  TargetHwnd="{Binding EmulatorTargetHwnd}"
@@ -422,7 +418,6 @@
                                                  RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}"
                                                  CaptureMode="{Binding SelectedCaptureMode}" />
             </Border>
-
             <StackPanel HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Spacing="10"
@@ -1896,7 +1891,7 @@
             </TextBox.InnerRightContent>
         </TextBox>
 
-        <Grid Grid.Row="1" Height="140" Background="#E6000000">
+        <Grid Grid.Row="1" Height="140" Background="#E6000000" IsVisible="{Binding !IsFullscreen}">
             <Separator Margin="0" VerticalAlignment="Top"/>
             <StackPanel Orientation="Horizontal" Spacing="50" HorizontalAlignment="Left">
                 <Button Height="60"
@@ -2214,7 +2209,7 @@
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
 
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="2" IsVisible="{Binding !IsFullscreen}">
             <Separator Margin="0" VerticalAlignment="Top"/>
             <navigation:EmulationListView x:Name="AlbumListView"
                                           Opacity="{Binding !IsAlbumListCollapsed, Converter={StaticResource BoolToOpacityConverter}}"

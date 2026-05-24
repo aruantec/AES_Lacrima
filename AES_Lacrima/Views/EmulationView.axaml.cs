@@ -114,6 +114,23 @@ public partial class EmulationView : UserControl
             o => o.CarouselOpacity,
             (o, v) => o.CarouselOpacity = v);
 
+    public static readonly DirectProperty<EmulationView, bool> IsCaptureChromeVisibleProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, bool>(
+            nameof(IsCaptureChromeVisible),
+            o => o.IsCaptureChromeVisible,
+            (o, v) => o.IsCaptureChromeVisible = v);
+
+    public static readonly DirectProperty<EmulationView, double> CapturePresentationOpacityProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, double>(
+            nameof(CapturePresentationOpacity),
+            o => o.CapturePresentationOpacity,
+            (o, v) => o.CapturePresentationOpacity = v);
+
+    public static readonly DirectProperty<EmulationView, bool> IsPortalChromeVisibleProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, bool>(
+            nameof(IsPortalChromeVisible),
+            o => o.IsPortalChromeVisible);
+
     private PortalWindow? _portalWindow;
     private EmulatorCaptureHostControl? _inlineCaptureHost;
     private IDisposable? _boundsSubscription;
@@ -140,8 +157,14 @@ public partial class EmulationView : UserControl
     private Geometry? _portalFrametimeGraphGeometry;
     private CancellationTokenSource? _portalBrightnessFadeCancellation;
     private CancellationTokenSource? _portalHideTransitionCancellation;
-    private CancellationTokenSource? _carouselFadeCancellation;
     private CancellationTokenSource? _portalShowBlendCancellation;
+    private CancellationTokenSource? _viewportTransitionCancellation;
+    private bool _wasViewActive;
+    private bool _captureHostPresentationVisible;
+    private bool _isCaptureChromeVisible;
+    private double _capturePresentationOpacity;
+    private const int CarouselTransitionMs = 300;
+    private const int CaptureTransitionMs = 300;
     private bool _isAlbumListInteractive = true;
     private double _carouselOpacity = 1;
     private readonly Queue<double> _portalFrameSamples = new();
@@ -166,17 +189,29 @@ public partial class EmulationView : UserControl
     private int _portalMaskVersion;
     private PixelPoint _lastPortalPosition = new(int.MinValue, int.MinValue);
     private Size _lastPortalSize = new(double.NaN, double.NaN);
-    private bool _isPortalWindowFullscreen;
+    private bool _isCaptureFullscreen;
     private PixelPoint _portalWindowFullscreenPosition;
     private Size _portalWindowFullscreenSize;
     private PortalFullscreenOverlayWindow? _portalFullscreenOverlayWindow;
+    private MainWindowCaptureFullscreenState? _savedMainWindowCaptureFullscreenState;
+    private Thickness _savedCaptureOverlayMargin;
+    private int _savedCaptureOverlayZIndex = 5;
+    private int _savedCaptureOverlayRowSpan = 1;
     private DateTime _lastPortalGraphUpdateUtc = DateTime.MinValue;
+    private bool _compositionCaptureWasVisible;
+    private bool _inlinePortalPresentationActive;
 
     /// <summary>
     /// When <see langword="true"/>, composition capture renders in <c>InlineCaptureControl</c> on this view.
-    /// When <see langword="false"/> (default), capture uses <see cref="PortalWindow"/> instead.
+    /// When <see langword="false"/>, capture uses <see cref="PortalWindow"/> instead.
+    /// Windows uses inline capture with Avalonia 12 NativeControlHost/DComp for lowest overhead.
     /// </summary>
-    private static bool UseInlineCaptureHost => false;
+    private static bool UseInlineCaptureHost => OperatingSystem.IsWindows();
+
+    /// <summary>
+    /// Portal chrome (transparent hole + fallback overlay) is only used with the external portal window.
+    /// </summary>
+    public bool IsPortalChromeVisible => !UseInlineCaptureHost;
 
     private EmulatorCaptureHostControl? ActiveCaptureHost
         => UseInlineCaptureHost ? _inlineCaptureHost : _portalWindow?.CaptureHostControl;
@@ -198,11 +233,13 @@ public partial class EmulationView : UserControl
         PortalGpuVendor = "Unknown";
         IsAlbumListInteractive = true;
         CarouselOpacity = 1;
+        CapturePresentationOpacity = 0;
+        SetCaptureChromeVisible(false);
     }
 
     private void OnViewLayoutUpdated(object? sender, EventArgs e)
     {
-        if (UseInlineCaptureHost || _portalWindow == null || _isPortalWindowFullscreen)
+        if (UseInlineCaptureHost || _portalWindow == null || _isCaptureFullscreen)
             return;
 
         if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
@@ -228,7 +265,7 @@ public partial class EmulationView : UserControl
             return;
         }
 
-        if (_isPortalWindowFullscreen)
+        if (_isCaptureFullscreen)
             return;
 
         if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
@@ -247,6 +284,13 @@ public partial class EmulationView : UserControl
 
     private void OnEmulationViewKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Escape && DataContext is EmulationViewModel { IsFullscreen: true } vm)
+        {
+            vm.IsFullscreen = false;
+            e.Handled = true;
+            return;
+        }
+
         // Prevent Avalonia focus traversal while native capture is active.
         // This avoids layout-feedback loops and keeps input ownership stable.
         if (e.Key != Key.Tab)
@@ -367,6 +411,44 @@ public partial class EmulationView : UserControl
         set => SetAndRaise(CarouselOpacityProperty, ref _carouselOpacity, value);
     }
 
+    public double CapturePresentationOpacity
+    {
+        get => _capturePresentationOpacity;
+        set
+        {
+            if (SetAndRaise(CapturePresentationOpacityProperty, ref _capturePresentationOpacity, value))
+                UpdateCaptureChromeVisibilityFromOpacity();
+        }
+    }
+
+    public bool IsCaptureChromeVisible
+    {
+        get => _isCaptureChromeVisible;
+        private set => SetAndRaise(IsCaptureChromeVisibleProperty, ref _isCaptureChromeVisible, value);
+    }
+
+    private void SetCaptureChromeVisible(bool visible)
+    {
+        IsCaptureChromeVisible = visible;
+    }
+
+    private void UpdateCaptureChromeVisibilityFromOpacity()
+    {
+        if (DataContext is EmulationViewModel vm)
+        {
+            IsCaptureChromeVisible =
+                _capturePresentationOpacity > 0.001 ||
+                vm.IsCompositionCaptureVisible ||
+                vm.IsEmulatorLaunchInProgress ||
+                vm.IsRenderOptionsOpen ||
+                IsPortalCaptureInitializing;
+        }
+        else
+        {
+            IsCaptureChromeVisible = _capturePresentationOpacity > 0.001;
+        }
+    }
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -453,6 +535,9 @@ public partial class EmulationView : UserControl
             _portalWindow = null;
         }
 
+        if (_isCaptureFullscreen)
+            ExitCaptureFullscreen();
+
         if (_inlineCaptureHost != null)
         {
             _inlineCaptureHost.IsVisible = false;
@@ -497,7 +582,13 @@ public partial class EmulationView : UserControl
         }
         else
         {
-            HidePortal();
+            CancelPresentationTransitions();
+            _inlinePortalPresentationActive = false;
+            _captureHostPresentationVisible = false;
+            _compositionCaptureWasVisible = false;
+            _wasViewActive = false;
+            CarouselOpacity = 0;
+            CapturePresentationOpacity = 0;
         }
     }
 
@@ -509,45 +600,66 @@ public partial class EmulationView : UserControl
         if (e.PropertyName == nameof(EmulationViewModel.IsActive) ||
             e.PropertyName == nameof(EmulationViewModel.IsCompositionCaptureVisible) ||
             e.PropertyName == nameof(EmulationViewModel.IsEmulatorViewportVisible) ||
-            e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed) ||
-            e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen))
+            e.PropertyName == nameof(EmulationViewModel.IsEmulatorRunning))
+        {
+            if (e.PropertyName == nameof(EmulationViewModel.IsEmulatorRunning) &&
+                !vm.IsEmulatorRunning &&
+                vm.IsFullscreen)
+            {
+                vm.IsFullscreen = false;
+            }
+
+            if (e.PropertyName == nameof(EmulationViewModel.IsCompositionCaptureVisible) &&
+                !vm.IsCompositionCaptureVisible &&
+                vm.IsFullscreen)
+            {
+                vm.IsFullscreen = false;
+            }
+
+            UpdatePortalVisibility(vm);
+        }
+        else if (e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed) ||
+                 e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen))
         {
             UpdateAlbumListTransitions(vm);
-            UpdatePortalVisibility(vm);
             UpdateInlineCaptureHostVisibility(vm);
+            UpdateCaptureChromeVisibilityFromOpacity();
             if (e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed))
             {
                 StartAlbumListPortalMask(vm);
-                SyncPortalWindow();
             }
-            else if (e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen))
+
+            SyncPortalWindow();
+
+            if (e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen) && !vm.IsRenderOptionsOpen)
             {
-                SyncPortalWindow();
-                if (!vm.IsRenderOptionsOpen)
+                IsAlbumListInteractive = true;
+                Dispatcher.UIThread.Post(() =>
                 {
-                    IsAlbumListInteractive = true;
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
-                            ActiveCaptureHost?.ForwardFocusToTarget();
-                    }, DispatcherPriority.Input);
-                }
+                    if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
+                        ActiveCaptureHost?.ForwardFocusToTarget();
+                }, DispatcherPriority.Input);
             }
+        }
+        else if (e.PropertyName == nameof(EmulationViewModel.IsEmulatorLaunchInProgress))
+        {
+            UpdateCaptureChromeVisibilityFromOpacity();
+        }
+        else if (e.PropertyName == nameof(EmulationViewModel.LoadedAlbum) ||
+                 e.PropertyName == nameof(EmulationViewModel.SelectedAlbum))
+        {
+            EnsureCarouselVisibleWhenIdle(vm, vm.IsCompositionCaptureVisible);
+            UpdateCaptureChromeVisibilityFromOpacity();
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsFullscreen))
         {
-            var mainWindow = TopLevel.GetTopLevel(this) as Window;
-            if (mainWindow == null)
+            if (TopLevel.GetTopLevel(this) is not Window mainWindow)
                 return;
 
-            if (vm.IsFullscreen && !_isPortalWindowFullscreen)
-            {
-                EnterPortalFullscreen(mainWindow);
-            }
-            else if (!vm.IsFullscreen && _isPortalWindowFullscreen)
-            {
-                ExitPortalFullscreen();
-            }
+            if (vm.IsFullscreen && !_isCaptureFullscreen)
+                EnterCaptureFullscreen(mainWindow);
+            else if (!vm.IsFullscreen && _isCaptureFullscreen)
+                ExitCaptureFullscreen();
         }
     }
 
@@ -555,16 +667,321 @@ public partial class EmulationView : UserControl
     {
         UpdateAlbumListTransitions(vm);
 
-        if (vm.IsCompositionCaptureVisible)
+        var captureVisible = vm.IsCompositionCaptureVisible;
+        var viewActive = vm.IsActive;
+        var viewActivated = viewActive && !_wasViewActive;
+        var viewDeactivated = !viewActive && _wasViewActive;
+
+        if (viewDeactivated)
         {
-            ShowPortal();
-        }
-        else
-        {
-            HidePortal();
+            CancelPresentationTransitions();
+            var cancellation = new CancellationTokenSource();
+            _viewportTransitionCancellation = cancellation;
+            _ = FadeOutPresentationForNavigationAsync(cancellation.Token);
+            _compositionCaptureWasVisible = false;
+            _wasViewActive = false;
+            return;
         }
 
+        if (viewActivated)
+        {
+            CancelPresentationTransitions();
+            var cancellation = new CancellationTokenSource();
+            _viewportTransitionCancellation = cancellation;
+            if (captureVisible)
+                _ = EnterWithCaptureAsync(cancellation.Token);
+            else
+                _ = EnterWithCarouselAsync(cancellation.Token);
+
+            _compositionCaptureWasVisible = captureVisible;
+            _wasViewActive = true;
+            UpdateCaptureChromeVisibilityFromOpacity();
+            return;
+        }
+
+        if (!viewActive)
+        {
+            _wasViewActive = false;
+            return;
+        }
+
+        if (captureVisible != _compositionCaptureWasVisible)
+        {
+            CancelPresentationTransitions();
+            var cancellation = new CancellationTokenSource();
+            _viewportTransitionCancellation = cancellation;
+            if (captureVisible)
+                _ = TransitionToCaptureAsync(cancellation.Token);
+            else
+                _ = TransitionToCarouselAsync(cancellation.Token, restoreCarousel: true);
+
+            _compositionCaptureWasVisible = captureVisible;
+        }
+
+        EnsureCarouselVisibleWhenIdle(vm, captureVisible);
+
+        _wasViewActive = true;
         UpdateInlineCaptureHostVisibility(vm);
+        UpdateCaptureChromeVisibilityFromOpacity();
+    }
+
+    private void EnsureCarouselVisibleWhenIdle(EmulationViewModel vm, bool captureVisible)
+    {
+        if (!vm.IsActive || captureVisible || vm.IsEmulatorLaunchInProgress)
+            return;
+
+        if (CarouselOpacity < 0.05)
+            CarouselOpacity = 1;
+
+        if (CapturePresentationOpacity > 0.001)
+            CapturePresentationOpacity = 0;
+
+        _inlinePortalPresentationActive = false;
+        _captureHostPresentationVisible = false;
+    }
+
+    private void CancelPresentationTransitions()
+    {
+        _portalHideTransitionCancellation?.Cancel();
+        _portalShowBlendCancellation?.Cancel();
+        _viewportTransitionCancellation?.Cancel();
+    }
+
+    private async Task FadeOutPresentationForNavigationAsync(CancellationToken cancellationToken)
+    {
+        _inlinePortalPresentationActive = false;
+        _captureHostPresentationVisible = true;
+        SetCaptureChromeVisible(true);
+
+        if (DataContext is EmulationViewModel vm)
+            UpdateInlineCaptureHostVisibility(vm);
+
+        CapturePresentationOpacity = 0;
+        CarouselOpacity = 0;
+
+        try
+        {
+            await Task.Delay(Math.Max(CarouselTransitionMs, CaptureTransitionMs), cancellationToken);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        _captureHostPresentationVisible = false;
+        if (DataContext is EmulationViewModel vmAfter)
+        {
+            UpdateInlineCaptureHostVisibility(vmAfter);
+            SetCaptureChromeVisible(vmAfter.IsEmulatorLaunchInProgress || IsPortalCaptureInitializing);
+        }
+
+        if (!UseInlineCaptureHost)
+            await CompletePortalHideAfterFadeAsync(cancellationToken);
+    }
+
+    private async Task EnterWithCarouselAsync(CancellationToken cancellationToken)
+    {
+        _inlinePortalPresentationActive = false;
+        _captureHostPresentationVisible = false;
+        CapturePresentationOpacity = 0;
+
+        if (DataContext is EmulationViewModel vm)
+            UpdateInlineCaptureHostVisibility(vm);
+
+        CarouselOpacity = 0;
+        try
+        {
+            await Task.Delay(16, cancellationToken);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        CarouselOpacity = 1;
+    }
+
+    private async Task EnterWithCaptureAsync(CancellationToken cancellationToken)
+    {
+        CarouselOpacity = 0;
+        CapturePresentationOpacity = 0;
+        await TransitionToCaptureAsync(cancellationToken);
+    }
+
+    private async Task TransitionToCaptureAsync(CancellationToken cancellationToken)
+    {
+        if (UseInlineCaptureHost)
+        {
+            if (_inlinePortalPresentationActive && CapturePresentationOpacity > 0.95)
+                return;
+
+            EnsureInlineCaptureHost();
+            if (_inlineCaptureHost == null)
+                return;
+
+            _inlinePortalPresentationActive = true;
+            _captureHostPresentationVisible = true;
+            SetCaptureChromeVisible(true);
+            if (DataContext is EmulationViewModel vm)
+                UpdateInlineCaptureHostVisibility(vm);
+
+            CarouselOpacity = 0;
+            try
+            {
+                await Task.Delay(CarouselTransitionMs, cancellationToken);
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+                return;
+
+            if (DataContext is not EmulationViewModel { IsActive: true, IsCompositionCaptureVisible: true })
+                return;
+
+            CapturePresentationOpacity = 1;
+            SetCaptureChromeVisible(true);
+            ResetPortalCaptureBrightness();
+            StartPortalBrightnessFade();
+            return;
+        }
+
+        await ShowPortalWindowAsync(cancellationToken);
+    }
+
+    private async Task TransitionToCarouselAsync(CancellationToken cancellationToken, bool restoreCarousel)
+    {
+        if (UseInlineCaptureHost)
+        {
+            _inlinePortalPresentationActive = false;
+            _captureHostPresentationVisible = true;
+            SetCaptureChromeVisible(true);
+            if (DataContext is EmulationViewModel vm)
+                UpdateInlineCaptureHostVisibility(vm);
+
+            CapturePresentationOpacity = 0;
+            try
+            {
+                await Task.Delay(CaptureTransitionMs, cancellationToken);
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+                return;
+
+            _captureHostPresentationVisible = false;
+            if (DataContext is EmulationViewModel vmAfterFade)
+            {
+                UpdateInlineCaptureHostVisibility(vmAfterFade);
+                SetCaptureChromeVisible(vmAfterFade.IsEmulatorLaunchInProgress || IsPortalCaptureInitializing);
+            }
+
+            if (restoreCarousel && DataContext is EmulationViewModel { IsActive: true })
+                CarouselOpacity = 1;
+
+            return;
+        }
+
+        await HidePortalWindowAsync(cancellationToken, restoreCarousel);
+    }
+
+    private async Task ShowPortalWindowAsync(CancellationToken cancellationToken)
+    {
+        _portalHideTransitionCancellation?.Cancel();
+        _portalShowBlendCancellation?.Cancel();
+
+        CarouselOpacity = 0;
+
+        if (_portalWindow != null)
+        {
+            var wasSurfaceVisible = IsPortalSurfaceVisible;
+            if (!wasSurfaceVisible)
+            {
+                PortalFallbackOpacity = 1;
+                IsPortalSurfaceVisible = false;
+
+                var showCancellation = new CancellationTokenSource();
+                _portalShowBlendCancellation = showCancellation;
+                _ = FadeInPortalAfterCarouselFadeOutAsync(showCancellation.Token);
+            }
+
+            _portalWindow.Show();
+            SyncPortalWindowCore();
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                LinuxWindowPlacement.TryConfigureClickThrough(_portalWindow);
+            UpdateWindowZOrder();
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && TopLevel.GetTopLevel(this) is Window mainWindow)
+                mainWindow.Activate();
+
+            if (wasSurfaceVisible)
+                PortalFallbackOpacity = 0;
+        }
+
+        try
+        {
+            await Task.Delay(CarouselTransitionMs, cancellationToken);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        CapturePresentationOpacity = 1;
+    }
+
+    private async Task HidePortalWindowAsync(CancellationToken cancellationToken, bool restoreCarousel)
+    {
+        IsPortalSurfaceVisible = false;
+        PortalFallbackOpacity = 0;
+
+        if (_isCaptureFullscreen && DataContext is EmulationViewModel vmFullscreen)
+            vmFullscreen.IsFullscreen = false;
+
+        CapturePresentationOpacity = 0;
+
+        var cancellation = new CancellationTokenSource();
+        _portalHideTransitionCancellation = cancellation;
+        _ = CompletePortalHideAsync(cancellation.Token);
+
+        try
+        {
+            await Task.Delay(CaptureTransitionMs, cancellationToken);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        if (restoreCarousel && DataContext is EmulationViewModel { IsActive: true })
+            CarouselOpacity = 1;
+    }
+
+    private async Task CompletePortalHideAfterFadeAsync(CancellationToken cancellationToken)
+    {
+        if (_isCaptureFullscreen && DataContext is EmulationViewModel vmFullscreen)
+            vmFullscreen.IsFullscreen = false;
+
+        var cancellation = new CancellationTokenSource();
+        _portalHideTransitionCancellation = cancellation;
+        await CompletePortalHideAsync(cancellation.Token);
     }
 
     private void OnMainWindowPositionChanged(object? sender, PixelPointEventArgs e)
@@ -577,10 +994,16 @@ public partial class EmulationView : UserControl
 
     private void OnMainWindowActivated(object? sender, EventArgs e)
     {
-        if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
+        if (DataContext is EmulationViewModel vm && vm.IsActive && vm.IsCompositionCaptureVisible)
         {
-            ShowPortal();
-            if (!UseInlineCaptureHost)
+            if (UseInlineCaptureHost && CapturePresentationOpacity < 0.05)
+            {
+                CancelPresentationTransitions();
+                var cancellation = new CancellationTokenSource();
+                _viewportTransitionCancellation = cancellation;
+                _ = TransitionToCaptureAsync(cancellation.Token);
+            }
+            else if (!UseInlineCaptureHost)
             {
                 Dispatcher.UIThread.Post(() =>
                 {
@@ -614,117 +1037,9 @@ public partial class EmulationView : UserControl
         }
         else if (DataContext is EmulationViewModel vm && vm.IsCompositionCaptureVisible)
         {
-            ShowPortal();
+            if (DataContext is EmulationViewModel activeVm)
+                UpdatePortalVisibility(activeVm);
         }
-    }
-
-    private void ShowPortal()
-    {
-        _portalHideTransitionCancellation?.Cancel();
-        _carouselFadeCancellation?.Cancel();
-        _portalShowBlendCancellation?.Cancel();
-        CarouselOpacity = 0;
-
-        if (UseInlineCaptureHost)
-        {
-            EnsureInlineCaptureHost();
-            if (_inlineCaptureHost == null)
-                return;
-
-            if (DataContext is EmulationViewModel vm)
-                UpdateInlineCaptureHostVisibility(vm);
-
-            IsPortalSurfaceVisible = false;
-            PortalFallbackOpacity = 1;
-
-            var showCancellation = new CancellationTokenSource();
-            _portalShowBlendCancellation = showCancellation;
-            _ = FadeInPortalAfterCarouselFadeOutAsync(showCancellation.Token);
-            return;
-        }
-
-        if (_portalWindow != null)
-        {
-            var wasSurfaceVisible = IsPortalSurfaceVisible;
-            if (!wasSurfaceVisible)
-            {
-                PortalFallbackOpacity = 1;
-                IsPortalSurfaceVisible = false;
-
-                var showCancellation = new CancellationTokenSource();
-                _portalShowBlendCancellation = showCancellation;
-                _ = FadeInPortalAfterCarouselFadeOutAsync(showCancellation.Token);
-            }
-
-            _portalWindow.Show();
-            SyncPortalWindowCore();
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-                LinuxWindowPlacement.TryConfigureClickThrough(_portalWindow);
-            UpdateWindowZOrder();
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && TopLevel.GetTopLevel(this) is Window mainWindow)
-            {
-                mainWindow.Activate();
-            }
-
-            if (wasSurfaceVisible)
-                PortalFallbackOpacity = 0;
-        }
-    }
-
-    private void HidePortal()
-    {
-        _portalBrightnessFadeCancellation?.Cancel();
-        _portalHideTransitionCancellation?.Cancel();
-        _carouselFadeCancellation?.Cancel();
-
-        if (UseInlineCaptureHost)
-        {
-            IsPortalSurfaceVisible = false;
-            PortalFallbackOpacity = 0;
-
-            var hideCancellation = new CancellationTokenSource();
-            _portalHideTransitionCancellation = hideCancellation;
-            _ = CompleteInlinePortalHideAsync(hideCancellation.Token);
-
-            if (DataContext is EmulationViewModel vmInline)
-                vmInline.PortalCaptureBrightness = 0;
-
-            return;
-        }
-
-        IsPortalSurfaceVisible = false;
-        PortalFallbackOpacity = 0;
-
-        if (_isPortalWindowFullscreen && DataContext is EmulationViewModel vmFullscreen)
-        {
-            vmFullscreen.IsFullscreen = false;
-        }
-
-        var cancellation = new CancellationTokenSource();
-        _portalHideTransitionCancellation = cancellation;
-        _ = CompletePortalHideAsync(cancellation.Token);
-
-        var carouselCancellation = new CancellationTokenSource();
-        _carouselFadeCancellation = carouselCancellation;
-        _ = FadeInCarouselAfterPortalFadeAsync(carouselCancellation.Token);
-    }
-
-    private async Task FadeInCarouselAfterPortalFadeAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await Task.Delay(210, cancellationToken);
-        }
-        catch (TaskCanceledException)
-        {
-            return;
-        }
-
-        if (cancellationToken.IsCancellationRequested)
-            return;
-
-        CarouselOpacity = 1;
     }
 
     private async Task FadeInPortalAfterCarouselFadeOutAsync(CancellationToken cancellationToken)
@@ -748,43 +1063,25 @@ public partial class EmulationView : UserControl
         {
             if (_inlineCaptureHost == null)
                 return;
-        }
-        else
-        {
-            if (_portalWindow?.IsVisible != true)
-                return;
 
-            SyncPortalWindowCore();
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && TopLevel.GetTopLevel(this) is Window mainWindow)
-            {
-                mainWindow.Activate();
-            }
+            ResetPortalCaptureBrightness();
+            StartPortalBrightnessFade();
+            return;
+        }
+
+        if (_portalWindow?.IsVisible != true)
+            return;
+
+        SyncPortalWindowCore();
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && TopLevel.GetTopLevel(this) is Window mainWindow)
+        {
+            mainWindow.Activate();
         }
 
         ResetPortalCaptureBrightness();
         IsPortalSurfaceVisible = true;
         PortalFallbackOpacity = 0;
         StartPortalBrightnessFade();
-    }
-
-    private async Task CompleteInlinePortalHideAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await Task.Delay(320, cancellationToken);
-        }
-        catch (TaskCanceledException)
-        {
-            return;
-        }
-
-        if (cancellationToken.IsCancellationRequested)
-            return;
-
-        if (_inlineCaptureHost != null)
-            _inlineCaptureHost.IsVisible = false;
-
-        PortalFallbackOpacity = 1;
     }
 
     private async Task CompletePortalHideAsync(CancellationToken cancellationToken)
@@ -806,7 +1103,7 @@ public partial class EmulationView : UserControl
 
         _portalWindow?.Hide();
         HidePortalFullscreenOverlay();
-        _isPortalWindowFullscreen = false;
+        _isCaptureFullscreen = false;
         PortalFallbackOpacity = 1;
     }
 
@@ -859,56 +1156,121 @@ public partial class EmulationView : UserControl
             Dispatcher.UIThread.Post(() => vm.PortalCaptureBrightness = vm.RenderBrightness);
     }
 
-    private void TogglePortalFullscreen()
+    private void EnterCaptureFullscreen(Window mainWindow)
     {
-        if (_portalWindow == null || TopLevel.GetTopLevel(this) is not Window mainWindow)
+        if (UseInlineCaptureHost)
+            EnterInlineCaptureFullscreen(mainWindow);
+        else
+            EnterPortalCaptureFullscreen(mainWindow);
+    }
+
+    private void ExitCaptureFullscreen()
+    {
+        if (UseInlineCaptureHost)
+            ExitInlineCaptureFullscreen();
+        else
+            ExitPortalCaptureFullscreen();
+    }
+
+    private void EnterInlineCaptureFullscreen(Window mainWindow)
+    {
+        EnsureInlineCaptureHost();
+        if (_inlineCaptureHost == null)
             return;
 
-        if (_isPortalWindowFullscreen)
+        if (DataContext is EmulationViewModel vm)
         {
-            ExitPortalFullscreen();
+            if (vm.IsRenderOptionsOpen)
+                vm.IsRenderOptionsOpen = false;
         }
-        else
+
+        var bounds = GetScreenBounds(mainWindow);
+        if (mainWindow is MainWindow chromeWindow)
+            _savedMainWindowCaptureFullscreenState = chromeWindow.EnterCaptureFullscreenMode(bounds);
+
+        ApplyInlineCaptureOverlayFullscreenLayout(fullscreen: true);
+
+        ShowFullscreenStatsOverlay(mainWindow, bounds);
+        _portalFullscreenOverlayWindow!.Topmost = true;
+        _portalFullscreenOverlayWindow.Show();
+        _portalFullscreenOverlayWindow.Activate();
+
+        CarouselOpacity = 0;
+        CapturePresentationOpacity = 1;
+        SetCaptureChromeVisible(true);
+        _isCaptureFullscreen = true;
+
+        Dispatcher.UIThread.Post(() =>
         {
-            EnterPortalFullscreen(mainWindow);
+            _inlineCaptureHost?.InvalidateArrange();
+            _inlineCaptureHost?.InvalidateVisual();
+            ActiveCaptureHost?.ForwardFocusToTarget();
+        }, DispatcherPriority.Background);
+    }
+
+    private void ExitInlineCaptureFullscreen()
+    {
+        HideFullscreenStatsOverlay();
+
+        if (TopLevel.GetTopLevel(this) is MainWindow chromeWindow &&
+            _savedMainWindowCaptureFullscreenState != null)
+        {
+            chromeWindow.ExitCaptureFullscreenMode(_savedMainWindowCaptureFullscreenState);
+            _savedMainWindowCaptureFullscreenState = null;
+        }
+
+        ApplyInlineCaptureOverlayFullscreenLayout(fullscreen: false);
+        _isCaptureFullscreen = false;
+
+        if (DataContext is EmulationViewModel vm)
+        {
+            UpdateInlineCaptureHostVisibility(vm);
+            UpdateCaptureChromeVisibilityFromOpacity();
         }
     }
 
-    private void EnterPortalFullscreen(Window mainWindow)
+    private void ApplyInlineCaptureOverlayFullscreenLayout(bool fullscreen)
+    {
+        var overlay = this.FindControl<Grid>("EmulatorCaptureOverlay");
+        if (overlay == null)
+            return;
+
+        if (fullscreen)
+        {
+            _savedCaptureOverlayMargin = overlay.Margin;
+            _savedCaptureOverlayZIndex = overlay.ZIndex;
+            _savedCaptureOverlayRowSpan = Grid.GetRowSpan(overlay);
+            Grid.SetRowSpan(overlay, 3);
+            overlay.ZIndex = 5000;
+            overlay.Margin = new Thickness(0);
+            return;
+        }
+
+        Grid.SetRowSpan(overlay, _savedCaptureOverlayRowSpan);
+        overlay.ZIndex = _savedCaptureOverlayZIndex;
+        overlay.Margin = _savedCaptureOverlayMargin;
+    }
+
+    private void EnterPortalCaptureFullscreen(Window mainWindow)
     {
         if (_portalWindow == null)
             return;
 
         _portalWindowFullscreenPosition = _portalWindow.Position;
         _portalWindowFullscreenSize = new Size(_portalWindow.Width, _portalWindow.Height);
-        var screen = mainWindow.Screens?.ScreenFromWindow(mainWindow) ?? mainWindow.Screens?.Primary;
-        var bounds = screen?.Bounds ?? new PixelRect(0, 0, 0, 0);
+        var bounds = GetScreenBounds(mainWindow);
 
         _portalWindow.Topmost = false;
         ApplyPortalWindowBounds(bounds.Position, bounds.Width, bounds.Height, mainWindow);
+        ShowFullscreenStatsOverlay(mainWindow, bounds);
 
-        if (_portalFullscreenOverlayWindow == null)
-        {
-            _portalFullscreenOverlayWindow = new PortalFullscreenOverlayWindow();
-            _portalFullscreenOverlayWindow.DoubleClicked += OnPortalFullscreenOverlayDoubleClicked;
-        }
-
-        ApplyFullscreenOverlayBounds(bounds, mainWindow);
-        if (_portalFullscreenOverlayWindow.FindControl<PortalCaptureStatsOverlay>("StatsOverlay") is { } statsOverlay &&
-            DataContext is EmulationViewModel vm)
-        {
-            statsOverlay.CaptureHost = this;
-            statsOverlay.Settings = vm;
-        }
-
-        _portalFullscreenOverlayWindow.Topmost = true;
+        _portalFullscreenOverlayWindow!.Topmost = true;
         _portalFullscreenOverlayWindow.Show();
         _portalFullscreenOverlayWindow.Activate();
         _portalFullscreenOverlayWindow.Focus();
 
-        _isPortalWindowFullscreen = true;
+        _isCaptureFullscreen = true;
 
-        // Let Win32/DComp settle on the final fullscreen client size before resizing the swapchain.
         Dispatcher.UIThread.Post(() =>
         {
             _portalWindow?.CaptureHostControl?.InvalidateArrange();
@@ -916,41 +1278,64 @@ public partial class EmulationView : UserControl
         }, DispatcherPriority.Background);
     }
 
-    private void ExitPortalFullscreen()
+    private void ExitPortalCaptureFullscreen()
     {
         if (_portalWindow == null)
             return;
 
-        _portalFullscreenOverlayWindow?.Hide();
-        if (_portalFullscreenOverlayWindow?.FindControl<PortalCaptureStatsOverlay>("StatsOverlay") is { } statsOverlay)
-        {
-            statsOverlay.CaptureHost = null;
-            statsOverlay.Settings = null;
-        }
+        HideFullscreenStatsOverlay();
 
         _portalWindow.Position = _portalWindowFullscreenPosition;
         _portalWindow.Width = _portalWindowFullscreenSize.Width;
         _portalWindow.Height = _portalWindowFullscreenSize.Height;
         _portalWindow.Topmost = false;
 
-        _isPortalWindowFullscreen = false;
+        _isCaptureFullscreen = false;
         SyncPortalWindow();
     }
 
-    private void OnPortalFullscreenOverlayDoubleClicked(object? sender, EventArgs e)
+    private static PixelRect GetScreenBounds(Window mainWindow)
+    {
+        var screen = mainWindow.Screens?.ScreenFromWindow(mainWindow) ?? mainWindow.Screens?.Primary;
+        return screen?.Bounds ?? new PixelRect(0, 0, 0, 0);
+    }
+
+    private void ShowFullscreenStatsOverlay(Window mainWindow, PixelRect screenBounds)
+    {
+        if (_portalFullscreenOverlayWindow == null)
+        {
+            _portalFullscreenOverlayWindow = new PortalFullscreenOverlayWindow();
+            _portalFullscreenOverlayWindow.DoubleClicked += OnCaptureFullscreenExitRequested;
+        }
+
+        ApplyFullscreenOverlayBounds(screenBounds, mainWindow);
+        if (_portalFullscreenOverlayWindow.FindControl<PortalCaptureStatsOverlay>("StatsOverlay") is { } statsOverlay &&
+            DataContext is EmulationViewModel vm)
+        {
+            statsOverlay.CaptureHost = this;
+            statsOverlay.Settings = vm;
+        }
+    }
+
+    private void HideFullscreenStatsOverlay()
+    {
+        _portalFullscreenOverlayWindow?.Hide();
+        if (_portalFullscreenOverlayWindow?.FindControl<PortalCaptureStatsOverlay>("StatsOverlay") is { } statsOverlay)
+        {
+            statsOverlay.CaptureHost = null;
+            statsOverlay.Settings = null;
+        }
+    }
+
+    private void OnCaptureFullscreenExitRequested(object? sender, EventArgs e)
     {
         if (DataContext is EmulationViewModel vm)
-        {
             vm.IsFullscreen = false;
-        }
     }
 
     private void HidePortalFullscreenOverlay()
     {
-        if (_portalFullscreenOverlayWindow == null)
-            return;
-
-        _portalFullscreenOverlayWindow.Hide();
+        HideFullscreenStatsOverlay();
     }
 
     private void SyncPortalWindow()
@@ -980,7 +1365,7 @@ public partial class EmulationView : UserControl
         if (UseInlineCaptureHost)
             return;
 
-        if (_portalWindow == null || TopLevel.GetTopLevel(this) is not Window mainWindow || _isPortalWindowFullscreen) return;
+        if (_portalWindow == null || TopLevel.GetTopLevel(this) is not Window mainWindow || _isCaptureFullscreen) return;
 
         var portal = this.FindControl<Control>("PortalPortal");
         if (portal == null) return;
@@ -1173,13 +1558,15 @@ public partial class EmulationView : UserControl
         if (!UseInlineCaptureHost || _inlineCaptureHost == null)
             return;
 
-        _inlineCaptureHost.IsVisible = vm.IsCompositionCaptureVisible;
+        _inlineCaptureHost.IsVisible =
+            vm.IsActive &&
+            (vm.IsCompositionCaptureVisible || _captureHostPresentationVisible);
     }
 
     private void UpdatePortalFrametimeGraph(double latestMs)
     {
         var now = DateTime.UtcNow;
-        var minIntervalMs = _isPortalWindowFullscreen ? 200 : 50;
+        var minIntervalMs = _isCaptureFullscreen ? 200 : 50;
         if ((now - _lastPortalGraphUpdateUtc).TotalMilliseconds < minIntervalMs)
             return;
 
@@ -1259,8 +1646,11 @@ public partial class EmulationView : UserControl
 
         if (vm.IsCompositionCaptureVisible && captureVisible)
         {
-            PortalFallbackOpacity = 1;
-            IsPortalSurfaceVisible = false;
+            if (!UseInlineCaptureHost)
+            {
+                PortalFallbackOpacity = 1;
+                IsPortalSurfaceVisible = false;
+            }
         }
 
         Dispatcher.UIThread.Post(async () =>
@@ -1294,7 +1684,7 @@ public partial class EmulationView : UserControl
 
     private void UpdateWindowZOrder()
     {
-        if (_portalWindow == null || TopLevel.GetTopLevel(this) is not Window mainWindow || _isPortalWindowFullscreen) return;
+        if (_portalWindow == null || TopLevel.GetTopLevel(this) is not Window mainWindow || _isCaptureFullscreen) return;
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {

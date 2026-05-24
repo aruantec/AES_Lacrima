@@ -10,22 +10,24 @@ using Avalonia.Xaml.Interactivity;
 namespace AES_Controls.Behaviors;
 
 /// <summary>
-/// Ensures a <see cref="ComboBox"/> dropdown fits inside the host window: matches scaled width
-/// inside <see cref="ScalableDecorator"/> and caps drop-down height so items stay above the resize border.
+/// Ensures a <see cref="ComboBox"/> dropdown fits inside the nearest scroll viewport: matches scaled width
+/// inside <see cref="ScalableDecorator"/> and sizes the drop-down to use available space while open.
 /// </summary>
 public class ComboBoxPopupScaler : Behavior<ComboBox>
 {
     private readonly Dictionary<ComboBox, IDisposable> _subscriptions = [];
 
     /// <summary>
-    /// Extra margin reserved at window edges so dropdowns do not overlap borderless resize handles.
+    /// Small padding kept between the drop-down and the edge of the placement bounds.
+    /// Window resize handles are suppressed while any drop-down is open, so this does not
+    /// need to reserve space for borderless resize borders.
     /// </summary>
-    public double ResizeBorderMargin { get; set; } = 16d;
+    public double EdgePadding { get; set; } = 4d;
 
     /// <summary>
     /// Minimum dropdown height when space is tight.
     /// </summary>
-    public double MinDropDownHeight { get; set; } = 120d;
+    public double MinDropDownHeight { get; set; } = 280d;
 
     protected override void OnAttached()
     {
@@ -69,10 +71,15 @@ public class ComboBoxPopupScaler : Behavior<ComboBox>
         var subscription = combo.GetObservable(ComboBox.IsDropDownOpenProperty)
             .Subscribe(new SimpleObserver<bool>(isOpen =>
             {
-                if (!isOpen) return;
+                if (isOpen)
+                {
+                    ComboBoxDropDownOpenTracker.NotifyOpened();
+                    Dispatcher.UIThread.Post(() => AdjustPopup(combo), DispatcherPriority.Background);
+                    Dispatcher.UIThread.Post(() => AdjustPopup(combo), DispatcherPriority.Loaded);
+                    return;
+                }
 
-                Dispatcher.UIThread.Post(() => AdjustPopup(combo), DispatcherPriority.Background);
-                Dispatcher.UIThread.Post(() => AdjustPopup(combo), DispatcherPriority.Loaded);
+                ComboBoxDropDownOpenTracker.NotifyClosed();
             }));
 
         _subscriptions[combo] = subscription;
@@ -85,10 +92,16 @@ public class ComboBoxPopupScaler : Behavior<ComboBox>
             subscription.Dispose();
             _subscriptions.Remove(combo);
         }
+
+        if (combo.IsDropDownOpen)
+            ComboBoxDropDownOpenTracker.NotifyClosed();
     }
 
     private void AdjustPopup(ComboBox combo)
     {
+        if (!combo.IsDropDownOpen)
+            return;
+
         if (combo.FindAncestorOfType<ScalableDecorator>() != null)
             AdjustPopupWidth(combo);
 
@@ -135,17 +148,20 @@ public class ComboBoxPopupScaler : Behavior<ComboBox>
         var comboHeight = combo.Bounds.Height;
         if (comboHeight <= 0)
             comboHeight = combo.DesiredSize.Height;
+        if (comboHeight <= 0)
+            comboHeight = 32d;
 
-        var windowHeight = topLevel.Bounds.Height;
-        if (windowHeight <= 0)
+        var placementBounds = GetDropDownPlacementBounds(combo, topLevel);
+        if (placementBounds.Width <= 0 || placementBounds.Height <= 0)
             return;
 
-        var margin = Math.Max(1d, ResizeBorderMargin);
-        var spaceBelow = windowHeight - topLeft.Value.Y - comboHeight - margin;
-        var spaceAbove = topLeft.Value.Y - margin;
+        var padding = Math.Max(0d, EdgePadding);
+        var comboBottom = topLeft.Value.Y + comboHeight;
+        var spaceBelow = placementBounds.Bottom - comboBottom - padding;
+        var spaceAbove = topLeft.Value.Y - placementBounds.Top - padding;
 
         var maxHeight = Math.Max(MinDropDownHeight, spaceBelow);
-        if (spaceBelow < MinDropDownHeight && spaceAbove > spaceBelow)
+        if (spaceBelow < spaceAbove)
             maxHeight = Math.Max(MinDropDownHeight, spaceAbove);
 
         combo.MaxDropDownHeight = maxHeight;
@@ -158,5 +174,34 @@ public class ComboBoxPopupScaler : Behavior<ComboBox>
             if (scrollViewer != null)
                 scrollViewer.MaxHeight = maxHeight;
         }
+    }
+
+    private static Rect GetDropDownPlacementBounds(ComboBox combo, TopLevel topLevel)
+    {
+        var topLevelBounds = topLevel.Bounds;
+        if (topLevelBounds.Width <= 0 || topLevelBounds.Height <= 0)
+            return default;
+
+        var bounds = new Rect(0, 0, topLevelBounds.Width, topLevelBounds.Height);
+
+        var scrollViewer = combo.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
+        if (scrollViewer == null)
+            return bounds;
+
+        var topLeft = scrollViewer.TranslatePoint(new Point(0, 0), topLevel);
+        if (topLeft == null)
+            return bounds;
+
+        var viewportWidth = scrollViewer.Viewport.Width > 0 ? scrollViewer.Viewport.Width : scrollViewer.Bounds.Width;
+        var viewportHeight = scrollViewer.Viewport.Height > 0 ? scrollViewer.Viewport.Height : scrollViewer.Bounds.Height;
+        if (viewportWidth <= 0 || viewportHeight <= 0)
+            return bounds;
+
+        var bottomRight = scrollViewer.TranslatePoint(new Point(viewportWidth, viewportHeight), topLevel);
+        if (bottomRight == null)
+            return bounds;
+
+        var scrollBounds = new Rect(topLeft.Value, bottomRight.Value);
+        return scrollBounds.Width > 0 && scrollBounds.Height > 40 ? scrollBounds : bounds;
     }
 }

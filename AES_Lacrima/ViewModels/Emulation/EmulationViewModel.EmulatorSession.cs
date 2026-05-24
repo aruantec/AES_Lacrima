@@ -398,7 +398,8 @@ namespace AES_Lacrima.ViewModels
 
             _isClosingActiveEmulatorForRelaunch = true;
             SLog.Info($"EmulationViewModel starting tracked emulator shutdown. pid={process.Id}.");
-            RequestStopEmulatorCapture = true;
+            if (!RequestStopEmulatorCapture)
+                RequestStopEmulatorCapture = true;
             _ = CloseTrackedEmulatorForPendingLaunchAsync(process);
         }
 
@@ -503,7 +504,7 @@ namespace AES_Lacrima.ViewModels
 
         private async Task WaitForCaptureStopBeforeClosingProcessAsync()
         {
-            const int maxAttempts = 50;
+            const int maxAttempts = 80;
             const int delayMs = 50;
 
             for (var attempt = 0; attempt < maxAttempts; attempt++)
@@ -514,6 +515,8 @@ namespace AES_Lacrima.ViewModels
                 await Task.Delay(delayMs).ConfigureAwait(false);
             }
 
+            await Task.Delay(250).ConfigureAwait(false);
+
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (EmulatorTargetHwnd != IntPtr.Zero)
@@ -523,7 +526,7 @@ namespace AES_Lacrima.ViewModels
                 }
             }, DispatcherPriority.Background);
 
-            await Task.Delay(150).ConfigureAwait(false);
+            await Task.Delay(250).ConfigureAwait(false);
         }
 
         private void TrackEmulatorProcess(Process? process, string romPath, IEmulatorHandler handler, string? gameTitle = null)
@@ -709,7 +712,8 @@ namespace AES_Lacrima.ViewModels
 
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
-            RequestStopEmulatorCapture = true;
+            if (!_isClosingActiveEmulatorForRelaunch)
+                RequestStopEmulatorCapture = true;
             if (currentHandler is CemuHandler cemuHandler)
                 cemuHandler.RestoreFullscreenScalingWorkaround(currentHandler.LauncherPath ?? string.Empty);
             RestoreAppTopMost();

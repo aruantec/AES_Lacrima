@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 using Avalonia.Xaml.Interactivity;
+using AES_Controls.Behaviors;
 using AES_Lacrima.Mini.ViewModels;
 
 namespace AES_Lacrima.Behaviors
@@ -163,6 +164,9 @@ namespace AES_Lacrima.Behaviors
 
         private static bool ShouldSuppressResize(Window window, PointerEventArgs e)
         {
+            if (ComboBoxDropDownOpenTracker.IsAnyOpen)
+                return true;
+
             if (IsPointerOverComboDropDown(e))
                 return true;
 
