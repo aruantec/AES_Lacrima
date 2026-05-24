@@ -2,8 +2,10 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using AES_Emulation.Windows.API;
 
 namespace AES_Emulation.EmulationHandlers;
 
@@ -35,22 +37,13 @@ public sealed class DolphinHandler : EmulatorHandlerBase
 
     public override string DisplayName => "Dolphin";
 
-    public override bool HideUntilCaptured => false;
-
-    public override bool ForceUseTargetClientAreaCapture => true;
+    public override bool HideUntilCaptured => true;
 
     public override bool IsLauncherPathValid(string? launcherPath)
         => !string.IsNullOrWhiteSpace(ResolveDolphinLauncherPath(launcherPath));
 
     public override string? NormalizeLauncherPath(string? launcherPath)
         => ResolveDolphinLauncherPath(launcherPath) ?? base.NormalizeLauncherPath(launcherPath);
-
-    /// <summary>
-    /// Dolphin's render window often includes thin invisible borders or padding that can cause
-    /// capture artifacts (like a vertical line on the right) when using WGC. 
-    /// Increasing the right inset slightly clips these artifacts.
-    /// </summary>
-    public override int ClientAreaCropRightInset => 16;
 
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
@@ -105,30 +98,148 @@ public sealed class DolphinHandler : EmulatorHandlerBase
         // Intentionally no-op for Dolphin; see PrepareProcessForCapture.
     }
 
+    public override void PrepareWindowForCaptureAttach(IntPtr hwnd)
+    {
+        // Geometry is applied once the render window is fully constructed during resolve.
+    }
+
     public override IntPtr FindPreferredWindowHandle(Process process)
         => FindBestProcessWindowHandle(process, preferSpecificRenderWindow: true, allowHiddenWindows: true, isPreferredRenderWindow: IsLikelyDolphinRenderWindow);
 
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
-        for (var attempt = 0; attempt < 200; attempt++)
+        const int maxAttempts = 160;
+        const int delayMs = 40;
+        const int stableAttemptsBeforeAssign = 8;
+
+        IntPtr observedHwnd = IntPtr.Zero;
+        var observedStableAttempts = 0;
+        var lastStableWidth = 0;
+        var lastStableHeight = 0;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var preferred = FindPreferredWindowHandle(process);
-            if (preferred != IntPtr.Zero)
+            IntPtr mainWindowHandle = IntPtr.Zero;
+            try
             {
-                HideNonTargetDolphinWindows(process, preferred);
-                return preferred;
+                process.Refresh();
+                mainWindowHandle = process.MainWindowHandle;
+            }
+            catch
+            {
             }
 
-            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+            var hwnd = FindPreferredWindowHandle(process);
+            if (hwnd != IntPtr.Zero)
+            {
+                KeepWindowHiddenDuringResolve(hwnd);
+                HideNonTargetDolphinWindows(process, hwnd);
+            }
+
+            if (hwnd != IntPtr.Zero &&
+                IsStableCaptureCandidate(hwnd, mainWindowHandle) &&
+                Win32API.TryGetWindowClientSize(hwnd, out var width, out var height))
+            {
+                var dimensionsStable = width == lastStableWidth && height == lastStableHeight;
+                if (hwnd == observedHwnd && dimensionsStable)
+                    observedStableAttempts++;
+                else
+                {
+                    observedHwnd = hwnd;
+                    observedStableAttempts = 1;
+                    lastStableWidth = width;
+                    lastStableHeight = height;
+                }
+
+                if (observedStableAttempts >= stableAttemptsBeforeAssign)
+                {
+                    ApplyCaptureGeometryOnce(hwnd);
+                    KeepWindowHiddenDuringResolve(hwnd);
+                    await Task.Delay(120, cancellationToken).ConfigureAwait(false);
+                    return hwnd;
+                }
+            }
+            else
+            {
+                observedHwnd = IntPtr.Zero;
+                observedStableAttempts = 0;
+                lastStableWidth = 0;
+                lastStableHeight = 0;
+            }
+
+            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
         }
 
-        var fallback = FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: true, isPreferredRenderWindow: null);
+        var fallback = FindPreferredWindowHandle(process);
+        if (fallback == IntPtr.Zero)
+        {
+            fallback = FindBestProcessWindowHandle(process, preferSpecificRenderWindow: false, allowHiddenWindows: true, isPreferredRenderWindow: null);
+        }
+
         if (fallback != IntPtr.Zero)
+        {
+            ApplyCaptureGeometryOnce(fallback);
+            KeepWindowHiddenDuringResolve(fallback);
             HideNonTargetDolphinWindows(process, fallback);
+        }
 
         return fallback;
+    }
+
+    private void ApplyCaptureGeometryOnce(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
+            return;
+
+        try
+        {
+            Win32API.TryExitFullscreenWindow(hwnd);
+
+            if (Win32API.HasWindowCaption(hwnd))
+                Win32API.RemoveWindowDecorations(hwnd);
+
+            var aspect = CaptureWindowAspectRatio;
+            if (aspect is > 0)
+                Win32API.ResizeWindowToAspectRatioInPlace(hwnd, aspect.Value);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void KeepWindowHiddenDuringResolve(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
+            return;
+
+        try
+        {
+            Win32API.SetWindowCloaked(hwnd, cloaked: true);
+            Win32API.MoveAway(hwnd, useCloak: true);
+            Win32API.EnsureRenderActiveForCapture(hwnd, bringOnScreen: false);
+        }
+        catch
+        {
+        }
+    }
+
+    private static bool IsStableCaptureCandidate(IntPtr hwnd, IntPtr mainWindowHandle)
+    {
+        if (!IsLikelyDolphinRenderWindow(hwnd, mainWindowHandle))
+            return false;
+
+        if (IsIconic(hwnd))
+            return false;
+
+        if (!Win32API.HasWindowCaption(hwnd))
+            return false;
+
+        if (!Win32API.TryGetWindowClientSize(hwnd, out var width, out var height))
+            return false;
+
+        return width >= 640 && height >= 360;
     }
 
     public override bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle)
@@ -311,4 +422,7 @@ public sealed class DolphinHandler : EmulatorHandlerBase
 
         return null;
     }
+
+    [DllImport("user32.dll")]
+    private static new extern bool IsIconic(IntPtr hWnd);
 }

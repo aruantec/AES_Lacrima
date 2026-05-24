@@ -97,7 +97,7 @@ namespace AES_Lacrima.ViewModels
             ShowFrametimeGraph = ReadBoolSetting(section, nameof(ShowFrametimeGraph), false);
             ShowDetailedGpuInfo = ReadBoolSetting(section, nameof(ShowDetailedGpuInfo), false);
             RenderOverlayOpacity = ReadDoubleSetting(section, nameof(RenderOverlayOpacity), 0.55);
-            SelectedStretch = ReadStringSetting(section, nameof(SelectedStretch), "Uniform") is string stretchString && Enum.TryParse<Stretch>(stretchString, out var stretchValue)
+            SelectedStretch = ReadStringSetting(section, nameof(SelectedStretch), "Fill") is string stretchString && Enum.TryParse<Stretch>(stretchString, out var stretchValue)
                 ? stretchValue
                 : Stretch.Uniform;
             DisableVSync = ReadBoolSetting(section, nameof(DisableVSync), false);

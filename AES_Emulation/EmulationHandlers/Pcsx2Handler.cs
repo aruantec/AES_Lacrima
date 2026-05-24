@@ -53,7 +53,6 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
         return startInfo;
     }
 
-    public override bool ForceUseTargetClientAreaCapture => true;
 
     public override void PrepareProcessForCapture(Process process)
     {

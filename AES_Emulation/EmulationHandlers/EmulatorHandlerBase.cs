@@ -117,8 +117,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     /// <summary>
     /// When true, the capture pipeline trims baked-in pillarbox bars from the frame.
-    /// Off by default — auto-detection often mis-reads dark edges as bars (right-edge artifacts).
-    /// Prefer <see cref="CaptureWindowAspectRatio"/> so the emulator window matches content aspect.
+    /// Deprecated: capture uses the full window; use <see cref="CaptureWindowAspectRatio"/> for prep instead.
     /// </summary>
     public virtual bool EnableCapturePillarboxCrop => false;
 
@@ -130,7 +129,11 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual int ClientAreaCropBottomInset => 0;
 
-    public virtual double? CaptureWindowAspectRatio => null;
+    /// <summary>
+    /// Aspect ratio the emulator window is resized to before capture (after decorations are removed).
+    /// Default 16:9. Override for 4:3 systems; set null to skip resize.
+    /// </summary>
+    public virtual double? CaptureWindowAspectRatio => 16.0 / 9.0;
 
     public virtual EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.DirectComposition;
 
@@ -356,7 +359,34 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         if (DeferWindowHidingUntilCaptured || hwnd == IntPtr.Zero)
             return;
 
-        CaptureService?.PrepareWindowForCapture(hwnd);
+        PrepareWindowForCaptureAttach(hwnd);
+        HideWindowForCapture(hwnd);
+    }
+
+    /// <summary>
+    /// Strip decorations and resize the capture target before WGC attaches. Does not hide/move the window.
+    /// </summary>
+    public virtual void PrepareWindowForCaptureAttach(IntPtr hwnd)
+    {
+        ApplyCaptureWindowGeometryPrepare(hwnd);
+    }
+
+    protected void ApplyCaptureWindowGeometryPrepare(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
+            return;
+
+        try
+        {
+            Win32API.RemoveWindowDecorations(hwnd);
+
+            var aspect = CaptureWindowAspectRatio;
+            if (aspect is > 0)
+                ResizeCaptureWindowToAspectRatio(hwnd, aspect.Value);
+        }
+        catch
+        {
+        }
     }
 
     public virtual IntPtr FindPreferredWindowHandle(Process process) => CaptureService?.FindPreferredWindowHandle(process) ?? process.MainWindowHandle;

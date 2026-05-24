@@ -74,7 +74,7 @@ public interface IEmulatorHandler : INotifyPropertyChanged
     int ClientAreaCropBottomInset { get; }
 
     /// <summary>
-    /// When set, the embedded capture window is sized to this width/height ratio (e.g. 16:9 for PS4).
+    /// When set, the embedded capture window is sized to this width/height ratio before capture (prep only).
     /// </summary>
     double? CaptureWindowAspectRatio { get; }
 
@@ -89,6 +89,9 @@ public interface IEmulatorHandler : INotifyPropertyChanged
     void PrepareProcessForCapture(Process process);
 
     void PrepareWindowForCapture(IntPtr hwnd);
+
+    /// <summary>Decorations off + aspect resize only; used when deferred capture attaches.</summary>
+    void PrepareWindowForCaptureAttach(IntPtr hwnd);
 
     IntPtr FindPreferredWindowHandle(Process process);
 

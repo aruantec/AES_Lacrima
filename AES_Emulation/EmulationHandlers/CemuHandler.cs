@@ -63,7 +63,6 @@ public sealed class CemuHandler : EmulatorHandlerBase
 
     public override bool DeferWindowHidingUntilCaptured => false;
 
-    public override bool ForceUseTargetClientAreaCapture => true;
 
     public override int CaptureStartupDelayMs => 0;
 
@@ -300,12 +299,7 @@ public sealed class CemuHandler : EmulatorHandlerBase
         if (hwnd == IntPtr.Zero)
             return;
 
-        // Use a less aggressive preparation for Cemu to avoid it disappearing before capture
-        if (OperatingSystem.IsWindows())
-        {
-            Win32API.RemoveWindowDecorations(hwnd);
-            ResizeCaptureWindowToSixteenByNine(hwnd);
-        }
+        PrepareWindowForCaptureAttach(hwnd);
     }
 
     private static bool IsLikelyCemuRenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)

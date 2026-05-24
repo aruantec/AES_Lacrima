@@ -35,17 +35,72 @@ namespace AES_Emulation.Windows.API
         private const long WS_EX_APPWINDOW = 0x00040000;
         private const long WS_EX_LAYERED = 0x00080000;
         private const long WS_EX_TOPMOST = 0x00000008;
+        private const long WS_CHILD = 0x40000000;
 
         private const uint LWA_ALPHA = 0x00000002;
 
         private const int SW_MINIMIZE = 6;
         private const int SW_RESTORE = 9;
+        private const int SW_SHOWNA = 8;
+
+        private const uint WM_KEYDOWN = 0x0100;
+        private const uint WM_KEYUP = 0x0101;
+        private const int VK_ESCAPE = 0x1B;
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsZoomed(IntPtr hWnd);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
         // storage for restoring
         private static readonly ConcurrentDictionary<IntPtr, IntPtr> _savedStyles = new();
         private static readonly ConcurrentDictionary<IntPtr, IntPtr> _savedMenus = new();
         private static readonly ConcurrentDictionary<IntPtr, RECT> _savedRects = new();
         private static readonly ConcurrentDictionary<IntPtr, bool> _savedChildVisibility = new();
+        private static readonly ConcurrentDictionary<IntPtr, uint> _savedWindowProcessIds = new();
+
+        public static void ClearSavedWindowState(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            _savedStyles.TryRemove(hwnd, out _);
+            _savedMenus.TryRemove(hwnd, out _);
+            _savedRects.TryRemove(hwnd, out _);
+            _savedChildVisibility.TryRemove(hwnd, out _);
+            _savedWindowProcessIds.TryRemove(hwnd, out _);
+        }
+
+        private static void EnsureSavedStateIsForWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            if (!IsWindow(hwnd))
+            {
+                ClearSavedWindowState(hwnd);
+                return;
+            }
+
+            if (GetWindowThreadProcessId(hwnd, out uint processId) == 0)
+                return;
+
+            if (_savedWindowProcessIds.TryGetValue(hwnd, out uint savedProcessId) && savedProcessId != processId)
+                ClearSavedWindowState(hwnd);
+        }
+
+        private static void RememberSavedWindowProcess(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            if (GetWindowThreadProcessId(hwnd, out uint processId) != 0)
+                _savedWindowProcessIds[hwnd] = processId;
+        }
 
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
@@ -137,6 +192,12 @@ namespace AES_Emulation.Windows.API
         [DllImport("user32.dll")]
         private static extern bool IsWindowVisible(IntPtr hWnd);
 
+        [DllImport("user32.dll")]
+        private static extern bool IsWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
@@ -192,10 +253,13 @@ namespace AES_Emulation.Windows.API
 
             try
             {
+                EnsureSavedStateIsForWindow(hwnd);
+
                 // Save style
                 if (!_savedStyles.ContainsKey(hwnd))
                 {
                     _savedStyles[hwnd] = GetWindowLongPtrCompat(hwnd, GWL_STYLE);
+                    RememberSavedWindowProcess(hwnd);
                 }
 
                 IntPtr oldStyle = _savedStyles[hwnd];
@@ -264,10 +328,21 @@ namespace AES_Emulation.Windows.API
         /// </summary>
         public static bool RestoreWindowDecorations(IntPtr hwnd)
         {
-            if (hwnd == IntPtr.Zero) return false;
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            if (!IsWindow(hwnd))
+            {
+                ClearSavedWindowState(hwnd);
+                return false;
+            }
 
             try
             {
+                EnsureSavedStateIsForWindow(hwnd);
+
+                SetWindowCloaked(hwnd, cloaked: false);
+
                 if (_savedStyles.TryRemove(hwnd, out IntPtr savedStyle))
                 {
                     SetWindowLongPtrCompat(hwnd, GWL_STYLE, savedStyle);
@@ -300,6 +375,7 @@ namespace AES_Emulation.Windows.API
 
                 // Notify frame changed
                 SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
+                _savedWindowProcessIds.TryRemove(hwnd, out _);
                 return true;
             }
             catch
@@ -322,6 +398,8 @@ namespace AES_Emulation.Windows.API
             if (hwnd == IntPtr.Zero) return false;
             try
             {
+                EnsureSavedStateIsForWindow(hwnd);
+
                 // Save rect if not already saved
                 try
                 {
@@ -401,6 +479,62 @@ namespace AES_Emulation.Windows.API
             catch
             {
                 return false;
+            }
+        }
+
+        public static bool HasWindowCaption(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            try
+            {
+                long style = GetWindowLongPtrCompat(hwnd, GWL_STYLE).ToInt64();
+                return (style & WS_CAPTION) == WS_CAPTION;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool TryGetWindowClientSize(IntPtr hwnd, out int width, out int height)
+        {
+            width = height = 0;
+            return GetClientAreaOffsets(hwnd, out _, out _, out width, out height) && width > 0 && height > 0;
+        }
+
+        public static void ResizeWindowToAspectRatioInPlace(IntPtr hwnd, double aspectRatio, int preferredWidth = 1920)
+        {
+            if (hwnd == IntPtr.Zero || aspectRatio <= 0.0)
+                return;
+
+            var targetWidth = Math.Max(1, preferredWidth);
+            var targetHeight = Math.Max(1, (int)Math.Round(targetWidth / aspectRatio));
+
+            try
+            {
+                if (TryGetVirtualScreenBounds(out _, out _, out var screenWidth, out var screenHeight) &&
+                    screenWidth > 0 &&
+                    screenHeight > 0)
+                {
+                    if (targetWidth > screenWidth)
+                    {
+                        targetWidth = screenWidth;
+                        targetHeight = Math.Max(1, (int)Math.Round(targetWidth / aspectRatio));
+                    }
+
+                    if (targetHeight > screenHeight)
+                    {
+                        targetHeight = screenHeight;
+                        targetWidth = Math.Max(1, (int)Math.Round(targetHeight * aspectRatio));
+                    }
+                }
+
+                SetWindowSize(hwnd, targetWidth, targetHeight);
+            }
+            catch
+            {
             }
         }
 
@@ -565,29 +699,209 @@ namespace AES_Emulation.Windows.API
         }
 
         /// <summary>
+        /// Keeps the emulator window render-active for WGC (no zero opacity / off-screen hiding).
+        /// </summary>
+        public static void EnsureVisibleForCapture(IntPtr hwnd)
+        {
+            EnsureRenderActiveForCapture(hwnd, bringOnScreen: true);
+        }
+
+        /// <summary>
+        /// Keeps GPU capture alive without pulling the window onto the desktop.
+        /// </summary>
+        public static void EnsureRenderActiveForCapture(IntPtr hwnd, bool bringOnScreen = false)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            try
+            {
+                if (IsIconic(hwnd))
+                    RestoreWindow(hwnd);
+
+                if (bringOnScreen)
+                    ShowWindow(hwnd, SW_SHOWNA);
+
+                SetWindowOpacity(hwnd, 255);
+            }
+            catch
+            {
+            }
+        }
+
+        public static bool IsLikelyFullscreenWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            try
+            {
+                long style = GetWindowLongPtrCompat(hwnd, GWL_STYLE).ToInt64();
+                if ((style & WS_CAPTION) == WS_CAPTION)
+                    return false;
+
+                if (IsZoomed(hwnd))
+                    return true;
+
+                if (!GetWindowRect(hwnd, out RECT rect))
+                    return false;
+
+                var width = Math.Max(0, rect.Right - rect.Left);
+                var height = Math.Max(0, rect.Bottom - rect.Top);
+                var virtualWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                var virtualHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+                return virtualWidth > 0 &&
+                       virtualHeight > 0 &&
+                       width >= virtualWidth - 16 &&
+                       height >= virtualHeight - 16;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Best-effort exit from borderless/exclusive fullscreen so WGC can capture and mirror placement works.
+        /// </summary>
+        public static bool TryExitFullscreenWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            try
+            {
+                var changed = false;
+                if (IsIconic(hwnd))
+                {
+                    RestoreWindow(hwnd);
+                    changed = true;
+                }
+
+                if (IsZoomed(hwnd))
+                {
+                    ShowWindow(hwnd, SW_RESTORE);
+                    changed = true;
+                }
+
+                if (IsLikelyFullscreenWindow(hwnd))
+                {
+                    PostMessage(hwnd, WM_KEYDOWN, (IntPtr)VK_ESCAPE, IntPtr.Zero);
+                    PostMessage(hwnd, WM_KEYUP, (IntPtr)VK_ESCAPE, IntPtr.Zero);
+                    changed = true;
+                }
+
+                return changed;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static void HideWindowForOffScreenCapture(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            try
+            {
+                SetWindowCloaked(hwnd, cloaked: true);
+                MoveAway(hwnd, useCloak: true);
+                EnsureRenderActiveForCapture(hwnd, bringOnScreen: false);
+            }
+            catch
+            {
+            }
+        }
+
+        public static void SetWindowCloaked(IntPtr hwnd, bool cloaked)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            try
+            {
+                int cloakValue = cloaked ? 1 : 0;
+                DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, ref cloakValue, sizeof(int));
+            }
+            catch
+            {
+            }
+        }
+
+        /// <summary>
         /// Calculates the offsets and size of the client area relative to the window rect.
         /// Useful for WGC cropping to capture only the game content.
         /// </summary>
         public static bool GetClientAreaOffsets(IntPtr hwnd, out int x, out int y, out int width, out int height)
         {
             x = y = width = height = 0;
-            if (hwnd == IntPtr.Zero) return false;
+            if (hwnd == IntPtr.Zero)
+                return false;
 
-            if (!GetWindowRect(hwnd, out RECT wr)) return false;
-            if (!GetClientRect(hwnd, out RECT cr)) return false;
+            if (!GetClientRect(hwnd, out RECT cr))
+                return false;
 
-            POINT pt = new POINT { X = 0, Y = 0 };
-            if (!ClientToScreen(hwnd, ref pt)) return false;
+            // Child / borderless render surfaces (Xenia D3D child, etc.) have no non-client chrome.
+            // Applying a frame inset crop shifts the image and trims more on one side under DPI scaling.
+            if (ShouldCaptureFullWindowSurface(hwnd))
+            {
+                width = Math.Max(0, cr.Right - cr.Left);
+                height = Math.Max(0, cr.Bottom - cr.Top);
+                return width > 0 && height > 0;
+            }
 
-            // In DPI-aware processes (like modern .NET 9 apps), Win32 APIs like GetWindowRect, 
-            // GetClientRect, and ClientToScreen return physical pixels on the current monitor.
-            // WGC also operates in physical pixels, so we can use these values directly without further scaling.
-            x = pt.X - wr.Left;
-            y = pt.Y - wr.Top;
-            width = cr.Right - cr.Left;
-            height = cr.Bottom - cr.Top;
+            if (!GetWindowRect(hwnd, out RECT wr))
+                return false;
 
-            return true;
+            var topLeft = new POINT { X = cr.Left, Y = cr.Top };
+            var bottomRight = new POINT { X = cr.Right, Y = cr.Bottom };
+            if (!ClientToScreen(hwnd, ref topLeft) || !ClientToScreen(hwnd, ref bottomRight))
+                return false;
+
+            // Measure the client area in screen space so left/right (and top/bottom) borders stay symmetric.
+            x = topLeft.X - wr.Left;
+            y = topLeft.Y - wr.Top;
+            width = Math.Max(0, bottomRight.X - topLeft.X);
+            height = Math.Max(0, bottomRight.Y - topLeft.Y);
+
+            return width > 0 && height > 0;
+        }
+
+        private static bool ShouldCaptureFullWindowSurface(IntPtr hwnd)
+        {
+            if (IsChildWindow(hwnd))
+                return true;
+
+            try
+            {
+                long style = GetWindowLongPtrCompat(hwnd, GWL_STYLE).ToInt64();
+                bool hasCaption = (style & WS_CAPTION) == WS_CAPTION;
+                bool hasThickFrame = (style & WS_THICKFRAME) != 0;
+                return !hasCaption && !hasThickFrame;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// True for child / borderless render HWNDs where WGC should capture the full item (no client-area crop).
+        /// </summary>
+        public static bool IsFullSurfaceCaptureTarget(IntPtr hwnd) => ShouldCaptureFullWindowSurface(hwnd);
+
+        private static bool IsChildWindow(IntPtr hwnd)
+        {
+            try
+            {
+                return (GetWindowLongPtrCompat(hwnd, GWL_STYLE).ToInt64() & WS_CHILD) != 0;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>

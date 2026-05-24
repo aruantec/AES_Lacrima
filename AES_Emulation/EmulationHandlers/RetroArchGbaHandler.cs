@@ -21,7 +21,6 @@ public sealed class RetroArchGbaHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => true;
 
-    public override bool ForceUseTargetClientAreaCapture => true;
 
     public override bool UsesRetroArchCores => true;
 

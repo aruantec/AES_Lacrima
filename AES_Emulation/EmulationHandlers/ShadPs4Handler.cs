@@ -48,9 +48,6 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     public override string DisplayName => "shadPS4";
 
-    public override bool ForceUseTargetClientAreaCapture => true;
-
-    public override bool EnableCapturePillarboxCrop => true;
 
     public override double? CaptureWindowAspectRatio => 16.0 / 9.0;
 
@@ -481,10 +478,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     public override void PrepareWindowForCapture(IntPtr hwnd)
     {
-        if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
-            return;
-
-        ResizeCaptureWindowToSixteenByNine(hwnd);
+        PrepareWindowForCaptureAttach(hwnd);
     }
 
     public override IntPtr FindPreferredWindowHandle(Process process)

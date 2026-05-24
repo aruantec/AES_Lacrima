@@ -28,15 +28,7 @@ public sealed class FlyCastHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => true;
 
-    public override bool ForceUseTargetClientAreaCapture => true;
-
-    public override bool EnableCapturePillarboxCrop => true;
-
     public override double? CaptureWindowAspectRatio => 4.0 / 3.0;
-
-    public override int ClientAreaCropTopInset => 28;
-
-    public override int ClientAreaCropBottomInset => 14;
 
     public override int CaptureStartupDelayMs => 120;
 
@@ -64,11 +56,6 @@ public sealed class FlyCastHandler : EmulatorHandlerBase
     {
         // Intentionally no-op for Flycast.
         // Avoid hiding windows too early; it can slow down capture target stabilization.
-    }
-
-    public override void PrepareWindowForCapture(IntPtr hwnd)
-    {
-        ResizeCaptureWindowToAspectRatio(hwnd, 4.0 / 3.0);
     }
 
     public override IntPtr FindPreferredWindowHandle(Process process)
@@ -124,8 +111,6 @@ public sealed class FlyCastHandler : EmulatorHandlerBase
 
                 if (observedStableAttempts >= stableAttemptsBeforeAssign)
                 {
-                    if (OperatingSystem.IsWindows() && hwnd != IntPtr.Zero)
-                        ResizeCaptureWindowToAspectRatio(hwnd, 4.0 / 3.0);
                     Log.Info(
                         $"Flycast capture target stabilized after {captureStopwatch.ElapsedMilliseconds} ms " +
                         $"(firstCandidateMs={(firstCandidateObservedMs >= 0 ? firstCandidateObservedMs : captureStopwatch.ElapsedMilliseconds)}, " +
@@ -145,8 +130,6 @@ public sealed class FlyCastHandler : EmulatorHandlerBase
         var targetHwnd = await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
         if (targetHwnd != IntPtr.Zero)
         {
-            if (OperatingSystem.IsWindows() && targetHwnd != IntPtr.Zero)
-                ResizeCaptureWindowToAspectRatio(targetHwnd, 4.0 / 3.0);
             Log.Info($"Flycast capture target fallback resolved after {captureStopwatch.ElapsedMilliseconds} ms. hwnd=0x{targetHwnd.ToInt64():X}.");
             return targetHwnd;
         }

@@ -321,11 +321,10 @@ namespace AES_Emulation.Windows.API
                 }
                 else
                 {
-                    PlaceTargetForHostRect(hostRect, swpFlags);
+                    Win32API.MoveAway(_target);
 
                     if (_lastOpacity != 255)
                     {
-                        // Keep the hidden window opaque off-screen so WGC can capture it reliably.
                         try { Win32API.SetWindowOpacity(_target, 255); } catch { }
                         _lastOpacity = 255;
                     }
@@ -413,7 +412,7 @@ namespace AES_Emulation.Windows.API
                         }
                         else if (!_targetIsChildWindow)
                         {
-                            PlaceTargetForHostRect(hostRect, SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+                            Win32API.MoveAway(_target);
                         }
                     }
                 }
@@ -571,8 +570,7 @@ namespace AES_Emulation.Windows.API
                 }
                 else
                 {
-                    if (GetClientRectScreen(_host, out RECT hostBounds))
-                        PlaceTargetForHostRect(hostBounds, SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+                    Win32API.MoveAway(_target);
                 }
             }
             catch { }
