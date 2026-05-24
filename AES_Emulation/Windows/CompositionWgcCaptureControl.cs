@@ -1449,16 +1449,10 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 }
             }
 
-            if (_forceUseTargetClientSize && _targetHwnd != IntPtr.Zero)
+            if (_forceUseTargetClientSize && _session != IntPtr.Zero && _lastCropW != 0)
             {
-                if (Win32API.GetClientAreaOffsets(_targetHwnd, out int cx, out int cy, out int cw, out int ch))
-                {
-                    if (cx != _lastCropX || cy != _lastCropY || cw != _lastCropW || ch != _lastCropH)
-                    {
-                        WgcBridgeApi.SetCaptureCropRect(_session, cx, cy, cw, ch);
-                        _lastCropX = cx; _lastCropY = cy; _lastCropW = cw; _lastCropH = ch;
-                    }
-                }
+                WgcBridgeApi.SetCaptureCropRect(_session, 0, 0, 0, 0);
+                _lastCropX = _lastCropY = _lastCropW = _lastCropH = 0;
             }
 
             int nativeCount = WgcBridgeApi.GetCaptureStatus(_session);

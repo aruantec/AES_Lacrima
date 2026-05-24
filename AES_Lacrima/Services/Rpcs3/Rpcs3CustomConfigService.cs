@@ -200,6 +200,7 @@ public static class Rpcs3CustomConfigService
             TryMigrateLegacyStorage(emulatorDirectory);
             Directory.CreateDirectory(GetCustomConfigsDirectory(emulatorDirectory));
             EnsureDefaultTemplate(emulatorDirectory);
+            EnsureCaptureLaunchSettings(emulatorDirectory);
 
             var configPath = GetCustomConfigPath(emulatorDirectory, normalizedTitleId);
             if (!File.Exists(configPath))
@@ -298,5 +299,50 @@ public static class Rpcs3CustomConfigService
           Renderer: Cubeb
         System:
           Language: English (US)
+        Miscellaneous:
+          Start games in fullscreen mode: false
+          Pause emulation on RPCS3 focus loss: false
         """;
+
+    private static void EnsureCaptureLaunchSettings(string? emulatorDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(emulatorDirectory))
+            return;
+
+        PatchCaptureLaunchSettings(GetGlobalConfigPath(emulatorDirectory));
+        PatchCaptureLaunchSettings(GetDefaultTemplatePath(emulatorDirectory));
+
+        var customConfigsDirectory = GetCustomConfigsDirectory(emulatorDirectory);
+        if (!Directory.Exists(customConfigsDirectory))
+            return;
+
+        foreach (var configPath in Directory.EnumerateFiles(customConfigsDirectory, "*.yml", SearchOption.TopDirectoryOnly))
+            PatchCaptureLaunchSettings(configPath);
+    }
+
+    private static void PatchCaptureLaunchSettings(string? configPath)
+    {
+        if (string.IsNullOrWhiteSpace(configPath))
+            return;
+
+        try
+        {
+            var values = Rpcs3YamlConfigHelper.ReadFlatValues(File.Exists(configPath) ? configPath : null);
+            values[Rpcs3ConfigSchema.ComposeKey("Miscellaneous", "Start games in fullscreen mode")] = "false";
+            values[Rpcs3ConfigSchema.ComposeKey("Miscellaneous", "Pause emulation on RPCS3 focus loss")] = "false";
+
+            if (File.Exists(configPath))
+            {
+                Rpcs3YamlConfigHelper.ApplyFlatValues(configPath, values, configPath);
+                return;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(configPath) ?? string.Empty);
+            Rpcs3YamlConfigHelper.ApplyFlatValues(null, values, configPath);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Failed to patch RPCS3 capture launch settings in '{configPath}'.", ex);
+        }
+    }
 }

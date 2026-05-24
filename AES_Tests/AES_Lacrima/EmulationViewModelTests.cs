@@ -220,10 +220,10 @@ public sealed class EmulationViewModelTests
     }
 
     [Fact]
-    public void EdenHandler_UsesBottomClientAreaCropToRemoveBanding()
+    public void EdenHandler_UsesSixteenByNineCaptureWindowAspect()
     {
-        Assert.Equal(0, EdenHandler.Instance.ClientAreaCropBottomInset);
-        Assert.True(EdenHandler.Instance.ForceUseTargetClientAreaCapture);
+        Assert.Equal(16.0 / 9.0, EdenHandler.Instance.CaptureWindowAspectRatio);
+        Assert.False(EdenHandler.Instance.ForceUseTargetClientAreaCapture);
     }
 
     [Fact]
@@ -385,7 +385,8 @@ public sealed class EmulationViewModelTests
     public void ShadPs4Handler_PrefersDirectCompositionCapture()
     {
         Assert.Equal(EmulatorCaptureMode.DirectComposition, ShadPs4Handler.Instance.PreferredCaptureMode);
-        Assert.True(ShadPs4Handler.Instance.ForceUseTargetClientAreaCapture);
+        Assert.Equal(16.0 / 9.0, ShadPs4Handler.Instance.CaptureWindowAspectRatio);
+        Assert.False(ShadPs4Handler.Instance.ForceUseTargetClientAreaCapture);
         Assert.True(ShadPs4Handler.Instance.IsWindowEmbeddingSupported);
     }
 

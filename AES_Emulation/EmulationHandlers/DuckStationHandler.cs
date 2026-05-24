@@ -26,13 +26,7 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => true;
 
-    public override bool ForceUseTargetClientAreaCapture => true;
-
-    // DuckStation in -nogui mode can present with internal letterbox bars.
-    // Apply a small symmetric crop to remove those bars from the captured frame.
-    public override int ClientAreaCropTopInset => 38;
-
-    public override int ClientAreaCropBottomInset => 38;
+    public override double? CaptureWindowAspectRatio => 4.0 / 3.0;
 
     public override int CaptureStartupDelayMs => 120;
 

@@ -10,9 +10,6 @@ namespace AES_Emulation.EmulationHandlers;
 
 public sealed class XeniaHandler : EmulatorHandlerBase
 {
-    private const int CaptureWindowWidth = 1920;
-    private const int CaptureWindowHeight = 1080;
-
     public static XeniaHandler Instance { get; } = new();
 
     private XeniaHandler()
@@ -29,7 +26,6 @@ public sealed class XeniaHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => true;
 
-    public override bool ForceUseTargetClientAreaCapture => true;
 
     public override int CaptureStartupDelayMs => 150;
 
@@ -124,20 +120,8 @@ public sealed class XeniaHandler : EmulatorHandlerBase
     [SupportedOSPlatform("windows")]
     public override void PrepareWindowForCapture(IntPtr hwnd)
     {
+        PrepareWindowForCaptureAttach(hwnd);
         HideWindowForCapture(hwnd);
-
-        if (!OperatingSystem.IsWindows() || hwnd == IntPtr.Zero)
-            return;
-
-        if (Win32API.TryGetVirtualScreenBounds(out var x, out var y, out var width, out var height) && width > 0 && height > 0)
-        {
-            var targetWidth = Math.Min(CaptureWindowWidth, width);
-            var targetHeight = Math.Min(CaptureWindowHeight, height);
-            Win32API.SetWindowBounds(hwnd, x, y, targetWidth, targetHeight);
-            return;
-        }
-
-        Win32API.SetWindowSize(hwnd, CaptureWindowWidth, CaptureWindowHeight);
     }
 
     [SupportedOSPlatform("windows")]

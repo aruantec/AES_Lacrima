@@ -23,7 +23,6 @@ public sealed class FbNeoHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => true;
 
-    public override bool ForceUseTargetClientAreaCapture => true;
 
     public override int CaptureStartupDelayMs => 200;
 

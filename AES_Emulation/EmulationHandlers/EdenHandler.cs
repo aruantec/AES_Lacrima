@@ -34,7 +34,6 @@ public sealed class EdenHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => true;
 
-    public override bool ForceUseTargetClientAreaCapture => true;
 
     public override EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.DirectComposition;
 

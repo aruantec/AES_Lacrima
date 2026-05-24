@@ -416,6 +416,7 @@ namespace AES_Lacrima.ViewModels
                 await Task.Run(() =>
                 {
                     var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
+                    forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "duckstation", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "dolphin", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase);
@@ -424,6 +425,7 @@ namespace AES_Lacrima.ViewModels
                         try
                         {
                             forceKillFirst = process.ProcessName.Contains("pcsx2", StringComparison.OrdinalIgnoreCase) ||
+                                             process.ProcessName.Contains("rpcs3", StringComparison.OrdinalIgnoreCase) ||
                                              process.ProcessName.Contains("duckstation", StringComparison.OrdinalIgnoreCase) ||
                                              process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
                             forceKillFirst |= process.ProcessName.Contains("shadps4", StringComparison.OrdinalIgnoreCase);
@@ -871,7 +873,7 @@ namespace AES_Lacrima.ViewModels
 
                 UseHostWindowCapture = false;
                 SLog.Info($"Emulation capture target resolved for '{romPath}' in {captureStopwatch.ElapsedMilliseconds} ms. hwnd=0x{hwnd.ToInt64():X}.");
-                await TryApplyEmulatorTargetHwndAsync(process, hwnd, showWindowForCapture: handler.HideUntilCaptured).ConfigureAwait(false);
+                await TryApplyEmulatorTargetHwndAsync(process, hwnd, showWindowForCapture: handler.HideUntilCaptured, handler).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -1081,7 +1083,7 @@ namespace AES_Lacrima.ViewModels
             }, token);
         }
 
-        private async Task<bool> TryApplyEmulatorTargetHwndAsync(Process process, IntPtr hwnd, bool showWindowForCapture)
+        private async Task<bool> TryApplyEmulatorTargetHwndAsync(Process process, IntPtr hwnd, bool showWindowForCapture, IEmulatorHandler handler)
         {
             if (hwnd == IntPtr.Zero)
                 return false;
@@ -1108,6 +1110,15 @@ namespace AES_Lacrima.ViewModels
                 {
                     SLog.Debug("Failed to confirm emulator process state before applying the capture target.", ex);
                     return false;
+                }
+
+                try
+                {
+                    handler.PrepareWindowForCaptureAttach(hwnd);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Failed to prepare emulator window geometry before capture attach.", ex);
                 }
 
                 RestoreAppTopMost();
