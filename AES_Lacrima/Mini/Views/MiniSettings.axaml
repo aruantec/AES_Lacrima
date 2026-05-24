@@ -249,6 +249,14 @@
                                                    Foreground="#B8B8B8"
                                                    TextWrapping="Wrap"/>
 
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                            <TextBlock Text="Pre-release builds only"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="WhiteSmoke"/>
+                                            <ToggleSwitch Grid.Column="1"
+                                                          IsChecked="{Binding ShowAppPrereleaseBuildsOnly, Mode=TwoWay}"/>
+                                        </Grid>
+
                                         <TextBlock Text="Version"
                                                    Foreground="#A8A8A8"/>
                                         <ComboBox ItemsSource="{Binding AvailableAppReleases}"
