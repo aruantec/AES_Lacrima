@@ -119,7 +119,8 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         {
             FileName = resolvedExecutablePath,
             UseShellExecute = false,
-            CreateNoWindow = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
             RedirectStandardInput = true,
             RedirectStandardError = true,
             RedirectStandardOutput = true,

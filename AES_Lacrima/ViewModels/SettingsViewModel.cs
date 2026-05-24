@@ -779,6 +779,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private bool _preferAotAppUpdates = DefaultPreferAotAppUpdates;
 
     [ObservableProperty]
+    private bool _showAppPrereleaseBuildsOnly;
+
+    [ObservableProperty]
     private AvaloniaList<AppReleaseInfo> _availableAppReleases = new();
 
     [ObservableProperty]
@@ -1076,6 +1079,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         AvailableAppReleases.Clear();
         foreach (var release in releases)
         {
+            if (release.IsPrerelease != ShowAppPrereleaseBuildsOnly)
+                continue;
+
             if (AppUpdateService.PrepareReleaseForInstall(release) != null)
                 AvailableAppReleases.Add(release);
         }
@@ -1084,7 +1090,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (AvailableAppReleases.Count == 0)
         {
             SelectedAppRelease = null;
-            SelectedAppReleaseStatus = "No compatible application versions were found for this platform/build preference.";
+            var buildKind = ShowAppPrereleaseBuildsOnly ? "pre-release" : "release";
+            SelectedAppReleaseStatus = $"No compatible {buildKind} versions were found for this platform/build preference.";
             return;
         }
 
@@ -1184,6 +1191,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         if (e.PropertyName == nameof(CheckForAppUpdatesOnStartup) ||
             e.PropertyName == nameof(PreferAotAppUpdates) ||
+            e.PropertyName == nameof(ShowAppPrereleaseBuildsOnly) ||
             e.PropertyName == nameof(ShowSecondCircleAnimation) ||
             e.PropertyName == nameof(ShowEdgeBorder))
         {
@@ -1443,6 +1451,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         _ = RefreshAppReleaseHistory(forceRefresh: false);
     }
+
+    partial void OnShowAppPrereleaseBuildsOnlyChanged(bool value) =>
+        _ = RefreshAppReleaseHistory(forceRefresh: false);
 
     public string PreferredAppUpdateFlavorLabel => PreferAotAppUpdates ? "AOT" : "Non-AOT";
 
@@ -2407,6 +2418,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         RefreshRetroArchCores();
         CheckForAppUpdatesOnStartup = ReadBoolSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
         PreferAotAppUpdates = ReadBoolSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
+        ShowAppPrereleaseBuildsOnly = ReadBoolSetting(section, nameof(ShowAppPrereleaseBuildsOnly), ShowAppPrereleaseBuildsOnly);
 
         // Individual spectrum colors (persisted as strings)
         if (ReadStringSetting(section, nameof(SpectrumColor0)) is { } c0) SpectrumColor0 = Color.Parse(c0);
@@ -2512,6 +2524,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 .ToDictionary(handler => handler.HandlerId, handler => handler.LauncherPath!, StringComparer.OrdinalIgnoreCase));
         WriteSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
         WriteSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
+        WriteSetting(section, nameof(ShowAppPrereleaseBuildsOnly), ShowAppPrereleaseBuildsOnly);
 
         // Persist Carousel settings
         WriteSetting(section, nameof(CarouselSpacing), CarouselSpacing);
