@@ -30,6 +30,8 @@ public sealed class FlyCastHandler : EmulatorHandlerBase
 
     public override bool ForceUseTargetClientAreaCapture => true;
 
+    public override bool EnableCapturePillarboxCrop => true;
+
     public override double? CaptureWindowAspectRatio => 4.0 / 3.0;
 
     public override int ClientAreaCropTopInset => 28;
