@@ -407,7 +407,9 @@ public sealed class EdenHandler : EmulatorHandlerBase
                     ["fullscreen\\default"] = "false",
                     ["fullscreen"] = "false",
                     ["showStatusBar\\default"] = "false",
-                    ["showStatusBar"] = "false"
+                    ["showStatusBar"] = "false",
+                    ["pause_on_focus_loss\\default"] = "false",
+                    ["pause_on_focus_loss"] = "false"
                 };
 
                 if (!File.Exists(configPath))

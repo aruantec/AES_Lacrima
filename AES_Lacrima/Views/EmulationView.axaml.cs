@@ -194,7 +194,6 @@ public partial class EmulationView : UserControl
     private Size _portalWindowFullscreenSize;
     private PortalFullscreenOverlayWindow? _portalFullscreenOverlayWindow;
     private MainWindowCaptureFullscreenState? _savedMainWindowCaptureFullscreenState;
-    private Thickness _savedCaptureOverlayMargin;
     private int _savedCaptureOverlayZIndex = 5;
     private int _savedCaptureOverlayRowSpan = 1;
     private DateTime _lastPortalGraphUpdateUtc = DateTime.MinValue;
@@ -255,13 +254,17 @@ public partial class EmulationView : UserControl
 
     private void OnCaptureHostPointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        if (e.ClickCount >= 2)
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (_isCaptureFullscreen)
-            return;
-
-        if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
-            return;
-
-        ActiveCaptureHost?.ForwardFocusToTarget();
+        {
+            if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
+                ActiveCaptureHost?.ForwardFocusToTarget();
+        }
     }
 
     private void OnPortalSurfacePointerPressed(object? sender, PointerPressedEventArgs e)
@@ -624,11 +627,14 @@ public partial class EmulationView : UserControl
             if (e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen) && !vm.IsRenderOptionsOpen)
             {
                 IsAlbumListInteractive = true;
-                Dispatcher.UIThread.Post(() =>
+                if (_isCaptureFullscreen)
                 {
-                    if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
-                        ActiveCaptureHost?.ForwardFocusToTarget();
-                }, DispatcherPriority.Input);
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
+                            ActiveCaptureHost?.ForwardFocusToTarget();
+                    }, DispatcherPriority.Input);
+                }
             }
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsEmulatorLaunchInProgress))
@@ -1227,18 +1233,15 @@ public partial class EmulationView : UserControl
 
         if (fullscreen)
         {
-            _savedCaptureOverlayMargin = overlay.Margin;
             _savedCaptureOverlayZIndex = overlay.ZIndex;
             _savedCaptureOverlayRowSpan = Grid.GetRowSpan(overlay);
             Grid.SetRowSpan(overlay, 3);
             overlay.ZIndex = 5000;
-            overlay.Margin = new Thickness(0);
             return;
         }
 
         Grid.SetRowSpan(overlay, _savedCaptureOverlayRowSpan);
         overlay.ZIndex = _savedCaptureOverlayZIndex;
-        overlay.Margin = _savedCaptureOverlayMargin;
     }
 
     private void EnterPortalCaptureFullscreen(Window mainWindow)

@@ -459,6 +459,7 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private async Task OpenEmulatorUpdateNoticeOverlay()
         {
+            _emulatorUpdateNoticeSuppressedAlbumTitle = LoadedAlbum?.Title;
             IsEmulatorUpdateNoticeOverlayOpen = false;
             await OpenCurrentSectionEdenUpdates();
         }

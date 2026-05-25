@@ -378,7 +378,6 @@
                 <MultiBinding Converter="{StaticResource BoolOrConverter}">
                     <Binding Path="IsCompositionCaptureVisible"/>
                     <Binding Path="IsRenderOptionsOpen"/>
-                    <Binding Path="IsRetroArchErrorOverlayOpen"/>
                 </MultiBinding>
             </Grid.IsHitTestVisible>
             <Grid.Transitions>
@@ -446,18 +445,20 @@
                                              Settings="{Binding}"
                                              IsVisible="{Binding !IsFullscreen}"
                                              ZIndex="1500"/>
+        </Grid>
 
-            <Border x:Name="RenderOptionsOverlay"
-                    Background="#B0000000"
-                    BorderBrush="DimGray"
-                    BorderThickness="0.5,0,0,0"
-                    Width="660"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Stretch"
-                    Margin="0,0,0,0"
-                    ZIndex="2100"
-                    Opacity="{Binding IsRenderOptionsOpen, Converter={StaticResource BoolToOpacityConverter}}"
-                    IsHitTestVisible="{Binding IsRenderOptionsOpen}">
+        <Border x:Name="RenderOptionsOverlay"
+                Grid.Row="0"
+                Background="#B0000000"
+                BorderBrush="DimGray"
+                BorderThickness="0.5,0,0,0"
+                Width="660"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Margin="0,0,0,0"
+                ZIndex="2100"
+                Opacity="{Binding IsRenderOptionsOpen, Converter={StaticResource BoolToOpacityConverter}}"
+                IsHitTestVisible="{Binding IsRenderOptionsOpen}">
                 <ScrollViewer Grid.Row="0"
                               Margin="0,40,0,0"
                               HorizontalScrollBarVisibility="Disabled"
@@ -1610,59 +1611,59 @@
             </ScrollViewer>
             </Border>
 
-            <Border x:Name="RetroArchErrorOverlay"
-                    Background="#CC000000"
-                    BorderBrush="#FFC107"
-                    BorderThickness="1"
-                    CornerRadius="14"
-                    Width="560"
-                    MinWidth="520"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Top"
-                    Margin="0,90,20,0"
-                    ZIndex="2200"
-                    IsVisible="{Binding IsRetroArchErrorOverlayOpen}"
-                    Opacity="{Binding IsRetroArchErrorOverlayOpen, Converter={StaticResource BoolToOpacityConverter}}"
-                    IsHitTestVisible="{Binding IsRetroArchErrorOverlayOpen}">
-                <StackPanel Margin="20" Spacing="16">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Text="RetroArch launch warning"
-                                   FontSize="24"
-                                   FontWeight="SemiBold"
-                                   Foreground="White"
-                                   VerticalAlignment="Center" />
-                        <Button Command="{Binding ToggleRetroArchErrorOverlayCommand}"
-                                Width="34"
-                                Height="34"
-                                Background="Transparent"
-                                BorderBrush="Transparent"
-                                Foreground="White"
-                                Content="✕"
-                                HorizontalAlignment="Right"
-                                VerticalAlignment="Center" />
-                    </Grid>
-                    <Border Background="#22111111"
-                            CornerRadius="10"
-                            Padding="14">
-                        <ScrollViewer MaxHeight="340"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      VerticalScrollBarVisibility="Auto">
-                            <StackPanel Spacing="12">
-                                <TextBlock Text="{Binding RetroArchErrorSummary}"
-                                           Foreground="White"
-                                           FontWeight="SemiBold"
-                                           FontSize="20"
-                                           TextWrapping="Wrap" />
-                                <TextBlock Text="{Binding RetroArchErrorDetails}"
-                                           Foreground="#E0E0E0"
-                                           FontSize="15"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
-                        </ScrollViewer>
-                    </Border>
-                </StackPanel>
-            </Border>
-        </Grid>
+        <Border x:Name="RetroArchErrorOverlay"
+                Grid.Row="0"
+                Background="#CC000000"
+                BorderBrush="#FFC107"
+                BorderThickness="1"
+                CornerRadius="14"
+                Width="560"
+                MinWidth="520"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Margin="0,90,20,0"
+                ZIndex="2200"
+                IsVisible="{Binding IsRetroArchErrorOverlayOpen}"
+                Opacity="{Binding IsRetroArchErrorOverlayOpen, Converter={StaticResource BoolToOpacityConverter}}"
+                IsHitTestVisible="{Binding IsRetroArchErrorOverlayOpen}">
+            <StackPanel Margin="20" Spacing="16">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Text="RetroArch launch warning"
+                               FontSize="24"
+                               FontWeight="SemiBold"
+                               Foreground="White"
+                               VerticalAlignment="Center" />
+                    <Button Command="{Binding ToggleRetroArchErrorOverlayCommand}"
+                            Width="34"
+                            Height="34"
+                            Background="Transparent"
+                            BorderBrush="Transparent"
+                            Foreground="White"
+                            Content="✕"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center" />
+                </Grid>
+                <Border Background="#22111111"
+                        CornerRadius="10"
+                        Padding="14">
+                    <ScrollViewer MaxHeight="340"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="{Binding RetroArchErrorSummary}"
+                                       Foreground="White"
+                                       FontWeight="SemiBold"
+                                       FontSize="20"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding RetroArchErrorDetails}"
+                                       Foreground="#E0E0E0"
+                                       FontSize="15"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+            </StackPanel>
+        </Border>
 
         <Border x:Name="EmulatorUpdateNoticeOverlay"
                 Grid.Row="0"

@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -39,6 +40,8 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
     {
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
         startInfo.ArgumentList.Clear();
+
+        EnsurePauseOnFocusLossDisabled(startInfo.FileName, startInfo.WorkingDirectory);
 
         // PCSX2 Qt supports batch mode and optional fullscreen startup.
         // `-nogui` reduces chances of capturing the full shell window instead of the render surface.
@@ -257,6 +260,46 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
         }
 
         return best;
+    }
+
+    private static void EnsurePauseOnFocusLossDisabled(string? executablePath, string? workingDirectory)
+    {
+        try
+        {
+            var baseDirectory = !string.IsNullOrWhiteSpace(workingDirectory)
+                ? workingDirectory
+                : Path.GetDirectoryName(executablePath ?? string.Empty);
+
+            if (string.IsNullOrWhiteSpace(baseDirectory) || !Directory.Exists(baseDirectory))
+                return;
+
+            var settingsPath = Path.Combine(baseDirectory, "inis", "PCSX2.ini");
+            if (!File.Exists(settingsPath))
+                return;
+
+            var lines = File.ReadAllLines(settingsPath);
+            var modified = false;
+
+            for (var i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].TrimStart().StartsWith("PauseOnFocusLoss", StringComparison.OrdinalIgnoreCase) &&
+                    lines[i].Contains('='))
+                {
+                    var newLine = "PauseOnFocusLoss = false";
+                    if (!string.Equals(lines[i].Trim(), newLine, StringComparison.OrdinalIgnoreCase))
+                    {
+                        lines[i] = newLine;
+                        modified = true;
+                    }
+                }
+            }
+
+            if (modified)
+                File.WriteAllLines(settingsPath, lines);
+        }
+        catch
+        {
+        }
     }
 
     [DllImport("user32.dll")]
