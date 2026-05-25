@@ -873,7 +873,7 @@ namespace AES_Controls.Composition
             _projCacheSize = new Vector2(0,0);
         }
 
-        private bool UsesDirectIndexFollow => _isPointerScrolling || _isSliderPressed || _isDragging;
+        private bool UsesDirectIndexFollow => _isPointerScrolling || _isDragging;
 
         private double IndexForInteraction => _visualDirectIndexFollow ? _uiTargetIndex : _uiCurrentIndex;
 
@@ -2164,7 +2164,6 @@ namespace AES_Controls.Composition
             if (SliderBounds.Inflate(new Thickness(40, 30)).Contains(pos))
             {
                 _isSliderPressed = true;
-                SetVisualDirectIndexFollow(true);
                 _visual?.SendHandlerMessage(new SliderPressedMessage(true));
                 UpdateSliderPosition(pos.X);
                 return;
