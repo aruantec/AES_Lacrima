@@ -16,6 +16,7 @@ using System.Threading.Tasks;
 using AES_Lacrima.ViewModels;
 using AES_Controls.Helpers;
 using AES_Emulation.Controls;
+using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
 using EmulatorCaptureHostControl = AES_Emulation.Controls.EmulatorCaptureHost;
 
@@ -199,6 +200,7 @@ public partial class EmulationView : UserControl
     private DateTime _lastPortalGraphUpdateUtc = DateTime.MinValue;
     private bool _compositionCaptureWasVisible;
     private bool _inlinePortalPresentationActive;
+    private FullscreenCursorAutoHideHelper? _fullscreenCursorAutoHide;
 
     /// <summary>
     /// When <see langword="true"/>, composition capture renders in <c>InlineCaptureControl</c> on this view.
@@ -223,6 +225,8 @@ public partial class EmulationView : UserControl
         var portalSurface = this.FindControl<Control>("PortalPortal");
         portalSurface?.AddHandler(InputElement.PointerPressedEvent, OnPortalSurfacePointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(InputElement.KeyDownEvent, OnEmulationViewKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(InputElement.PointerMovedEvent, OnFullscreenCursorPointerActivity, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(InputElement.PointerPressedEvent, OnFullscreenCursorPointerActivity, RoutingStrategies.Tunnel, handledEventsToo: true);
         LayoutUpdated += OnViewLayoutUpdated;
         DataContextChanged += OnDataContextChanged;
         PortalFallbackOpacity = 1;
@@ -1099,6 +1103,7 @@ public partial class EmulationView : UserControl
 
         _portalWindow?.Hide();
         HidePortalFullscreenOverlay();
+        StopFullscreenCursorAutoHide();
         _isCaptureFullscreen = false;
         PortalFallbackOpacity = 1;
     }
@@ -1196,6 +1201,8 @@ public partial class EmulationView : UserControl
         SetCaptureChromeVisible(true);
         _isCaptureFullscreen = true;
 
+        StartFullscreenCursorAutoHide();
+
         Dispatcher.UIThread.Post(() =>
         {
             _inlineCaptureHost?.InvalidateArrange();
@@ -1206,6 +1213,7 @@ public partial class EmulationView : UserControl
 
     private void ExitInlineCaptureFullscreen()
     {
+        StopFullscreenCursorAutoHide();
         HideFullscreenStatsOverlay();
 
         if (TopLevel.GetTopLevel(this) is MainWindow chromeWindow &&
@@ -1223,6 +1231,34 @@ public partial class EmulationView : UserControl
             UpdateInlineCaptureHostVisibility(vm);
             UpdateCaptureChromeVisibilityFromOpacity();
         }
+    }
+
+    private void StartFullscreenCursorAutoHide()
+    {
+        if (_fullscreenCursorAutoHide != null)
+            return;
+
+        _fullscreenCursorAutoHide = new FullscreenCursorAutoHideHelper(this);
+        _fullscreenCursorAutoHide.Start();
+    }
+
+    private void StopFullscreenCursorAutoHide()
+    {
+        _fullscreenCursorAutoHide?.Stop();
+        _fullscreenCursorAutoHide = null;
+
+        if (TopLevel.GetTopLevel(this) is Window mainWindow)
+            mainWindow.Cursor = Cursor.Default;
+
+        Cursor = Cursor.Default;
+    }
+
+    private void OnFullscreenCursorPointerActivity(object? sender, PointerEventArgs e)
+    {
+        if (!_isCaptureFullscreen)
+            return;
+
+        _fullscreenCursorAutoHide?.NotifyPointerActivity();
     }
 
     private void ApplyInlineCaptureOverlayFullscreenLayout(bool fullscreen)
@@ -1264,6 +1300,8 @@ public partial class EmulationView : UserControl
 
         _isCaptureFullscreen = true;
 
+        StartFullscreenCursorAutoHide();
+
         Dispatcher.UIThread.Post(() =>
         {
             _portalWindow?.CaptureHostControl?.InvalidateArrange();
@@ -1276,6 +1314,7 @@ public partial class EmulationView : UserControl
         if (_portalWindow == null)
             return;
 
+        StopFullscreenCursorAutoHide();
         HideFullscreenStatsOverlay();
 
         _portalWindow.Position = _portalWindowFullscreenPosition;
