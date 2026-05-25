@@ -120,10 +120,7 @@ public sealed class EdenHandler : EmulatorHandlerBase
             if (!process.HasExited)
                 return process;
         }
-        catch
-        {
-            // ignored
-        }
+        catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
         if (TryResolveChildProcess(process, out var childProcess))
             return childProcess;
@@ -158,9 +155,7 @@ public sealed class EdenHandler : EmulatorHandlerBase
                 process.Refresh();
                 mainWindowHandle = process.MainWindowHandle;
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             var hwnd = FindPreferredWindowHandle(process);
             if (hwnd != IntPtr.Zero && CanAssignWindow(hwnd, mainWindowHandle))
@@ -296,9 +291,7 @@ public sealed class EdenHandler : EmulatorHandlerBase
                     return true;
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             return false;
         }

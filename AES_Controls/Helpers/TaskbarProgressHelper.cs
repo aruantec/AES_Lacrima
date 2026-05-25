@@ -5,7 +5,8 @@ using Avalonia.Media.Imaging;
 using log4net;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
-
+
+using AES_Core.Logging;
 namespace AES_Controls.Helpers;
 
 /// <summary>
@@ -521,7 +522,7 @@ public static class TaskbarProgressHelper
             {
                 SetWindowLongPtr(_hookedHwnd, GWL_WNDPROC, _prevWndProc);
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             finally
             {
                 _hookedHwnd = IntPtr.Zero;

@@ -6,13 +6,16 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services.Cemu;
 
 public sealed record CemuGraphicPacksDownloadResult(bool Success, string Message, bool WasAlreadyUpToDate);
 
 public static class CemuGraphicPacksDownloadService
 {
+    private static readonly ILog Log = LogHelper.For(typeof(CemuGraphicPacksDownloadService));
     private const string QueryUrlTemplate =
         "https://cemu.info/api2/query_graphicpack_url.php?version={0}&t={1}";
 
@@ -136,9 +139,7 @@ public static class CemuGraphicPacksDownloadService
                 else
                     File.Delete(entry);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 

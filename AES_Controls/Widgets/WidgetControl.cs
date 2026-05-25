@@ -10,7 +10,9 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System.Linq;
 using System.Windows.Input;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Controls.Widgets;
 
 public class MoveResizeResult(double left, double top, double width, double height)
@@ -24,6 +26,7 @@ public class MoveResizeResult(double left, double top, double width, double heig
 // Draggable and resizable content control with focus visuals.
 public class WidgetControl : ContentControl
 {
+    private static readonly ILog Log = LogHelper.For<WidgetControl>();
     public static readonly StyledProperty<ICommand?> MoveResizeEndedCommandProperty =
         AvaloniaProperty.Register<WidgetControl, ICommand?>(nameof(MoveResizeEndedCommand));
     public ICommand? MoveResizeEndedCommand
@@ -333,7 +336,7 @@ public class WidgetControl : ContentControl
                 _dashTimer = null;
             }
         }
-        catch { /* ignore */ }
+        catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
     }
 
     // Called when the bindable IsDashAnimated property changes.
@@ -361,7 +364,7 @@ public class WidgetControl : ContentControl
                     InvalidateVisual();
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }, DispatcherPriority.Normal);
     }
 
@@ -789,7 +792,7 @@ public class WidgetControl : ContentControl
     {
         if (_isCaptured)
         {
-            try { _capturedPointer?.Capture(null); } catch { }
+            try { _capturedPointer?.Capture(null); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             _capturedPointer = null;
         }
         _isCaptured = false;
@@ -842,14 +845,14 @@ public class WidgetControl : ContentControl
                     // Only change if it currently clips so we can restore later.
                     if (c.ClipToBounds)
                     {
-                        try { c.ClipToBounds = false; } catch { /* ignore read-only/platform issues */ }
+                        try { c.ClipToBounds = false; } catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
                         _unclippedAncestors.Add(c);
                     }
                 }
                 parent = parent.GetVisualParent();
             }
         }
-        catch { /* ignore traversal errors */ }
+        catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
     }
 
     // Restore ancestor clipping state that we previously disabled.
@@ -859,10 +862,10 @@ public class WidgetControl : ContentControl
         {
             foreach (var c in _unclippedAncestors)
             {
-                try { c.ClipToBounds = true; } catch { /* ignore */ }
+                try { c.ClipToBounds = true; } catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
             }
         }
-        catch { /* ignore */ }
+        catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         _unclippedAncestors.Clear();
     }
 
@@ -873,7 +876,7 @@ public class WidgetControl : ContentControl
         var pos = e.GetPosition(this);
         if (pos.X < 0 || pos.Y < 0 || pos.X > Bounds.Width || pos.Y > Bounds.Height)
         {
-            try { _rootTopLevel?.FocusManager?.Focus(null, NavigationMethod.Unspecified, KeyModifiers.None); } catch { /* ignore */ }
+            try { _rootTopLevel?.FocusManager?.Focus(null, NavigationMethod.Unspecified, KeyModifiers.None); } catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
             SetCursorIfDifferent(StandardCursorType.Arrow);
             InvalidateVisual();
         }

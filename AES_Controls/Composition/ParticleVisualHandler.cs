@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -10,7 +10,9 @@ using Avalonia.Platform;
 using Avalonia.Rendering.Composition;
 using Avalonia.Skia;
 using SkiaSharp;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Controls.Composition;
 
 /// <summary>
@@ -19,6 +21,7 @@ namespace AES_Controls.Composition;
 /// </summary>
 public class ParticleVisualHandler : CompositionCustomVisualHandler
 {
+    private static readonly ILog Log = LogHelper.For<ParticleVisualHandler>();
     private readonly Random _rnd = new();
     private readonly List<Particle> _particles = new();
     private int _pProgram, _bgProgram, _vbo, _vao, _bgVbo, _bgVao;
@@ -89,19 +92,13 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
             {
                 if (_vao != 0) _gl.DeleteVertexArray(_vao);
             }
-            catch
-            {
-                // ignored
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
             try
             {
                 if (_bgVao != 0) _gl.DeleteVertexArray(_bgVao);
             }
-            catch
-            {
-                // ignored
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
             if (_texCurrent != 0) _gl.DeleteTexture(_texCurrent);
             if (_texPrevious != 0) _gl.DeleteTexture(_texPrevious);

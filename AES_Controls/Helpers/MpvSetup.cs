@@ -1,6 +1,7 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using log4net;
-
+
+using AES_Core.Logging;
 namespace AES_Controls.Helpers;
 
 /// <summary>
@@ -61,7 +62,7 @@ public static class MpvSetup
                             { 
                                 string tempDel = fullPath + "." + Guid.NewGuid().ToString("N") + ".delete";
                                 File.Move(fullPath, tempDel);
-                                try { File.Delete(deleteMarker); } catch { }
+                                try { File.Delete(deleteMarker); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                                 Log.Info($"Renamed following locked file to: {tempDel}");
                             } catch (Exception moveEx) { Log.Error($"Rename trick failed for {fullPath}", moveEx); }
                         }

@@ -1,9 +1,12 @@
 using AES_Lacrima.Services.ShadPs4;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Tests.AES_Lacrima;
 
 public class ShadPs4ContentDownloadServiceTests
 {
+    private static readonly ILog Log = LogHelper.For<ShadPs4ContentDownloadServiceTests>();
     [Fact]
     public void GetPatchesRepositoryDirectory_UsesRepositoryFolderUnderUserPatches()
     {
@@ -42,9 +45,7 @@ public class ShadPs4ContentDownloadServiceTests
             {
                 Directory.Delete(root, true);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 
@@ -71,9 +72,7 @@ public class ShadPs4ContentDownloadServiceTests
             {
                 Directory.Delete(emulatorDir, true);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 }

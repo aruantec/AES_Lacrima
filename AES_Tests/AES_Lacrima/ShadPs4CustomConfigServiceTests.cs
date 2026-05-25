@@ -1,11 +1,14 @@
 using System.Runtime.InteropServices;
 using AES_Lacrima.Services.Emulation;
 using AES_Lacrima.Services.ShadPs4;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Tests.AES_Lacrima;
 
 public sealed class ShadPs4CustomConfigServiceTests
 {
+    private static readonly ILog Log = LogHelper.For<ShadPs4CustomConfigServiceTests>();
     [Fact]
     public void SaveAndLoad_RoundTripsPerGameConfig()
     {
@@ -32,7 +35,7 @@ public sealed class ShadPs4CustomConfigServiceTests
         }
         finally
         {
-            try { Directory.Delete(tempRoot, true); } catch { }
+            try { Directory.Delete(tempRoot, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 
@@ -71,7 +74,7 @@ public sealed class ShadPs4CustomConfigServiceTests
         }
         finally
         {
-            try { Directory.Delete(tempRoot, true); } catch { }
+            try { Directory.Delete(tempRoot, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 

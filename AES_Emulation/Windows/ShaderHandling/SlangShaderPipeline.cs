@@ -8,7 +8,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Controls.EmuGrabbing.ShaderHandling;
 
 /// <summary>
@@ -21,6 +23,7 @@ namespace AES_Controls.EmuGrabbing.ShaderHandling;
 /// </summary>
 public class SlangShaderPipeline : IDisposable
 {
+    private static readonly ILog Log = LogHelper.For<SlangShaderPipeline>();
     private readonly GlInterface _gl;
     private readonly List<ShaderPass> _passes = new();
     private readonly FrameHistoryManager _frameHistory;
@@ -160,7 +163,7 @@ public class SlangShaderPipeline : IDisposable
                 }
             }
         }
-        catch { }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         return shaderPaths;
     }
 
@@ -275,11 +278,11 @@ public class SlangShaderPipeline : IDisposable
                             byte[] b1 = Encoding.ASCII.GetBytes("TexCoord\0");
                             fixed (byte* p1 = b1) _gl.BindAttribLocation(testProg, 1, (IntPtr)p1);
                         }
-                    } catch { }
+                    } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                     _gl.LinkProgram(testProg);
                     unsafe { int status = 0; _gl.GetProgramiv(testProg, GL_LINK_STATUS, &status); if (status != 0) compiledReal = true; }
                     // cleanup test program but keep shaders if we'll use them
-                    try { _gl.DeleteProgram(testProg); } catch { }
+                    try { _gl.DeleteProgram(testProg); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 }
             }
             catch (Exception ex)
@@ -291,8 +294,8 @@ public class SlangShaderPipeline : IDisposable
             {
                 Debug.WriteLine($"[Pipeline] Real shader compile/link failed, using debug passthrough for {path}");
                 // delete any partially compiled shaders
-                try { if (vs != 0) _gl.DeleteShader(vs); } catch { }
-                try { if (fs != 0) _gl.DeleteShader(fs); } catch { }
+                try { if (vs != 0) _gl.DeleteShader(vs); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+                try { if (fs != 0) _gl.DeleteShader(fs); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 // fallback debug shaders
                 string vsDebug = fullHeader + "layout(location = 0) in vec2 VertexCoord; layout(location = 1) in vec2 TexCoord; out vec2 vTex; void main(){ vTex = TexCoord; gl_Position = vec4(VertexCoord, 0.0, 1.0); }";
@@ -330,8 +333,8 @@ void main(){
 
             if (vs == 0 || fs == 0)
             {
-                if (vs != 0) try { _gl.DeleteShader(vs); } catch { }
-                if (fs != 0) try { _gl.DeleteShader(fs); } catch { }
+                if (vs != 0) try { _gl.DeleteShader(vs); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+                if (fs != 0) try { _gl.DeleteShader(fs); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 Debug.WriteLine($"[Pipeline] Shader compile failed for {path}");
                 LastError = "Compilation failed for one or more shader stages.";
                 SaveShaderLog(path, "error", LastError);
@@ -360,7 +363,7 @@ void main(){
                     fixed (byte* p4 = b4) _gl.BindAttribLocation(prog, 1, (IntPtr)p4);
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             _gl.LinkProgram(prog);
 
@@ -412,12 +415,12 @@ void main(){
                 Debug.WriteLine($"[Pipeline] Exception during program link check: {ex.Message}");
                 LastError = ex.ToString();
                 SaveShaderLog(path, "link_exception", ex.ToString());
-                try { _gl.DeleteProgram(prog); } catch { }
+                try { _gl.DeleteProgram(prog); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
             finally
             {
-                try { _gl.DeleteShader(vs); } catch { }
-                try { _gl.DeleteShader(fs); } catch { }
+                try { _gl.DeleteShader(vs); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+                try { _gl.DeleteShader(fs); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
         }
         catch (Exception ex)
@@ -483,7 +486,7 @@ void main(){
             Debug.WriteLine($"[Pipeline] CompileShader exception: {ex.Message}");
             LastError = ex.ToString();
             SaveShaderLog("inline", "compile_exception", ex.ToString());
-            if (shader != 0) try { _gl.DeleteShader(shader); } catch { }
+            if (shader != 0) try { _gl.DeleteShader(shader); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             return 0;
         }
     }
@@ -506,7 +509,7 @@ void main(){
             File.WriteAllText(file, message);
             Debug.WriteLine($"[Pipeline] Shader log written: {file}");
         }
-        catch { }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     public void Process(int sourceTexture, int w, int h, int finalOutputFbo, int outputX, int outputY, int outputW, int outputH)
@@ -719,7 +722,7 @@ void main(){
         CleanupIntermediateBuffers();
         foreach (var p in _passes) if (p.ProgramId != 0) _gl.DeleteProgram(p.ProgramId);
         _passes.Clear();
-        try { if (_quadVbo != 0) _gl.DeleteBuffer(_quadVbo); } catch { }
+        try { if (_quadVbo != 0) _gl.DeleteBuffer(_quadVbo); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 }
 

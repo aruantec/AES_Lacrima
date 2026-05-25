@@ -3,7 +3,9 @@ using Avalonia.Rendering.Composition;
 using Avalonia.Skia;
 using SkiaSharp;
 using System.Numerics;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Controls.Composition;
 
 /// <summary>
@@ -66,6 +68,7 @@ internal record EqualizerTintMessage(SKColor Color);
 /// </summary>
 public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
 {
+    private static readonly ILog Log = LogHelper.For<EqualizerCompositionVisualHandler>();
     private const float MinGain = -10f;
     private const float MaxGain = 10f;
 
@@ -347,7 +350,7 @@ public class EqualizerCompositionVisualHandler : CompositionCustomVisualHandler
             // Faint upper hint: draw thin, low-alpha line from trackTop down to the knob
             if (_faintTrackPaint != null)
             {
-                try { canvas.DrawLine(p.X, trackTop, p.X, p.Y, _faintTrackPaint); } catch { }
+                try { canvas.DrawLine(p.X, trackTop, p.X, p.Y, _faintTrackPaint); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
 
             // Bottom cap

@@ -7,11 +7,14 @@ using AES_Emulation.Controls;
 using AES_Emulation.EmulationHandlers;
 using AES_Lacrima.Services;
 using AES_Lacrima.ViewModels;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Tests;
 
 public sealed class EmulationViewModelTests
 {
+    private static readonly ILog Log = LogHelper.For<EmulationViewModelTests>();
     [Fact]
     public void ScanFolderForRomPaths_WiiUPackageDirectory_ReturnsFolderPath()
     {
@@ -262,9 +265,7 @@ public sealed class EmulationViewModelTests
             {
                 File.Delete(tempExe);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 
@@ -290,17 +291,13 @@ public sealed class EmulationViewModelTests
             {
                 File.Delete(tempExe);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             try
             {
                 Directory.Delete(tempDir, true);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 
@@ -338,9 +335,7 @@ public sealed class EmulationViewModelTests
             {
                 File.Delete(tempExe);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 
@@ -375,9 +370,7 @@ public sealed class EmulationViewModelTests
             {
                 File.Delete(tempExe);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 
@@ -411,9 +404,7 @@ public sealed class EmulationViewModelTests
             {
                 File.Delete(tempExe);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 
@@ -488,6 +479,7 @@ public sealed class EmulationViewModelTests
 
 internal sealed class TempDirectory : IDisposable
 {
+    private static readonly ILog Log = LogHelper.For<TempDirectory>();
     public string Path { get; }
 
     public TempDirectory()
@@ -502,8 +494,6 @@ internal sealed class TempDirectory : IDisposable
         {
             Directory.Delete(Path, true);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 }

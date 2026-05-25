@@ -1,4 +1,4 @@
-﻿using AES_Controls.EmuGrabbing.ShaderHandling;
+using AES_Controls.EmuGrabbing.ShaderHandling;
 using AES_Emulation.Windows.API;
 using Avalonia;
 using Avalonia.Controls;
@@ -1644,10 +1644,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 if (method?.Invoke(grContext, null) is GlInterface glInterface)
                     _gl = glInterface;
             }
-            catch
-            {
-                // ignored
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         if (_gl == null)
@@ -2040,10 +2037,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                     using var platformLease = lease.TryLeasePlatformGraphicsApi();
                     platformLeaseGl = platformLease?.Context.TryGetFeature<IGlContext>()?.GlInterface;
                 }
-                catch
-                {
-                    // ignored
-                }
+                catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
                 var canvas = lease.SkCanvas;
                 var grContext = lease.GrContext;

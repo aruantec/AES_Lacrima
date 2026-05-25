@@ -1,9 +1,12 @@
 using AES_Lacrima.Services.Rpcs3;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Tests.AES_Lacrima;
 
 public sealed class Rpcs3CustomConfigServiceTests
 {
+    private static readonly ILog Log = LogHelper.For<Rpcs3CustomConfigServiceTests>();
     [Fact]
     public void GetCustomConfigPath_UsesConfigCustomConfigsFolder()
     {
@@ -45,7 +48,7 @@ public sealed class Rpcs3CustomConfigServiceTests
         }
         finally
         {
-            try { Directory.Delete(tempRoot, true); } catch { }
+            try { Directory.Delete(tempRoot, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 
@@ -68,7 +71,7 @@ public sealed class Rpcs3CustomConfigServiceTests
         }
         finally
         {
-            try { Directory.Delete(tempRoot, true); } catch { }
+            try { Directory.Delete(tempRoot, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 }

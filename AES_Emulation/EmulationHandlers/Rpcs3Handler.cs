@@ -7,11 +7,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using AES_Emulation.Controls;
 using AES_Emulation.Windows.API;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.EmulationHandlers;
 
 public sealed class Rpcs3Handler : EmulatorHandlerBase
 {
+    private static readonly ILog Log = LogHelper.For<Rpcs3Handler>();
     public const string GameIdBootPrefix = "%RPCS3_GAMEID%:";
 
     private const uint WS_CHILD = 0x40000000;
@@ -131,9 +134,7 @@ public sealed class Rpcs3Handler : EmulatorHandlerBase
                 process.Refresh();
                 mainWindowHandle = process.MainWindowHandle;
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             var hwnd = FindPreferredWindowHandle(process);
             if (hwnd != IntPtr.Zero)
@@ -194,9 +195,7 @@ public sealed class Rpcs3Handler : EmulatorHandlerBase
             Win32API.MoveAway(hwnd, useCloak: true);
             Win32API.EnsureRenderActiveForCapture(hwnd, bringOnScreen: false);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private void ApplyCaptureGeometryOnce(IntPtr hwnd)
@@ -215,9 +214,7 @@ public sealed class Rpcs3Handler : EmulatorHandlerBase
             if (aspect is > 0)
                 Win32API.ResizeWindowToAspectRatioInPlace(hwnd, aspect.Value);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private static bool IsStableCaptureCandidate(IntPtr hwnd, IntPtr mainWindowHandle)
@@ -247,9 +244,7 @@ public sealed class Rpcs3Handler : EmulatorHandlerBase
         {
             normalizedPath = Path.GetFullPath(normalizedPath);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         if (File.Exists(normalizedPath))
             return normalizedPath;
@@ -289,9 +284,7 @@ public sealed class Rpcs3Handler : EmulatorHandlerBase
             if (files.Length == 1)
                 return files[0];
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return null;
     }
@@ -398,9 +391,7 @@ public sealed class Rpcs3Handler : EmulatorHandlerBase
             if (modified)
                 File.WriteAllLines(configPath, lines);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     [DllImport("user32.dll")]

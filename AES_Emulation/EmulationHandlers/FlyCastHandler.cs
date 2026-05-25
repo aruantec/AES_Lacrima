@@ -85,9 +85,7 @@ public sealed class FlyCastHandler : EmulatorHandlerBase
                 process.Refresh();
                 mainWindowHandle = process.MainWindowHandle;
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             var hwnd = FindFallbackQtGameWindow(process);
             if (hwnd == IntPtr.Zero)

@@ -1,4 +1,4 @@
-﻿using AES_Core.DI;
+using AES_Core.DI;
 using AES_Core.Interfaces;
 using AES_Lacrima.Services;
 using AES_Core.Services;
@@ -11,7 +11,9 @@ using CommunityToolkit.Mvvm.Input;
 using System;
 using System.ComponentModel;
 using System.Text.Json.Nodes;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.ViewModels
 {
     public interface IMainWindowViewModel;
@@ -25,6 +27,7 @@ namespace AES_Lacrima.ViewModels
     [AutoRegister]
     public partial class MainWindowViewModel : ViewModelBase, IMainWindowViewModel
     {
+        private static readonly ILog Log = LogHelper.For<MainWindowViewModel>();
         private IClassicDesktopStyleApplicationLifetime? AppLifetime => Avalonia.Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
         
         [ObservableProperty]
@@ -389,7 +392,7 @@ namespace AES_Lacrima.ViewModels
             // save any transient main‑window state before we blow it away.
             if (AppLifetime.MainWindow?.DataContext is IViewModelBase vm)
             {
-                try { vm.SaveSettings(); } catch { }
+                try { vm.SaveSettings(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
             DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
 
@@ -408,7 +411,7 @@ namespace AES_Lacrima.ViewModels
                 DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
                 if (!App.IsSwitchingMode)
                 {
-                    try { DiLocator.Dispose(); } catch { }
+                    try { DiLocator.Dispose(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 }
             };
 

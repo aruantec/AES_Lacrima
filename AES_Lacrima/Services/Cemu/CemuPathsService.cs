@@ -4,11 +4,14 @@ using System.IO;
 using System.Linq;
 using AES_Core.IO;
 using AES_Emulation.EmulationHandlers;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services.Cemu;
 
 public static class CemuPathsService
 {
+    private static readonly ILog Log = LogHelper.For(typeof(CemuPathsService));
     public const string GraphicPacksFolderName = "graphicPacks";
     public const string DownloadedGraphicPacksFolderName = "downloadedGraphicPacks";
     public const string DownloadedVersionFileName = "version.txt";
@@ -41,9 +44,7 @@ public static class CemuPathsService
                 if (!string.IsNullOrWhiteSpace(launcherDirectory))
                     Add(launcherDirectory);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         foreach (var candidate in candidates)

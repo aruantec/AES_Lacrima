@@ -1,7 +1,9 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.Windows.API
 {
     /// <summary>
@@ -11,6 +13,7 @@ namespace AES_Emulation.Windows.API
     /// </summary>
     public class WindowHandler : IDisposable, INotifyPropertyChanged
     {
+        private static readonly ILog Log = LogHelper.For<WindowHandler>();
         private IntPtr _host = IntPtr.Zero;
         private IntPtr _target = IntPtr.Zero;
 
@@ -132,7 +135,7 @@ namespace AES_Emulation.Windows.API
                     _haveSavedTargetRect = true;
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             _targetIsChildWindow = IsChildWindow(_target);
 
@@ -177,7 +180,7 @@ namespace AES_Emulation.Windows.API
                     _hookForeground = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, _winEventDelegate, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         /// <summary>
@@ -195,12 +198,12 @@ namespace AES_Emulation.Windows.API
                     _timer.Dispose();
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             _timer = null;
             _elapsedHandler = null;
             // Unhook WinEvent hooks
-            try { if (_hookMove != IntPtr.Zero) UnhookWinEvent(_hookMove); } catch { }
-            try { if (_hookForeground != IntPtr.Zero) UnhookWinEvent(_hookForeground); } catch { }
+            try { if (_hookMove != IntPtr.Zero) UnhookWinEvent(_hookMove); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+            try { if (_hookForeground != IntPtr.Zero) UnhookWinEvent(_hookForeground); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             _hookMove = IntPtr.Zero; _hookForeground = IntPtr.Zero; _winEventDelegate = null;
             _host = IntPtr.Zero;
             _target = IntPtr.Zero;
@@ -219,7 +222,7 @@ namespace AES_Emulation.Windows.API
                 int h = Math.Max(0, _savedTargetRect.Bottom - _savedTargetRect.Top);
                 SetWindowPos(_target, IntPtr.Zero, _savedTargetRect.Left, _savedTargetRect.Top, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         /// <summary>
@@ -252,7 +255,7 @@ namespace AES_Emulation.Windows.API
                     }
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         private void GetTargetPlacement(in RECT hostRect, out int x, out int y, out int width, out int height)
@@ -315,7 +318,7 @@ namespace AES_Emulation.Windows.API
                     if (_lastOpacity != 255)
                     {
                         // restore opacity in case it was dimmed
-                        try { Win32API.SetWindowOpacity(_target, 255); } catch { }
+                        try { Win32API.SetWindowOpacity(_target, 255); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                         _lastOpacity = 255;
                     }
                 }
@@ -325,13 +328,13 @@ namespace AES_Emulation.Windows.API
 
                     if (_lastOpacity != 255)
                     {
-                        try { Win32API.SetWindowOpacity(_target, 255); } catch { }
+                        try { Win32API.SetWindowOpacity(_target, 255); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                         _lastOpacity = 255;
                     }
                 }
                 _lastMoveToHost = MoveToHost;
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         private static bool RectsEqual(RECT a, RECT b)
@@ -430,10 +433,10 @@ namespace AES_Emulation.Windows.API
                                 PlaceTargetForHostRect(hostRect, SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
                         }
                     }
-                    catch { }
+                    catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         #region Win32
@@ -509,7 +512,7 @@ namespace AES_Emulation.Windows.API
 
                     if (returnFocusToHost && _host != IntPtr.Zero)
                     {
-                        try { SetForegroundWindow(_host); } catch { }
+                        try { SetForegroundWindow(_host); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                     }
                 }
 
@@ -558,14 +561,14 @@ namespace AES_Emulation.Windows.API
                         if (GetClientRectScreen(_host, out RECT hostRect))
                         {
                             PlaceTargetForHostRect(hostRect, SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
-                            try { Win32API.SetWindowOpacity(_target, 255); } catch { }
+                            try { Win32API.SetWindowOpacity(_target, 255); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                             if (_applyRoundedCorners) ApplyRoundedRegion();
                         }
                     }
                     else
                     {
                         // Preserve child window size and layout for emulator-managed resizing.
-                        try { Win32API.SetWindowOpacity(_target, 255); } catch { }
+                        try { Win32API.SetWindowOpacity(_target, 255); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                     }
                 }
                 else
@@ -573,7 +576,7 @@ namespace AES_Emulation.Windows.API
                     Win32API.MoveAway(_target);
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

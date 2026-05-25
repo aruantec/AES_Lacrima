@@ -4,7 +4,9 @@ using Avalonia.Input;
 using Avalonia.Threading;
 using System;
 using System.Runtime.InteropServices;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.Windows.API
 {
     /// <summary>
@@ -13,6 +15,7 @@ namespace AES_Emulation.Windows.API
     /// </summary>
     public sealed class MouseTunnelHelper : IDisposable
     {
+        private static readonly ILog Log = LogHelper.For<MouseTunnelHelper>();
         private readonly InputElement _element;
 
         public IntPtr TargetHwnd { get; set; } = IntPtr.Zero;
@@ -212,7 +215,7 @@ namespace AES_Emulation.Windows.API
                 _propChangedHandler = (s, e) => { if (e.Property?.Name == "IsVisible") OnIsVisibleChanged(element.IsVisible); };
                 element.PropertyChanged += _propChangedHandler;
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             // Attach directly to the capture element so pointer coordinates stay in its local space.
             if (_isCurrentlyVisible)
@@ -303,7 +306,7 @@ namespace AES_Emulation.Windows.API
                     DetachHandlersFromElement();
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         private static IntPtr MakeLParam(int x, int y) => new IntPtr((y << 16) | (x & 0xFFFF));
@@ -344,12 +347,12 @@ namespace AES_Emulation.Windows.API
                                 _element.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.None);
                                 _cursorHiddenLocal = true;
                             }
-                            catch { }
+                            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                         }
                     }
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         private void OnPointerExited(PointerEventArgs _)
@@ -366,19 +369,19 @@ namespace AES_Emulation.Windows.API
                         {
                             SetClassCursor(TargetHwnd, _prevTargetClassCursor);
                         }
-                        catch { }
+                        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                         _cursorHiddenOnTarget = false;
                     }
 
                     if (_cursorHiddenLocal)
                     {
-                        try { _element.Cursor = _prevElementCursor; } catch { }
+                        try { _element.Cursor = _prevElementCursor; } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                         _cursorHiddenLocal = false;
                         _prevElementCursor = null;
                     }
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         private bool TryGetLocalPoint(PointerEventArgs e, out Point local)
@@ -498,17 +501,17 @@ namespace AES_Emulation.Windows.API
             {
                 _attachTimer?.Stop();
                 _attachTimer = null;
-                if (_propChangedHandler != null) { try { _element.PropertyChanged -= _propChangedHandler; } catch { } _propChangedHandler = null; }
-                try { _restoreFocusTimer?.Stop(); _restoreFocusTimer = null; } catch { }
+                if (_propChangedHandler != null) { try { _element.PropertyChanged -= _propChangedHandler; } catch (Exception logEx) { Log.Warn("Exception caught", logEx); } _propChangedHandler = null; }
+                try { _restoreFocusTimer?.Stop(); _restoreFocusTimer = null; } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 // restore class cursor if we modified it
-                try { if (_cursorHiddenOnTarget && TargetHwnd != IntPtr.Zero) SetClassCursor(TargetHwnd, _prevTargetClassCursor); } catch { }
+                try { if (_cursorHiddenOnTarget && TargetHwnd != IntPtr.Zero) SetClassCursor(TargetHwnd, _prevTargetClassCursor); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 // restore element-local cursor if we changed it
-                try { if (_cursorHiddenLocal) { _element.Cursor = _prevElementCursor; _cursorHiddenLocal = false; _prevElementCursor = null; } } catch { }
+                try { if (_cursorHiddenLocal) { _element.Cursor = _prevElementCursor; _cursorHiddenLocal = false; _prevElementCursor = null; } } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 // destroy temporary transparent cursor if created
-                try { if (_createdTransparentCursor && _transparentCursor.HasValue) { DestroyIcon(_transparentCursor.Value); _transparentCursor = null; _createdTransparentCursor = false; } } catch { }
+                try { if (_createdTransparentCursor && _transparentCursor.HasValue) { DestroyIcon(_transparentCursor.Value); _transparentCursor = null; _createdTransparentCursor = false; } } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 DetachHandlersFromElement();
             }
-            catch { /* ignore removal errors */ }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         private void AttachHandlersToElement()
@@ -546,7 +549,7 @@ namespace AES_Emulation.Windows.API
                 _element.PointerReleased -= _releasedHandler;
                 _element.PointerWheelChanged -= _wheelHandler;
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             finally
             {
                 _handlersAttachedToElement = false;
@@ -575,7 +578,7 @@ namespace AES_Emulation.Windows.API
                     return h;
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             return null;
         }
     }

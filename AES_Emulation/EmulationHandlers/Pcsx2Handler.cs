@@ -5,11 +5,14 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Emulation.Windows.API;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.EmulationHandlers;
 
 public sealed class Pcsx2Handler : EmulatorHandlerBase
 {
+    private static readonly ILog Log = LogHelper.For<Pcsx2Handler>();
     public static Pcsx2Handler Instance { get; } = new();
 
     private Pcsx2Handler()
@@ -91,9 +94,7 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
                 process.Refresh();
                 mainWindowHandle = process.MainWindowHandle;
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             var hwnd = FindFallbackQtGameWindow(process);
             if (hwnd == IntPtr.Zero)
@@ -297,9 +298,7 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
             if (modified)
                 File.WriteAllLines(settingsPath, lines);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     [DllImport("user32.dll")]

@@ -3,12 +3,15 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.Linux.API;
 
 [SupportedOSPlatform("linux")]
 internal static class LinuxWindowHelper
 {
+    private static readonly ILog Log = LogHelper.For(typeof(LinuxWindowHelper));
     private const string libX11 = "libX11.so.6";
 
     [DllImport(libX11)]
@@ -140,7 +143,7 @@ internal static class LinuxWindowHelper
                 return title;
             }
         }
-        catch { }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         return string.Empty;
     }
 

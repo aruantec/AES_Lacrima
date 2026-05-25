@@ -2,11 +2,14 @@ using System;
 using System.IO;
 using System.Text.RegularExpressions;
 using AES_Lacrima.Services.Emulation;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services.ShadPs4;
 
 public static class ShadPs4TitleIdResolver
 {
+    private static readonly ILog Log = LogHelper.For(typeof(ShadPs4TitleIdResolver));
     private static readonly Regex FolderTitleIdRegex = new(
         @"^(?<id>[A-Z]{2}[A-Z0-9]{3}[A-Z]{2}\d{5})",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -26,9 +29,7 @@ public static class ShadPs4TitleIdResolver
             if (!string.IsNullOrWhiteSpace(inspected.GameId))
                 return inspected.GameId.ToUpperInvariant();
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         try
         {
@@ -37,9 +38,7 @@ public static class ShadPs4TitleIdResolver
             if (match.Success)
                 return match.Groups["id"].Value.ToUpperInvariant();
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return null;
     }

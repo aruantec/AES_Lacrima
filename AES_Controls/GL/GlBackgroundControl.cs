@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -9,11 +9,14 @@ using Avalonia.Threading;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Controls.GL
 {
     public unsafe class GlBackgroundControl : OpenGlControlBase
     {
+    private static readonly ILog Log = LogHelper.For<GlBackgroundControl>();
         #region Properties
         public static readonly StyledProperty<Bitmap?> BackgroundImageProperty =
             AvaloniaProperty.Register<GlBackgroundControl, Bitmap?>(nameof(BackgroundImage));
@@ -143,7 +146,7 @@ namespace AES_Controls.GL
                 IntPtr pGetDisplay = gl.GetProcAddress("eglGetCurrentDisplay");
                 if (pGetDisplay != IntPtr.Zero) _eglGetCurrentDisplay = Marshal.GetDelegateForFunctionPointer<eglGetCurrentDisplayDel>(pGetDisplay);
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             _glUniform2f = Marshal.GetDelegateForFunctionPointer<GLUniform2f>(gl.GetProcAddress("glUniform2f"));
             _glUniform1f = Marshal.GetDelegateForFunctionPointer<GLUniform1f>(gl.GetProcAddress("glUniform1f"));
@@ -172,14 +175,14 @@ namespace AES_Controls.GL
                 if (_textureId != 0) { gl.DeleteTexture(_textureId); _textureId = 0; }
                 _texInitialized = false;
             }
-            catch { /* ignore GL cleanup failures */ }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
             // Dispose any property subscriptions created by this control
             try
             {
                 foreach (var d in _propertySubscriptions) d.Dispose();
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             _propertySubscriptions.Clear();
         }
 
@@ -196,7 +199,7 @@ namespace AES_Controls.GL
                     _eglSwapInterval?.Invoke(dpy, 0);
                     _vsyncDisabled = true;
                 }
-                catch { }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
 
             double currentTime = _st.Elapsed.TotalSeconds;
@@ -252,7 +255,7 @@ namespace AES_Controls.GL
                         sum += spec[i];
                     }
                 }
-                catch { }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 if (count > 0)
                 {

@@ -1,4 +1,4 @@
-﻿using AES_Core.Interfaces;
+using AES_Core.Interfaces;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
@@ -6,7 +6,9 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using System.Collections;
 using System.Windows.Input;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Controls.Navigation;
 
 /// <summary>
@@ -23,6 +25,7 @@ namespace AES_Controls.Navigation;
 /// </remarks>
 public class CachedContentPresenter : Control
 {
+    private static readonly ILog Log = LogHelper.For<CachedContentPresenter>();
     private readonly Dictionary<object, ContentControl> _cache = [];
     private readonly Panel _hostPanel = new();
     private CancellationTokenSource? _transitionCts;
@@ -174,8 +177,8 @@ public class CachedContentPresenter : Control
             if (!token.IsCancellationRequested)
             {
                 // Call lifecycle hooks: old -> leave, new -> show
-                try { (oldViewModel as IViewModelBase)?.OnLeaveViewModel(); } catch { }
-                try { (newViewModel as IViewModelBase)?.OnShowViewModel(); } catch { }
+                try { (oldViewModel as IViewModelBase)?.OnLeaveViewModel(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+                try { (newViewModel as IViewModelBase)?.OnShowViewModel(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 // Ensure only the active view is visible just in case
                 foreach (var child in _hostPanel.Children)
@@ -194,8 +197,8 @@ public class CachedContentPresenter : Control
             newViewHost.IsVisible = true;
             newViewHost.Opacity = 1.0;
             // Call lifecycle hooks synchronously for immediate switch
-            try { (oldViewModel as IViewModelBase)?.OnLeaveViewModel(); } catch { }
-            try { (newViewModel as IViewModelBase)?.OnShowViewModel(); } catch { }
+            try { (oldViewModel as IViewModelBase)?.OnLeaveViewModel(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+            try { (newViewModel as IViewModelBase)?.OnShowViewModel(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         if (!token.IsCancellationRequested)

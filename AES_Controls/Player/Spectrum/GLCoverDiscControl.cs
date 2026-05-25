@@ -1,4 +1,4 @@
-﻿using AES_Controls.Helpers;
+using AES_Controls.Helpers;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -9,7 +9,9 @@ using Avalonia.Threading;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Controls.Player.Spectrum;
 
 /// <summary>
@@ -20,6 +22,7 @@ namespace AES_Controls.Player.Spectrum;
 /// </summary>
 public class GlCoverDiscControl : OpenGlControlBase
 {
+    private static readonly ILog Log = LogHelper.For<GlCoverDiscControl>();
     private delegate void UnmanagedUniform1I(int location, int v0);
     private delegate void UnmanagedUniform1F(int location, float v0);
     private delegate void UnmanagedUniform2F(int location, float v0, float v1);
@@ -149,7 +152,7 @@ public class GlCoverDiscControl : OpenGlControlBase
             IntPtr pGetDisplay = gl.GetProcAddress("eglGetCurrentDisplay");
             if (pGetDisplay != IntPtr.Zero) _eglGetCurrentDisplay = Marshal.GetDelegateForFunctionPointer<eglGetCurrentDisplayDel>(pGetDisplay);
         }
-        catch { }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         _glUniform1I = Marshal.GetDelegateForFunctionPointer<UnmanagedUniform1I>(gl.GetProcAddress("glUniform1i"));
         _glUniform1F = Marshal.GetDelegateForFunctionPointer<UnmanagedUniform1F>(gl.GetProcAddress("glUniform1f"));
@@ -227,7 +230,7 @@ public class GlCoverDiscControl : OpenGlControlBase
                 _eglSwapInterval?.Invoke(dpy, 0);
                 _vsyncDisabled = true;
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         if (_textureDirty) UpdateTexture(gl);

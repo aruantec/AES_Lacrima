@@ -12,7 +12,9 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.ViewModels.SectionHandlers
 {
     /// <summary>
@@ -21,6 +23,7 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
     /// </summary>
     public class GenericAlbumNormalizer : IAlbumNormalizer
     {
+        private static readonly ILog Log = LogHelper.For<GenericAlbumNormalizer>();
         private static readonly object LookupLock = new();
         private static readonly Xbox360MetadataService Xbox360TitleService = new();
         private static Dictionary<string, string>? _psxTitleLookup;
@@ -517,10 +520,7 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
                         BinaryMetadataHelper.SaveMetadata(cachePath, updatedMetadata);
                     }
                 }
-                catch
-                {
-                    // Silently fail - extraction is optional
-                }
+                catch (Exception logEx) { Log.Warn("Silently fail - extraction is optional", logEx); }
             });
         }
 
@@ -631,10 +631,7 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
                         lookup[serial] = entry.Title.Trim();
                 }
             }
-            catch
-            {
-                // Ignore database load failures and fall back to existing titles.
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
             return lookup;
         }

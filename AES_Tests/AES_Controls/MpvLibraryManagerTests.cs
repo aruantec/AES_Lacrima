@@ -1,11 +1,14 @@
 using System.Reflection;
 using System.Text.Json;
 using AES_Controls.Helpers;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Controls.Tests;
 
 public sealed class MpvLibraryManagerTests : IDisposable
 {
+    private static readonly ILog Log = LogHelper.For<MpvLibraryManagerTests>();
     private readonly string _tempDataRoot;
     private readonly string? _originalXdgDataHome;
 
@@ -25,7 +28,7 @@ public sealed class MpvLibraryManagerTests : IDisposable
             if (Directory.Exists(_tempDataRoot))
                 Directory.Delete(_tempDataRoot, recursive: true);
         }
-        catch { }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         // Reset any cached static state in MpvLibraryManager (cache path, loaded cache)
         var cacheField = typeof(MpvLibraryManager).GetField("_cache", BindingFlags.Static | BindingFlags.NonPublic);

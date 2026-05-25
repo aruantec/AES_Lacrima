@@ -1,7 +1,9 @@
 using System;
 using System.Runtime.InteropServices;
 using Avalonia.OpenGL;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.Windows;
 
 /// <summary>
@@ -10,6 +12,7 @@ namespace AES_Emulation.Windows;
 /// </summary>
 internal static class WgcGlBootstrap
 {
+    private static readonly ILog Log = LogHelper.For(typeof(WgcGlBootstrap));
     [DllImport("opengl32.dll", SetLastError = true)]
     private static extern IntPtr wglGetProcAddress(string proc);
 
@@ -56,10 +59,7 @@ internal static class WgcGlBootstrap
                     return gl;
                 }
             }
-            catch
-            {
-                // Try the next profile.
-            }
+            catch (Exception logEx) { Log.Warn("Try the next profile.", logEx); }
         }
 
         return null;

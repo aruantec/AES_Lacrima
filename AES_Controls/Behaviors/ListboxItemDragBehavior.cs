@@ -15,7 +15,8 @@ using System.Collections;
 using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Windows.Input;
-using log4net;
+using log4net;
+using AES_Core.Logging;
 using Action = System.Action;
 
 namespace AES_Controls.Behaviors
@@ -1163,7 +1164,7 @@ namespace AES_Controls.Behaviors
             // Clear Adorner proxies
             if (_dragAdornerCanvas != null && _dragAdornerCanvas.Parent is AdornerLayer al)
             {
-                try { al.Children.Remove(_dragAdornerCanvas); } catch { }
+                try { al.Children.Remove(_dragAdornerCanvas); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
             _dragAdornerCanvas = null;
             _adornerProxies.Clear();

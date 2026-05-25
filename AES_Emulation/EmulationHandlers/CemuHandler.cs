@@ -7,11 +7,14 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.EmulationHandlers;
 
 public sealed class CemuHandler : EmulatorHandlerBase
 {
+    private static readonly ILog Log = LogHelper.For<CemuHandler>();
     private const string ReadyOutputToken = "------- Run title -------";
     private const int StretchFullscreenScaling = 1;
 
@@ -150,9 +153,7 @@ public sealed class CemuHandler : EmulatorHandlerBase
             fullscreenScalingElement.Value = StretchFullscreenScaling.ToString();
             document.Save(settingsPath);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         if (!_fullscreenScalingWorkaroundApplied)
         {
@@ -198,9 +199,7 @@ public sealed class CemuHandler : EmulatorHandlerBase
 
             document.Save(settingsPath);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         _fullscreenScalingSettingsPath = null;
         _fullscreenScalingOriginalValue = null;
@@ -255,9 +254,7 @@ public sealed class CemuHandler : EmulatorHandlerBase
                         return;
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             await Task.Delay(100, cancellationToken).ConfigureAwait(false);
         }
@@ -355,9 +352,7 @@ public sealed class CemuHandler : EmulatorHandlerBase
         {
             normalizedPath = Path.GetFullPath(normalizedPath);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         if (File.Exists(normalizedPath))
             return normalizedPath;
@@ -389,9 +384,7 @@ public sealed class CemuHandler : EmulatorHandlerBase
             if (files.Length == 1)
                 return files[0];
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return null;
     }

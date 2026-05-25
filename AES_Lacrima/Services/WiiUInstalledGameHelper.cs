@@ -4,7 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
 /// <summary>
@@ -14,6 +16,7 @@ namespace AES_Lacrima.Services;
 /// </summary>
 internal static class WiiUInstalledGameHelper
 {
+    private static readonly ILog Log = LogHelper.For(typeof(WiiUInstalledGameHelper));
     private static readonly string[] PreferredLongNameKeys =
     [
         "longname_en",
@@ -95,9 +98,7 @@ internal static class WiiUInstalledGameHelper
                 return XDocument.Load(metaXmlPath);
             }
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return null;
     }

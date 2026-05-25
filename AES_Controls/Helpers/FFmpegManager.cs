@@ -1,4 +1,4 @@
-﻿using AES_Core.DI;
+using AES_Core.DI;
 using CommunityToolkit.Mvvm.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -6,7 +6,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using log4net;
-
+
+using AES_Core.Logging;
 namespace AES_Controls.Helpers;
 
 /// <summary>
@@ -498,7 +499,7 @@ public partial class FFmpegManager : ObservableObject
             var completed = await Task.WhenAny(exitedTask, timeout).ConfigureAwait(false);
             if (completed != exitedTask)
             {
-                try { process.Kill(true); } catch { }
+                try { process.Kill(true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 Log.Warn($"External command timed out: {fileName} {args}");
                 return false;
             }

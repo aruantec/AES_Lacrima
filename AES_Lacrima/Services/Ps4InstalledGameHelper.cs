@@ -2,11 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services
 {
     internal static class Ps4InstalledGameHelper
     {
+    private static readonly ILog Log = LogHelper.For(typeof(Ps4InstalledGameHelper));
         public static bool IsInstalledGameFolder(string? path)
         {
             if (string.IsNullOrWhiteSpace(path))
@@ -80,9 +83,7 @@ namespace AES_Lacrima.Services
                         return candidateSfo;
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             return null;
         }
@@ -132,9 +133,7 @@ namespace AES_Lacrima.Services
                     return string.IsNullOrWhiteSpace(value) ? null : value.Trim('\0', ' ', '\t', '\r', '\n');
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             return null;
         }

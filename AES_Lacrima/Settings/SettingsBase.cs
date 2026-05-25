@@ -1,4 +1,4 @@
-﻿using AES_Core.Interfaces;
+using AES_Core.Interfaces;
 using AES_Core.IO;
 using Avalonia.Collections;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -12,7 +12,9 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Settings
 {
     /// <summary>
@@ -24,6 +26,7 @@ namespace AES_Lacrima.Settings
     /// </summary>
     public abstract class SettingsBase : ObservableObject, ISetting
     {
+        private static readonly ILog Log = LogHelper.For<SettingsBase>();
         /// <summary>
         /// Default path for the settings file. Derived classes can override this
         /// property to change where settings are stored.
@@ -95,7 +98,7 @@ namespace AES_Lacrima.Settings
             catch (Exception ex)
             {
                 Debug.WriteLine($"Failed to create settings directory for '{SettingsFilePath}': {ex.Message}");
-                try { Directory.CreateDirectory(ApplicationPaths.DataRootDirectory); } catch { /* ignore */ }
+                try { Directory.CreateDirectory(ApplicationPaths.DataRootDirectory); } catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
             }
 
             var root = ReadSettingsRoot();

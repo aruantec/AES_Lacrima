@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Text.Json;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Serialization;
 
 /// <summary>
@@ -9,6 +11,7 @@ namespace AES_Lacrima.Serialization;
 /// </summary>
 internal static class EmulatorReleaseCachePersistence
 {
+    private static readonly ILog Log = LogHelper.For(typeof(EmulatorReleaseCachePersistence));
     /// <summary>Loads a cache file, or <see langword="null" /> if missing or invalid.</summary>
     public static EmulatorReleaseCache? Load(string cachePath)
     {
@@ -38,8 +41,6 @@ internal static class EmulatorReleaseCachePersistence
             var json = JsonSerializer.Serialize(cache, EmulatorUpdateJsonContext.Default.EmulatorReleaseCache);
             File.WriteAllText(cachePath, json);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 }

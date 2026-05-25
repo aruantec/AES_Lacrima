@@ -1,11 +1,14 @@
 using System;
 using System.IO;
 using System.Text;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services
 {
     internal static class PsxIsoTitleIdHelper
     {
+    private static readonly ILog Log = LogHelper.For(typeof(PsxIsoTitleIdHelper));
         private const int SectorSize = 2048;
         private const int PvdSector = 16;
         private const int PvdOffset = PvdSector * SectorSize;
@@ -67,9 +70,7 @@ namespace AES_Lacrima.Services
                         return GetTitleIdFromIso(binPath);
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             return null;
         }
@@ -98,9 +99,7 @@ namespace AES_Lacrima.Services
                     }
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             return null;
         }
@@ -173,9 +172,7 @@ namespace AES_Lacrima.Services
                     }
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             return null;
         }

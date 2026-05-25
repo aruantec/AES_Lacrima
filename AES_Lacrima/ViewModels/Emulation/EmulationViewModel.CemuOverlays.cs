@@ -37,7 +37,8 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using System.Xml.Linq;
+using AES_Core.Logging;
 using DrawingIcon = System.Drawing.Icon;
 
 
@@ -307,9 +308,7 @@ namespace AES_Lacrima.ViewModels
                 if (!string.IsNullOrWhiteSpace(fromCache))
                     return fromCache;
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
 
             return CemuTitleIdHelper.NormalizeDisplayTitleId(WiiUInstalledGameHelper.GetTitleId(target.FileName));
         }
@@ -470,9 +469,7 @@ namespace AES_Lacrima.ViewModels
                     entries.Add(new ShadPs4PatchEntry(isEnabled, name, note, appVer));
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
 
             return entries;
         }

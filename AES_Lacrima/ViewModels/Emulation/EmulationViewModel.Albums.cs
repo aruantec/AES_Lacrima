@@ -39,7 +39,8 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using System.Xml.Linq;
+using AES_Core.Logging;
 using DrawingIcon = System.Drawing.Icon;
 
 
@@ -1151,10 +1152,7 @@ namespace AES_Lacrima.ViewModels
             {
                 await metadataTask.ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
-            {
-                // Cover scan and metadata scan share the same token; ignore.
-            }
+            catch (OperationCanceledException logEx) { SLog.Warn("Non-critical error", logEx); }
             catch (Exception ex)
             {
                 SLog.Warn($"Emulation ROM metadata scan failed for album '{album.Title}'.", ex);
@@ -1437,10 +1435,7 @@ namespace AES_Lacrima.ViewModels
                 {
                     await FlushAsync().ConfigureAwait(false);
                 }
-                catch
-                {
-                    // Ignore secondary failures during cancellation.
-                }
+                catch (Exception logEx) { SLog.Warn("Non-critical error", logEx); }
                 throw;
             }
         }

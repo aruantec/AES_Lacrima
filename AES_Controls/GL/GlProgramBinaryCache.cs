@@ -4,7 +4,9 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Controls.GL;
 
 /// <summary>
@@ -12,6 +14,7 @@ namespace AES_Controls.GL;
 /// </summary>
 public static class GlProgramBinaryCache
 {
+    private static readonly ILog Log = LogHelper.For(typeof(GlProgramBinaryCache));
     public const string ShaderToyCategory = "ShaderToy";
     public const string EmulationCategory = "Emulation";
 
@@ -85,10 +88,7 @@ public static class GlProgramBinaryCache
             gl.DeleteProgram(program);
             File.Delete(file);
         }
-        catch
-        {
-            // ignored
-        }
+        catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
         return 0;
     }

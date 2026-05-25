@@ -18,7 +18,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-
+
+using AES_Core.Logging;
 namespace AES_Lacrima.Behaviors
 {
     /// <summary>
@@ -128,7 +129,7 @@ namespace AES_Lacrima.Behaviors
                         if (ct.IsCancellationRequested) return;
                         await Dispatcher.UIThread.InvokeAsync(() => ApplyToTarget());
                     }
-                    catch (TaskCanceledException) { }
+                    catch (TaskCanceledException logEx) { Log.Warn("Exception caught", logEx); }
                     catch (Exception ex)
                     {
                         Log.Error("Error in debounce task", ex);

@@ -22,12 +22,15 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.Windows;
 
 [SupportedOSPlatform("windows")]
 public class WgcCaptureControl : OpenGlControlBase
 {
+    private static readonly ILog Log = LogHelper.For<WgcCaptureControl>();
     #region Private Fields
     private const int GL_STATIC_DRAW = 0x88E4;
     private const int GL_DYNAMIC_DRAW = 0x88E8;
@@ -410,10 +413,7 @@ public class WgcCaptureControl : OpenGlControlBase
                 FrametimeGraphGeometry = null;
             }, DispatcherPriority.Render);
         }
-        catch
-        {
-            // Best effort UI reset.
-        }
+        catch (Exception logEx) { Log.Warn("Best effort UI reset.", logEx); }
     }
 
     public void ForwardFocusToTarget()
@@ -425,10 +425,7 @@ public class WgcCaptureControl : OpenGlControlBase
         {
             Win32API.ForceEmulatorFocus(TargetHwnd, _hostHandle, 200);
         }
-        catch
-        {
-            // Best effort focus transfer for prototype mode.
-        }
+        catch (Exception logEx) { Log.Warn("Best effort focus transfer for prototype mode.", logEx); }
     }
     #endregion
 
@@ -563,7 +560,7 @@ public class WgcCaptureControl : OpenGlControlBase
         gl.BindTexture(GlConsts.GL_TEXTURE_2D, _letterboxTexId);
         gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GlConsts.GL_TEXTURE_MIN_FILTER, GlConsts.GL_LINEAR);
         gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GlConsts.GL_TEXTURE_MAG_FILTER, GlConsts.GL_LINEAR);
-        try { gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); } catch { }
+        try { gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         _pbo[0] = gl.GenBuffer();
         _pbo[1] = gl.GenBuffer();
@@ -680,14 +677,14 @@ public class WgcCaptureControl : OpenGlControlBase
             _injectionAccessor?.Dispose();
             _injectionAccessor = null;
         }
-        catch { }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         try
         {
             _injectionMemoryMappedFile?.Dispose();
             _injectionMemoryMappedFile = null;
         }
-        catch { }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private void TryDisableVSync(GlInterface gl)
@@ -1109,7 +1106,7 @@ public class WgcCaptureControl : OpenGlControlBase
                                 LastFrameHeight = ph;
                             }
                         }
-                        catch { }
+                        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                     }
 
                     // Update BackendName with current live capture state
@@ -1336,7 +1333,7 @@ public class WgcCaptureControl : OpenGlControlBase
 
     private void OnStretchChanged(Stretch newVal)
     {
-        try { Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Render); } catch { }
+        try { Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Render); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private void OnTargetHwndChanged(AvaloniaPropertyChangedEventArgs e)
@@ -1353,7 +1350,7 @@ public class WgcCaptureControl : OpenGlControlBase
             {
                 Win32API.MoveAway(hwnd);
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             TryAttachTargetWindow();
         }
@@ -1544,7 +1541,7 @@ public class WgcCaptureControl : OpenGlControlBase
         {
             Win32API.RestoreWindow(TargetHwnd);
         }
-        catch { }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         // Aggressive window manipulations can cause DX12 swapchain creation failures in emulators like Xenia.
         // We delay these calls to ensure the emulator has finished its initial window setup.
@@ -1888,7 +1885,7 @@ public class WgcCaptureControl : OpenGlControlBase
     {
         CleanupDxInterop();
         if (_session == nint.Zero) return;
-        try { WgcBridgeApi.SetInteropEnabled(_session, 1); } catch { }
+        try { WgcBridgeApi.SetInteropEnabled(_session, 1); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         nint devPtr = WgcBridgeApi.GetD3D11Device(_session);
         if (devPtr == nint.Zero) { _usingDxInterop = false; return; }
         _dxDevicePtr = (IntPtr)devPtr;
@@ -1930,9 +1927,9 @@ public class WgcCaptureControl : OpenGlControlBase
 
     private void CleanupDxInterop()
     {
-        try { if (_wglObjectHandle != IntPtr.Zero && _wglDeviceHandle != IntPtr.Zero && _wglDXUnregisterObjectNV != null) _wglDXUnregisterObjectNV(_wglDeviceHandle, _wglObjectHandle); } catch { }
+        try { if (_wglObjectHandle != IntPtr.Zero && _wglDeviceHandle != IntPtr.Zero && _wglDXUnregisterObjectNV != null) _wglDXUnregisterObjectNV(_wglDeviceHandle, _wglObjectHandle); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         _wglObjectHandle = IntPtr.Zero;
-        try { if (_wglDeviceHandle != IntPtr.Zero && _wglDXCloseDeviceNV != null) _wglDXCloseDeviceNV(_wglDeviceHandle); } catch { }
+        try { if (_wglDeviceHandle != IntPtr.Zero && _wglDXCloseDeviceNV != null) _wglDXCloseDeviceNV(_wglDeviceHandle); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         _wglDeviceHandle = IntPtr.Zero;
         _dxDevicePtr = IntPtr.Zero;
         _dxTexturePtr = IntPtr.Zero;
@@ -1982,7 +1979,7 @@ public class WgcCaptureControl : OpenGlControlBase
                 if (dpy != IntPtr.Zero) _eglDestroyImageKHR?.Invoke(dpy, _eglImage);
             }
         }
-        catch { }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         _eglImage = IntPtr.Zero;
         _currentSharedHandle = IntPtr.Zero;
         _eglDisplay = IntPtr.Zero;

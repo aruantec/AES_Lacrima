@@ -68,9 +68,7 @@ public static class Rpcs3CustomConfigService
                 if (!string.IsNullOrWhiteSpace(launcherDirectory) && Directory.Exists(launcherDirectory))
                     return launcherDirectory;
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         var managedDirectory = GetDefaultEmulatorDirectory();

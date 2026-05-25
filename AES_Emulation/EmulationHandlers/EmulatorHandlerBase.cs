@@ -81,9 +81,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         {
             normalizedPath = Path.GetFullPath(normalizedPath);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
 
         if (IsMacAppBundle(normalizedPath))
             return normalizedPath;
@@ -250,10 +248,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
                 if ((mode & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0)
                     return true;
             }
-            catch
-            {
-                // Ignore inaccessible path entries.
-            }
+            catch (Exception logEx) { SLog.Warn("Non-critical error", logEx); }
         }
 
         return false;
@@ -384,9 +379,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             if (aspect is > 0)
                 ResizeCaptureWindowToAspectRatio(hwnd, aspect.Value);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
     }
 
     public virtual IntPtr FindPreferredWindowHandle(Process process) => CaptureService?.FindPreferredWindowHandle(process) ?? process.MainWindowHandle;
@@ -473,9 +466,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             process.Refresh();
             processId = (uint)process.Id;
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
 
         EnumWindows((hwnd, _) =>
         {
@@ -541,9 +532,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
                 Win32API.SetWindowSize(hwnd, targetWidth, targetHeight);
             }
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
     }
 
     protected static void HideWindowForCapture(IntPtr hwnd)
@@ -766,10 +755,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
                         bestCandidate = candidate;
                     }
                 }
-                catch
-                {
-                    // ignore processes we cannot inspect
-                }
+                catch (Exception logEx) { SLog.Warn("Non-critical error", logEx); }
             }
 
             if (bestCandidate != null)
@@ -870,9 +856,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
                 process.Refresh();
                 mainWindowHandle = process.MainWindowHandle;
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
 
             var hwnd = FindPreferredWindowHandle(process);
             if (hwnd != IntPtr.Zero && IsStableGameWindowCandidate(hwnd, mainWindowHandle))
@@ -910,9 +894,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             if (!process.HasExited)
                 return Task.FromResult<Process?>(process);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
 
         return Task.FromResult<Process?>(process);
     }

@@ -9,7 +9,9 @@ using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Controls.Player
 {
     /// <summary>
@@ -17,6 +19,7 @@ namespace AES_Controls.Player
     /// </summary>
     public class WaveformProgressBar : ProgressBar
     {
+        private static readonly ILog Log = LogHelper.For<WaveformProgressBar>();
         #region Styled Properties
         public static readonly StyledProperty<IList<float>?> WaveformProperty =
             AvaloniaProperty.Register<WaveformProgressBar, IList<float>?>(nameof(Waveform));
@@ -324,8 +327,8 @@ namespace AES_Controls.Player
             _playedCache = null;
 
             // Unsubscribe timers and property subscriptions to avoid leaks
-            try { _loadingTimer.Tick -= LoadingTimer_Tick; } catch { }
-            try { _updateTimer.Tick -= UpdateTimer_Tick; } catch { }
+            try { _loadingTimer.Tick -= LoadingTimer_Tick; } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+            try { _updateTimer.Tick -= UpdateTimer_Tick; } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             // Explanation: we DO NOT clear _propertySubscriptions in OnDetachedFromVisualTree
             // because this control could be re-attached later (e.g. navigation caching),

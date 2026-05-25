@@ -12,7 +12,8 @@ using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using TagLib;
+using TagLib;
+using AES_Core.Logging;
 using File = System.IO.File;
 
 namespace AES_Controls.Helpers
@@ -336,7 +337,7 @@ namespace AES_Controls.Helpers
                         var hasUsableEmbedded = pic != null || wall != null;
                         // Read duration from file properties (in seconds)
                         double duration = 0.0;
-                        try { duration = file.Properties?.Duration.TotalSeconds ?? 0.0; } catch { }
+                        try { duration = file.Properties?.Duration.TotalSeconds ?? 0.0; } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                         return new { t = t ?? "", a = a ?? "", al, tr, yr, ge, co, ly, pic, wall, hasFrontCover, hasEmbedded, hasUsableEmbedded, Success = true, duration };
                     }
@@ -354,7 +355,7 @@ namespace AES_Controls.Helpers
                 {
                     Log.Debug($"MetadataScrapper: {key} - embedded:{tagResult.hasEmbedded} frontCover:{tagResult.hasFrontCover}");
                 }
-                catch { }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 await Dispatcher.UIThread.InvokeAsync(() => {
                     mi.Title = tagResult.t;
@@ -365,7 +366,7 @@ namespace AES_Controls.Helpers
                     mi.Genre = tagResult.ge;
                     mi.Comment = tagResult.co;
                     mi.Lyrics = tagResult.ly;
-                    try { if (tagResult.duration > 0 || (mi.Duration <= 0 && tagResult.duration >= 0)) mi.Duration = tagResult.duration; } catch { }
+                    try { if (tagResult.duration > 0 || (mi.Duration <= 0 && tagResult.duration >= 0)) mi.Duration = tagResult.duration; } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 }, DispatcherPriority.Background);
 
                 // Small yield to UI thread
@@ -551,7 +552,7 @@ namespace AES_Controls.Helpers
 
                         if (!RunFfmpeg(ffmpegPath, args) || !File.Exists(tempImagePath))
                         {
-                            try { if (File.Exists(tempImagePath)) File.Delete(tempImagePath); } catch { }
+                            try { if (File.Exists(tempImagePath)) File.Delete(tempImagePath); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                             continue;
                         }
 
@@ -560,13 +561,13 @@ namespace AES_Controls.Helpers
                             using var validationBitmap = new Bitmap(tempImagePath);
                             if (IsLikelyBlackFrame(validationBitmap))
                             {
-                                try { File.Delete(tempImagePath); } catch { }
+                                try { File.Delete(tempImagePath); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                                 continue;
                             }
                         }
                         catch
                         {
-                            try { File.Delete(tempImagePath); } catch { }
+                            try { File.Delete(tempImagePath); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                             continue;
                         }
 
@@ -606,7 +607,7 @@ namespace AES_Controls.Helpers
                 }
                 finally
                 {
-                    try { File.Delete(outputFile); } catch { }
+                    try { File.Delete(outputFile); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 }
             }
             catch (Exception ex)
@@ -1111,7 +1112,7 @@ namespace AES_Controls.Helpers
                             catch (Exception ex)
                             {
                                 Log.Warn($"Failed to decode online thumbnail for {mi.FileName}", ex);
-                                try { decoded?.Dispose(); } catch { }
+                                try { decoded?.Dispose(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                                 decoded = null;
                             }
 
