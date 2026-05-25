@@ -286,6 +286,19 @@
                                    Stretch="Uniform" />
                          </MenuItem.Icon>
                      </MenuItem>
+                     <MenuItem Header="Cheats"
+                               CornerRadius="8"
+                               Command="{Binding OpenCurrentSectionDuckStationCheatsCommand}"
+                               CommandParameter="{Binding SelectedIndex}"
+                               IsVisible="{Binding ShowCurrentSectionDuckStationCheatsMenuItem}">
+                         <MenuItem.Icon>
+                             <Path Data="M22,30 H118 C124,30 128,34 128,40 V116 C128,122 124,126 118,126 H22 C16,126 12,122 12,116 V40 C12,34 16,30 22,30 Z M34,56 H54 V76 H34 Z M62,56 H82 V76 H62 Z M90,56 H110 V76 H90 Z M34,84 H54 V104 H34 Z M62,84 H82 V104 H62 Z M90,84 H110 V104 H90 Z"
+                                   Fill="#CCFFFFFF"
+                                   Width="32"
+                                   Height="32"
+                                   Stretch="Uniform" />
+                         </MenuItem.Icon>
+                     </MenuItem>
                      <MenuItem Header="Delete Item"
                                CornerRadius="8"
                                Command="{Binding DeleteItemCommand}"
@@ -2247,6 +2260,10 @@
         <common:ShadPs4CheatsOverlay Grid.RowSpan="3"
                                      ZIndex="2105"
                                      DataContext="{Binding ShadPs4CheatsEditor}" />
+
+        <common:DuckStationCheatsOverlay Grid.RowSpan="3"
+                                         ZIndex="2103"
+                                         DataContext="{Binding DuckStationCheatsEditor}" />
 
         <common:XeniaCustomConfigOverlay Grid.RowSpan="3"
                                          ZIndex="2104"

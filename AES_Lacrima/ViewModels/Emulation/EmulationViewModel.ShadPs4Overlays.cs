@@ -383,5 +383,23 @@ namespace AES_Lacrima.ViewModels
                 target.Title).ConfigureAwait(true);
         }
 
+        // --- DuckStation Cheats ---
+
+        [RelayCommand]
+        private async Task OpenCurrentSectionDuckStationCheats(object? parameter)
+        {
+            if (!ShowCurrentSectionDuckStationCheatsMenuItem)
+                return;
+
+            var target = ResolveShadPs4ContextMenuTarget(parameter);
+            if (target == null || string.IsNullOrWhiteSpace(target.FileName))
+                return;
+
+            await DuckStationCheatsEditor.LoadAsync(
+                CurrentSectionDuckStationEmulatorPath,
+                target.FileName,
+                target.Title).ConfigureAwait(true);
+        }
+
     }
 }

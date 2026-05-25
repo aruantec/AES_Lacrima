@@ -793,6 +793,8 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         public ShadPs4CheatsEditorViewModel ShadPs4CheatsEditor { get; } = new();
 
+        public DuckStationCheatsEditorViewModel DuckStationCheatsEditor { get; } = new();
+
         public XeniaCustomConfigEditorViewModel XeniaCustomConfigEditor { get; } = new();
 
         public Rpcs3CustomConfigEditorViewModel Rpcs3CustomConfigEditor { get; } = new();

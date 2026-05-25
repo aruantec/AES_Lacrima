@@ -1,0 +1,152 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AES_Lacrima.ViewModels"
+             xmlns:controls="using:AES_Controls"
+             x:Class="AES_Lacrima.DuckStationCheatsOverlay"
+             x:Name="DuckStationCheatsOverlayRoot"
+             x:DataType="vm:DuckStationCheatsEditorViewModel"
+             IsHitTestVisible="{Binding IsOpen}"
+             Opacity="{Binding IsOpen, Converter={StaticResource BoolToOpacityConverter}}">
+
+    <UserControl.Transitions>
+        <Transitions>
+            <DoubleTransition Property="Opacity" Duration="0:0:0.32" />
+        </Transitions>
+    </UserControl.Transitions>
+
+    <Grid Background="#E6000000">
+        <Grid RowDefinitions="Auto,*,Auto" Margin="24,16,24,20">
+            <StackPanel Grid.Row="0" Spacing="4" Margin="6,0,0,12">
+                <TextBlock Text="{Binding OverlayHeader}"
+                           FontSize="42"
+                           FontWeight="SemiBold"
+                           Foreground="White" />
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <TextBlock Text="Serial" Foreground="#D8D8D8" FontSize="20" />
+                    <TextBlock Text="{Binding TitleId, FallbackValue=Unknown, TargetNullValue=Unknown}"
+                               Foreground="White"
+                               FontSize="20" />
+                </StackPanel>
+            </StackPanel>
+
+            <Border Grid.Row="1"
+                    Background="#1AFFFFFF"
+                    BorderBrush="#3FFFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="12">
+                <Grid>
+                    <controls:LoadingControl Width="72"
+                                             Height="72"
+                                             Foreground="#FFFFFFFF"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             IsVisible="{Binding IsBusy}" />
+
+                    <Grid ColumnDefinitions="280,*"
+                          ColumnSpacing="12"
+                          IsVisible="{Binding !IsBusy}">
+                        <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" RowSpacing="8">
+                            <TextBlock Text="Cheat Files"
+                                       Foreground="White"
+                                       FontSize="22"
+                                       FontWeight="SemiBold" />
+                            <Button Grid.Row="1"
+                                    Content="Download from chtdb"
+                                    Command="{Binding DownloadCheatsCommand}"
+                                    IsEnabled="{Binding !IsBusy}"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Padding="12,6" />
+                            <ListBox Grid.Row="2"
+                                     ItemsSource="{Binding CheatFiles}"
+                                     SelectedItem="{Binding SelectedCheatFileItem, Mode=TwoWay}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding FileName}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontSize="18" />
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+
+                        <Grid Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="8">
+                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                                <TextBlock Text="Cheats"
+                                           Foreground="White"
+                                           FontSize="22"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center" />
+                                <Button Grid.Column="1"
+                                        Content="Enable All"
+                                        Command="{Binding SelectAllCheatsCommand}"
+                                        Padding="12,6" />
+                                <Button Grid.Column="2"
+                                        Content="Disable All"
+                                        Command="{Binding UnselectAllCheatsCommand}"
+                                        Padding="12,6" />
+                            </Grid>
+
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding CheatEntries}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:DuckStationCheatEntryViewModel">
+                                            <Border Background="#14000000"
+                                                    BorderBrush="#33FFFFFF"
+                                                    BorderThickness="1"
+                                                    CornerRadius="8"
+                                                    Padding="12"
+                                                    Margin="0,0,0,8">
+                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                                    <StackPanel Grid.Column="0" Spacing="4">
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <TextBlock Text="{Binding Name}"
+                                                                       Foreground="White"
+                                                                       FontSize="20"
+                                                                       FontWeight="SemiBold" />
+                                                            <TextBlock Text="{Binding Group, StringFormat='({0})'}"
+                                                                       Foreground="#888888"
+                                                                       FontSize="16"
+                                                                       VerticalAlignment="Center"
+                                                                       IsVisible="{Binding Group, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                        </StackPanel>
+                                                        <TextBlock Text="{Binding Description}"
+                                                                   Foreground="#B0B0B0"
+                                                                   FontSize="15"
+                                                                   TextWrapping="Wrap"
+                                                                   IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                        <TextBlock Text="{Binding Author, StringFormat='Author: {0}'}"
+                                                                   Foreground="#808080"
+                                                                   FontSize="14"
+                                                                   IsVisible="{Binding Author, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                    </StackPanel>
+                                                    <ToggleSwitch Grid.Column="1"
+                                                                  IsChecked="{Binding IsEnabled, Mode=TwoWay}"
+                                                                  VerticalAlignment="Center" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="6,12,0,0">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding Status}"
+                           Foreground="#D8D8D8"
+                           FontSize="18"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center" />
+                <Button Grid.Column="1"
+                        Content="Close"
+                        Command="{Binding CloseCommand}"
+                        Padding="14,8" />
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>
