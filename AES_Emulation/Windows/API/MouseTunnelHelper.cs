@@ -1,6 +1,5 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
 using Avalonia.Threading;
 using System;
@@ -19,6 +18,17 @@ namespace AES_Emulation.Windows.API
         public IntPtr TargetHwnd { get; set; } = IntPtr.Zero;
         public bool TunnelMouse { get; set; } = true;
 
+        /// <summary>
+        /// Maps a pointer position in the capture element's local coordinates to target client coordinates.
+        /// When set, screen-cursor mapping is not used.
+        /// </summary>
+        public Func<Point, (int X, int Y)?>? MapToTargetClient { get; set; }
+
+        /// <summary>
+        /// Optional filter for whether a local point should be forwarded to the target window.
+        /// </summary>
+        public Func<Point, bool>? ShouldForwardAtPoint { get; set; }
+
         // Routed event handler references (kept so we can remove them)
         private readonly EventHandler<PointerEventArgs> _enteredHandler;
         private readonly EventHandler<PointerEventArgs> _exitedHandler;
@@ -28,8 +38,7 @@ namespace AES_Emulation.Windows.API
         private readonly EventHandler<PointerWheelEventArgs> _wheelHandler;
 
         // Visual root we attach handlers to
-        private TopLevel? _rootTopLevel;
-        private bool _handlersAttachedToRoot = false;
+        private bool _handlersAttachedToElement = false;
         private bool _isCurrentlyVisible = true;
 
         // track property changed subscription
@@ -205,11 +214,9 @@ namespace AES_Emulation.Windows.API
             }
             catch { }
 
-            // Try to attach to the visual root (TopLevel). The element may not yet be attached
-            // so poll briefly until the root is available, then attach handlers there so we receive
-            // pointer events regardless of Z-order.
+            // Attach directly to the capture element so pointer coordinates stay in its local space.
             if (_isCurrentlyVisible)
-                TryStartRootAttachTimer();
+                TryStartAttachTimer();
         }
 
         private void ForceEmulatorFocus(IntPtr targetHwnd)
@@ -237,74 +244,47 @@ namespace AES_Emulation.Windows.API
             }
         }
 
-        private DispatcherTimer? _rootAttachTimer;
-        private int _rootAttachAttempts = 0;
+        private DispatcherTimer? _attachTimer;
+        private int _attachAttempts = 0;
         private DispatcherTimer? _restoreFocusTimer;
 
-        private void TryStartRootAttachTimer()
+        private void TryStartAttachTimer()
         {
-            if (!_isCurrentlyVisible) return;
-            // If already attached, attach immediately
-            var root = TopLevel.GetTopLevel(_element);
-            if (root != null)
+            if (!_isCurrentlyVisible)
+                return;
+
+            if (TopLevel.GetTopLevel(_element) != null)
             {
-                AttachHandlersToRoot(root);
+                AttachHandlersToElement();
                 return;
             }
 
-            // Try to attach to application main window as a fallback
-            try
-            {
-                if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-                {
-                    var mw = desktop.MainWindow as TopLevel;
-                    if (mw != null)
-                    {
-                        AttachHandlersToRoot(mw);
-                        return;
-                    }
-                }
-            }
-            catch { }
-
-            // otherwise poll a few times on the UI thread
-            _rootAttachTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(200), DispatcherPriority.Background, (s, e) =>
+            _attachTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(200), DispatcherPriority.Background, (_, _) =>
             {
                 try
                 {
-                    _rootAttachAttempts++;
-                    var rt = TopLevel.GetTopLevel(_element);
-                    if (rt != null)
+                    _attachAttempts++;
+                    if (TopLevel.GetTopLevel(_element) != null)
                     {
-                        AttachHandlersToRoot(rt);
-                        _rootAttachTimer?.Stop(); _rootAttachTimer = null;
+                        AttachHandlersToElement();
+                        _attachTimer?.Stop();
+                        _attachTimer = null;
                         return;
                     }
 
-                    try
+                    if (_attachAttempts > 10)
                     {
-                        if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-                        {
-                            var mw = desktop.MainWindow as TopLevel;
-                            if (mw != null)
-                            {
-                                AttachHandlersToRoot(mw);
-                                _rootAttachTimer?.Stop(); _rootAttachTimer = null;
-                                return;
-                            }
-                        }
-                    }
-                    catch { }
-
-                    if (_rootAttachAttempts > 10)
-                    {
-                        // give up after a few attempts
-                        _rootAttachTimer?.Stop(); _rootAttachTimer = null;
+                        _attachTimer?.Stop();
+                        _attachTimer = null;
                     }
                 }
-                catch { _rootAttachTimer?.Stop(); _rootAttachTimer = null; }
+                catch
+                {
+                    _attachTimer?.Stop();
+                    _attachTimer = null;
+                }
             });
-            _rootAttachTimer.Start();
+            _attachTimer.Start();
         }
 
         private void OnIsVisibleChanged(bool visible)
@@ -314,13 +294,13 @@ namespace AES_Emulation.Windows.API
                 _isCurrentlyVisible = visible;
                 if (visible)
                 {
-                    TryStartRootAttachTimer();
+                    TryStartAttachTimer();
                 }
                 else
                 {
-                    // stop tunneling
-                    _rootAttachTimer?.Stop(); _rootAttachTimer = null;
-                    DetachHandlersFromRoot();
+                    _attachTimer?.Stop();
+                    _attachTimer = null;
+                    DetachHandlersFromElement();
                 }
             }
             catch { }
@@ -401,116 +381,123 @@ namespace AES_Emulation.Windows.API
             catch { }
         }
 
-        private void OnPointerMoved(PointerEventArgs e)
+        private bool TryGetLocalPoint(PointerEventArgs e, out Point local)
         {
-            if (!TunnelMouse || TargetHwnd == IntPtr.Zero) return;
+            local = default;
+            if (!TunnelMouse || TargetHwnd == IntPtr.Zero)
+                return false;
 
-            // Only forward moves when the pointer is actually over our capture element.
             try
             {
-                var local = e.GetPosition(_element);
+                local = e.GetPosition(_element);
                 if (local.X < 0 || local.Y < 0 || local.X > _element.Bounds.Width || local.Y > _element.Bounds.Height)
-                    return;
-            }
-            catch { return; }
+                    return false;
 
-            if (GetCursorPos(out POINT p))
+                if (ShouldForwardAtPoint != null && !ShouldForwardAtPoint(local))
+                    return false;
+
+                return true;
+            }
+            catch
             {
-                var pt = p;
-                if (ScreenToClient(TargetHwnd, ref pt))
-                {
-                    // Build wParam with current button state flags so target receives correct state
-                    int flags = 0;
-                    var props = e.GetCurrentPoint(_element).Properties;
-                    if (props.IsLeftButtonPressed) flags |= 0x0001; // MK_LBUTTON
-                    if (props.IsRightButtonPressed) flags |= 0x0002; // MK_RBUTTON
-                    if (props.IsMiddleButtonPressed) flags |= 0x0010; // MK_MBUTTON
-
-                    SendMessage(TargetHwnd, WM_MOUSEMOVE, new IntPtr(flags), MakeLParam(pt.X, pt.Y));
-                }
+                return false;
             }
+        }
+
+        private bool TryResolveTargetClientPoint(Point local, out int clientX, out int clientY)
+        {
+            clientX = 0;
+            clientY = 0;
+
+            if (MapToTargetClient != null)
+            {
+                var mapped = MapToTargetClient(local);
+                if (!mapped.HasValue)
+                    return false;
+
+                clientX = mapped.Value.X;
+                clientY = mapped.Value.Y;
+                return true;
+            }
+
+            if (!GetCursorPos(out POINT p))
+                return false;
+
+            var pt = p;
+            if (!ScreenToClient(TargetHwnd, ref pt))
+                return false;
+
+            clientX = pt.X;
+            clientY = pt.Y;
+            return true;
+        }
+
+        private void OnPointerMoved(PointerEventArgs e)
+        {
+            if (!TryGetLocalPoint(e, out var local))
+                return;
+
+            if (!TryResolveTargetClientPoint(local, out var clientX, out var clientY))
+                return;
+
+            int flags = 0;
+            var props = e.GetCurrentPoint(_element).Properties;
+            if (props.IsLeftButtonPressed) flags |= 0x0001;
+            if (props.IsRightButtonPressed) flags |= 0x0002;
+            if (props.IsMiddleButtonPressed) flags |= 0x0010;
+
+            SendMessage(TargetHwnd, WM_MOUSEMOVE, new IntPtr(flags), MakeLParam(clientX, clientY));
         }
 
         private void OnPointerPressed(PointerPressedEventArgs e)
         {
-            if (!TunnelMouse || TargetHwnd == IntPtr.Zero) return;
+            if (!TryGetLocalPoint(e, out var local))
+                return;
 
-            // Only forward presses when pointer over our element
-            try
-            {
-                var local = e.GetPosition(_element);
-                if (local.X < 0 || local.Y < 0 || local.X > _element.Bounds.Width || local.Y > _element.Bounds.Height)
-                    return;
-            }
-            catch { return; }
+            if (!TryResolveTargetClientPoint(local, out var clientX, out var clientY))
+                return;
 
-            if (GetCursorPos(out POINT p))
-            {
-                var pt = p;
-                if (!ScreenToClient(TargetHwnd, ref pt)) return;
-
-                var props = e.GetCurrentPoint(_element).Properties;
-                if (props.IsLeftButtonPressed) SendMessage(TargetHwnd, WM_LBUTTONDOWN, new IntPtr(0x0001), MakeLParam(pt.X, pt.Y));
-                if (props.IsRightButtonPressed) SendMessage(TargetHwnd, WM_RBUTTONDOWN, new IntPtr(0x0002), MakeLParam(pt.X, pt.Y));
-                if (props.IsMiddleButtonPressed) SendMessage(TargetHwnd, WM_MBUTTONDOWN, new IntPtr(0x0010), MakeLParam(pt.X, pt.Y));
-            }
+            var props = e.GetCurrentPoint(_element).Properties;
+            if (props.IsLeftButtonPressed) SendMessage(TargetHwnd, WM_LBUTTONDOWN, new IntPtr(0x0001), MakeLParam(clientX, clientY));
+            if (props.IsRightButtonPressed) SendMessage(TargetHwnd, WM_RBUTTONDOWN, new IntPtr(0x0002), MakeLParam(clientX, clientY));
+            if (props.IsMiddleButtonPressed) SendMessage(TargetHwnd, WM_MBUTTONDOWN, new IntPtr(0x0010), MakeLParam(clientX, clientY));
         }
 
         private void OnPointerReleased(PointerReleasedEventArgs e)
         {
-            if (!TunnelMouse || TargetHwnd == IntPtr.Zero) return;
+            if (!TryGetLocalPoint(e, out var local))
+                return;
 
-            // Only forward releases when pointer over our element
-            try
-            {
-                var local = e.GetPosition(_element);
-                if (local.X < 0 || local.Y < 0 || local.X > _element.Bounds.Width || local.Y > _element.Bounds.Height)
-                    return;
-            }
-            catch { return; }
+            if (!TryResolveTargetClientPoint(local, out var clientX, out var clientY))
+                return;
 
-            if (GetCursorPos(out POINT p))
-            {
-                var pt = p;
-                if (!ScreenToClient(TargetHwnd, ref pt)) return;
+            var button = e.InitialPressMouseButton;
+            if (button == MouseButton.Left) SendMessage(TargetHwnd, WM_LBUTTONUP, IntPtr.Zero, MakeLParam(clientX, clientY));
+            else if (button == MouseButton.Right) SendMessage(TargetHwnd, WM_RBUTTONUP, IntPtr.Zero, MakeLParam(clientX, clientY));
+            else if (button == MouseButton.Middle) SendMessage(TargetHwnd, WM_MBUTTONUP, IntPtr.Zero, MakeLParam(clientX, clientY));
 
-                var button = e.InitialPressMouseButton;
-                if (button == MouseButton.Left) SendMessage(TargetHwnd, WM_LBUTTONUP, IntPtr.Zero, MakeLParam(pt.X, pt.Y));
-                else if (button == MouseButton.Right) SendMessage(TargetHwnd, WM_RBUTTONUP, IntPtr.Zero, MakeLParam(pt.X, pt.Y));
-                else if (button == MouseButton.Middle) SendMessage(TargetHwnd, WM_MBUTTONUP, IntPtr.Zero, MakeLParam(pt.X, pt.Y));
-            }
             ForceEmulatorFocus(TargetHwnd);
         }
 
         private void OnPointerWheelChanged(PointerWheelEventArgs e)
         {
-            if (!TunnelMouse || TargetHwnd == IntPtr.Zero) return;
+            if (!TryGetLocalPoint(e, out var local))
+                return;
 
-            // Only forward wheel when pointer over our element
-            try
-            {
-                var local = e.GetPosition(_element);
-                if (local.X < 0 || local.Y < 0 || local.X > _element.Bounds.Width || local.Y > _element.Bounds.Height)
-                    return;
-            }
-            catch { return; }
+            if (!TryResolveTargetClientPoint(local, out var clientX, out var clientY))
+                return;
 
-            if (GetCursorPos(out POINT p))
-            {
-                var pt = p;
-                if (!ScreenToClient(TargetHwnd, ref pt)) return;
-                int delta = (int)(e.Delta.Y * 120.0);
-                // low word can contain MK_* flags, use 0 for now
-                IntPtr wParam = new IntPtr(((delta & 0xffff) << 16));
-                SendMessage(TargetHwnd, WM_MOUSEWHEEL, wParam, MakeLParam(pt.X, pt.Y));
-            }
+            int delta = (int)(e.Delta.Y * 120.0);
+            IntPtr wParam = new IntPtr(((delta & 0xffff) << 16));
+            SendMessage(TargetHwnd, WM_MOUSEWHEEL, wParam, MakeLParam(clientX, clientY));
         }
 
         public void Dispose()
         {
             try
             {
-                _rootAttachTimer?.Stop(); _rootAttachTimer = null;
+                _attachTimer?.Stop();
+                _attachTimer = null;
                 if (_propChangedHandler != null) { try { _element.PropertyChanged -= _propChangedHandler; } catch { } _propChangedHandler = null; }
                 try { _restoreFocusTimer?.Stop(); _restoreFocusTimer = null; } catch { }
                 // restore class cursor if we modified it
@@ -519,46 +506,50 @@ namespace AES_Emulation.Windows.API
                 try { if (_cursorHiddenLocal) { _element.Cursor = _prevElementCursor; _cursorHiddenLocal = false; _prevElementCursor = null; } } catch { }
                 // destroy temporary transparent cursor if created
                 try { if (_createdTransparentCursor && _transparentCursor.HasValue) { DestroyIcon(_transparentCursor.Value); _transparentCursor = null; _createdTransparentCursor = false; } } catch { }
-                DetachHandlersFromRoot();
+                DetachHandlersFromElement();
             }
             catch { /* ignore removal errors */ }
         }
 
-        private void AttachHandlersToRoot(TopLevel root)
+        private void AttachHandlersToElement()
         {
-            if (root == null || _handlersAttachedToRoot) return;
+            if (_handlersAttachedToElement)
+                return;
+
             try
             {
-                _rootTopLevel = root;
-                // Use direct CLR events on TopLevel (+=) � AddHandler on TopLevel may not route as expected
-                _rootTopLevel.PointerEntered += _enteredHandler;
-                _rootTopLevel.PointerExited += _exitedHandler;
-                _rootTopLevel.PointerMoved += _movedHandler;
-                _rootTopLevel.PointerPressed += _pressedHandler;
-                _rootTopLevel.PointerReleased += _releasedHandler;
-                _rootTopLevel.PointerWheelChanged += _wheelHandler;
-                _handlersAttachedToRoot = true;
+                _element.PointerEntered += _enteredHandler;
+                _element.PointerExited += _exitedHandler;
+                _element.PointerMoved += _movedHandler;
+                _element.PointerPressed += _pressedHandler;
+                _element.PointerReleased += _releasedHandler;
+                _element.PointerWheelChanged += _wheelHandler;
+                _handlersAttachedToElement = true;
             }
-            catch { _handlersAttachedToRoot = false; }
+            catch
+            {
+                _handlersAttachedToElement = false;
+            }
         }
 
-        private void DetachHandlersFromRoot()
+        private void DetachHandlersFromElement()
         {
-            if (!_handlersAttachedToRoot || _rootTopLevel == null) return;
+            if (!_handlersAttachedToElement)
+                return;
+
             try
             {
-                _rootTopLevel.PointerEntered -= _enteredHandler;
-                _rootTopLevel.PointerExited -= _exitedHandler;
-                _rootTopLevel.PointerMoved -= _movedHandler;
-                _rootTopLevel.PointerPressed -= _pressedHandler;
-                _rootTopLevel.PointerReleased -= _releasedHandler;
-                _rootTopLevel.PointerWheelChanged -= _wheelHandler;
+                _element.PointerEntered -= _enteredHandler;
+                _element.PointerExited -= _exitedHandler;
+                _element.PointerMoved -= _movedHandler;
+                _element.PointerPressed -= _pressedHandler;
+                _element.PointerReleased -= _releasedHandler;
+                _element.PointerWheelChanged -= _wheelHandler;
             }
             catch { }
             finally
             {
-                _handlersAttachedToRoot = false;
-                _rootTopLevel = null;
+                _handlersAttachedToElement = false;
             }
         }
 

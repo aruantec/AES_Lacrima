@@ -57,7 +57,6 @@ public class WgcCaptureControl : OpenGlControlBase
 
     private static bool _nativeAcquireSupported = true;
 
-    private readonly MouseTunnelHelper _mouseTunnel;
     private readonly object _sessionLock = new();
     private nint _session = nint.Zero;
     private byte[] _pixelBuffer = new byte[2048 * 2048 * 4];
@@ -335,8 +334,6 @@ public class WgcCaptureControl : OpenGlControlBase
 
     public WgcCaptureControl()
     {
-        _mouseTunnel = new MouseTunnelHelper(this);
-        _mouseTunnel.TunnelMouse = true;
         IsHitTestVisible = true;
         Focusable = true;
     }
@@ -1313,7 +1310,6 @@ public class WgcCaptureControl : OpenGlControlBase
 
     protected override void OnOpenGlDeinit(GlInterface gl)
     {
-        _mouseTunnel.Dispose();
         _uiHeartbeat?.Stop();
 
         // Cleanup host event subscriptions
@@ -1363,7 +1359,6 @@ public class WgcCaptureControl : OpenGlControlBase
         }
         else
         {
-            _mouseTunnel.TargetHwnd = IntPtr.Zero;
             lock (_sessionLock)
             {
                 if (_session != nint.Zero) { WgcBridgeApi.DestroyCaptureSession(_session); _session = nint.Zero; }
@@ -1569,6 +1564,56 @@ public class WgcCaptureControl : OpenGlControlBase
         });
 
         StartCapture();
+    }
+
+    internal (int X, int Y)? TryMapCapturePointToTargetClient(Point local)
+        => MapLocalToTargetClient(local);
+
+    private (int X, int Y)? MapLocalToTargetClient(Point local)
+    {
+        if (TargetHwnd == IntPtr.Zero)
+            return null;
+
+        var frameWidth = _texWidth > 0 ? _texWidth : 0;
+        var frameHeight = _texHeight > 0 ? _texHeight : 0;
+        if (frameWidth <= 0 || frameHeight <= 0)
+        {
+            if (!Win32API.TryGetWindowClientSize(TargetHwnd, out frameWidth, out frameHeight))
+                return null;
+        }
+
+        var localDestRect = CaptureMouseCoordinateMapper.CalculateLocalDestRect(
+            Bounds.Size,
+            Stretch,
+            frameWidth,
+            frameHeight,
+            0,
+            0,
+            0,
+            0);
+
+        if (!CaptureMouseCoordinateMapper.TryMapLocalToTargetClient(
+                this,
+                local,
+                localDestRect,
+                TargetHwnd,
+                frameWidth,
+                frameHeight,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                out var clientX,
+                out var clientY))
+        {
+            return null;
+        }
+
+        return (clientX, clientY);
     }
 
     private void OnRetroarchShaderFileChanged(AvaloniaPropertyChangedEventArgs e)

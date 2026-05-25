@@ -267,6 +267,42 @@ public class CompositionWgcCaptureControl : Control
         set => SetValue(EnableAutoCropProperty, value);
     }
 
+    public static readonly StyledProperty<int> ClientAreaCropLeftInsetProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, int>(nameof(ClientAreaCropLeftInset), 0);
+
+    public int ClientAreaCropLeftInset
+    {
+        get => GetValue(ClientAreaCropLeftInsetProperty);
+        set => SetValue(ClientAreaCropLeftInsetProperty, value);
+    }
+
+    public static readonly StyledProperty<int> ClientAreaCropTopInsetProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, int>(nameof(ClientAreaCropTopInset), 0);
+
+    public int ClientAreaCropTopInset
+    {
+        get => GetValue(ClientAreaCropTopInsetProperty);
+        set => SetValue(ClientAreaCropTopInsetProperty, value);
+    }
+
+    public static readonly StyledProperty<int> ClientAreaCropRightInsetProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, int>(nameof(ClientAreaCropRightInset), 0);
+
+    public int ClientAreaCropRightInset
+    {
+        get => GetValue(ClientAreaCropRightInsetProperty);
+        set => SetValue(ClientAreaCropRightInsetProperty, value);
+    }
+
+    public static readonly StyledProperty<int> ClientAreaCropBottomInsetProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, int>(nameof(ClientAreaCropBottomInset), 0);
+
+    public int ClientAreaCropBottomInset
+    {
+        get => GetValue(ClientAreaCropBottomInsetProperty);
+        set => SetValue(ClientAreaCropBottomInsetProperty, value);
+    }
+
     public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
         AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
 
@@ -390,7 +426,7 @@ public class CompositionWgcCaptureControl : Control
         if (!IsWindowsPlatform)
             return;
 
-        var target = _activeTargetHwnd != IntPtr.Zero ? _activeTargetHwnd : TargetHwnd;
+        var target = GetActiveTargetHwnd();
         if (target == IntPtr.Zero || !IsWindow(target))
             return;
 
@@ -412,6 +448,81 @@ public class CompositionWgcCaptureControl : Control
         {
             LogError("CompositionWgcCaptureControl failed to focus emulator target on click.", ex);
         }
+    }
+
+    private IntPtr GetActiveTargetHwnd()
+        => _activeTargetHwnd != IntPtr.Zero ? _activeTargetHwnd : TargetHwnd;
+
+    internal (int X, int Y)? TryMapCapturePointToTargetClient(Point local)
+        => MapLocalToTargetClient(local);
+
+    private (int X, int Y)? MapLocalToTargetClient(Point local)
+    {
+        var target = GetActiveTargetHwnd();
+        if (target == IntPtr.Zero || !IsWindow(target))
+            return null;
+
+        var frameWidth = 0;
+        var frameHeight = 0;
+        var cropLeft = 0;
+        var cropRight = 0;
+        var cropTop = 0;
+        var cropBottom = 0;
+        Rect localDestRect;
+
+        if (_handler != null &&
+            _handler.TryGetMouseMappingLayout(out localDestRect, out frameWidth, out frameHeight, out cropLeft, out cropRight, out cropTop, out cropBottom))
+        {
+            // Use the exact dest rect from the render handler.
+        }
+        else
+        {
+            if (_session != IntPtr.Zero &&
+                WgcBridgeApi.PeekLatestFrame(_session, out var frameW, out var frameH, out _) &&
+                frameW > 0 &&
+                frameH > 0)
+            {
+                frameWidth = frameW;
+                frameHeight = frameH;
+            }
+            else if (!Win32API.TryGetWindowClientSize(target, out frameWidth, out frameHeight))
+            {
+                return null;
+            }
+
+            localDestRect = CaptureMouseCoordinateMapper.CalculateLocalDestRect(
+                Bounds.Size,
+                Stretch,
+                frameWidth,
+                frameHeight,
+                cropLeft,
+                cropRight,
+                cropTop,
+                cropBottom);
+        }
+
+        if (!CaptureMouseCoordinateMapper.TryMapLocalToTargetClient(
+                this,
+                local,
+                localDestRect,
+                target,
+                frameWidth,
+                frameHeight,
+                cropLeft,
+                cropRight,
+                cropTop,
+                cropBottom,
+                ClientAreaCropLeftInset,
+                ClientAreaCropTopInset,
+                ClientAreaCropRightInset,
+                ClientAreaCropBottomInset,
+                out var clientX,
+                out var clientY))
+        {
+            return null;
+        }
+
+        return (clientX, clientY);
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
@@ -1816,6 +1927,36 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             ref _loggedSharedHandleFailure,
             $"WgcCaptureVisualHandler GPU import failed (dxTex=0x{dxTexture.ToInt64():X}, shared=0x{shared.ToInt64():X}, failures={_gpuPresentFailures}, cpuMirror={_interopCpuMirrorEnabled}).");
         return false;
+    }
+
+    internal bool TryGetMouseMappingLayout(
+        out Rect localDestRect,
+        out int frameWidth,
+        out int frameHeight,
+        out int cropLeft,
+        out int cropRight,
+        out int cropTop,
+        out int cropBottom)
+    {
+        frameWidth = _texWidth;
+        frameHeight = _texHeight;
+        cropLeft = _cropLeft;
+        cropRight = _cropRight;
+        cropTop = 0;
+        cropBottom = 0;
+        localDestRect = default;
+
+        if (_visualSize.X < 1 || _visualSize.Y < 1 || frameWidth < 1 || frameHeight < 1)
+            return false;
+
+        var dest = _cachedDestRect;
+        if (_rectDirty)
+        {
+            dest = CalculateAspectRect(_visualSize.X, _visualSize.Y, frameWidth - cropLeft - cropRight, frameHeight);
+        }
+
+        localDestRect = new Rect(dest.Left, dest.Top, dest.Width, dest.Height);
+        return localDestRect.Width > 0 && localDestRect.Height > 0;
     }
 
     internal void ApplySessionStateCore(WgcSessionMessage sm)
