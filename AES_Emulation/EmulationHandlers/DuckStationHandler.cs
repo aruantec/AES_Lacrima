@@ -48,6 +48,7 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
         startInfo.ArgumentList.Clear();
 
         EnsurePortableModeMarker(startInfo.FileName, startInfo.WorkingDirectory);
+        EnsurePauseOnFocusLossDisabled(startInfo.FileName, startInfo.WorkingDirectory);
 
         // DuckStation expects command switches before `--`, with the image path
         // after `--` so the ROM filename is not parsed as an option.
@@ -269,6 +270,46 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
         }
 
         return best;
+    }
+
+    private static void EnsurePauseOnFocusLossDisabled(string? executablePath, string? workingDirectory)
+    {
+        try
+        {
+            var baseDirectory = !string.IsNullOrWhiteSpace(workingDirectory)
+                ? workingDirectory
+                : Path.GetDirectoryName(executablePath ?? string.Empty);
+
+            if (string.IsNullOrWhiteSpace(baseDirectory) || !Directory.Exists(baseDirectory))
+                return;
+
+            var settingsPath = Path.Combine(baseDirectory, "settings.ini");
+            if (!File.Exists(settingsPath))
+                return;
+
+            var lines = File.ReadAllLines(settingsPath);
+            var modified = false;
+
+            for (var i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].TrimStart().StartsWith("PauseOnFocusLoss", StringComparison.OrdinalIgnoreCase) &&
+                    lines[i].Contains('='))
+                {
+                    var newLine = "PauseOnFocusLoss = false";
+                    if (!string.Equals(lines[i].Trim(), newLine, StringComparison.OrdinalIgnoreCase))
+                    {
+                        lines[i] = newLine;
+                        modified = true;
+                    }
+                }
+            }
+
+            if (modified)
+                File.WriteAllLines(settingsPath, lines);
+        }
+        catch
+        {
+        }
     }
 
     [DllImport("user32.dll")]

@@ -68,6 +68,8 @@ public sealed class DolphinHandler : EmulatorHandlerBase
             ? startInfo.WorkingDirectory
             : Path.Combine(executableDirectory, "User");
 
+        EnsurePauseOnFocusLossDisabled(dolphinUserDirectory);
+
         // Dolphin CLI: -b batch, -e executable/content path, -f fullscreen.
         if (!string.IsNullOrWhiteSpace(dolphinUserDirectory))
         {
@@ -421,6 +423,42 @@ public sealed class DolphinHandler : EmulatorHandlerBase
         }
 
         return null;
+    }
+
+    private static void EnsurePauseOnFocusLossDisabled(string? userDirectory)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(userDirectory))
+                return;
+
+            var configPath = Path.Combine(userDirectory, "Config", "Dolphin.ini");
+            if (!File.Exists(configPath))
+                return;
+
+            var lines = File.ReadAllLines(configPath);
+            var modified = false;
+
+            for (var i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].TrimStart().StartsWith("PauseOnFocusLost", StringComparison.OrdinalIgnoreCase) &&
+                    lines[i].Contains('='))
+                {
+                    var newLine = "PauseOnFocusLost = False";
+                    if (!string.Equals(lines[i].Trim(), newLine, StringComparison.OrdinalIgnoreCase))
+                    {
+                        lines[i] = newLine;
+                        modified = true;
+                    }
+                }
+            }
+
+            if (modified)
+                File.WriteAllLines(configPath, lines);
+        }
+        catch
+        {
+        }
     }
 
     [DllImport("user32.dll")]

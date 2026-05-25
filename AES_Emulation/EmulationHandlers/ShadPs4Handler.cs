@@ -81,6 +81,8 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         var launchTranscriptPath = CreateLaunchTranscriptPath(resolvedExecutablePath);
         _launchTranscriptPath = launchTranscriptPath;
 
+        EnsureBackgroundInputEnabled(resolvedExecutablePath);
+
         if (UseIpcForCheatsLaunch)
         {
             TerminateOtherShadPs4Instances();
@@ -832,6 +834,43 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         catch
         {
             return 0;
+        }
+    }
+
+    private static void EnsureBackgroundInputEnabled(string? executablePath)
+    {
+        try
+        {
+            var userDirectory = ResolveShadPs4UserDirectory(executablePath);
+            if (string.IsNullOrWhiteSpace(userDirectory))
+                return;
+
+            var configPath = Path.Combine(userDirectory, "config.toml");
+            if (!File.Exists(configPath))
+                return;
+
+            var lines = File.ReadAllLines(configPath);
+            var modified = false;
+
+            for (var i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].TrimStart().StartsWith("background_controller_input", StringComparison.OrdinalIgnoreCase) &&
+                    lines[i].Contains('='))
+                {
+                    var newLine = "background_controller_input = true";
+                    if (!string.Equals(lines[i].Trim(), newLine, StringComparison.Ordinal))
+                    {
+                        lines[i] = newLine;
+                        modified = true;
+                    }
+                }
+            }
+
+            if (modified)
+                File.WriteAllLines(configPath, lines);
+        }
+        catch
+        {
         }
     }
 
