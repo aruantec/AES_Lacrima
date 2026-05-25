@@ -26,7 +26,7 @@ public sealed class MainWindowCaptureFullscreenState
 
 public partial class MainWindow
 {
-    private static readonly ILog FSLog = LogManager.GetLogger("CaptureFullscreen");
+    private static readonly ILog FSLog = LogManager.GetLogger(typeof(MainWindow).Assembly, "CaptureFullscreen");
 
     private double _captureRestoreWidth;
     private double _captureRestoreHeight;
