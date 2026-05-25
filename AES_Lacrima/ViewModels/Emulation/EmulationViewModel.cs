@@ -199,6 +199,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         private string? _activeEmulatorRomPath;
         private string? _activeEmulatorGameTitle;
         private ShadPs4IpcSession? _shadPs4IpcSession;
+        private readonly EmulatorAudioVolumeController _emulatorAudioVolume = new();
         private CancellationTokenSource? _retroArchLogWatcherCts;
         private CancellationTokenSource? _activeEmulatorWatchdogCts;
         private CancellationTokenSource? _appTopmostRestoreCts;
@@ -397,6 +398,18 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         [ObservableProperty]
         private int _emulatorTargetProcessId;
+
+        [ObservableProperty]
+        private double _emulatorVolume = 100.0;
+
+        partial void OnEmulatorVolumeChanged(double value)
+        {
+            if (!OperatingSystem.IsWindows())
+                return;
+
+            float normalized = (float)Math.Clamp(value / 100.0, 0.0, 1.0);
+            _emulatorAudioVolume.Volume = normalized;
+        }
 
         [ObservableProperty]
         private bool _requestStopEmulatorCapture;

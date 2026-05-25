@@ -555,6 +555,20 @@ namespace AES_Lacrima.ViewModels
             _activeEmulatorGameTitle = gameTitle;
             EmulatorTargetProcessId = process?.Id ?? 0;
 
+            if (OperatingSystem.IsWindows() && process != null)
+            {
+                try
+                {
+                    _emulatorAudioVolume.Attach(process.Id);
+                    float currentVolume = _emulatorAudioVolume.Volume;
+                    EmulatorVolume = Math.Round(currentVolume * 100.0, 1);
+                }
+                catch
+                {
+                    EmulatorVolume = 100.0;
+                }
+            }
+
             if (_shadPs4IpcSession == null)
                 AttachShadPs4IpcSessionIfNeeded(handler, process);
 
@@ -755,6 +769,7 @@ namespace AES_Lacrima.ViewModels
                 _activeEmulatorGameTitle = null;
                 EmulatorTargetHwnd = IntPtr.Zero;
                 EmulatorTargetProcessId = 0;
+                _emulatorAudioVolume.Detach();
                 DetachShadPs4IpcSession();
                 OnPropertyChanged(nameof(ShowShadPs4InGameCheatsButton));
             }

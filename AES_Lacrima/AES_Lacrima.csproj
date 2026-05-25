@@ -7,7 +7,7 @@
     <UseSharedCompilation>false</UseSharedCompilation>
     <DisableBuildServer>true</DisableBuildServer>
     <Nullable>enable</Nullable>
-    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationIcon>Assets\AES.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -100,6 +100,14 @@
     <Message Importance="high" Text="Antigravity: Compiling WgcBridge native library using $(MsBuildPath)..." />
     <Exec Command="&quot;$(MsBuildPath)&quot; &quot;$(MSBuildProjectDirectory)\..\WgcBridge\WgcBridge.vcxproj&quot; /p:Configuration=$(Configuration) /p:Platform=x64 /m /v:m" />
   </Target>
+  <Target Name="BuildAudioBridge" BeforeTargets="BeforeBuild" Condition="'$(BuildAudioBridge)' != 'false'">
+    <Message Importance="high" Text="Antigravity: Compiling AudioBridge native library using $(MsBuildPath)..." />
+    <Exec Command="&quot;$(MsBuildPath)&quot; &quot;$(MSBuildProjectDirectory)\..\AudioBridge\AudioBridge.vcxproj&quot; /p:Configuration=$(Configuration) /p:Platform=x64 /m /v:m" />
+    <ItemGroup>
+      <_AudioBridgeDll Include="$(MSBuildProjectDirectory)\libs\windows\AudioBridge.dll" Condition="Exists('$(MSBuildProjectDirectory)\libs\windows\AudioBridge.dll')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_AudioBridgeDll)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+  </Target>
   <ItemGroup Condition="'$(PublishAot)' != 'true'">
     <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
@@ -143,6 +151,12 @@
   <ItemGroup>
     <None Update="libs\windows\WgcBridge.dll" Condition="Exists('libs\\windows\\WgcBridge.dll')">
       <Link>WgcBridge.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>false</ExcludeFromSingleFile>
+    </None>
+    <None Update="libs\windows\AudioBridge.dll" Condition="Exists('libs\\windows\\AudioBridge.dll')">
+      <Link>AudioBridge.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       <ExcludeFromSingleFile>false</ExcludeFromSingleFile>

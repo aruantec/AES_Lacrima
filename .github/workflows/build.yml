@@ -161,6 +161,22 @@ jobs:
             exit 1
           }
 
+      - name: Build AudioBridge (Windows)
+        if: matrix.package_type == 'windows'
+        shell: pwsh
+        run: |
+          Write-Host "Building AudioBridge for Windows..."
+          $winSdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' -Directory | Sort-Object Name -Descending | Select-Object -First 1).Name
+          Write-Host "Using Windows SDK version: $winSdk"
+          msbuild AudioBridge/AudioBridge.vcxproj /p:Configuration=Release /p:Platform=x64 /p:BuildTarget=Build /p:PlatformToolset=v143 /p:WindowsTargetPlatformVersion=$winSdk /p:TargetPlatformVersion=$winSdk
+          $audio = "AES_Lacrima/libs/windows/AudioBridge.dll"
+          if (Test-Path $audio) {
+            Write-Host "Successfully built AudioBridge.dll at $audio"
+          } else {
+            Write-Error "::error::AudioBridge.dll not found at $audio after build."
+            exit 1
+          }
+
       - name: Publish app on Windows
         if: matrix.package_type == 'windows'
         shell: pwsh
@@ -172,7 +188,8 @@ jobs:
             '-r', '${{ matrix.runtime }}',
             '-o', 'output/publish/Release/${{ matrix.publish_dir_name }}',
             '-p:Version=0.0.0-local',
-            '-p:BuildWgcBridge=false'
+            '-p:BuildWgcBridge=false',
+            '-p:BuildAudioBridge=false'
           )
           if ('${{ matrix.publish_aot }}' -eq 'true') {
             $arguments += '-p:PublishAot=true'
@@ -196,6 +213,26 @@ jobs:
             }
           } else {
             Write-Error "::error::WgcBridge.dll not found at $bridgeSource."
+            exit 1
+          }
+
+      - name: Copy AudioBridge.dll to publish output (Windows)
+        if: matrix.package_type == 'windows'
+        shell: pwsh
+        run: |
+          $publishedDir = "output/publish/Release/${{ matrix.publish_dir_name }}"
+          $bridgeSource = "AES_Lacrima/libs/windows/AudioBridge.dll"
+          if (Test-Path $bridgeSource) {
+            Write-Host "Copying $bridgeSource to $publishedDir"
+            Copy-Item $bridgeSource -Destination "$publishedDir/" -Force
+            if (Test-Path "$publishedDir/AudioBridge.dll") {
+                Write-Host "Successfully verified AudioBridge.dll in $publishedDir"
+            } else {
+                Write-Error "::error::Failed to copy AudioBridge.dll to $publishedDir"
+                exit 1
+            }
+          } else {
+            Write-Error "::error::AudioBridge.dll not found at $bridgeSource."
             exit 1
           }
 
