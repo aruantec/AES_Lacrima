@@ -3,8 +3,10 @@ using System.Runtime.Versioning;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using AES_Emulation.Mac;
 using AES_Emulation.Windows;
+using AES_Emulation.Windows.API;
 using AES_Emulation.Linux;
 
 namespace AES_Emulation.Controls;
@@ -156,6 +158,7 @@ public class EmulatorCaptureHost : ContentControl
     private double _frameTimeMs;
     private string _gpuRenderer = "Unknown";
     private string _gpuVendor = "Unknown";
+    private MouseTunnelHelper? _mouseTunnel;
 
     public EmulatorCaptureHost()
     {
@@ -163,6 +166,17 @@ public class EmulatorCaptureHost : ContentControl
         Content = _backend;
         SyncBackendProperties();
         HookBackendObservables();
+
+        if (OperatingSystem.IsWindows())
+        {
+            _mouseTunnel = new MouseTunnelHelper(this)
+            {
+                TunnelMouse = true,
+                MapToTargetClient = MapLocalToTargetClient
+            };
+            IsHitTestVisible = true;
+            Focusable = true;
+        }
     }
 
     public IntPtr TargetHwnd
@@ -361,6 +375,29 @@ public class EmulatorCaptureHost : ContentControl
         }
     }
 
+    private (int X, int Y)? MapLocalToTargetClient(Point hostLocal)
+    {
+        if (_backend is not Visual backendVisual)
+            return null;
+
+        Point backendLocal = hostLocal;
+        if (this is Visual hostVisual)
+            backendLocal = hostVisual.TranslatePoint(hostLocal, backendVisual) ?? hostLocal;
+
+        return _backend switch
+        {
+            CompositionWgcCaptureControl compositionBackend => compositionBackend.TryMapCapturePointToTargetClient(backendLocal),
+            WgcCaptureControl wgcBackend => wgcBackend.TryMapCapturePointToTargetClient(backendLocal),
+            _ => null
+        };
+    }
+
+    private void UpdateMouseTunnelTarget()
+    {
+        if (_mouseTunnel != null)
+            _mouseTunnel.TargetHwnd = TargetHwnd;
+    }
+
     [SupportedOSPlatform("windows")]
     private void BindToWgcBackend(WgcCaptureControl backend)
     {
@@ -396,6 +433,9 @@ public class EmulatorCaptureHost : ContentControl
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
+
+        if (change.Property == TargetHwndProperty)
+            UpdateMouseTunnelTarget();
         
         if (change.Property == CaptureModeProperty)
         {
@@ -440,11 +480,24 @@ public class EmulatorCaptureHost : ContentControl
 
     private void RecreateBackend()
     {
+        _mouseTunnel?.Dispose();
+        _mouseTunnel = null;
+
         Content = null;
         _backend = CreateBackend();
         Content = _backend;
         SyncBackendProperties();
         HookBackendObservables();
+
+        if (OperatingSystem.IsWindows())
+        {
+            _mouseTunnel = new MouseTunnelHelper(this)
+            {
+                TunnelMouse = true,
+                MapToTargetClient = MapLocalToTargetClient
+            };
+            UpdateMouseTunnelTarget();
+        }
     }
 
     private Control CreateBackend()
@@ -589,6 +642,10 @@ public class EmulatorCaptureHost : ContentControl
                     compositionBackend.RetroarchShaderFile = string.IsNullOrWhiteSpace(ShaderPath) && ClearShaderWhenPathEmpty ? null : ShaderPath;
                     compositionBackend.ForceUseTargetClientSize = ForceUseTargetClientArea;
                     compositionBackend.EnableAutoCrop = EnablePillarboxCrop;
+                    compositionBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
+                    compositionBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
+                    compositionBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
+                    compositionBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
                     compositionBackend.CaptureSessionStartDelayMs = CaptureSessionStartDelayMs;
                     compositionBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
                     compositionBackend.CaptureWindowAspectRatio = CaptureWindowAspectRatio;
