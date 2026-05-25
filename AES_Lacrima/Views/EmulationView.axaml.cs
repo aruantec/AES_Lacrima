@@ -255,16 +255,6 @@ public partial class EmulationView : UserControl
 
     private void OnCaptureHostPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (e.ClickCount == 2)
-        {
-            if (DataContext is EmulationViewModel vm)
-            {
-                vm.IsFullscreen = !vm.IsFullscreen;
-            }
-            e.Handled = true;
-            return;
-        }
-
         if (_isCaptureFullscreen)
             return;
 

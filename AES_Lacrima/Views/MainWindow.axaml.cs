@@ -93,6 +93,8 @@ namespace AES_Lacrima.Views
             if (DataContext is ViewModels.MainWindowViewModel vm)
             {
                 vm.HasUserResizedWindow = true;
+                vm.WindowWidth = Width;
+                vm.WindowHeight = Height;
             }
         }
 
