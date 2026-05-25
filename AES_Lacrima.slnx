@@ -21,4 +21,5 @@
   <Project Path="AES_Mpv/AES_Mpv.csproj" />
   <Project Path="AES_Emulation/AES_Emulation.csproj" />
   <Project Path="WgcBridge/WgcBridge.vcxproj" Id="bb166246-f004-42a5-a2c3-863a9665946f">`r`n    <Platform Solution="*|Any CPU" Project="x64" />`r`n  </Project>
+  <Project Path="AudioBridge/AudioBridge.vcxproj" Id="a1b2c3d4-e5f6-7890-abcd-ef1234567890">`r`n    <Platform Solution="*|Any CPU" Project="x64" />`r`n  </Project>
 </Solution>
