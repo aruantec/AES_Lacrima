@@ -21,7 +21,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-
+
+using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
 public sealed record AppReleaseAssetInfo(string Name, string DownloadUrl, long? Size);
@@ -1417,10 +1418,7 @@ public partial class AppUpdateService : ObservableObject
                 writer.WriteLine($"  {detail}");
             }
         }
-        catch
-        {
-            // Diagnostics should never interfere with app behavior.
-        }
+        catch (Exception logEx) { Log.Warn("Diagnostics should never interfere with app behavior.", logEx); }
     }
 
     private static int CompareSemanticVersions(string left, string right)

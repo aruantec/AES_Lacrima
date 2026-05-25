@@ -4,7 +4,9 @@ using Avalonia.Controls;
 using Avalonia.Xaml.Interactivity;
 using System;
 using System.Collections.Generic;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Behaviors
 {
     /// <summary>
@@ -15,12 +17,13 @@ namespace AES_Lacrima.Behaviors
     /// <c>0</c> (collapsed); when <c>false</c> it restores the height captured when the
     /// behavior was attached (or a default value if none was available).
     ///
-    /// The behavior intentionally does not create or manage transitions — define any
+    /// The behavior intentionally does not create or manage transitions ï¿½ define any
     /// desired <c>DoubleTransition</c> for <c>MaxHeight</c> in the control's XAML so
     /// the change is animated by the platform's Transitions system.
     /// </summary>
     public class MaxHeightToggleBehavior : Behavior<Control>
     {
+        private static readonly ILog Log = LogHelper.For<MaxHeightToggleBehavior>();
         /// <summary>
         /// Styled property backing <see cref="IsOpen"/>.
         /// </summary>
@@ -43,7 +46,7 @@ namespace AES_Lacrima.Behaviors
         protected override void OnDetaching()
         {
             base.OnDetaching();
-            foreach (var d in _subs) try { d.Dispose(); } catch { }
+            foreach (var d in _subs) try { d.Dispose(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             _subs.Clear();
         }
 

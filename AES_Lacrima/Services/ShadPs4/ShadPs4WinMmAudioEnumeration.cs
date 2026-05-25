@@ -4,12 +4,15 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
 using Microsoft.Win32;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services.ShadPs4;
 
 [SupportedOSPlatform("windows")]
 internal static class ShadPs4WinMmAudioEnumeration
 {
+    private static readonly ILog Log = LogHelper.For(typeof(ShadPs4WinMmAudioEnumeration));
     private const uint MmsyserrNoerror = 0;
     private const ushort VtLpwstr = 0x001F;
     private const string DeviceFriendlyNamePropertyKey = "{a45c254e-df1c-4efd-8020-67d146a850e0},2";
@@ -117,14 +120,10 @@ internal static class ShadPs4WinMmAudioEnumeration
                     var propertyBytes = properties.GetValue(DeviceFriendlyNamePropertyKey) as byte[];
                     AddName(devices, ParsePropVariantString(propertyBytes));
                 }
-                catch
-                {
-                }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private static string? ParsePropVariantString(byte[]? data)

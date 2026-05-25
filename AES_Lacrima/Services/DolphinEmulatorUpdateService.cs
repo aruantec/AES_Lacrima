@@ -15,7 +15,8 @@ using System.Threading.Tasks;
 using AES_Core.DI;
 using AES_Core.IO;
 using log4net;
-
+
+using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
 public sealed record DolphinUpdateState(
@@ -211,9 +212,7 @@ public partial class DolphinEmulatorUpdateService
             {
                 PrepareUpdateDirectory(updateDirectory);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             var resolvedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
             return new DolphinUpdateState(
@@ -707,9 +706,7 @@ public partial class DolphinEmulatorUpdateService
                     if (!string.IsNullOrWhiteSpace(text))
                         return text.Trim();
                 }
-                catch
-                {
-                }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
         }
 
@@ -962,12 +959,12 @@ public partial class DolphinEmulatorUpdateService
         {
             foreach (var file in Directory.EnumerateFiles(updateDirectory, "*", SearchOption.AllDirectories))
             {
-                try { File.Delete(file); } catch { }
+                try { File.Delete(file); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
 
             foreach (var directory in Directory.EnumerateDirectories(updateDirectory, "*", SearchOption.AllDirectories).OrderByDescending(static path => path.Length))
             {
-                try { Directory.Delete(directory, true); } catch { }
+                try { Directory.Delete(directory, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
         }
 
@@ -1094,9 +1091,7 @@ public partial class DolphinEmulatorUpdateService
             Directory.CreateDirectory(emulatorDirectory);
             File.WriteAllText(Path.Combine(emulatorDirectory, InstalledVersionMarkerFileName), version.Trim());
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private static string? GetFileVersionSafe(string? launcherPath)
@@ -1113,9 +1108,7 @@ public partial class DolphinEmulatorUpdateService
                     return fileVersion;
             }
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return null;
     }
@@ -1255,9 +1248,7 @@ public partial class DolphinEmulatorUpdateService
             };
             File.WriteAllText(cachePath, payload.ToJsonString());
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private static string NormalizeSectionFolderName(string sectionName)

@@ -37,7 +37,8 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using System.Xml.Linq;
+using AES_Core.Logging;
 using DrawingIcon = System.Drawing.Icon;
 
 
@@ -596,9 +597,7 @@ namespace AES_Lacrima.ViewModels
                         forceKillFirst = process.ProcessName.Contains("pcsx2", StringComparison.OrdinalIgnoreCase) ||
                                          process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
                     }
-                    catch
-                    {
-                    }
+                    catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
                 }
 
                 if (forceKillFirst)

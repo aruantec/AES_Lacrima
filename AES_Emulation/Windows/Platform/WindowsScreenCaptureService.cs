@@ -126,7 +126,7 @@ public class WindowsScreenCaptureService : AES_Emulation.Platform.IScreenCapture
 
     private static void TryWaitForInputIdle(Process process, int timeoutMs)
     {
-        try { process.WaitForInputIdle(timeoutMs); } catch { }
+        try { process.WaitForInputIdle(timeoutMs); } catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
     }
 
     private static void HideProcessWindowsForCapture(Process process)

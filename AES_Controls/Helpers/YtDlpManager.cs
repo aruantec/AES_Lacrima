@@ -7,7 +7,8 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using log4net;
-
+
+using AES_Core.Logging;
 namespace AES_Controls.Helpers;
 
 /// <summary>
@@ -556,20 +557,14 @@ public partial class YtDlpManager : ObservableObject
                         CreateNoWindow = true
                     })?.WaitForExit();
                 }
-                catch
-                {
-                    // ignored
-                }
+                catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
             }
         }
 
         Log.Info($"yt-dlp install/extract finished for asset {assetName} into {_destFolder}.");
 
         try { if (File.Exists(tempFile)) File.Delete(tempFile); }
-        catch
-        {
-            // ignored
-        }
+        catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
     }
 
     private string[] GetPlatformAssetNames()

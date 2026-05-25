@@ -15,7 +15,8 @@ using AES_Core.DI;
 using AES_Core.IO;
 using AES_Lacrima.Serialization;
 using log4net;
-
+
+using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
 public sealed record XeniaUpdateState(
@@ -196,9 +197,7 @@ public partial class XeniaEmulatorUpdateService
             {
                 PrepareUpdateDirectory(updateDirectory);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             var resolvedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
             return new XeniaUpdateState(
@@ -392,12 +391,12 @@ public partial class XeniaEmulatorUpdateService
         {
             foreach (var file in Directory.EnumerateFiles(updateDirectory, "*", SearchOption.AllDirectories))
             {
-                try { File.Delete(file); } catch { }
+                try { File.Delete(file); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
 
             foreach (var directory in Directory.EnumerateDirectories(updateDirectory, "*", SearchOption.AllDirectories).OrderByDescending(static path => path.Length))
             {
-                try { Directory.Delete(directory, true); } catch { }
+                try { Directory.Delete(directory, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
         }
 
@@ -455,12 +454,12 @@ public partial class XeniaEmulatorUpdateService
 
             if (File.Exists(zipPath))
             {
-                try { File.Delete(zipPath); } catch { }
+                try { File.Delete(zipPath); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
 
             if (Directory.Exists(extractDirectory))
             {
-                try { Directory.Delete(extractDirectory, true); } catch { }
+                try { Directory.Delete(extractDirectory, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
 
             await DownloadAssetAsync(GamePatchesZipUrl, zipPath, cancellationToken).ConfigureAwait(false);
@@ -509,7 +508,7 @@ public partial class XeniaEmulatorUpdateService
     {
         if (Directory.Exists(destinationDirectory))
         {
-            try { Directory.Delete(destinationDirectory, true); } catch { }
+            try { Directory.Delete(destinationDirectory, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         Directory.CreateDirectory(destinationDirectory);
@@ -602,9 +601,7 @@ public partial class XeniaEmulatorUpdateService
             Directory.CreateDirectory(emulatorDirectory);
             File.WriteAllText(Path.Combine(emulatorDirectory, InstalledVersionMarkerFileName), version.Trim());
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private static string? GetFileVersionSafe(string? launcherPath)
@@ -621,9 +618,7 @@ public partial class XeniaEmulatorUpdateService
                     return fileVersion;
             }
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return null;
     }

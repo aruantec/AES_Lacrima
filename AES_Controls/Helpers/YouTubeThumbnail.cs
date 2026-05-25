@@ -1,6 +1,8 @@
 using System.Text.RegularExpressions;
 using System.Text.Json;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Controls.Helpers;
 
 /// <summary>
@@ -49,6 +51,7 @@ public class ThumbnailUrls
 /// </summary>
 public abstract class YouTubeThumbnail
 {
+    private static readonly ILog Log = LogHelper.For<YouTubeThumbnail>();
     private static readonly HttpClient Client = new();
 
     static YouTubeThumbnail()
@@ -364,7 +367,7 @@ public abstract class YouTubeThumbnail
                         }
                     }
                 }
-                catch { /* fallback to meta tags */ }
+                catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
             }
 
             // Fallback to meta tags with broader patterns

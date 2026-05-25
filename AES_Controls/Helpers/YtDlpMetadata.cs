@@ -1,9 +1,11 @@
-﻿using AES_Core.IO;
+using AES_Core.IO;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Runtime.InteropServices;
 using System.Text;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Controls.Helpers;
 
 public static class JsonExtensions
@@ -100,6 +102,7 @@ public sealed class MuxedFormat
 
 public static class YtDlpMetadata
 {
+    private static readonly ILog Log = LogHelper.For(typeof(YtDlpMetadata));
     public static async Task<MediaInfo> GetBasicMetadataAsync(string videoUrl, CancellationToken cancellationToken = default)
     {
         var exePath = await RequireYtDlpPathAsync().ConfigureAwait(false);
@@ -474,7 +477,7 @@ public static class YtDlpMetadata
                     if (File.Exists(candidate)) return candidate;
                 }
             }
-            catch { /* ignore bad PATH entries */ }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
         return null;
     }

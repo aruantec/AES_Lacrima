@@ -2,11 +2,14 @@ using System;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.Windows.API
 {
     public static class Win32API
     {
+    private static readonly ILog Log = LogHelper.For(typeof(Win32API));
         private const uint INPUT_KEYBOARD = 1;
         private const uint KEYEVENTF_KEYUP = 0x0002;
         private const ushort VK_CONTROL = 0x11;
@@ -279,7 +282,7 @@ namespace AES_Emulation.Windows.API
                         DrawMenuBar(hwnd);
                     }
                 }
-                catch { }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 // Do not change extended styles (do not remove from taskbar) at this time.
 
@@ -291,7 +294,7 @@ namespace AES_Emulation.Windows.API
                         if (GetWindowRect(hwnd, out RECT r)) _savedRects[hwnd] = r;
                     }
                 }
-                catch { }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 // Preserve current client size when removing the window frame, otherwise the client area can grow/shrink
                 // and produce a mismatched aspect ratio for the emulator render surface.
@@ -310,7 +313,7 @@ namespace AES_Emulation.Windows.API
                         }
                     }
                 }
-                catch { }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 // Apply frame changed
                 SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
@@ -355,7 +358,7 @@ namespace AES_Emulation.Windows.API
                         SetMenu(hwnd, savedMenu);
                         DrawMenuBar(hwnd);
                     }
-                    catch { }
+                    catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 }
 
                 // No extended-style restoration necessary since we did not modify it.
@@ -368,7 +371,7 @@ namespace AES_Emulation.Windows.API
                         int height = Math.Max(0, r.Bottom - r.Top);
                         SetWindowPos(hwnd, IntPtr.Zero, r.Left, r.Top, width, height, SWP_NOZORDER);
                     }
-                    catch { }
+                    catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 }
 
                 RestoreDecorativeChildWindows(hwnd);
@@ -408,7 +411,7 @@ namespace AES_Emulation.Windows.API
                         if (GetWindowRect(hwnd, out RECT r)) _savedRects[hwnd] = r;
                     }
                 }
-                catch { }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 // Try to cloak via DWM if requested (best-effort)
                 if (useCloak)
@@ -418,7 +421,7 @@ namespace AES_Emulation.Windows.API
                         int cloak = 1;
                         DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, ref cloak, sizeof(int));
                     }
-                    catch { }
+                    catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 }
 
                 int virtualLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -533,9 +536,7 @@ namespace AES_Emulation.Windows.API
 
                 SetWindowSize(hwnd, targetWidth, targetHeight);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         public static bool SetWindowBounds(IntPtr hwnd, int x, int y, int width, int height)
@@ -725,9 +726,7 @@ namespace AES_Emulation.Windows.API
                 if (!preserveHiddenOpacity)
                     SetWindowOpacity(hwnd, 255);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         public static bool IsLikelyFullscreenWindow(IntPtr hwnd)
@@ -811,9 +810,7 @@ namespace AES_Emulation.Windows.API
                 MoveAway(hwnd, useCloak: true);
                 EnsureRenderActiveForCapture(hwnd, bringOnScreen: false);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         /// <summary>
@@ -840,17 +837,13 @@ namespace AES_Emulation.Windows.API
                     SetWindowLongPtrCompat(hwnd, GWL_EXSTYLE, new IntPtr(exStyle));
                     SetLayeredWindowAttributes(hwnd, 0, 1, LWA_ALPHA);
                 }
-                catch
-                {
-                }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 SetWindowCloaked(hwnd, cloaked: true);
                 WindowsStealth.RemoveFromTaskbar(hwnd);
                 EnsureRenderActiveForCapture(hwnd, bringOnScreen: false, preserveHiddenOpacity: true);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         /// <summary>
@@ -895,9 +888,7 @@ namespace AES_Emulation.Windows.API
                     0,
                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         public static void SetWindowCloaked(IntPtr hwnd, bool cloaked)
@@ -910,9 +901,7 @@ namespace AES_Emulation.Windows.API
                 int cloakValue = cloaked ? 1 : 0;
                 DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, ref cloakValue, sizeof(int));
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         /// <summary>
@@ -1042,7 +1031,7 @@ namespace AES_Emulation.Windows.API
                     }
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         private static void HideDecorativeChildWindows(IntPtr parentHwnd)
@@ -1074,18 +1063,12 @@ namespace AES_Emulation.Windows.API
                         ShowWindow(child, 0);
                         SetWindowPos(child, IntPtr.Zero, -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
                     }
-                    catch
-                    {
-                        // Ignore individual child failures and continue hiding the rest.
-                    }
+                    catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
                     return true;
                 }, IntPtr.Zero);
             }
-            catch
-            {
-                // Best-effort only.
-            }
+            catch (Exception logEx) { Log.Warn("Best-effort only.", logEx); }
         }
 
         private static void RestoreDecorativeChildWindows(IntPtr parentHwnd)
@@ -1103,19 +1086,13 @@ namespace AES_Emulation.Windows.API
                         {
                             ShowWindow(child, wasVisible ? 1 : 0);
                         }
-                        catch
-                        {
-                            // Ignore restore issues per child.
-                        }
+                        catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
                     }
 
                     return true;
                 }, IntPtr.Zero);
             }
-            catch
-            {
-                // Best-effort only.
-            }
+            catch (Exception logEx) { Log.Warn("Best-effort only.", logEx); }
         }
 
         private static bool IsLikelyDecorativeChild(RECT parentRect, int parentWidth, int parentHeight, IntPtr childHwnd, RECT childRect)

@@ -37,7 +37,8 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using System.Xml.Linq;
+using AES_Core.Logging;
 using DrawingIcon = System.Drawing.Icon;
 
 
@@ -215,9 +216,7 @@ namespace AES_Lacrima.ViewModels
                             if (!runtimeProcess.HasExited)
                                 handler.PrepareProcessForCapture(runtimeProcess);
                         }
-                        catch
-                        {
-                        }
+                        catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
                     }
                 }
 
@@ -377,10 +376,7 @@ namespace AES_Lacrima.ViewModels
                     if (hwnd != IntPtr.Zero)
                         return hwnd;
                 }
-                catch
-                {
-                    // Ignore and keep polling for the main window.
-                }
+                catch (Exception logEx) { SLog.Warn("Non-critical error", logEx); }
 
                 Thread.Sleep(delayMs);
             }
@@ -431,10 +427,7 @@ namespace AES_Lacrima.ViewModels
                                              process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
                             forceKillFirst |= process.ProcessName.Contains("shadps4", StringComparison.OrdinalIgnoreCase);
                         }
-                        catch
-                        {
-                            // ignore and keep current value
-                        }
+                        catch (Exception logEx) { SLog.Warn("Non-critical error", logEx); }
                     }
 
                     try
@@ -931,9 +924,7 @@ namespace AES_Lacrima.ViewModels
                 if (!string.IsNullOrWhiteSpace(startInfoName))
                     candidateNames.Add(startInfoName);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
 
             try
             {
@@ -942,9 +933,7 @@ namespace AES_Lacrima.ViewModels
                 if (!string.IsNullOrWhiteSpace(executableName))
                     candidateNames.Add(executableName);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
 
             var titleHint = handler.LauncherPath is { Length: > 0 }
                 ? Path.GetFileNameWithoutExtension(handler.LauncherPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
@@ -980,9 +969,7 @@ namespace AES_Lacrima.ViewModels
                             bestCandidate = liveCandidate;
                         }
                     }
-                    catch
-                    {
-                    }
+                    catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
                 }
             }
 
@@ -999,9 +986,7 @@ namespace AES_Lacrima.ViewModels
                 if (!process.HasExited)
                     return true;
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
 
             return false;
         }
@@ -1204,10 +1189,7 @@ namespace AES_Lacrima.ViewModels
                         }
                     }, DispatcherPriority.Background);
                 }
-                catch (OperationCanceledException)
-                {
-                    // Cancellation expected when restore happens normally.
-                }
+                catch (OperationCanceledException logEx) { SLog.Warn("Cancellation expected when restore happens normally.", logEx); }
                 catch (Exception ex)
                 {
                     SLog.Warn("App topmost restore timeout task failed.", ex);

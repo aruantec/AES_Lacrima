@@ -12,7 +12,8 @@ using System.Runtime.InteropServices;
 using System.Text;
 using static Avalonia.OpenGL.GlConsts;
 using log4net;
-
+
+using AES_Core.Logging;
 namespace AES_Controls.GL;
 
 public class GlWaveformSpectrumControl : OpenGlControlBase, IDisposable
@@ -245,7 +246,7 @@ public class GlWaveformSpectrumControl : OpenGlControlBase, IDisposable
                 _eglSwapInterval?.Invoke(dpy, 0);
                 _vsyncDisabled = true;
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         double currentTicks = _st.Elapsed.TotalSeconds;
@@ -439,7 +440,7 @@ public class GlWaveformSpectrumControl : OpenGlControlBase, IDisposable
             if (_vertexBuffer != 0) gl.DeleteBuffer(_vertexBuffer);
             if (_vao != 0) gl.DeleteVertexArray(_vao);
         }
-        catch { }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     public void Dispose() { }

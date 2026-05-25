@@ -7,7 +7,8 @@ using System.Globalization;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using log4net;
-
+
+using AES_Core.Logging;
 namespace AES_Controls.Players
 {
     /// <summary>
@@ -330,10 +331,7 @@ namespace AES_Controls.Players
             {
                 Thread.Sleep(delayMs);
             }
-            catch
-            {
-                // ignore sleep interruption
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
             return token.IsCancellationRequested;
         }
 

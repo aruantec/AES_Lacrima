@@ -32,7 +32,8 @@ using System.Text;
 using log4net;
 using TagLib;
 
-
+
+using AES_Core.Logging;
 namespace AES_Lacrima.ViewModels
 {
     public partial class MusicViewModel : ViewModelBase, IMusicViewModel 
@@ -104,10 +105,7 @@ namespace AES_Lacrima.ViewModels
                     });
                 }
             }
-            catch
-            {
-                // Leave the item as-is when yt-dlp metadata is unavailable.
-            }
+            catch (Exception logEx) { Log.Warn("Leave the item as-is when yt-dlp metadata is unavailable.", logEx); }
         }
 
         private async Task TryLoadYouTubeThumbnailFastAsync(MediaItem item)
@@ -180,10 +178,7 @@ namespace AES_Lacrima.ViewModels
                             });
                             return;
                         }
-                        catch
-                        {
-                            // Try the next fallback thumbnail quality.
-                        }
+                        catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
                     }
                 }
                 finally
@@ -191,10 +186,7 @@ namespace AES_Lacrima.ViewModels
                     FastThumbnailThrottle.Release();
                 }
             }
-            catch
-            {
-                // Ignore thumbnail errors to keep adding URLs resilient.
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         private IEnumerable<MediaItem> LoadMediaItemsWithTrackOrder(string path)

@@ -4,7 +4,9 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.Windows.ShaderHandling;
 
 /// <summary>
@@ -13,6 +15,7 @@ namespace AES_Emulation.Windows.ShaderHandling;
 /// </summary>
 public class HlslShaderPipeline : IDisposable
 {
+    private static readonly ILog Log = LogHelper.For<HlslShaderPipeline>();
     private readonly GlInterface _gl;
     private int _program = 0;
     private int _quadVbo = 0;
@@ -265,8 +268,8 @@ public class HlslShaderPipeline : IDisposable
 
             if (vs == 0 || fs == 0)
             {
-                if (vs != 0) try { _gl.DeleteShader(vs); } catch { }
-                if (fs != 0) try { _gl.DeleteShader(fs); } catch { }
+                if (vs != 0) try { _gl.DeleteShader(vs); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+                if (fs != 0) try { _gl.DeleteShader(fs); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 LastError = "Shader compilation failed";
                 return;
             }
@@ -318,8 +321,8 @@ public class HlslShaderPipeline : IDisposable
                 }
             }
 
-            try { _gl.DeleteShader(vs); } catch { }
-            try { _gl.DeleteShader(fs); } catch { }
+            try { _gl.DeleteShader(vs); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+            try { _gl.DeleteShader(fs); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
         catch (Exception ex)
         {
@@ -410,7 +413,7 @@ public class HlslShaderPipeline : IDisposable
         {
             Debug.WriteLine($"[HLSL] CompileShader exception: {ex.Message}");
             LastError = ex.ToString();
-            if (shader != 0) try { _gl.DeleteShader(shader); } catch { }
+            if (shader != 0) try { _gl.DeleteShader(shader); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             return 0;
         }
     }
@@ -529,8 +532,8 @@ public class HlslShaderPipeline : IDisposable
 
     public void Dispose()
     {
-        if (_program != 0) { try { _gl.DeleteProgram(_program); } catch { } _program = 0; }
-        if (_quadVbo != 0) { try { _gl.DeleteBuffer(_quadVbo); } catch { } _quadVbo = 0; }
+        if (_program != 0) { try { _gl.DeleteProgram(_program); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); } _program = 0; }
+        if (_quadVbo != 0) { try { _gl.DeleteBuffer(_quadVbo); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); } _quadVbo = 0; }
         Debug.WriteLine("[HLSL] HlslShaderPipeline disposed");
     }
 }

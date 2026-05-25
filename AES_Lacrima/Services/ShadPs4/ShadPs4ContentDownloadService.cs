@@ -9,11 +9,14 @@ using AES_Lacrima.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services.ShadPs4;
 
 public static class ShadPs4ContentDownloadService
 {
+    private static readonly ILog Log = LogHelper.For(typeof(ShadPs4ContentDownloadService));
     private static readonly HttpClient Client = new()
     {
         Timeout = TimeSpan.FromMinutes(5)
@@ -240,9 +243,7 @@ public static class ShadPs4ContentDownloadService
                 if (titleIds.Count > 0)
                     filesObject[fileName] = titleIds;
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         var jsonPath = Path.Combine(repositoryDirectory, "files.json");

@@ -376,10 +376,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
                         foundCores.Add(fileName);
                 }
             }
-            catch
-            {
-                // ignore invalid directories
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         return foundCores.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
@@ -474,10 +471,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
                         return file;
                 }
             }
-            catch
-            {
-                // ignore invalid directories
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         return null;
@@ -898,10 +892,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
                     }
                 }
             }
-            catch
-            {
-                // ignore invalid archives
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         return false;
@@ -928,10 +919,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
                         return true;
                 }
             }
-            catch
-            {
-                // ignore invalid archives
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         return false;

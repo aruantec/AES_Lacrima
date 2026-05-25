@@ -10,7 +10,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using log4net;
-
+
+using AES_Core.Logging;
 namespace AES_Controls.Helpers;
 
 /// <summary>
@@ -975,10 +976,7 @@ public partial class MpvLibraryManager : ObservableObject
                 {
                     process.Kill(true);
                 }
-                catch
-                {
-                    // ignored
-                }
+                catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
                 Log.Warn($"Command timed out: {fileName} {args}");
                 return false;

@@ -15,7 +15,8 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using log4net;
-
+
+using AES_Core.Logging;
 namespace AES_Controls.Player;
 
 /// <summary>
@@ -1220,7 +1221,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         // well; otherwise the UI will continue displaying stale data.
         _spectrumAnalyzer?.Stop();
         _waveformCts?.Cancel();
-        try { _activeFfmpegProcess?.Kill(true); } catch { }
+        try { _activeFfmpegProcess?.Kill(true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         // The analyzer was deliberately stopped above, but playback may still be
         // ongoing.  If we have a valid media item loaded and the player is
@@ -1671,9 +1672,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                     _spectrumAnalyzer.Start();
                 }
             }
-            catch (OperationCanceledException)
-            {
-            }
+            catch (OperationCanceledException logEx) { Log.Warn("Exception caught", logEx); }
             catch (Exception ex)
             {
                 Console.WriteLine($"[AudioPlayer Error]: {ex}");
@@ -1863,7 +1862,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                     using var sr = proc.StandardError;
                     while (await sr.ReadLineAsync().ConfigureAwait(false) != null) { /* discard ffmpeg logs */ }
                 }
-                catch { /* process exited */ }
+                catch (Exception logEx) { Log.Warn("process exited", logEx); }
             }, token);
 
             try { proc.PriorityClass = ProcessPriorityClass.BelowNormal; }
@@ -2087,7 +2086,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             }
             completed = true;
         }
-        catch (OperationCanceledException) { /* Ignored on cancel */ }
+        catch (OperationCanceledException logEx) { Log.Warn("Non-critical error", logEx); }
         catch (Exception ex) { Log.Error($"Error generating waveform for {path}", ex); }
         finally
         {
@@ -2259,9 +2258,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                         return true;
                     });
                 }
-                catch (OperationCanceledException)
-                {
-                }
+                catch (OperationCanceledException logEx) { Log.Warn("Exception caught", logEx); }
             });
         }
 
@@ -2299,7 +2296,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                 // logic (and also restarts waveform if required).
                 CheckAndStartFfmpegTasks();
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException logEx) { Log.Warn("Exception caught", logEx); }
         });
     }
 
@@ -2522,7 +2519,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         {
             // Stop the mpv worker thread
             _mpvQueue.CompleteAdding();
-            try { _mpvThread?.Join(250); } catch { }
+            try { _mpvThread?.Join(250); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
         catch (Exception ex)
         {

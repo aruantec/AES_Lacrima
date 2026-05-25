@@ -147,9 +147,7 @@ public sealed class ShadPs4IpcSession : IDisposable
         {
             _stdin.Dispose();
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private void WriteLine(string text)
@@ -159,9 +157,7 @@ public sealed class ShadPs4IpcSession : IDisposable
         {
             _stdin.Flush();
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private void StartStreamReader(StreamReader reader, string? transcriptPath, bool isStdErr)
@@ -180,9 +176,7 @@ public sealed class ShadPs4IpcSession : IDisposable
                     ProcessOutputLine(line, isStdErr);
                 }
             }
-            catch (OperationCanceledException)
-            {
-            }
+            catch (OperationCanceledException logEx) { Log.Warn("Exception caught", logEx); }
             catch (Exception ex)
             {
                 Log.Debug($"shadPS4 IPC {(isStdErr ? "stderr" : "stdout")} reader stopped.", ex);
@@ -203,9 +197,7 @@ public sealed class ShadPs4IpcSession : IDisposable
                     SignalRunAndStart();
                 }
             }
-            catch (OperationCanceledException)
-            {
-            }
+            catch (OperationCanceledException logEx) { Log.Warn("Exception caught", logEx); }
         }, _readerCts.Token);
     }
 
@@ -221,9 +213,7 @@ public sealed class ShadPs4IpcSession : IDisposable
                 File.AppendAllText(transcriptPath, line + Environment.NewLine, Encoding.UTF8);
             }
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private void ProcessOutputLine(string line, bool isStdErr)

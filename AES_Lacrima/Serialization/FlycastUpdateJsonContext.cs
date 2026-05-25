@@ -2,7 +2,9 @@ using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Serialization;
 
 /// <summary>
@@ -27,6 +29,7 @@ internal partial class FlycastUpdateJsonContext : JsonSerializerContext;
 /// <summary>Reads and writes <see cref="FlycastReleaseCache"/> files.</summary>
 internal static class FlycastReleaseCachePersistence
 {
+    private static readonly ILog Log = LogHelper.For(typeof(FlycastReleaseCachePersistence));
     /// <inheritdoc cref="EmulatorReleaseCachePersistence.Load"/>
     public static FlycastReleaseCache? Load(string cachePath)
     {
@@ -56,8 +59,6 @@ internal static class FlycastReleaseCachePersistence
             var json = JsonSerializer.Serialize(cache, FlycastUpdateJsonContext.Default.FlycastReleaseCache);
             File.WriteAllText(cachePath, json);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 }

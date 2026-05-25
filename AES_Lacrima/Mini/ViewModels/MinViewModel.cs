@@ -23,7 +23,8 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-
+
+using AES_Core.Logging;
 namespace AES_Lacrima.Mini.ViewModels
 {
     /// <summary>
@@ -241,7 +242,7 @@ namespace AES_Lacrima.Mini.ViewModels
 
             if (AppLifetime.MainWindow?.DataContext is IViewModelBase vm)
             {
-                try { vm.SaveSettings(); } catch { }
+                try { vm.SaveSettings(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
             DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
 
@@ -257,7 +258,7 @@ namespace AES_Lacrima.Mini.ViewModels
                 DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
                 if (!AES_Lacrima.App.IsSwitchingMode)
                 {
-                    try { DiLocator.Dispose(); } catch { }
+                    try { DiLocator.Dispose(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 }
             };
 

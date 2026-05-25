@@ -3,11 +3,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services.DuckStation;
 
 public static class DuckStationCheatsService
 {
+    private static readonly ILog Log = LogHelper.For(typeof(DuckStationCheatsService));
     public static string GetCheatsDirectory(string? emulatorDirectory)
     {
         if (string.IsNullOrWhiteSpace(emulatorDirectory))
@@ -188,9 +191,7 @@ public static class DuckStationCheatsService
                     result.Add(cheatName);
             }
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return result;
     }

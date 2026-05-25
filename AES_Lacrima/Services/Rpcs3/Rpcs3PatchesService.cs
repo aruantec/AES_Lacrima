@@ -114,9 +114,7 @@ public static class Rpcs3PatchesService
                     current = parent;
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         foreach (var candidate in candidates)
@@ -443,9 +441,7 @@ public static class Rpcs3PatchesService
                 }
             }
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return lookup;
     }
@@ -714,9 +710,7 @@ public static class Rpcs3PatchesService
             if (yaml.Documents.Count > 0 && yaml.Documents[0].RootNode is YamlMappingNode root)
                 return root;
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return new YamlMappingNode();
     }

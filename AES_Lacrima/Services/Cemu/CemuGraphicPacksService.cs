@@ -260,9 +260,7 @@ public static class CemuGraphicPacksService
             {
                 return XDocument.Load(settingsPath, LoadOptions.PreserveWhitespace);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         return new XDocument(

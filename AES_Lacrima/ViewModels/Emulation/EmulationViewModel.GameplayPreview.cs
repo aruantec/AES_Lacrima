@@ -37,7 +37,8 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using System.Xml.Linq;
+using AES_Core.Logging;
 using DrawingIcon = System.Drawing.Icon;
 
 
@@ -168,10 +169,7 @@ namespace AES_Lacrima.ViewModels
                 _pendingGameplayPreviewItemPath = null;
                 await Dispatcher.UIThread.InvokeAsync(() => IsGameplayVideoVisible = true, DispatcherPriority.Background);
             }
-            catch (OperationCanceledException)
-            {
-                // Ignore: selection changed before delayed preview start.
-            }
+            catch (OperationCanceledException logEx) { SLog.Warn("Non-critical error", logEx); }
             catch (Exception ex)
             {
                 SLog.Warn($"Failed to autoplay gameplay preview for '{item.Title}'.", ex);

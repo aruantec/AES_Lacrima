@@ -9,11 +9,14 @@ using Avalonia.Threading;
 using AES_Emulation.Windows.API;
 using System.Diagnostics;
 using System.Threading;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.Windows;
 
 public class DirectCompositionCaptureHost : NativeControlHost
 {
+    private static readonly ILog Log = LogHelper.For<DirectCompositionCaptureHost>();
     /// <summary>
     /// When true (Windows default), the emulator is parked once at a fixed on-desktop location and
     /// hidden in place for capture. AES does not mirror or continuously reposition the target HWND.
@@ -652,9 +655,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
             {
                 ApplyCaptureTargetVisibilityPolicy(settings.TargetHwnd, settings.HideTargetWindowAfterCaptureStarts);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             RefreshStatusCore();
             return;
         }
@@ -720,9 +721,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
                 ApplyCaptureTargetVisibilityPolicy(settings.TargetHwnd, settings.HideTargetWindowAfterCaptureStarts);
             }
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         var adapterInfo = WgcBridgeApi.GetDirectCompositionAdapterInfo(_session);
         var rendererName = string.IsNullOrWhiteSpace(adapterInfo.Renderer) ? "Unknown" : adapterInfo.Renderer;
@@ -794,9 +793,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
             if (_activeTargetHwnd != IntPtr.Zero)
                 HideCaptureTarget(_activeTargetHwnd);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private void MaintainHiddenCaptureTarget()
@@ -808,9 +805,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         {
             HideCaptureTarget(_activeTargetHwnd);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private void UpdateChildWindowBounds(Size size)
@@ -852,9 +847,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
                 Win32API.SetWindowOpacity(targetToRestore, 255);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         _activeTargetHwnd = IntPtr.Zero;

@@ -32,7 +32,8 @@ using System.Text;
 using log4net;
 using TagLib;
 
-
+
+using AES_Core.Logging;
 namespace AES_Lacrima.ViewModels
 {
     public partial class MusicViewModel : ViewModelBase, IMusicViewModel 
@@ -50,10 +51,7 @@ namespace AES_Lacrima.ViewModels
                 _loadedAlbumCoverCts?.Cancel();
                 _loadedAlbumCoverCts?.Dispose();
             }
-            catch
-            {
-                // Ignore cancellation cleanup races.
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
             _loadedAlbumCoverCts = new CancellationTokenSource();
             var ct = _loadedAlbumCoverCts.Token;

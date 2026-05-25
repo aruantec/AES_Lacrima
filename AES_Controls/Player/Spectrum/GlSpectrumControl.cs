@@ -9,7 +9,9 @@ using Avalonia.Media;
 using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
 using SkiaSharp;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Controls.Player.Spectrum;
 
 /// <summary>
@@ -19,6 +21,7 @@ namespace AES_Controls.Player.Spectrum;
 /// </summary>
 public sealed class GlSpectrumControl : Control, IDisposable
 {
+    private static readonly ILog Log = LogHelper.For<GlSpectrumControl>();
     private const double MinAdaptiveFrameIntervalMs = 1000.0 / 120.0;
     private const double MaxAdaptiveFrameIntervalMs = 1000.0 / 60.0;
     private const double AdaptiveIntervalToleranceMs = 0.25;
@@ -318,9 +321,7 @@ public sealed class GlSpectrumControl : Control, IDisposable
             if (_spectrumCollectionRef != null && _spectrumCollectionHandler != null)
                 _spectrumCollectionRef.CollectionChanged -= _spectrumCollectionHandler;
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         _spectrumCollectionRef = null;
         _spectrumCollectionHandler = null;

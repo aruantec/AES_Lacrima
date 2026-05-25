@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -23,7 +23,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using log4net;
 using System.Windows.Input;
-
+
+using AES_Core.Logging;
 namespace AES_Lacrima.ViewModels;
 
 /// <summary>
@@ -2245,7 +2246,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             PropertyChanged -= OnSettingsPropertyChanged;
             PropertyChanged += OnSettingsPropertyChanged;
         }
-        catch { }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         // Refresh status info for all external tools
         _ = RefreshFFmpegInfo();

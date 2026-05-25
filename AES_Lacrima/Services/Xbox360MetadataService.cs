@@ -10,7 +10,9 @@ using System.Text.RegularExpressions;
 using AES_Core.DI;
 using AES_Lacrima.Helpers;
 using AES_Lacrima.Serialization;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
 public sealed record Xbox360GameMetadata(
@@ -22,6 +24,7 @@ public sealed record Xbox360GameMetadata(
 [AutoRegister]
 public partial class Xbox360MetadataService
 {
+    private static readonly ILog Log = LogHelper.For<Xbox360MetadataService>();
     private const uint Xex2Magic = 0x58455832;
     private const uint ExecutionInfoSearchId = 0x00040006;
     private const int MaxXexHeaderDirectoryEntries = 4096;
@@ -82,9 +85,7 @@ public partial class Xbox360MetadataService
             if (!string.IsNullOrWhiteSpace(pathTitleId))
                 return WithTitle(new Xbox360GameMetadata(pathTitleId, null, null, fullPath));
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return null;
     }
@@ -277,9 +278,7 @@ public partial class Xbox360MetadataService
                             lookup[titleId] = entry.Title.Trim();
                     }
                 }
-                catch
-                {
-                }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
 
             _titleLookup = lookup;

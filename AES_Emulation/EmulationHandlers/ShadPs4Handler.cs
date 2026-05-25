@@ -163,9 +163,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
                 if (!process.HasExited)
                     process.Kill(entireProcessTree: true);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             finally
             {
                 process.Dispose();
@@ -228,9 +226,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         {
             normalizedPath = Path.GetFullPath(normalizedPath);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         if (File.Exists(normalizedPath))
             return normalizedPath;
@@ -281,9 +277,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             if (exeFiles.Length == 1)
                 return exeFiles[0];
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return null;
     }
@@ -410,9 +404,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
                     }
                 }
             }
-            catch (IOException)
-            {
-            }
+            catch (IOException logEx) { Log.Warn("Exception caught", logEx); }
 
             try
             {
@@ -438,9 +430,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         {
             normalizedPath = Path.GetFullPath(normalizedPath);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         var directParamSfoPath = Path.Combine(normalizedPath, "sce_sys", "param.sfo");
         if (File.Exists(normalizedPath) || File.Exists(directParamSfoPath))
@@ -467,9 +457,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
                     return candidate;
             }
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return romPath;
     }
@@ -515,9 +503,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             if (!process.HasExited && IsLikelyCoreProcessName(process.ProcessName))
                 return process;
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         var launcherStartTimeUtc = GetProcessStartTimeUtc(process);
         var launcherProcessId = TryGetProcessId(process);
@@ -706,9 +692,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
                     bestCandidate = candidate;
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         return bestCandidate;
@@ -869,9 +853,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             if (modified)
                 File.WriteAllLines(configPath, lines);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private readonly record struct ProcessEntry(uint ProcessId, uint ParentProcessId, string ExeName);

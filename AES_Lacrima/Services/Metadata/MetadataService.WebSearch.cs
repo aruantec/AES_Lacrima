@@ -30,7 +30,8 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using TagLib;
+using TagLib;
+using AES_Core.Logging;
 using File = System.IO.File;
 using Path = System.IO.Path;
 
@@ -411,10 +412,7 @@ namespace AES_Lacrima.Services
             {
                 decoded = Uri.UnescapeDataString(decoded);
             }
-            catch
-            {
-                // Keep the best-effort decoded value.
-            }
+            catch (Exception logEx) { SLog.Warn("Keep the best-effort decoded value.", logEx); }
 
             return decoded;
         }

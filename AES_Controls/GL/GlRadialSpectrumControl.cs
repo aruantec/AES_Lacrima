@@ -13,7 +13,8 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using log4net;
-
+
+using AES_Core.Logging;
 namespace AES_Controls.GL;
 
 public unsafe class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
@@ -413,7 +414,7 @@ public unsafe class GlRadialSpectrumControl : OpenGlControlBase, IDisposable
                 _eglSwapInterval?.Invoke(dpy, 0);
                 _vsyncDisabled = true;
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         double currentTicks = _st.Elapsed.TotalSeconds;

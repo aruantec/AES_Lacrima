@@ -3,7 +3,9 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Diagnostics;
 using System;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.Windows.API
 {
     public static class Win32Focus
@@ -35,6 +37,7 @@ namespace AES_Emulation.Windows.API
 
     public static class Win32TaskbarHider
     {
+        private static readonly ILog Log = LogHelper.For(typeof(Win32TaskbarHider));
         [ComImport]
         [Guid("56FDF344-FD6D-11d0-958A-006097C9A090")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -59,7 +62,7 @@ namespace AES_Emulation.Windows.API
                 taskbarList.HrInit();
                 taskbarList.DeleteTab(hwnd); // Removes the icon without merging
             }
-            catch { /* Fallback for non-windows */ }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         [DllImport("user32.dll")]
@@ -208,6 +211,7 @@ namespace AES_Emulation.Windows.API
 
     public static class WindowDecorationHelper
     {
+        private static readonly ILog Log = LogHelper.For(typeof(WindowDecorationHelper));
         private const int GWL_STYLE = -16;
         private const int GWL_EXSTYLE = -20;
 
@@ -370,16 +374,16 @@ namespace AES_Emulation.Windows.API
                         Debug.WriteLine($"[WGC] Hiding owned popup hwnd={hwnd} class={cls} title='{title}'");
 
                         int cloak = 1;
-                        try { WindowsStealth.DwmSetWindowAttribute(hwnd, WindowsStealth.DWMWA_CLOAK, ref cloak, sizeof(int)); } catch { }
-                        try { SetWindowPos(hwnd, IntPtr.Zero, -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE); } catch { }
-                        try { IntPtr oldEx = GetWindowLongPtrCompat(hwnd, GWL_EXSTYLE); long ex = oldEx.ToInt64(); SetWindowLongPtrCompat(hwnd, GWL_EXSTYLE, new IntPtr(ex | WS_EX_TOOLWINDOW)); } catch { }
+                        try { WindowsStealth.DwmSetWindowAttribute(hwnd, WindowsStealth.DWMWA_CLOAK, ref cloak, sizeof(int)); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+                        try { SetWindowPos(hwnd, IntPtr.Zero, -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+                        try { IntPtr oldEx = GetWindowLongPtrCompat(hwnd, GWL_EXSTYLE); long ex = oldEx.ToInt64(); SetWindowLongPtrCompat(hwnd, GWL_EXSTYLE, new IntPtr(ex | WS_EX_TOOLWINDOW)); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                     }
-                    catch { }
+                    catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                     return true;
                 }), IntPtr.Zero);
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         // Hide descendant child windows with Qt-like class names (menus implemented as WS_CHILD)
@@ -415,14 +419,14 @@ namespace AES_Emulation.Windows.API
                                 // Also move off-screen as extra measure
                                 SetWindowPos(child, IntPtr.Zero, -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
                             }
-                            catch { }
+                            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                         }
                     }
-                    catch { }
+                    catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                     return true;
                 }), IntPtr.Zero);
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         // Helper that applies headless changes to a single HWND (used for recursive application)
@@ -453,7 +457,7 @@ namespace AES_Emulation.Windows.API
                         DrawMenuBar(hwnd);
                     }
                 }
-                catch { }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 // Notify the window to update its non-client area
                 bool ok = SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
@@ -494,16 +498,16 @@ namespace AES_Emulation.Windows.API
                         // Save style for restoration if not already saved
                         if (!_savedStyles.ContainsKey(child))
                         {
-                            try { _savedStyles[child] = GetWindowLongPtrCompat(child, GWL_STYLE); } catch { }
+                            try { _savedStyles[child] = GetWindowLongPtrCompat(child, GWL_STYLE); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                         }
                         ApplyHeadlessToWindow(child);
                         return true; // continue enumeration
                     }), IntPtr.Zero);
                 }
-                catch { }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 // Additionally hide Qt child popup windows (many Qt menus are WS_CHILD with Qt class names)
-                try { HideQtChildMenus(hwnd); } catch { }
+                try { HideQtChildMenus(hwnd); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 return topOk;
             }
@@ -525,7 +529,7 @@ namespace AES_Emulation.Windows.API
             try
             {
                 // Best-effort to remove decorations first
-                try { MakeWindowHeadless(hwnd); } catch { }
+                try { MakeWindowHeadless(hwnd); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 IntPtr oldEx = GetWindowLongPtrCompat(hwnd, GWL_EXSTYLE);
                 if (!_savedExStyles.ContainsKey(hwnd)) _savedExStyles[hwnd] = oldEx;
@@ -544,7 +548,7 @@ namespace AES_Emulation.Windows.API
                 SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
                 // Ensure window stays visible (not minimized/hidden) so capture keeps working
-                try { ShowWindow(hwnd, 1); } catch { }
+                try { ShowWindow(hwnd, 1); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 return true;
             }
             catch
@@ -580,7 +584,7 @@ namespace AES_Emulation.Windows.API
                         SetMenu(hwnd, savedMenu);
                         DrawMenuBar(hwnd);
                     }
-                    catch { /* ignore restore errors */ }
+                    catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
                 }
 
                 // Restore extended style if we saved it
@@ -591,7 +595,7 @@ namespace AES_Emulation.Windows.API
                         IntPtr resEx = SetWindowLongPtrCompat(hwnd, GWL_EXSTYLE, savedEx);
                         // ignore resEx check � best-effort
                     }
-                    catch { }
+                    catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 }
 
                 // Restore size/position if we saved it
@@ -604,7 +608,7 @@ namespace AES_Emulation.Windows.API
                         SetWindowPos(hwnd, IntPtr.Zero, r.Left, r.Top, width, height,
                             SWP_NOZORDER);
                     }
-                    catch { }
+                    catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 }
 
                 // Restore any saved child visibility states for descendant windows
@@ -615,12 +619,12 @@ namespace AES_Emulation.Windows.API
                         if (child == IntPtr.Zero) return true;
                         if (_savedVisibility.TryRemove(child, out bool wasVisible))
                         {
-                            try { if (wasVisible) ShowWindow(child, 1); else ShowWindow(child, 0); } catch { }
+                            try { if (wasVisible) ShowWindow(child, 1); else ShowWindow(child, 0); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                         }
                         return true;
                     }), IntPtr.Zero);
                 }
-                catch { }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
                 bool ok = SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOOWNERZORDER);

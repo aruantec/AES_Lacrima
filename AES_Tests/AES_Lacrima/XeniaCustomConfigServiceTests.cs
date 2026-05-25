@@ -1,11 +1,14 @@
 using AES_Lacrima.Services.Xenia;
 using Tomlyn;
 using Tomlyn.Model;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Tests.AES_Lacrima;
 
 public sealed class XeniaCustomConfigServiceTests
 {
+    private static readonly ILog Log = LogHelper.For<XeniaCustomConfigServiceTests>();
     [Fact]
     public void GetJsonConfigPath_UsesCustomConfigsFolder()
     {
@@ -36,7 +39,7 @@ public sealed class XeniaCustomConfigServiceTests
         }
         finally
         {
-            try { Directory.Delete(tempRoot, true); } catch { }
+            try { Directory.Delete(tempRoot, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 
@@ -79,7 +82,7 @@ public sealed class XeniaCustomConfigServiceTests
         }
         finally
         {
-            try { Directory.Delete(tempRoot, true); } catch { }
+            try { Directory.Delete(tempRoot, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 
@@ -106,7 +109,7 @@ public sealed class XeniaCustomConfigServiceTests
         }
         finally
         {
-            try { Directory.Delete(tempRoot, true); } catch { }
+            try { Directory.Delete(tempRoot, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 
@@ -142,7 +145,7 @@ public sealed class XeniaCustomConfigServiceTests
         }
         finally
         {
-            try { Directory.Delete(tempRoot, true); } catch { }
+            try { Directory.Delete(tempRoot, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 

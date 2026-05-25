@@ -6,11 +6,14 @@ using System.Text;
 using System.Text.RegularExpressions;
 using AES_Controls.Helpers;
 using AES_Core.IO;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services
 {
     internal static class Ps3InstalledGameHelper
     {
+    private static readonly ILog Log = LogHelper.For(typeof(Ps3InstalledGameHelper));
         private const string GameIdBootPrefix = "%RPCS3_GAMEID%:";
 
         private static readonly Regex TitleIdPathRegex = new(
@@ -41,9 +44,7 @@ namespace AES_Lacrima.Services
                         return ebootPathLower;
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             return null;
         }
@@ -96,9 +97,7 @@ namespace AES_Lacrima.Services
                         return titleId;
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             var cachedTitleId = TryReadTitleIdFromMetadataCache(normalizedPath);
             if (!string.IsNullOrWhiteSpace(cachedTitleId))
@@ -165,9 +164,7 @@ namespace AES_Lacrima.Services
                         return titleName;
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             return null;
         }
@@ -190,9 +187,7 @@ namespace AES_Lacrima.Services
                         return version;
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             return null;
         }
@@ -223,9 +218,7 @@ namespace AES_Lacrima.Services
                     }
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             return null;
         }
@@ -290,9 +283,7 @@ namespace AES_Lacrima.Services
                     return string.IsNullOrWhiteSpace(value) ? null : value;
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             return null;
         }

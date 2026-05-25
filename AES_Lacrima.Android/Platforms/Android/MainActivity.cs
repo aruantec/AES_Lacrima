@@ -4,7 +4,9 @@ using Android.OS;
 using AES_Core.IO;
 using Avalonia.Android;
 using System.IO;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Android;
 
 [Activity(
@@ -20,6 +22,7 @@ namespace AES_Lacrima.Android;
                            ConfigChanges.Density)]
 public class MainActivity : AvaloniaMainActivity
 {
+                               private static readonly ILog Log = LogHelper.For<MainActivity>();
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         EnsureBundledShadersAvailable();
@@ -39,10 +42,7 @@ public class MainActivity : AvaloniaMainActivity
             Directory.CreateDirectory(destinationRoot);
             CopyAssetTree("Shadertoys", destinationRoot);
         }
-        catch
-        {
-            // Ignore asset extraction failures; app can still run without shaders.
-        }
+        catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
     }
 
     private void CopyAssetTree(string assetPath, string destinationPath)

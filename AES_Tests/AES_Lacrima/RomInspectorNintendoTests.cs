@@ -1,10 +1,13 @@
 using System.Text;
 using AES_Lacrima.Services.Emulation;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Tests;
 
 public sealed class RomInspectorNintendoTests
 {
+    private static readonly ILog Log = LogHelper.For<RomInspectorNintendoTests>();
     [Fact]
     public void Inspect_GameCubeIso_ExtractsGameIdAndInternalTitle()
     {
@@ -123,9 +126,7 @@ public sealed class RomInspectorNintendoTests
                 if (Directory.Exists(Path))
                     Directory.Delete(Path, true);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 
@@ -150,9 +151,7 @@ public sealed class RomInspectorNintendoTests
                 if (File.Exists(Path))
                     File.Delete(Path);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 }

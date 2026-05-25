@@ -1,4 +1,4 @@
-﻿using AES_Controls.Helpers;
+using AES_Controls.Helpers;
 using AES_Core.IO;
 using Avalonia;
 using Avalonia.Collections;
@@ -14,7 +14,8 @@ using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Text;
 using log4net;
-
+
+using AES_Core.Logging;
 namespace AES_Controls.GL;
 
 /// <summary>
@@ -550,10 +551,7 @@ public class GlShaderToyControl : OpenGlControlBase
             File.WriteAllText(Path.Combine(LogPath, hash + ".vs.glsl"), vs);
             File.WriteAllText(Path.Combine(LogPath, hash + ".fs.glsl"), fs);
         }
-        catch
-        {
-            // ignore IO failures
-        }
+        catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
         if (_program != 0) gl.DeleteProgram(_program);
         _program = CreateProgram(gl, vs, fs);
@@ -567,7 +565,7 @@ public class GlShaderToyControl : OpenGlControlBase
                 if (!Directory.Exists(LogPath)) Directory.CreateDirectory(LogPath);
                 File.WriteAllText(Path.Combine(LogPath, hash + ".failed.txt"), "Program creation failed for shader.\n" + fs);
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
         else
         {
@@ -743,10 +741,7 @@ public class GlShaderToyControl : OpenGlControlBase
                 _coverSecondaryColor = stops[^1].Color;
             }
         }
-        catch
-        {
-            // ignore color extraction errors; fallback path remains active
-        }
+        catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
     }
 
     private static Color[] GetGradientColors(LinearGradientBrush? brush, Color fallback)
@@ -916,10 +911,7 @@ public class GlShaderToyControl : OpenGlControlBase
             Directory.CreateDirectory(LogPath);
             File.WriteAllText(Path.Combine(LogPath, fileName), text);
         }
-        catch
-        {
-            // ignore logging failures
-        }
+        catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
     }
 
     #region Uniform Helpers

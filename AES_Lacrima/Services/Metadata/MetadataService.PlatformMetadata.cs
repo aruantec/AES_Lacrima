@@ -31,7 +31,8 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using TagLib;
+using TagLib;
+using AES_Core.Logging;
 using File = System.IO.File;
 using Path = System.IO.Path;
 
@@ -902,10 +903,7 @@ namespace AES_Lacrima.Services
                         lookup[serial] = entry.Title.Trim();
                 }
             }
-            catch
-            {
-                // Ignore database load failures and fall back to existing titles.
-            }
+            catch (Exception logEx) { SLog.Warn("Non-critical error", logEx); }
 
             return lookup;
         }
@@ -1003,10 +1001,7 @@ namespace AES_Lacrima.Services
                         if (File.Exists(cachePath))
                             File.Delete(cachePath);
                     }
-                    catch
-                    {
-                        // Ignore cache removal errors for now.
-                    }
+                    catch (Exception logEx) { SLog.Warn("Non-critical error", logEx); }
                 }
             }).ConfigureAwait(false);
         }

@@ -5,13 +5,16 @@ using System.Linq;
 using System.Text.Json;
 using System.Xml.Linq;
 using AES_Lacrima.Serialization;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services.ShadPs4;
 
 public sealed record ShadPs4PatchFileItem(string FilePath, string TitleId);
 
 public static class ShadPs4PatchesService
 {
+    private static readonly ILog Log = LogHelper.For(typeof(ShadPs4PatchesService));
     private static readonly string[] PreferredRepositoryOrder = ["shadPS4", "shadps4", "GoldHEN"];
 
     public static ShadPs4PatchFileItem? FindPatchFile(string? emulatorDirectory, string titleId)
@@ -71,9 +74,7 @@ public static class ShadPs4PatchesService
                     }
                 }
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         foreach (var xmlPath in Directory.EnumerateFiles(repositoryDirectory, "*.xml", SearchOption.TopDirectoryOnly))

@@ -18,7 +18,8 @@ using AES_Core.IO;
 using AES_Lacrima.Serialization;
 using AES_Emulation.EmulationHandlers;
 using log4net;
-
+
+using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
 public sealed record FlycastUpdateState(
@@ -234,9 +235,7 @@ public partial class FlycastEmulatorUpdateService
             {
                 PrepareUpdateDirectory(updateDirectory);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             var resolvedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
             return new FlycastUpdateState(
@@ -639,12 +638,12 @@ public partial class FlycastEmulatorUpdateService
         {
             foreach (var file in Directory.EnumerateFiles(updateDirectory, "*", SearchOption.AllDirectories))
             {
-                try { File.Delete(file); } catch { }
+                try { File.Delete(file); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
 
             foreach (var directory in Directory.EnumerateDirectories(updateDirectory, "*", SearchOption.AllDirectories).OrderByDescending(static path => path.Length))
             {
-                try { Directory.Delete(directory, true); } catch { }
+                try { Directory.Delete(directory, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
         }
 
@@ -755,9 +754,7 @@ public partial class FlycastEmulatorUpdateService
             Directory.CreateDirectory(emulatorDirectory);
             File.WriteAllText(Path.Combine(emulatorDirectory, InstalledVersionMarkerFileName), version.Trim());
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private static string? GetFileVersionSafe(string? launcherPath)
@@ -774,9 +771,7 @@ public partial class FlycastEmulatorUpdateService
                     return fileVersion;
             }
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return null;
     }

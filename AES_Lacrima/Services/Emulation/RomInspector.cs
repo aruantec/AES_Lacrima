@@ -6,7 +6,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using AES_Lacrima.Services;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services.Emulation
 {
     /// <summary>
@@ -40,6 +42,7 @@ namespace AES_Lacrima.Services.Emulation
     /// </summary>
     public static class RomInspector
     {
+        private static readonly ILog Log = LogHelper.For(typeof(RomInspector));
         private const long FullHashThreshold = 200L * 1024 * 1024; // 200 MB
         private const long NormSha1Threshold = 512L * 1024 * 1024; // 512 MB
         private const uint GameCubeDiscMagic = 0xC2339F3D;
@@ -111,7 +114,7 @@ namespace AES_Lacrima.Services.Emulation
                         return InspectFromStream(fs, $"{path}::{Path.GetFileName(bin)}", section);
                     }
                 }
-                catch { /* swallow and fallback */ }
+                catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
             }
 
             if (ext == ".gdi")
@@ -150,7 +153,7 @@ namespace AES_Lacrima.Services.Emulation
                     var gi = TryExtractInfoFromGdi(path);
                     if (gi != null) return gi;
                 }
-                catch { /* swallow and fallback */ }
+                catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
             }
 
             if (ext == ".cdi")
@@ -191,7 +194,7 @@ namespace AES_Lacrima.Services.Emulation
                     var cdfb = InspectCdiFallback(path);
                     if (cdfb != null) return cdfb;
                 }
-                catch { /* ignore and fallback to stream inspection */ }
+                catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
             }
 
             using var fileStream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -275,10 +278,7 @@ namespace AES_Lacrima.Services.Emulation
                     return ri;
                 }
             }
-            catch
-            {
-                // silent fallback - do not disrupt main flow
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
             return null;
         }
@@ -329,7 +329,7 @@ namespace AES_Lacrima.Services.Emulation
             }
             finally
             {
-                try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+                try { if (File.Exists(temp)) File.Delete(temp); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
         }
 
@@ -1313,7 +1313,7 @@ namespace AES_Lacrima.Services.Emulation
                         return raw.Take(len).ToArray();
                     }
                 }
-                catch { }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
 
             // NES detection
@@ -1546,7 +1546,7 @@ namespace AES_Lacrima.Services.Emulation
                     }
                 }
             }
-            catch { /* ignore parse errors */ }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
             return null;
         }
@@ -1618,7 +1618,7 @@ namespace AES_Lacrima.Services.Emulation
                     }
                 }
             }
-            catch { /* ignore parse errors */ }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
             return null;
         }
@@ -1663,7 +1663,7 @@ namespace AES_Lacrima.Services.Emulation
                         return match;
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
             return null;
         }
@@ -1713,7 +1713,7 @@ namespace AES_Lacrima.Services.Emulation
                     return ri;
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             return null;
         }
 
@@ -1757,7 +1757,7 @@ namespace AES_Lacrima.Services.Emulation
                     m = m.NextMatch();
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             return null;
         }
 
@@ -1811,7 +1811,7 @@ namespace AES_Lacrima.Services.Emulation
                     return ri;
                 }
             }
-            catch { }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             return null;
         }
 
@@ -1952,10 +1952,7 @@ namespace AES_Lacrima.Services.Emulation
                 
                 fs.Seek(originalPos, SeekOrigin.Begin);
             }
-            catch
-            {
-                // Silent fail
-            }
+            catch (Exception logEx) { Log.Warn("Silent fail", logEx); }
         }
 
         private static void TryExtractIpBinBySearch(Stream fs, RomInfo info)
@@ -2052,10 +2049,7 @@ namespace AES_Lacrima.Services.Emulation
                     }
                 }
             }
-            catch
-            {
-                // Silent fail
-            }
+            catch (Exception logEx) { Log.Warn("Silent fail", logEx); }
         }
         
         private static bool IsNintendoDiscExtension(string extension)
@@ -2726,10 +2720,7 @@ namespace AES_Lacrima.Services.Emulation
                 
                 fs.Seek(originalPos, SeekOrigin.Begin);
             }
-            catch
-            {
-                // Silent fail - cover extraction is optional
-            }
+            catch (Exception logEx) { Log.Warn("Silent fail - cover extraction is optional", logEx); }
         }
         
         /// <summary>

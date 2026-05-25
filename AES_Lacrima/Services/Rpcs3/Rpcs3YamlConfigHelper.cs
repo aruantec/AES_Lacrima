@@ -4,11 +4,14 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using YamlDotNet.RepresentationModel;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services.Rpcs3;
 
 internal static class Rpcs3YamlConfigHelper
 {
+    private static readonly ILog Log = LogHelper.For(typeof(Rpcs3YamlConfigHelper));
     public static Dictionary<string, string?> ReadFlatValues(string? path)
     {
         var values = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
@@ -26,9 +29,7 @@ internal static class Rpcs3YamlConfigHelper
 
             ReadMapping(values, root, parentSection: null, currentSection: null);
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return values;
     }
@@ -92,9 +93,7 @@ internal static class Rpcs3YamlConfigHelper
                 if (yaml.Documents.Count > 0 && yaml.Documents[0].RootNode is YamlMappingNode existing)
                     return existing;
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
 
         return new YamlMappingNode();

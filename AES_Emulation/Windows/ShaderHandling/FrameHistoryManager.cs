@@ -1,7 +1,9 @@
 using Avalonia.OpenGL;
 using System;
 using System.Diagnostics;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.Windows.ShaderHandling;
 
 /// <summary>
@@ -10,6 +12,7 @@ namespace AES_Emulation.Windows.ShaderHandling;
 /// </summary>
 public class FrameHistoryManager : IDisposable
 {
+    private static readonly ILog Log = LogHelper.For<FrameHistoryManager>();
     private const int MAX_HISTORY_FRAMES = 8;
     private int[] _historyTextures = new int[MAX_HISTORY_FRAMES];
     private int _currentIndex = 0;
@@ -196,7 +199,7 @@ public class FrameHistoryManager : IDisposable
             if (_historyTextures[i] != 0)
             {
                 try { _gl.DeleteTexture(_historyTextures[i]); }
-                catch { }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 _historyTextures[i] = 0;
             }
         }

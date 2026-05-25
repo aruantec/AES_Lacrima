@@ -2,7 +2,9 @@ using System;
 using System.Runtime.InteropServices;
 using AES_Emulation.Windows.API;
 using Avalonia.OpenGL;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.Windows;
 
 /// <summary>
@@ -10,6 +12,7 @@ namespace AES_Emulation.Windows;
 /// </summary>
 internal sealed class WgcWglDxInterop : IDisposable
 {
+    private static readonly ILog Log = LogHelper.For<WgcWglDxInterop>();
     private const int GlTexture2D = 0x0DE1;
     private const uint WglAccessReadOnlyNv = 0x00000000;
 
@@ -133,10 +136,7 @@ internal sealed class WgcWglDxInterop : IDisposable
             {
                 _wglDXUnregisterObjectNV(_wglDeviceHandle, _wglObjectHandle);
             }
-            catch
-            {
-                // ignored
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         _wglObjectHandle = nint.Zero;
@@ -153,10 +153,7 @@ internal sealed class WgcWglDxInterop : IDisposable
             {
                 _wglDXCloseDeviceNV(_wglDeviceHandle);
             }
-            catch
-            {
-                // ignored
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         if (_gl != null && _textureId != 0)
@@ -165,10 +162,7 @@ internal sealed class WgcWglDxInterop : IDisposable
             {
                 _gl.DeleteTexture(_textureId);
             }
-            catch
-            {
-                // ignored
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         _textureId = 0;

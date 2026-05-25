@@ -1,11 +1,14 @@
 using System;
 using System.Runtime.InteropServices;
 using Avalonia.OpenGL;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Emulation.Windows;
 
 internal sealed class WgcAngleInterop : IDisposable
 {
+    private static readonly ILog Log = LogHelper.For<WgcAngleInterop>();
     private const int GlTexture2D = 0x0DE1;
     private const nint EGLD3DTexture2DShareHandleAngle = 0x3200;
 
@@ -107,10 +110,7 @@ internal sealed class WgcAngleInterop : IDisposable
             {
                 _eglDestroyImageKHR(_eglDisplay, _eglImage);
             }
-            catch
-            {
-                // ignored
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         _eglImage = nint.Zero;
@@ -127,10 +127,7 @@ internal sealed class WgcAngleInterop : IDisposable
             {
                 _gl.DeleteTexture(_textureId);
             }
-            catch
-            {
-                // ignored
-            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         _textureId = 0;

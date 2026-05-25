@@ -17,7 +17,8 @@ using AES_Core.DI;
 using AES_Core.IO;
 using AES_Lacrima.Serialization;
 using log4net;
-
+
+using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
 public sealed record RetroArchUpdateState(
@@ -275,9 +276,7 @@ public partial class RetroArchEmulatorUpdateService
             {
                 PrepareUpdateDirectory(updateDirectory);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
             var resolvedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
             return new RetroArchUpdateState(
@@ -657,10 +656,7 @@ public partial class RetroArchEmulatorUpdateService
                 if (process.ExitCode == 0)
                     return;
             }
-            catch
-            {
-                // try next tool
-            }
+            catch (Exception logEx) { Log.Warn("try next tool", logEx); }
         }
 
         throw new InvalidOperationException("Unable to extract .7z archive. Install 7-Zip (7z.exe) or ensure tar supports 7z extraction.");
@@ -672,12 +668,12 @@ public partial class RetroArchEmulatorUpdateService
         {
             foreach (var file in Directory.EnumerateFiles(updateDirectory, "*", SearchOption.AllDirectories))
             {
-                try { File.Delete(file); } catch { }
+                try { File.Delete(file); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
 
             foreach (var directory in Directory.EnumerateDirectories(updateDirectory, "*", SearchOption.AllDirectories).OrderByDescending(static path => path.Length))
             {
-                try { Directory.Delete(directory, true); } catch { }
+                try { Directory.Delete(directory, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
         }
 
@@ -887,9 +883,7 @@ public partial class RetroArchEmulatorUpdateService
             Directory.CreateDirectory(emulatorDirectory);
             File.WriteAllText(Path.Combine(emulatorDirectory, InstalledVersionMarkerFileName), version.Trim());
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private static bool IsUpdateAvailable(string? currentVersion, string? latestVersion)
@@ -1007,9 +1001,7 @@ public partial class RetroArchEmulatorUpdateService
                 if (Directory.Exists(tempCoresDir))
                     Directory.Delete(tempCoresDir, recursive: true);
             }
-            catch
-            {
-            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }
     }
 

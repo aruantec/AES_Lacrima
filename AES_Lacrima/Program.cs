@@ -11,7 +11,8 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
-
+
+using AES_Core.Logging;
 namespace AES_Lacrima
 {
     internal sealed class Program
@@ -92,10 +93,7 @@ namespace AES_Lacrima
                 {
                     MpvNativeLibrary.SearchDirectory = ApplicationPaths.ToolsDirectory;
                 }
-                catch
-                {
-                    // Ignore if the LibMPVSharp assembly isn't available in this build configuration
-                }
+                catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
 
                 Environment.SetEnvironmentVariable("PATH", currentPath);
                 Log.Info("Starting Avalonia application");
@@ -150,10 +148,7 @@ namespace AES_Lacrima
                     Log.Error("Unhandled exception in AppDomain", ex);
                     WriteFatalStartupLog(ex ?? new Exception("Unhandled exception occurred with non-Exception object."));
                 }
-                catch
-                {
-                    // Ignore failures while logging fatal exceptions.
-                }
+                catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
             };
 
             TaskScheduler.UnobservedTaskException += (_, e) =>
@@ -164,10 +159,7 @@ namespace AES_Lacrima
                     WriteFatalStartupLog(e.Exception);
                     e.SetObserved();
                 }
-                catch
-                {
-                    // Ignore failures while logging fatal exceptions.
-                }
+                catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
             };
         }
 

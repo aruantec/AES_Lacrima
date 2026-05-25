@@ -5,13 +5,16 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using AES_Lacrima.Serialization;
-
+
+using log4net;
+using AES_Core.Logging;
 namespace AES_Lacrima.Services.ShadPs4;
 
 public sealed record ShadPs4GpuOption(int GpuId, string Label);
 
 public static class ShadPs4CustomConfigService
 {
+    private static readonly ILog Log = LogHelper.For(typeof(ShadPs4CustomConfigService));
     public static readonly IReadOnlyList<string> ResolutionPresets =
     [
         "960 x 540",
@@ -234,9 +237,7 @@ public static class ShadPs4CustomConfigService
                     devices.Add(text);
             }
         }
-        catch
-        {
-        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
 
         return devices;
     }
