@@ -2014,24 +2014,6 @@
                 </Button>
             </StackPanel>
 
-            <player:RoundVolumeKnob Width="75"
-                                    Height="75"
-                                    Minimum="0"
-                                    Maximum="100"
-                                    Value="{Binding EmulatorVolume, Mode=TwoWay}"
-                                    KnobBrush="WhiteSmoke"
-                                    DotBrush="DimGray"
-                                    TickBrush="DimGray"
-                                    ActiveTickBrush="WhiteSmoke"
-                                    MinTextBrush="WhiteSmoke"
-                                    MaxTextBrush="WhiteSmoke"
-                                    KnobMargin="-3"
-                                    TickThickness="2"
-                                    MaxTextSize="12"
-                                    MinTextSize="12"
-                                    HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    IsVisible="{Binding IsEmulatorRunning}"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="50" Margin="0,0,50,0">
                 <Button Height="60"
                         Width="60"
@@ -2259,6 +2241,23 @@
                         </Grid>
                     </Viewbox>
                 </Button>
+
+                <StackPanel Orientation="Vertical"
+                            VerticalAlignment="Center"
+                            IsVisible="{Binding IsEmulatorRunning}">
+                    <player:VolumeSliderControl Width="200"
+                                                Height="72"
+                                                Minimum="0"
+                                                Maximum="100"
+                                                Value="{Binding EmulatorVolume, Mode=TwoWay}"
+                                                VerticalAlignment="Center"/>
+                    <TextBlock Text="Volume"
+                               HorizontalAlignment="Center"
+                               Foreground="DimGray"
+                               FontSize="20"
+                               FontWeight="Bold"
+                               Margin="2,-4,0,-4"/>
+                </StackPanel>
             </StackPanel>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
