@@ -58,8 +58,11 @@ namespace AES_Lacrima.ViewModels
                 ? SettingsViewModel?.GetConfiguredEmulatorHandlerForSection(section)
                 : null;
 
-        public IReadOnlyList<string> CurrentSectionRetroArchCores =>
-            (IReadOnlyList<string>?)CurrentEmulationSectionItem?.RetroArchCores ?? Array.Empty<string>();
+        public IReadOnlyList<RetroArchCoreItem> CurrentSectionRetroArchCores =>
+            (IReadOnlyList<RetroArchCoreItem>?)CurrentEmulationSectionItem?.GroupedRetroArchCores ?? [];
+
+        [ObservableProperty]
+        private RetroArchCoreItem? _selectedCurrentSectionRetroArchCoreItem;
 
         [ObservableProperty]
         private string? _selectedCurrentSectionRetroArchCore;

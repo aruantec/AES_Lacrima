@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:composition="using:AES_Controls.Composition"
              xmlns:emulation="using:AES_Emulation.Windows"
+             xmlns:emulationHandlers="using:AES_Emulation.EmulationHandlers"
              xmlns:navigation="using:AES_Lacrima.Views.Navigation"
              xmlns:behaviors="using:AES_Lacrima.Behaviors"
              xmlns:controlBehaviors="using:AES_Controls.Behaviors"
@@ -13,6 +14,7 @@
              xmlns:controls="using:AES_Controls"
              xmlns:asyncImageLoader="clr-namespace:AsyncImageLoader;assembly=AsyncImageLoader.Avalonia"
              xmlns:services="using:AES_Lacrima.Services"
+             xmlns:converters="using:AES_Lacrima.Converters"
              xmlns:player="using:AES_Controls.Player"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              xmlns:views="using:AES_Lacrima.Views"
@@ -668,14 +670,33 @@
                                                    VerticalAlignment="Center"
                                                    FontSize="18"
                                                    Width="220"/>
-                                        <ComboBox MinWidth="260"
-                                                  HorizontalAlignment="Stretch"
-                                                  ItemsSource="{Binding CurrentSectionRetroArchCores}"
-                                                  SelectedItem="{Binding SelectedCurrentSectionRetroArchCore, Mode=TwoWay}">
-                                            <Interaction.Behaviors>
-                                                <controlBehaviors:ComboBoxPopupScaler/>
-                                            </Interaction.Behaviors>
-                                        </ComboBox>
+                                         <ComboBox HorizontalAlignment="Stretch"
+                                                   ItemsSource="{Binding CurrentSectionRetroArchCores}"
+                                                   SelectedItem="{Binding SelectedCurrentSectionRetroArchCoreItem, Mode=TwoWay}">
+                                             <Interaction.Behaviors>
+                                                 <controlBehaviors:ComboBoxPopupScaler/>
+                                             </Interaction.Behaviors>
+                                             <ComboBox.ItemTemplate>
+                                                 <DataTemplate x:DataType="emulationHandlers:RetroArchCoreItem">
+                                                     <Grid>
+                                                         <TextBlock Text="{Binding GroupName}"
+                                                                    FontWeight="Bold"
+                                                                    Padding="6,3"
+                                                                    FontSize="14"
+                                                                    IsVisible="{Binding IsGroupHeader}"/>
+                                                         <TextBlock Text="{Binding FileName}"
+                                                                    Margin="18,0,0,0"
+                                                                    FontSize="14"
+                                                                    IsVisible="{Binding IsGroupHeader, Converter={x:Static converters:NegateBoolConverter.Instance}}"/>
+                                                     </Grid>
+                                                 </DataTemplate>
+                                             </ComboBox.ItemTemplate>
+                                             <ComboBox.Styles>
+                                                 <Style Selector="ComboBoxItem" x:CompileBindings="False">
+                                                     <Setter Property="IsEnabled" Value="{Binding IsGroupHeader, Converter={x:Static converters:NegateBoolConverter.Instance}}"/>
+                                                 </Style>
+                                             </ComboBox.Styles>
+                                         </ComboBox>
                                     </StackPanel>
 
                                     <Border IsVisible="{Binding ShowCurrentSectionRetroArchUpdateControls}"

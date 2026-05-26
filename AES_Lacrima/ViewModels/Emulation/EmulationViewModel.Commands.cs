@@ -73,6 +73,7 @@ namespace AES_Lacrima.ViewModels
                 UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationAlbum());
 
             RefreshCurrentSectionLaunchOptionsState();
+            SyncCurrentSectionRetroArchCoreSelection();
         }
 
         private void UpdateCurrentEmulatorHandlerForSelection(FolderMediaItem? album)

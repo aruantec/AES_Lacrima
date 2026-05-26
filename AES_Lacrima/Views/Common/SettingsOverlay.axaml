@@ -6,6 +6,8 @@
              xmlns:asyncImageLoader="clr-namespace:AsyncImageLoader;assembly=AsyncImageLoader.Avalonia"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AES_Lacrima.ViewModels"
+             xmlns:converters="using:AES_Lacrima.Converters"
+             xmlns:emulationHandlers="using:AES_Emulation.EmulationHandlers"
              mc:Ignorable="d"
              x:Class="AES_Lacrima.Views.Common.SettingsOverlay"
              x:DataType="vm:SettingsViewModel"
@@ -220,55 +222,93 @@
                                                                     BorderThickness="1"
                                                                     CornerRadius="8"
                                                                     Padding="12">
-                                                                <StackPanel>
-                                                                    <Grid ColumnDefinitions="180,*,Auto,Auto,Auto" ColumnSpacing="12">
-                                                                        <TextBlock Text="{Binding DisplayName}"
-                                                                               VerticalAlignment="Center"
-                                                                               FontSize="18"
-                                                                               Foreground="WhiteSmoke"/>
-                                                                        <TextBlock Grid.Column="1"
-                                                                               Text="{Binding LauncherDisplayPath}"
-                                                                               Foreground="DarkGray"
-                                                                               FontSize="14"
-                                                                               TextWrapping="Wrap"
-                                                                               VerticalAlignment="Center"
-                                                                               MaxWidth="360"/>
-                                                                        <Button Grid.Column="2"
-                                                                                Content="Set default"
-                                                                                Command="{Binding SetDefaultHandlerCommand}"
-                                                                                IsVisible="{Binding !IsDefault}"
-                                                                                Padding="14,8"
-                                                                                MinWidth="100"
-                                                                                Background="#1E4B7A"
-                                                                                Foreground="WhiteSmoke"/>
-                                                                        <TextBlock Grid.Column="2"
-                                                                                   Text="Default"
-                                                                                   IsVisible="{Binding IsDefault}"
-                                                                                   Foreground="#7CFF7C"
-                                                                                   FontSize="14"
-                                                                                   VerticalAlignment="Center"
-                                                                                   Margin="0,0,8,0"/>
-                                                                        <Button Grid.Column="3"
-                                                                                Content="Browse"
-                                                                                Command="{Binding BrowseLauncherCommand}"
-                                                                                Padding="14,8"
-                                                                                MinWidth="100"/>
-                                                                        <Button Grid.Column="4"
-                                                                                Content="Clear"
-                                                                                Command="{Binding ClearLauncherCommand}"
-                                                                                IsVisible="{Binding HasLauncherPath}"
-                                                                                Padding="14,8"
-                                                                                MinWidth="90"
-                                                                                Background="#3A2020"
-                                                                                Foreground="WhiteSmoke"/>
-                                                                    </Grid>
-                                                                    <StackPanel Margin="0,10,0,0" Spacing="8" IsVisible="{Binding IsRetroArchHandler}">
-                                                                        <TextBlock Text="RetroArch core" FontSize="14" Foreground="WhiteSmoke"/>
-                                                                        <ComboBox ItemsSource="{Binding AvailableRetroArchCores}"
-                                                                                  SelectedItem="{Binding SelectedRetroArchCore, Mode=TwoWay}"
-                                                                                  FontSize="14"/>
-                                                                    </StackPanel>
-                                                                </StackPanel>
+                                                                  <StackPanel>
+                                                                      <TextBlock Text="{Binding DisplayName}"
+                                                                             FontSize="18"
+                                                                             Foreground="WhiteSmoke"
+                                                                             Margin="0,0,0,4"/>
+                                                                      <TextBlock Text="{Binding LauncherDisplayPath}"
+                                                                             Foreground="DarkGray"
+                                                                             FontSize="14"
+                                                                             TextWrapping="Wrap"
+                                                                             Margin="0,0,0,10"/>
+                                                                      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="12" HorizontalAlignment="Right">
+                                                                          <Button Content="Set default"
+                                                                                  Command="{Binding SetDefaultHandlerCommand}"
+                                                                                  IsVisible="{Binding !IsDefault}"
+                                                                                  Padding="14,8"
+                                                                                  MinWidth="120"
+                                                                                  Background="#1E4B7A"
+                                                                                  Foreground="WhiteSmoke"/>
+                                                                          <TextBlock Text="Default"
+                                                                                     IsVisible="{Binding IsDefault}"
+                                                                                     Foreground="#7CFF7C"
+                                                                                     FontSize="14"
+                                                                                     VerticalAlignment="Center"
+                                                                                     Margin="0,0,8,0"/>
+                                                                          <Button Grid.Column="1"
+                                                                                  Content="Browse"
+                                                                                  Command="{Binding BrowseLauncherCommand}"
+                                                                                  Padding="14,8"
+                                                                                  MinWidth="120"/>
+                                                                          <Button Grid.Column="2"
+                                                                                  Content="Clear"
+                                                                                  Command="{Binding ClearLauncherCommand}"
+                                                                                  IsVisible="{Binding HasLauncherPath}"
+                                                                                  Padding="14,8"
+                                                                                  MinWidth="120"
+                                                                                  Background="#3A2020"
+                                                                                  Foreground="WhiteSmoke"/>
+                                                                          <Button Grid.Column="3"
+                                                                                  Content="Download"
+                                                                                  Command="{Binding HandlerDownloadOrUpdateCommand}"
+                                                                                  IsVisible="{Binding HasUpdateSupport}"
+                                                                                  IsEnabled="{Binding CanDownloadOrUpdate}"
+                                                                                  Padding="14,8"
+                                                                                  MinWidth="120"
+                                                                                  Background="#1E6B3A"
+                                                                                  Foreground="WhiteSmoke"/>
+                                                                      </Grid>
+                                                                      <StackPanel Margin="0,10,0,0" Spacing="8" IsVisible="{Binding IsDownloading}">
+                                                                          <ProgressBar Minimum="0"
+                                                                                       Maximum="100"
+                                                                                       Height="6"
+                                                                                       Value="{Binding DownloadProgress}"/>
+                                                                          <TextBlock Text="{Binding DownloadStatusMessage}"
+                                                                                     Foreground="#CCCCCC"
+                                                                                     FontSize="13"/>
+                                                                      </StackPanel>
+                                                                      <StackPanel Margin="0,10,0,0" Spacing="8" IsVisible="{Binding IsRetroArchHandler}">
+                                                                          <TextBlock Text="RetroArch core" FontSize="14" Foreground="WhiteSmoke"/>
+                                                                           <ComboBox ItemsSource="{Binding GroupedRetroArchCores}"
+                                                                                     SelectedItem="{Binding SelectedRetroArchCoreItem, Mode=TwoWay}"
+                                                                                     FontSize="14">
+                                                                              <Interaction.Behaviors>
+                                                                                  <behavors:ComboBoxPopupScaler/>
+                                                                              </Interaction.Behaviors>
+                                                                              <ComboBox.ItemTemplate>
+                                                                                  <DataTemplate x:DataType="emulationHandlers:RetroArchCoreItem">
+                                                                                      <Grid>
+                                                                                          <TextBlock Text="{Binding GroupName}"
+                                                                                                     FontWeight="Bold"
+                                                                                                     Padding="6,3"
+                                                                                                     FontSize="14"
+                                                                                                     IsVisible="{Binding IsGroupHeader}"/>
+                                                                                          <TextBlock Text="{Binding FileName}"
+                                                                                                     Margin="18,0,0,0"
+                                                                                                     FontSize="14"
+                                                                                                     IsVisible="{Binding IsGroupHeader, Converter={x:Static converters:NegateBoolConverter.Instance}}"/>
+                                                                                      </Grid>
+                                                                                  </DataTemplate>
+                                                                              </ComboBox.ItemTemplate>
+                                                                              <ComboBox.Styles>
+                                                                                  <Style Selector="ComboBoxItem" x:CompileBindings="False">
+                                                                                      <Setter Property="IsEnabled" Value="{Binding IsGroupHeader, Converter={x:Static converters:NegateBoolConverter.Instance}}"/>
+                                                                                  </Style>
+                                                                              </ComboBox.Styles>
+                                                                          </ComboBox>
+                                                                      </StackPanel>
+                                                                  </StackPanel>
                                                             </Border>
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>

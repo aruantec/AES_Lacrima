@@ -1049,6 +1049,103 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         // Keep the window available to the capture session and let the window handler move it out of view instead.
     }
 
+    public static string ClassifyRetroArchCore(string coreFileName)
+    {
+        var nameWithoutExt = Path.GetFileNameWithoutExtension(coreFileName);
+        var lower = nameWithoutExt.ToLowerInvariant();
+
+        if (lower.Contains("citra") || lower.Contains("azahar")) return "Nintendo 3DS";
+        if (lower.Contains("dolphin")) return "Nintendo GameCube / Wii";
+        if (lower.Contains("mupen") || lower.Contains("parallel") || lower.Contains("angrylion")) return "Nintendo 64";
+        if (lower.Contains("snes") || lower.Contains("bsnes") || lower.Contains("higan"))
+            return "Super Nintendo (SNES)";
+        if (lower.Contains("mgba") || lower.Contains("vba") || lower.Contains("gpsp") || lower.Contains("meteor"))
+            return "Game Boy Advance";
+        if (lower.Contains("genesis") || lower.Contains("picodrive") || lower.Contains("megadrive") || lower.Contains("md"))
+            return "Sega Genesis / Mega Drive";
+        if (lower.Contains("saturn") || lower.Contains("yabause") || lower.Contains("yabasanshiro") || lower.Contains("mednafen_saturn") || lower.Contains("beetle_saturn"))
+            return "Sega Saturn";
+        if (lower.Contains("nestopia") || lower.Contains("fceumm") || lower.Contains("quicknes") || lower.Contains("nes"))
+            return "Nintendo NES";
+        if (lower.Contains("flycast") || lower.Contains("nulldc"))
+            return "Sega Dreamcast";
+        if (lower.Contains("psx") || lower.Contains("beetle_psx") || lower.Contains("pcsx_rearmed") || lower.Contains("mednafen_psx") || lower.Contains("swanstation") || lower.Contains("duckstation"))
+            return "Sony PlayStation";
+        if (lower.Contains("pcsx2"))
+            return "Sony PlayStation 2";
+        if (lower.Contains("fbneo") || lower.Contains("mame") || lower.Contains("fbalpha") || lower.Contains("neogeo") || lower.Contains("arcade") || lower.Contains("fb_neo") || lower.Contains("neocd") || lower.Contains("cps"))
+            return "Arcade";
+        if (lower.Contains("mednafen") || lower.Contains("beetle"))
+            return "Other (Mednafen)";
+
+        return "Other";
+    }
+
+    public static IReadOnlyList<RetroArchCoreItem> GetGroupedRetroArchCores(IReadOnlyList<string> coreFileNames)
+    {
+        if (coreFileNames.Count == 0)
+            return Array.Empty<RetroArchCoreItem>();
+
+        var groups = new Dictionary<string, List<string>>();
+
+        foreach (var core in coreFileNames)
+        {
+            var group = ClassifyRetroArchCore(core);
+            if (!groups.TryGetValue(group, out var list))
+            {
+                list = [];
+                groups[group] = list;
+            }
+            list.Add(core);
+        }
+
+        var groupOrder = new[]
+        {
+            "Nintendo 3DS",
+            "Nintendo GameCube / Wii",
+            "Nintendo 64",
+            "Super Nintendo (SNES)",
+            "Game Boy Advance",
+            "Nintendo NES",
+            "Sega Genesis / Mega Drive",
+            "Sega Saturn",
+            "Sega Dreamcast",
+            "Sony PlayStation",
+            "Sony PlayStation 2",
+            "Arcade",
+            "Other (Mednafen)",
+            "Other"
+        };
+
+        var result = new List<RetroArchCoreItem>(coreFileNames.Count + groups.Count);
+
+        foreach (var groupName in groupOrder)
+        {
+            if (!groups.TryGetValue(groupName, out var groupCores))
+                continue;
+
+            result.Add(new RetroArchCoreItem
+            {
+                FileName = string.Empty,
+                GroupName = groupName,
+                IsGroupHeader = true
+            });
+
+            groupCores.Sort(StringComparer.OrdinalIgnoreCase);
+            foreach (var core in groupCores)
+            {
+                result.Add(new RetroArchCoreItem
+                {
+                    FileName = core,
+                    GroupName = groupName,
+                    IsGroupHeader = false
+                });
+            }
+        }
+
+        return result;
+    }
+
     public override void PrepareWindowForCapture(IntPtr hwnd)
     {
         // Avoid hiding the RetroArch window prior to capture, as this can prevent Vulkan-based cores from producing a capture frame.
@@ -1111,4 +1208,13 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
         return false;
     }
+}
+
+public class RetroArchCoreItem
+{
+    public string FileName { get; init; } = string.Empty;
+    public string GroupName { get; init; } = string.Empty;
+    public bool IsGroupHeader { get; init; }
+
+    public string DisplayName => IsGroupHeader ? GroupName : FileName;
 }

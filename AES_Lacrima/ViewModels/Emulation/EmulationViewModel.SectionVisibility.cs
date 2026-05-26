@@ -297,6 +297,7 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
+            SyncCurrentSectionRetroArchCoreSelection();
             OnPropertyChanged(nameof(CurrentEmulationSectionItem));
             OnPropertyChanged(nameof(CurrentSectionEmulatorHandler));
             OnPropertyChanged(nameof(CurrentSectionRetroArchCores));

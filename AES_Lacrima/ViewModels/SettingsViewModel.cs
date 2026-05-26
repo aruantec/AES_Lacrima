@@ -23,7 +23,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using log4net;
 using System.Windows.Input;
-
+using Avalonia.Threading;
+
 using AES_Core.Logging;
 namespace AES_Lacrima.ViewModels;
 
@@ -43,13 +44,30 @@ public record ShaderItem(string Path, string Name);
 public sealed class EmulationHandlerAppItem : ObservableObject
 {
     private readonly EmulationSectionItem _section;
+    private RetroArchCoreItem? _selectedRetroArchCoreItem;
+    private bool _isDownloading;
+    private double _downloadProgress;
+    private string? _downloadStatusMessage;
 
-    public EmulationHandlerAppItem(IEmulatorHandler handler, EmulationSectionItem section)
+    public EmulationHandlerAppItem(IEmulatorHandler handler, EmulationSectionItem section, Func<EmulationHandlerAppItem, Task>? downloadOrUpdateFunc = null)
     {
         Handler = handler;
         _section = section;
         Handler.PropertyChanged += Handler_PropertyChanged;
+        _section.PropertyChanged += OnSectionPropertyChanged;
         SetDefaultHandlerCommand = new RelayCommand(() => _section.SelectedHandlerId = Handler.HandlerId);
+        if (downloadOrUpdateFunc != null)
+            HandlerDownloadOrUpdateCommand = new AsyncRelayCommand(() => downloadOrUpdateFunc(this));
+    }
+
+    private void OnSectionPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (string.Equals(e.PropertyName, nameof(EmulationSectionItem.SelectedRetroArchCore), StringComparison.OrdinalIgnoreCase))
+        {
+            _selectedRetroArchCoreItem = GroupedRetroArchCores.FirstOrDefault(c =>
+                string.Equals(c.FileName, _section.SelectedRetroArchCore, StringComparison.OrdinalIgnoreCase) && !c.IsGroupHeader);
+            OnPropertyChanged(nameof(SelectedRetroArchCoreItem));
+        }
     }
 
     public IEmulatorHandler Handler { get; }
@@ -73,12 +91,85 @@ public sealed class EmulationHandlerAppItem : ObservableObject
     public string? SelectedRetroArchCore
     {
         get => _section.SelectedRetroArchCore;
-        set => _section.SelectedRetroArchCore = value;
+        set
+        {
+            _section.SelectedRetroArchCore = value;
+            OnPropertyChanged(nameof(SelectedRetroArchCoreItem));
+        }
     }
 
-    public AvaloniaList<string> AvailableRetroArchCores => _section.RetroArchCores;
+    public RetroArchCoreItem? SelectedRetroArchCoreItem
+    {
+        get => _selectedRetroArchCoreItem;
+        set
+        {
+            if (value is { IsGroupHeader: true })
+                return;
+
+            _selectedRetroArchCoreItem = value;
+            SelectedRetroArchCore = value?.FileName;
+        }
+    }
+
+    public AvaloniaList<RetroArchCoreItem> GroupedRetroArchCores => _section.GroupedRetroArchCores;
 
     public bool IsDefault => string.Equals(_section.SelectedHandlerId, Handler.HandlerId, StringComparison.OrdinalIgnoreCase);
+
+    public EmulationSectionItem Section => _section;
+
+    public bool HasUpdateSupport
+    {
+        get
+        {
+            var id = Handler.HandlerId;
+            return string.Equals(id, "retroarch", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "retroarch-saturn", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "retroarch-gba", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "retroarch-genesis", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "eden", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "xenia", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "dolphin", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "flycast", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "rpcs3", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "pcsx2", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "duckstation", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "cemu", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    public bool IsDownloading
+    {
+        get => _isDownloading;
+        set
+        {
+            if (SetProperty(ref _isDownloading, value))
+                OnPropertyChanged(nameof(CanDownloadOrUpdate));
+        }
+    }
+
+    public double DownloadProgress
+    {
+        get => _downloadProgress;
+        set => SetProperty(ref _downloadProgress, value);
+    }
+
+    public string? DownloadStatusMessage
+    {
+        get => _downloadStatusMessage;
+        set => SetProperty(ref _downloadStatusMessage, value);
+    }
+
+    public bool CanDownloadOrUpdate => !IsDownloading && HasUpdateSupport;
+
+    public IAsyncRelayCommand? HandlerDownloadOrUpdateCommand { get; set; }
+
+    public void SyncRetroArchCoreSelection()
+    {
+        _selectedRetroArchCoreItem = GroupedRetroArchCores.FirstOrDefault(c =>
+            string.Equals(c.FileName, _section.SelectedRetroArchCore, StringComparison.OrdinalIgnoreCase) && !c.IsGroupHeader);
+        OnPropertyChanged(nameof(SelectedRetroArchCoreItem));
+    }
 
     public void NotifyDefaultSelectionChanged()
     {
@@ -127,6 +218,9 @@ public partial class EmulationSectionItem : ObservableObject
 
     [ObservableProperty]
     private AvaloniaList<string> _retroArchCores = [];
+
+    [ObservableProperty]
+    private AvaloniaList<RetroArchCoreItem> _groupedRetroArchCores = [];
 
     [ObservableProperty]
     private string? _selectedHandlerId;
@@ -1621,7 +1715,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 handlers = handlers.Where(handler => handler.UsesRetroArchCores).ToList();
 
             foreach (var handler in handlers)
-                item.Handlers.Add(new EmulationHandlerAppItem(handler, item));
+                item.Handlers.Add(new EmulationHandlerAppItem(handler, item, DownloadOrUpdateHandlerAsync));
 
             if (item.Handlers.Count == 1)
                 item.SelectedHandlerId = item.Handlers[0].HandlerId;
@@ -1646,6 +1740,433 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         }
     }
 
+    private async Task DownloadOrUpdateHandlerAsync(EmulationHandlerAppItem handlerItem)
+    {
+        var handler = handlerItem.Handler;
+        var section = handlerItem.Section;
+        var handlerId = handler.HandlerId;
+
+        if (!handlerItem.HasUpdateSupport)
+            return;
+
+        handlerItem.IsDownloading = true;
+        handlerItem.DownloadProgress = 0;
+        handlerItem.DownloadStatusMessage = "Initializing...";
+
+        try
+        {
+            var isRetroArchHandler = string.Equals(handlerId, "retroarch", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(handlerId, "retroarch-saturn", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(handlerId, "retroarch-gba", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(handlerId, "retroarch-genesis", StringComparison.OrdinalIgnoreCase);
+
+            if (isRetroArchHandler)
+            {
+                await DownloadOrUpdateRetroArchHandlerAsync(handlerItem, section, handler);
+            }
+            else if (string.Equals(handlerId, "eden", StringComparison.OrdinalIgnoreCase))
+            {
+                await DownloadOrUpdateEdenHandlerAsync(handlerItem, section, handler);
+            }
+            else if (string.Equals(handlerId, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase))
+            {
+                await DownloadOrUpdateShadPs4HandlerAsync(handlerItem, section, handler);
+            }
+            else if (string.Equals(handlerId, "xenia", StringComparison.OrdinalIgnoreCase))
+            {
+                await DownloadOrUpdateXeniaHandlerAsync(handlerItem, section, handler);
+            }
+            else if (string.Equals(handlerId, "dolphin", StringComparison.OrdinalIgnoreCase))
+            {
+                await DownloadOrUpdateDolphinHandlerAsync(handlerItem, section, handler);
+            }
+            else if (string.Equals(handlerId, "flycast", StringComparison.OrdinalIgnoreCase))
+            {
+                await DownloadOrUpdateFlycastHandlerAsync(handlerItem, section, handler);
+            }
+            else if (string.Equals(handlerId, "rpcs3", StringComparison.OrdinalIgnoreCase))
+            {
+                await DownloadOrUpdateRpcs3HandlerAsync(handlerItem, section, handler);
+            }
+            else if (string.Equals(handlerId, "pcsx2", StringComparison.OrdinalIgnoreCase))
+            {
+                await DownloadOrUpdatePcsx2HandlerAsync(handlerItem, section, handler);
+            }
+            else if (string.Equals(handlerId, "duckstation", StringComparison.OrdinalIgnoreCase))
+            {
+                await DownloadOrUpdateDuckStationHandlerAsync(handlerItem, section, handler);
+            }
+            else if (string.Equals(handlerId, "cemu", StringComparison.OrdinalIgnoreCase))
+            {
+                await DownloadOrUpdateCemuHandlerAsync(handlerItem, section, handler);
+            }
+        }
+        catch (Exception ex)
+        {
+            handlerItem.DownloadStatusMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            handlerItem.IsDownloading = false;
+        }
+    }
+
+    private async Task DownloadOrUpdateRetroArchHandlerAsync(EmulationHandlerAppItem handlerItem, EmulationSectionItem section, IEmulatorHandler handler)
+    {
+        var updater = DiLocator.ResolveViewModel<RetroArchEmulatorUpdateService>();
+        if (updater == null) { handlerItem.DownloadStatusMessage = "Update service not available."; return; }
+
+        handlerItem.DownloadStatusMessage = "Checking for updates...";
+        var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+            section.LaunchSettings?.RetroArchRepositoryOverride, section.LaunchSettings?.IncludeRetroArchCores ?? true, forceRefresh: true).ConfigureAwait(false);
+
+        await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
+
+        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        {
+            handlerItem.DownloadStatusMessage = "Downloading...";
+            var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+                section.LaunchSettings?.RetroArchRepositoryOverride, section.LaunchSettings?.IncludeRetroArchCores ?? true,
+                section.LaunchSettings?.SelectedRetroArchVersion,
+                progress => Dispatcher.UIThread.Post(() =>
+                {
+                    handlerItem.DownloadProgress = progress.Percent;
+                    if (!string.IsNullOrWhiteSpace(progress.StatusMessage))
+                        handlerItem.DownloadStatusMessage = progress.StatusMessage;
+                })).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                handlerItem.DownloadProgress = 100;
+                handlerItem.DownloadStatusMessage = state.StatusMessage;
+                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    handler.LauncherPath = state.ResolvedLauncherPath;
+                    SaveSettings();
+                }
+            });
+        }
+        else
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = "Already up to date.");
+        }
+    }
+
+    private async Task DownloadOrUpdateEdenHandlerAsync(EmulationHandlerAppItem handlerItem, EmulationSectionItem section, IEmulatorHandler handler)
+    {
+        var updater = DiLocator.ResolveViewModel<EdenEmulatorUpdateService>();
+        if (updater == null) { handlerItem.DownloadStatusMessage = "Update service not available."; return; }
+
+        handlerItem.DownloadStatusMessage = "Checking for updates...";
+        var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+            section.LaunchSettings?.EdenRepositoryOverride, section.LaunchSettings?.IncludeEdenPrereleases ?? false, forceRefresh: true).ConfigureAwait(false);
+
+        await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
+
+        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        {
+            handlerItem.DownloadStatusMessage = "Downloading...";
+            var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+                section.LaunchSettings?.EdenRepositoryOverride, section.LaunchSettings?.IncludeEdenPrereleases ?? false,
+                section.LaunchSettings?.SelectedEdenVersion).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                handlerItem.DownloadProgress = 100;
+                handlerItem.DownloadStatusMessage = state.StatusMessage;
+                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    handler.LauncherPath = state.ResolvedLauncherPath;
+                    SaveSettings();
+                }
+            });
+        }
+        else
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = "Already up to date.");
+        }
+    }
+
+    private async Task DownloadOrUpdateShadPs4HandlerAsync(EmulationHandlerAppItem handlerItem, EmulationSectionItem section, IEmulatorHandler handler)
+    {
+        var updater = DiLocator.ResolveViewModel<ShadPs4EmulatorUpdateService>();
+        if (updater == null) { handlerItem.DownloadStatusMessage = "Update service not available."; return; }
+
+        handlerItem.DownloadStatusMessage = "Checking for updates...";
+        var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+            section.LaunchSettings?.ShadPs4RepositoryOverride, section.LaunchSettings?.IncludeShadPs4Prereleases ?? false, forceRefresh: true).ConfigureAwait(false);
+
+        await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
+
+        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        {
+            handlerItem.DownloadStatusMessage = "Downloading...";
+            var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+                section.LaunchSettings?.ShadPs4RepositoryOverride, section.LaunchSettings?.IncludeShadPs4Prereleases ?? false,
+                section.LaunchSettings?.SelectedShadPs4Version).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                handlerItem.DownloadProgress = 100;
+                handlerItem.DownloadStatusMessage = state.StatusMessage;
+                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    handler.LauncherPath = state.ResolvedLauncherPath;
+                    SaveSettings();
+                }
+            });
+        }
+        else
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = "Already up to date.");
+        }
+    }
+
+    private async Task DownloadOrUpdateXeniaHandlerAsync(EmulationHandlerAppItem handlerItem, EmulationSectionItem section, IEmulatorHandler handler)
+    {
+        var updater = DiLocator.ResolveViewModel<XeniaEmulatorUpdateService>();
+        if (updater == null) { handlerItem.DownloadStatusMessage = "Update service not available."; return; }
+
+        handlerItem.DownloadStatusMessage = "Checking for updates...";
+        var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath, forceRefresh: true).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
+
+        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        {
+            handlerItem.DownloadStatusMessage = "Downloading...";
+            var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+                section.LaunchSettings?.SelectedXeniaVersion).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                handlerItem.DownloadProgress = 100;
+                handlerItem.DownloadStatusMessage = state.StatusMessage;
+                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    handler.LauncherPath = state.ResolvedLauncherPath;
+                    SaveSettings();
+                }
+            });
+        }
+        else
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = "Already up to date.");
+        }
+    }
+
+    private async Task DownloadOrUpdateDolphinHandlerAsync(EmulationHandlerAppItem handlerItem, EmulationSectionItem section, IEmulatorHandler handler)
+    {
+        var updater = DiLocator.ResolveViewModel<DolphinEmulatorUpdateService>();
+        if (updater == null) { handlerItem.DownloadStatusMessage = "Update service not available."; return; }
+
+        handlerItem.DownloadStatusMessage = "Checking for updates...";
+        var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+            section.LaunchSettings?.IncludeDolphinPrereleases ?? false, forceRefresh: true).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
+
+        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        {
+            handlerItem.DownloadStatusMessage = "Downloading...";
+            var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+                section.LaunchSettings?.IncludeDolphinPrereleases ?? false, section.LaunchSettings?.SelectedDolphinVersion).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                handlerItem.DownloadProgress = 100;
+                handlerItem.DownloadStatusMessage = state.StatusMessage;
+                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    handler.LauncherPath = state.ResolvedLauncherPath;
+                    SaveSettings();
+                }
+            });
+        }
+        else
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = "Already up to date.");
+        }
+    }
+
+    private async Task DownloadOrUpdateFlycastHandlerAsync(EmulationHandlerAppItem handlerItem, EmulationSectionItem section, IEmulatorHandler handler)
+    {
+        var updater = DiLocator.ResolveViewModel<FlycastEmulatorUpdateService>();
+        if (updater == null) { handlerItem.DownloadStatusMessage = "Update service not available."; return; }
+
+        handlerItem.DownloadStatusMessage = "Checking for updates...";
+        var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+            section.LaunchSettings?.IncludeFlycastNightlies ?? false, forceRefresh: true).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
+
+        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        {
+            handlerItem.DownloadStatusMessage = "Downloading...";
+            var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+                section.LaunchSettings?.IncludeFlycastNightlies ?? false, section.LaunchSettings?.SelectedFlycastVersion).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                handlerItem.DownloadProgress = 100;
+                handlerItem.DownloadStatusMessage = state.StatusMessage;
+                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    handler.LauncherPath = state.ResolvedLauncherPath;
+                    SaveSettings();
+                }
+            });
+        }
+        else
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = "Already up to date.");
+        }
+    }
+
+    private async Task DownloadOrUpdateRpcs3HandlerAsync(EmulationHandlerAppItem handlerItem, EmulationSectionItem section, IEmulatorHandler handler)
+    {
+        var updater = DiLocator.ResolveViewModel<Rpcs3EmulatorUpdateService>();
+        if (updater == null) { handlerItem.DownloadStatusMessage = "Update service not available."; return; }
+
+        handlerItem.DownloadStatusMessage = "Checking for updates...";
+        var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+            section.LaunchSettings?.IncludeRpcs3Prereleases ?? false, forceRefresh: true).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
+
+        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        {
+            handlerItem.DownloadStatusMessage = "Downloading...";
+            var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+                section.LaunchSettings?.IncludeRpcs3Prereleases ?? false, section.LaunchSettings?.SelectedRpcs3Version).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                handlerItem.DownloadProgress = 100;
+                handlerItem.DownloadStatusMessage = state.StatusMessage;
+                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    handler.LauncherPath = state.ResolvedLauncherPath;
+                    SaveSettings();
+                }
+            });
+        }
+        else
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = "Already up to date.");
+        }
+    }
+
+    private async Task DownloadOrUpdatePcsx2HandlerAsync(EmulationHandlerAppItem handlerItem, EmulationSectionItem section, IEmulatorHandler handler)
+    {
+        var updater = DiLocator.ResolveViewModel<Pcsx2EmulatorUpdateService>();
+        if (updater == null) { handlerItem.DownloadStatusMessage = "Update service not available."; return; }
+
+        handlerItem.DownloadStatusMessage = "Checking for updates...";
+        var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+            section.LaunchSettings?.IncludePcsx2Prereleases ?? false, forceRefresh: true).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
+
+        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        {
+            handlerItem.DownloadStatusMessage = "Downloading...";
+            var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+                section.LaunchSettings?.IncludePcsx2Prereleases ?? false, section.LaunchSettings?.SelectedPcsx2Version).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                handlerItem.DownloadProgress = 100;
+                handlerItem.DownloadStatusMessage = state.StatusMessage;
+                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    handler.LauncherPath = state.ResolvedLauncherPath;
+                    SaveSettings();
+                }
+            });
+        }
+        else
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = "Already up to date.");
+        }
+    }
+
+    private async Task DownloadOrUpdateDuckStationHandlerAsync(EmulationHandlerAppItem handlerItem, EmulationSectionItem section, IEmulatorHandler handler)
+    {
+        var updater = DiLocator.ResolveViewModel<DuckStationEmulatorUpdateService>();
+        if (updater == null) { handlerItem.DownloadStatusMessage = "Update service not available."; return; }
+
+        handlerItem.DownloadStatusMessage = "Checking for updates...";
+        var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+            section.LaunchSettings?.IncludeDuckStationPrereleases ?? false, forceRefresh: true).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
+
+        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        {
+            handlerItem.DownloadStatusMessage = "Downloading...";
+            var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+                section.LaunchSettings?.IncludeDuckStationPrereleases ?? false, section.LaunchSettings?.SelectedDuckStationVersion).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                handlerItem.DownloadProgress = 100;
+                handlerItem.DownloadStatusMessage = state.StatusMessage;
+                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    handler.LauncherPath = state.ResolvedLauncherPath;
+                    SaveSettings();
+                }
+            });
+        }
+        else
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = "Already up to date.");
+        }
+    }
+
+    private async Task DownloadOrUpdateCemuHandlerAsync(EmulationHandlerAppItem handlerItem, EmulationSectionItem section, IEmulatorHandler handler)
+    {
+        var updater = DiLocator.ResolveViewModel<CemuEmulatorUpdateService>();
+        if (updater == null) { handlerItem.DownloadStatusMessage = "Update service not available."; return; }
+
+        handlerItem.DownloadStatusMessage = "Checking for updates...";
+        var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath, forceRefresh: true).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
+
+        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        {
+            handlerItem.DownloadStatusMessage = "Downloading...";
+            var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+                section.LaunchSettings?.SelectedCemuVersion,
+                onProgress: progress => Dispatcher.UIThread.Post(() =>
+                {
+                    handlerItem.DownloadProgress = progress.Percent;
+                    if (!string.IsNullOrWhiteSpace(progress.StatusMessage))
+                        handlerItem.DownloadStatusMessage = progress.StatusMessage;
+                })).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                handlerItem.DownloadProgress = 100;
+                handlerItem.DownloadStatusMessage = state.StatusMessage;
+                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    handler.LauncherPath = state.ResolvedLauncherPath;
+                    SaveSettings();
+                }
+            });
+        }
+        else
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = "Already up to date.");
+        }
+    }
+
     private void OnEmulationSectionItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_isLoadingSettings)
@@ -1666,10 +2187,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         var availableCores = RetroArchHandler.GetRetroArchCores(retroArchHandler?.LauncherPath);
 
+        var grouped = RetroArchHandler.GetGroupedRetroArchCores(availableCores);
+
         foreach (var section in EmulationSections)
         {
             section.RetroArchCores.Clear();
             section.RetroArchCores.AddRange(availableCores);
+            section.GroupedRetroArchCores = new AvaloniaList<RetroArchCoreItem>(grouped);
 
             if (!string.IsNullOrWhiteSpace(section.SelectedRetroArchCore) &&
                 !section.RetroArchCores.Contains(section.SelectedRetroArchCore, StringComparer.OrdinalIgnoreCase))
@@ -1681,6 +2205,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             {
                 section.SelectedRetroArchCore = SelectDefaultRetroArchCore(section, availableCores);
             }
+
+            foreach (var handlerItem in section.Handlers)
+                handlerItem.SyncRetroArchCoreSelection();
         }
     }
 

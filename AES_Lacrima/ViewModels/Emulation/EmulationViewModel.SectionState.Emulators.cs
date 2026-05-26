@@ -1189,6 +1189,16 @@ namespace AES_Lacrima.ViewModels
 
         public AvaloniaList<XeniaPatchEntry> CurrentSectionXeniaPatchEntries => _currentSectionXeniaPatchEntries;
 
+        partial void OnSelectedCurrentSectionRetroArchCoreItemChanged(RetroArchCoreItem? value)
+        {
+            if (value is { IsGroupHeader: true })
+                return;
+
+            var newCore = value?.FileName;
+            if (!string.Equals(_selectedCurrentSectionRetroArchCore, newCore, StringComparison.OrdinalIgnoreCase))
+                SelectedCurrentSectionRetroArchCore = newCore;
+        }
+
         partial void OnSelectedCurrentSectionRetroArchCoreChanged(string? value)
         {
             if (_isSyncingCurrentSectionCoreSelection)
@@ -1200,6 +1210,26 @@ namespace AES_Lacrima.ViewModels
 
             section.SelectedRetroArchCore = value;
             SettingsViewModel?.SaveSettings();
+        }
+
+        private void SyncCurrentSectionRetroArchCoreSelection()
+        {
+            var section = CurrentEmulationSectionItem;
+            var coreName = section?.LaunchSettings?.SelectedRetroArchCore;
+
+            RetroArchCoreItem? match = null;
+            if (!string.IsNullOrWhiteSpace(coreName))
+            {
+                match = CurrentSectionRetroArchCores
+                    .FirstOrDefault(c => string.Equals(c.FileName, coreName, StringComparison.OrdinalIgnoreCase) && !c.IsGroupHeader);
+            }
+
+            if (!ReferenceEquals(SelectedCurrentSectionRetroArchCoreItem, match))
+            {
+                _isSyncingCurrentSectionCoreSelection = true;
+                SelectedCurrentSectionRetroArchCoreItem = match;
+                _isSyncingCurrentSectionCoreSelection = false;
+            }
         }
     }
 }

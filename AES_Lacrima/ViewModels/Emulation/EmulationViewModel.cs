@@ -481,6 +481,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
             OnPropertyChanged(nameof(ShowCurrentSectionDuckStationSetupLaunchButton));
             RefreshCurrentSectionLaunchOptionsState();
+            SyncCurrentSectionRetroArchCoreSelection();
         }
 
         public bool IsCurrentSectionXeniaPatchDirty
@@ -931,8 +932,12 @@ private bool _isShadPs4PatchesOverlayOpen;
             if (sender is not EmulationSectionItem section)
                 return;
 
-            if (!string.Equals(e.PropertyName, nameof(EmulationSectionItem.SelectedHandlerId), StringComparison.Ordinal) &&
-                !string.Equals(e.PropertyName, nameof(EmulationSectionItem.LaunchSettings), StringComparison.Ordinal))
+            var isCoreChange = string.Equals(e.PropertyName, nameof(EmulationSectionItem.SelectedRetroArchCore), StringComparison.Ordinal);
+
+            if (!isCoreChange &&
+                !string.Equals(e.PropertyName, nameof(EmulationSectionItem.SelectedHandlerId), StringComparison.Ordinal) &&
+                !string.Equals(e.PropertyName, nameof(EmulationSectionItem.LaunchSettings), StringComparison.Ordinal) &&
+                !string.Equals(e.PropertyName, nameof(EmulationSectionItem.GroupedRetroArchCores), StringComparison.Ordinal))
             {
                 return;
             }
@@ -941,7 +946,10 @@ private bool _isShadPs4PatchesOverlayOpen;
             if (activeSection == null || !ReferenceEquals(activeSection, section))
                 return;
 
-            SyncCurrentSectionEmulatorContext();
+            if (isCoreChange)
+                SyncCurrentSectionRetroArchCoreSelection();
+            else
+                SyncCurrentSectionEmulatorContext();
         }
 
         private void RefreshCurrentSectionHandlerState() => SyncCurrentSectionEmulatorContext();
