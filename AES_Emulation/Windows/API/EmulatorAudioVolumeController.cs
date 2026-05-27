@@ -3,10 +3,12 @@ using AES_Core.Logging;
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
 
 namespace AES_Emulation.Windows.API
 {
+    [SupportedOSPlatform("windows")]
     public sealed class EmulatorAudioVolumeController : IDisposable
     {
         private static readonly ILog Log = LogHelper.For<EmulatorAudioVolumeController>();
@@ -172,7 +174,9 @@ namespace AES_Emulation.Windows.API
             if (hr1 >= 0 && pMgr1 != IntPtr.Zero)
             {
                 Log.Warn($"TryActivateSessionManager: IAudioSessionManager activated, QI for IAudioSessionManager2.");
+#pragma warning disable CS9191 // Marshal.QueryInterface requires ref, not in
                 var qi = Marshal.QueryInterface(pMgr1, ref iid2, out IntPtr pMgr2FromQi);
+#pragma warning restore CS9191
                 Marshal.Release(pMgr1);
                 if (qi >= 0 && pMgr2FromQi != IntPtr.Zero)
                 {

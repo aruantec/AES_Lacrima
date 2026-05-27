@@ -559,6 +559,15 @@ namespace AES_Lacrima.ViewModels
             {
                 try
                 {
+                    EmulatorJobObject.AssignProcess(process);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Failed to assign emulator process to job object.", ex);
+                }
+
+                try
+                {
                     _emulatorAudioVolume.Attach(process.Id);
                     float currentVolume = _emulatorAudioVolume.Volume;
                     EmulatorVolume = Math.Round(currentVolume * 100.0, 1);
