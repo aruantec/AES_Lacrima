@@ -2014,6 +2014,38 @@
                 </Button>
             </StackPanel>
 
+            <!-- Center: Play/Pause -->
+            <Button Height="80"
+                    Width="80"
+                    Cursor="Hand"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Command="{Binding ToggleEmulatorPauseCommand}"
+                    IsVisible="{Binding IsEmulatorRunning}"
+                    ToolTip.Tip="{Binding IsEmulatorPaused, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Resume, Pause'}">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="Transparent" BorderThickness="0">
+                            <ContentPresenter Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Button.Template>
+                <Viewbox Stretch="Uniform">
+                    <Canvas Width="100" Height="100">
+                        <!-- Outer circle -->
+                        <Ellipse Canvas.Left="4" Canvas.Top="4" Width="92" Height="92" Stroke="White" StrokeThickness="7" />
+                        <!-- Pause icon (two bars) - shown when running -->
+                        <Rectangle Canvas.Left="35" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding !IsEmulatorPaused}" />
+                        <Rectangle Canvas.Left="55" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding !IsEmulatorPaused}" />
+                        <!-- Play icon (triangle) - shown when paused -->
+                        <Path Data="M 38,30 L 72,50 L 38,70 Z" Fill="White" IsVisible="{Binding IsEmulatorPaused}" />
+                    </Canvas>
+                </Viewbox>
+            </Button>
+
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="50" Margin="0,0,50,0">
                 <Button Height="60"
                         Width="60"
