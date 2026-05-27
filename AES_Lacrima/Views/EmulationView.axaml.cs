@@ -32,7 +32,7 @@ public partial class EmulationView : UserControl
     private const double PortalBottomOverlapPixels = 0;
     private const double PortalGraphWidth = 520;
     private const double PortalGraphHeight = 40;
-    private static readonly TimeSpan AlbumListPortalMaskDuration = TimeSpan.FromMilliseconds(260);
+    private static readonly TimeSpan AlbumListPortalMaskDuration = TimeSpan.FromMilliseconds(560);
 
     public static readonly DirectProperty<EmulationView, bool> IsPortalCaptureInitializingProperty =
         AvaloniaProperty.RegisterDirect<EmulationView, bool>(
@@ -148,14 +148,14 @@ public partial class EmulationView : UserControl
         new DoubleTransition
         {
             Property = MaxHeightProperty,
-            Duration = TimeSpan.FromMilliseconds(240),
-            Easing = new CubicEaseOut()
+            Duration = TimeSpan.FromMilliseconds(550),
+            Easing = new CubicEaseInOut()
         },
         new DoubleTransition
         {
             Property = OpacityProperty,
-            Duration = TimeSpan.FromMilliseconds(200),
-            Easing = new CubicEaseOut()
+            Duration = TimeSpan.FromMilliseconds(450),
+            Easing = new CubicEaseInOut()
         }
     ];
     private bool _portalSyncPending;

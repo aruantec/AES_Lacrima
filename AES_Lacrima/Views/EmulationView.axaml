@@ -927,8 +927,8 @@
                 </Interaction.Behaviors>
                 <navigation:EmulationListView.Transitions>
                     <Transitions>
-                        <DoubleTransition Property="MaxHeight" Duration="0:0:0.24" Easing="CubicEaseOut"/>
-                        <DoubleTransition Property="Opacity" Duration="0:0:0.20" Easing="CubicEaseOut"/>
+                        <DoubleTransition Property="MaxHeight" Duration="0:0:0.55" Easing="CubicEaseInOut"/>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseInOut"/>
                     </Transitions>
                 </navigation:EmulationListView.Transitions>
             </navigation:EmulationListView>
