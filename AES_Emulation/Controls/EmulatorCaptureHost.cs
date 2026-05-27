@@ -384,6 +384,9 @@ public class EmulatorCaptureHost : ContentControl
         if (this is Visual hostVisual)
             backendLocal = hostVisual.TranslatePoint(hostLocal, backendVisual) ?? hostLocal;
 
+        if (!OperatingSystem.IsWindows())
+            return null;
+
         return _backend switch
         {
             CompositionWgcCaptureControl compositionBackend => compositionBackend.TryMapCapturePointToTargetClient(backendLocal),
