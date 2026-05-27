@@ -37,7 +37,8 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using System.Xml.Linq;
+using System.Runtime.InteropServices;
 using AES_Core.Logging;
 using DrawingIcon = System.Drawing.Icon;
 
@@ -728,6 +729,7 @@ namespace AES_Lacrima.ViewModels
 
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
+            IsEmulatorPaused = false;
             if (!_isClosingActiveEmulatorForRelaunch)
                 RequestStopEmulatorCapture = true;
             if (currentHandler is CemuHandler cemuHandler)
@@ -1274,5 +1276,125 @@ namespace AES_Lacrima.ViewModels
 
         private bool IsGameplayAutoplayEnabled => SettingsViewModel?.EmulationGameplayAutoplay == true;
         private bool IsYtDlpInstalled => SettingsViewModel?.IsYtDlpInstalled ?? YtDlpManager.IsInstalled;
+
+        private static void SuspendProcessThreads(Process process)
+        {
+            if (!OperatingSystem.IsWindows())
+                return;
+
+            try
+            {
+                IntPtr snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+                if (snapshot == IntPtr.Zero || snapshot == new IntPtr(-1))
+                    return;
+
+                try
+                {
+                    var threadEntry = new THREADENTRY32 { dwSize = (uint)Marshal.SizeOf<THREADENTRY32>() };
+                    if (!Thread32First(snapshot, ref threadEntry))
+                        return;
+
+                    uint processId = (uint)process.Id;
+                    do
+                    {
+                        if (threadEntry.th32OwnerProcessID == processId)
+                        {
+                            IntPtr threadHandle = OpenThread(THREAD_SUSPEND_RESUME, false, threadEntry.th32ThreadID);
+                            if (threadHandle != IntPtr.Zero)
+                            {
+                                try { SuspendThread(threadHandle); }
+                                finally { CloseHandle(threadHandle); }
+                            }
+                        }
+                    } while (Thread32Next(snapshot, ref threadEntry));
+                }
+                finally
+                {
+                    CloseHandle(snapshot);
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug($"SuspendProcessThreads failed for PID {process.Id}.", ex);
+            }
+        }
+
+        private static void ResumeProcessThreads(Process process)
+        {
+            if (!OperatingSystem.IsWindows())
+                return;
+
+            try
+            {
+                IntPtr snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+                if (snapshot == IntPtr.Zero || snapshot == new IntPtr(-1))
+                    return;
+
+                try
+                {
+                    var threadEntry = new THREADENTRY32 { dwSize = (uint)Marshal.SizeOf<THREADENTRY32>() };
+                    if (!Thread32First(snapshot, ref threadEntry))
+                        return;
+
+                    uint processId = (uint)process.Id;
+                    do
+                    {
+                        if (threadEntry.th32OwnerProcessID == processId)
+                        {
+                            IntPtr threadHandle = OpenThread(THREAD_SUSPEND_RESUME, false, threadEntry.th32ThreadID);
+                            if (threadHandle != IntPtr.Zero)
+                            {
+                                try { ResumeThread(threadHandle); }
+                                finally { CloseHandle(threadHandle); }
+                            }
+                        }
+                    } while (Thread32Next(snapshot, ref threadEntry));
+                }
+                finally
+                {
+                    CloseHandle(snapshot);
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug($"ResumeProcessThreads failed for PID {process.Id}.", ex);
+            }
+        }
+
+        private const uint TH32CS_SNAPTHREAD = 0x00000004;
+        private const uint THREAD_SUSPEND_RESUME = 0x0002;
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool Thread32First(IntPtr hSnapshot, ref THREADENTRY32 lpte);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool Thread32Next(IntPtr hSnapshot, ref THREADENTRY32 lpte);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenThread(uint dwDesiredAccess, bool bInheritHandle, uint dwThreadId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint SuspendThread(IntPtr hThread);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint ResumeThread(IntPtr hThread);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr hObject);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct THREADENTRY32
+        {
+            public uint dwSize;
+            public uint cntUsage;
+            public uint th32ThreadID;
+            public uint th32OwnerProcessID;
+            public int tpBasePri;
+            public int tpDeltaPri;
+            public uint dwFlags;
+        }
     }
 }

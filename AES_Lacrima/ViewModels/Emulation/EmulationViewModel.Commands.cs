@@ -554,8 +554,29 @@ namespace AES_Lacrima.ViewModels
             RequestStopEmulatorCapture = true;
             EmulatorTargetHwnd = IntPtr.Zero;
             IsEmulatorRunning = false;
+            IsEmulatorPaused = false;
             UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationAlbum());
             DetachTrackedEmulatorProcess();
+        }
+
+        [RelayCommand(CanExecute = nameof(IsEmulatorRunning))]
+        private void ToggleEmulatorPause()
+        {
+            if (!TryGetRunningTrackedEmulatorProcess(out var process))
+                return;
+
+            if (IsEmulatorPaused)
+            {
+                ResumeProcessThreads(process);
+                IsEmulatorPaused = false;
+                SLog.Info($"EmulationViewModel: Resumed emulator process PID {process.Id}.");
+            }
+            else
+            {
+                SuspendProcessThreads(process);
+                IsEmulatorPaused = true;
+                SLog.Info($"EmulationViewModel: Suspended emulator process PID {process.Id}.");
+            }
         }
 
         public void ShutdownForApplicationExit()
@@ -575,6 +596,7 @@ namespace AES_Lacrima.ViewModels
             if (!TryGetRunningTrackedEmulatorProcess(out var process))
             {
                 IsEmulatorRunning = false;
+                IsEmulatorPaused = false;
                 CurrentEmulatorHandler = null;
                 DetachTrackedEmulatorProcess();
                 return;
@@ -646,6 +668,7 @@ namespace AES_Lacrima.ViewModels
             finally
             {
                 IsEmulatorRunning = false;
+                IsEmulatorPaused = false;
                 CurrentEmulatorHandler = null;
                 DetachTrackedEmulatorProcess();
                 SLog.Info("EmulationViewModel.ShutdownForApplicationExit finished.");

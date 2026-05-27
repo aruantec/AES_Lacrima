@@ -388,7 +388,11 @@ private bool _isShadPs4PatchesOverlayOpen;
              CurrentEmulatorHandler?.IsWindowEmbeddingSupported != true);
 
         [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(ToggleEmulatorPauseCommand))]
         private bool _isEmulatorRunning;
+
+        [ObservableProperty]
+        private bool _isEmulatorPaused;
 
         [ObservableProperty]
         private bool _isEmulatorLaunchInProgress;
