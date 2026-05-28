@@ -752,24 +752,14 @@
                     </Viewbox>
                 </Button>
 
-                <!-- Volume Knob -->
-                <player:RoundVolumeKnob Width="75"
-                                        Height="75"
-                                        Minimum="0"
-                                        Maximum="100"
-                                        Value="{Binding AudioPlayer.Volume, Mode=TwoWay}"
-                                        KnobBrush="WhiteSmoke"
-                                        DotBrush="DimGray"
-                                        TickBrush="DimGray"
-                                        ActiveTickBrush="WhiteSmoke"
-                                        MinTextBrush="WhiteSmoke"
-                                        MaxTextBrush="WhiteSmoke"
-                                        KnobMargin="-3"
-                                        TickThickness="2"
-                                        MaxTextSize="12"
-                                        MinTextSize="12"
-                                        HorizontalAlignment="Right"
-                                        Margin="0,0,70,0"/>
+                <!-- Volume -->
+                <player:VerticalVolumeSliderControl Width="52"
+                                                    Height="100"
+                                                    Minimum="0"
+                                                    Maximum="100"
+                                                    Value="{Binding AudioPlayer.Volume, Mode=TwoWay}"
+                                                    HorizontalAlignment="Right"
+                                                    Margin="0,0,70,0"/>
             </StackPanel>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
