@@ -2015,8 +2015,8 @@
             </StackPanel>
 
             <!-- Center: Play/Pause -->
-            <Button Height="80"
-                    Width="80"
+            <Button Height="90"
+                    Width="90"
                     Cursor="Hand"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
@@ -2274,22 +2274,13 @@
                     </Viewbox>
                 </Button>
 
-                <StackPanel Orientation="Vertical"
-                            VerticalAlignment="Center"
-                            IsVisible="{Binding IsEmulatorRunning}">
-                    <player:VolumeSliderControl Width="200"
-                                                Height="72"
-                                                Minimum="0"
-                                                Maximum="100"
-                                                Value="{Binding EmulatorVolume, Mode=TwoWay}"
-                                                VerticalAlignment="Center"/>
-                    <TextBlock Text="Volume"
-                               HorizontalAlignment="Center"
-                               Foreground="DimGray"
-                               FontSize="20"
-                               FontWeight="Bold"
-                               Margin="2,-4,0,-4"/>
-                </StackPanel>
+                <player:VerticalVolumeSliderControl Width="40"
+                                                    Height="100"
+                                                    Minimum="0"
+                                                    Maximum="100"
+                                                    Value="{Binding EmulatorVolume, Mode=TwoWay}"
+                                                    IsVisible="{Binding IsEmulatorRunning}"
+                                                    VerticalAlignment="Center"/>
             </StackPanel>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
