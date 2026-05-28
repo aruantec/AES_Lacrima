@@ -260,6 +260,8 @@ public partial class EmulationView : UserControl
     {
         if (e.ClickCount >= 2)
         {
+            if (DataContext is EmulationViewModel vm && vm.IsEmulatorRunning)
+                vm.ToggleFullscreenCommand.Execute(null);
             e.Handled = true;
             return;
         }
