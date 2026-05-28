@@ -34,8 +34,8 @@ public class VerticalVolumeSliderControl : Control
     public double Maximum { get => GetValue(MaximumProperty); set => SetValue(MaximumProperty, value); }
     public double Value { get => GetValue(ValueProperty); set => SetValue(ValueProperty, value); }
 
-    private const double TrackWidth = 36.0;
-    private const double TrackRadius = 18.0;
+    private const double TrackWidth = 46.0;
+    private const double TrackRadius = 23.0;
     private const double IconZoneHeight = 36.0;
 
     private static readonly IBrush TrackOutlineBrush = new SolidColorBrush(Color.FromArgb(255, 70, 72, 80));
