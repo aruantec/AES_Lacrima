@@ -135,6 +135,15 @@ namespace AES_Lacrima.ViewModels
             IsVideoViewportDismissed = !IsVideoViewportDismissed;
         }
 
+        [RelayCommand]
+        private void ToggleFullscreen()
+        {
+            if (!IsVideoMode || AudioPlayer?.CurrentMediaItem == null)
+                return;
+
+            IsFullscreen = !IsFullscreen;
+        }
+
         [RelayCommand(CanExecute = nameof(CanAddItems))]
         private async Task AddItems()
         {

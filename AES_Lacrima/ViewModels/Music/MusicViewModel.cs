@@ -173,6 +173,9 @@ namespace AES_Lacrima.ViewModels
         [NotifyPropertyChangedFor(nameof(IsVideoViewportVisible))]
         private bool _isVideoViewportDismissed;
 
+        [ObservableProperty]
+        private bool _isFullscreen;
+
         public bool ResetPlaybackOnAlbumSwitch { get; set; }
 
         public bool ShuffleMode
