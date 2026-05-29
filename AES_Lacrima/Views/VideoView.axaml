@@ -217,7 +217,8 @@
             <Border Background="#FF000000"/>
             <player:VideoViewControl Player="{Binding AudioPlayer}"
                                      Stretch="Uniform"
-                                     IsRenderingPaused="{Binding !IsVideoViewportVisible}" />
+                                     IsRenderingPaused="{Binding !IsVideoViewportVisible}"
+                                     DoubleTapped="VideoViewport_OnDoubleTapped" />
         </Grid>
 
         <!-- Search Bar (on top) -->

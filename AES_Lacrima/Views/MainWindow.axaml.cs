@@ -19,6 +19,8 @@ namespace AES_Lacrima.Views
         private static readonly ILog Log = AES_Core.Logging.LogHelper.For<MainWindow>();
         private bool _ignoreSizeChange = true;
         private double _lastRenderScale = double.NaN;
+        private MainWindowViewModel? _mainViewModel;
+        private NavigationService? _navigationService;
         private MusicViewModel? _musicViewModel;
         private bool _isFullscreenActive;
         private MainWindowCaptureFullscreenState? _savedFullscreenState;
@@ -43,13 +45,93 @@ namespace AES_Lacrima.Views
             if (_isFullscreenActive)
                 ExitFullscreen();
 
-            if (_musicViewModel != null)
-                _musicViewModel.PropertyChanged -= OnMusicViewModelPropertyChanged;
+            DetachMainViewModelSubscription();
+            DetachNavigationSubscription();
+            DetachMediaViewModelSubscription();
 
-            _musicViewModel = (DataContext as ViewModels.MainWindowViewModel)?.MusicViewModel;
+            _mainViewModel = DataContext as MainWindowViewModel;
+            if (_mainViewModel != null)
+            {
+                _mainViewModel.PropertyChanged += OnMainViewModelPropertyChanged;
+                AttachNavigationService(_mainViewModel.NavigationService);
+            }
 
+            AttachActiveMediaViewModel();
+        }
+
+        private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(MainWindowViewModel.NavigationService))
+                return;
+
+            DetachNavigationSubscription();
+            AttachNavigationService(_mainViewModel?.NavigationService);
+            AttachActiveMediaViewModel();
+        }
+
+        private void AttachNavigationService(NavigationService? navigationService)
+        {
+            _navigationService = navigationService;
+            if (_navigationService != null)
+                _navigationService.PropertyChanged += OnNavigationServicePropertyChanged;
+        }
+
+        private void DetachNavigationSubscription()
+        {
+            if (_navigationService != null)
+                _navigationService.PropertyChanged -= OnNavigationServicePropertyChanged;
+            _navigationService = null;
+        }
+
+        private void OnNavigationServicePropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(NavigationService.View))
+                return;
+
+            AttachActiveMediaViewModel();
+        }
+
+        private void AttachActiveMediaViewModel()
+        {
+            var previous = _musicViewModel;
+            DetachMediaViewModelSubscription();
+
+            _musicViewModel = ResolveActiveMediaViewModel();
             if (_musicViewModel != null)
                 _musicViewModel.PropertyChanged += OnMusicViewModelPropertyChanged;
+
+            if (previous != null && !ReferenceEquals(previous, _musicViewModel) && previous.IsFullscreen)
+            {
+                previous.IsFullscreen = false;
+                previous.IsVideoExpanded = false;
+            }
+
+            if (_isFullscreenActive && (_musicViewModel == null || !_musicViewModel.IsFullscreen))
+                ExitFullscreen();
+            else if (!_isFullscreenActive && _musicViewModel?.IsFullscreen == true)
+                EnterFullscreen();
+        }
+
+        private MusicViewModel? ResolveActiveMediaViewModel()
+        {
+            if (_navigationService?.View is MusicViewModel activeMedia)
+                return activeMedia;
+
+            return _mainViewModel?.MusicViewModel;
+        }
+
+        private void DetachMainViewModelSubscription()
+        {
+            if (_mainViewModel != null)
+                _mainViewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
+            _mainViewModel = null;
+        }
+
+        private void DetachMediaViewModelSubscription()
+        {
+            if (_musicViewModel != null)
+                _musicViewModel.PropertyChanged -= OnMusicViewModelPropertyChanged;
+            _musicViewModel = null;
         }
 
         private void OnMusicViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -129,6 +211,9 @@ namespace AES_Lacrima.Views
         {
             _cursorAutoHide?.Dispose();
             _cursorAutoHide = null;
+            DetachMainViewModelSubscription();
+            DetachNavigationSubscription();
+            DetachMediaViewModelSubscription();
         }
 
         private void OnKeyDown(object? sender, KeyEventArgs e)
