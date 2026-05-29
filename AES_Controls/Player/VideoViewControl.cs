@@ -3,9 +3,11 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
+using Avalonia.Threading;
 using AES_Mpv.Player;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 
 namespace AES_Controls.Player;
 
@@ -22,12 +24,22 @@ public class VideoViewControl : OpenGlControlBase
     private const double DefaultHeartbeatFps = 60.0;
     private static readonly TimeSpan ViewportExpansionDelay = TimeSpan.FromSeconds(2);
 
+    private const int FixedRenderWidth = 1920;
+    private const int FixedRenderHeight = 1080;
+
+    private const int GlReadFramebuffer = 0x8CA8;
+    private const int GlDrawFramebuffer = 0x8CA9;
+
     private bool _initialized;
     private bool _hasRenderedOnceSincePause;
     private GlInterface? _glInterface;
     private double _videoAspectRatio;
     private double _expandedViewportWidth;
     private long _viewportExpansionHoldUntilTicks;
+
+    private int _offscreenFboId = -1;
+    private int _offscreenTextureId = -1;
+    private GlBlitFramebufferDelegate? _glBlitFramebuffer;
 
     public static readonly StyledProperty<AesMpvPlayer?> PlayerProperty =
         AvaloniaProperty.Register<VideoViewControl, AesMpvPlayer?>(nameof(Player));
@@ -134,11 +146,14 @@ public class VideoViewControl : OpenGlControlBase
     {
     }
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void GlBlitFramebufferDelegate(
+        int srcX0, int srcY0, int srcX1, int srcY1,
+        int dstX0, int dstY0, int dstX1, int dstY1,
+        int mask, int filter);
+
     private static double GetEffectiveHeartbeatFps(double heartbeatFps)
         => heartbeatFps > 0 ? heartbeatFps : DefaultHeartbeatFps;
-
-    private TimeSpan CalculateInterval(double heartbeatFps)
-        => TimeSpan.FromTicks((long)(TimeSpan.TicksPerSecond / GetEffectiveHeartbeatFps(heartbeatFps)));
 
     private void ResetViewportSizing()
     {
@@ -180,35 +195,59 @@ public class VideoViewControl : OpenGlControlBase
 
     private void RefreshVideoAspectRatio()
     {
-        if (Player == null)
-            return;
+        if (Player == null) return;
 
         double aspect = 0;
-
-        try
-        {
-            aspect = Player.GetDoubleProperty("video-out-params/aspect");
-        }
+        try { aspect = Player.GetDoubleProperty("video-out-params/aspect"); }
         catch
         {
-            try
-            {
-                aspect = Player.GetDoubleProperty("video-params/aspect");
-            }
-            catch
-            {
-                return;
-            }
+            try { aspect = Player.GetDoubleProperty("video-params/aspect"); }
+            catch { return; }
         }
 
-        if (aspect <= 0 || double.IsNaN(aspect) || double.IsInfinity(aspect))
-            return;
-
-        if (Math.Abs(aspect - _videoAspectRatio) < 0.01)
-            return;
+        if (aspect <= 0 || double.IsNaN(aspect) || double.IsInfinity(aspect)) return;
+        if (Math.Abs(aspect - _videoAspectRatio) < 0.01) return;
 
         _videoAspectRatio = aspect;
         UpdateExpandedViewportWidth();
+    }
+
+    private void CreateOffscreenResources()
+    {
+        if (_glInterface == null) return;
+        var gl = _glInterface;
+
+        CleanupOffscreenResources();
+
+        _offscreenTextureId = gl.GenTexture();
+        gl.BindTexture(GlConsts.GL_TEXTURE_2D, _offscreenTextureId);
+        gl.TexImage2D(GlConsts.GL_TEXTURE_2D, 0, GlConsts.GL_RGBA,
+            FixedRenderWidth, FixedRenderHeight, 0,
+            GlConsts.GL_RGBA, GlConsts.GL_UNSIGNED_BYTE, IntPtr.Zero);
+        gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GlConsts.GL_TEXTURE_MIN_FILTER, GlConsts.GL_LINEAR);
+        gl.TexParameteri(GlConsts.GL_TEXTURE_2D, GlConsts.GL_TEXTURE_MAG_FILTER, GlConsts.GL_LINEAR);
+
+        _offscreenFboId = gl.GenFramebuffer();
+        gl.BindFramebuffer(GlConsts.GL_FRAMEBUFFER, _offscreenFboId);
+        gl.FramebufferTexture2D(GlConsts.GL_FRAMEBUFFER, GlConsts.GL_COLOR_ATTACHMENT0,
+            GlConsts.GL_TEXTURE_2D, _offscreenTextureId, 0);
+        gl.BindFramebuffer(GlConsts.GL_FRAMEBUFFER, 0);
+    }
+
+    private void CleanupOffscreenResources()
+    {
+        if (_glInterface == null) return;
+        var gl = _glInterface;
+        if (_offscreenFboId >= 0)
+        {
+            gl.DeleteFramebuffer(_offscreenFboId);
+            _offscreenFboId = -1;
+        }
+        if (_offscreenTextureId >= 0)
+        {
+            gl.DeleteTexture(_offscreenTextureId);
+            _offscreenTextureId = -1;
+        }
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -236,6 +275,12 @@ public class VideoViewControl : OpenGlControlBase
         _hasRenderedOnceSincePause = false;
         ResetViewportSizing();
         HoldViewportExpansion();
+
+        var blitPtr = gl.GetProcAddress("glBlitFramebuffer");
+        if (blitPtr != IntPtr.Zero)
+            _glBlitFramebuffer = Marshal.GetDelegateForFunctionPointer<GlBlitFramebufferDelegate>(blitPtr);
+
+        CreateOffscreenResources();
     }
 
     private void InitializeMpvInternal()
@@ -267,7 +312,11 @@ public class VideoViewControl : OpenGlControlBase
 
             Player.EnsureRenderContext();
 
-            ApplyStretch(Stretch);
+            // Always render Uniform into the fixed-size off-screen FBO
+            Player.SetProperty("video-unscaled", "no");
+            Player.SetProperty("keepaspect", "yes");
+            Player.SetProperty("panscan", "0");
+
             ApplyRotation(Rotation);
             ApplyFlip(Flip);
             ApplyAudioOffset(AudioSyncOffset);
@@ -277,33 +326,6 @@ public class VideoViewControl : OpenGlControlBase
         catch (Exception ex)
         {
             Debug.WriteLine($"VideoViewControl Init Error: {ex.Message}");
-        }
-    }
-
-    private void ApplyStretch(Stretch stretch)
-    {
-        if (Player == null) return;
-        switch (stretch)
-        {
-            case Stretch.None:
-                Player.SetProperty("video-unscaled", "yes");
-                Player.SetProperty("panscan", "0");
-                break;
-            case Stretch.Fill:
-                Player.SetProperty("video-unscaled", "no");
-                Player.SetProperty("keepaspect", "no");
-                Player.SetProperty("panscan", "0");
-                break;
-            case Stretch.Uniform:
-                Player.SetProperty("video-unscaled", "no");
-                Player.SetProperty("keepaspect", "yes");
-                Player.SetProperty("panscan", "0");
-                break;
-            case Stretch.UniformToFill:
-                Player.SetProperty("video-unscaled", "no");
-                Player.SetProperty("keepaspect", "yes");
-                Player.SetProperty("panscan", "1.0");
-                break;
         }
     }
 
@@ -329,6 +351,55 @@ public class VideoViewControl : OpenGlControlBase
         Player?.SetProperty("audio-delay", seconds.ToString(CultureInfo.InvariantCulture));
     }
 
+    private static void GetBlitDestRect(int fbWidth, int fbHeight, Stretch stretch,
+        out int dstX, out int dstY, out int dstW, out int dstH)
+    {
+        const float srcAspect = (float)FixedRenderWidth / FixedRenderHeight;
+        float dstAspect = (float)fbWidth / fbHeight;
+
+        switch (stretch)
+        {
+            case Stretch.Fill:
+                dstX = 0; dstY = 0;
+                dstW = fbWidth; dstH = fbHeight;
+                break;
+
+            case Stretch.UniformToFill:
+                if (dstAspect > srcAspect)
+                {
+                    dstW = fbWidth;
+                    dstH = (int)(fbWidth / srcAspect);
+                    dstX = 0;
+                    dstY = (fbHeight - dstH) / 2;
+                }
+                else
+                {
+                    dstH = fbHeight;
+                    dstW = (int)(fbHeight * srcAspect);
+                    dstX = (fbWidth - dstW) / 2;
+                    dstY = 0;
+                }
+                break;
+
+            default:
+                if (dstAspect > srcAspect)
+                {
+                    dstH = fbHeight;
+                    dstW = (int)(fbHeight * srcAspect);
+                    dstX = (fbWidth - dstW) / 2;
+                    dstY = 0;
+                }
+                else
+                {
+                    dstW = fbWidth;
+                    dstH = (int)(fbWidth / srcAspect);
+                    dstX = 0;
+                    dstY = (fbHeight - dstH) / 2;
+                }
+                break;
+        }
+    }
+
     protected override void OnOpenGlRender(GlInterface gl, int fb)
     {
         if (IsRenderingPaused && _hasRenderedOnceSincePause) return;
@@ -336,20 +407,49 @@ public class VideoViewControl : OpenGlControlBase
         if (!_initialized) InitializeMpvInternal();
         if (Player == null || !_initialized) return;
 
+        if (_offscreenFboId < 0 || _offscreenTextureId < 0)
+            CreateOffscreenResources();
+
         var scale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-        var width = (int)(Bounds.Width * scale);
-        var height = (int)(Bounds.Height * scale);
+        int fbWidth = Math.Max(1, (int)(Bounds.Width * scale));
+        int fbHeight = Math.Max(1, (int)(Bounds.Height * scale));
 
-        if (width > 0 && height > 0)
+        // Step 1: Render mpv to off-screen FBO at fixed resolution
+        gl.BindFramebuffer(GlConsts.GL_FRAMEBUFFER, _offscreenFboId);
+        gl.Viewport(0, 0, FixedRenderWidth, FixedRenderHeight);
+        Player.RenderToOpenGl(FixedRenderWidth, FixedRenderHeight, _offscreenFboId, flipY: 1);
+
+        // Step 2: Blit off-screen FBO to main framebuffer with scaling
+        if (_glBlitFramebuffer != null && fbWidth > 0 && fbHeight > 0)
         {
-            gl.BindFramebuffer(0x8D40, fb);
-            gl.Viewport(0, 0, width, height);
-            Player.RenderToOpenGl(width, height, fb, flipY: 1);
-            RefreshVideoAspectRatio();
-            UpdateExpandedViewportWidth();
+            GetBlitDestRect(fbWidth, fbHeight, Stretch, out int dstX, out int dstY, out int dstW, out int dstH);
 
-            if (IsRenderingPaused) _hasRenderedOnceSincePause = true;
+            gl.BindFramebuffer(GlConsts.GL_FRAMEBUFFER, fb);
+            gl.Viewport(0, 0, fbWidth, fbHeight);
+            gl.ClearColor(0, 0, 0, 1);
+            gl.Clear(GlConsts.GL_COLOR_BUFFER_BIT);
+
+            gl.BindFramebuffer(GlReadFramebuffer, _offscreenFboId);
+            gl.BindFramebuffer(GlDrawFramebuffer, fb);
+            _glBlitFramebuffer(0, 0, FixedRenderWidth, FixedRenderHeight,
+                dstX, dstY, dstX + dstW, dstY + dstH,
+                GlConsts.GL_COLOR_BUFFER_BIT, GlConsts.GL_LINEAR);
+
+            gl.BindFramebuffer(GlConsts.GL_FRAMEBUFFER, fb);
         }
+        else
+        {
+            gl.BindFramebuffer(GlConsts.GL_FRAMEBUFFER, fb);
+            gl.Viewport(0, 0, fbWidth, fbHeight);
+            gl.ClearColor(0, 0, 0, 1);
+            gl.Clear(GlConsts.GL_COLOR_BUFFER_BIT);
+            Player.RenderToOpenGl(fbWidth, fbHeight, fb, flipY: 1);
+        }
+
+        RefreshVideoAspectRatio();
+        UpdateExpandedViewportWidth();
+
+        if (IsRenderingPaused) _hasRenderedOnceSincePause = true;
 
         if (!IsRenderingPaused && IsVisible)
             RequestNextFrameRendering();
@@ -393,7 +493,6 @@ public class VideoViewControl : OpenGlControlBase
         }
         else if (change.Property == StretchProperty)
         {
-            ApplyStretch(change.GetNewValue<Stretch>());
             RequestNextFrameRendering();
         }
         else if (change.Property == RotationProperty)
@@ -439,7 +538,9 @@ public class VideoViewControl : OpenGlControlBase
     {
         _initialized = false;
         _hasRenderedOnceSincePause = false;
+        CleanupOffscreenResources();
         _glInterface = null;
+        _glBlitFramebuffer = null;
         ResetViewportSizing();
         base.OnOpenGlDeinit(gl);
     }
