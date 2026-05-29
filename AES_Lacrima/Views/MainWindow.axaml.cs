@@ -89,6 +89,7 @@ namespace AES_Lacrima.Views
                 return;
 
             AttachActiveMediaViewModel();
+            _mainViewModel?.RefreshHomeBackgroundVisibility();
         }
 
         private void AttachActiveMediaViewModel()
@@ -162,8 +163,9 @@ namespace AES_Lacrima.Views
             WindowState = WindowState.FullScreen;
             _isFullscreenActive = true;
 
-            // Let bindings control shaderdoy and background visibility during fullscreen.
+            // Let bindings control shader/background visibility during fullscreen.
             ClearCaptureLayerOverrides();
+            _mainViewModel?.RefreshHomeBackgroundVisibility();
 
             _cursorAutoHide = new FullscreenCursorAutoHideHelper(this);
             _cursorAutoHide.Start();
@@ -185,6 +187,7 @@ namespace AES_Lacrima.Views
 
             // Let bindings re-take control after exit mode restores stale values.
             ClearCaptureLayerOverrides();
+            _mainViewModel?.RefreshHomeBackgroundVisibility();
 
             if (_musicViewModel != null)
                 _musicViewModel.IsVideoExpanded = false;
@@ -223,9 +226,7 @@ namespace AES_Lacrima.Views
 
             if (e.Key == Key.Escape && _isFullscreenActive)
             {
-                if (_musicViewModel?.IsVideoExpanded == true)
-                    _musicViewModel.IsVideoExpanded = false;
-                else if (_musicViewModel != null)
+                if (_musicViewModel != null)
                     _musicViewModel.IsFullscreen = false;
                 e.Handled = true;
                 return;

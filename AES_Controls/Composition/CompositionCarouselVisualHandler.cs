@@ -86,8 +86,6 @@ namespace AES_Controls.Composition
         private bool _fullCoverSizeInitialized;
         private float _fullCoverSizeFactor;
         private float _fullCoverSizeVelocity;
-        private float _reflectionReveal = 1f;
-        private bool _reflectionRevealPending;
 
         private static float ClampFullCoverAspectRatio(float aspect)
             => Math.Clamp(aspect, 0.01f, MaxFullCoverAspectRatio);
@@ -143,7 +141,7 @@ namespace AES_Controls.Composition
                 if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
                 RegisterForNextAnimationFrameUpdate(); 
             }
-            else if (message is Vector2 size) { _visualSize = size; _visibleRangeDirty = true; Invalidate(); }
+            else if (message is Vector2 size) { _visualSize = size; _visibleRangeDirty = true; InvalidateScene(); }
             else if (message is IEnumerable<SKImage> enumerableImgs && message is not string) 
             { 
                 // Always snapshot the incoming sequence because the sender may mutate
@@ -208,7 +206,7 @@ namespace AES_Controls.Composition
                         DisposeShaderOnly(oldImg);
                     }
 
-                    Invalidate();
+                    InvalidateScene();
                 }
             }
             else if (message is DisposeImageMessage dispose)
@@ -237,7 +235,7 @@ namespace AES_Controls.Composition
                     _isDropping = false;
                     _smoothDropTargetIndex = -1;
                 }
-                Invalidate(); 
+                InvalidateScene(); 
             }
             else if (message is DragPositionMessage dp) {
                 _dragPosition = dp.Position;
@@ -247,43 +245,43 @@ namespace AES_Controls.Composition
                     _smoothDragVelocity = Vector2.Zero;
                     if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
                     RegisterForNextAnimationFrameUpdate();
-                    Invalidate();
+                    InvalidateScene();
                 }
                 else if (_smoothDragPosition.X == 0 && _smoothDragPosition.Y == 0)
                 {
                     _smoothDragPosition = dp.Position;
-                    Invalidate();
+                    InvalidateScene();
                 }
                 else if (Vector2.DistanceSquared(_smoothDragPosition, dp.Position) > 2500f)
                 {
                     _smoothDragPosition = dp.Position;
                     _smoothDragVelocity = Vector2.Zero;
-                    Invalidate();
+                    InvalidateScene();
                 }
                 else if (Vector2.DistanceSquared(_dragPosition, dp.Position) > 4f)
                 {
-                    Invalidate();
+                    InvalidateScene();
                 }
             }
-            else if (message is DropTargetMessage dtm) { _dropTargetIndex = dtm.Index; Invalidate(); }
-            else if (message is SpacingMessage spacing) { _itemSpacing = (float)spacing.Value; _visibleRangeDirty = true; Invalidate(); }
-            else if (message is ScaleMessage sm) { _itemScale = (float)sm.Value; _visibleRangeDirty = true; Invalidate(); }
-            else if (message is ItemWidthMessage iwm) { _itemWidth = (float)iwm.Value; _visibleRangeDirty = true; Invalidate(); }
-            else if (message is ItemHeightMessage ihm) { _itemHeight = (float)ihm.Value; _visibleRangeDirty = true; Invalidate(); }
-            else if (message is VerticalOffsetMessage vom) { _verticalOffset = (float)vom.Value; Invalidate(); }
-            else if (message is SliderVerticalOffsetMessage svim) { _sliderVerticalOffset = (float)svim.Value; ClearSliderShaders(); Invalidate(); }
-            else if (message is SliderTrackHeightMessage sthm) { _sliderTrackHeight = (float)sthm.Value; ClearSliderShaders(); Invalidate(); }
-            else if (message is SideTranslationMessage stm) { _sideTranslation = (float)stm.Value; _visibleRangeDirty = true; Invalidate(); }
-            else if (message is StackSpacingMessage ssm) { _stackSpacing = (float)ssm.Value; _visibleRangeDirty = true; Invalidate(); }
-            else if (message is BackgroundMessage bg) { _backgroundColor = bg.Color; Invalidate(); }
+            else if (message is DropTargetMessage dtm) { _dropTargetIndex = dtm.Index; InvalidateScene(); }
+            else if (message is SpacingMessage spacing) { _itemSpacing = (float)spacing.Value; _visibleRangeDirty = true; InvalidateScene(); }
+            else if (message is ScaleMessage sm) { _itemScale = (float)sm.Value; _visibleRangeDirty = true; InvalidateScene(); }
+            else if (message is ItemWidthMessage iwm) { _itemWidth = (float)iwm.Value; _visibleRangeDirty = true; InvalidateScene(); }
+            else if (message is ItemHeightMessage ihm) { _itemHeight = (float)ihm.Value; _visibleRangeDirty = true; InvalidateScene(); }
+            else if (message is VerticalOffsetMessage vom) { _verticalOffset = (float)vom.Value; InvalidateScene(); }
+            else if (message is SliderVerticalOffsetMessage svim) { _sliderVerticalOffset = (float)svim.Value; ClearSliderShaders(); InvalidateScene(); }
+            else if (message is SliderTrackHeightMessage sthm) { _sliderTrackHeight = (float)sthm.Value; ClearSliderShaders(); InvalidateScene(); }
+            else if (message is SideTranslationMessage stm) { _sideTranslation = (float)stm.Value; _visibleRangeDirty = true; InvalidateScene(); }
+            else if (message is StackSpacingMessage ssm) { _stackSpacing = (float)ssm.Value; _visibleRangeDirty = true; InvalidateScene(); }
+            else if (message is BackgroundMessage bg) { _backgroundColor = bg.Color; InvalidateScene(); }
             else if (message is GlobalOpacityMessage gom)
             {
                 _targetGlobalOpacity = (float)Math.Clamp(gom.Value, 0.0, 1.0);
                 if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
                 RegisterForNextAnimationFrameUpdate();
             }
-            else if (message is SliderPressedMessage spm) { _isSliderPressed = spm.IsPressed; Invalidate(); }
-            else if (message is DirectIndexFollowMessage dif) { _directIndexFollow = dif.Enabled; Invalidate(); }
+            else if (message is SliderPressedMessage spm) { _isSliderPressed = spm.IsPressed; InvalidateScene(); }
+            else if (message is DirectIndexFollowMessage dif) { _directIndexFollow = dif.Enabled; InvalidateScene(); }
             else if (message is UseFullCoverSizeMessage ufcs) 
             { 
                 _useFullCoverSize = ufcs.Value; 
@@ -294,12 +292,12 @@ namespace AES_Controls.Composition
                 }
                 if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
                 RegisterForNextAnimationFrameUpdate();
-                Invalidate(); 
+                InvalidateScene(); 
             }
-            else if (message is UpdateCoverFoundMessage ucf) { if (ucf.Found) _coverFoundIndices.Add(ucf.Index); else _coverFoundIndices.Remove(ucf.Index); Invalidate(); }
-            else if (message is ResetCoverFoundMessage rcf) { _coverFoundIndices = rcf.Indices; Invalidate(); }
-            else if (message is UpdateOverlayHoverMessage ohover) { _hoveredItemIndex = ohover.Index; _hoveredButtonId = ohover.ButtonId; Invalidate(); }
-            else if (message is UpdateOverlayPressedMessage opress) { _pressedItemIndex = opress.Index; _pressedButtonId = opress.ButtonId; Invalidate(); }
+            else if (message is UpdateCoverFoundMessage ucf) { if (ucf.Found) _coverFoundIndices.Add(ucf.Index); else _coverFoundIndices.Remove(ucf.Index); InvalidateScene(); }
+            else if (message is ResetCoverFoundMessage rcf) { _coverFoundIndices = rcf.Indices; InvalidateScene(); }
+            else if (message is UpdateOverlayHoverMessage ohover) { _hoveredItemIndex = ohover.Index; _hoveredButtonId = ohover.ButtonId; InvalidateScene(); }
+            else if (message is UpdateOverlayPressedMessage opress) { _pressedItemIndex = opress.Index; _pressedButtonId = opress.ButtonId; InvalidateScene(); }
         }
 
         private void ClearSliderShaders()
@@ -374,13 +372,13 @@ namespace AES_Controls.Composition
             {
                 _dropAlpha += (float)(dt / 0.25);
                 if (_dropAlpha >= 1.0f) { _dropAlpha = 1.0f; _isDropping = false; _draggingIndex = -1; _smoothDropTargetIndex = -1; }
-                Invalidate();
+                InvalidateScene();
             }
             if (_globalTransitionAlpha < 1.0f)
             {
                 _globalTransitionAlpha += (float)(dt / 0.35);
                 if (_globalTransitionAlpha > 1.0f) _globalTransitionAlpha = 1.0f;
-                Invalidate();
+                InvalidateScene();
             }
 
             // Smoothly animate global opacity target (for fade in/out) using a second-order spring
@@ -396,7 +394,7 @@ namespace AES_Controls.Composition
                 // clamp to valid range
                 if (_currentGlobalOpacity < 0f) _currentGlobalOpacity = 0f;
                 else if (_currentGlobalOpacity > 1f) _currentGlobalOpacity = 1f;
-                Invalidate();
+                InvalidateScene();
             }
 
             // Smoothly animate full cover size factor
@@ -409,21 +407,7 @@ namespace AES_Controls.Composition
                 _fullCoverSizeFactor += _fullCoverSizeVelocity * (float)dt;
                 if (_fullCoverSizeFactor < 0f) _fullCoverSizeFactor = 0f;
                 else if (_fullCoverSizeFactor > 1f) _fullCoverSizeFactor = 1f;
-                Invalidate();
-            }
-
-            bool activelyScrolling = IsActivelyScrolling;
-            if (activelyScrolling)
-            {
-                _reflectionReveal = 0f;
-                _reflectionRevealPending = true;
-            }
-            else if (_reflectionRevealPending && _reflectionReveal < 1f)
-            {
-                _reflectionReveal = Math.Min(1f, _reflectionReveal + (float)(dt / 0.42));
-                if (_reflectionReveal >= 1f)
-                    _reflectionRevealPending = false;
-                Invalidate();
+                InvalidateScene();
             }
 
             bool isAnimating = _directIndexFollow ||
@@ -433,8 +417,8 @@ namespace AES_Controls.Composition
                 _globalTransitionAlpha < 1.0f ||
                 Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.001f ||
                 Math.Abs(_fullCoverSizeFactor - targetFactor) > 0.001f ||
-                _isDropping ||
-                _reflectionReveal < 0.999f;
+                _isDropping;
+
             if (isAnimating || _loadingIndices.Count > 0) 
             {
                 RegisterForNextAnimationFrameUpdate();
@@ -446,12 +430,17 @@ namespace AES_Controls.Composition
             }
         }
 
+        private void InvalidateScene() => Invalidate();
+
         public override void OnRender(ImmediateDrawingContext context)
         {
             var leaseFeature = context.TryGetFeature(typeof(ISkiaSharpApiLeaseFeature)) as ISkiaSharpApiLeaseFeature;
             if (leaseFeature == null) return;
             using var lease = leaseFeature.Lease();
             var canvas = lease.SkCanvas;
+
+            if (_visualSize.X <= 0 || _visualSize.Y <= 0)
+                return;
 
             if (_backgroundColor.Alpha > 0) canvas.Clear(_backgroundColor);
             var center = new Vector2(_visualSize.X / 2.0f, (_visualSize.Y / 2.0f) + _verticalOffset);
@@ -707,29 +696,18 @@ namespace AES_Controls.Composition
         {
             if (img == null) return;
 
-            bool cheapScroll = IsActivelyScrolling;
-            float reflectionRange = cheapScroll ? 2.6f : 4.8f;
-            if (cheapScroll && absDiff > reflectionRange) return;
-
-            float reflectionStrength = cheapScroll ? 0.055f : 0.072f;
+            const float reflectionRange = 4.8f;
             float normalizedReflectionDistance = absDiff / reflectionRange;
             float reflectionFalloff = normalizedReflectionDistance >= 1.0f
                 ? 0.0f
-                : (float)Math.Pow(1.0f - normalizedReflectionDistance, cheapScroll ? 1.45f : 1.2f);
+                : (float)Math.Pow(1.0f - normalizedReflectionDistance, 1.2f);
             float reflectionBaseOpacity = ((baseOpacity * 0.45f) + 0.55f) * _globalTransitionAlpha * _currentGlobalOpacity;
-            float reflectionAlpha = reflectionBaseOpacity * reflectionStrength * reflectionFalloff;
-
-            const float cheapScrollCutoff = 2.6f;
-            if (!cheapScroll && absDiff > cheapScrollCutoff)
-            {
-                float eased = _reflectionReveal * _reflectionReveal * (3f - 2f * _reflectionReveal);
-                reflectionAlpha *= eased;
-            }
+            float reflectionAlpha = reflectionBaseOpacity * 0.072f * reflectionFalloff;
 
             if (reflectionAlpha <= 0.0015f) return;
 
             var refMat = Matrix4x4.CreateScale(1, -1, 1) * Matrix4x4.CreateTranslation(0, itemH + 25, 0) * matrix;
-            DrawQuad(canvas, itemW, itemH, refMat, img, reflectionAlpha, center, 0f, isReflection: true, horizontalSegmentsOverride: cheapScroll ? 1 : null);
+            DrawQuad(canvas, itemW, itemH, refMat, img, reflectionAlpha, center, 0f, isReflection: true);
         }
 
         private void DisposeShaderOnly(SKImage? img) { if (img != null && _shaderCache.Remove(img, out var shader)) shader.Dispose(); }
@@ -855,13 +833,13 @@ namespace AES_Controls.Composition
             // Approximate perspective with multiple vertical strips so the existing
             // 3D card motion stays intact without visibly bending the artwork.
             int horizontalSegments = horizontalSegmentsOverride ?? (isReflection
-                ? 4
+                ? 6
                 : (_draggingIndex != -1 && !_directIndexFollow
                     ? Math.Clamp(3 + (int)MathF.Ceiling(rotationYAbs * 4f), 3, 6)
                     : (_directIndexFollow
-                        ? 1
+                        ? Math.Clamp(3 + (int)MathF.Ceiling(rotationYAbs * 4f), 3, 6)
                         : (UseReducedMotionQuality
-                            ? Math.Clamp(2 + (int)MathF.Ceiling(rotationYAbs * 4f), 2, 4)
+                            ? Math.Clamp(4 + (int)MathF.Ceiling(rotationYAbs * 4f), 4, 8)
                             : Math.Clamp(4 + (int)MathF.Ceiling(rotationYAbs * 8f), 4, 10)))));
 
             int vertCount = 2 * (horizontalSegments + 1);

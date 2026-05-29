@@ -71,18 +71,34 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private SettingsViewModel? _settingsViewModel;
 
-        public bool IsShaderToyVisible => SettingsViewModel?.ShowShaderToy == true && !IsShaderToyRenderingPaused;
+        public bool IsShaderToyLayerVisible =>
+            SettingsViewModel?.ShowShaderToy == true && IsMainContentViewActive;
+
+        public bool IsShaderToyGlRenderingPaused =>
+            !IsMainContentViewActive || IsShaderToyRenderingPaused;
+
+        public bool IsMainContentViewActive => NavigationService?.View is MainContentViewModel;
+
+        public bool IsBackgroundImageVisible =>
+            SettingsViewModel?.ShowBackground == true && IsMainContentViewActive;
 
         partial void OnSettingsViewModelChanged(SettingsViewModel? value)
         {
+            if (_settingsViewModelSubscribed != null)
+                _settingsViewModelSubscribed.PropertyChanged -= OnSettingsViewModelPropertyChanged;
+
+            _settingsViewModelSubscribed = value;
+
             if (value != null)
             {
                 value.PropertyChanged += OnSettingsViewModelPropertyChanged;
                 SubscribeToMpvManager(value.MpvManager);
             }
 
-            OnPropertyChanged(nameof(IsShaderToyVisible));
+            NotifyHomeBackgroundVisibilityChanged();
         }
+
+        private SettingsViewModel? _settingsViewModelSubscribed;
 
         private void OnSettingsViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
@@ -91,11 +107,40 @@ namespace AES_Lacrima.ViewModels
                 SubscribeToMpvManager(SettingsViewModel?.MpvManager);
             }
 
-            if (e.PropertyName == nameof(SettingsViewModel.ShowShaderToy))
-            {
-                OnPropertyChanged(nameof(IsShaderToyVisible));
-            }
+            if (e.PropertyName is nameof(SettingsViewModel.ShowShaderToy) or nameof(SettingsViewModel.ShowBackground))
+                NotifyHomeBackgroundVisibilityChanged();
         }
+
+        private NavigationService? _navigationServiceSubscribed;
+
+        partial void OnNavigationServiceChanged(NavigationService? value)
+        {
+            if (_navigationServiceSubscribed != null)
+                _navigationServiceSubscribed.PropertyChanged -= OnNavigationServicePropertyChanged;
+
+            _navigationServiceSubscribed = value;
+
+            if (value != null)
+                value.PropertyChanged += OnNavigationServicePropertyChanged;
+
+            NotifyHomeBackgroundVisibilityChanged();
+        }
+
+        private void OnNavigationServicePropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(NavigationService.View))
+                NotifyHomeBackgroundVisibilityChanged();
+        }
+
+        private void NotifyHomeBackgroundVisibilityChanged()
+        {
+            OnPropertyChanged(nameof(IsMainContentViewActive));
+            OnPropertyChanged(nameof(IsBackgroundImageVisible));
+            OnPropertyChanged(nameof(IsShaderToyLayerVisible));
+            OnPropertyChanged(nameof(IsShaderToyGlRenderingPaused));
+        }
+
+        internal void RefreshHomeBackgroundVisibility() => NotifyHomeBackgroundVisibilityChanged();
 
         private void SubscribeToMpvManager(MpvLibraryManager? manager)
         {
@@ -136,7 +181,7 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnIsShaderToyRenderingPausedChanged(bool value)
         {
-            OnPropertyChanged(nameof(IsShaderToyVisible));
+            NotifyHomeBackgroundVisibilityChanged();
         }
 
         /// <summary>
@@ -174,11 +219,22 @@ namespace AES_Lacrima.ViewModels
             // If no size was saved, pick a sensible default based on the current screen and DPI.
             ApplyDefaultWindowSizeAndScale();
 
+            // [AutoResolve] assigns backing fields directly, so OnSettingsViewModelChanged /
+            // OnNavigationServiceChanged never run unless we wire them here.
+            WireHomeBackgroundSubscriptions();
+
             // Hook up MpvManager and YtDlpManager if SettingsViewModel is already available
             if (SettingsViewModel != null)
             {
                 SubscribeToMpvManager(SettingsViewModel.MpvManager);
             }
+        }
+
+        private void WireHomeBackgroundSubscriptions()
+        {
+            OnSettingsViewModelChanged(SettingsViewModel);
+            OnNavigationServiceChanged(NavigationService);
+            NotifyHomeBackgroundVisibilityChanged();
         }
 
         private void ApplyDefaultWindowSizeAndScale()

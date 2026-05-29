@@ -63,13 +63,15 @@
                 <!-- Background -->
                 <Image x:Name="BackgroundImageLayer"
                        asyncImageLoader:ImageLoader.Source="{Binding SettingsViewModel.BackgroundImagePath}" 
-                       IsVisible="{Binding SettingsViewModel.ShowBackground}"
+                       IsVisible="{Binding IsBackgroundImageVisible}"
+                       Opacity="{Binding IsBackgroundImageVisible, Converter={StaticResource BoolToOpacityConverter}}"
                        Stretch="UniformToFill"/>
                 <!--Shadertoy-->
                 <gl:GlShaderToyControl x:Name="ShaderToyLayer"
                                     ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
-                                    IsRenderingPaused="{Binding IsShaderToyRenderingPaused}"
-                                    IsVisible="{Binding SettingsViewModel.ShowShaderToy}"
+                                    IsRenderingPaused="{Binding IsShaderToyGlRenderingPaused}"
+                                    IsVisible="{Binding IsShaderToyLayerVisible}"
+                                    Opacity="{Binding IsShaderToyLayerVisible, Converter={StaticResource BoolToOpacityConverter}}"
                                     Spectrum="{Binding Spectrum}"
                                     CoverBitmap="{Binding MusicViewModel.AudioPlayer.CurrentMediaItem.CoverBitmap}"
                                     SpectrumGradient="{Binding SettingsViewModel.SpectrumGradient}">
