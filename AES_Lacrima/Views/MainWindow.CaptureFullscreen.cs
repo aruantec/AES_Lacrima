@@ -91,10 +91,6 @@ public partial class MainWindow
             mainTopBar.IsVisible = false;
         if (particleLayer != null)
             particleLayer.IsVisible = false;
-        if (shaderToyLayer != null)
-            shaderToyLayer.IsVisible = false;
-        if (backgroundImageLayer != null)
-            backgroundImageLayer.IsVisible = false;
         if (edgeBorderLayer != null)
             edgeBorderLayer.IsVisible = false;
 
@@ -153,10 +149,8 @@ public partial class MainWindow
             mainTopBar.IsVisible = state.MainTopBarVisible;
         if (particleLayer != null)
             particleLayer.IsVisible = state.ParticlesVisible;
-        if (shaderToyLayer != null)
-            shaderToyLayer.IsVisible = state.ShaderToyVisible;
-        if (backgroundImageLayer != null)
-            backgroundImageLayer.IsVisible = state.BackgroundImageVisible;
+        shaderToyLayer?.ClearValue(Visual.IsVisibleProperty);
+        backgroundImageLayer?.ClearValue(Visual.IsVisibleProperty);
         if (edgeBorderLayer != null)
             edgeBorderLayer.IsVisible = state.EdgeBorderVisible;
 
