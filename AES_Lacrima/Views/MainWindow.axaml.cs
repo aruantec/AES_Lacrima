@@ -31,6 +31,7 @@ namespace AES_Lacrima.Views
             DataContextChanged += OnMainDataContextChanged;
             OnMainDataContextChanged(null, EventArgs.Empty);
             Opened += OnOpened;
+            Closing += OnClosing;
             Closed += OnClosed;
             SizeChanged += OnSizeChanged;
             LayoutUpdated += OnLayoutUpdated;
@@ -73,7 +74,10 @@ namespace AES_Lacrima.Views
             var screenBounds = Screens?.Primary?.Bounds
                 ?? new PixelRect(0, 0, (int)ClientSize.Width, (int)ClientSize.Height);
 
+            // Save state and hide chrome, then let OS native fullscreen
+            // handle covering the entire screen (including taskbar).
             _savedFullscreenState = EnterCaptureFullscreenMode(screenBounds);
+            WindowState = WindowState.FullScreen;
             _isFullscreenActive = true;
 
             // Let bindings control shaderdoy and background visibility during fullscreen.
@@ -87,6 +91,9 @@ namespace AES_Lacrima.Views
         {
             _cursorAutoHide?.Dispose();
             _cursorAutoHide = null;
+
+            // Must restore to Normal first so ExitCaptureFullscreenMode can resize.
+            WindowState = WindowState.Normal;
 
             if (_savedFullscreenState != null)
             {
@@ -111,6 +118,11 @@ namespace AES_Lacrima.Views
             var backgroundImageLayer = this.FindControl<Control>("BackgroundImageLayer");
             if (backgroundImageLayer != null)
                 backgroundImageLayer.ClearValue(IsVisibleProperty);
+        }
+
+        private void OnClosing(object? sender, WindowClosingEventArgs e)
+        {
+            PreparePersistedWindowSizeForShutdown();
         }
 
         private void OnClosed(object? sender, EventArgs e)
