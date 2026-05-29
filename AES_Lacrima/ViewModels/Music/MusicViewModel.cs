@@ -176,6 +176,9 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private bool _isFullscreen;
 
+        [ObservableProperty]
+        private bool _isVideoExpanded;
+
         public bool ResetPlaybackOnAlbumSwitch { get; set; }
 
         public bool ShuffleMode
