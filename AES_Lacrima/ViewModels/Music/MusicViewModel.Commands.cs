@@ -138,7 +138,15 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void ToggleFullscreen()
         {
-            IsFullscreen = !IsFullscreen;
+            if (!IsFullscreen)
+            {
+                IsFullscreen = true;
+                IsVideoExpanded = true;
+            }
+            else
+            {
+                IsVideoExpanded = !IsVideoExpanded;
+            }
         }
 
         [RelayCommand(CanExecute = nameof(CanAddItems))]

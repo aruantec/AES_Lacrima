@@ -97,6 +97,9 @@ namespace AES_Lacrima.Views
             // Let bindings re-take control after exit mode restores stale values.
             ClearCaptureLayerOverrides();
 
+            if (_musicViewModel != null)
+                _musicViewModel.IsVideoExpanded = false;
+
             _isFullscreenActive = false;
         }
 
@@ -123,7 +126,9 @@ namespace AES_Lacrima.Views
 
             if (e.Key == Key.Escape && _isFullscreenActive)
             {
-                if (_musicViewModel != null)
+                if (_musicViewModel?.IsVideoExpanded == true)
+                    _musicViewModel.IsVideoExpanded = false;
+                else if (_musicViewModel != null)
                     _musicViewModel.IsFullscreen = false;
                 e.Handled = true;
                 return;
