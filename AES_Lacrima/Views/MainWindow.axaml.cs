@@ -129,6 +129,14 @@ namespace AES_Lacrima.Views
                 return;
             }
 
+            if (e.Key == Key.Back && DataContext is ViewModels.MainWindowViewModel vmNav)
+            {
+                if (vmNav.NavigationService?.NavigateBackCommand.CanExecute(null) == true)
+                    vmNav.NavigationService.NavigateBackCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+
             if (DataContext is not ViewModels.MainWindowViewModel vm)
                 return;
 

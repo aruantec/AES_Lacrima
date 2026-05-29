@@ -104,6 +104,31 @@ public partial class MainWindow
             MainBorder.BorderThickness = default;
         }
 
+        // 4. After layout settles, compensate for the platform frame offset.
+        //    ExtendClientAreaToDecorationsHint causes Win32 to add an invisible
+        //    frame when resizing — same as exit mode.
+        var entryTargetWidth = vm.WindowWidth;
+        var entryTargetHeight = vm.WindowHeight;
+        Dispatcher.UIThread.Post(() =>
+        {
+            var widthOffset = Width - entryTargetWidth;
+            var heightOffset = Height - entryTargetHeight;
+
+            FSLog.Info($"[ENTER-POST] Detected offset: widthOffset={widthOffset}, heightOffset={heightOffset}, Width={Width}, Height={Height}, target=({entryTargetWidth},{entryTargetHeight})");
+
+            if (Math.Abs(widthOffset) > 0.5 || Math.Abs(heightOffset) > 0.5)
+            {
+                var compensatedWidth = entryTargetWidth - widthOffset;
+                var compensatedHeight = entryTargetHeight - heightOffset;
+                Width = compensatedWidth;
+                Height = compensatedHeight;
+
+                FSLog.Info($"[ENTER-POST] After compensate: Width={Width}, Height={Height}");
+            }
+
+            Activate();
+        }, DispatcherPriority.Loaded);
+
         return state;
     }
 
