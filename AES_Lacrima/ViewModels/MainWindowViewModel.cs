@@ -11,7 +11,7 @@ using CommunityToolkit.Mvvm.Input;
 using System;
 using System.ComponentModel;
 using System.Text.Json.Nodes;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Lacrima.ViewModels
@@ -372,10 +372,8 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void FullScreen()
         {
-            if (MusicViewModel != null)
-            {
-                MusicViewModel.IsFullscreen = !MusicViewModel.IsFullscreen;
-            }
+            var mediaViewModel = NavigationService?.View as MusicViewModel ?? MusicViewModel;
+            mediaViewModel?.ToggleFullscreenCommand.Execute(null);
         }
 
         /// <summary>

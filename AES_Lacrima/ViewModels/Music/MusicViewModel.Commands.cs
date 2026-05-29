@@ -145,7 +145,8 @@ namespace AES_Lacrima.ViewModels
             }
             else
             {
-                IsVideoExpanded = !IsVideoExpanded;
+                IsFullscreen = false;
+                IsVideoExpanded = false;
             }
         }
 
