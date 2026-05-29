@@ -1,5 +1,7 @@
 ﻿using AES_Core.DI;
+using AES_Emulation.Windows.API;
 using AES_Lacrima.Services;
+using AES_Lacrima.ViewModels;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -8,6 +10,7 @@ using log4net;
 using Avalonia.Media;
 using Avalonia.Threading;
 using System;
+using System.ComponentModel;
 
 namespace AES_Lacrima.Views
 {
@@ -16,21 +19,115 @@ namespace AES_Lacrima.Views
         private static readonly ILog Log = AES_Core.Logging.LogHelper.For<MainWindow>();
         private bool _ignoreSizeChange = true;
         private double _lastRenderScale = double.NaN;
+        private MusicViewModel? _musicViewModel;
+        private bool _isFullscreenActive;
+        private MainWindowCaptureFullscreenState? _savedFullscreenState;
+        private FullscreenCursorAutoHideHelper? _cursorAutoHide;
 
         public MainWindow()
         {
             InitializeComponent();
             DataContext ??= DiLocator.TryResolve(typeof(ViewModels.MainWindowViewModel));
+            DataContextChanged += OnMainDataContextChanged;
+            OnMainDataContextChanged(null, EventArgs.Empty);
             Opened += OnOpened;
+            Closed += OnClosed;
             SizeChanged += OnSizeChanged;
             LayoutUpdated += OnLayoutUpdated;
             KeyDown += OnKeyDown;
+        }
+
+        private void OnMainDataContextChanged(object? sender, EventArgs e)
+        {
+            if (_isFullscreenActive)
+                ExitFullscreen();
+
+            if (_musicViewModel != null)
+                _musicViewModel.PropertyChanged -= OnMusicViewModelPropertyChanged;
+
+            _musicViewModel = (DataContext as ViewModels.MainWindowViewModel)?.MusicViewModel;
+
+            if (_musicViewModel != null)
+                _musicViewModel.PropertyChanged += OnMusicViewModelPropertyChanged;
+        }
+
+        private void OnMusicViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(MusicViewModel.IsFullscreen))
+                return;
+
+            if (DataContext is ViewModels.MainWindowViewModel mainVm)
+                mainVm.IsFullScreen = _musicViewModel?.IsFullscreen ?? false;
+
+            if (_musicViewModel == null)
+                return;
+
+            if (_musicViewModel.IsFullscreen && !_isFullscreenActive)
+                EnterFullscreen();
+            else if (!_musicViewModel.IsFullscreen && _isFullscreenActive)
+                ExitFullscreen();
+        }
+
+        private void EnterFullscreen()
+        {
+            var screenBounds = Screens?.Primary?.Bounds
+                ?? new PixelRect(0, 0, (int)ClientSize.Width, (int)ClientSize.Height);
+
+            _savedFullscreenState = EnterCaptureFullscreenMode(screenBounds);
+            _isFullscreenActive = true;
+
+            // Let bindings control shaderdoy and background visibility during fullscreen.
+            ClearCaptureLayerOverrides();
+
+            _cursorAutoHide = new FullscreenCursorAutoHideHelper(this);
+            _cursorAutoHide.Start();
+        }
+
+        private void ExitFullscreen()
+        {
+            _cursorAutoHide?.Dispose();
+            _cursorAutoHide = null;
+
+            if (_savedFullscreenState != null)
+            {
+                ExitCaptureFullscreenMode(_savedFullscreenState);
+                _savedFullscreenState = null;
+            }
+
+            // Let bindings re-take control after exit mode restores stale values.
+            ClearCaptureLayerOverrides();
+
+            _isFullscreenActive = false;
+        }
+
+        private void ClearCaptureLayerOverrides()
+        {
+            var shaderToyLayer = this.FindControl<Control>("ShaderToyLayer");
+            if (shaderToyLayer != null)
+                shaderToyLayer.ClearValue(IsVisibleProperty);
+            var backgroundImageLayer = this.FindControl<Control>("BackgroundImageLayer");
+            if (backgroundImageLayer != null)
+                backgroundImageLayer.ClearValue(IsVisibleProperty);
+        }
+
+        private void OnClosed(object? sender, EventArgs e)
+        {
+            _cursorAutoHide?.Dispose();
+            _cursorAutoHide = null;
         }
 
         private void OnKeyDown(object? sender, KeyEventArgs e)
         {
             if (e == null)
                 return;
+
+            if (e.Key == Key.Escape && _isFullscreenActive)
+            {
+                if (_musicViewModel != null)
+                    _musicViewModel.IsFullscreen = false;
+                e.Handled = true;
+                return;
+            }
 
             if (DataContext is not ViewModels.MainWindowViewModel vm)
                 return;
