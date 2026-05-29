@@ -138,9 +138,6 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void ToggleFullscreen()
         {
-            if (!IsVideoMode || AudioPlayer?.CurrentMediaItem == null)
-                return;
-
             IsFullscreen = !IsFullscreen;
         }
 

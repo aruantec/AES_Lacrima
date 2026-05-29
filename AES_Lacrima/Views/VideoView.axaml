@@ -733,57 +733,6 @@
             <!-- Right buttons -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
 
-                <!-- Fullscreen button -->
-                <Button Height="60"
-                        Width="60"
-                        VerticalAlignment="Center"
-                        Margin="0,0,80,0"
-                        Cursor="Hand"
-                        IsVisible="{Binding IsVideoViewportVisible}"
-                        Command="{Binding ToggleFullscreenCommand}"
-                        ToolTip.Tip="Fullscreen">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="Transparent" BorderThickness="0">
-                                <ContentPresenter Content="{TemplateBinding Content}"
-                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
-                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                    <Viewbox Stretch="Uniform">
-                        <Canvas Width="100" Height="100">
-                            <Rectangle Canvas.Left="8" Canvas.Top="6" Width="84" Height="62" RadiusX="8" RadiusY="8"
-                                       StrokeThickness="7"
-                                       Stroke="{Binding IsFullscreen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}"
-                                       Fill="Transparent">
-                                <Rectangle.Transitions>
-                                    <Transitions>
-                                        <BrushTransition Property="Stroke" Duration="0:0:0.32" />
-                                    </Transitions>
-                                </Rectangle.Transitions>
-                            </Rectangle>
-                            <Rectangle Canvas.Left="46" Canvas.Top="68" Width="8" Height="12"
-                                       Fill="{Binding IsFullscreen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}">
-                                <Rectangle.Transitions>
-                                    <Transitions>
-                                        <BrushTransition Property="Fill" Duration="0:0:0.32" />
-                                    </Transitions>
-                                </Rectangle.Transitions>
-                            </Rectangle>
-                            <Rectangle Canvas.Left="26" Canvas.Top="80" Width="48" Height="12" RadiusX="6" RadiusY="6"
-                                       Fill="{Binding IsFullscreen, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='White,DimGray'}">
-                                <Rectangle.Transitions>
-                                    <Transitions>
-                                        <BrushTransition Property="Fill" Duration="0:0:0.32" />
-                                    </Transitions>
-                                </Rectangle.Transitions>
-                            </Rectangle>
-                        </Canvas>
-                    </Viewbox>
-                </Button>
-
                 <!-- Equalizer button -->
                 <Button Height="60"
                         Width="60"

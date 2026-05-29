@@ -367,12 +367,15 @@ namespace AES_Lacrima.ViewModels
         }
 
         /// <summary>
-        /// Switches the application window to full-screen mode.
+        /// Switches the application window to full-screen mode using capture fullscreen.
         /// </summary>
         [RelayCommand]
         private void FullScreen()
         {
-            SetWindowState(Avalonia.Controls.WindowState.FullScreen);
+            if (MusicViewModel != null)
+            {
+                MusicViewModel.IsFullscreen = !MusicViewModel.IsFullscreen;
+            }
         }
 
         /// <summary>
