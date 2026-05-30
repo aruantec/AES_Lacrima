@@ -122,6 +122,7 @@
                                 <composition:FolderCompositionControl Items="{Binding PreviewItems}"
                                                                       FolderCoverItem="{Binding}"
                                                                       DefaultCover="{Binding CoverBitmap}"
+                                                                      IsAnimationPaused="{Binding $parent[UserControl].((vm:EmulationViewModel)DataContext).IsRomCarouselAnimationPaused}"
                                                                       ClipToBounds="True"
                                                                       MaxVisibleCovers="3"
                                                                       CoverStretch="UniformToFill"/>

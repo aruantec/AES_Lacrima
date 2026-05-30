@@ -190,6 +190,7 @@
 								<composition:FolderCompositionControl Items="{Binding Children}"
 																	  FolderCoverItem="{Binding}"
 																	  DefaultCover="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).DefaultFolderCover}"
+																	  IsAnimationPaused="{Binding $parent[UserControl].((vm:MusicViewModel)DataContext).IsAlbumFolderAnimationPaused}"
 																	  ClipToBounds="True"
 																	  MaxVisibleCovers="3"/>
 								<!-- Loading overlay per album -->
