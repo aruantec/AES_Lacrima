@@ -283,6 +283,9 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(AlbumListToggleText))]
+        [NotifyPropertyChangedFor(nameof(IsEmulationFolderAnimationPaused))]
+        [NotifyPropertyChangedFor(nameof(IsGameplayPreviewPublishBoundsActive))]
+        [NotifyPropertyChangedFor(nameof(IsGameplayPreviewViewportVisible))]
         private bool _isAlbumListCollapsed;
 
         [ObservableProperty]
@@ -716,9 +719,24 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool IsCompositionCaptureVisible => IsActive && IsEmulatorViewportVisible;
         public bool IsCarouselVisible => !IsEmulatorViewportVisible;
         public bool IsRomCarouselAnimationPaused => IsCompositionCaptureVisible;
+
+        /// <summary>
+        /// Pauses album-strip folder fan timers while the strip is expanded or during capture.
+        /// Covers remain visible (snapped layout); only the per-tile 60 Hz UI timers stop so the
+        /// ROM carousel compositor is not competing with the album list during scrolling.
+        /// </summary>
+        public bool IsEmulationFolderAnimationPaused => IsCompositionCaptureVisible || !IsAlbumListCollapsed;
         public bool IsSearchOverlayVisible => MetadataService?.IsImageSearchOverlayOpen == true && !IsCompositionCaptureVisible;
         public bool IsSearchBoxVisible => IsCarouselVisible && !(MetadataService?.IsMetadataLoaded == true);
-        public bool IsGameplayPreviewViewportVisible => IsGameplayPreviewHostVisible && !IsEmulatorViewportVisible;
+        /// <summary>
+        /// Gameplay preview tracks the selected cover via <see cref="CompositionCarouselControl.PublishSelectedItemBounds"/>.
+        /// Disable while the album strip is expanded so ROM scrolling is not competing with
+        /// video decode and per-frame layout on the preview overlay (music has no equivalent).
+        /// </summary>
+        public bool IsGameplayPreviewPublishBoundsActive =>
+            IsGameplayPreviewHostVisible && !IsEmulatorViewportVisible && IsAlbumListCollapsed;
+
+        public bool IsGameplayPreviewViewportVisible => IsGameplayPreviewPublishBoundsActive;
         public bool IsGameplayVideoSurfaceVisible => IsGameplayVideoVisible && !IsEmulatorViewportVisible;
         public bool ForceUseTargetClientAreaCapture => CurrentEmulatorHandler?.ForceUseTargetClientAreaCapture == true;
 
@@ -867,6 +885,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 OnPropertyChanged(nameof(IsCompositionCaptureVisible));
                 OnPropertyChanged(nameof(IsRomCarouselAnimationPaused));
+                OnPropertyChanged(nameof(IsEmulationFolderAnimationPaused));
             }
         }
 
@@ -1047,6 +1066,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(IsEmulatorViewportVisible));
             OnPropertyChanged(nameof(IsCompositionCaptureVisible));
             OnPropertyChanged(nameof(IsRomCarouselAnimationPaused));
+            OnPropertyChanged(nameof(IsEmulationFolderAnimationPaused));
             OnPropertyChanged(nameof(IsCarouselVisible));
             OnPropertyChanged(nameof(IsSearchOverlayVisible));
             OnPropertyChanged(nameof(IsSearchBoxVisible));
@@ -1079,6 +1099,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(IsEmulatorViewportVisible));
             OnPropertyChanged(nameof(IsCompositionCaptureVisible));
             OnPropertyChanged(nameof(IsRomCarouselAnimationPaused));
+            OnPropertyChanged(nameof(IsEmulationFolderAnimationPaused));
             OnPropertyChanged(nameof(IsCarouselVisible));
             OnPropertyChanged(nameof(IsSearchOverlayVisible));
             OnPropertyChanged(nameof(IsSearchBoxVisible));
@@ -1238,7 +1259,18 @@ private bool _isShadPs4PatchesOverlayOpen;
         }
 
 
-        partial void OnIsAlbumListCollapsedChanged(bool value) => AutoSave();
+        partial void OnIsAlbumListCollapsedChanged(bool value)
+        {
+            AutoSave();
+            if (!value)
+            {
+                StopGameplayPreview();
+                return;
+            }
+
+            if (IsActive && IsGameplayPreviewAvailable)
+                QueueGameplayPreview(HighlightedItem, immediate: true);
+        }
 
         partial void OnShowStatisticsOverlayChanged(bool value) => AutoSave();
 

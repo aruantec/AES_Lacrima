@@ -21,7 +21,7 @@
     <Grid Background="Black" ClipToBounds="False">
         <Grid.Styles>
             <Style Selector="composition|FolderCompositionControl">
-                <Setter Property="IsAnimationPaused" Value="{Binding IsRomCarouselAnimationPaused}"/>
+                <Setter Property="IsAnimationPaused" Value="{Binding IsEmulationFolderAnimationPaused}"/>
             </Style>
         </Grid.Styles>
         <ListBox ItemsSource="{Binding AlbumList}"
