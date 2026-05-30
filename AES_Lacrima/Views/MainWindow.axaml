@@ -123,7 +123,7 @@
                 <!--Particle control-->
                 <composition:ParticleCompositionControl x:Name="ParticleLayer"
                                                         ParticleCount="{Binding SettingsViewModel.ParticleCount}"
-                                                        IsVisible="{Binding SettingsViewModel.ShowParticles}"/>
+                                                        IsVisible="{Binding IsParticlesLayerVisible}"/>
             </Grid>
         </Border>
         <composition:EdgeBorderCompositionControl x:Name="EdgeBorderLayer"

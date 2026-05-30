@@ -75,9 +75,15 @@ namespace AES_Lacrima.ViewModels
             SettingsViewModel?.ShowShaderToy == true && IsMainContentViewActive;
 
         public bool IsShaderToyGlRenderingPaused =>
-            !IsMainContentViewActive || IsShaderToyRenderingPaused;
+            !IsMainContentViewActive || IsShaderToyRenderingPaused || IsEmulationCapturePresentationActive;
 
         public bool IsMainContentViewActive => NavigationService?.View is MainContentViewModel;
+
+        public bool IsEmulationCapturePresentationActive =>
+            NavigationService?.View is EmulationViewModel { IsActive: true, IsCompositionCaptureVisible: true };
+
+        public bool IsParticlesLayerVisible =>
+            SettingsViewModel?.ShowParticles == true && !IsEmulationCapturePresentationActive;
 
         public bool IsBackgroundImageVisible =>
             SettingsViewModel?.ShowBackground == true && IsMainContentViewActive;
@@ -107,11 +113,12 @@ namespace AES_Lacrima.ViewModels
                 SubscribeToMpvManager(SettingsViewModel?.MpvManager);
             }
 
-            if (e.PropertyName is nameof(SettingsViewModel.ShowShaderToy) or nameof(SettingsViewModel.ShowBackground))
+            if (e.PropertyName is nameof(SettingsViewModel.ShowShaderToy) or nameof(SettingsViewModel.ShowBackground) or nameof(SettingsViewModel.ShowParticles))
                 NotifyHomeBackgroundVisibilityChanged();
         }
 
         private NavigationService? _navigationServiceSubscribed;
+        private EmulationViewModel? _emulationViewModelSubscribed;
 
         partial void OnNavigationServiceChanged(NavigationService? value)
         {
@@ -123,21 +130,47 @@ namespace AES_Lacrima.ViewModels
             if (value != null)
                 value.PropertyChanged += OnNavigationServicePropertyChanged;
 
+            AttachEmulationViewModelSubscription();
             NotifyHomeBackgroundVisibilityChanged();
         }
 
         private void OnNavigationServicePropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(NavigationService.View))
+            {
+                AttachEmulationViewModelSubscription();
                 NotifyHomeBackgroundVisibilityChanged();
+            }
+        }
+
+        private void AttachEmulationViewModelSubscription()
+        {
+            if (_emulationViewModelSubscribed != null)
+                _emulationViewModelSubscribed.PropertyChanged -= OnEmulationViewModelPropertyChanged;
+
+            _emulationViewModelSubscribed = NavigationService?.View as EmulationViewModel;
+
+            if (_emulationViewModelSubscribed != null)
+                _emulationViewModelSubscribed.PropertyChanged += OnEmulationViewModelPropertyChanged;
+        }
+
+        private void OnEmulationViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(EmulationViewModel.IsCompositionCaptureVisible)
+                or nameof(EmulationViewModel.IsActive))
+            {
+                NotifyHomeBackgroundVisibilityChanged();
+            }
         }
 
         private void NotifyHomeBackgroundVisibilityChanged()
         {
             OnPropertyChanged(nameof(IsMainContentViewActive));
+            OnPropertyChanged(nameof(IsEmulationCapturePresentationActive));
             OnPropertyChanged(nameof(IsBackgroundImageVisible));
             OnPropertyChanged(nameof(IsShaderToyLayerVisible));
             OnPropertyChanged(nameof(IsShaderToyGlRenderingPaused));
+            OnPropertyChanged(nameof(IsParticlesLayerVisible));
         }
 
         internal void RefreshHomeBackgroundVisibility() => NotifyHomeBackgroundVisibilityChanged();
@@ -234,6 +267,7 @@ namespace AES_Lacrima.ViewModels
         {
             OnSettingsViewModelChanged(SettingsViewModel);
             OnNavigationServiceChanged(NavigationService);
+            AttachEmulationViewModelSubscription();
             NotifyHomeBackgroundVisibilityChanged();
         }
 
@@ -428,6 +462,12 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void FullScreen()
         {
+            if (NavigationService?.View is EmulationViewModel emulationViewModel)
+            {
+                emulationViewModel.ToggleFullscreenCommand.Execute(null);
+                return;
+            }
+
             var mediaViewModel = NavigationService?.View as MusicViewModel ?? MusicViewModel;
             mediaViewModel?.ToggleFullscreenCommand.Execute(null);
         }

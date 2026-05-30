@@ -1599,6 +1599,9 @@ public partial class EmulationView : UserControl
 
     private void UpdatePortalFrametimeGraph(double latestMs)
     {
+        if (DataContext is EmulationViewModel { ShowFrametimeGraph: false })
+            return;
+
         var now = DateTime.UtcNow;
         var minIntervalMs = _isCaptureFullscreen ? 200 : 50;
         if ((now - _lastPortalGraphUpdateUtc).TotalMilliseconds < minIntervalMs)
