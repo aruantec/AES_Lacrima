@@ -23,6 +23,7 @@ public class FolderCompositionControl : Control
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<FolderCompositionControl>();
 
     private CompositionCustomVisual? _visual;
+    private readonly FolderAnimationSyncState _animationSync = new();
     private readonly HashSet<MediaItem> _subscribedItems = new();
     private double _tgtPress = 1.0;
     private bool _isPointerOver;
@@ -154,6 +155,23 @@ public class FolderCompositionControl : Control
         Items = [];
     }
 
+    /// <summary>
+    /// True while fan/stack motion is still running on the compositor.
+    /// </summary>
+    public bool IsFolderAnimating => _animationSync.IsAnimating;
+
+    /// <summary>
+    /// Sets fan spread without requiring a pointer-over transition (used by tile handoff).
+    /// </summary>
+    public void SetSpread(bool spread)
+    {
+        if (_isPointerOver == spread)
+            return;
+
+        _isPointerOver = spread;
+        _visual?.SendHandlerMessage(new FolderSpreadMessage(spread));
+    }
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -179,6 +197,7 @@ public class FolderCompositionControl : Control
         {
             _visual = compositor.CreateCustomVisual(new FolderCompositionVisualHandler());
             ElementComposition.SetElementChildVisual(this, _visual);
+            _visual.SendHandlerMessage(new FolderAttachSyncMessage(_animationSync));
             UpdateVisualSize();
             SubscribeVisibleItems();
             _visual.SendHandlerMessage(new FolderAnimationPausedMessage(IsAnimationPaused));
@@ -198,7 +217,7 @@ public class FolderCompositionControl : Control
 
         if (_visual != null)
         {
-            _visual.SendHandlerMessage(null);
+            _visual.SendHandlerMessage(null!);
             ElementComposition.SetElementChildVisual(this, null);
             _visual = null;
         }
