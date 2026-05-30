@@ -9,23 +9,24 @@ using Avalonia.Media;
 using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
 using SkiaSharp;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Controls.Player.Spectrum;
 
 /// <summary>
-/// Composition-based spectrum visualiser control. Retains the public surface and
-/// smoothing behaviour of the original GL implementation while rendering through
-/// Avalonia's composition API.
+/// Composition-based spectrum visualiser. Physics run on a UI <see cref="DispatcherTimer"/>;
+/// bars are drawn into a fixed-size offscreen surface and presented as a single compositor blit.
 /// </summary>
 public sealed class GlSpectrumControl : Control, IDisposable
 {
     private static readonly ILog Log = LogHelper.For<GlSpectrumControl>();
+    private const int FixedRenderWidth = 960;
+    private const int MaxBarCount = 192;
+
     private const double MinAdaptiveFrameIntervalMs = 1000.0 / 120.0;
     private const double MaxAdaptiveFrameIntervalMs = 1000.0 / 60.0;
     private const double AdaptiveIntervalToleranceMs = 0.25;
-    private const double SpectrumDensityFloor = 0.72;
     private const float DefaultPeakThicknessPixels = 2.0f;
 
     public static readonly StyledProperty<AvaloniaList<double>?> SpectrumProperty =
@@ -539,21 +540,16 @@ public sealed class GlSpectrumControl : Control, IDisposable
         return hasVisibleActivity || observedMax > 0.001 || _globalMax > 0.051;
     }
 
+    /// <summary>
+    /// Bar count is derived from a fixed render width (not the control width) and capped so
+    /// fullscreen layouts keep wider bars and fewer draw calls.
+    /// </summary>
     private int GetTargetBarCount(float logicalWidth)
     {
-        double step = Math.Max(1.0, BarWidth + BarSpacing);
-        int rawCount = Math.Max(1, (int)(logicalWidth / step));
-
-        double normalizedLoad = Math.Clamp(
-            (MaxAdaptiveFrameIntervalMs - _targetFrameIntervalMs) / (MaxAdaptiveFrameIntervalMs - MinAdaptiveFrameIntervalMs),
-            0.0,
-            1.0);
-        double densityScale = SpectrumDensityFloor + ((1.0 - SpectrumDensityFloor) * normalizedLoad);
-
-        if (OperatingSystem.IsMacOS())
-            densityScale = Math.Min(densityScale, 0.88);
-
-        return Math.Max(1, (int)Math.Round(rawCount * densityScale));
+        _ = logicalWidth;
+        double pitch = Math.Max(1.0, BarWidth + BarSpacing);
+        int rawCount = Math.Max(1, (int)(FixedRenderWidth / pitch));
+        return Math.Min(MaxBarCount, rawCount);
     }
 
     private void UpdateGradientColors()
