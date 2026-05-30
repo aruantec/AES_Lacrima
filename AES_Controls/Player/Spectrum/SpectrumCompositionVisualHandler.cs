@@ -106,8 +106,14 @@ internal sealed class SpectrumCompositionVisualHandler : CompositionCustomVisual
             case SpectrumRuntimeMessage runtime:
                 _isVisible = runtime.IsVisible;
                 _isPaused = runtime.IsPaused;
-                if (!_isPaused && _isVisible)
-                    _isAnimating = true;
+                if (_isPaused || !_isVisible)
+                {
+                    _isAnimating = false;
+                    _animationLoopActive = false;
+                    return;
+                }
+
+                _isAnimating = true;
                 UpdateAnimationLoopState();
                 return;
             case SpectrumOpacityMessage opacity:
@@ -117,6 +123,9 @@ internal sealed class SpectrumCompositionVisualHandler : CompositionCustomVisual
                 Invalidate();
                 return;
             case SpectrumWakeMessage:
+                if (_isPaused || !_isVisible)
+                    return;
+
                 _isAnimating = true;
                 UpdateAnimationLoopState();
                 return;
@@ -151,7 +160,7 @@ internal sealed class SpectrumCompositionVisualHandler : CompositionCustomVisual
         }
         finally
         {
-            if (_animationLoopActive)
+            if (_animationLoopActive && _isVisible && !_isPaused)
                 RegisterForNextAnimationFrameUpdate();
         }
     }

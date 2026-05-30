@@ -85,6 +85,9 @@ namespace AES_Lacrima.ViewModels
         public bool IsParticlesLayerVisible =>
             SettingsViewModel?.ShowParticles == true && !IsEmulationCapturePresentationActive;
 
+        public bool IsEdgeBorderLayerVisible =>
+            SettingsViewModel?.ShowEdgeBorder == true && !IsEmulationCapturePresentationActive;
+
         public bool IsBackgroundImageVisible =>
             SettingsViewModel?.ShowBackground == true && IsMainContentViewActive;
 
@@ -113,7 +116,7 @@ namespace AES_Lacrima.ViewModels
                 SubscribeToMpvManager(SettingsViewModel?.MpvManager);
             }
 
-            if (e.PropertyName is nameof(SettingsViewModel.ShowShaderToy) or nameof(SettingsViewModel.ShowBackground) or nameof(SettingsViewModel.ShowParticles))
+            if (e.PropertyName is nameof(SettingsViewModel.ShowShaderToy) or nameof(SettingsViewModel.ShowBackground) or nameof(SettingsViewModel.ShowParticles) or nameof(SettingsViewModel.ShowEdgeBorder))
                 NotifyHomeBackgroundVisibilityChanged();
         }
 
@@ -171,6 +174,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(IsShaderToyLayerVisible));
             OnPropertyChanged(nameof(IsShaderToyGlRenderingPaused));
             OnPropertyChanged(nameof(IsParticlesLayerVisible));
+            OnPropertyChanged(nameof(IsEdgeBorderLayerVisible));
         }
 
         internal void RefreshHomeBackgroundVisibility() => NotifyHomeBackgroundVisibilityChanged();

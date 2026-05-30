@@ -224,6 +224,7 @@
                                         UseDeltaTime="True"
                                         IsHitTestVisible="False"
                                         BarGradient="{Binding SettingsViewModel.SpectrumGradient}"
+                                        IsRenderingPaused="{Binding !IsActive}"
                                         IsVisible="{Binding SettingsViewModel.ShowMusicSpectrum}">
                 <spectrum:GlSpectrumControl.Transitions>
                     <Transitions>
