@@ -9,8 +9,10 @@ using Avalonia.Platform;
 using log4net;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using System;
 using System.ComponentModel;
+using System.Linq;
 
 namespace AES_Lacrima.Views
 {
@@ -22,6 +24,7 @@ namespace AES_Lacrima.Views
         private MainWindowViewModel? _mainViewModel;
         private NavigationService? _navigationService;
         private MusicViewModel? _musicViewModel;
+        private EmulationViewModel? _emulationViewModel;
         private bool _isFullscreenActive;
         private MainWindowCaptureFullscreenState? _savedFullscreenState;
         private FullscreenCursorAutoHideHelper? _cursorAutoHide;
@@ -43,11 +46,12 @@ namespace AES_Lacrima.Views
         private void OnMainDataContextChanged(object? sender, EventArgs e)
         {
             if (_isFullscreenActive)
-                ExitFullscreen();
+                ExitWindowFullscreen();
 
             DetachMainViewModelSubscription();
             DetachNavigationSubscription();
             DetachMediaViewModelSubscription();
+            DetachEmulationViewModelSubscription();
 
             _mainViewModel = DataContext as MainWindowViewModel;
             if (_mainViewModel != null)
@@ -56,7 +60,7 @@ namespace AES_Lacrima.Views
                 AttachNavigationService(_mainViewModel.NavigationService);
             }
 
-            AttachActiveMediaViewModel();
+            AttachActiveFullscreenViewModel();
         }
 
         private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -66,7 +70,7 @@ namespace AES_Lacrima.Views
 
             DetachNavigationSubscription();
             AttachNavigationService(_mainViewModel?.NavigationService);
-            AttachActiveMediaViewModel();
+            AttachActiveFullscreenViewModel();
         }
 
         private void AttachNavigationService(NavigationService? navigationService)
@@ -88,30 +92,58 @@ namespace AES_Lacrima.Views
             if (e.PropertyName != nameof(NavigationService.View))
                 return;
 
-            AttachActiveMediaViewModel();
+            AttachActiveFullscreenViewModel();
             _mainViewModel?.RefreshHomeBackgroundVisibility();
         }
 
-        private void AttachActiveMediaViewModel()
+        private void AttachActiveFullscreenViewModel()
         {
-            var previous = _musicViewModel;
+            var previousMusic = _musicViewModel;
+            var previousEmulation = _emulationViewModel;
             DetachMediaViewModelSubscription();
+            DetachEmulationViewModelSubscription();
 
             _musicViewModel = ResolveActiveMediaViewModel();
+            _emulationViewModel = _navigationService?.View as EmulationViewModel;
+
             if (_musicViewModel != null)
                 _musicViewModel.PropertyChanged += OnMusicViewModelPropertyChanged;
 
-            if (previous != null && !ReferenceEquals(previous, _musicViewModel) && previous.IsFullscreen)
+            if (_emulationViewModel != null)
+                _emulationViewModel.PropertyChanged += OnEmulationViewModelPropertyChanged;
+
+            if (previousMusic != null && !ReferenceEquals(previousMusic, _musicViewModel) && previousMusic.IsFullscreen)
             {
-                previous.IsFullscreen = false;
-                previous.IsVideoExpanded = false;
+                previousMusic.IsFullscreen = false;
+                previousMusic.IsVideoExpanded = false;
             }
 
-            if (_isFullscreenActive && (_musicViewModel == null || !_musicViewModel.IsFullscreen))
-                ExitFullscreen();
-            else if (!_isFullscreenActive && _musicViewModel?.IsFullscreen == true)
-                EnterFullscreen();
+            if (previousEmulation != null && !ReferenceEquals(previousEmulation, _emulationViewModel) && previousEmulation.IsFullscreen)
+                previousEmulation.IsFullscreen = false;
+
+            SyncWindowFullscreenFromActiveViewModel();
         }
+
+        private void SyncWindowFullscreenFromActiveViewModel()
+        {
+            var wantsFullscreen = IsActiveViewModelFullscreen();
+
+            if (_isFullscreenActive && !wantsFullscreen)
+                ExitWindowFullscreen();
+            else if (!_isFullscreenActive && wantsFullscreen)
+            {
+                EnterWindowFullscreen();
+                if (_emulationViewModel?.IsFullscreen == true)
+                {
+                    Dispatcher.UIThread.Post(
+                        () => FindEmulationView()?.EnterCapturePresentationFullscreen(),
+                        DispatcherPriority.Loaded);
+                }
+            }
+        }
+
+        private bool IsActiveViewModelFullscreen() =>
+            _emulationViewModel?.IsFullscreen == true || _musicViewModel?.IsFullscreen == true;
 
         private MusicViewModel? ResolveActiveMediaViewModel()
         {
@@ -140,19 +172,58 @@ namespace AES_Lacrima.Views
             if (e.PropertyName != nameof(MusicViewModel.IsFullscreen))
                 return;
 
+            OnActiveViewModelFullscreenChanged();
+        }
+
+        private void OnEmulationViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(EmulationViewModel.IsFullscreen))
+                return;
+
+            OnActiveViewModelFullscreenChanged();
+        }
+
+        private void OnActiveViewModelFullscreenChanged()
+        {
             if (DataContext is ViewModels.MainWindowViewModel mainVm)
-                mainVm.IsFullScreen = _musicViewModel?.IsFullscreen ?? false;
+                mainVm.IsFullScreen = IsActiveViewModelFullscreen();
+
+            if (_emulationViewModel?.IsFullscreen == true)
+            {
+                if (!_isFullscreenActive)
+                    EnterWindowFullscreen();
+
+                Dispatcher.UIThread.Post(
+                    () => FindEmulationView()?.EnterCapturePresentationFullscreen(),
+                    DispatcherPriority.Loaded);
+                return;
+            }
+
+            if (_emulationViewModel?.IsFullscreen == false)
+            {
+                FindEmulationView()?.ExitCapturePresentationFullscreen();
+                if (_isFullscreenActive)
+                    ExitWindowFullscreen();
+
+                Dispatcher.UIThread.Post(
+                    () => FindEmulationView()?.OnWindowFullscreenEnded(),
+                    DispatcherPriority.Loaded);
+                return;
+            }
 
             if (_musicViewModel == null)
                 return;
 
             if (_musicViewModel.IsFullscreen && !_isFullscreenActive)
-                EnterFullscreen();
+                EnterWindowFullscreen();
             else if (!_musicViewModel.IsFullscreen && _isFullscreenActive)
-                ExitFullscreen();
+                ExitWindowFullscreen();
         }
 
-        private void EnterFullscreen()
+        private EmulationView? FindEmulationView() =>
+            this.GetVisualDescendants().OfType<EmulationView>().FirstOrDefault();
+
+        private void EnterWindowFullscreen()
         {
             var screenBounds = Screens?.Primary?.Bounds
                 ?? new PixelRect(0, 0, (int)ClientSize.Width, (int)ClientSize.Height);
@@ -171,7 +242,7 @@ namespace AES_Lacrima.Views
             _cursorAutoHide.Start();
         }
 
-        private void ExitFullscreen()
+        private void ExitWindowFullscreen()
         {
             _cursorAutoHide?.Dispose();
             _cursorAutoHide = null;
@@ -217,6 +288,14 @@ namespace AES_Lacrima.Views
             DetachMainViewModelSubscription();
             DetachNavigationSubscription();
             DetachMediaViewModelSubscription();
+            DetachEmulationViewModelSubscription();
+        }
+
+        private void DetachEmulationViewModelSubscription()
+        {
+            if (_emulationViewModel != null)
+                _emulationViewModel.PropertyChanged -= OnEmulationViewModelPropertyChanged;
+            _emulationViewModel = null;
         }
 
         private void OnKeyDown(object? sender, KeyEventArgs e)
@@ -226,7 +305,9 @@ namespace AES_Lacrima.Views
 
             if (e.Key == Key.Escape && _isFullscreenActive)
             {
-                if (_musicViewModel != null)
+                if (_emulationViewModel?.IsFullscreen == true)
+                    _emulationViewModel.IsFullscreen = false;
+                else if (_musicViewModel != null)
                     _musicViewModel.IsFullscreen = false;
                 e.Handled = true;
                 return;

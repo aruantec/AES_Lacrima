@@ -87,6 +87,18 @@ namespace AES_Lacrima.ViewModels
         public string PlayerMenuText => ShowPlayer ? "Hide Player" : "Show Player";
 
         /// <summary>
+        /// True while emulator DirectComposition/WGC capture is active (carousel view hidden).
+        /// </summary>
+        public bool IsEmulationCaptureActive =>
+            _navigationService?.View is EmulationViewModel { IsCompositionCaptureVisible: true };
+
+        public bool IsPlayerWidgetVisible => ShowPlayer && !IsEmulationCaptureActive;
+
+        public bool IsPlayerInfoWidgetVisible => ShowPlayerInfo && !IsEmulationCaptureActive;
+
+        public bool IsClockWidgetVisible => ShowClock && !IsEmulationCaptureActive;
+
+        /// <summary>
         /// Provides access to the navigation service used for managing
         /// navigation within the application. Resolved by the DI container.
         /// </summary>
@@ -107,6 +119,53 @@ namespace AES_Lacrima.ViewModels
         public MainContentViewModel()
         {
             PropertyChanged += OnPropertyChanged;
+        }
+
+        private NavigationService? _navigationServiceSubscribed;
+        private EmulationViewModel? _emulationViewModelSubscribed;
+
+        private void OnNavigationServicePropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(NavigationService.View))
+                AttachEmulationCaptureSubscription();
+        }
+
+        private void AttachEmulationCaptureSubscription()
+        {
+            if (_navigationServiceSubscribed != null)
+                _navigationServiceSubscribed.PropertyChanged -= OnNavigationServicePropertyChanged;
+
+            _navigationServiceSubscribed = _navigationService;
+
+            if (_navigationServiceSubscribed != null)
+                _navigationServiceSubscribed.PropertyChanged += OnNavigationServicePropertyChanged;
+
+            if (_emulationViewModelSubscribed != null)
+                _emulationViewModelSubscribed.PropertyChanged -= OnEmulationViewModelPropertyChanged;
+
+            _emulationViewModelSubscribed = _navigationService?.View as EmulationViewModel;
+
+            if (_emulationViewModelSubscribed != null)
+                _emulationViewModelSubscribed.PropertyChanged += OnEmulationViewModelPropertyChanged;
+
+            NotifyEmulationCaptureChromeVisibility();
+        }
+
+        private void OnEmulationViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(EmulationViewModel.IsCompositionCaptureVisible)
+                or nameof(EmulationViewModel.IsActive))
+            {
+                NotifyEmulationCaptureChromeVisibility();
+            }
+        }
+
+        private void NotifyEmulationCaptureChromeVisibility()
+        {
+            OnPropertyChanged(nameof(IsEmulationCaptureActive));
+            OnPropertyChanged(nameof(IsPlayerWidgetVisible));
+            OnPropertyChanged(nameof(IsPlayerInfoWidgetVisible));
+            OnPropertyChanged(nameof(IsClockWidgetVisible));
         }
 
         private void OnPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -161,6 +220,7 @@ namespace AES_Lacrima.ViewModels
                 IsActive = SettingsViewModel.ShowShaderToy;
             //Load settings
             LoadSettings();
+            AttachEmulationCaptureSubscription();
         }
 
         public override void OnViewFullyVisible()

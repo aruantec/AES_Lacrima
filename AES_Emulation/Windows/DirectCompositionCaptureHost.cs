@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using AES_Controls;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using AES_Emulation.Windows.API;
 using System.Diagnostics;
 using System.Threading;
@@ -154,6 +156,11 @@ public class DirectCompositionCaptureHost : NativeControlHost
     private readonly Thread _rendererThread;
     private int _rendererThreadId;
     private IntPtr _childHwnd;
+    private int _appliedChildWidth;
+    private int _appliedChildHeight;
+    private int _pendingChildWidth;
+    private int _pendingChildHeight;
+    private bool _childBoundsUpdateScheduled;
     private CaptureSessionSettings? _lastAppliedRenderSettings;
     private IntPtr _session;
     private IntPtr _activeTargetHwnd;
@@ -808,16 +815,61 @@ public class DirectCompositionCaptureHost : NativeControlHost
         catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
-    private void UpdateChildWindowBounds(Size size)
+    private void UpdateChildWindowBounds(Size arrangeSize)
     {
         if (!OperatingSystem.IsWindows() || _childHwnd == IntPtr.Zero)
             return;
 
-        var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-        var width = Math.Max(1, (int)Math.Ceiling(size.Width * scaling));
-        var height = Math.Max(1, (int)Math.Ceiling(size.Height * scaling));
-        SetWindowPos(_childHwnd, IntPtr.Zero, 0, 0, width, height, SwpNoZOrder | SwpNoActivate);
+        // ScalableDecorator arranges children at (finalSize * Scale) then applies RenderTransform(1/Scale).
+        // HWND sizing must use the visual extent, not the inflated arrange size, or capture appears ~Scale² too large.
+        var uiScale = GetAncestorUiScale();
+        var dpiScale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+        var logicalW = arrangeSize.Width / uiScale;
+        var logicalH = arrangeSize.Height / uiScale;
+        var width = Math.Max(1, (int)Math.Ceiling(logicalW * dpiScale));
+        var height = Math.Max(1, (int)Math.Ceiling(logicalH * dpiScale));
+
+        if (width == _appliedChildWidth && height == _appliedChildHeight)
+            return;
+
+        _pendingChildWidth = width;
+        _pendingChildHeight = height;
+
+        if (_childBoundsUpdateScheduled)
+            return;
+
+        _childBoundsUpdateScheduled = true;
+        Dispatcher.UIThread.Post(ApplyPendingChildWindowBounds, DispatcherPriority.Background);
     }
+
+    private void ApplyPendingChildWindowBounds()
+    {
+        _childBoundsUpdateScheduled = false;
+
+        if (!OperatingSystem.IsWindows() || _childHwnd == IntPtr.Zero)
+            return;
+
+        if (_pendingChildWidth == _appliedChildWidth && _pendingChildHeight == _appliedChildHeight)
+            return;
+
+        _appliedChildWidth = _pendingChildWidth;
+        _appliedChildHeight = _pendingChildHeight;
+        SetWindowPos(_childHwnd, IntPtr.Zero, 0, 0, _appliedChildWidth, _appliedChildHeight, SwpNoZOrder | SwpNoActivate);
+    }
+
+    private static double GetAncestorUiScale(Visual visual)
+    {
+        var scale = 1.0;
+        for (var node = visual; node != null; node = node.GetVisualParent())
+        {
+            if (node is ScalableDecorator scalable && scalable.Scale > 0.01)
+                scale *= scalable.Scale;
+        }
+
+        return scale;
+    }
+
+    private double GetAncestorUiScale() => GetAncestorUiScale(this);
 
     private void StopSessionCore(bool restoreTargetWindow)
     {

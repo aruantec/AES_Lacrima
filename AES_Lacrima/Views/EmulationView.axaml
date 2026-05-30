@@ -94,7 +94,7 @@
                                                 ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
                                                 ShowCoverFoundOverlay="False"
                                                 ItemSpacing="{Binding SettingsViewModel.CarouselSpacing}"
-                                                ItemScale="{Binding SettingsViewModel.CarouselScale}"
+                                                ItemScale="{Binding CarouselItemScale}"
                                                 VerticalOffset="{Binding SettingsViewModel.CarouselVerticalOffset}"
                                                 SliderVerticalOffset="{Binding SettingsViewModel.CarouselSliderVerticalOffset}"
                                                 SliderTrackHeight="{Binding SettingsViewModel.CarouselSliderTrackHeight}"
@@ -102,6 +102,7 @@
                                                 StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"
                                                 UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
                                                 IsVisible="{Binding IsCarouselVisible}"
+                                                IsAnimationPaused="{Binding IsRomCarouselAnimationPaused}"
                                                 IsHitTestVisible="{Binding !IsEmulatorViewportVisible}"
                                                 Opacity="{Binding ElementName=RootView, Path=CarouselOpacity}"
                                                 GlobalOpacity="1"
@@ -1798,7 +1799,7 @@
 
         <StackPanel HorizontalAlignment="Center"
                     VerticalAlignment="Center"
-                    Margin="0,360,0,0"
+                    Margin="{Binding CarouselMetadataMargin}"
                     Spacing="2"
                     IsHitTestVisible="False">
             <StackPanel.Transitions>
@@ -2286,7 +2287,9 @@
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
 
-        <Grid Grid.Row="2" IsVisible="{Binding !IsFullscreen}">
+        <Grid x:Name="AlbumListRow"
+              Grid.Row="2"
+              IsVisible="{Binding !IsFullscreen}">
             <Separator Margin="0" VerticalAlignment="Top"/>
             <navigation:EmulationListView x:Name="AlbumListView"
                                           Opacity="{Binding !IsAlbumListCollapsed, Converter={StaticResource BoolToOpacityConverter}}"

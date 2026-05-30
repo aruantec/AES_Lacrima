@@ -185,6 +185,9 @@ namespace AES_Controls.Composition
         public static readonly StyledProperty<bool> PublishSelectedItemBoundsProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, bool>(nameof(PublishSelectedItemBounds), false);
 
+        public static readonly StyledProperty<bool> IsAnimationPausedProperty =
+            AvaloniaProperty.Register<CompositionCarouselControl, bool>(nameof(IsAnimationPaused), false);
+
         public static readonly DirectProperty<CompositionCarouselControl, Rect> SelectedItemBoundsProperty =
             AvaloniaProperty.RegisterDirect<CompositionCarouselControl, Rect>(
                 nameof(SelectedItemBounds),
@@ -295,6 +298,16 @@ namespace AES_Controls.Composition
         {
             get => GetValue(PublishSelectedItemBoundsProperty);
             set => SetValue(PublishSelectedItemBoundsProperty, value);
+        }
+
+        /// <summary>
+        /// Stops compositor animation-frame updates (cover spinners, inertia, opacity springs).
+        /// Use while emulator capture is active so the carousel does not compete with DirectComposition.
+        /// </summary>
+        public bool IsAnimationPaused
+        {
+            get => GetValue(IsAnimationPausedProperty);
+            set => SetValue(IsAnimationPausedProperty, value);
         }
 
         /// <summary>
@@ -1352,6 +1365,14 @@ namespace AES_Controls.Composition
                 UpdateImageCacheSize(change.GetNewValue<int>());
             else if (change.Property == ShowCoverFoundOverlayProperty)
                 _visual?.SendHandlerMessage(new ResetCoverFoundMessage(BuildCoverFoundSet(_itemsSnapshot)));
+            else if (change.Property == IsAnimationPausedProperty)
+            {
+                PushAnimationPausedToHandler();
+                if (change.GetNewValue<bool>())
+                    StopCarouselUiTimers();
+                else if (!IsAnimationPaused && NeedsUiSyncTimer())
+                    _uiSyncTimer?.Start();
+            }
             else if (change.Property == ItemsSourceProperty || 
                      change.Property == ImageFileNamePropertyProperty || 
                      change.Property == ImageBitmapPropertyProperty)
@@ -1359,6 +1380,22 @@ namespace AES_Controls.Composition
 
             UpdateSelectedItemBounds();
         }
+
+        private void PushAnimationPausedToHandler() =>
+            _visual?.SendHandlerMessage(new CarouselAnimationPausedMessage(IsAnimationPaused));
+
+        private void StopCarouselUiTimers()
+        {
+            _uiSyncTimer?.Stop();
+            _autoScrollTimer?.Stop();
+            _longPressTimer?.Stop();
+            _uiLastTicks = 0;
+            _uiVelocity = 0;
+        }
+
+        private bool NeedsUiSyncTimer() =>
+            !IsAnimationPaused &&
+            (Math.Abs(_uiVelocity) > 0.05 || Math.Abs(_uiTargetIndex - _uiCurrentIndex) > 0.02);
 
         private void UpdateItems()
         {
@@ -2024,6 +2061,7 @@ namespace AES_Controls.Composition
                 _visual.SendHandlerMessage(new GlobalOpacityMessage(GlobalOpacity));
                 _visual.SendHandlerMessage(new UseFullCoverSizeMessage(UseFullCoverSize));
                 if (ItemsSource != null) UpdateItems();
+                PushAnimationPausedToHandler();
             }
         }
 

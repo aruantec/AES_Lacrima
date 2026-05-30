@@ -422,7 +422,24 @@ private bool _isShadPs4PatchesOverlayOpen;
         private bool _isRenderOptionsOpen;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(CarouselItemScale))]
+        [NotifyPropertyChangedFor(nameof(CarouselMetadataMargin))]
         private bool _isFullscreen;
+
+        private const double FullscreenCarouselScaleMultiplier = 1.5;
+        private const double CarouselMetadataMarginTopNormal = 360;
+
+        public double CarouselItemScale =>
+            (SettingsViewModel?.CarouselScale ?? 1.88) * (IsFullscreen ? FullscreenCarouselScaleMultiplier : 1.0);
+
+        public Thickness CarouselMetadataMargin =>
+            new(0, CarouselMetadataMarginTopNormal * (IsFullscreen ? FullscreenCarouselScaleMultiplier : 1.0), 0, 0);
+
+        partial void OnIsFullscreenChanged(bool value)
+        {
+            OnPropertyChanged(nameof(CarouselItemScale));
+            OnPropertyChanged(nameof(CarouselMetadataMargin));
+        }
 
         [ObservableProperty]
         private bool _isRetroArchErrorOverlayOpen;
@@ -463,14 +480,18 @@ private bool _isShadPs4PatchesOverlayOpen;
         private int _renderOptionsSelectedTabIndex;
 
         [ObservableProperty]
-        private EmulatorCaptureMode _selectedCaptureMode = EmulatorCaptureMode.DirectComposition;
+        private EmulatorCaptureMode _selectedCaptureMode =
+            OperatingSystem.IsWindows()
+                ? EmulatorCaptureMode.NativeWindow
+                : EmulatorCaptureMode.DirectComposition;
 
         [ObservableProperty]
         private IEmulatorHandler? _currentEmulatorHandler;
 
         partial void OnCurrentEmulatorHandlerChanged(IEmulatorHandler? value)
         {
-        SelectedCaptureMode = EmulatorCaptureMode.DirectComposition;
+            if (value != null)
+                SelectedCaptureMode = value.PreferredCaptureMode;
 
             OnPropertyChanged(nameof(CanShowRenderOptions));
             OnPropertyChanged(nameof(ForceUseTargetClientAreaCapture));
@@ -708,12 +729,14 @@ private bool _isShadPs4PatchesOverlayOpen;
         [NotifyPropertyChangedFor(nameof(IsGameplayVideoSurfaceVisible))]
         [NotifyPropertyChangedFor(nameof(IsCarouselVisible))]
         [NotifyPropertyChangedFor(nameof(IsSearchBoxVisible))]
+        [NotifyPropertyChangedFor(nameof(IsRomCarouselAnimationPaused))]
         private bool _isEmulatorViewportDismissed;
 
         public bool IsGameplayPreviewAvailable => IsGameplayAutoplayEnabled && IsYtDlpInstalled && !IsEmulatorRunning;
         public bool IsEmulatorViewportVisible => IsEmulatorRunning && !IsEmulatorViewportDismissed;
         public bool IsCompositionCaptureVisible => IsActive && IsEmulatorViewportVisible;
         public bool IsCarouselVisible => !IsEmulatorViewportVisible;
+        public bool IsRomCarouselAnimationPaused => IsCompositionCaptureVisible;
         public bool IsSearchOverlayVisible => MetadataService?.IsImageSearchOverlayOpen == true && !IsCompositionCaptureVisible;
         public bool IsSearchBoxVisible => IsCarouselVisible && !(MetadataService?.IsMetadataLoaded == true);
         public bool IsGameplayPreviewViewportVisible => IsGameplayPreviewHostVisible && !IsEmulatorViewportVisible;
@@ -864,6 +887,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             if (e.PropertyName == nameof(IsActive))
             {
                 OnPropertyChanged(nameof(IsCompositionCaptureVisible));
+                OnPropertyChanged(nameof(IsRomCarouselAnimationPaused));
             }
         }
 
@@ -1043,6 +1067,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(IsGameplayPreviewAvailable));
             OnPropertyChanged(nameof(IsEmulatorViewportVisible));
             OnPropertyChanged(nameof(IsCompositionCaptureVisible));
+            OnPropertyChanged(nameof(IsRomCarouselAnimationPaused));
             OnPropertyChanged(nameof(IsCarouselVisible));
             OnPropertyChanged(nameof(IsSearchOverlayVisible));
             OnPropertyChanged(nameof(IsSearchBoxVisible));
@@ -1074,6 +1099,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             OnPropertyChanged(nameof(IsEmulatorViewportVisible));
             OnPropertyChanged(nameof(IsCompositionCaptureVisible));
+            OnPropertyChanged(nameof(IsRomCarouselAnimationPaused));
             OnPropertyChanged(nameof(IsCarouselVisible));
             OnPropertyChanged(nameof(IsSearchOverlayVisible));
             OnPropertyChanged(nameof(IsSearchBoxVisible));

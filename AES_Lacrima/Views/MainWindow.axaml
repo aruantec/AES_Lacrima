@@ -56,7 +56,7 @@
             </Style>
         </Grid.Styles>
         <!--Removes the background on purpose and forces transparency-->
-        <composition:TransparentComposition/>
+        <composition:TransparentComposition IsVisible="{Binding !IsEmulationCapturePresentationActive}"/>
 
         <Border x:Name="MainBorder" ClipToBounds="True" CornerRadius="10" BorderBrush="DimGray" BorderThickness="0.5" Background="Black">
             <Grid x:Name="MainBorderContent">
