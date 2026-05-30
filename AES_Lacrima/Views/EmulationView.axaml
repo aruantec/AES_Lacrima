@@ -101,6 +101,7 @@
                                                 SideTranslation="{Binding SettingsViewModel.CarouselSideTranslation}"
                                                 StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"
                                                 UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
+                                                IsVisible="{Binding IsCarouselVisible}"
                                                 IsHitTestVisible="{Binding !IsEmulatorViewportVisible}"
                                                 Opacity="{Binding ElementName=RootView, Path=CarouselOpacity}"
                                                 GlobalOpacity="1"
@@ -2166,7 +2167,7 @@
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding ToggleFullscreenCommand}"
-                        IsVisible="{Binding IsEmulatorRunning}"
+                        IsVisible="{Binding !IsEmulatorLaunchInProgress}"
                         ToolTip.Tip="Fullscreen">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
@@ -2293,12 +2294,6 @@
                 <Interaction.Behaviors>
                     <behaviors:MaxHeightToggleBehavior IsOpen="{Binding IsAlbumListCollapsed}" />
                 </Interaction.Behaviors>
-                <navigation:EmulationListView.Transitions>
-                    <Transitions>
-                        <DoubleTransition Property="MaxHeight" Duration="0:0:0.55" Easing="CubicEaseInOut"/>
-                        <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseInOut"/>
-                    </Transitions>
-                </navigation:EmulationListView.Transitions>
             </navigation:EmulationListView>
         </Grid>
 
