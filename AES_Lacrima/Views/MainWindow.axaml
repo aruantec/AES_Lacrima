@@ -123,12 +123,13 @@
                 <!--Particle control-->
                 <composition:ParticleCompositionControl x:Name="ParticleLayer"
                                                         ParticleCount="{Binding SettingsViewModel.ParticleCount}"
+                                                        IsPaused="{Binding IsEmulationCapturePresentationActive}"
                                                         IsVisible="{Binding IsParticlesLayerVisible}"/>
             </Grid>
         </Border>
         <composition:EdgeBorderCompositionControl x:Name="EdgeBorderLayer"
                                                  IsHitTestVisible="False"
-                                                 IsVisible="{Binding SettingsViewModel.ShowEdgeBorder}"
+                                                 IsVisible="{Binding IsEdgeBorderLayerVisible}"
                                                  Margin="-2"
                                                  BorderThickness="0.9"
                                                  CornerRadius="10"

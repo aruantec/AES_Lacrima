@@ -158,6 +158,7 @@ public sealed class GlSpectrumControl : Control, IDisposable
     private CompositionCustomVisual? _visual;
     private INotifyCollectionChanged? _spectrumCollectionRef;
     private NotifyCollectionChangedEventHandler? _spectrumCollectionHandler;
+    private bool _isAttachedToVisualTree;
 
     public GlSpectrumControl()
     {
@@ -167,6 +168,7 @@ public sealed class GlSpectrumControl : Control, IDisposable
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
+        _isAttachedToVisualTree = true;
 
         var compositor = ElementComposition.GetElementVisual(this)?.Compositor;
         if (compositor == null)
@@ -180,6 +182,8 @@ public sealed class GlSpectrumControl : Control, IDisposable
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
+        _isAttachedToVisualTree = false;
+        _visual?.SendHandlerMessage(new SpectrumRuntimeMessage(false, true));
 
         if (_spectrumCollectionRef != null && _spectrumCollectionHandler != null)
             _spectrumCollectionRef.CollectionChanged -= _spectrumCollectionHandler;
@@ -260,10 +264,19 @@ public sealed class GlSpectrumControl : Control, IDisposable
         if (col is INotifyCollectionChanged notify)
         {
             _spectrumCollectionRef = notify;
-            _spectrumCollectionHandler = (_, _) => _visual?.SendHandlerMessage(new SpectrumWakeMessage());
+            _spectrumCollectionHandler = (_, _) =>
+            {
+                if (!ShouldRunCompositorAnimation())
+                    return;
+
+                _visual?.SendHandlerMessage(new SpectrumWakeMessage());
+            };
             notify.CollectionChanged += _spectrumCollectionHandler;
         }
     }
+
+    private bool ShouldRunCompositorAnimation() =>
+        _visual != null && _isAttachedToVisualTree && IsVisible && !IsRenderingPaused;
 
     private void PushAllStateToHandler()
     {
@@ -336,7 +349,8 @@ public sealed class GlSpectrumControl : Control, IDisposable
 
     private void PushRuntimeToHandler()
     {
-        _visual?.SendHandlerMessage(new SpectrumRuntimeMessage(IsVisible, IsRenderingPaused));
+        var runtimeVisible = IsVisible && _isAttachedToVisualTree;
+        _visual?.SendHandlerMessage(new SpectrumRuntimeMessage(runtimeVisible, IsRenderingPaused || !runtimeVisible));
     }
 
     private static Color GetColorAtOffset(AvaloniaList<GradientStop> stops, float offset)
