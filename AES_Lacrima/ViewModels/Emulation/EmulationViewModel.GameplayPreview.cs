@@ -18,7 +18,9 @@ using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
+using AES_Controls.Helpers;
 using Avalonia.Media.Imaging;
+using SkiaSharp;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -37,7 +39,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using System.Xml.Linq;
 using AES_Core.Logging;
 using DrawingIcon = System.Drawing.Icon;
 
@@ -293,7 +295,27 @@ namespace AES_Lacrima.ViewModels
         {
             try
             {
-                using var stream = File.OpenRead(imagePath);
+                using var codec = SKCodec.Create(imagePath);
+                if (codec == null)
+                    return null;
+
+                using var bmp = new SKBitmap(codec.Info);
+                codec.GetPixels(bmp.Info, bmp.GetPixels());
+
+                using var cropped = CoverImageBarCropHelper.TryCrop(bmp, out bool didCrop);
+                using var working = cropped ?? bmp;
+                if (didCrop && cropped != null)
+                    CoverImageBarCropHelper.TryPersistCroppedCover(cropped, imagePath, null);
+
+                using var encoded = working.Encode(
+                    Path.GetExtension(imagePath).Equals(".png", StringComparison.OrdinalIgnoreCase)
+                        ? SKEncodedImageFormat.Png
+                        : SKEncodedImageFormat.Jpeg,
+                    92);
+                if (encoded == null)
+                    return null;
+
+                using var stream = new MemoryStream(encoded.ToArray());
                 try
                 {
                     return Bitmap.DecodeToWidth(stream, CarouselCoverDecodeSize);
