@@ -16,6 +16,7 @@ using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
 using log4net;
 using SkiaSharp;
+using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
 
 namespace AES_Controls.Composition
@@ -657,7 +658,7 @@ namespace AES_Controls.Composition
         {
             string fullPath = Path.GetFullPath(file);
             long lastWriteTicks = File.GetLastWriteTimeUtc(fullPath).Ticks;
-            string cacheKey = $"{fullPath}|{lastWriteTicks}|{CachedCarouselImageSize}";
+            string cacheKey = $"{fullPath}|{lastWriteTicks}|{CachedCarouselImageSize}|bcrop1";
             string hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cacheKey)));
             return Path.Combine(_diskCachePath, $"{hash}.png");
         }
@@ -1607,7 +1608,7 @@ namespace AES_Controls.Composition
                 if (ct.IsCancellationRequested)
                     return true;
 
-                realImage = await LoadImageAsync(bitmapValue, fileName, ct);
+                realImage = await LoadImageAsync(bitmapValue, fileName, item as MediaItem, ct);
             }
             catch (Exception ex)
             {
@@ -1756,7 +1757,7 @@ namespace AES_Controls.Composition
                 SKImage? realImage = null;
                 try
                 {
-                    realImage = await LoadImageAsync(bitmapValue, fileName, CancellationToken.None);
+                    realImage = await LoadImageAsync(bitmapValue, fileName, sender as MediaItem, CancellationToken.None);
                 }
                 catch (Exception ex)
                 {
@@ -1786,7 +1787,7 @@ namespace AES_Controls.Composition
             }
         }
 
-        private async Task<SKImage?> ToSkImageAsync(Bitmap bitmap)
+        private async Task<SKImage?> ToSkImageAsync(Bitmap bitmap, MediaItem? owner = null, string? persistImagePath = null)
         {
             if (bitmap.Format == null || bitmap.PixelSize.Width <= 0 || bitmap.PixelSize.Height <= 0) return null;
 
@@ -1825,11 +1826,6 @@ namespace AES_Controls.Composition
                 {
                     try
                     {
-                        int targetW = CachedCarouselImageSize;
-                        int targetH = CachedCarouselImageSize;
-                        if (w > h) targetH = (int)(CachedCarouselImageSize * (double)h / w);
-                        else targetW = (int)(CachedCarouselImageSize * (double)w / h);
-
                         using var skBmp = new SKBitmap(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
                         unsafe
                         {
@@ -1856,11 +1852,7 @@ namespace AES_Controls.Composition
                             }
                         }
 
-                        if (skBmp.Width <= CachedCarouselImageSize && skBmp.Height <= CachedCarouselImageSize)
-                            return SKImage.FromBitmap(skBmp);
-
-                        using var resized = skBmp.Resize(new SKImageInfo(targetW, targetH), SKFilterQuality.Medium);
-                        return resized != null ? SKImage.FromBitmap(resized) : SKImage.FromBitmap(skBmp);
+                        return CreateCarouselImage(skBmp, persistImagePath, owner?.FileName, owner);
                     }
                     catch (Exception ex)
                     {
@@ -1875,14 +1867,92 @@ namespace AES_Controls.Composition
             }
         }
 
-        private async Task<SKImage?> LoadImageAsync(Bitmap? bitmapValue, string? fileName, CancellationToken ct)
+        private async Task<SKImage?> LoadImageAsync(Bitmap? bitmapValue, string? fileName, MediaItem? owner, CancellationToken ct)
         {
             if (ct.IsCancellationRequested) return null;
             if (!string.IsNullOrEmpty(fileName) && File.Exists(fileName))
-                return await Task.Run(() => LoadAndResize(fileName), ct);
+                return await Task.Run(() => LoadAndResize(fileName, owner), ct);
             if (bitmapValue != null)
-                return await ToSkImageAsync(bitmapValue);
+                return await ToSkImageAsync(bitmapValue, owner, fileName);
             return null;
+        }
+
+        private SKImage? CreateCarouselImage(SKBitmap source, string? persistImagePath, string? ownerFileName, MediaItem? owner)
+        {
+            SKBitmap? cropped = null;
+            var working = source;
+            try
+            {
+                cropped = CoverImageBarCropHelper.TryCrop(source, out bool didCrop);
+                if (cropped != null)
+                {
+                    working = cropped;
+                    if (didCrop)
+                        QueuePersistCroppedCover(cropped, persistImagePath, ownerFileName, owner);
+                }
+
+                int targetW = CachedCarouselImageSize;
+                int targetH = CachedCarouselImageSize;
+                if (working.Width > working.Height)
+                    targetH = (int)(CachedCarouselImageSize * (double)working.Height / working.Width);
+                else
+                    targetW = (int)(CachedCarouselImageSize * (double)working.Width / working.Height);
+
+                if (working.Width <= CachedCarouselImageSize && working.Height <= CachedCarouselImageSize)
+                    return SKImage.FromBitmap(working);
+
+                using var resized = working.Resize(new SKImageInfo(targetW, targetH), SKFilterQuality.Medium);
+                return resized != null ? SKImage.FromBitmap(resized) : SKImage.FromBitmap(working);
+            }
+            finally
+            {
+                if (cropped != null && !ReferenceEquals(cropped, source))
+                    cropped.Dispose();
+            }
+        }
+
+        private void QueuePersistCroppedCover(SKBitmap cropped, string? imagePath, string? ownerFileName, MediaItem? owner)
+        {
+            var clone = cropped.Copy();
+            if (clone == null)
+                return;
+
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    if (!CoverImageBarCropHelper.TryPersistCroppedCover(clone, imagePath, ownerFileName))
+                        return;
+
+                    var bytes = CoverImageBarCropHelper.Encode(clone, imagePath ?? ownerFileName);
+                    if (bytes != null && owner != null)
+                        RefreshOwnerCoverBitmap(owner, bytes);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Failed to persist cropped cover image", ex);
+                }
+                finally
+                {
+                    clone.Dispose();
+                }
+            });
+        }
+
+        private void RefreshOwnerCoverBitmap(MediaItem owner, byte[] bytes)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                try
+                {
+                    using var stream = new MemoryStream(bytes);
+                    owner.CoverBitmap = Bitmap.DecodeToWidth(stream, CachedCarouselImageSize);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Failed to refresh in-memory cover after bar crop", ex);
+                }
+            });
         }
 
         private void TouchCacheItem(object key)
@@ -1932,7 +2002,7 @@ namespace AES_Controls.Composition
             return surface.Snapshot();
         }
 
-        private SKImage? LoadAndResize(string file)
+        private SKImage? LoadAndResize(string file, MediaItem? owner = null)
         {
             try
             {
@@ -1949,22 +2019,15 @@ namespace AES_Controls.Composition
                     using var bmp = new SKBitmap(codec.Info);
                     codec.GetPixels(bmp.Info, bmp.GetPixels());
 
-                    int targetW = CachedCarouselImageSize;
-                    int targetH = CachedCarouselImageSize;
-                    if (bmp.Width > bmp.Height)
-                        targetH = (int)(CachedCarouselImageSize * (double)bmp.Height / bmp.Width);
-                    else
-                        targetW = (int)(CachedCarouselImageSize * (double)bmp.Width / bmp.Height);
-
-                    using var resized = bmp.Resize(new SKImageInfo(targetW, targetH), SKFilterQuality.Medium);
-                    if (resized != null)
+                    var img = CreateCarouselImage(bmp, file, owner?.FileName, owner);
+                    if (img != null)
                     {
-                        var img = SKImage.FromBitmap(resized);
-                        using (var data = img.Encode(SKEncodedImageFormat.Png, 80))
+                        using var data = img.Encode(SKEncodedImageFormat.Png, 80);
                         using (var stream = File.Create(cachedFile))
                             data.SaveTo(stream);
-                        return img;
                     }
+
+                    return img;
                 }
 
             }

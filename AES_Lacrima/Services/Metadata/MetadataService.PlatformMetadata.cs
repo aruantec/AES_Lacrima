@@ -31,7 +31,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using TagLib;
+using TagLib;
 using AES_Core.Logging;
 using File = System.IO.File;
 using Path = System.IO.Path;
@@ -1215,6 +1215,8 @@ namespace AES_Lacrima.Services
         private async Task ApplyCoverBytesToItemAsync(MediaItem item, byte[] bytes, string mimeType, CancellationToken cancellationToken, string? cachePath = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            bytes = CoverImageBarCropHelper.TryCropBytes(bytes, item.FileName);
 
             Bitmap bitmap;
             using (var stream = new MemoryStream(bytes, writable: false))
