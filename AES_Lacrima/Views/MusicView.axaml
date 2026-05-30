@@ -33,7 +33,7 @@
                                                 ShowCoverFoundOverlay="True"
                                                 ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
                                                 ItemSpacing="{Binding SettingsViewModel.CarouselSpacing}"
-                                                ItemScale="{Binding SettingsViewModel.CarouselScale}"
+                                                ItemScale="{Binding CarouselItemScale}"
                                                 VerticalOffset="{Binding SettingsViewModel.CarouselVerticalOffset}"
                                                 SliderVerticalOffset="{Binding SettingsViewModel.CarouselSliderVerticalOffset}"
                                                 SliderTrackHeight="{Binding SettingsViewModel.CarouselSliderTrackHeight}"
@@ -151,7 +151,7 @@
         <!-- Highlighted Item Metadata (Carousel center) -->
         <StackPanel HorizontalAlignment="Center" 
                     VerticalAlignment="Center" 
-                    Margin="0,380,0,0"
+                    Margin="{Binding CarouselMetadataMargin}"
                     Spacing="2"
                     IsHitTestVisible="False">
             <StackPanel.Transitions>

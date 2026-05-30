@@ -10,7 +10,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System.Linq;
 using System.Windows.Input;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Controls.Widgets;

@@ -174,7 +174,24 @@ namespace AES_Lacrima.ViewModels
         private bool _isVideoViewportDismissed;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(CarouselItemScale))]
+        [NotifyPropertyChangedFor(nameof(CarouselMetadataMargin))]
         private bool _isFullscreen;
+
+        private const double FullscreenCarouselScaleMultiplier = 1.5;
+        private const double CarouselMetadataMarginTopNormal = 380;
+
+        /// <summary>
+        /// Carousel item scale with an extra boost while the music view is fullscreen.
+        /// </summary>
+        public double CarouselItemScale =>
+            (SettingsViewModel?.CarouselScale ?? 1.88) * (IsFullscreen ? FullscreenCarouselScaleMultiplier : 1.0);
+
+        /// <summary>
+        /// Keeps highlighted track text below the enlarged fullscreen carousel.
+        /// </summary>
+        public Thickness CarouselMetadataMargin =>
+            new(0, CarouselMetadataMarginTopNormal * (IsFullscreen ? FullscreenCarouselScaleMultiplier : 1.0), 0, 0);
 
         [ObservableProperty]
         private bool _isVideoExpanded;
