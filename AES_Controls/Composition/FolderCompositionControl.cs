@@ -148,6 +148,18 @@ public class FolderCompositionControl : Control
     }
 
     /// <summary>
+    /// When true, stops the 60 Hz UI timer so folder fan animations do not compete with capture.
+    /// </summary>
+    public static readonly StyledProperty<bool> IsAnimationPausedProperty =
+        AvaloniaProperty.Register<FolderCompositionControl, bool>(nameof(IsAnimationPaused));
+
+    public bool IsAnimationPaused
+    {
+        get => GetValue(IsAnimationPausedProperty);
+        set => SetValue(IsAnimationPausedProperty, value);
+    }
+
+    /// <summary>
     /// Defines the <see cref="Command"/> property.
     /// </summary>
     public static readonly StyledProperty<ICommand?> CommandProperty =
@@ -361,8 +373,11 @@ public class FolderCompositionControl : Control
 
     private void StartAnimation()
     {
-        if (_animTimer == null) return;
-        if (!_animTimer.IsEnabled) _animTimer.Start();
+        if (IsAnimationPaused || _animTimer == null)
+            return;
+
+        if (!_animTimer.IsEnabled)
+            _animTimer.Start();
     }
 
     private void StopAnimation()
@@ -376,6 +391,12 @@ public class FolderCompositionControl : Control
     /// </summary>
     private void OnAnimationTick(object? sender, EventArgs e)
     {
+        if (IsAnimationPaused)
+        {
+            StopAnimation();
+            return;
+        }
+
         bool any = false;
         double speed = 0.12; // interpolation factor
 
@@ -485,7 +506,9 @@ public class FolderCompositionControl : Control
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (change.Property == ItemsProperty)
+        if (change.Property == IsAnimationPausedProperty && change.GetNewValue<bool>())
+            StopAnimation();
+        else if (change.Property == ItemsProperty)
         {
             if (change.OldValue is AvaloniaList<MediaItem> old)
             {
