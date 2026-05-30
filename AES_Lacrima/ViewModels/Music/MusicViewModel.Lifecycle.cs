@@ -59,11 +59,6 @@ namespace AES_Lacrima.ViewModels
                 Album = string.Empty
             };
 
-            PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName == nameof(IsActive))
-                    OnPropertyChanged(nameof(IsAlbumFolderAnimationPaused));
-            };
         }
 
         public override void Prepare()
