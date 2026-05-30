@@ -102,6 +102,7 @@ internal sealed class FolderCompositionVisualHandler : CompositionCustomVisualHa
     private double _curPress = 1.0;
     private double _tgtPress = 1.0;
     private long _lastTicks;
+    private FolderAnimationSyncState? _animationSync;
 
     public override void OnMessage(object message)
     {
@@ -121,6 +122,10 @@ internal sealed class FolderCompositionVisualHandler : CompositionCustomVisualHa
             case FolderSpreadMessage spread:
                 _spread = spread.Spread;
                 RecomputeTargets(snap: false);
+                EnsureAnimationLoop();
+                return;
+            case FolderAttachSyncMessage attach:
+                _animationSync = attach.State;
                 return;
             case FolderPressTargetMessage press:
                 _tgtPress = press.TargetPress;
@@ -201,7 +206,12 @@ internal sealed class FolderCompositionVisualHandler : CompositionCustomVisualHa
                 _states.RemoveAt(i);
         }
 
-        if (any)
+        bool motion = any || HasActiveMotion();
+
+        if (_animationSync != null)
+            _animationSync.IsAnimating = motion;
+
+        if (motion)
         {
             RegisterForNextAnimationFrameUpdate();
             Invalidate();

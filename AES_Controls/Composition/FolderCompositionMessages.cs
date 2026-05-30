@@ -19,3 +19,5 @@ internal sealed record FolderPressTargetMessage(double TargetPress);
 internal sealed record FolderAnimationPausedMessage(bool IsPaused);
 
 internal sealed record FolderItemCoverMessage(int Index, SKImage? Cover);
+
+internal sealed record FolderAttachSyncMessage(FolderAnimationSyncState State);

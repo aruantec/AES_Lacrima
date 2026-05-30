@@ -335,7 +335,6 @@ namespace AES_Controls.Composition
             }
             else
             {
-                // Favor responsive tracking over a slower, floaty feel.
                 double animStiffness = 78.0;
                 double animDamping = 2.0 * Math.Sqrt(animStiffness) * 0.98;
                 _currentVelocity += (distance * animStiffness - _currentVelocity * animDamping) * dt;
