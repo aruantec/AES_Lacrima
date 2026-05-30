@@ -45,7 +45,6 @@ namespace AES_Controls.Composition
         private const int ActiveScrollVirtualizationDebounceMs = 180;
         private const int IdleVirtualizationDebounceMs = 32;
         private const int CoverImageReloadDebounceMs = 120;
-        private const int ScrollSelectedIndexCoalesceMs = 32;
         private const double SelectedIndexCoalesceDelta = 0.035;
         private const double SelectedItemBoundsEpsilon = 0.75;
         private const float MaxFullCoverAspectRatio = 1.35f;
@@ -79,7 +78,7 @@ namespace AES_Controls.Composition
         private double _uiTargetIndex;
         private double _uiCurrentIndex;
         private double _uiVelocity;
-        private long _uiLastTicks;
+        private readonly CarouselAnimationSyncState _animationSync = new();
         private CancellationTokenSource? _loadCts;
         private DispatcherTimer? _virtualizeDebounceTimer;
         private DispatcherTimer? _coverImageReloadDebounceTimer;
@@ -92,7 +91,6 @@ namespace AES_Controls.Composition
         private bool _visualDirectIndexFollow;
         private bool _suppressSelectedIndexSideEffects;
         private double _lastPublishedSelectedIndex = double.NaN;
-        private long _lastSelectedItemBoundsUpdateTicks;
         private long _lastProjectionCacheBuildTicks;
         private Rect _lastPublishedSelectedItemBounds = default;
 
@@ -184,6 +182,12 @@ namespace AES_Controls.Composition
 
         public static readonly StyledProperty<bool> PublishSelectedItemBoundsProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, bool>(nameof(PublishSelectedItemBounds), false);
+
+        /// <summary>
+        /// When true, cover loading spinners are drawn but do not keep the compositor animation loop running.
+        /// </summary>
+        public static readonly StyledProperty<bool> PauseLoadingSpinnerAnimationProperty =
+            AvaloniaProperty.Register<CompositionCarouselControl, bool>(nameof(PauseLoadingSpinnerAnimation), false);
 
         public static readonly DirectProperty<CompositionCarouselControl, Rect> SelectedItemBoundsProperty =
             AvaloniaProperty.RegisterDirect<CompositionCarouselControl, Rect>(
@@ -295,6 +299,12 @@ namespace AES_Controls.Composition
         {
             get => GetValue(PublishSelectedItemBoundsProperty);
             set => SetValue(PublishSelectedItemBoundsProperty, value);
+        }
+
+        public bool PauseLoadingSpinnerAnimation
+        {
+            get => GetValue(PauseLoadingSpinnerAnimationProperty);
+            set => SetValue(PauseLoadingSpinnerAnimationProperty, value);
         }
 
         /// <summary>
@@ -422,31 +432,18 @@ namespace AES_Controls.Composition
             _autoScrollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(AnimationHeartbeatMs) };
             _autoScrollTimer.Tick += AutoScrollTimer_Tick;
 
-            // Mirror the composition-side carousel animation for hit testing and input with
-            // a high-frequency UI heartbeat so pointer interaction tracks the visual more closely.
+            // Read compositor-side animation state for hit testing; physics run only in the visual handler.
             _uiSyncTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(AnimationHeartbeatMs), DispatcherPriority.Render, (_, _) =>
             {
-                long currentTicks = Stopwatch.GetTimestamp();
-                if (_uiLastTicks == 0) _uiLastTicks = currentTicks;
-                double dt = (double)(currentTicks - _uiLastTicks) / Stopwatch.Frequency;
-                _uiLastTicks = currentTicks;
-
-                if (dt > 0.1) dt = 0.1;
-
-                // Keep hit testing close to the visual without feeling delayed.
-                double uiStiffness = 78.0;
-                double uiDamping = 2.0 * Math.Sqrt(uiStiffness) * 0.98;
-
-                double distance = _uiTargetIndex - _uiCurrentIndex;
-                double force = distance * uiStiffness;
-                _uiVelocity += (force - _uiVelocity * uiDamping) * dt;
-                _uiCurrentIndex += _uiVelocity * dt;
-
-                if (Math.Abs(distance) < 0.001 && Math.Abs(_uiVelocity) < 0.01)
+                if (!_visualDirectIndexFollow)
                 {
-                    _uiCurrentIndex = _uiTargetIndex;
-                    _uiVelocity = 0;
-                    _uiLastTicks = 0;
+                    _uiCurrentIndex = _animationSync.CurrentIndex;
+                    _uiVelocity = _animationSync.Velocity;
+                }
+
+                bool settling = _isPressed || _isPointerScrolling || _isDragging || _isSliderPressed || _animationSync.IsAnimating;
+                if (!settling)
+                {
                     _uiSyncTimer?.Stop();
                 }
 
@@ -891,22 +888,9 @@ namespace AES_Controls.Composition
             if (_isPointerScrolling || _isDragging)
                 return false;
 
-            if (!IsSelectionInMotion())
-                return true;
-
-            long now = Stopwatch.GetTimestamp();
-            if (_lastSelectedItemBoundsUpdateTicks == 0)
-            {
-                _lastSelectedItemBoundsUpdateTicks = now;
-                return true;
-            }
-
-            double elapsedMs = (now - _lastSelectedItemBoundsUpdateTicks) * 1000.0 / Stopwatch.Frequency;
-            if (elapsedMs < ScrollSelectedIndexCoalesceMs)
-                return false;
-
-            _lastSelectedItemBoundsUpdateTicks = now;
-            return true;
+            // Publish only when the carousel has settled so gameplay-preview layout
+            // (Canvas bounds, width transitions) does not run during inertia scrolling.
+            return !IsSelectionInMotion();
         }
 
         private static bool BoundsNearlyEqual(Rect a, Rect b, double epsilon = SelectedItemBoundsEpsilon)
@@ -963,7 +947,6 @@ namespace AES_Controls.Composition
             {
                 _uiCurrentIndex = clamped;
                 _uiVelocity = 0;
-                _uiLastTicks = 0;
                 _uiSyncTimer?.Stop();
             }
             else if (_uiSyncTimer != null && !_uiSyncTimer.IsEnabled)
@@ -1005,7 +988,6 @@ namespace AES_Controls.Composition
         private void EndPointerScrollInteraction(bool forcePublishSelectedIndex)
         {
             _isPointerScrolling = false;
-            _lastSelectedItemBoundsUpdateTicks = 0;
             SetVisualDirectIndexFollow(_isSliderPressed);
             if (forcePublishSelectedIndex)
                 PublishSelectedIndex(SelectedIndex, force: true);
@@ -1213,7 +1195,6 @@ namespace AES_Controls.Composition
             SetVisualDirectIndexFollow(true);
             _uiCurrentIndex = _uiTargetIndex;
             _uiVelocity = 0;
-            _uiLastTicks = 0;
             _uiSyncTimer?.Stop();
 
             _visual?.SendHandlerMessage(new DragStateMessage(hit, true));
@@ -1295,7 +1276,7 @@ namespace AES_Controls.Composition
             if (_isPressed || _isPointerScrolling || _isDragging || _isSliderPressed)
                 return true;
 
-            if (_uiSyncTimer?.IsEnabled == true)
+            if (_animationSync.IsAnimating)
                 return true;
 
             return Math.Abs(_uiVelocity) > 0.05 || Math.Abs(_uiTargetIndex - _uiCurrentIndex) > 0.02;
@@ -1352,6 +1333,8 @@ namespace AES_Controls.Composition
                 UpdateImageCacheSize(change.GetNewValue<int>());
             else if (change.Property == ShowCoverFoundOverlayProperty)
                 _visual?.SendHandlerMessage(new ResetCoverFoundMessage(BuildCoverFoundSet(_itemsSnapshot)));
+            else if (change.Property == PauseLoadingSpinnerAnimationProperty)
+                _visual?.SendHandlerMessage(new PauseLoadingSpinnerAnimationMessage(change.GetNewValue<bool>()));
             else if (change.Property == ItemsSourceProperty || 
                      change.Property == ImageFileNamePropertyProperty || 
                      change.Property == ImageBitmapPropertyProperty)
@@ -2006,6 +1989,7 @@ namespace AES_Controls.Composition
             {
                 _visual = compositor.CreateCustomVisual(new CompositionCarouselVisualHandler());
                 ElementComposition.SetElementChildVisual(this, _visual);
+                _visual.SendHandlerMessage(new CarouselAttachSyncMessage(_animationSync));
                 var logicalSize = new Vector2((float)Bounds.Width, (float)Bounds.Height);
                 _visual.Size = logicalSize + new Vector2(0, 1000); // Allow extra space for reflections below
                 _visual.SendHandlerMessage(logicalSize);
@@ -2023,6 +2007,7 @@ namespace AES_Controls.Composition
                 _visual.SendHandlerMessage(new BackgroundMessage(GetSkColor(Background)));
                 _visual.SendHandlerMessage(new GlobalOpacityMessage(GlobalOpacity));
                 _visual.SendHandlerMessage(new UseFullCoverSizeMessage(UseFullCoverSize));
+                _visual.SendHandlerMessage(new PauseLoadingSpinnerAnimationMessage(PauseLoadingSpinnerAnimation));
                 if (ItemsSource != null) UpdateItems();
             }
         }

@@ -35,6 +35,8 @@ namespace AES_Controls.Composition
     internal record DropTargetMessage(int Index);
     internal record SliderPressedMessage(bool IsPressed);
     internal record DirectIndexFollowMessage(bool Enabled);
+    internal record PauseLoadingSpinnerAnimationMessage(bool IsPaused);
+    internal record CarouselAttachSyncMessage(CarouselAnimationSyncState State);
 
     public class CompositionCarouselVisualHandler : CompositionCustomVisualHandler
     {
@@ -83,9 +85,11 @@ namespace AES_Controls.Composition
         private bool _isSliderPressed;
         private bool _directIndexFollow;
         private bool _useFullCoverSize;
+        private bool _pauseLoadingSpinnerAnimation;
         private bool _fullCoverSizeInitialized;
         private float _fullCoverSizeFactor;
         private float _fullCoverSizeVelocity;
+        private CarouselAnimationSyncState? _animationSync;
 
         private static float ClampFullCoverAspectRatio(float aspect)
             => Math.Clamp(aspect, 0.01f, MaxFullCoverAspectRatio);
@@ -278,6 +282,19 @@ namespace AES_Controls.Composition
             }
             else if (message is SliderPressedMessage spm) { _isSliderPressed = spm.IsPressed; Invalidate(); }
             else if (message is DirectIndexFollowMessage dif) { _directIndexFollow = dif.Enabled; Invalidate(); }
+            else if (message is PauseLoadingSpinnerAnimationMessage pauseLoading)
+            {
+                _pauseLoadingSpinnerAnimation = pauseLoading.IsPaused;
+                if (!_pauseLoadingSpinnerAnimation && _loadingIndices.Count > 0)
+                {
+                    if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
+                    RegisterForNextAnimationFrameUpdate();
+                }
+            }
+            else if (message is CarouselAttachSyncMessage attach)
+            {
+                _animationSync = attach.State;
+            }
             else if (message is UseFullCoverSizeMessage ufcs) 
             { 
                 _useFullCoverSize = ufcs.Value; 
@@ -414,7 +431,8 @@ namespace AES_Controls.Composition
                 Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.001f ||
                 Math.Abs(_fullCoverSizeFactor - targetFactor) > 0.001f ||
                 _isDropping;
-            if (isAnimating || _loadingIndices.Count > 0) 
+            bool animateLoadingSpinners = !_pauseLoadingSpinnerAnimation && _loadingIndices.Count > 0;
+            if (isAnimating || animateLoadingSpinners)
             {
                 RegisterForNextAnimationFrameUpdate();
                 Invalidate();
@@ -422,6 +440,14 @@ namespace AES_Controls.Composition
             else
             {
                 _lastTicks = 0;
+            }
+
+            if (_animationSync != null)
+            {
+                _animationSync.CurrentIndex = _currentIndex;
+                _animationSync.TargetIndex = _targetIndex;
+                _animationSync.Velocity = _currentVelocity;
+                _animationSync.IsAnimating = isAnimating || animateLoadingSpinners;
             }
         }
 
