@@ -14,6 +14,7 @@ using Avalonia.VisualTree;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Lacrima.ViewModels;
+using AES_Lacrima.Views.Navigation;
 using AES_Controls.Helpers;
 using AES_Emulation.Controls;
 using AES_Emulation.Windows.API;
@@ -188,19 +189,21 @@ public partial class EmulationView : UserControl
     private bool _portalSyncPending;
     private DateTime _lastLayoutSyncUtc = DateTime.MinValue;
     private int _portalMaskVersion;
+    private CancellationTokenSource? _inlineCaptureLayoutRefreshCancellation;
     private PixelPoint _lastPortalPosition = new(int.MinValue, int.MinValue);
     private Size _lastPortalSize = new(double.NaN, double.NaN);
     private bool _isCaptureFullscreen;
+    private bool _isCarouselPresentationFullscreen;
     private PixelPoint _portalWindowFullscreenPosition;
     private Size _portalWindowFullscreenSize;
     private PortalFullscreenOverlayWindow? _portalFullscreenOverlayWindow;
-    private MainWindowCaptureFullscreenState? _savedMainWindowCaptureFullscreenState;
     private int _savedCaptureOverlayZIndex = 5;
     private int _savedCaptureOverlayRowSpan = 1;
     private DateTime _lastPortalGraphUpdateUtc = DateTime.MinValue;
     private bool _compositionCaptureWasVisible;
     private bool _inlinePortalPresentationActive;
     private FullscreenCursorAutoHideHelper? _fullscreenCursorAutoHide;
+    private FullscreenEscapePollHelper? _fullscreenEscapePoll;
 
     /// <summary>
     /// When <see langword="true"/>, composition capture renders in <c>InlineCaptureControl</c> on this view.
@@ -537,6 +540,9 @@ public partial class EmulationView : UserControl
         if (_isCaptureFullscreen)
             ExitCaptureFullscreen();
 
+        _inlineCaptureLayoutRefreshCancellation?.Cancel();
+        StopPresentationFullscreenHelpers();
+
         if (_inlineCaptureHost != null)
         {
             _inlineCaptureHost.IsVisible = false;
@@ -616,11 +622,28 @@ public partial class EmulationView : UserControl
             }
 
             UpdatePortalVisibility(vm);
+
+            if (e.PropertyName == nameof(EmulationViewModel.IsActive) && vm.IsActive && vm.IsFullscreen)
+            {
+                Dispatcher.UIThread.Post(
+                    () => RefreshPresentationFullscreen(),
+                    DispatcherPriority.Loaded);
+            }
+
+            if (vm.IsFullscreen &&
+                (e.PropertyName == nameof(EmulationViewModel.IsCompositionCaptureVisible) ||
+                 e.PropertyName == nameof(EmulationViewModel.IsEmulatorViewportVisible)))
+            {
+                Dispatcher.UIThread.Post(
+                    () => RefreshPresentationFullscreen(),
+                    DispatcherPriority.Loaded);
+            }
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed) ||
-                 e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen))
+                 e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen) ||
+                 e.PropertyName == nameof(EmulationViewModel.IsCompositionCaptureVisible))
         {
-            UpdateAlbumListTransitions(vm);
+            UpdateAlbumListLayout(vm);
             UpdateInlineCaptureHostVisibility(vm);
             UpdateCaptureChromeVisibilityFromOpacity();
             if (e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed))
@@ -653,21 +676,63 @@ public partial class EmulationView : UserControl
             EnsureCarouselVisibleWhenIdle(vm, vm.IsCompositionCaptureVisible);
             UpdateCaptureChromeVisibilityFromOpacity();
         }
-        else if (e.PropertyName == nameof(EmulationViewModel.IsFullscreen))
+    }
+
+    /// <summary>
+    /// Capture presentation layout only. Main window chrome and <see cref="WindowState.FullScreen"/>
+    /// are handled by <see cref="MainWindow"/>.
+    /// </summary>
+    internal void EnterCapturePresentationFullscreen()
+    {
+        if (TopLevel.GetTopLevel(this) is not Window mainWindow)
+            return;
+
+        if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
         {
-            if (TopLevel.GetTopLevel(this) is not Window mainWindow)
+            if (_isCaptureFullscreen && CarouselOpacity < 0.05)
                 return;
 
-            if (vm.IsFullscreen && !_isCaptureFullscreen)
-                EnterCaptureFullscreen(mainWindow);
-            else if (!vm.IsFullscreen && _isCaptureFullscreen)
+            if (_isCaptureFullscreen)
                 ExitCaptureFullscreen();
+
+            if (UseInlineCaptureHost)
+                EnterInlineCaptureFullscreen(mainWindow);
+            else
+                EnterPortalCaptureFullscreen(mainWindow);
+            return;
         }
+
+        if (_isCaptureFullscreen && CarouselOpacity > 0.05)
+            return;
+
+        if (_isCaptureFullscreen)
+            ExitCaptureFullscreen();
+
+        EnterCarouselPresentationFullscreen(mainWindow);
+    }
+
+    internal void ExitCapturePresentationFullscreen()
+    {
+        if (!_isCaptureFullscreen)
+            return;
+
+        ExitCaptureFullscreen();
+    }
+
+    internal void RefreshPresentationFullscreen()
+    {
+        if (DataContext is not EmulationViewModel { IsFullscreen: true })
+            return;
+
+        if (_isCaptureFullscreen)
+            ExitCapturePresentationFullscreen();
+
+        EnterCapturePresentationFullscreen();
     }
 
     private void UpdatePortalVisibility(EmulationViewModel vm)
     {
-        UpdateAlbumListTransitions(vm);
+        UpdateAlbumListLayout(vm);
 
         var captureVisible = vm.IsCompositionCaptureVisible;
         var viewActive = vm.IsActive;
@@ -1159,16 +1224,69 @@ public partial class EmulationView : UserControl
             Dispatcher.UIThread.Post(() => vm.PortalCaptureBrightness = vm.RenderBrightness);
     }
 
-    private void EnterCaptureFullscreen(Window mainWindow)
+    private void EnterCarouselPresentationFullscreen(Window mainWindow)
     {
-        if (UseInlineCaptureHost)
-            EnterInlineCaptureFullscreen(mainWindow);
-        else
-            EnterPortalCaptureFullscreen(mainWindow);
+        if (DataContext is EmulationViewModel vm && vm.IsRenderOptionsOpen)
+            vm.IsRenderOptionsOpen = false;
+
+        CarouselOpacity = 1;
+        CapturePresentationOpacity = 0;
+        SetCaptureChromeVisible(false);
+        _isCaptureFullscreen = true;
+        _isCarouselPresentationFullscreen = true;
+
+        StartPresentationFullscreenHelpers();
+    }
+
+    private void ExitCarouselPresentationFullscreen()
+    {
+        _isCaptureFullscreen = false;
+        _isCarouselPresentationFullscreen = false;
+    }
+
+    /// <summary>
+    /// Called after window chrome leaves OS fullscreen while emulation may still be capturing.
+    /// </summary>
+    internal void OnWindowFullscreenEnded()
+    {
+        _portalMaskVersion++;
+
+        if (_isCarouselPresentationFullscreen)
+            return;
+
+        if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true } vm)
+        {
+            if (UseInlineCaptureHost)
+            {
+                ApplyInlineCaptureOverlayFullscreenLayout(fullscreen: false);
+                UpdateInlineCaptureHostVisibility(vm);
+                UpdateCaptureChromeVisibilityFromOpacity();
+
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _inlineCaptureHost?.InvalidateArrange();
+                    _inlineCaptureHost?.InvalidateMeasure();
+                    _inlineCaptureHost?.InvalidateVisual();
+                    ActiveCaptureHost?.ForwardFocusToTarget();
+                }, DispatcherPriority.Loaded);
+            }
+            else
+            {
+                Dispatcher.UIThread.Post(SyncPortalWindow, DispatcherPriority.Loaded);
+            }
+        }
     }
 
     private void ExitCaptureFullscreen()
     {
+        StopPresentationFullscreenHelpers();
+
+        if (_isCarouselPresentationFullscreen)
+        {
+            ExitCarouselPresentationFullscreen();
+            return;
+        }
+
         if (UseInlineCaptureHost)
             ExitInlineCaptureFullscreen();
         else
@@ -1188,8 +1306,6 @@ public partial class EmulationView : UserControl
         }
 
         var bounds = GetScreenBounds(mainWindow);
-        if (mainWindow is MainWindow chromeWindow)
-            _savedMainWindowCaptureFullscreenState = chromeWindow.EnterCaptureFullscreenMode(bounds);
 
         ApplyInlineCaptureOverlayFullscreenLayout(fullscreen: true);
 
@@ -1202,8 +1318,9 @@ public partial class EmulationView : UserControl
         CapturePresentationOpacity = 1;
         SetCaptureChromeVisible(true);
         _isCaptureFullscreen = true;
+        _isCarouselPresentationFullscreen = false;
 
-        StartFullscreenCursorAutoHide();
+        StartPresentationFullscreenHelpers();
 
         Dispatcher.UIThread.Post(() =>
         {
@@ -1215,24 +1332,38 @@ public partial class EmulationView : UserControl
 
     private void ExitInlineCaptureFullscreen()
     {
-        StopFullscreenCursorAutoHide();
         HideFullscreenStatsOverlay();
-
-        if (TopLevel.GetTopLevel(this) is MainWindow chromeWindow &&
-            _savedMainWindowCaptureFullscreenState != null)
-        {
-            chromeWindow.ExitCaptureFullscreenMode(_savedMainWindowCaptureFullscreenState);
-            _savedMainWindowCaptureFullscreenState = null;
-        }
 
         ApplyInlineCaptureOverlayFullscreenLayout(fullscreen: false);
         _isCaptureFullscreen = false;
+        _isCarouselPresentationFullscreen = false;
 
         if (DataContext is EmulationViewModel vm)
         {
             UpdateInlineCaptureHostVisibility(vm);
             UpdateCaptureChromeVisibilityFromOpacity();
         }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            _inlineCaptureHost?.InvalidateArrange();
+            _inlineCaptureHost?.InvalidateMeasure();
+            _inlineCaptureHost?.InvalidateVisual();
+            if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
+                ActiveCaptureHost?.ForwardFocusToTarget();
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void StartPresentationFullscreenHelpers()
+    {
+        StartFullscreenCursorAutoHide();
+        StartFullscreenEscapePoll();
+    }
+
+    private void StopPresentationFullscreenHelpers()
+    {
+        StopFullscreenCursorAutoHide();
+        StopFullscreenEscapePoll();
     }
 
     private void StartFullscreenCursorAutoHide()
@@ -1253,6 +1384,24 @@ public partial class EmulationView : UserControl
             mainWindow.Cursor = Cursor.Default;
 
         Cursor = Cursor.Default;
+    }
+
+    private void StartFullscreenEscapePoll()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        _fullscreenEscapePoll ??= new FullscreenEscapePollHelper(() =>
+        {
+            if (DataContext is EmulationViewModel { IsFullscreen: true } vm)
+                vm.IsFullscreen = false;
+        });
+        _fullscreenEscapePoll.Start();
+    }
+
+    private void StopFullscreenEscapePoll()
+    {
+        _fullscreenEscapePoll?.Stop();
     }
 
     private void OnFullscreenCursorPointerActivity(object? sender, PointerEventArgs e)
@@ -1302,7 +1451,7 @@ public partial class EmulationView : UserControl
 
         _isCaptureFullscreen = true;
 
-        StartFullscreenCursorAutoHide();
+        StartPresentationFullscreenHelpers();
 
         Dispatcher.UIThread.Post(() =>
         {
@@ -1316,7 +1465,6 @@ public partial class EmulationView : UserControl
         if (_portalWindow == null)
             return;
 
-        StopFullscreenCursorAutoHide();
         HideFullscreenStatsOverlay();
 
         _portalWindow.Position = _portalWindowFullscreenPosition;
@@ -1325,6 +1473,7 @@ public partial class EmulationView : UserControl
         _portalWindow.Topmost = false;
 
         _isCaptureFullscreen = false;
+        _isCarouselPresentationFullscreen = false;
         SyncPortalWindow();
     }
 
@@ -1603,7 +1752,7 @@ public partial class EmulationView : UserControl
             return;
 
         var now = DateTime.UtcNow;
-        var minIntervalMs = _isCaptureFullscreen ? 200 : 50;
+        var minIntervalMs = DataContext is EmulationViewModel { IsCompositionCaptureVisible: true } ? 200 : 50;
         if ((now - _lastPortalGraphUpdateUtc).TotalMilliseconds < minIntervalMs)
             return;
 
@@ -1663,31 +1812,79 @@ public partial class EmulationView : UserControl
         IsPortalFallbackLimited = statusFallback || rendererFallback;
     }
 
-    private void UpdateAlbumListTransitions(EmulationViewModel vm)
+    private void UpdateAlbumListLayout(EmulationViewModel vm)
     {
+        var albumRow = this.FindControl<Control>("AlbumListRow");
         var albumList = this.FindControl<Control>("AlbumListView");
         if (albumList == null)
             return;
 
-        albumList.Transitions = _albumListTransitions;
+        if (vm.IsCompositionCaptureVisible)
+        {
+            albumList.Transitions = null;
+
+            if (albumRow != null)
+                albumRow.IsVisible = !vm.IsAlbumListCollapsed;
+
+            if (albumList is EmulationListView list)
+                list.MaxHeight = double.PositiveInfinity;
+        }
+        else
+        {
+            if (albumRow != null)
+                albumRow.IsVisible = true;
+
+            albumList.Transitions = _albumListTransitions;
+        }
+    }
+
+    private void ScheduleInlineCaptureLayoutRefresh()
+    {
+        if (!UseInlineCaptureHost)
+            return;
+
+        _inlineCaptureLayoutRefreshCancellation?.Cancel();
+        _inlineCaptureLayoutRefreshCancellation = new CancellationTokenSource();
+        var token = _inlineCaptureLayoutRefreshCancellation.Token;
+
+        Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                await Task.Delay(48, token).ConfigureAwait(true);
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+
+            if (token.IsCancellationRequested)
+                return;
+
+            _inlineCaptureHost?.InvalidateMeasure();
+            _inlineCaptureHost?.InvalidateArrange();
+            _inlineCaptureHost?.InvalidateVisual();
+        }, DispatcherPriority.Loaded);
     }
 
     private void StartAlbumListPortalMask(EmulationViewModel vm)
     {
+        if (UseInlineCaptureHost)
+        {
+            if (vm.IsCompositionCaptureVisible)
+                ScheduleInlineCaptureLayoutRefresh();
+            return;
+        }
+
         var maskVersion = ++_portalMaskVersion;
         IsAlbumListInteractive = false;
 
-        var captureVisible = UseInlineCaptureHost
-            ? _inlineCaptureHost?.IsVisible == true
-            : _portalWindow?.IsVisible == true;
+        var captureVisible = _portalWindow?.IsVisible == true;
 
         if (vm.IsCompositionCaptureVisible && captureVisible)
         {
-            if (!UseInlineCaptureHost)
-            {
-                PortalFallbackOpacity = 1;
-                IsPortalSurfaceVisible = false;
-            }
+            PortalFallbackOpacity = 1;
+            IsPortalSurfaceVisible = false;
         }
 
         Dispatcher.UIThread.Post(async () =>

@@ -35,6 +35,7 @@ namespace AES_Controls.Composition
     internal record DropTargetMessage(int Index);
     internal record SliderPressedMessage(bool IsPressed);
     internal record DirectIndexFollowMessage(bool Enabled);
+    internal record CarouselAnimationPausedMessage(bool IsPaused);
 
     public class CompositionCarouselVisualHandler : CompositionCustomVisualHandler
     {
@@ -83,6 +84,7 @@ namespace AES_Controls.Composition
         private bool _isSliderPressed;
         private bool _directIndexFollow;
         private bool _useFullCoverSize;
+        private bool _animationPaused;
         private bool _fullCoverSizeInitialized;
         private float _fullCoverSizeFactor;
         private float _fullCoverSizeVelocity;
@@ -282,6 +284,20 @@ namespace AES_Controls.Composition
             }
             else if (message is SliderPressedMessage spm) { _isSliderPressed = spm.IsPressed; InvalidateScene(); }
             else if (message is DirectIndexFollowMessage dif) { _directIndexFollow = dif.Enabled; InvalidateScene(); }
+            else if (message is CarouselAnimationPausedMessage paused)
+            {
+                _animationPaused = paused.IsPaused;
+                if (_animationPaused)
+                {
+                    _lastTicks = 0;
+                    return;
+                }
+
+                if (_lastTicks == 0)
+                    _lastTicks = Stopwatch.GetTimestamp();
+                RegisterForNextAnimationFrameUpdate();
+                return;
+            }
             else if (message is UseFullCoverSizeMessage ufcs) 
             { 
                 _useFullCoverSize = ufcs.Value; 
@@ -308,6 +324,9 @@ namespace AES_Controls.Composition
 
         public override void OnAnimationFrameUpdate()
         {
+            if (_animationPaused)
+                return;
+
             long currentTicks = Stopwatch.GetTimestamp();
             if (_lastTicks == 0) _lastTicks = currentTicks;
             double dt = (double)(currentTicks - _lastTicks) / Stopwatch.Frequency;

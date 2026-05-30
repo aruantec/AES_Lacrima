@@ -69,7 +69,7 @@ public sealed class CemuHandler : EmulatorHandlerBase
 
     public override int CaptureStartupDelayMs => 0;
 
-    public override EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.DirectComposition;
+    public override EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.NativeWindow;
 
     public override IntPtr FindPreferredWindowHandle(Process process)
     {

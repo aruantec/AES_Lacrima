@@ -19,6 +19,11 @@
     </Design.DataContext>
 
     <Grid Background="Black" ClipToBounds="False">
+        <Grid.Styles>
+            <Style Selector="composition|FolderCompositionControl">
+                <Setter Property="IsAnimationPaused" Value="{Binding IsRomCarouselAnimationPaused}"/>
+            </Style>
+        </Grid.Styles>
         <ListBox ItemsSource="{Binding AlbumList}"
                  Background="Transparent"
                  ClipToBounds="False"

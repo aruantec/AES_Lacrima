@@ -37,7 +37,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using System.Xml.Linq;
 using AES_Core.Logging;
 using DrawingIcon = System.Drawing.Icon;
 
@@ -436,9 +436,6 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void ToggleFullscreen()
         {
-            if (!IsEmulatorRunning)
-                return;
-
             IsFullscreen = !IsFullscreen;
         }
 

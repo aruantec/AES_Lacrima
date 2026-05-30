@@ -14,14 +14,14 @@ namespace AES_Emulation.Controls;
 public enum EmulatorCaptureMode
 {
     /// <summary>
-    /// Renders captured frames inside Avalonia via a composition custom visual (WGC + GPU upload).
-    /// Avoids native child HWND airspace so overlays and particles render correctly on top.
+    /// WGC capture presented through an Avalonia <see cref="CompositionCustomVisual"/> (GPU upload each frame).
+    /// Competes with carousel, spectrum, and other compositor animation work — use for overlay-friendly presentation.
     /// </summary>
     DirectComposition,
 
     /// <summary>
-    /// Legacy path: presents frames in a separate native DirectComposition child window (HWND).
-    /// Highest presentation throughput but always draws above Avalonia content on Windows.
+    /// WGC/DirectComposition presented in a native child HWND via <see cref="DirectCompositionCaptureHost"/>.
+    /// Lowest UI-thread/compositor overhead on Windows; preferred for performance.
     /// </summary>
     NativeWindow,
 

@@ -133,7 +133,10 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     /// </summary>
     public virtual double? CaptureWindowAspectRatio => 16.0 / 9.0;
 
-    public virtual EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.DirectComposition;
+    public virtual EmulatorCaptureMode PreferredCaptureMode =>
+        OperatingSystem.IsWindows()
+            ? EmulatorCaptureMode.NativeWindow
+            : EmulatorCaptureMode.DirectComposition;
 
     public virtual bool UsesRetroArchCores => false;
 

@@ -139,7 +139,7 @@
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
                                    MoveResizeEndedCommand="{Binding SaveWidgetSettingsCommand}"
-                                   IsVisible="{Binding ShowClock}">
+                                   IsVisible="{Binding IsClockWidgetVisible}">
                 <Interaction.Behaviors>
                     <behaviors:PreventFocusOnRightClickBehavior />
                 </Interaction.Behaviors>
@@ -157,7 +157,7 @@
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
                                    MoveResizeEndedCommand="{Binding SaveWidgetSettingsCommand}"
-                                   IsVisible="{Binding ShowPlayer}">
+                                   IsVisible="{Binding IsPlayerWidgetVisible}">
                 <Interaction.Behaviors>
                     <behaviors:PreventFocusOnRightClickBehavior />
                 </Interaction.Behaviors>
@@ -185,7 +185,7 @@
 								   HorizontalAlignment="Center"
 								   VerticalAlignment="Center"
 								   MoveResizeEndedCommand="{Binding SaveWidgetSettingsCommand}"
-                                   IsVisible="{Binding ShowPlayerInfo}">
+                                   IsVisible="{Binding IsPlayerInfoWidgetVisible}">
                 <Interaction.Behaviors>
                     <behaviors:PreventFocusOnRightClickBehavior />
                 </Interaction.Behaviors>
