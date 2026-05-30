@@ -67,13 +67,7 @@ namespace AES_Lacrima.ViewModels
         private MprisService? _mprisService;
 
         [ObservableProperty]
-        [NotifyPropertyChangedFor(nameof(IsAlbumFolderAnimationPaused))]
         private bool _isAlbumlistOpen;
-
-        /// <summary>
-        /// Stops folder fan animations when the music view or album strip is not visible.
-        /// </summary>
-        public bool IsAlbumFolderAnimationPaused => !IsActive || !IsAlbumlistOpen;
 
         [ObservableProperty]
         private bool _isTrackLoadPending;

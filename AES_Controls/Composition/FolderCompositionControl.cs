@@ -387,6 +387,22 @@ public class FolderCompositionControl : Control
     }
 
     /// <summary>
+    /// Applies target layout immediately so covers stay visible while animation is paused.
+    /// </summary>
+    private void SnapAnimationToTargets()
+    {
+        foreach (var state in _activeStates)
+        {
+            state.CurX = state.TgtX;
+            state.CurY = state.TgtY;
+            state.CurOpacity = state.TgtOpacity;
+        }
+
+        _curPress = _tgtPress;
+        InvalidateVisual();
+    }
+
+    /// <summary>
     /// Called on each animation timer tick to interpolate positions and press scale.
     /// </summary>
     private void OnAnimationTick(object? sender, EventArgs e)
@@ -500,14 +516,27 @@ public class FolderCompositionControl : Control
             if (!s.IsTarget) s.TgtOpacity = 0;
         }
 
-        StartAnimation();
+        if (IsAnimationPaused)
+            SnapAnimationToTargets();
+        else
+            StartAnimation();
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (change.Property == IsAnimationPausedProperty && change.GetNewValue<bool>())
-            StopAnimation();
+        if (change.Property == IsAnimationPausedProperty)
+        {
+            if (change.GetNewValue<bool>())
+            {
+                StopAnimation();
+                SnapAnimationToTargets();
+            }
+            else
+            {
+                UpdateTargets(_isPointerOver);
+            }
+        }
         else if (change.Property == ItemsProperty)
         {
             if (change.OldValue is AvaloniaList<MediaItem> old)
