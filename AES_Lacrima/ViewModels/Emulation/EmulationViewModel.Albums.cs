@@ -39,7 +39,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using System.Xml.Linq;
 using AES_Core.Logging;
 using DrawingIcon = System.Drawing.Icon;
 
@@ -149,7 +149,8 @@ namespace AES_Lacrima.ViewModels
             foreach (var imagePath in FindConsoleImagePaths())
             {
                 var title = GetConsoleTitle(imagePath);
-                var previewBitmap = LoadBitmap(imagePath);
+                var previewBitmap = LoadAlbumShellBitmap(imagePath);
+                QueueConsoleCoverBarCropPersist(imagePath);
                 var albumKey = GetAlbumPersistenceKeyFromPath(imagePath, title);
 
                 AlbumList.Add(new EmulationAlbumItem
@@ -172,56 +173,141 @@ namespace AES_Lacrima.ViewModels
 
         private async Task InitializeAlbumsAsync()
         {
-            var albums = await Task.Run(() =>
+            try
             {
-                var result = new List<EmulationAlbumItem>();
-                foreach (var imagePath in FindConsoleImagePaths())
-                {
-                    var title = GetConsoleTitle(imagePath);
-                    var previewBitmap = LoadBitmap(imagePath);
-                    var albumKey = GetAlbumPersistenceKeyFromPath(imagePath, title);
+                var shells = await Task.Run(() => BuildAlbumShells()).ConfigureAwait(false);
 
-                    var album = new EmulationAlbumItem
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    AlbumList.Clear();
+                    foreach (var album in shells)
                     {
-                        Title = title,
-                        Album = title,
-                        FileName = imagePath,
-                        LocalCoverPath = imagePath,
-                        CoverBitmap = previewBitmap,
-                        Children = RestoreAlbumRoms(albumKey, title, previewBitmap)
-                    };
+                        AlbumList.Add(album);
+                        UpdatePreviewItems(album);
+                    }
 
-                    result.Add(album);
-                }
+                    ApplySavedAlbumOrder();
+                    SelectedAlbum = AlbumList.FirstOrDefault();
+                    LoadedAlbum = null;
+                    UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationAlbum());
+                    _sharedAlbumCache = new AvaloniaList<FolderMediaItem>(AlbumList);
+                    IsPrepared = true;
+                    _isPreparing = false;
+                    IsAlbumListLoading = false;
+                    ApplyFilter();
+                }, DispatcherPriority.Background);
 
-                return result;
-            }).ConfigureAwait(false);
-
-            await Dispatcher.UIThread.InvokeAsync(() =>
+                _ = RestorePersistedAlbumRomsAsync();
+            }
+            catch (Exception ex)
             {
-                AlbumList.Clear();
-                foreach (var album in albums)
+                SLog.Warn("Failed to initialize emulation albums.", ex);
+                await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    AlbumList.Add(album);
-                    UpdatePreviewItems(album);
-                }
+                    IsAlbumListLoading = false;
+                    _isPreparing = false;
+                }, DispatcherPriority.Background);
+            }
+        }
 
-                ApplySavedAlbumOrder();
+        private static List<EmulationAlbumItem> BuildAlbumShells()
+        {
+            var result = new List<EmulationAlbumItem>();
+            foreach (var imagePath in FindConsoleImagePaths())
+            {
+                var title = GetConsoleTitle(imagePath);
+                var previewBitmap = LoadAlbumShellBitmap(imagePath);
+                QueueConsoleCoverBarCropPersist(imagePath);
 
-                foreach (var album in AlbumList.OfType<EmulationAlbumItem>())
+                result.Add(new EmulationAlbumItem
                 {
-                    if (album.Children.Count > 0)
+                    Title = title,
+                    Album = title,
+                    FileName = imagePath,
+                    LocalCoverPath = imagePath,
+                    CoverBitmap = previewBitmap,
+                    Children = []
+                });
+            }
+
+            return result;
+        }
+
+        private async Task RestorePersistedAlbumRomsAsync()
+        {
+            List<EmulationAlbumItem> albums;
+            try
+            {
+                albums = await Dispatcher.UIThread.InvokeAsync(
+                    () => AlbumList.OfType<EmulationAlbumItem>().ToList(),
+                    DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed to collect emulation albums for ROM restore.", ex);
+                return;
+            }
+
+            if (albums.Count == 0)
+                return;
+
+            List<(EmulationAlbumItem Album, AvaloniaList<MediaItem> Children)> restored;
+            try
+            {
+                restored = await Task.Run(() =>
+                {
+                    var pairs = new List<(EmulationAlbumItem, AvaloniaList<MediaItem>)>();
+                    foreach (var album in albums)
+                    {
+                        var albumKey = GetAlbumPersistenceKey(album);
+                        var children = RestoreAlbumRoms(albumKey, album.Title, album.CoverBitmap);
+                        if (children.Count > 0)
+                            pairs.Add((album, children));
+                    }
+
+                    return pairs;
+                }).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed to restore persisted emulation ROM lists.", ex);
+                return;
+            }
+
+            foreach (var (album, children) in restored)
+            {
+                try
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() => album.IsLoadingCover = true, DispatcherPriority.Background);
+
+                    for (int start = 0; start < children.Count; start += RomRestoreUiBatchSize)
+                    {
+                        var batch = children.Skip(start).Take(RomRestoreUiBatchSize).ToList();
+                        await Dispatcher.UIThread.InvokeAsync(() =>
+                        {
+                            foreach (var item in batch)
+                                album.Children.Add(item);
+                        }, DispatcherPriority.Background);
+                        await Task.Yield();
+                    }
+
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        UpdatePreviewItems(album);
+                        album.IsLoadingCover = false;
                         QueueAlbumPreviewCoverLoad(album);
+                    }, DispatcherPriority.Background);
                 }
-
-                SelectedAlbum = AlbumList.FirstOrDefault();
-                LoadedAlbum = null;
-                UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationAlbum());
-                _sharedAlbumCache = new AvaloniaList<FolderMediaItem>(AlbumList);
-                IsPrepared = true;
-                _isPreparing = false;
-                ApplyFilter();
-            });
+                catch (Exception ex)
+                {
+                    SLog.Warn($"Failed to restore ROM list for album '{album.Title}'.", ex);
+                    try
+                    {
+                        await Dispatcher.UIThread.InvokeAsync(() => album.IsLoadingCover = false, DispatcherPriority.Background);
+                    }
+                    catch (Exception logEx) { SLog.Warn("Non-critical error", logEx); }
+                }
+            }
         }
 
         private async Task<PersistedEmulationState> LoadPersistedEmulationStateAsync()
@@ -708,6 +794,10 @@ namespace AES_Lacrima.ViewModels
             if (itemsToLoad.Count == 0)
                 return;
 
+            try
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => album.IsLoadingCover = true, DispatcherPriority.Background);
+
             const int coverLookupDelayMs = 80;
             foreach (var item in itemsToLoad)
             {
@@ -745,6 +835,18 @@ namespace AES_Lacrima.ViewModels
                     {
                         break;
                     }
+                }
+            }
+            }
+            finally
+            {
+                try
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() => album.IsLoadingCover = false, DispatcherPriority.Background);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn($"Failed to clear loading state for album '{album.Title}'.", ex);
                 }
             }
         }

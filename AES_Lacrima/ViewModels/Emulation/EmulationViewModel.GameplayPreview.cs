@@ -291,31 +291,15 @@ namespace AES_Lacrima.ViewModels
 
         private const int CarouselCoverDecodeSize = 384;
 
-        private static Bitmap? LoadBitmap(string imagePath)
+        /// <summary>
+        /// Fast path for album shell tiles: decode only so the list can paint immediately.
+        /// Bar-crop persistence runs separately on a background thread.
+        /// </summary>
+        private static Bitmap? LoadAlbumShellBitmap(string imagePath)
         {
             try
             {
-                using var codec = SKCodec.Create(imagePath);
-                if (codec == null)
-                    return null;
-
-                using var bmp = new SKBitmap(codec.Info);
-                codec.GetPixels(bmp.Info, bmp.GetPixels());
-
-                using var cropped = CoverImageBarCropHelper.TryCrop(bmp, out bool didCrop);
-                using var working = cropped ?? bmp;
-                if (didCrop && cropped != null)
-                    CoverImageBarCropHelper.TryPersistCroppedCover(cropped, imagePath, null);
-
-                using var encoded = working.Encode(
-                    Path.GetExtension(imagePath).Equals(".png", StringComparison.OrdinalIgnoreCase)
-                        ? SKEncodedImageFormat.Png
-                        : SKEncodedImageFormat.Jpeg,
-                    92);
-                if (encoded == null)
-                    return null;
-
-                using var stream = new MemoryStream(encoded.ToArray());
+                using var stream = File.OpenRead(imagePath);
                 try
                 {
                     return Bitmap.DecodeToWidth(stream, CarouselCoverDecodeSize);
@@ -331,6 +315,32 @@ namespace AES_Lacrima.ViewModels
                 SLog.Warn($"Failed to load console bitmap '{imagePath}'.", ex);
                 return null;
             }
+        }
+
+        private static void QueueConsoleCoverBarCropPersist(string imagePath)
+        {
+            if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
+                return;
+
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    using var codec = SKCodec.Create(imagePath);
+                    if (codec == null)
+                        return;
+
+                    using var bmp = new SKBitmap(codec.Info);
+                    codec.GetPixels(bmp.Info, bmp.GetPixels());
+                    using var cropped = CoverImageBarCropHelper.TryCrop(bmp, out bool didCrop);
+                    if (didCrop && cropped != null)
+                        CoverImageBarCropHelper.TryPersistCroppedCover(cropped, imagePath, null);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug($"Background console cover bar-crop skipped for '{imagePath}'.", ex);
+                }
+            });
         }
     }
 }

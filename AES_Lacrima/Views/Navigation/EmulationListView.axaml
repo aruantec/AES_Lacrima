@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:behaviors="using:AES_Controls.Behaviors"
              xmlns:composition="using:AES_Controls.Composition"
+             xmlns:controls="using:AES_Controls"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -20,6 +21,17 @@
     </Design.DataContext>
 
     <Grid Background="Black" ClipToBounds="False">
+        <Panel IsVisible="{Binding IsAlbumListLoading}"
+               IsHitTestVisible="False"
+               ZIndex="2">
+            <controls:LoadingControl Width="72"
+                                     Height="72"
+                                     Foreground="DeepSkyBlue"
+                                     HorizontalAlignment="Center"
+                                     VerticalAlignment="Center"
+                                     IsHitTestVisible="False"/>
+        </Panel>
+
         <ListBox x:Name="AlbumList"
                  ItemsSource="{Binding AlbumList}"
                  Background="Transparent"
@@ -179,6 +191,17 @@
                                            VerticalAlignment="Center"
                                            Margin="4"/>
                             </Border>
+
+                            <Panel IsVisible="{Binding IsLoadingCover}"
+                                   IsHitTestVisible="False"
+                                   Background="#66000000">
+                                <controls:LoadingControl Width="48"
+                                                         Height="48"
+                                                         Foreground="DeepSkyBlue"
+                                                         HorizontalAlignment="Center"
+                                                         VerticalAlignment="Center"
+                                                         IsHitTestVisible="False"/>
+                            </Panel>
                         </Grid>
                     </Border>
                 </DataTemplate>
