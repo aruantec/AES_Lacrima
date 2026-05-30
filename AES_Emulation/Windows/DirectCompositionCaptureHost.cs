@@ -9,7 +9,7 @@ using Avalonia.Threading;
 using AES_Emulation.Windows.API;
 using System.Diagnostics;
 using System.Threading;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Emulation.Windows;
