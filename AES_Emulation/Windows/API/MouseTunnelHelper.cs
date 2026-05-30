@@ -4,7 +4,7 @@ using Avalonia.Input;
 using Avalonia.Threading;
 using System;
 using System.Runtime.InteropServices;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Emulation.Windows.API
@@ -454,6 +454,10 @@ namespace AES_Emulation.Windows.API
 
         private void OnPointerPressed(PointerPressedEventArgs e)
         {
+            // Double-clicks are handled by the host UI (e.g. capture fullscreen toggle).
+            if (e.ClickCount >= 2)
+                return;
+
             if (!TryGetLocalPoint(e, out var local))
                 return;
 

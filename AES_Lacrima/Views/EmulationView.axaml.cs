@@ -258,25 +258,42 @@ public partial class EmulationView : UserControl
 
     private void OnCaptureHostPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (e.ClickCount >= 2)
-        {
-            e.Handled = true;
+        if (TryHandleCaptureDoubleClick(e))
             return;
-        }
 
-        if (_isCaptureFullscreen)
+        if (_isCaptureFullscreen &&
+            DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
         {
-            if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
-                ActiveCaptureHost?.ForwardFocusToTarget();
+            ActiveCaptureHost?.ForwardFocusToTarget();
         }
     }
 
     private void OnPortalSurfacePointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        if (TryHandleCaptureDoubleClick(e))
+            return;
+
         if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
             return;
 
         ActiveCaptureHost?.ForwardFocusToTarget();
+    }
+
+    private bool TryHandleCaptureDoubleClick(PointerPressedEventArgs e)
+    {
+        if (e.ClickCount < 2)
+            return false;
+
+        e.Handled = true;
+
+        if (DataContext is not EmulationViewModel vm)
+            return true;
+
+        if (!vm.IsCompositionCaptureVisible || !vm.IsEmulatorRunning)
+            return true;
+
+        vm.ToggleFullscreenCommand.Execute(null);
+        return true;
     }
 
     private void OnEmulationViewKeyDown(object? sender, KeyEventArgs e)
