@@ -78,6 +78,7 @@ namespace AES_Lacrima.ViewModels
         private readonly object _albumPreviewCoverLoadGate = new();
 
         private const int FolderPreviewCoverCount = 3;
+        private const int RomRestoreUiBatchSize = 200;
         private readonly HashSet<FolderMediaItem> _albumsWithMetadataScanned = [];
         private AvaloniaList<string> _pendingAlbumOrder = [];
         private Dictionary<string, List<MediaItem>> _pendingAlbumRoms = new(StringComparer.OrdinalIgnoreCase);
@@ -334,6 +335,9 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         [ObservableProperty]
         private AvaloniaList<FolderMediaItem> _albumList = [];
+
+        [ObservableProperty]
+        private bool _isAlbumListLoading;
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(AddRomsCommand))]
@@ -1229,6 +1233,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                         }
 
                         // Load emulation albums in background so the UI can render immediately.
+                        IsAlbumListLoading = true;
                         _ = InitializeAlbumsAsync();
                     }, DispatcherPriority.Background);
                 }
