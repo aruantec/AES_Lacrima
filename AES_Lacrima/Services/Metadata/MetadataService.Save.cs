@@ -117,7 +117,10 @@ namespace AES_Lacrima.Services
                     }
 
                     UpdateInfo();
-                    SetMediaItemCoverFromTags(coverImage, wallpaperImage);
+                    SetMediaItemCoverFromTags(
+                        coverImage,
+                        wallpaperImage,
+                        ApplicationPaths.GetCacheFile(BinaryMetadataHelper.GetCacheId(path ?? string.Empty) + ".meta"));
                     return;
                 }
                 catch (Exception ex)
@@ -186,39 +189,36 @@ namespace AES_Lacrima.Services
             UpdateInfo();
             SetMediaItemCoverFromTags(
                 Images.FirstOrDefault(img => img.Kind == TagImageKind.Cover),
-                Images.FirstOrDefault(img => img.Kind == TagImageKind.Wallpaper));
+                Images.FirstOrDefault(img => img.Kind == TagImageKind.Wallpaper),
+                metaDataPath);
         }
 
-        private void SetMediaItemCoverFromTags(TagImageModel? coverImage, TagImageModel? wallpaperImage)
+        private void SetMediaItemCoverFromTags(TagImageModel? coverImage, TagImageModel? wallpaperImage, string? metadataCachePath = null)
         {
             if (_currentSelectedMedia == null)
                 return;
 
             if (coverImage != null)
             {
-                // Note: DO NOT use 'using' on the MemoryStream - the Bitmap holds a reference to it
-                // and disposes it when it's no longer needed. Disposing the stream early causes
-                // ObjectDisposedException when Avalonia tries to measure/render the Image control.
+                // CoverBitmap is often shared across album tiles/items; never dispose the previous instance here.
                 var ms = new MemoryStream(coverImage.Data);
-                _currentSelectedMedia.CoverBitmap = new Bitmap(ms);
+                _currentSelectedMedia.CoverBitmap = Bitmap.DecodeToWidth(ms, NormalizedCoverMaxDimension);
+                _currentSelectedMedia.CoverFound = true;
+                if (!string.IsNullOrWhiteSpace(metadataCachePath))
+                    _currentSelectedMedia.LocalCoverPath = metadataCachePath;
             }
             else
             {
-                _currentSelectedMedia.CoverBitmap?.Dispose();
                 _currentSelectedMedia.CoverBitmap = null;
             }
 
             if (wallpaperImage != null)
             {
-                // Note: DO NOT use 'using' on the MemoryStream - the Bitmap holds a reference to it
-                // and disposes it when it's no longer needed. Disposing the stream early causes
-                // ObjectDisposedException when Avalonia tries to measure/render the Image control.
                 var ms = new MemoryStream(wallpaperImage.Data);
                 _currentSelectedMedia.WallpaperBitmap = new Bitmap(ms);
             }
             else
             {
-                _currentSelectedMedia.WallpaperBitmap?.Dispose();
                 _currentSelectedMedia.WallpaperBitmap = null;
             }
         }
