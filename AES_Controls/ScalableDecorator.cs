@@ -1,136 +1,269 @@
-﻿using Avalonia;
+﻿using System;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
-using AES_Controls.Helpers;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
+using AES_Controls.Helpers;
 
 namespace AES_Controls;
 
 public class ScalableDecorator : Decorator
 {
-    /// <summary>
-    /// Dependency property that controls the scale factor applied to the child
-    /// content. A value of 1.0 displays the child at its native size, values
-    /// greater than 1.0 enlarge and values between 0 and 1 shrink the content.
-    /// </summary>
     public static readonly StyledProperty<double> ScaleProperty =
         AvaloniaProperty.Register<ScalableDecorator, double>(nameof(Scale), 1.0);
 
-    /// <summary>
-    /// Dependency property that determines whether high-quality bitmap
-    /// interpolation should be used when rendering scaled content.
-    /// </summary>
     public static readonly StyledProperty<bool> AntialiasProperty =
         AvaloniaProperty.Register<ScalableDecorator, bool>(nameof(Antialias), true);
 
     /// <summary>
-    /// Scale factor applied to the child content.
+    /// When true, limits internal render supersampling on high-DPI/large surfaces
+    /// while preserving layout size and the user's scale preference.
     /// </summary>
+    public static readonly StyledProperty<bool> EfficientScalingProperty =
+        AvaloniaProperty.Register<ScalableDecorator, bool>(nameof(EfficientScaling), true);
+
     public double Scale
     {
         get => GetValue(ScaleProperty);
         set => SetValue(ScaleProperty, value);
     }
 
-    /// <summary>
-    /// When true, use high-quality bitmap interpolation when scaling the child.
-    /// </summary>
     public bool Antialias
     {
         get => GetValue(AntialiasProperty);
         set => SetValue(AntialiasProperty, value);
     }
 
-    private Window? _hostWindow;
-    private IDisposable? _boundsSubscription;
+    public bool EfficientScaling
+    {
+        get => GetValue(EfficientScalingProperty);
+        set => SetValue(EfficientScalingProperty, value);
+    }
 
-    /// <summary>
-    /// Create a new <see cref="ScalableDecorator"/>. The decorator clips
-    /// child content to its bounds by default.
-    /// </summary>
+    private TopLevel? _hostTopLevel;
+    private IDisposable? _clientSizeSubscription;
+    private ScaleTransform? _childScaleTransform;
+    private BitmapInterpolationMode? _appliedInterpolationMode;
+
+    private double _lastObservedClientWidth = double.NaN;
+    private double _lastObservedClientHeight = double.NaN;
+    private bool _measureInvalidationPosted;
+
+    private Size _lastMeasureAvailable;
+    private double _lastMeasureLayoutScale = double.NaN;
+    private Size _lastMeasureResult;
+    private bool _hasMeasureCache;
+
+    private double _lastArrangeLayoutScale = double.NaN;
+    private double _lastArrangeRenderScale = double.NaN;
+
     public ScalableDecorator()
     {
         ClipToBounds = true;
     }
 
-    /// <summary>
-    /// Called when the control is attached to the visual tree. Subscribes to
-    /// the host window's bounds changes so the decorator can re-measure the
-    /// child when the window size changes.
-    /// </summary>
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
-        _hostWindow = TopLevel.GetTopLevel(this) as Window;
-
-        if (_hostWindow != null)
-        {
-            _boundsSubscription = _hostWindow.GetObservable(Visual.BoundsProperty)
-                .Subscribe(new SimpleObserver<Rect>(_ => InvalidateMeasure()));
-        }
+        UpdateHostSubscription();
     }
 
-    /// <summary>
-    /// Called when the control is detached from the visual tree. Unsubscribes
-    /// from any host window notifications and clears references.
-    /// </summary>
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
-        _boundsSubscription?.Dispose();
-        _hostWindow = null;
+        _clientSizeSubscription?.Dispose();
+        _clientSizeSubscription = null;
+        _hostTopLevel = null;
     }
 
-    /// <summary>
-    /// Monitors changes to the <see cref="Scale"/> and <see cref="Antialias"/>
-    /// properties and invalidates measure/visual when they change.
-    /// </summary>
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
 
-        if (change.Property != ScaleProperty && change.Property != AntialiasProperty) return;
-        InvalidateMeasure();
-        InvalidateVisual();
+        if (change.Property == ChildProperty)
+        {
+            _childScaleTransform = null;
+            _appliedInterpolationMode = null;
+            InvalidateMeasureCache();
+            return;
+        }
+
+        if (change.Property == ScaleProperty)
+        {
+            InvalidateMeasureCache();
+            UpdateHostSubscription();
+            InvalidateMeasure();
+            return;
+        }
+
+        if (change.Property == EfficientScalingProperty)
+        {
+            InvalidateMeasureCache();
+            UpdateHostSubscription();
+            InvalidateMeasure();
+            return;
+        }
+
+        if (change.Property == AntialiasProperty)
+        {
+            _appliedInterpolationMode = null;
+            InvalidateVisual();
+        }
     }
 
+    private void UpdateHostSubscription()
+    {
+        _clientSizeSubscription?.Dispose();
+        _clientSizeSubscription = null;
+        _hostTopLevel = null;
+
+        if (GetLayoutScale() <= 1.0)
+            return;
+
+        _hostTopLevel = TopLevel.GetTopLevel(this);
+        if (_hostTopLevel == null)
+            return;
+
+        _clientSizeSubscription = _hostTopLevel.GetObservable(TopLevel.ClientSizeProperty)
+            .Subscribe(new SimpleObserver<Size>(OnHostClientSizeChanged));
+    }
+
+    private void OnHostClientSizeChanged(Size clientSize)
+    {
+        if (EfficientScaling &&
+            Math.Abs(clientSize.Width - _lastObservedClientWidth) < 0.5 &&
+            Math.Abs(clientSize.Height - _lastObservedClientHeight) < 0.5)
+            return;
+
+        _lastObservedClientWidth = clientSize.Width;
+        _lastObservedClientHeight = clientSize.Height;
+        InvalidateMeasureCache();
+        RequestMeasureInvalidation();
+    }
+
+    private void RequestMeasureInvalidation()
+    {
+        if (!EfficientScaling)
+        {
+            InvalidateMeasure();
+            return;
+        }
+
+        if (_measureInvalidationPosted)
+            return;
+
+        _measureInvalidationPosted = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _measureInvalidationPosted = false;
+            InvalidateMeasure();
+        }, DispatcherPriority.Background);
+    }
+
+    private void InvalidateMeasureCache()
+    {
+        _hasMeasureCache = false;
+        _lastMeasureLayoutScale = double.NaN;
+    }
+
+    private double GetLayoutScale() => Math.Clamp(Scale, 0.1, 10.0);
+
     /// <summary>
-    /// Measures the child control using the scaled available size and then
-    /// returns the unscaled desired size so layout behaves as if the child
-    /// were smaller/larger by the specified scale factor.
+    /// Caps internal arrange/render resolution without changing the final visual size.
     /// </summary>
+    private double GetRenderScale(double layoutScale)
+    {
+        if (!EfficientScaling || layoutScale <= 1.0)
+            return layoutScale;
+
+        var renderScale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+        return Math.Min(layoutScale, Math.Max(1.0, renderScale));
+    }
+
     protected override Size MeasureOverride(Size available)
     {
-        if (Child == null) return new Size(0, 0);
+        if (Child == null)
+            return default;
 
-        var s = Scale;
-        if (s < 0.1) s = 0.1;
+        var layoutScale = GetLayoutScale();
 
-        var constraint = new Size(available.Width * s, available.Height * s);
-        Child.Measure(constraint);
+        if (_hasMeasureCache &&
+            layoutScale == _lastMeasureLayoutScale &&
+            available == _lastMeasureAvailable)
+            return _lastMeasureResult;
 
-        return Child.DesiredSize / s;
+        Child.Measure(new Size(available.Width * layoutScale, available.Height * layoutScale));
+
+        var result = Child.DesiredSize / layoutScale;
+
+        _lastMeasureAvailable = available;
+        _lastMeasureLayoutScale = layoutScale;
+        _lastMeasureResult = result;
+        _hasMeasureCache = true;
+
+        return result;
     }
 
-    /// <summary>
-    /// Arranges the child at the scaled size and sets a render transform so
-    /// the visual output appears scaled while the layout system receives the
-    /// unscaled size.
-    /// </summary>
     protected override Size ArrangeOverride(Size finalSize)
     {
-        if (Child == null) return finalSize;
+        if (Child == null)
+            return finalSize;
 
-        var s = Scale;
-        if (s < 0.1) s = 0.1;
+        var layoutScale = GetLayoutScale();
+        var renderScale = GetRenderScale(layoutScale);
 
-        Child.Arrange(new Rect(new Point(0, 0), finalSize * s));
-        Child.RenderTransformOrigin = RelativePoint.TopLeft;
-        Child.RenderTransform = new ScaleTransform(1.0 / s, 1.0 / s);
+        if (layoutScale != _lastArrangeLayoutScale || renderScale != _lastArrangeRenderScale)
+        {
+            ApplyChildScale(1.0 / renderScale);
+            ApplyChildInterpolationMode();
+            _lastArrangeLayoutScale = layoutScale;
+            _lastArrangeRenderScale = renderScale;
+        }
 
-        var interpolationMode = Antialias ? BitmapInterpolationMode.HighQuality : BitmapInterpolationMode.LowQuality;
-        RenderOptions.SetBitmapInterpolationMode(Child, interpolationMode);
-
+        Child.Arrange(new Rect(0, 0, finalSize.Width * renderScale, finalSize.Height * renderScale));
         return finalSize;
+    }
+
+    private void ApplyChildScale(double scale)
+    {
+        if (Child == null)
+            return;
+
+        if (_childScaleTransform == null)
+        {
+            _childScaleTransform = new ScaleTransform(scale, scale);
+            Child.RenderTransformOrigin = RelativePoint.TopLeft;
+            Child.RenderTransform = _childScaleTransform;
+            return;
+        }
+
+        if (_childScaleTransform.ScaleX != scale)
+            _childScaleTransform.ScaleX = scale;
+
+        if (_childScaleTransform.ScaleY != scale)
+            _childScaleTransform.ScaleY = scale;
+
+        if (!ReferenceEquals(Child.RenderTransform, _childScaleTransform))
+        {
+            Child.RenderTransformOrigin = RelativePoint.TopLeft;
+            Child.RenderTransform = _childScaleTransform;
+        }
+    }
+
+    private void ApplyChildInterpolationMode()
+    {
+        if (Child == null)
+            return;
+
+        var mode = Antialias && !EfficientScaling
+            ? BitmapInterpolationMode.HighQuality
+            : BitmapInterpolationMode.LowQuality;
+
+        if (_appliedInterpolationMode == mode)
+            return;
+
+        RenderOptions.SetBitmapInterpolationMode(Child, mode);
+        _appliedInterpolationMode = mode;
     }
 }
