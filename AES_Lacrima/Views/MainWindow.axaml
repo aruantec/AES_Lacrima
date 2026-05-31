@@ -11,6 +11,7 @@
         xmlns:nav="clr-namespace:AES_Controls.Navigation;assembly=AES_Controls"
         xmlns:common="clr-namespace:AES_Lacrima.Views.Common"
         xmlns:behaviors="clr-namespace:AES_Lacrima.Behaviors"
+        xmlns:slide="clr-namespace:AES_Controls.Behaviors;assembly=AES_Controls"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="AES_Lacrima.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
@@ -30,10 +31,6 @@
         <vm:MainWindowViewModel/>
     </Design.DataContext>
 
-    <Window.Resources>
-        <local:BoolToOpacityConverter x:Key="BoolToOpacityConverter" />
-    </Window.Resources>
-
     <Interaction.Behaviors>
         <behaviors:WindowResizeBehavior ResizeBorderThickness="8"/>
         <behaviors:CloseOnClickOutsideBehavior 
@@ -43,18 +40,6 @@
     </Interaction.Behaviors>
 
     <Grid x:DataType="vm:MainWindowViewModel" ClipToBounds="False">
-        <Grid.Styles>
-            <!-- Transitions for overlays to animate opacity when the property changes -->
-            <Style Selector="Border#SettingsOverlay">
-                <Setter Property="Transitions">
-                    <Setter.Value>
-                        <Transitions>
-                            <DoubleTransition Property="Opacity" Duration="0:0:0.25" />
-                        </Transitions>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-        </Grid.Styles>
         <!--Removes the background on purpose and forces transparency-->
         <composition:TransparentComposition/>
 
@@ -94,14 +79,14 @@
                                 Grid.Row="1"
                                 Grid.Column="1"
                                 ZIndex="2500"
+                                Opacity="0"
                                 Background="#E6000000"
                                 BorderBrush="DimGray"
                                 BorderThickness="0.5,0,0,0"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Stretch"
-                                Opacity="{Binding NavigationService.ShowSettingsOverlay, Converter={StaticResource BoolToOpacityConverter}}"
-                                IsVisible="{Binding NavigationService.ShowSettingsOverlay}"
-                                IsHitTestVisible="{Binding NavigationService.ShowSettingsOverlay}">
+                                IsHitTestVisible="{Binding NavigationService.ShowSettingsOverlay}"
+                                slide:SlideBehavior.IsOpen="{Binding NavigationService.ShowSettingsOverlay}">
                             <ScrollViewer HorizontalAlignment="Stretch"
                                           VerticalAlignment="Stretch"
                                           Background="#E6000000"
