@@ -107,6 +107,23 @@
                     </MenuItem.Icon>
                 </MenuItem>
                 <Separator />
+                <MenuItem Header="{Binding EditModeMenuText}"
+                          CornerRadius="8"
+                          Command="{Binding ToggleWidgetEditModeCommand}">
+                    <MenuItem.Icon>
+                        <Viewbox Width="32" Height="32" Stretch="Uniform">
+                            <Canvas Width="100" Height="100">
+                                <Rectangle Canvas.Left="12" Canvas.Top="12" Width="76" Height="76"
+                                           Stroke="#CCFFFFFF" StrokeThickness="6" Fill="Transparent"
+                                           StrokeDashArray="8,6" RadiusX="4" RadiusY="4" />
+                                <Path Data="M72,8 L92,8 L92,28"
+                                      Stroke="#CCFFFFFF" StrokeThickness="6" StrokeLineCap="Round" Fill="Transparent" />
+                                <Path Data="M8,72 L8,92 L28,92"
+                                      Stroke="#CCFFFFFF" StrokeThickness="6" StrokeLineCap="Round" Fill="Transparent" />
+                            </Canvas>
+                        </Viewbox>
+                    </MenuItem.Icon>
+                </MenuItem>
                 <MenuItem Header="Reset Widget Layout"
                           CornerRadius="8"
                           Command="{Binding ResetWidgetLayoutCommand}">
@@ -132,6 +149,7 @@
             <!-- Clock -->
             <widgets:WidgetControl x:Name="Clock" 
                                    Background="Transparent"
+                                   IsEditMode="{Binding IsWidgetEditMode}"
                                    Left="{Binding ClockLeft, Mode=TwoWay}"
                                    Top="{Binding ClockTop, Mode=TwoWay}"
                                    Width="{Binding ClockWidth, Mode=TwoWay}"
@@ -150,6 +168,7 @@
             <!-- Player control -->
             <widgets:WidgetControl x:Name="Player" 
                                    Background="Transparent"
+                                   IsEditMode="{Binding IsWidgetEditMode}"
                                    Left="{Binding PlayerLeft, Mode=TwoWay}"
                                    Top="{Binding PlayerTop, Mode=TwoWay}"
                                    Width="{Binding PlayerWidth, Mode=TwoWay}"
@@ -178,6 +197,7 @@
             <!-- Player info -->
 			<widgets:WidgetControl x:Name="PlayerInfo" 
 								   Background="Transparent"
+                                   IsEditMode="{Binding IsWidgetEditMode}"
 								   Left="{Binding PlayerInfoLeft, Mode=TwoWay}"
 								   Top="{Binding PlayerInfoTop, Mode=TwoWay}"
 								   Width="{Binding PlayerInfoWidth, Mode=TwoWay}"

@@ -71,6 +71,10 @@ namespace AES_Lacrima.ViewModels
         [NotifyPropertyChangedFor(nameof(PlayerMenuText))]
         private bool _showPlayer;
 
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(EditModeMenuText))]
+        private bool _isWidgetEditMode;
+
         /// <summary>
         /// Gets the menu text for the clock toggle based on current visibility.
         /// </summary>
@@ -85,6 +89,11 @@ namespace AES_Lacrima.ViewModels
         /// Gets the menu text for the player toggle based on current visibility.
         /// </summary>
         public string PlayerMenuText => ShowPlayer ? "Hide Player" : "Show Player";
+
+        /// <summary>
+        /// Gets the menu text for the widget edit mode toggle.
+        /// </summary>
+        public string EditModeMenuText => IsWidgetEditMode ? "Exit Edit Mode" : "Edit Widget Layout";
 
         /// <summary>
         /// Provides access to the navigation service used for managing
@@ -243,6 +252,12 @@ namespace AES_Lacrima.ViewModels
         {
             ShowPlayer = !ShowPlayer;
             SaveSettings();
+        }
+
+        [RelayCommand]
+        private void ToggleWidgetEditMode()
+        {
+            IsWidgetEditMode = !IsWidgetEditMode;
         }
 
         [RelayCommand]
