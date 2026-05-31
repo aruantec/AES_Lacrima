@@ -213,7 +213,7 @@
         </StackPanel>
 
         <!-- Video viewport -->
-        <Grid IsVisible="{Binding IsVideoViewportVisible}" ZIndex="200">
+        <Grid x:Name="VideoViewport" IsVisible="{Binding IsVideoViewportVisible}" ZIndex="200">
             <Border Background="#FF000000"/>
             <player:VideoViewControl Player="{Binding AudioPlayer}"
                                      Stretch="Uniform"
