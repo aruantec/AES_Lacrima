@@ -1,4 +1,5 @@
 using AES_Controls.EmuGrabbing.ShaderHandling;
+using AES_Controls;
 using AES_Emulation.Windows.API;
 using Avalonia;
 using Avalonia.Controls;
@@ -752,8 +753,9 @@ public class WgcCaptureControl : OpenGlControlBase
         if (RetroarchShaderFile != _currentShaderPath) LoadShaderPreset(gl, RetroarchShaderFile);
 
         double scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-        int viewW = (int)(Bounds.Width * scaling);
-        int viewH = (int)(Bounds.Height * scaling);
+        var exclusionScale = ScalableDecorator.GetExclusionRenderScale(this);
+        int viewW = (int)Math.Max(1, Bounds.Width * scaling / exclusionScale);
+        int viewH = (int)Math.Max(1, Bounds.Height * scaling / exclusionScale);
 
         // COMPOSITION FPS TRACKING: Calculate FPS based on composition rate, not capture arrival
         renderNowTicks = Stopwatch.GetTimestamp();

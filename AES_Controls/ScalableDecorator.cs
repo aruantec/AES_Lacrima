@@ -4,12 +4,74 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using AES_Controls.Helpers;
 
 namespace AES_Controls;
 
 public class ScalableDecorator : Decorator
 {
+    public static readonly AttachedProperty<bool> ExcludeFromScaleProperty =
+        AvaloniaProperty.RegisterAttached<ScalableDecorator, Visual, bool>("ExcludeFromScale");
+
+    static ScalableDecorator()
+    {
+        ExcludeFromScaleProperty.Changed.AddClassHandler<Visual>(OnExcludeFromScaleChanged);
+    }
+
+    public static bool GetExcludeFromScale(Visual element) =>
+        element.GetValue(ExcludeFromScaleProperty);
+
+    public static void SetExcludeFromScale(Visual element, bool value) =>
+        element.SetValue(ExcludeFromScaleProperty, value);
+
+    /// <summary>
+    /// Returns the render scale applied by the nearest ancestor <see cref="ScalableDecorator"/>
+    /// when <see cref="ExcludeFromScaleProperty"/> is set on this visual or an ancestor.
+    /// </summary>
+    public static double GetExclusionRenderScale(Visual? visual)
+    {
+        if (visual == null)
+            return 1.0;
+
+        for (var current = visual; current != null; current = current.GetVisualParent())
+        {
+            if (!GetExcludeFromScale(current))
+                continue;
+
+            var decorator = current.FindAncestorOfType<ScalableDecorator>();
+            return decorator?.GetContentRenderScale() ?? 1.0;
+        }
+
+        return 1.0;
+    }
+
+    /// <summary>
+    /// Maps a control's layout bounds to the render resolution that matches on-screen pixels
+    /// when scale exclusion is active.
+    /// </summary>
+    public static Size GetExclusionAwareRenderSize(Visual visual, Size boundsSize)
+    {
+        var scale = GetExclusionRenderScale(visual);
+        if (scale <= 1.0)
+            return boundsSize;
+
+        return new Size(
+            Math.Max(1, boundsSize.Width / scale),
+            Math.Max(1, boundsSize.Height / scale));
+    }
+
+    private static void OnExcludeFromScaleChanged(Visual visual, AvaloniaPropertyChangedEventArgs change)
+    {
+        if (change.NewValue is bool excluded)
+        {
+            if (excluded)
+                ScaleExclusion.Attach(visual);
+            else
+                ScaleExclusion.Detach(visual);
+        }
+    }
+
     public static readonly StyledProperty<double> ScaleProperty =
         AvaloniaProperty.Register<ScalableDecorator, double>(nameof(Scale), 1.0);
 
@@ -168,6 +230,11 @@ public class ScalableDecorator : Decorator
     }
 
     private double GetLayoutScale() => Math.Clamp(Scale, 0.1, 10.0);
+
+    /// <summary>
+    /// Effective internal render scale used by this decorator (matches arrange multiplier).
+    /// </summary>
+    public double GetContentRenderScale() => GetRenderScale(GetLayoutScale());
 
     /// <summary>
     /// Caps internal arrange/render resolution without changing the final visual size.
