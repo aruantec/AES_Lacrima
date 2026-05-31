@@ -64,6 +64,7 @@
                 <Image x:Name="BackgroundImageLayer"
                        asyncImageLoader:ImageLoader.Source="{Binding SettingsViewModel.BackgroundImagePath}" 
                        IsVisible="{Binding SettingsViewModel.ShowBackground}"
+                       Opacity="{Binding SettingsViewModel.BackgroundOpacity}"
                        Stretch="UniformToFill"/>
                 <!--Shadertoy-->
                 <gl:GlShaderToyControl x:Name="ShaderToyLayer"

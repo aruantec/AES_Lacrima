@@ -48,6 +48,7 @@
         <Grid x:Name="MainBorderContent">
             <Image asyncImageLoader:ImageLoader.Source="{Binding SettingsViewModel.BackgroundImagePath}"
                    IsVisible="{Binding SettingsViewModel.ShowBackground}"
+                   Opacity="{Binding SettingsViewModel.BackgroundOpacity}"
                    Stretch="UniformToFill"/>
 
             <gl:GlShaderToyControl ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
