@@ -477,6 +477,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private bool _showParticles = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the animated composition title logo is shown.
+    /// </summary>
+    [ObservableProperty]
+    private bool _animateLogo = false;
+
+    /// <summary>
     /// Gets or sets a value indicating whether the clock's animated seconds ring is displayed.
     /// </summary>
     [ObservableProperty]
@@ -1294,7 +1300,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             e.PropertyName == nameof(PreferAotAppUpdates) ||
             e.PropertyName == nameof(ShowAppPrereleaseBuildsOnly) ||
             e.PropertyName == nameof(ShowSecondCircleAnimation) ||
-            e.PropertyName == nameof(ShowEdgeBorder))
+            e.PropertyName == nameof(ShowEdgeBorder) ||
+            e.PropertyName == nameof(AnimateLogo))
         {
             try
             {
@@ -2897,6 +2904,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         BackgroundImagePath = ReadStringSetting(section, nameof(BackgroundImagePath), Path.Combine("Assets", "background.jpg"))!;
         BackgroundOpacity = ReadDoubleSetting(section, nameof(BackgroundOpacity), 1.0);
         ShowParticles = ReadBoolSetting(section, nameof(ShowParticles), true);
+        AnimateLogo = ReadBoolSetting(section, nameof(AnimateLogo), false);
         ShowEdgeBorder = ReadBoolSetting(section, nameof(ShowEdgeBorder), false);
         ShowSecondCircleAnimation = ReadBoolSetting(section, nameof(ShowSecondCircleAnimation), ShowSecondCircleAnimation);
         // Spectrum settings
@@ -3016,6 +3024,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(BackgroundImagePath), BackgroundImagePath);
         WriteSetting(section, nameof(BackgroundOpacity), BackgroundOpacity);
         WriteSetting(section, nameof(ShowParticles), ShowParticles);
+        WriteSetting(section, nameof(AnimateLogo), AnimateLogo);
         WriteSetting(section, nameof(ShowEdgeBorder), ShowEdgeBorder);
         WriteSetting(section, nameof(ShowSecondCircleAnimation), ShowSecondCircleAnimation);
         WriteSetting(section, nameof(WaveformPlayedColor), WaveformPlayedColor.ToString());
