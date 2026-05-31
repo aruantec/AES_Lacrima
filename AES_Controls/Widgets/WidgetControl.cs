@@ -10,7 +10,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System.Linq;
 using System.Windows.Input;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Controls.Widgets;
@@ -79,6 +79,15 @@ public class WidgetControl : ContentControl
         set => SetValue(IsPinnedProperty, value);
     }
 
+    public static readonly StyledProperty<bool> IsEditModeProperty =
+        AvaloniaProperty.Register<WidgetControl, bool>(nameof(IsEditMode));
+
+    public bool IsEditMode
+    {
+        get => GetValue(IsEditModeProperty);
+        set => SetValue(IsEditModeProperty, value);
+    }
+
     private enum DragMode { None, Move, ResizeLeft, ResizeRight, ResizeTop, ResizeBottom, ResizeTopLeft, ResizeTopRight, ResizeBottomLeft, ResizeBottomRight }
 
     private const double GripSize = 16.0;
@@ -132,7 +141,7 @@ public class WidgetControl : ContentControl
 
     static WidgetControl()
     {
-        FocusableProperty.OverrideDefaultValue<WidgetControl>(true);
+        FocusableProperty.OverrideDefaultValue<WidgetControl>(false);
 
         LeftProperty.Changed.AddClassHandler<WidgetControl>((s, e) =>
         {
@@ -174,6 +183,22 @@ public class WidgetControl : ContentControl
             if (e.NewValue is true)
             {
                 Dispatcher.UIThread.Post(() => s.UpdateResponsiveSnapshot(), DispatcherPriority.Render);
+            }
+        });
+
+        IsEditModeProperty.Changed.AddClassHandler<WidgetControl>((s, e) =>
+        {
+            var enabled = e.NewValue is true;
+            s.Focusable = enabled;
+            if (!enabled)
+            {
+                s.ReleasePointerCaptureAndReset();
+                if (s.IsFocused)
+                {
+                    try { s._rootTopLevel?.FocusManager?.Focus(null, NavigationMethod.Unspecified, KeyModifiers.None); }
+                    catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
+                }
+                s.InvalidateVisual();
             }
         });
     }
@@ -557,7 +582,7 @@ public class WidgetControl : ContentControl
     {
         base.Render(context);
 
-        if (!IsFocused || !IsContentInteractive()) return;
+        if (!IsEditMode || !IsFocused || !IsContentInteractive()) return;
 
         // Draw focus rectangle with animated dash offset
         var pen = new Pen(Brushes.LightGray)
@@ -578,7 +603,7 @@ public class WidgetControl : ContentControl
 
     private StandardCursorType DetermineCursorTypeForLocal(Point local)
     {
-        if (!IsFocused || !IsContentInteractive()) return StandardCursorType.Arrow;
+        if (!IsEditMode || !IsFocused || !IsContentInteractive()) return StandardCursorType.Arrow;
         // Pin area check matches relocated position (right side)
         if (local.X >= Bounds.Width - 20 - PinSize && local.X <= Bounds.Width - 20 && local.Y >= 20 && local.Y <= 20 + PinSize) return StandardCursorType.Arrow;
 
@@ -601,7 +626,7 @@ public class WidgetControl : ContentControl
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
-        if (e.Handled) return;
+        if (e.Handled || !IsEditMode) return;
         base.OnPointerPressed(e);
         BringToFrontWhileSelected();
         if (!IsFocused) Focus();
@@ -652,7 +677,7 @@ public class WidgetControl : ContentControl
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
-        if (!IsContentInteractive()) return;
+        if (!IsEditMode || !IsContentInteractive()) return;
         base.OnPointerMoved(e);
 
         if (!_isCaptured)
