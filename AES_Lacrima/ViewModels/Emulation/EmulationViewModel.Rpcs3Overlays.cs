@@ -84,6 +84,7 @@ namespace AES_Lacrima.ViewModels
                 : "Detecting PS3 Title ID and loading patches...";
             Rpcs3DetectedTitleId = null;
             Rpcs3DetectedAppVersion = null;
+            Rpcs3SelectedGamePath = target.FileName;
             Rpcs3PatchGameTitle = target.Title;
             DetachRpcs3PatchEntryListeners();
             CurrentSectionRpcs3PatchEntries.Clear();
@@ -324,10 +325,91 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void CloseCurrentSectionRpcs3Patches()
         {
+            IsRpcs3ArtemisImportOverlayOpen = false;
+            Rpcs3ArtemisImportText = string.Empty;
+            Rpcs3ArtemisImportStatus = string.Empty;
             IsRpcs3PatchesOverlayOpen = false;
             DetachRpcs3PatchEntryListeners();
             CurrentSectionRpcs3PatchEntries.Clear();
             IsCurrentSectionRpcs3PatchDirty = false;
+        }
+
+        [RelayCommand]
+        private void OpenRpcs3ArtemisImportOverlay()
+        {
+            if (!IsRpcs3CheatsOverlayMode || IsRpcs3PatchesBusy)
+                return;
+
+            Rpcs3ArtemisImportStatus = string.Empty;
+            IsRpcs3ArtemisImportOverlayOpen = true;
+        }
+
+        [RelayCommand]
+        private void CloseRpcs3ArtemisImportOverlay()
+        {
+            IsRpcs3ArtemisImportOverlayOpen = false;
+            Rpcs3ArtemisImportStatus = string.Empty;
+        }
+
+        [RelayCommand]
+        private async Task ImportRpcs3ArtemisCheats()
+        {
+            if (!IsRpcs3CheatsOverlayMode || IsRpcs3PatchesBusy || !IsRpcs3ArtemisImportOverlayOpen)
+                return;
+
+            if (string.IsNullOrWhiteSpace(Rpcs3ArtemisImportText))
+            {
+                Rpcs3ArtemisImportStatus = "Paste Artemis cheat codes first.";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(Rpcs3DetectedTitleId))
+            {
+                Rpcs3ArtemisImportStatus = "Unable to detect PS3 Title ID for the selected game.";
+                return;
+            }
+
+            var emulatorDirectory = Rpcs3PatchesService.ResolveEmulatorDirectory(
+                CurrentSectionRpcs3EmulatorPath,
+                CurrentSectionEmulatorHandler?.LauncherPath);
+
+            IsRpcs3PatchesBusy = true;
+            Rpcs3ArtemisImportStatus = "Resolving PPU hash...";
+
+            try
+            {
+                var result = await Rpcs3ArtemisCheatImportService.ImportRawCheatsAsync(
+                    emulatorDirectory,
+                    Rpcs3DetectedTitleId,
+                    Rpcs3PatchGameTitle ?? "Custom Game",
+                    Rpcs3DetectedAppVersion,
+                    Rpcs3ArtemisImportText,
+                    launcherPath: CurrentSectionEmulatorHandler?.LauncherPath,
+                    gamePath: Rpcs3SelectedGamePath,
+                    statusCallback: status => Dispatcher.UIThread.Post(() => Rpcs3ArtemisImportStatus = status)).ConfigureAwait(true);
+
+                Rpcs3ArtemisImportStatus = result.Message;
+
+                if (!result.Success)
+                    return;
+
+                await LoadCurrentSectionRpcs3PatchesAsync(
+                    emulatorDirectory,
+                    Rpcs3DetectedTitleId,
+                    Rpcs3PatchCatalog.ArtemisCheats).ConfigureAwait(true);
+
+                Rpcs3ArtemisImportText = string.Empty;
+                IsRpcs3ArtemisImportOverlayOpen = false;
+                Rpcs3PatchesStatus = result.Message;
+            }
+            catch (Exception ex)
+            {
+                Rpcs3ArtemisImportStatus = $"Failed to import Artemis cheats: {ex.Message}";
+            }
+            finally
+            {
+                IsRpcs3PatchesBusy = false;
+            }
         }
 
         private async Task LoadCurrentSectionRpcs3PatchesAsync(
@@ -337,7 +419,9 @@ namespace AES_Lacrima.ViewModels
             string? appVersion = null)
         {
             var activeCatalog = catalog ?? _rpcs3ActivePatchCatalog;
-            var patchPath = Rpcs3PatchesService.GetPatchYmlPath(emulatorDirectory, activeCatalog);
+            var patchPath = activeCatalog == Rpcs3PatchCatalog.ArtemisCheats
+                ? Rpcs3PatchesService.GetPatchYmlPath(emulatorDirectory, Rpcs3PatchCatalog.Imported)
+                : Rpcs3PatchesService.GetPatchYmlPath(emulatorDirectory, activeCatalog);
             var entryLabel = activeCatalog == Rpcs3PatchCatalog.ArtemisCheats ? "cheat" : "patch";
             var resolvedAppVersion = appVersion ?? Rpcs3DetectedAppVersion;
 
@@ -392,7 +476,7 @@ namespace AES_Lacrima.ViewModels
                 else if (!Rpcs3PatchesService.PatchFileExists(emulatorDirectory, activeCatalog))
                 {
                     Rpcs3PatchesStatus = activeCatalog == Rpcs3PatchCatalog.ArtemisCheats
-                        ? "No artemis_cheats.yml found. Download Artemis cheats to get started."
+                        ? "No cheat patch files found. Download Artemis cheats or import custom codes to get started."
                         : "No patch.yml found. Download patches to get started.";
                 }
                 else if (CurrentSectionRpcs3PatchEntries.Count == 0)

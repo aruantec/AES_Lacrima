@@ -25,14 +25,14 @@ public sealed class Rpcs3ArtemisCheatsTests
     }
 
     [Fact]
-    public void TryGetPatchesForTitleId_ArtemisCatalog_ReadsArtemisFileOnly()
+    public void TryGetPatchesForTitleId_ArtemisCatalog_ReadsImportedPatchFile()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), "AES_Lacrima_Tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRoot);
         try
         {
             var officialPath = Rpcs3PatchesService.GetPatchYmlPath(tempRoot, Rpcs3PatchCatalog.Official);
-            var artemisPath = Rpcs3PatchesService.GetPatchYmlPath(tempRoot, Rpcs3PatchCatalog.ArtemisCheats);
+            var importedPath = Rpcs3PatchesService.GetPatchYmlPath(tempRoot, Rpcs3PatchCatalog.Imported);
             Directory.CreateDirectory(Path.GetDirectoryName(officialPath)!);
 
             File.WriteAllText(officialPath, """
@@ -46,7 +46,7 @@ public sealed class Rpcs3ArtemisCheatsTests
                       - [ be32, 0x00000000, 0x00000001 ]
                 """);
 
-            File.WriteAllText(artemisPath, """
+            File.WriteAllText(importedPath, """
                 Version: 1.2
                 PPU-artemishash:
                   "Infinite HP":
