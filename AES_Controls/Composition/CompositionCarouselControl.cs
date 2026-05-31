@@ -27,7 +27,7 @@ namespace AES_Controls.Composition
     /// supports virtualization, drag/drop reordering, touch/pointer interaction
     /// and exposes properties to control spacing, scale and selection.
     /// </summary>
-    public class CompositionCarouselControl : ItemsControl
+    public class CompositionCarouselControl : ItemsControl, IScaleExclusionRenderTarget
     {
         private sealed class SharedImageEntry
         {
@@ -418,6 +418,9 @@ namespace AES_Controls.Composition
         /// </summary>
         public CompositionCarouselControl()
         {
+            ScalableDecorator.SetExcludeFromScale(this, true);
+            ScalableDecorator.SetExcludeFromScaleCompensation(this, false);
+
             Focusable = true;
             Background = Brushes.Transparent;
             // keep GlobalOpacity in sync with local Opacity initially
@@ -2027,6 +2030,23 @@ namespace AES_Controls.Composition
             return SKColors.Transparent;
         }
 
+        public void RefreshExclusionRenderSize()
+        {
+            ClearProjectionCache();
+            UpdateCompositionVisualSize(Bounds.Size);
+            UpdateSelectedItemBounds();
+        }
+
+        private void UpdateCompositionVisualSize(Size size)
+        {
+            if (_visual == null || size.Width <= 0 || size.Height <= 0)
+                return;
+
+            var logicalSize = new Vector2((float)size.Width, (float)size.Height);
+            _visual.Size = logicalSize + new Vector2(0, 1000); // Allow extra space for reflections below
+            _visual.SendHandlerMessage(logicalSize);
+        }
+
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnAttachedToVisualTree(e);
@@ -2036,9 +2056,7 @@ namespace AES_Controls.Composition
                 _visual = compositor.CreateCustomVisual(new CompositionCarouselVisualHandler());
                 ElementComposition.SetElementChildVisual(this, _visual);
                 _visual.SendHandlerMessage(new CarouselAttachSyncMessage(_animationSync));
-                var logicalSize = new Vector2((float)Bounds.Width, (float)Bounds.Height);
-                _visual.Size = logicalSize + new Vector2(0, 1000); // Allow extra space for reflections below
-                _visual.SendHandlerMessage(logicalSize);
+                UpdateCompositionVisualSize(Bounds.Size);
                 if (_images.Any()) _visual.SendHandlerMessage(_images);
                 _visual.SendHandlerMessage(SelectedIndex);
                 _visual.SendHandlerMessage(new SpacingMessage(ItemSpacing));
@@ -2062,12 +2080,7 @@ namespace AES_Controls.Composition
         {
             base.OnSizeChanged(e);
             ClearProjectionCache();
-            if (_visual != null)
-            {
-                var logicalSize = new Vector2((float)e.NewSize.Width, (float)e.NewSize.Height);
-                _visual.Size = logicalSize + new Vector2(0, 1000); // Allow extra space for reflections below
-                _visual.SendHandlerMessage(logicalSize);
-            }
+            UpdateCompositionVisualSize(e.NewSize);
             UpdateSelectedItemBounds();
         }
 

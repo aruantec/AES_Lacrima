@@ -18,7 +18,7 @@ namespace AES_Controls.Composition;
 /// <summary>
 /// A control that displays a stack of fanned-out media items with interactive animations.
 /// </summary>
-public class FolderCompositionControl : Control
+public class FolderCompositionControl : Control, IScaleExclusionRenderTarget
 {
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<FolderCompositionControl>();
 
@@ -336,6 +336,12 @@ public class FolderCompositionControl : Control
         var bounds = Bounds;
         if (bounds.Width > 0 && bounds.Height > 0)
             context.FillRectangle(Brushes.Transparent, new Rect(bounds.Size));
+    }
+
+    public void RefreshExclusionRenderSize()
+    {
+        UpdateVisualSize();
+        PushLayout(snap: IsAnimationPaused);
     }
 
     private void UpdateVisualSize()

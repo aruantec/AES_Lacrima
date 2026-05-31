@@ -13,7 +13,7 @@ namespace AES_Controls.Composition;
 /// A custom control that renders a circular clock widget with time, date,
 /// and weekday using the Avalonia composition API.
 /// </summary>
-public class ClockCompositionControl : Control
+public class ClockCompositionControl : Control, IScaleExclusionRenderTarget
 {
     private CompositionCustomVisual? _visual;
     private DispatcherTimer? _updateTimer;
@@ -118,6 +118,18 @@ public class ClockCompositionControl : Control
         ClipToBounds = false;
     }
 
+    public void RefreshExclusionRenderSize() => UpdateVisualSize();
+
+    private void UpdateVisualSize()
+    {
+        if (_visual == null || Bounds.Width <= 0 || Bounds.Height <= 0)
+            return;
+
+        var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
+        _visual.Size = size;
+        _visual.SendHandlerMessage(size);
+    }
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -126,8 +138,7 @@ public class ClockCompositionControl : Control
 
         _visual = compositor.CreateCustomVisual(new ClockCompositionVisualHandler());
         ElementComposition.SetElementChildVisual(this, _visual);
-        _visual.Size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
-        _visual.SendHandlerMessage(new Vector2((float)Bounds.Width, (float)Bounds.Height));
+        UpdateVisualSize();
 
         // Start update timer (update every second)
         _updateTimer = new DispatcherTimer
@@ -192,11 +203,7 @@ public class ClockCompositionControl : Control
     protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
         base.OnSizeChanged(e);
-        if (_visual != null)
-        {
-            _visual.Size = new Vector2((float)e.NewSize.Width, (float)e.NewSize.Height);
-            _visual.SendHandlerMessage(new Vector2((float)e.NewSize.Width, (float)e.NewSize.Height));
-        }
+        UpdateVisualSize();
     }
 
     private void OnTimerTick(object? sender, EventArgs e)

@@ -18,7 +18,7 @@ namespace AES_Controls.Player.Spectrum;
 /// Composition-based spectrum visualiser. Physics run on a UI <see cref="DispatcherTimer"/>;
 /// bars are drawn into a fixed-size offscreen surface and presented as a single compositor blit.
 /// </summary>
-public sealed class GlSpectrumControl : Control, IDisposable
+public sealed class GlSpectrumControl : Control, IScaleExclusionRenderTarget, IDisposable
 {
     private static readonly ILog Log = LogHelper.For<GlSpectrumControl>();
     private const int FixedRenderWidth = 960;
@@ -203,6 +203,9 @@ public sealed class GlSpectrumControl : Control, IDisposable
 
     public GlSpectrumControl()
     {
+        ScalableDecorator.SetExcludeFromScale(this, true);
+        ScalableDecorator.SetExcludeFromScaleCompensation(this, false);
+
         ClipToBounds = true;
         _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(MinAdaptiveFrameIntervalMs), DispatcherPriority.Render, OnRenderTimerTick);
     }
@@ -408,6 +411,12 @@ public sealed class GlSpectrumControl : Control, IDisposable
 
         if (!_isAnimating && Volatile.Read(ref _pendingRedraw) == 0)
             _renderTimer?.Stop();
+    }
+
+    public void RefreshExclusionRenderSize()
+    {
+        UpdateHandlerSize();
+        RequestRedraw();
     }
 
     private void UpdateHandlerSize()

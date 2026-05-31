@@ -13,6 +13,8 @@
              x:Class="AES_Lacrima.Views.Navigation.EmulationListView"
              x:Name="Root"
              x:DataType="vm:EmulationViewModel"
+             controls:ScalableDecorator.ExcludeFromScale="True"
+             controls:ScalableDecorator.ExcludeFromScaleCompensation="False"
              ClipToBounds="False"
              Height="266">
 

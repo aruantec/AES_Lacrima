@@ -38,6 +38,9 @@ internal static class ScaleExclusion
         visual.SetValue(StateProperty, null);
     }
 
+    internal static void RefreshIfAttached(Visual visual) =>
+        visual.GetValue(StateProperty)?.ApplyNow();
+
     private static void OnVisualAttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
     {
         if (sender is Visual visual)
@@ -77,6 +80,8 @@ internal static class ScaleExclusion
                 .Subscribe(new SimpleObserver<double>(_ => Apply())));
             _subscriptions.Add(_decorator.GetObservable(ScalableDecorator.EfficientScalingProperty)
                 .Subscribe(new SimpleObserver<bool>(_ => Apply())));
+            _subscriptions.Add(_visual.GetObservable(ScalableDecorator.ExcludeFromScaleCompensationProperty)
+                .Subscribe(new SimpleObserver<bool>(_ => Apply())));
             _subscriptions.Add(_decorator.GetObservable(Visual.BoundsProperty)
                 .Subscribe(new SimpleObserver<Rect>(_ => Apply())));
 
@@ -98,10 +103,12 @@ internal static class ScaleExclusion
             _decorator = null;
         }
 
+        public void ApplyNow() => Apply();
+
         private void Apply()
         {
             var scale = _decorator?.GetContentRenderScale() ?? 1.0;
-            if (scale <= 1.001)
+            if (scale <= 1.001 || !ScalableDecorator.GetExcludeFromScaleCompensation(_visual))
             {
                 RestoreTransform();
                 RefreshRenderTargets();
