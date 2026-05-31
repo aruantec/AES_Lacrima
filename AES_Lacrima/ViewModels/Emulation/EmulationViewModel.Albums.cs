@@ -116,6 +116,7 @@ namespace AES_Lacrima.ViewModels
                 string.Equals(item.FilePath, SelectedShaderPath, StringComparison.OrdinalIgnoreCase))
                 ?? ShaderFileItems.FirstOrDefault()
                 ?? new(string.Empty, string.Empty);
+            EmulatorVolume = ReadDoubleSetting(section, nameof(EmulatorVolume), 100.0);
 
             SLog.Info("EmulationViewModel.OnLoadSettings applied lightweight settings on the UI thread.");
         }
@@ -134,6 +135,7 @@ namespace AES_Lacrima.ViewModels
             WriteSetting(section, nameof(RenderBrightness), RenderBrightness);
             WriteSetting(section, nameof(RenderSaturation), RenderSaturation);
             WriteSetting(section, nameof(SelectedShaderPath), SelectedShaderPath);
+            WriteSetting(section, nameof(EmulatorVolume), EmulatorVolume);
 
             _pendingAlbumOrder = new AvaloniaList<string>(AlbumList.Select(GetAlbumOrderKey));
             _pendingAlbumRoms = BuildAlbumRomMap();

@@ -621,12 +621,11 @@ namespace AES_Lacrima.ViewModels
                 try
                 {
                     _emulatorAudioVolume.Attach(process.Id);
-                    float currentVolume = _emulatorAudioVolume.Volume;
-                    EmulatorVolume = Math.Round(currentVolume * 100.0, 1);
+                    ApplyEmulatorVolumeToProcess(EmulatorVolume);
                 }
                 catch
                 {
-                    EmulatorVolume = 100.0;
+                    // Keep the persisted slider value; volume will be retried when capture becomes active.
                 }
             }
 

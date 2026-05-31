@@ -1570,7 +1570,12 @@ public partial class EmulationView : UserControl
 
         _captureActiveSubscription = captureControl
             .GetObservable(EmulatorCaptureHostControl.IsDirectCompositionActiveProperty)
-            .Subscribe(new SimpleObserver<bool>(value => IsPortalDirectCompositionActive = value));
+            .Subscribe(new SimpleObserver<bool>(value =>
+            {
+                IsPortalDirectCompositionActive = value;
+                if (value && DataContext is EmulationViewModel vm)
+                    vm.ApplyEmulatorVolumeAfterCaptureActive();
+            }));
 
         _captureFpsSubscription = captureControl
             .GetObservable(EmulatorCaptureHostControl.FpsProperty)
