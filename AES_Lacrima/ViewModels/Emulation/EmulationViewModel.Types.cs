@@ -170,7 +170,5 @@ namespace AES_Lacrima.ViewModels
 
     public partial class EmulationAlbumItem : FolderMediaItem
     {
-        [ObservableProperty]
-        private AvaloniaList<MediaItem> _previewItems = [];
     }
 }

@@ -671,43 +671,7 @@ namespace AES_Lacrima.ViewModels
             if (album == null)
                 return;
 
-            bool useFirstItemCover = SettingsViewModel?.EmulationUseFirstItemCover == true;
-            Bitmap? topCover = album.CoverBitmap;
-            var firstChild = album.Children.FirstOrDefault();
-
-            if (useFirstItemCover && firstChild != null)
-                topCover = firstChild.CoverBitmap ?? album.CoverBitmap;
-
-            if (!rebuildStructure && album.PreviewItems.Count > 0)
-            {
-                var topItem = album.PreviewItems[^1];
-                if (!album.Children.Contains(topItem))
-                    topItem.CoverBitmap = topCover;
-
-                return;
-            }
-
-            var fanSource = useFirstItemCover && firstChild != null
-                ? album.Children.Skip(1)
-                : album.Children;
-
-            var previewItems = new AvaloniaList<MediaItem>();
-            foreach (var child in fanSource)
-            {
-                previewItems.Add(child);
-                if (previewItems.Count >= 2)
-                    break;
-            }
-
-            previewItems.Add(new MediaItem
-            {
-                Title = album.Title,
-                Album = album.Title,
-                FileName = album.FileName,
-                CoverBitmap = topCover
-            });
-
-            album.PreviewItems = previewItems;
+            album.RebuildPreviewItems(SettingsViewModel?.EmulationUseFirstItemCover == true, rebuildStructure);
         }
 
         private List<MediaItem> GetAlbumPreviewCoverBatch(FolderMediaItem album)

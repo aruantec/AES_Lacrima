@@ -537,7 +537,7 @@ namespace AES_Lacrima.ViewModels
 
                             if (addedItems.Count > 0)
                             {
-                                QueueAlbumCoverLoad(existing);
+                                QueueAlbumPreviewCoverLoad(existing);
                             }
                         }
                         SelectedAlbum = existing;
@@ -626,8 +626,6 @@ namespace AES_Lacrima.ViewModels
 
                                         folderItem.Children.AddRange(mediaItems);
                                         AlbumList.Add(folderItem);
-
-                                        QueueAlbumCoverLoad(folderItem, maxItemsToLoad: FolderPreviewCoverCount);
                                     });
                                 }
                             }

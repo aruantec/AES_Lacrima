@@ -32,7 +32,7 @@ using System.Text;
 using log4net;
 using TagLib;
 
-
+
 using AES_Core.Logging;
 namespace AES_Lacrima.ViewModels
 {
@@ -95,6 +95,8 @@ namespace AES_Lacrima.ViewModels
 
                         folder.IsLoadingCover = folder.Children.Any(child =>
                             NeedsVisibleCoverLoad(child) && child.IsLoadingCover);
+
+                        folder.RebuildPreviewItems(rebuildStructure: false);
                     });
 
                     EndAlbumCoverLoad(folder);
@@ -141,13 +143,13 @@ namespace AES_Lacrima.ViewModels
             foreach (var folder in AlbumList)
             {
                 bool keepAllCovers = ReferenceEquals(folder, fullyLoadedAlbum);
-                int previewStart = Math.Max(0, folder.Children.Count - FolderPreviewCoverCount);
+                int previewKeepCount = Math.Min(folder.Children.Count, FolderPreviewCoverCount);
 
                 for (int i = 0; i < folder.Children.Count; i++)
                 {
                     var child = folder.Children[i];
                     if (keepAllCovers
-                        || i >= previewStart
+                        || i < previewKeepCount
                         || ReferenceEquals(child, protectedSelected)
                         || ReferenceEquals(child, protectedHighlighted)
                         || ReferenceEquals(child, protectedPlaying)
@@ -163,7 +165,14 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 if (!keepAllCovers)
+                {
                     folder.IsLoadingCover = false;
+                    SyncAlbumFolderCoverFromChildren(folder);
+                    folder.RebuildPreviewItems(rebuildStructure: false);
+
+                    if (folder.Children.Take(FolderPreviewCoverCount).Any(NeedsCoverLoad))
+                        QueueAlbumPreviewCoverLoad(folder);
+                }
             }
         }
 
@@ -225,31 +234,27 @@ namespace AES_Lacrima.ViewModels
         private List<MediaItem> GetAlbumCoverLoadBatch(IReadOnlyList<MediaItem> items, int maxItemsToLoad)
         {
             var candidates = items.Where(NeedsCoverLoad).ToList();
-            if (maxItemsToLoad >= candidates.Count) return candidates;
+            if (maxItemsToLoad >= candidates.Count)
+                return candidates;
 
-            return candidates
-                .Skip(Math.Max(0, candidates.Count - maxItemsToLoad))
-                .ToList();
+            return candidates.Take(maxItemsToLoad).ToList();
         }
 
-        private async Task LoadAlbumCoversAsync(FolderMediaItem folder, string agentInfo, bool forceUpdate, int maxItemsToLoad = int.MaxValue)
+        private async Task LoadAlbumCoversForItemsAsync(FolderMediaItem folder, IReadOnlyList<MediaItem> itemsToLoad, bool forceUpdate)
         {
-            if (AudioPlayer == null) return;
+            if (AudioPlayer == null || itemsToLoad.Count == 0)
+                return;
 
-            var albumLoadState = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                var snapshot = folder.Children.ToList();
-                var itemsToLoad = GetAlbumCoverLoadBatch(snapshot, maxItemsToLoad);
-
+                DefaultFolderCover ??= GenerateDefaultFolderCover();
                 foreach (var child in itemsToLoad)
                 {
                     if (NeedsVisibleCoverLoad(child))
                     {
-                        if (child.CoverBitmap == null)
-                        {
-                            DefaultFolderCover ??= GenerateDefaultFolderCover();
-                            child.CoverBitmap = DefaultFolderCover;
-                        }
+                        child.CoverBitmap ??= DefaultFolderCover;
                         child.IsLoadingCover = true;
                     }
                     else
@@ -259,23 +264,8 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 folder.IsLoadingCover = itemsToLoad.Any(NeedsVisibleCoverLoad);
-                return (Snapshot: snapshot, ItemsToLoad: itemsToLoad);
             });
 
-            var albumItems = albumLoadState.Snapshot;
-            var itemsToLoad = albumLoadState.ItemsToLoad;
-
-            if (itemsToLoad.Count == 0)
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    folder.IsLoadingCover = false;
-                });
-                return;
-            }
-
-            // Match Add Playlist/Add URL behavior: kick off fast direct YouTube thumbnail fetch
-            // first, then let MetadataScrapper backfill/normalize metadata in the background.
             var fastThumbCandidates = itemsToLoad
                 .Where(item => !string.IsNullOrWhiteSpace(item.FileName)
                                && !string.IsNullOrWhiteSpace(YouTubeThumbnail.ExtractVideoId(item.FileName)))
@@ -284,9 +274,7 @@ namespace AES_Lacrima.ViewModels
             if (AllowOnlineCoverLookup)
             {
                 foreach (var item in fastThumbCandidates)
-                {
                     _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
-                }
             }
 
             var orderedItems = new AvaloniaList<MediaItem>(itemsToLoad);
@@ -301,36 +289,51 @@ namespace AES_Lacrima.ViewModels
                 forceUpdate: forceUpdate,
                 allowOnlineLookup: allowOnlineForBatch);
 
-            // Do not await the scrapper completion before showing covers.
-            // Items update their properties on the UI thread as they load.
-            // We only need to wait if we need to perform logic AFTER all covers are settled.
-            _ = Task.Run(async () =>
+            await WaitForAlbumCoversAsync(orderedItems);
+
+            if (AllowOnlineCoverLookup)
             {
-                await WaitForAlbumCoversAsync(orderedItems);
-                
+                var unresolvedFastThumbCandidates = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    itemsToLoad
+                        .Where(item => !string.IsNullOrWhiteSpace(item.FileName)
+                                       && !string.IsNullOrWhiteSpace(YouTubeThumbnail.ExtractVideoId(item.FileName))
+                                       && (item.CoverBitmap == null || item.CoverBitmap == DefaultFolderCover))
+                        .ToList());
+
+                foreach (var item in unresolvedFastThumbCandidates)
+                    _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
+            }
+        }
+
+        private async Task LoadAlbumCoversAsync(FolderMediaItem folder, string agentInfo, bool forceUpdate, int maxItemsToLoad = int.MaxValue)
+        {
+            if (AudioPlayer == null) return;
+
+            var albumLoadState = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var snapshot = folder.Children.ToList();
+                var itemsToLoad = GetAlbumCoverLoadBatch(snapshot, maxItemsToLoad);
+                return (Snapshot: snapshot, ItemsToLoad: itemsToLoad);
+            });
+
+            var itemsToLoad = albumLoadState.ItemsToLoad;
+
+            if (itemsToLoad.Count == 0)
+            {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     folder.IsLoadingCover = false;
                 });
-            });
-
-            var unresolvedFastThumbCandidates = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                itemsToLoad
-                    .Where(item => !string.IsNullOrWhiteSpace(item.FileName)
-                                   && !string.IsNullOrWhiteSpace(YouTubeThumbnail.ExtractVideoId(item.FileName))
-                                   && (item.CoverBitmap == null || item.CoverBitmap == DefaultFolderCover))
-                    .ToList());
-
-            if (AllowOnlineCoverLookup)
-            {
-                foreach (var item in unresolvedFastThumbCandidates)
-                {
-                    _ = Task.Run(() => TryLoadYouTubeThumbnailFastAsync(item));
-                }
+                return;
             }
 
-            // Re-evaluate stream durations after the album metadata/cover pass settles so
-            // online items that still lack a duration are queued from the final album state.
+            await LoadAlbumCoversForItemsAsync(folder, itemsToLoad, forceUpdate);
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                folder.IsLoadingCover = false;
+            });
+
             QueueOpenedAlbumStreamDurationScan(folder);
         }
 
