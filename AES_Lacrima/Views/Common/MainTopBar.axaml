@@ -34,50 +34,52 @@
         <Interaction.Behaviors>
             <behaviors:WindowDragBehavior/>
         </Interaction.Behaviors>
-        <Grid>
-			<!-- Top bar content -->
-            <Grid ColumnDefinitions="50, *">
-                <Button Grid.Column="0"
-                        Cursor="Hand"
-                        Height="30"
-                        Width="35"
-                        Background="Transparent"
-                        BorderBrush="Transparent"
-                        BorderThickness="0"
-                        Padding="0"
-                        Margin="15,0,0,0"
-                        IsVisible="{Binding NavigationService.IsBackEnabled}"
-                        Command="{Binding NavigationService.NavigateBackCommand}"
-                        ToolTip.Placement="Pointer">
-                    <ToolTip.Tip>
-                        <StackPanel>
-                            <TextBlock FontSize="16" Text="Back"/>
-                        </StackPanel>
-                    </ToolTip.Tip>
-                    <Button.Template>
-                        <ControlTemplate>
-                            <Border Background="#01000000">
-                                <Path Data="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z"
-                                      Fill="White"
-                                      Stretch="Uniform"
-                                      Width="24"
-                                      Height="24"
-                                      VerticalAlignment="Center"
-                                      HorizontalAlignment="Center"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
-                <!-- Logo -->
-                <Label Grid.Column="1" HorizontalAlignment="Center"
+        <Grid ColumnDefinitions="Auto,*,Auto">
+            <Button Grid.Column="0"
+                    Cursor="Hand"
+                    Height="30"
+                    Width="35"
+                    Background="Transparent"
+                    BorderBrush="Transparent"
+                    BorderThickness="0"
+                    Padding="0"
+                    Margin="15,0,0,0"
+                    ZIndex="2"
+                    IsVisible="{Binding NavigationService.IsBackEnabled}"
+                    Command="{Binding NavigationService.NavigateBackCommand}"
+                    ToolTip.Placement="Pointer">
+                <ToolTip.Tip>
+                    <StackPanel>
+                        <TextBlock FontSize="16" Text="Back"/>
+                    </StackPanel>
+                </ToolTip.Tip>
+                <Button.Template>
+                    <ControlTemplate>
+                        <Grid Background="#01000000">
+                            <Path Data="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z"
+                                  Fill="White"
+                                  Stretch="Uniform"
+                                  Width="24"
+                                  Height="24"
+                                  VerticalAlignment="Center"
+                                  HorizontalAlignment="Center"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+            <!-- Logo -->
+            <Grid Grid.Column="1"
+                  HorizontalAlignment="Center"
+                  VerticalAlignment="Center"
+                  IsHitTestVisible="False">
+                <Label HorizontalAlignment="Center"
                        VerticalAlignment="Center"
                        Content="AES LACRIMA"
                        Foreground="Black"
                        FontSize="35"
                        Opacity="0.2"
                        Margin="-48,-2,0,0"/>
-                <!-- Logo main content -->
-                <Label Grid.Column="1" HorizontalAlignment="Center"
+                <Label HorizontalAlignment="Center"
                        VerticalAlignment="Center"
                        Content="AES LACRIMA"
                        Foreground="White"
@@ -85,7 +87,8 @@
                        Margin="-50,0,0,0"/>
             </Grid>
             <!--Window buttons-->
-            <StackPanel VerticalAlignment="Center"
+            <StackPanel Grid.Column="2"
+                        VerticalAlignment="Center"
                         HorizontalAlignment="Right"
                         Margin="-5,0,5,0"
                         Orientation="Horizontal"
