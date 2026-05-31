@@ -400,6 +400,7 @@
                     ZIndex="0">
                 <!-- Compiled bindings (AOT-safe). Keep in sync with CaptureControl in PortalWindow.axaml. -->
                 <emuControls:EmulatorCaptureHost x:Name="InlineCaptureControl"
+                                                 controls:ScalableDecorator.ExcludeFromScale="True"
                                                  HorizontalAlignment="Stretch"
                                                  VerticalAlignment="Stretch"
                                                  TargetHwnd="{Binding EmulatorTargetHwnd}"

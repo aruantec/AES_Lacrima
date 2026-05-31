@@ -1,4 +1,5 @@
 using AES_Controls.EmuGrabbing.ShaderHandling;
+using AES_Controls;
 using AES_Emulation.Windows.API;
 using Avalonia;
 using Avalonia.Controls;
@@ -24,7 +25,7 @@ using System.Threading.Tasks;
 
 namespace AES_Emulation.Windows;
 
-public class CompositionWgcCaptureControl : Control
+public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
 {
     private static readonly ILog Log = LogHelper.For<CompositionWgcCaptureControl>();
     private static bool IsWindowsPlatform => OperatingSystem.IsWindows();
@@ -1093,7 +1094,8 @@ public class CompositionWgcCaptureControl : Control
 
     private void UpdateHandlerSize()
     {
-        var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
+        var renderSize = ScalableDecorator.GetExclusionAwareRenderSize(this, Bounds.Size);
+        var size = new Vector2((float)renderSize.Width, (float)renderSize.Height);
         if (_visual != null)
         {
             _visual.Size = size;
@@ -1101,6 +1103,8 @@ public class CompositionWgcCaptureControl : Control
 
         SendHandlerMessage(size);
     }
+
+    public void RefreshExclusionRenderSize() => UpdateHandlerSize();
 
     private void UpdateHandlerSession(bool deferCompositorNotification = false)
     {
