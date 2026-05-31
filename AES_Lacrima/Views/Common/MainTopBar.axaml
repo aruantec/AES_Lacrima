@@ -4,6 +4,9 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              xmlns:behaviors="clr-namespace:AES_Lacrima.Behaviors"
+             xmlns:converters="using:AES_Lacrima.Converters"
+             xmlns:composition="using:AES_Controls.Composition"
+             xmlns:controls="using:AES_Controls"
              xmlns:chrome="clr-namespace:Avalonia.Controls.Chrome;assembly=Avalonia.Controls"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.Common.MainTopBar"
@@ -35,6 +38,39 @@
             <behaviors:WindowDragBehavior/>
         </Interaction.Behaviors>
         <Grid ColumnDefinitions="Auto,*,Auto">
+            <!-- Logo spans full bar width so text centers on the window, not the middle column -->
+            <!-- Animated composition logo -->
+            <composition:TitleLogoCompositionControl Grid.Column="0"
+                                                     Grid.ColumnSpan="3"
+                                                     HorizontalAlignment="Stretch"
+                                                     VerticalAlignment="Stretch"
+                                                     Height="70"
+                                                     ZIndex="0"
+                                                     IsHitTestVisible="False"
+                                                     IsVisible="{Binding SettingsViewModel.AnimateLogo}"
+                                                     IsAnimationEnabled="{Binding SettingsViewModel.AnimateLogo}"
+                                                     controls:ScalableDecorator.ExcludeFromScale="True"
+                                                     controls:ScalableDecorator.ExcludeFromScaleCompensation="False"/>
+            <!-- Static label fallback -->
+            <Grid Grid.Column="0"
+                  Grid.ColumnSpan="3"
+                  HorizontalAlignment="Stretch"
+                  VerticalAlignment="Stretch"
+                  Height="70"
+                  IsHitTestVisible="False"
+                  IsVisible="{Binding SettingsViewModel.AnimateLogo, Converter={x:Static converters:NegateBoolConverter.Instance}}">
+                <Label HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Content="AES LACRIMA"
+                       Foreground="Black"
+                       FontSize="35"
+                       Opacity="0.2"/>
+                <Label HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Content="AES LACRIMA"
+                       Foreground="White"
+                       FontSize="35"/>
+            </Grid>
             <Button Grid.Column="0"
                     Cursor="Hand"
                     Height="30"
@@ -67,25 +103,6 @@
                     </ControlTemplate>
                 </Button.Template>
             </Button>
-            <!-- Logo -->
-            <Grid Grid.Column="1"
-                  HorizontalAlignment="Center"
-                  VerticalAlignment="Center"
-                  IsHitTestVisible="False">
-                <Label HorizontalAlignment="Center"
-                       VerticalAlignment="Center"
-                       Content="AES LACRIMA"
-                       Foreground="Black"
-                       FontSize="35"
-                       Opacity="0.2"
-                       Margin="-48,-2,0,0"/>
-                <Label HorizontalAlignment="Center"
-                       VerticalAlignment="Center"
-                       Content="AES LACRIMA"
-                       Foreground="White"
-                       FontSize="35"
-                       Margin="-50,0,0,0"/>
-            </Grid>
             <!--Window buttons-->
             <StackPanel Grid.Column="2"
                         VerticalAlignment="Center"
