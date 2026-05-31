@@ -116,7 +116,8 @@
                     
                     <!-- Fullscreen -->
                     <Button Cursor="Hand" Height="30" Width="35" Margin="10" 
-                            Command="{Binding FullScreenCommand}">
+                            Command="{Binding FullScreenCommand}"
+                            IsVisible="False">
                         <ToolTip.Tip>
                             <TextBlock Text="{Binding FullScreenTooltip}" />
                         </ToolTip.Tip>
@@ -140,7 +141,8 @@
                     
                     <!-- Maximize -->
                     <Button Cursor="Hand" Height="30" Width="35" Margin="10" 
-                            Command="{Binding MaximizeCommand}">
+                            Command="{Binding MaximizeCommand}"
+                            IsVisible="False">
                         <ToolTip.Tip>
                             <TextBlock Text="{Binding MaximizeTooltip}" />
                         </ToolTip.Tip>
