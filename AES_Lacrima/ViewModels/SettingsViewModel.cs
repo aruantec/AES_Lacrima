@@ -898,6 +898,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private string _backgroundImagePath = Path.Combine("Assets", "background.jpg");
 
     /// <summary>
+    /// Gets or sets the opacity of the UI background image (0.0 to 1.0).
+    /// </summary>
+    [ObservableProperty]
+    private double _backgroundOpacity = 1.0;
+
+    /// <summary>
     /// Collection of available libmpv versions from GitHub (for Windows builds).
     /// </summary>
     [ObservableProperty]
@@ -2889,6 +2895,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         ShowShaderToy = ReadBoolSetting(section, nameof(ShowShaderToy), true);
         ShowBackground = ReadBoolSetting(section, nameof(ShowBackground));
         BackgroundImagePath = ReadStringSetting(section, nameof(BackgroundImagePath), Path.Combine("Assets", "background.jpg"))!;
+        BackgroundOpacity = ReadDoubleSetting(section, nameof(BackgroundOpacity), 1.0);
         ShowParticles = ReadBoolSetting(section, nameof(ShowParticles), true);
         ShowEdgeBorder = ReadBoolSetting(section, nameof(ShowEdgeBorder), false);
         ShowSecondCircleAnimation = ReadBoolSetting(section, nameof(ShowSecondCircleAnimation), ShowSecondCircleAnimation);
@@ -3007,6 +3014,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(MiniShowShaderToy), MiniShowShaderToy);
         WriteSetting(section, nameof(ShowBackground), ShowBackground);
         WriteSetting(section, nameof(BackgroundImagePath), BackgroundImagePath);
+        WriteSetting(section, nameof(BackgroundOpacity), BackgroundOpacity);
         WriteSetting(section, nameof(ShowParticles), ShowParticles);
         WriteSetting(section, nameof(ShowEdgeBorder), ShowEdgeBorder);
         WriteSetting(section, nameof(ShowSecondCircleAnimation), ShowSecondCircleAnimation);
