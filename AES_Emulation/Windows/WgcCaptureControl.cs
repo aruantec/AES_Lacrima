@@ -22,7 +22,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Emulation.Windows;
@@ -290,6 +290,9 @@ public class WgcCaptureControl : OpenGlControlBase
 
     public static readonly StyledProperty<bool> RequestStopSessionProperty =
         AvaloniaProperty.Register<WgcCaptureControl, bool>(nameof(RequestStopSession), false);
+
+    public static readonly StyledProperty<bool> RestoreTargetWindowOnStopProperty =
+        AvaloniaProperty.Register<WgcCaptureControl, bool>(nameof(RestoreTargetWindowOnStop), true);
 
     public static readonly StyledProperty<bool> ShowStatisticsOverlayProperty =
         AvaloniaProperty.Register<WgcCaptureControl, bool>(nameof(ShowStatisticsOverlay), false);
@@ -1474,10 +1477,18 @@ public class WgcCaptureControl : OpenGlControlBase
 
         try
         {
-            _windowHandler?.Stop();
-            _windowHandler?.RestoreOriginalPosition();
+            var windowHandler = _windowHandler;
             _windowHandler = null;
+            windowHandler?.Stop();
 
+            if (!RestoreTargetWindowOnStop)
+            {
+                Win32API.ClearSavedWindowState(hwnd);
+                Win32API.HideWindowForInPlaceCapture(hwnd);
+                return;
+            }
+
+            windowHandler?.RestoreOriginalPosition();
             Win32API.RestoreWindowDecorations(hwnd);
             Win32API.SetWindowOpacity(hwnd, 255);
         }
@@ -2033,6 +2044,7 @@ public class WgcCaptureControl : OpenGlControlBase
     public Color ColorTint { get => GetValue(ColorTintProperty); set => SetValue(ColorTintProperty, value); }
     public bool ForceUseTargetClientSize { get => GetValue(ForceUseTargetClientSizeProperty); set => SetValue(ForceUseTargetClientSizeProperty, value); }
     public bool RequestStopSession { get => GetValue(RequestStopSessionProperty); set => SetValue(RequestStopSessionProperty, value); }
+    public bool RestoreTargetWindowOnStop { get => GetValue(RestoreTargetWindowOnStopProperty); set => SetValue(RestoreTargetWindowOnStopProperty, value); }
     public bool ShowStatisticsOverlay { get => GetValue(ShowStatisticsOverlayProperty); set => SetValue(ShowStatisticsOverlayProperty, value); }
     public bool ShowFrametimeGraph { get => GetValue(ShowFrametimeGraphProperty); set => SetValue(ShowFrametimeGraphProperty, value); }
     public bool ShowDetailedGpuInfo { get => GetValue(ShowDetailedGpuInfoProperty); set => SetValue(ShowDetailedGpuInfoProperty, value); }

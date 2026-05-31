@@ -9,7 +9,7 @@ using Avalonia.Threading;
 using AES_Emulation.Windows.API;
 using System.Diagnostics;
 using System.Threading;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Emulation.Windows;
@@ -75,6 +75,9 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
     public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
+
+    public static readonly StyledProperty<bool> RestoreTargetWindowOnStopProperty =
+        AvaloniaProperty.Register<DirectCompositionCaptureHost, bool>(nameof(RestoreTargetWindowOnStop), true);
 
     public static readonly StyledProperty<int> ClientAreaCropLeftInsetProperty =
         AvaloniaProperty.Register<DirectCompositionCaptureHost, int>(nameof(ClientAreaCropLeftInset), 0);
@@ -319,7 +322,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
         if (settings.TargetHwnd == IntPtr.Zero)
         {
-            EnqueueRenderer(() => StopSessionCore(restoreTargetWindow: true));
+            EnqueueRenderer(() => StopSessionCore(RestoreTargetWindowOnStop));
             SetStatusText("Waiting for emulator HWND");
             return;
         }
@@ -432,6 +435,12 @@ public class DirectCompositionCaptureHost : NativeControlHost
     {
         get => GetValue(HideTargetWindowAfterCaptureStartsProperty);
         set => SetValue(HideTargetWindowAfterCaptureStartsProperty, value);
+    }
+
+    public bool RestoreTargetWindowOnStop
+    {
+        get => GetValue(RestoreTargetWindowOnStopProperty);
+        set => SetValue(RestoreTargetWindowOnStopProperty, value);
     }
 
     public int ClientAreaCropLeftInset
@@ -566,7 +575,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
         }
         else if (change.Property == RequestStopSessionProperty && change.GetNewValue<bool>())
         {
-            QueueStopSession(restoreTargetWindow: true);
+            QueueStopSession(RestoreTargetWindowOnStop);
             SetCurrentValue(RequestStopSessionProperty, false);
         }
     }
@@ -642,7 +651,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
         if (settings.TargetHwnd == IntPtr.Zero)
         {
-            StopSessionCore(restoreTargetWindow: true);
+            StopSessionCore(RestoreTargetWindowOnStop);
             RunOnUiThread(() => StatusText = "Waiting for emulator HWND");
             return;
         }
@@ -660,7 +669,7 @@ public class DirectCompositionCaptureHost : NativeControlHost
             return;
         }
 
-        StopSessionCore(restoreTargetWindow: true);
+        StopSessionCore(RestoreTargetWindowOnStop);
         _targetHiddenAfterCapture = false;
 
         if (!UseStaticCaptureDock)
@@ -831,7 +840,8 @@ public class DirectCompositionCaptureHost : NativeControlHost
 
         if (_windowHandler != null)
         {
-            _windowHandler.RestoreOriginalPosition();
+            if (restoreTargetWindow)
+                _windowHandler.RestoreOriginalPosition();
             _windowHandler.Stop();
             _windowHandler = null;
         }
@@ -841,11 +851,15 @@ public class DirectCompositionCaptureHost : NativeControlHost
             try
             {
                 if (restoreTargetWindow)
+                {
                     Win32API.RestoreWindowDecorations(targetToRestore);
+                    Win32API.SetWindowOpacity(targetToRestore, 255);
+                }
                 else
+                {
                     Win32API.ClearSavedWindowState(targetToRestore);
-
-                Win32API.SetWindowOpacity(targetToRestore, 255);
+                    HideCaptureTarget(targetToRestore);
+                }
             }
             catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
         }

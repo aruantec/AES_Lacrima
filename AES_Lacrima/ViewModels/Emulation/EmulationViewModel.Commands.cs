@@ -549,17 +549,18 @@ namespace AES_Lacrima.ViewModels
 
             if (TryGetRunningTrackedEmulatorProcess(out var process))
             {
-                RequestStopEmulatorCapture = true;
+                PrepareEmulatorShutdownCapture();
                 CloseTrackedEmulatorForPendingLaunch(process);
                 return;
             }
 
-            RequestStopEmulatorCapture = true;
+            PrepareEmulatorShutdownCapture();
             EmulatorTargetHwnd = IntPtr.Zero;
             IsEmulatorRunning = false;
             IsEmulatorPaused = false;
             UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationAlbum());
             DetachTrackedEmulatorProcess();
+            ResetEmulatorShutdownCaptureState();
         }
 
         [RelayCommand(CanExecute = nameof(IsEmulatorRunning))]
@@ -588,11 +589,12 @@ namespace AES_Lacrima.ViewModels
             _pendingEmulatorLaunchRequest = null;
             IsRenderOptionsOpen = false;
             ClearRetroArchErrorState();
-            RequestStopEmulatorCapture = true;
+            PrepareEmulatorShutdownCapture();
 
-            if (EmulatorTargetHwnd != IntPtr.Zero)
+            var shutdownHwnd = EmulatorTargetHwnd;
+            if (shutdownHwnd != IntPtr.Zero)
             {
-                SLog.Info($"EmulationViewModel clearing emulator hwnd 0x{EmulatorTargetHwnd.ToInt64():X} for application shutdown.");
+                SLog.Info($"EmulationViewModel clearing emulator hwnd 0x{shutdownHwnd.ToInt64():X} for application shutdown.");
                 EmulatorTargetHwnd = IntPtr.Zero;
             }
 
@@ -602,6 +604,7 @@ namespace AES_Lacrima.ViewModels
                 IsEmulatorPaused = false;
                 CurrentEmulatorHandler = null;
                 DetachTrackedEmulatorProcess();
+                ResetEmulatorShutdownCaptureState();
                 return;
             }
 
@@ -609,6 +612,7 @@ namespace AES_Lacrima.ViewModels
             {
                 if (string.Equals(CurrentEmulatorHandler?.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase))
                 {
+                    TryKeepEmulatorHiddenForShutdown(shutdownHwnd, process);
                     TryRequestRpcs3Shutdown(process);
                     return;
                 }
@@ -625,6 +629,8 @@ namespace AES_Lacrima.ViewModels
                     }
                     catch (Exception logEx) { SLog.Warn("Exception caught", logEx); }
                 }
+
+                TryKeepEmulatorHiddenForShutdown(shutdownHwnd, process);
 
                 if (forceKillFirst)
                 {
@@ -674,6 +680,7 @@ namespace AES_Lacrima.ViewModels
                 IsEmulatorPaused = false;
                 CurrentEmulatorHandler = null;
                 DetachTrackedEmulatorProcess();
+                ResetEmulatorShutdownCaptureState();
                 SLog.Info("EmulationViewModel.ShutdownForApplicationExit finished.");
             }
         }
