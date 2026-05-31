@@ -47,15 +47,6 @@
 
     <Grid RowDefinitions="*,Auto,Auto" ClipToBounds="False">
         <Grid.Styles>
-            <Style Selector="Border#RenderOptionsOverlay">
-                <Setter Property="Transitions">
-                    <Setter.Value>
-                        <Transitions>
-                            <DoubleTransition Property="Opacity" Duration="0:0:0.30" Easing="CubicEaseInOut" />
-                        </Transitions>
-                    </Setter.Value>
-                </Setter>
-            </Style>
             <Style Selector="Border#PortalFallbackOverlay">
                 <Setter Property="Transitions">
                     <Setter.Value>
@@ -466,6 +457,7 @@
 
         <Border x:Name="RenderOptionsOverlay"
                 Grid.Row="0"
+                Opacity="0"
                 Background="#B0000000"
                 BorderBrush="DimGray"
                 BorderThickness="0.5,0,0,0"
@@ -474,9 +466,8 @@
                 VerticalAlignment="Stretch"
                 Margin="0,0,0,0"
                 ZIndex="2100"
-                Opacity="{Binding IsRenderOptionsOpen, Converter={StaticResource BoolToOpacityConverter}}"
-                IsVisible="{Binding IsRenderOptionsOpen}"
-                IsHitTestVisible="{Binding IsRenderOptionsOpen}">
+                IsHitTestVisible="{Binding IsRenderOptionsOpen}"
+                controlBehaviors:SlideBehavior.IsOpen="{Binding IsRenderOptionsOpen}">
                 <ScrollViewer Grid.Row="0"
                               Margin="0,40,0,0"
                               HorizontalScrollBarVisibility="Disabled"
