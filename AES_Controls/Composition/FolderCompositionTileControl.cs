@@ -493,8 +493,14 @@ public class FolderCompositionTileControl : Grid
         int maxVisible = MaxVisibleCovers;
         bool uniformToFill = CoverStretch != Stretch.Uniform;
 
+        var capturedLayers = await Dispatcher.UIThread.InvokeAsync(() =>
+            FolderStackSnapshotRenderer.CaptureLayers(items, folderCoverItem, defaultCover, maxVisible));
+
+        if (generation != _snapshotGeneration || capturedLayers == null)
+            return;
+
         SKBitmap? rendered = await Task.Run(() =>
-            FolderStackSnapshotRenderer.Render(items, folderCoverItem, defaultCover, maxVisible, uniformToFill, width, height))
+            FolderStackSnapshotRenderer.RenderCaptured(capturedLayers, uniformToFill, width, height))
             .ConfigureAwait(false);
 
         if (generation != _snapshotGeneration || rendered == null)

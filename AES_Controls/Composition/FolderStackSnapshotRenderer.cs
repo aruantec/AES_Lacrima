@@ -10,7 +10,35 @@ namespace AES_Controls.Composition;
 /// </summary>
 internal static class FolderStackSnapshotRenderer
 {
-    private readonly record struct DrawLayer(SKImage? Image, bool UseFolderCover, int ZIndex);
+    internal readonly record struct DrawLayer(SKImage? Image, bool UseFolderCover, int ZIndex);
+
+    internal sealed class CapturedLayers
+    {
+        public required List<DrawLayer> Layers { get; init; }
+        public SKImage? DefaultCover { get; init; }
+        public required List<SKImage> OwnedImages { get; init; }
+    }
+
+    public static CapturedLayers? CaptureLayers(
+        AvaloniaList<MediaItem>? items,
+        MediaItem? folderCoverItem,
+        Bitmap? defaultCover,
+        int maxVisibleCovers)
+    {
+        var (layers, defaultSk, ownedImages) = BuildLayers(items, folderCoverItem, defaultCover, maxVisibleCovers);
+        if (layers.Count == 0)
+        {
+            DisposeAll(ownedImages);
+            return null;
+        }
+
+        return new CapturedLayers
+        {
+            Layers = layers,
+            DefaultCover = defaultSk,
+            OwnedImages = ownedImages
+        };
+    }
 
     public static SKBitmap? Render(
         AvaloniaList<MediaItem>? items,
@@ -21,13 +49,15 @@ internal static class FolderStackSnapshotRenderer
         int width,
         int height)
     {
-        if (width <= 0 || height <= 0)
-            return null;
+        var captured = CaptureLayers(items, folderCoverItem, defaultCover, maxVisibleCovers);
+        return captured == null ? null : RenderCaptured(captured, uniformToFill, width, height);
+    }
 
-        var (layers, defaultSk, ownedImages) = BuildLayers(items, folderCoverItem, defaultCover, maxVisibleCovers);
-        if (layers.Count == 0)
+    public static SKBitmap? RenderCaptured(CapturedLayers captured, bool uniformToFill, int width, int height)
+    {
+        if (width <= 0 || height <= 0)
         {
-            DisposeAll(ownedImages);
+            DisposeAll(captured.OwnedImages);
             return null;
         }
 
@@ -43,9 +73,9 @@ internal static class FolderStackSnapshotRenderer
             float itemSize = Math.Max(w, height);
             float baseX = w - itemSize;
 
-            foreach (var layer in layers.OrderBy(l => l.ZIndex))
+            foreach (var layer in captured.Layers.OrderBy(l => l.ZIndex))
             {
-                SKImage? image = layer.UseFolderCover ? defaultSk : layer.Image;
+                SKImage? image = layer.UseFolderCover ? captured.DefaultCover : layer.Image;
                 if (image == null)
                     continue;
 
@@ -57,7 +87,7 @@ internal static class FolderStackSnapshotRenderer
         }
         finally
         {
-            DisposeAll(ownedImages);
+            DisposeAll(captured.OwnedImages);
         }
     }
 

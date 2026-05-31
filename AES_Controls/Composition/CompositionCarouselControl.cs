@@ -82,7 +82,6 @@ namespace AES_Controls.Composition
         private readonly CarouselAnimationSyncState _animationSync = new();
         private CancellationTokenSource? _loadCts;
         private DispatcherTimer? _virtualizeDebounceTimer;
-        private DispatcherTimer? _coverImageReloadDebounceTimer;
         private readonly Dictionary<object, int> _pendingCoverImageReloads = new(ReferenceEqualityComparer.Instance);
         private DispatcherTimer? _uiSyncTimer;
         private DispatcherTimer? _settleCommitTimer;
@@ -1224,7 +1223,6 @@ namespace AES_Controls.Composition
             foreach (var item in _subscribedItems) item.PropertyChanged -= Item_PropertyChanged;
             _subscribedItems.Clear();
             _pendingCoverImageReloads.Clear();
-            _coverImageReloadDebounceTimer?.Stop();
             
             // Notify visual handler of empty list first so it stops rendering old items
 
@@ -1676,40 +1674,15 @@ namespace AES_Controls.Composition
                     return;
                 }
 
-                ScheduleCoverImageReload(sender);
+                _pendingCoverImageReloads[sender] = idx;
+                ProcessPendingCoverImageReloads();
             });
-        }
-
-        private void ScheduleCoverImageReload(object sender)
-        {
-            if (!_itemIndices.ContainsKey(sender))
-                return;
-
-            _pendingCoverImageReloads[sender] = _itemIndices[sender];
-
-            if (_coverImageReloadDebounceTimer == null)
-            {
-                _coverImageReloadDebounceTimer = new DispatcherTimer();
-                _coverImageReloadDebounceTimer.Tick += (_, _) => ProcessPendingCoverImageReloads();
-            }
-
-            _coverImageReloadDebounceTimer.Interval = TimeSpan.FromMilliseconds(
-                IsSelectionInMotion() ? ActiveScrollVirtualizationDebounceMs : CoverImageReloadDebounceMs);
-            _coverImageReloadDebounceTimer.Stop();
-            _coverImageReloadDebounceTimer.Start();
         }
 
         private void ProcessPendingCoverImageReloads()
         {
-            _coverImageReloadDebounceTimer?.Stop();
             if (_pendingCoverImageReloads.Count == 0)
                 return;
-
-            if (IsSelectionInMotion())
-            {
-                _coverImageReloadDebounceTimer?.Start();
-                return;
-            }
 
             var pending = _pendingCoverImageReloads.ToArray();
             _pendingCoverImageReloads.Clear();
@@ -1749,7 +1722,10 @@ namespace AES_Controls.Composition
 
                 if (TryAcquireSharedImage(sourceKey, out var sharedImage))
                 {
-                    AssignItemImage(sender, idx, sharedImage!, sourceKey);
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        AssignItemImage(sender, idx, sharedImage!, sourceKey);
+                    });
                     visualsChanged = true;
                     continue;
                 }
@@ -1767,23 +1743,21 @@ namespace AES_Controls.Composition
                 if (realImage != null)
                 {
                     var imageToUse = RegisterSharedImage(sourceKey, realImage);
-                    AssignItemImage(sender, idx, imageToUse, sourceKey);
-                    visualsChanged = true;
-                }
-                else if (_imageCache.ContainsKey(sender))
-                {
-                    ReleaseItemImage(sender);
-                    var placeholder = GetPlaceholder();
-                    if (idx < _images.Count) _images[idx] = placeholder;
-                    _visual?.SendHandlerMessage(new UpdateImageMessage(idx, placeholder));
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        AssignItemImage(sender, idx, imageToUse, sourceKey);
+                    });
                     visualsChanged = true;
                 }
             }
 
             if (visualsChanged)
             {
-                ClearProjectionCache();
-                UpdateSelectedItemBounds();
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    ClearProjectionCache();
+                    UpdateSelectedItemBounds();
+                });
             }
         }
 
@@ -1870,10 +1844,19 @@ namespace AES_Controls.Composition
         private async Task<SKImage?> LoadImageAsync(Bitmap? bitmapValue, string? fileName, MediaItem? owner, CancellationToken ct)
         {
             if (ct.IsCancellationRequested) return null;
+
+            // Prefer the in-memory bitmap when present. After metadata edits the item bitmap is
+            // updated immediately while the on-disk cache path may still be stale or locked.
+            if (bitmapValue != null)
+            {
+                var fromBitmap = await ToSkImageAsync(bitmapValue, owner, fileName);
+                if (fromBitmap != null)
+                    return fromBitmap;
+            }
+
             if (!string.IsNullOrEmpty(fileName) && File.Exists(fileName))
                 return await Task.Run(() => LoadAndResize(fileName, owner), ct);
-            if (bitmapValue != null)
-                return await ToSkImageAsync(bitmapValue, owner, fileName);
+
             return null;
         }
 

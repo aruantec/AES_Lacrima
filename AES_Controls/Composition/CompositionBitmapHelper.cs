@@ -14,9 +14,17 @@ internal static class CompositionBitmapHelper
         if (bitmap == null)
             return null;
 
-        var size = bitmap.PixelSize;
-        if (size.Width <= 0 || size.Height <= 0 || bitmap.Format == null)
+        PixelSize size;
+        try
+        {
+            size = bitmap.PixelSize;
+            if (size.Width <= 0 || size.Height <= 0 || bitmap.Format == null)
+                return null;
+        }
+        catch (ObjectDisposedException)
+        {
             return null;
+        }
 
         int w = size.Width;
         int h = size.Height;
@@ -35,6 +43,10 @@ internal static class CompositionBitmapHelper
             {
                 handle.Free();
             }
+        }
+        catch (ObjectDisposedException)
+        {
+            return null;
         }
         catch
         {
