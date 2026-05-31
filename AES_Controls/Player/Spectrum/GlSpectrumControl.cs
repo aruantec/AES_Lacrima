@@ -28,6 +28,7 @@ public sealed class GlSpectrumControl : Control, IDisposable
     private const double MaxAdaptiveFrameIntervalMs = 1000.0 / 60.0;
     private const double AdaptiveIntervalToleranceMs = 0.25;
     private const float DefaultPeakThicknessPixels = 2.0f;
+    private const double BarWidthRenderScale = 0.8;
 
     public static readonly StyledProperty<AvaloniaList<double>?> SpectrumProperty =
         AvaloniaProperty.Register<GlSpectrumControl, AvaloniaList<double>?>(nameof(Spectrum));
@@ -398,7 +399,7 @@ public sealed class GlSpectrumControl : Control, IDisposable
             barLevels,
             peakLevels,
             (SKColor[])_gradientColors.Clone(),
-            (float)BarWidth,
+            (float)(BarWidth * BarWidthRenderScale),
             (float)BarSpacing,
             (float)BlockHeight,
             DefaultPeakThicknessPixels / Math.Max(1f, scaling)));
@@ -547,7 +548,7 @@ public sealed class GlSpectrumControl : Control, IDisposable
     private int GetTargetBarCount(float logicalWidth)
     {
         _ = logicalWidth;
-        double pitch = Math.Max(1.0, BarWidth + BarSpacing);
+        double pitch = Math.Max(1.0, (BarWidth * BarWidthRenderScale) + BarSpacing);
         int rawCount = Math.Max(1, (int)(FixedRenderWidth / pitch));
         return Math.Min(MaxBarCount, rawCount);
     }

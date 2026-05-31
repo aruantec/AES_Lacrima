@@ -15,6 +15,7 @@
              xmlns:vm="using:AES_Lacrima.ViewModels"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.MusicView"
+             x:Name="RootView"
              x:DataType="vm:MusicViewModel">
 
     <!-- Sets the DataContext for the previewer -->
@@ -799,9 +800,10 @@
         </Grid>
 
         <!-- Menu-->
-        <Grid Grid.Row="3">
+        <Grid Grid.Row="3" Background="#FF000000">
             <Separator Margin="0" VerticalAlignment="Top"/>
-            <navigation:MusicListView Opacity="{Binding !IsAlbumlistOpen, Converter={StaticResource BoolToOpacityConverter}}">
+            <navigation:MusicListView Opacity="{Binding !IsAlbumlistOpen, Converter={StaticResource BoolToOpacityConverter}}"
+                                      IsHitTestVisible="{Binding ElementName=RootView, Path=IsAlbumListInteractive}">
                 <Interaction.Behaviors>
                     <behaviors:MaxHeightToggleBehavior IsOpen="{Binding IsAlbumlistOpen}" />
                 </Interaction.Behaviors>

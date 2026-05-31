@@ -7,8 +7,10 @@
 			 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
 			 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
 			 xmlns:vm="using:AES_Lacrima.ViewModels"
+			 xmlns:Interaction="http://avaloniaui.net/schemas/2019/interactivity"
 			 mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.Navigation.MusicListView"
+             x:Name="Root"
              x:DataType="vm:MusicViewModel"
              ClipToBounds="False"
              Height="266">
@@ -20,14 +22,15 @@
 	<!-- Music navigation content -->
 	<Grid Background="Black" ClipToBounds="False">
 		<!-- Album list -->
-		<ListBox ItemsSource="{Binding FilteredAlbumList}" 
+		<ListBox x:Name="AlbumList"
+				 ItemsSource="{Binding FilteredAlbumList}" 
 				 Background="Transparent" 
 				 ClipToBounds="False"
 				 SelectionMode="Single"
 				 SelectedIndex="{Binding SelectedAlbumIndex, Mode=TwoWay}"
 				 ScrollViewer.HorizontalScrollBarVisibility="Auto"
 				 ScrollViewer.VerticalScrollBarVisibility="Disabled"
-				 Margin="0,20,0,10">
+				 Margin="0,8,0,10">
 			<ListBox.KeyBindings>
 					<KeyBinding Gesture="F2" Command="{Binding RenameFolderCommand}" CommandParameter="{Binding SelectedAlbum}"/>
 				</ListBox.KeyBindings>
@@ -184,39 +187,46 @@
 				<!-- Items template -->
 				<ListBox.ItemTemplate>
 					<DataTemplate>
-						<Border CornerRadius="12" Margin="0,0,0,10" ClipToBounds="True" Background="Transparent">
-							<Grid Width="240">
-								<!-- Folder control -->
-								<composition:FolderCompositionControl Items="{Binding Children}"
-																	  FolderCoverItem="{Binding}"
-																	  DefaultCover="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).DefaultFolderCover}"
-																	  ClipToBounds="True"
-																	  MaxVisibleCovers="3"/>
-								<!-- Loading overlay per album -->
-								<Panel IsVisible="{Binding IsLoadingCover}"
-									   IsHitTestVisible="False"
-									   Background="#66000000">
-									<controls:LoadingControl Width="60"
-															 Height="60"
-															 Foreground="DeepSkyBlue"
-															 HorizontalAlignment="Center"
-															 VerticalAlignment="Center"
-															 IsHitTestVisible="False"/>
-								</Panel>
-								<!-- Album title overlay -->
-								<Border VerticalAlignment="Bottom" MinHeight="50" Background="#CC000000" ClipToBounds="False">
-									<Grid Margin="5" RowDefinitions="Auto,Auto">
-										<TextBlock Text="{Binding Title}" 
+						<Border CornerRadius="12" Margin="0" ClipToBounds="False" Background="Transparent">
+							<Grid Width="240" Height="220">
+								<Border CornerRadius="12"
+										Background="#111111"
+										BorderBrush="#1A1A1A"
+										BorderThickness="2"
+										IsHitTestVisible="False"/>
+
+								<Border HorizontalAlignment="Stretch"
+										VerticalAlignment="Stretch"
+										Margin="0"
+										CornerRadius="12"
+										ClipToBounds="True"
+										Background="Transparent">
+									<composition:FolderCompositionTileControl Items="{Binding PreviewItems}"
+																			  FolderCoverItem="{Binding}"
+																			  DefaultCover="{Binding CoverBitmap}"
+																			  ForceStaticPreview="{Binding IsAlbumListScrolling, ElementName=Root}"
+																			  ClipToBounds="True"
+																			  MaxVisibleCovers="3"
+																			  CoverStretch="UniformToFill"/>
+								</Border>
+
+								<Border VerticalAlignment="Bottom"
+										Height="50"
+										Background="#CC000000"
+										ClipToBounds="True"
+										CornerRadius="0,0,12,12">
+									<Grid Margin="8,4">
+										<TextBlock Text="{Binding Title}"
 												   IsVisible="{Binding !IsRenaming}"
-												   HorizontalAlignment="Center" 
+												   HorizontalAlignment="Center"
 												   VerticalAlignment="Center"
-												   Grid.RowSpan="2"
 												   TextAlignment="Center"
-												   TextWrapping="Wrap" 
-												   Foreground="White" 
-												   FontSize="18"/>
+												   TextWrapping="Wrap"
+												   Foreground="White"
+												   FontSize="18"
+												   MaxLines="2"
+												   TextTrimming="CharacterEllipsis"/>
 										<TextBox Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-												 Grid.Row="0"
 												 IsVisible="{Binding IsRenaming}"
 												 HorizontalAlignment="Stretch"
 												 VerticalAlignment="Center"
@@ -245,22 +255,14 @@
 																								 CommandParameter="{Binding}" />
 											</Interaction.Behaviors>
 										</TextBox>
-										<TextBlock Grid.Row="1"
-												   Margin="4,4,4,0"
-												   Foreground="White"
-												   FontSize="12"
-												   Text="{Binding NameInvalidMessage}"
-												   TextAlignment="Center"
-												   TextWrapping="Wrap"
-												   IsVisible="{Binding IsNameInvalid}" />
 									</Grid>
 								</Border>
-								<!-- Selection Overlay -->
-								<Border Classes="SelectionHighlight" 
-										Background="#440078D7" 
+
+								<Border Classes="SelectionHighlight"
+										Background="#440078D7"
 										BorderBrush="#880078D7"
 										BorderThickness="2"
-										IsHitTestVisible="False" 
+										IsHitTestVisible="False"
 										CornerRadius="12">
 									<Border.Transitions>
 										<Transitions>
@@ -269,25 +271,35 @@
 									</Border.Transitions>
 								</Border>
 
-								<!-- Item Count Badge -->
-								<Border VerticalAlignment="Top" 
-										HorizontalAlignment="Right" 
-										Margin="4" 
-										Padding="6,2" 
+								<Border VerticalAlignment="Top"
+										HorizontalAlignment="Right"
+										Margin="12"
+										Padding="6,2"
 										MinWidth="24"
 										MinHeight="24"
-										CornerRadius="12" 
-										Background="#222222" 
+										CornerRadius="12"
+										Background="#222222"
 										IsHitTestVisible="False"
 										BoxShadow="0 2 5 0 #41000000"
 										Opacity="0.7">
-									<TextBlock Text="{Binding Children.Count}" 
-											   Foreground="White" 
+									<TextBlock Text="{Binding Children.Count}"
+											   Foreground="White"
 											   FontSize="20"
-											   HorizontalAlignment="Center" 
+											   HorizontalAlignment="Center"
 											   VerticalAlignment="Center"
 											   Margin="4"/>
 								</Border>
+
+								<Panel IsVisible="{Binding IsLoadingCover}"
+									   IsHitTestVisible="False"
+									   Background="#66000000">
+									<controls:LoadingControl Width="48"
+															 Height="48"
+															 Foreground="DeepSkyBlue"
+															 HorizontalAlignment="Center"
+															 VerticalAlignment="Center"
+															 IsHitTestVisible="False"/>
+								</Panel>
 							</Grid>
 						</Border>
 					</DataTemplate>
@@ -304,7 +316,7 @@
 				<!-- Items panel -->
 				<ListBox.ItemsPanel>
 					<ItemsPanelTemplate>
-						<StackPanel Orientation="Horizontal" Margin="10,0,0,0" ClipToBounds="False"/>
+						<StackPanel Orientation="Horizontal" Margin="0" ClipToBounds="False"/>
 					</ItemsPanelTemplate>
 				</ListBox.ItemsPanel>
                         </ListBox>

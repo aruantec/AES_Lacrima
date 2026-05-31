@@ -46,7 +46,7 @@ namespace AES_Lacrima.ViewModels
         private static readonly HttpClient FastThumbnailClient = new() { Timeout = TimeSpan.FromSeconds(10) };
         private static readonly SemaphoreSlim FastThumbnailThrottle = new(OperatingSystem.IsMacOS() ? 2 : 4);
         private const int FastThumbnailDecodeWidth = 512;
-        private const int FolderPreviewCoverCount = 4;
+        private const int FolderPreviewCoverCount = 3;
         private const int MetadataScrapperCacheEntries = 80;
         private const int MetadataStaggerDelayMs = 120;
         private const int PlaylistUiAddBatchSize = 12;
@@ -148,6 +148,9 @@ namespace AES_Lacrima.ViewModels
         private readonly Dictionary<FolderMediaItem, AvaloniaList<MediaItem>> _folderChildrenCollections = [];
         private readonly HashSet<FolderMediaItem> _activeAlbumCoverLoads = [];
         private readonly object _albumCoverLoadGate = new();
+        private readonly HashSet<FolderMediaItem> _activeAlbumPreviewCoverLoads = [];
+        private readonly object _albumPreviewCoverLoadGate = new();
+        private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumTilePreviewCtsMap = new();
         private bool _isSyncingAlbumSelection;
         private bool _scanMissingStreamDurationsOnLoadedAlbum;
         private bool _isApplyingDeferredAlbumList;

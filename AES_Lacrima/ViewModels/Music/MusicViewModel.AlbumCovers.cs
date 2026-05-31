@@ -9,7 +9,7 @@ using AES_Lacrima.Services;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
-using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Avalonia.Media;
@@ -74,6 +74,8 @@ namespace AES_Lacrima.ViewModels
                 folder.PropertyChanged += Folder_PropertyChanged;
 
             AttachFolderChildren(folder, folder.Children);
+            folder.RebuildPreviewItems();
+            QueueAlbumPreviewCoverLoad(folder);
         }
 
         private void UnsubscribeFolder(FolderMediaItem folder)
@@ -174,11 +176,37 @@ namespace AES_Lacrima.ViewModels
             RefreshAlbumFilterIfNeeded();
             if (ReferenceEquals(children, LoadedAlbum?.Children))
                 RefreshTrackFilterIfNeeded();
+
+            foreach (var folder in _subscribedFolders)
+            {
+                if (ReferenceEquals(folder.Children, children))
+                {
+                    folder.RebuildPreviewItems();
+                    QueueAlbumPreviewCoverLoad(folder);
+                    break;
+                }
+            }
         }
 
         private void AlbumChild_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (sender is not MediaItem item || !IsSearchRelevantProperty(e.PropertyName))
+            if (sender is not MediaItem item)
+                return;
+
+            if (e.PropertyName == nameof(MediaItem.CoverBitmap))
+            {
+                foreach (var folder in _subscribedFolders)
+                {
+                    if (folder.Children.Contains(item))
+                    {
+                        SyncAlbumFolderCoverFromChildren(folder);
+                        folder.RebuildPreviewItems(rebuildStructure: false);
+                        break;
+                    }
+                }
+            }
+
+            if (!IsSearchRelevantProperty(e.PropertyName))
                 return;
 
             RefreshAlbumFilterIfNeeded();
@@ -284,9 +312,15 @@ namespace AES_Lacrima.ViewModels
             else if (e.PropertyName == nameof(FolderMediaItem.Children))
             {
                 AttachFolderChildren(folder, folder.Children);
+                folder.RebuildPreviewItems();
+                QueueAlbumPreviewCoverLoad(folder);
                 RefreshAlbumFilterIfNeeded();
                 if (ReferenceEquals(folder, LoadedAlbum))
                     RefreshTrackFilterIfNeeded();
+            }
+            else if (e.PropertyName == nameof(MediaItem.CoverBitmap))
+            {
+                folder.RebuildPreviewItems(rebuildStructure: false);
             }
         }
 
@@ -373,37 +407,159 @@ namespace AES_Lacrima.ViewModels
         {
             if (AudioPlayer == null || AlbumList.Count == 0 || IsAddingPlaylist) return;
 
-            var agentInfo = "AES_Lacrima/1.0 (contact: aruantec@gmail.com)";
             IsAddingPlaylist = true;
             Log.Info(
                 $"StartMetadataScrappersForLoadedFolders queued. ForceUpdate={forceUpdate}, " +
                 $"Albums={AlbumList.Count}, Items={GetAlbumItemCount()}, LoadedAlbum='{LoadedAlbum?.Title ?? "<none>"}'.");
 
-            _ = Task.Run(async () =>
+            foreach (var folder in AlbumList)
+            {
+                if (folder.Children.Count == 0)
+                    continue;
+
+                QueueAlbumPreviewCoverLoad(folder, forceUpdate);
+            }
+
+            IsAddingPlaylist = false;
+            Log.Info(
+                $"StartMetadataScrappersForLoadedFolders finished queueing. ForceUpdate={forceUpdate}, " +
+                $"Albums={AlbumList.Count}, Items={GetAlbumItemCount()}.");
+        }
+
+        private List<MediaItem> GetAlbumPreviewCoverBatch(FolderMediaItem folder)
+        {
+            return folder.Children
+                .Take(FolderPreviewCoverCount)
+                .Where(NeedsCoverLoad)
+                .ToList();
+        }
+
+        private void SyncAlbumFolderCoverFromChildren(FolderMediaItem folder)
+        {
+            DefaultFolderCover ??= GenerateDefaultFolderCover();
+            if (!NeedsVisibleCoverLoad(folder))
+                return;
+
+            var childWithCover = folder.Children.FirstOrDefault(child => !NeedsVisibleCoverLoad(child));
+            if (childWithCover?.CoverBitmap != null)
+                folder.CoverBitmap = childWithCover.CoverBitmap;
+        }
+
+        private void EndAlbumPreviewCoverLoad(FolderMediaItem folder)
+        {
+            lock (_albumPreviewCoverLoadGate)
+            {
+                _activeAlbumPreviewCoverLoads.Remove(folder);
+            }
+        }
+
+        private void QueueAlbumPreviewCoverLoad(FolderMediaItem? folder, bool forceUpdate = false)
+        {
+            if (folder == null || folder.Children.Count == 0 || AudioPlayer == null)
+                return;
+
+            CancellationTokenSource cts;
+            lock (_albumPreviewCoverLoadGate)
             {
                 try
                 {
-                    var albums = AlbumList.ToList();
-                    var loadedAlbum = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => LoadedAlbum);
-                    foreach (var folder in albums)
+                    if (_albumTilePreviewCtsMap.TryGetValue(folder, out var existingCts))
                     {
-                        if (folder == null || folder.Children.Count == 0) continue;
-
-                        int maxItemsToLoad = ReferenceEquals(folder, loadedAlbum) ? int.MaxValue : FolderPreviewCoverCount;
-                        await LoadAlbumCoversAsync(folder, agentInfo, forceUpdate, maxItemsToLoad);
+                        existingCts.Cancel();
+                        existingCts.Dispose();
+                        _albumTilePreviewCtsMap.Remove(folder);
                     }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Failed to cancel previous album preview cover load.", ex);
+                }
+
+                cts = new CancellationTokenSource();
+                _albumTilePreviewCtsMap[folder] = cts;
+            }
+
+            var token = cts.Token;
+
+            _ = Task.Run(async () =>
+            {
+                while (true)
+                {
+                    lock (_albumPreviewCoverLoadGate)
+                    {
+                        if (_activeAlbumPreviewCoverLoads.Add(folder))
+                            break;
+                    }
+
+                    try
+                    {
+                        await Task.Delay(25, token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                }
+
+                try
+                {
+                    await LoadAlbumPreviewCoversAsync(folder, forceUpdate, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Superseded by a newer preview load request.
                 }
                 finally
                 {
-                    Log.Info(
-                        $"StartMetadataScrappersForLoadedFolders finished queueing. ForceUpdate={forceUpdate}, " +
-                        $"Albums={AlbumList.Count}, Items={GetAlbumItemCount()}.");
-                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    EndAlbumPreviewCoverLoad(folder);
+                    lock (_albumPreviewCoverLoadGate)
                     {
-                        IsAddingPlaylist = false;
+                        if (_albumTilePreviewCtsMap.TryGetValue(folder, out var current) && ReferenceEquals(current, cts))
+                            _albumTilePreviewCtsMap.Remove(folder);
+                    }
+                }
+            }, token);
+        }
+
+        private async Task LoadAlbumPreviewCoversAsync(FolderMediaItem folder, bool forceUpdate, CancellationToken cancellationToken)
+        {
+            if (AudioPlayer == null)
+                return;
+
+            try
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => folder.IsLoadingCover = true);
+
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    var batch = await Dispatcher.UIThread.InvokeAsync(() => GetAlbumPreviewCoverBatch(folder));
+                    if (batch.Count == 0)
+                        break;
+
+                    await LoadAlbumCoversForItemsAsync(folder, batch, forceUpdate).ConfigureAwait(false);
+
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        SyncAlbumFolderCoverFromChildren(folder);
+                        folder.RebuildPreviewItems(rebuildStructure: false);
                     });
                 }
-            });
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when a newer preview load replaces this one.
+            }
+            finally
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    SyncAlbumFolderCoverFromChildren(folder);
+                    folder.RebuildPreviewItems(rebuildStructure: false);
+                    folder.IsLoadingCover = folder.Children
+                        .Take(FolderPreviewCoverCount)
+                        .Any(child => NeedsVisibleCoverLoad(child) && child.IsLoadingCover);
+                });
+            }
         }
 
         private void QueueAlbumCoverLoad(FolderMediaItem folder, bool forceUpdate = false, int maxItemsToLoad = int.MaxValue)
