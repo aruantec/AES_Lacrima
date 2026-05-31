@@ -63,6 +63,16 @@ namespace AES_Emulation.Windows.API
             _simpleAudioVolume = null;
         }
 
+        public void EnsureSession()
+        {
+            if (_processId <= 0)
+                return;
+
+            _nextRetryTime = DateTime.MinValue;
+            if (_simpleAudioVolume == null)
+                _simpleAudioVolume = FindAudioSessionForProcess(_processId);
+        }
+
         public float Volume
         {
             get

@@ -418,7 +418,25 @@ private bool _isShadPs4PatchesOverlayOpen;
             if (!OperatingSystem.IsWindows())
                 return;
 
-            float normalized = (float)Math.Clamp(value / 100.0, 0.0, 1.0);
+            ApplyEmulatorVolumeToProcess(value);
+            AutoSave();
+        }
+
+        internal void ApplyEmulatorVolumeAfterCaptureActive()
+        {
+            ApplyEmulatorVolumeToProcess(EmulatorVolume);
+        }
+
+        private void ApplyEmulatorVolumeToProcess(double volumePercent)
+        {
+            if (!OperatingSystem.IsWindows())
+                return;
+
+            if (EmulatorTargetProcessId <= 0 && _activeEmulatorProcess == null)
+                return;
+
+            _emulatorAudioVolume.EnsureSession();
+            float normalized = (float)Math.Clamp(volumePercent / 100.0, 0.0, 1.0);
             _emulatorAudioVolume.Volume = normalized;
         }
 
