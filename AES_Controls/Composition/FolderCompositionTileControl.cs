@@ -19,7 +19,7 @@ namespace AES_Controls.Composition;
 /// Shows a cheap static folder snapshot by default; mounts a live <see cref="FolderCompositionControl"/>
 /// only while the pointer is over the tile (at most one compositor per hovered album).
 /// </summary>
-public class FolderCompositionTileControl : Grid
+public class FolderCompositionTileControl : Grid, IScaleExclusionRenderTarget
 {
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<FolderCompositionTileControl>();
 
@@ -205,6 +205,8 @@ public class FolderCompositionTileControl : Grid
     {
         base.OnSizeChanged(e);
         QueueSnapshotRefresh();
+        if (_isLiveActive)
+            _liveFolder.RefreshExclusionRenderSize();
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -337,9 +339,10 @@ public class FolderCompositionTileControl : Grid
                         !_isLiveActive)
                         return;
 
+                    _liveFolder.RefreshExclusionRenderSize();
                     _liveFolder.SetSpread(true);
                 },
-                DispatcherPriority.Render);
+                DispatcherPriority.Loaded);
         }
         else
         {
@@ -474,14 +477,21 @@ public class FolderCompositionTileControl : Grid
         }, DispatcherPriority.Background);
     }
 
+    public void RefreshExclusionRenderSize()
+    {
+        QueueSnapshotRefresh();
+        if (_isLiveActive)
+            _liveFolder.RefreshExclusionRenderSize();
+    }
+
     private async Task RefreshSnapshotAsync()
     {
         if (VisualRoot == null)
             return;
 
-        var bounds = Bounds;
-        int width = bounds.Width > 0 ? (int)Math.Round(bounds.Width) : 240;
-        int height = bounds.Height > 0 ? (int)Math.Round(bounds.Height) : 170;
+        var renderSize = ScalableDecorator.GetExclusionAwareRenderSize(this, Bounds.Size);
+        int width = renderSize.Width > 0 ? (int)Math.Round(renderSize.Width) : 240;
+        int height = renderSize.Height > 0 ? (int)Math.Round(renderSize.Height) : 170;
         if (width <= 0 || height <= 0)
             return;
 

@@ -12,6 +12,8 @@
              x:Class="AES_Lacrima.Views.Navigation.MusicListView"
              x:Name="Root"
              x:DataType="vm:MusicViewModel"
+             controls:ScalableDecorator.ExcludeFromScale="True"
+             controls:ScalableDecorator.ExcludeFromScaleCompensation="False"
              ClipToBounds="False"
              Height="266">
 

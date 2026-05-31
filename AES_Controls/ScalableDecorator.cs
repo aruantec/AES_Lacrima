@@ -14,9 +14,21 @@ public class ScalableDecorator : Decorator
     public static readonly AttachedProperty<bool> ExcludeFromScaleProperty =
         AvaloniaProperty.RegisterAttached<ScalableDecorator, Visual, bool>("ExcludeFromScale");
 
+    /// <summary>
+    /// When <see cref="ExcludeFromScaleProperty"/> is true, applies a render transform that
+    /// cancels the ancestor decorator shrink (for stretch-filled surfaces like capture hosts).
+    /// Set to false for fixed-layout regions such as album lists that should keep their
+    /// current scaled layout size.
+    /// </summary>
+    public static readonly AttachedProperty<bool> ExcludeFromScaleCompensationProperty =
+        AvaloniaProperty.RegisterAttached<ScalableDecorator, Visual, bool>(
+            "ExcludeFromScaleCompensation",
+            defaultValue: true);
+
     static ScalableDecorator()
     {
         ExcludeFromScaleProperty.Changed.AddClassHandler<Visual>(OnExcludeFromScaleChanged);
+        ExcludeFromScaleCompensationProperty.Changed.AddClassHandler<Visual>(OnExcludeFromScaleCompensationChanged);
     }
 
     public static bool GetExcludeFromScale(Visual element) =>
@@ -24,6 +36,12 @@ public class ScalableDecorator : Decorator
 
     public static void SetExcludeFromScale(Visual element, bool value) =>
         element.SetValue(ExcludeFromScaleProperty, value);
+
+    public static bool GetExcludeFromScaleCompensation(Visual element) =>
+        element.GetValue(ExcludeFromScaleCompensationProperty);
+
+    public static void SetExcludeFromScaleCompensation(Visual element, bool value) =>
+        element.SetValue(ExcludeFromScaleCompensationProperty, value);
 
     /// <summary>
     /// Returns the render scale applied by the nearest ancestor <see cref="ScalableDecorator"/>
@@ -71,6 +89,9 @@ public class ScalableDecorator : Decorator
                 ScaleExclusion.Detach(visual);
         }
     }
+
+    private static void OnExcludeFromScaleCompensationChanged(Visual visual, AvaloniaPropertyChangedEventArgs change) =>
+        ScaleExclusion.RefreshIfAttached(visual);
 
     public static readonly StyledProperty<double> ScaleProperty =
         AvaloniaProperty.Register<ScalableDecorator, double>(nameof(Scale), 1.0);

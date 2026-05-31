@@ -161,7 +161,7 @@ internal static class PlayerCompositionArmMetrics
     }
 }
 
-public class PlayerCompositionControl : UserControl
+public class PlayerCompositionControl : UserControl, IScaleExclusionRenderTarget
 {
     private CompositionCustomVisual? _visual;
     private bool _isPressed;
@@ -358,6 +358,9 @@ public class PlayerCompositionControl : UserControl
 
     public PlayerCompositionControl()
     {
+        ScalableDecorator.SetExcludeFromScale(this, true);
+        ScalableDecorator.SetExcludeFromScaleCompensation(this, false);
+
         ClipToBounds = false;
         Background = Brushes.Transparent;
         Focusable = true;
@@ -508,6 +511,18 @@ public class PlayerCompositionControl : UserControl
         }
     }
 
+    public void RefreshExclusionRenderSize() => UpdateVisualSize();
+
+    private void UpdateVisualSize()
+    {
+        if (_visual == null || Bounds.Width <= 0 || Bounds.Height <= 0)
+            return;
+
+        var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
+        _visual.Size = size;
+        _visual.SendHandlerMessage(size);
+    }
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -516,8 +531,7 @@ public class PlayerCompositionControl : UserControl
 
         _visual = compositor.CreateCustomVisual(new PlayerCompositionVisualHandler());
         ElementComposition.SetElementChildVisual(this, _visual);
-        _visual.Size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
-        _visual.SendHandlerMessage(new Vector2((float)Bounds.Width, (float)Bounds.Height));
+        UpdateVisualSize();
 
         SendAllPropertiesToVisual();
     }
@@ -532,11 +546,7 @@ public class PlayerCompositionControl : UserControl
     protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
         base.OnSizeChanged(e);
-        if (_visual != null)
-        {
-            _visual.Size = new Vector2((float)e.NewSize.Width, (float)e.NewSize.Height);
-            _visual.SendHandlerMessage(new Vector2((float)e.NewSize.Width, (float)e.NewSize.Height));
-        }
+        UpdateVisualSize();
     }
 
     private void SendAllPropertiesToVisual()

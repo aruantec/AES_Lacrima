@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:gl="using:AES_Controls.GL"
+             xmlns:controls="using:AES_Controls"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:navigation="using:AES_Lacrima.Views.Navigation"
              xmlns:spectrum="using:AES_Controls.Player.Spectrum"
@@ -12,6 +13,8 @@
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="AES_Lacrima.Views.MainContentView"
              x:DataType="vm:MainContentViewModel"
+             controls:ScalableDecorator.ExcludeFromScale="True"
+             controls:ScalableDecorator.ExcludeFromScaleCompensation="False"
              ClipToBounds="False">
 
     <!-- Sets the DataContext for the previewer -->
