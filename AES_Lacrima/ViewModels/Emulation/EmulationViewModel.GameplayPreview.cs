@@ -18,7 +18,6 @@ using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
-using AES_Controls.Helpers;
 using Avalonia.Media.Imaging;
 using SkiaSharp;
 using Avalonia.Platform.Storage;

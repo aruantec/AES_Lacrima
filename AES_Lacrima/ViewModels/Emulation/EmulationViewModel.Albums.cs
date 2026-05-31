@@ -260,7 +260,7 @@ namespace AES_Lacrima.ViewModels
                     foreach (var album in albums)
                     {
                         var albumKey = GetAlbumPersistenceKey(album);
-                        var children = RestoreAlbumRoms(albumKey, album.Title, album.CoverBitmap);
+                        var children = RestoreAlbumRoms(albumKey, album.Title ?? string.Empty, album.CoverBitmap);
                         if (children.Count > 0)
                             pairs.Add((album, children));
                     }

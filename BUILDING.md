@@ -74,7 +74,7 @@ Replace `win-x64` with your target RID (`linux-x64`, `osx-arm64`, etc.).
 When `PublishAot=true`:
 
 - `NATIVE_AOT` is defined for conditional compilation.
-- **HotAvalonia** is excluded (not compatible with AOT).
+- HotAvalonia (XAML hot reload) is not included; it is incompatible with AOT and its Release-only binaries trigger debugger noise under Just My Code.
 - **AES_Di.Generator** is referenced as a pre-built analyzer assembly instead of a Roslyn source generator project reference.
 - Trimmer roots and [AES_Lacrima/rd.xml](AES_Lacrima/rd.xml) keep Autofac, log4net, TagLib#, and related dependencies usable at runtime.
 
