@@ -806,9 +806,13 @@ namespace AES_Lacrima.ViewModels
 
             if (!ShowCurrentSectionRpcs3UpdateControls)
             {
+                IsRpcs3ArtemisImportOverlayOpen = false;
+                Rpcs3ArtemisImportText = string.Empty;
+                Rpcs3ArtemisImportStatus = string.Empty;
                 IsRpcs3PatchesOverlayOpen = false;
                 Rpcs3DetectedTitleId = null;
                 Rpcs3DetectedAppVersion = null;
+                Rpcs3SelectedGamePath = null;
                 Rpcs3PatchGameTitle = null;
                 Rpcs3PatchesStatus = "Select a PlayStation 3 game to manage patches.";
                 IsCurrentSectionRpcs3PatchDirty = false;

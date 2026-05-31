@@ -69,7 +69,7 @@ public static class Rpcs3ArtemisCheatsDownloadService
 
         try
         {
-            var patchPath = Rpcs3PatchesService.GetPatchYmlPath(emulatorDirectory, Rpcs3PatchCatalog.ArtemisCheats);
+            var patchPath = Rpcs3PatchesService.GetPatchYmlPath(emulatorDirectory, Rpcs3PatchCatalog.Imported);
             Directory.CreateDirectory(Rpcs3PatchesService.GetPatchesDirectory(emulatorDirectory)!);
 
             var merged = MergeIntoExisting(patchPath, downloadedChunks);
@@ -80,7 +80,7 @@ public static class Rpcs3ArtemisCheatsDownloadService
 
             return new Rpcs3ArtemisCheatsDownloadResult(
                 true,
-                $"Downloaded {downloadedChunks.Count} Artemis cheat pack(s) for {normalizedTitleId}.",
+                $"Downloaded {downloadedChunks.Count} Artemis cheat pack(s) to imported_patch.yml for {normalizedTitleId}.",
                 downloadedChunks.Count);
         }
         catch (Exception ex)
@@ -116,7 +116,7 @@ public static class Rpcs3ArtemisCheatsDownloadService
 
         try
         {
-            var patchPath = Rpcs3PatchesService.GetPatchYmlPath(emulatorDirectory, Rpcs3PatchCatalog.ArtemisCheats);
+            var patchPath = Rpcs3PatchesService.GetPatchYmlPath(emulatorDirectory, Rpcs3PatchCatalog.Imported);
             Directory.CreateDirectory(Rpcs3PatchesService.GetPatchesDirectory(emulatorDirectory)!);
 
             var merged = BuildMergedDocument(Array.Empty<string>(), downloadedChunks);
@@ -127,7 +127,7 @@ public static class Rpcs3ArtemisCheatsDownloadService
 
             return new Rpcs3ArtemisCheatsDownloadResult(
                 true,
-                $"Downloaded {downloadedChunks.Count} Artemis cheat pack(s) from {RepositoryOwner}/{RepositoryName}.",
+                $"Downloaded {downloadedChunks.Count} Artemis cheat pack(s) to imported_patch.yml from {RepositoryOwner}/{RepositoryName}.",
                 downloadedChunks.Count);
         }
         catch (Exception ex)
@@ -214,6 +214,9 @@ public static class Rpcs3ArtemisCheatsDownloadService
             return null;
         }
     }
+
+    public static string MergeChunkIntoExisting(string patchPath, string yamlChunk) =>
+        MergeIntoExisting(patchPath, [yamlChunk]);
 
     private static string MergeIntoExisting(string patchPath, IReadOnlyList<string> newChunks)
     {

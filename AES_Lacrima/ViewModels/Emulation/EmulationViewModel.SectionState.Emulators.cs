@@ -1008,6 +1008,45 @@ namespace AES_Lacrima.ViewModels
         public string Rpcs3DownloadPatchesButtonText =>
             IsRpcs3CheatsOverlayMode ? "Download Artemis Cheats" : "Download Patches";
 
+        public bool IsRpcs3ArtemisImportOverlayOpen
+        {
+            get => _isRpcs3ArtemisImportOverlayOpen;
+            set
+            {
+                if (_isRpcs3ArtemisImportOverlayOpen == value)
+                    return;
+
+                _isRpcs3ArtemisImportOverlayOpen = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string Rpcs3ArtemisImportText
+        {
+            get => _rpcs3ArtemisImportText;
+            set
+            {
+                if (string.Equals(_rpcs3ArtemisImportText, value, StringComparison.Ordinal))
+                    return;
+
+                _rpcs3ArtemisImportText = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string Rpcs3ArtemisImportStatus
+        {
+            get => _rpcs3ArtemisImportStatus;
+            set
+            {
+                if (string.Equals(_rpcs3ArtemisImportStatus, value, StringComparison.Ordinal))
+                    return;
+
+                _rpcs3ArtemisImportStatus = value;
+                OnPropertyChanged();
+            }
+        }
+
         public string? Rpcs3DetectedTitleId
         {
             get => _rpcs3DetectedTitleId;
@@ -1030,6 +1069,19 @@ namespace AES_Lacrima.ViewModels
                     return;
 
                 _rpcs3DetectedAppVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string? Rpcs3SelectedGamePath
+        {
+            get => _rpcs3SelectedGamePath;
+            private set
+            {
+                if (string.Equals(_rpcs3SelectedGamePath, value, StringComparison.Ordinal))
+                    return;
+
+                _rpcs3SelectedGamePath = value;
                 OnPropertyChanged();
             }
         }

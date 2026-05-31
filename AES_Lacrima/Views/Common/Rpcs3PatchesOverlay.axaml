@@ -59,6 +59,11 @@
                                        FontWeight="SemiBold"
                                        VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <Button Content="Add Artemis Codes"
+                                        Command="{Binding OpenRpcs3ArtemisImportOverlayCommand}"
+                                        IsVisible="{Binding IsRpcs3CheatsOverlayMode}"
+                                        IsEnabled="{Binding !IsRpcs3PatchesBusy}"
+                                        Padding="12,6" />
                                 <Button Content="{Binding Rpcs3DownloadPatchesButtonText}"
                                         Command="{Binding DownloadCurrentSectionRpcs3PatchesCommand}"
                                         IsEnabled="{Binding !IsRpcs3PatchesBusy}"
@@ -128,5 +133,62 @@
                         Padding="14,8" />
             </Grid>
         </Grid>
+
+        <Border Background="#CC000000"
+                IsVisible="{Binding IsRpcs3ArtemisImportOverlayOpen}"
+                IsHitTestVisible="{Binding IsRpcs3ArtemisImportOverlayOpen}"
+                ZIndex="100">
+            <Border Width="620"
+                    MaxHeight="520"
+                    Background="#FF1A1A1A"
+                    BorderBrush="#55FFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="20"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <Grid RowDefinitions="Auto,*,Auto,Auto" RowSpacing="12">
+                    <StackPanel Grid.Row="0" Spacing="6">
+                        <TextBlock Text="Import Artemis Codes"
+                                   FontSize="28"
+                                   FontWeight="SemiBold"
+                                   Foreground="White" />
+                        <TextBlock Text="Paste Artemis / NetCheat codes below. Each cheat block should be separated by #. Codes are converted to RPCS3 be32 patches and saved to patches/imported_patch.yml. The correct PPU hash is detected from RPCS3.log when available; otherwise RPCS3 is started briefly to read it before import."
+                                   Foreground="#C8C8C8"
+                                   FontSize="15"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <TextBox Grid.Row="1"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             PlaceholderText="Memory Infinite Ammo&#x0a;0&#x0a;author&#x0a;0 326D5FAE 000D&#x0a;#&#x0a;ASM Infinite Ammo&#x0a;0&#x0a;author&#x0a;0 00153524 60000000&#x0a;#"
+                             Text="{Binding Rpcs3ArtemisImportText, Mode=TwoWay}"
+                             FontFamily="Consolas,Courier New,monospace"
+                             FontSize="14"
+                             MinHeight="220" />
+
+                    <TextBlock Grid.Row="2"
+                               Text="{Binding Rpcs3ArtemisImportStatus}"
+                               Foreground="#D8D8D8"
+                               FontSize="15"
+                               TextWrapping="Wrap" />
+
+                    <StackPanel Grid.Row="3"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                Spacing="10">
+                        <Button Content="Import"
+                                Command="{Binding ImportRpcs3ArtemisCheatsCommand}"
+                                IsEnabled="{Binding !IsRpcs3PatchesBusy}"
+                                Padding="14,8" />
+                        <Button Content="Cancel"
+                                Command="{Binding CloseRpcs3ArtemisImportOverlayCommand}"
+                                IsEnabled="{Binding !IsRpcs3PatchesBusy}"
+                                Padding="14,8" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Border>
     </Grid>
 </UserControl>

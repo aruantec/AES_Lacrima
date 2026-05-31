@@ -27,6 +27,7 @@ public static class Rpcs3PatchesService
     public const string PatchEngineVersion = "1.2";
     public const string OfficialPatchFileName = "patch.yml";
     public const string ArtemisCheatsPatchFileName = "artemis_cheats.yml";
+    public const string ImportedPatchFileName = "imported_patch.yml";
     public const string ArtemisGameTitleMarker = "(Artemis)";
     /// <summary>Matches RPCS3 <c>patch_key::enabled</c> in Utilities/bin_patch.h.</summary>
     public const string EnabledKey = "Enabled";
@@ -57,7 +58,30 @@ public static class Rpcs3PatchesService
         Path.Combine(GetPatchesDirectory(emulatorDirectory), GetPatchFileName(catalog));
 
     public static string GetPatchFileName(Rpcs3PatchCatalog catalog) =>
-        catalog == Rpcs3PatchCatalog.ArtemisCheats ? ArtemisCheatsPatchFileName : OfficialPatchFileName;
+        catalog switch
+        {
+            Rpcs3PatchCatalog.ArtemisCheats => ArtemisCheatsPatchFileName,
+            Rpcs3PatchCatalog.Imported => ImportedPatchFileName,
+            _ => OfficialPatchFileName,
+        };
+
+    /// <summary>
+    /// Patch YAML files consulted for a catalog. Artemis cheats also include user imports from
+    /// <see cref="ImportedPatchFileName"/>, which is the file RPCS3 loads for custom patches.
+    /// </summary>
+    public static IReadOnlyList<string> GetPatchSourcePaths(string? emulatorDirectory, Rpcs3PatchCatalog catalog)
+    {
+        if (catalog == Rpcs3PatchCatalog.ArtemisCheats)
+        {
+            return
+            [
+                GetPatchYmlPath(emulatorDirectory, Rpcs3PatchCatalog.Imported),
+                GetPatchYmlPath(emulatorDirectory, Rpcs3PatchCatalog.ArtemisCheats),
+            ];
+        }
+
+        return [GetPatchYmlPath(emulatorDirectory, catalog)];
+    }
 
     public static bool IsArtemisCheatPatch(Rpcs3PatchDefinition definition) =>
         definition.GameTitle.Contains(ArtemisGameTitleMarker, StringComparison.OrdinalIgnoreCase);
@@ -74,7 +98,7 @@ public static class Rpcs3PatchesService
         PatchFileExists(emulatorDirectory, Rpcs3PatchCatalog.Official);
 
     public static bool PatchFileExists(string? emulatorDirectory, Rpcs3PatchCatalog catalog) =>
-        File.Exists(GetPatchYmlPath(emulatorDirectory, catalog));
+        GetPatchSourcePaths(emulatorDirectory, catalog).Any(File.Exists);
 
     /// <summary>
     /// Resolves the RPCS3 root directory that contains <c>patches/patch.yml</c>.
@@ -161,6 +185,78 @@ public static class Rpcs3PatchesService
         return patches;
     }
 
+    /// <summary>
+    /// Returns the PPU hash for a title from RPCS3.log, official <c>patch.yml</c>, and optionally user patch files.
+    /// Does not launch RPCS3; use <see cref="Rpcs3PpuHashProbeService.TryResolveForTitleAsync"/> for that.
+    /// </summary>
+    /// <param name="includeUserPatchCatalogs">
+    /// When false, skips <c>imported_patch.yml</c> and legacy Artemis files so a stale imported hash
+    /// does not block automatic PPU detection during cheat import.
+    /// </param>
+    public static string? TryResolvePrimaryPpuHash(
+        string? emulatorDirectory,
+        string titleId,
+        string? appVersion = null,
+        bool includeUserPatchCatalogs = true)
+    {
+        if (string.IsNullOrWhiteSpace(titleId))
+            return null;
+
+        var fromLog = Rpcs3PpuHashProbeService.TryReadPpuHashFromLog(emulatorDirectory, titleId);
+        if (!string.IsNullOrWhiteSpace(fromLog))
+            return fromLog;
+
+        var fromOfficial = TryGetMostCommonPpuHashFromCatalog(
+            emulatorDirectory,
+            titleId,
+            appVersion,
+            Rpcs3PatchCatalog.Official);
+        if (!string.IsNullOrWhiteSpace(fromOfficial))
+            return fromOfficial;
+
+        if (!includeUserPatchCatalogs)
+            return null;
+
+        foreach (var catalog in new[] { Rpcs3PatchCatalog.Imported, Rpcs3PatchCatalog.ArtemisCheats })
+        {
+            var fromCatalog = TryGetMostCommonPpuHashFromCatalog(
+                emulatorDirectory,
+                titleId,
+                appVersion,
+                catalog);
+            if (!string.IsNullOrWhiteSpace(fromCatalog))
+                return fromCatalog;
+        }
+
+        return null;
+    }
+
+    internal static string? TryGetMostCommonPpuHashFromCatalog(
+        string? emulatorDirectory,
+        string titleId,
+        string? appVersion,
+        Rpcs3PatchCatalog catalog)
+    {
+        if (!TryGetPatchesForTitleId(
+                emulatorDirectory,
+                titleId,
+                appVersion,
+                catalog,
+                out var patches,
+                out _) ||
+            patches.Count == 0)
+        {
+            return null;
+        }
+
+        return patches
+            .GroupBy(static patch => patch.PpuHash, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(static group => group.Count())
+            .ThenBy(static group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .First()
+            .Key;
+    }
+
     public static bool TryGetPatchesForTitleId(
         string? emulatorDirectory,
         string titleId,
@@ -181,76 +277,48 @@ public static class Rpcs3PatchesService
         errorMessage = null;
 
         var normalizedTitleId = titleId.Trim().ToUpperInvariant();
-        var patchPath = GetPatchYmlPath(emulatorDirectory, catalog);
-        var patchFileLabel = GetPatchFileName(catalog);
-        if (!File.Exists(patchPath))
+        var sourcePaths = GetPatchSourcePaths(emulatorDirectory, catalog);
+        var existingPaths = sourcePaths.Where(File.Exists).ToArray();
+        if (existingPaths.Length == 0)
         {
+            var primaryPath = sourcePaths[0];
+            var patchFileLabel = GetPatchFileName(catalog);
             errorMessage = catalog == Rpcs3PatchCatalog.ArtemisCheats
-                ? $"{patchFileLabel} was not found at '{patchPath}'. Download Artemis cheats to get started."
-                : $"{patchFileLabel} was not found at '{patchPath}'.";
+                ? $"No cheat patch files were found (expected {ImportedPatchFileName} under '{GetPatchesDirectory(emulatorDirectory)}'). Download Artemis cheats or import custom codes to get started."
+                : $"{patchFileLabel} was not found at '{primaryPath}'.";
             return false;
         }
 
         var normalizedAppVersion = NormalizeAppVersion(appVersion);
+        var matches = new List<Rpcs3PatchDefinition>();
+        string? firstParseError = null;
 
         try
         {
-            if (!TryLoadPatchYamlRoot(patchPath, out var root, out errorMessage))
-                return false;
-
-            var mappingAnchors = LoadAnchorMappings(root);
-            var documentAnchors = BuildDocumentAnchorIndex(root);
-            var matches = new List<Rpcs3PatchDefinition>();
-
-            foreach (var hashEntry in root.Children)
+            foreach (var patchPath in existingPaths)
             {
-                var hash = NormalizePpuHashKey(hashEntry.Key.ToString());
-                if (!hash.StartsWith("PPU-", StringComparison.OrdinalIgnoreCase) ||
-                    hashEntry.Value is not YamlMappingNode patchContainer)
-                    continue;
-
-                foreach (var patchEntry in patchContainer.Children)
+                if (!TryLoadPatchYamlRoot(patchPath, out var root, out var parseError))
                 {
-                    if (patchEntry.Value is not YamlMappingNode patchNode)
-                        continue;
-
-                    var patchName = patchEntry.Key.ToString().Trim();
-                    if (!TryGetChild(patchNode, GamesKey, out var gamesNode))
-                        continue;
-
-                    var author = ReadScalar(patchNode, AuthorKey, mappingAnchors, documentAnchors);
-                    var notes = ReadScalar(patchNode, NotesKey, mappingAnchors, documentAnchors);
-                    var group = ReadScalar(patchNode, GroupKey, mappingAnchors, documentAnchors);
-                    var patchVersion = ReadScalar(patchNode, PatchVersionKey, mappingAnchors, documentAnchors);
-
-                    foreach (var target in EnumerateGameTargets(gamesNode, mappingAnchors, documentAnchors))
-                    {
-                        if (!string.Equals(target.Serial, normalizedTitleId, StringComparison.OrdinalIgnoreCase))
-                            continue;
-
-                        if (!IsAppVersionApplicable(target.AppVersion, normalizedAppVersion))
-                            continue;
-
-                        var definition = new Rpcs3PatchDefinition(
-                            hash,
-                            patchName,
-                            target.GameTitle,
-                            target.Serial,
-                            target.AppVersion,
-                            author,
-                            notes,
-                            group,
-                            patchVersion);
-
-                        if (!MatchesCatalog(catalog, definition))
-                            continue;
-
-                        matches.Add(definition);
-                    }
+                    firstParseError ??= parseError;
+                    continue;
                 }
+
+                matches.AddRange(ParsePatchDefinitionsFromRoot(
+                    root,
+                    normalizedTitleId,
+                    normalizedAppVersion,
+                    catalog));
+            }
+
+            if (matches.Count == 0 && firstParseError != null)
+            {
+                errorMessage = firstParseError;
+                return false;
             }
 
             patches = matches
+                .GroupBy(BuildEntryKey, StringComparer.OrdinalIgnoreCase)
+                .Select(static group => group.First())
                 .OrderBy(static patch => patch.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(static patch => patch.AppVersion, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
@@ -258,8 +326,8 @@ public static class Rpcs3PatchesService
         }
         catch (Exception ex)
         {
-            Log.Warn($"Failed to parse RPCS3 patch file '{patchPath}' for title ID '{normalizedTitleId}'.", ex);
-            errorMessage ??= $"Failed to read {patchFileLabel}: {ex.Message}";
+            Log.Warn($"Failed to parse RPCS3 patch files for title ID '{normalizedTitleId}'.", ex);
+            errorMessage ??= $"Failed to read RPCS3 patch files: {ex.Message}";
             return false;
         }
     }
@@ -269,8 +337,67 @@ public static class Rpcs3PatchesService
         {
             Rpcs3PatchCatalog.ArtemisCheats => IsArtemisCheatPatch(definition),
             Rpcs3PatchCatalog.Official => !IsArtemisCheatPatch(definition),
+            Rpcs3PatchCatalog.Imported => IsArtemisCheatPatch(definition),
             _ => true,
         };
+
+    private static IEnumerable<Rpcs3PatchDefinition> ParsePatchDefinitionsFromRoot(
+        YamlMappingNode root,
+        string normalizedTitleId,
+        string? normalizedAppVersion,
+        Rpcs3PatchCatalog catalog)
+    {
+        var mappingAnchors = LoadAnchorMappings(root);
+        var documentAnchors = BuildDocumentAnchorIndex(root);
+
+        foreach (var hashEntry in root.Children)
+        {
+            var hash = NormalizePpuHashKey(hashEntry.Key.ToString());
+            if (!hash.StartsWith("PPU-", StringComparison.OrdinalIgnoreCase) ||
+                hashEntry.Value is not YamlMappingNode patchContainer)
+                continue;
+
+            foreach (var patchEntry in patchContainer.Children)
+            {
+                if (patchEntry.Value is not YamlMappingNode patchNode)
+                    continue;
+
+                var patchName = patchEntry.Key.ToString().Trim();
+                if (!TryGetChild(patchNode, GamesKey, out var gamesNode))
+                    continue;
+
+                var author = ReadScalar(patchNode, AuthorKey, mappingAnchors, documentAnchors);
+                var notes = ReadScalar(patchNode, NotesKey, mappingAnchors, documentAnchors);
+                var group = ReadScalar(patchNode, GroupKey, mappingAnchors, documentAnchors);
+                var patchVersion = ReadScalar(patchNode, PatchVersionKey, mappingAnchors, documentAnchors);
+
+                foreach (var target in EnumerateGameTargets(gamesNode, mappingAnchors, documentAnchors))
+                {
+                    if (!string.Equals(target.Serial, normalizedTitleId, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (!IsAppVersionApplicable(target.AppVersion, normalizedAppVersion))
+                        continue;
+
+                    var definition = new Rpcs3PatchDefinition(
+                        hash,
+                        patchName,
+                        target.GameTitle,
+                        target.Serial,
+                        target.AppVersion,
+                        author,
+                        notes,
+                        group,
+                        patchVersion);
+
+                    if (!MatchesCatalog(catalog, definition))
+                        continue;
+
+                    yield return definition;
+                }
+            }
+        }
+    }
 
     public static IReadOnlyList<string> ExtractTitleIdsFromText(string? text)
     {
