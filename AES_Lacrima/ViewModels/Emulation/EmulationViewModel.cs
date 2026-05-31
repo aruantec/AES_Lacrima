@@ -426,6 +426,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         private bool _requestStopEmulatorCapture;
 
         [ObservableProperty]
+        private bool _restoreTargetWindowOnStop = true;
+
+        [ObservableProperty]
         private bool _isRenderOptionsOpen;
 
         [ObservableProperty]

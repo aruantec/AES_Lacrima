@@ -91,6 +91,9 @@ public class EmulatorCaptureHost : ContentControl
     public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
 
+    public static readonly StyledProperty<bool> RestoreTargetWindowOnStopProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(RestoreTargetWindowOnStop), true);
+
     public static readonly StyledProperty<int> ClientAreaCropLeftInsetProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, int>(nameof(ClientAreaCropLeftInset), 0);
 
@@ -275,6 +278,12 @@ public class EmulatorCaptureHost : ContentControl
         set => SetValue(HideTargetWindowAfterCaptureStartsProperty, value);
     }
 
+    public bool RestoreTargetWindowOnStop
+    {
+        get => GetValue(RestoreTargetWindowOnStopProperty);
+        set => SetValue(RestoreTargetWindowOnStopProperty, value);
+    }
+
     public int ClientAreaCropLeftInset
     {
         get => GetValue(ClientAreaCropLeftInsetProperty);
@@ -431,6 +440,7 @@ public class EmulatorCaptureHost : ContentControl
         wgcBackend.DisableVSync = DisableVSync;
         wgcBackend.RetroarchShaderFile = string.IsNullOrWhiteSpace(ShaderPath) && ClearShaderWhenPathEmpty ? null : ShaderPath;
         wgcBackend.ForceUseTargetClientSize = ForceUseTargetClientArea;
+        wgcBackend.RestoreTargetWindowOnStop = RestoreTargetWindowOnStop;
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -651,6 +661,7 @@ public class EmulatorCaptureHost : ContentControl
                     compositionBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
                     compositionBackend.CaptureSessionStartDelayMs = CaptureSessionStartDelayMs;
                     compositionBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
+                    compositionBackend.RestoreTargetWindowOnStop = RestoreTargetWindowOnStop;
                     compositionBackend.CaptureWindowAspectRatio = CaptureWindowAspectRatio;
                     compositionBackend.ShowStatisticsOverlay = false;
                     compositionBackend.ShowFrametimeGraph = false;
@@ -674,6 +685,7 @@ public class EmulatorCaptureHost : ContentControl
                     windowsBackend.ForceUseTargetClientArea = ForceUseTargetClientArea;
                     windowsBackend.EnablePillarboxCrop = EnablePillarboxCrop;
                     windowsBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
+                    windowsBackend.RestoreTargetWindowOnStop = RestoreTargetWindowOnStop;
                     windowsBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
                     windowsBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
                     windowsBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;

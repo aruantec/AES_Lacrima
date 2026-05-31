@@ -38,6 +38,7 @@
                                        ShaderPath="{Binding SelectedShaderPath}"
                                        ClearShaderWhenPathEmpty="{Binding ClearShaderWhenPathEmpty}"
                                        RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}"
+                                       RestoreTargetWindowOnStop="{Binding RestoreTargetWindowOnStop}"
                                        CaptureMode="{Binding SelectedCaptureMode}" />
     </Grid>
 </Window>

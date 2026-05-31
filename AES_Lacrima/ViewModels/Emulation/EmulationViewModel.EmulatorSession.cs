@@ -38,7 +38,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using AES_Core.Logging;
 using DrawingIcon = System.Drawing.Icon;
 
@@ -59,7 +59,7 @@ namespace AES_Lacrima.ViewModels
         private void RequestEmulatorLaunch(PendingEmulatorLaunchRequest request)
         {
             _pendingEmulatorLaunchRequest = request;
-            RequestStopEmulatorCapture = true;
+            PrepareEmulatorShutdownCapture();
             EmulatorTargetHwnd = IntPtr.Zero;
             IsEmulatorLaunchInProgress = true;
 
@@ -395,15 +395,63 @@ namespace AES_Lacrima.ViewModels
 
             _isClosingActiveEmulatorForRelaunch = true;
             SLog.Info($"EmulationViewModel starting tracked emulator shutdown. pid={process.Id}.");
+            PrepareEmulatorShutdownCapture();
+            _ = CloseTrackedEmulatorForPendingLaunchAsync(process);
+        }
+
+        private void PrepareEmulatorShutdownCapture()
+        {
+            RestoreTargetWindowOnStop = false;
             if (!RequestStopEmulatorCapture)
                 RequestStopEmulatorCapture = true;
-            _ = CloseTrackedEmulatorForPendingLaunchAsync(process);
+        }
+
+        private void ResetEmulatorShutdownCaptureState()
+        {
+            RestoreTargetWindowOnStop = true;
+        }
+
+        private static void TryKeepEmulatorHiddenForShutdown(IntPtr targetHwnd, Process process)
+        {
+            if (!OperatingSystem.IsWindows())
+                return;
+
+            var hwnd = targetHwnd;
+            if (hwnd == IntPtr.Zero)
+            {
+                try
+                {
+                    hwnd = process.MainWindowHandle;
+                }
+                catch (Exception logEx)
+                {
+                    SLog.Debug("Failed to resolve emulator main window handle during shutdown.", logEx);
+                }
+            }
+
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            try
+            {
+                if (NativeIsWindow(hwnd))
+                    Win32API.HideWindowForInPlaceCapture(hwnd);
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to hide emulator window during shutdown.", ex);
+            }
         }
 
         private async Task CloseTrackedEmulatorForPendingLaunchAsync(Process process)
         {
+            IntPtr shutdownHwnd = IntPtr.Zero;
             try
             {
+                await Dispatcher.UIThread.InvokeAsync(() => shutdownHwnd = EmulatorTargetHwnd, DispatcherPriority.Background)
+                    .GetTask()
+                    .ConfigureAwait(false);
+
                 await WaitForCaptureStopBeforeClosingProcessAsync().ConfigureAwait(false);
 
                 if (TryRequestRpcs3Shutdown(process))
@@ -413,6 +461,8 @@ namespace AES_Lacrima.ViewModels
 
                 await Task.Run(() =>
                 {
+                    TryKeepEmulatorHiddenForShutdown(shutdownHwnd, process);
+
                     var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "duckstation", StringComparison.OrdinalIgnoreCase);
@@ -491,6 +541,7 @@ namespace AES_Lacrima.ViewModels
                 {
                     SLog.Info("EmulationViewModel finished the tracked emulator shutdown flow.");
                     _isClosingActiveEmulatorForRelaunch = false;
+                    ResetEmulatorShutdownCaptureState();
                     TryLaunchPendingEmulatorRequest();
                 }, DispatcherPriority.Background);
             }

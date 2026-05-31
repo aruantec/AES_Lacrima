@@ -306,10 +306,19 @@ public class CompositionWgcCaptureControl : Control
     public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
         AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
 
+    public static readonly StyledProperty<bool> RestoreTargetWindowOnStopProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(RestoreTargetWindowOnStop), true);
+
     public bool HideTargetWindowAfterCaptureStarts
     {
         get => GetValue(HideTargetWindowAfterCaptureStartsProperty);
         set => SetValue(HideTargetWindowAfterCaptureStartsProperty, value);
+    }
+
+    public bool RestoreTargetWindowOnStop
+    {
+        get => GetValue(RestoreTargetWindowOnStopProperty);
+        set => SetValue(RestoreTargetWindowOnStopProperty, value);
     }
 
     public static readonly StyledProperty<double> CaptureWindowAspectRatioProperty =
@@ -868,7 +877,9 @@ public class CompositionWgcCaptureControl : Control
         _sessionStartCts = null;
 
         var previousTargetHwnd = _activeTargetHwnd;
-        var canRestoreTargetWindow = previousTargetHwnd != IntPtr.Zero && IsWindow(previousTargetHwnd);
+        var canRestoreTargetWindow = RestoreTargetWindowOnStop &&
+                                     previousTargetHwnd != IntPtr.Zero &&
+                                     IsWindow(previousTargetHwnd);
 
         WindowHandler? windowHandlerToStop = _windowHandler;
         _windowHandler = null;
@@ -898,6 +909,11 @@ public class CompositionWgcCaptureControl : Control
                         windowHandlerToStop?.RestoreOriginalPosition();
                         Win32API.RestoreWindowDecorations(hwndToRestore);
                         Win32API.SetWindowOpacity(hwndToRestore, 255);
+                    }
+                    else if (previousTargetHwnd != IntPtr.Zero && IsWindow(previousTargetHwnd))
+                    {
+                        Win32API.ClearSavedWindowState(previousTargetHwnd);
+                        Win32API.HideWindowForInPlaceCapture(previousTargetHwnd);
                     }
                 }
                 catch (Exception ex)
