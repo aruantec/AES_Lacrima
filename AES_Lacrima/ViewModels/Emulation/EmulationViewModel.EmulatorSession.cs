@@ -923,7 +923,7 @@ namespace AES_Lacrima.ViewModels
                 var hwnd = await ResolveCaptureTargetForCurrentPlatformAsync(process, handler).ConfigureAwait(false);
                 if (hwnd == IntPtr.Zero)
                 {
-                    var maxRetries = handler is RetroArchHandler ? 4 : 1;
+                    var maxRetries = handler is RetroArchHandler or CemuHandler ? 4 : 1;
                     for (int i = 0; i < maxRetries && hwnd == IntPtr.Zero; i++)
                     {
                         SLog.Warn($"Failed to resolve emulator capture target for '{romPath}' (attempt {i + 1}). Retrying...");

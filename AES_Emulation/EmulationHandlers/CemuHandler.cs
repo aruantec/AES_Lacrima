@@ -7,7 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Emulation.EmulationHandlers;
@@ -64,10 +64,7 @@ public sealed class CemuHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => true;
 
-    public override bool DeferWindowHidingUntilCaptured => false;
-
-
-    public override int CaptureStartupDelayMs => 0;
+    public override int CaptureStartupDelayMs => 250;
 
     public override EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.DirectComposition;
 
@@ -207,30 +204,98 @@ public sealed class CemuHandler : EmulatorHandlerBase
         _fullscreenScalingWorkaroundApplied = false;
     }
 
+    public override void PrepareProcessForCapture(Process process)
+    {
+        // Do not hide or resize during resolution — Cemu's render window must finish constructing first.
+    }
+
+    public override void PrepareWindowForCapture(IntPtr hwnd)
+    {
+        // Geometry/hiding are applied once a stable game window is selected in ResolveCaptureTargetAsync.
+    }
+
+    public override void PrepareWindowForCaptureAttach(IntPtr hwnd)
+    {
+        // Geometry is applied once the render window is fully constructed during resolve.
+    }
+
+    public override bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle)
+        => IsLikelyCemuRenderWindow(hwnd, mainWindowHandle);
+
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
-        await WaitForRenderReadyLogAsync(process, cancellationToken, () => PrepareProcessForCapture(process)).ConfigureAwait(false);
+        await WaitForRenderReadyLogAsync(process, cancellationToken).ConfigureAwait(false);
 
-        for (var attempt = 0; attempt < 200; attempt++)
+        const int maxAttempts = 200;
+        const int delayMs = 50;
+        const int stableAttemptsBeforeAssign = 8;
+
+        IntPtr observedHwnd = IntPtr.Zero;
+        var observedStableAttempts = 0;
+        var lastStableWidth = 0;
+        var lastStableHeight = 0;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            PrepareProcessForCapture(process);
-
-            var preferred = FindPreferredWindowHandle(process);
-            if (preferred != IntPtr.Zero)
+            IntPtr mainWindowHandle = IntPtr.Zero;
+            try
             {
-                PrepareWindowForCapture(preferred);
-                return preferred;
+                process.Refresh();
+                mainWindowHandle = process.MainWindowHandle;
+            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+
+            var hwnd = FindPreferredWindowHandle(process);
+            if (hwnd != IntPtr.Zero)
+                KeepWindowHiddenDuringResolve(hwnd);
+
+            if (hwnd != IntPtr.Zero &&
+                IsStableCaptureCandidate(hwnd, mainWindowHandle) &&
+                Win32API.TryGetWindowClientSize(hwnd, out var width, out var height))
+            {
+                var dimensionsStable = width == lastStableWidth && height == lastStableHeight;
+                if (hwnd == observedHwnd && dimensionsStable)
+                    observedStableAttempts++;
+                else
+                {
+                    observedHwnd = hwnd;
+                    observedStableAttempts = 1;
+                    lastStableWidth = width;
+                    lastStableHeight = height;
+                }
+
+                if (observedStableAttempts >= stableAttemptsBeforeAssign)
+                {
+                    ApplyCaptureGeometryOnce(hwnd);
+                    KeepWindowHiddenDuringResolve(hwnd);
+                    await Task.Delay(150, cancellationToken).ConfigureAwait(false);
+                    return hwnd;
+                }
+            }
+            else
+            {
+                observedHwnd = IntPtr.Zero;
+                observedStableAttempts = 0;
+                lastStableWidth = 0;
+                lastStableHeight = 0;
             }
 
-            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
         }
 
-        return IntPtr.Zero;
+        var fallback = FindPreferredWindowHandle(process);
+        if (fallback != IntPtr.Zero && IsLikelyCemuRenderWindow(fallback, process.MainWindowHandle))
+        {
+            ApplyCaptureGeometryOnce(fallback);
+            KeepWindowHiddenDuringResolve(fallback);
+        }
+
+        return fallback;
     }
 
-    private static async Task WaitForRenderReadyLogAsync(Process process, CancellationToken cancellationToken, Action? onPoll)
+    private static async Task WaitForRenderReadyLogAsync(Process process, CancellationToken cancellationToken)
     {
         if (process == null)
             return;
@@ -239,11 +304,10 @@ public sealed class CemuHandler : EmulatorHandlerBase
         if (string.IsNullOrWhiteSpace(logFilePath))
             return;
 
-        var deadline = DateTime.UtcNow.AddSeconds(60);
+        var deadline = DateTime.UtcNow.AddSeconds(90);
         while (DateTime.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            onPoll?.Invoke();
 
             try
             {
@@ -272,18 +336,20 @@ public sealed class CemuHandler : EmulatorHandlerBase
             if (string.IsNullOrWhiteSpace(executableDirectory))
                 return null;
 
-            // Check executable directory first (standard for -c <dir> or portable installs)
+            // Launch uses -c <executableDirectory>; log.txt is created there even before the file exists.
             var localLogPath = Path.Combine(executableDirectory, "log.txt");
-            if (File.Exists(localLogPath))
+            if (File.Exists(localLogPath) || Directory.Exists(executableDirectory))
                 return localLogPath;
 
             var portableDirectory = Path.Combine(executableDirectory, "portable");
             var portableLogPath = Path.Combine(portableDirectory, "log.txt");
-            if (Directory.Exists(portableDirectory))
+            if (Directory.Exists(portableDirectory) || File.Exists(portableLogPath))
                 return portableLogPath;
 
-            var roamingPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Cemu", "log.txt");
-            return roamingPath;
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Cemu",
+                "log.txt");
         }
         catch
         {
@@ -291,12 +357,68 @@ public sealed class CemuHandler : EmulatorHandlerBase
         }
     }
 
-    public override void PrepareWindowForCapture(IntPtr hwnd)
+    private static void KeepWindowHiddenDuringResolve(IntPtr hwnd)
     {
-        if (hwnd == IntPtr.Zero)
+        if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
             return;
 
-        PrepareWindowForCaptureAttach(hwnd);
+        try
+        {
+            Win32API.SetWindowCloaked(hwnd, cloaked: true);
+            Win32API.MoveAway(hwnd, useCloak: true);
+            Win32API.EnsureRenderActiveForCapture(hwnd, bringOnScreen: false);
+        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+    }
+
+    private void ApplyCaptureGeometryOnce(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero || !OperatingSystem.IsWindows())
+            return;
+
+        try
+        {
+            Win32API.TryExitFullscreenWindow(hwnd);
+
+            if (Win32API.HasWindowCaption(hwnd))
+                Win32API.RemoveWindowDecorations(hwnd);
+
+            var aspect = CaptureWindowAspectRatio;
+            if (aspect is > 0)
+                Win32API.ResizeWindowToAspectRatioInPlace(hwnd, aspect.Value);
+        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+    }
+
+    private static bool IsStableCaptureCandidate(IntPtr hwnd, IntPtr mainWindowHandle)
+    {
+        if (!IsLikelyCemuRenderWindow(hwnd, mainWindowHandle))
+            return false;
+
+        if (IsIconic(hwnd))
+            return false;
+
+        if (!Win32API.TryGetWindowClientSize(hwnd, out var width, out var height))
+            return false;
+
+        return width >= 640 && height >= 360;
+    }
+
+    private static bool IsCemuShellWindow(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return true;
+
+        var trimmed = title.Trim();
+        if (string.Equals(trimmed, "Cemu", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var lower = trimmed.ToLowerInvariant();
+        return lower.Contains("title list", StringComparison.Ordinal) ||
+               lower.Contains("getting started", StringComparison.Ordinal) ||
+               lower.Contains("graphic pack", StringComparison.Ordinal) ||
+               lower.Contains("input settings", StringComparison.Ordinal) ||
+               lower.Contains("general settings", StringComparison.Ordinal);
     }
 
     private static bool IsLikelyCemuRenderWindow(IntPtr hwnd, IntPtr mainWindowHandle)
@@ -305,41 +427,43 @@ public sealed class CemuHandler : EmulatorHandlerBase
             return false;
 
         var title = GetWindowTitle(hwnd).Trim();
-        var className = GetWindowClassName(hwnd);
+        if (IsCemuShellWindow(title))
+            return false;
+
         var lowerTitle = title.ToLowerInvariant();
-        var lowerClass = className.ToLowerInvariant();
-
-        if (lowerClass.Contains("cemu"))
-            return true;
-
-        if (lowerTitle.Contains("cemu") && !lowerTitle.Contains("cemu hook"))
+        if (lowerTitle.Contains("settings") ||
+            lowerTitle.Contains("about") ||
+            lowerTitle.Contains("profile") ||
+            lowerTitle.Contains("update") ||
+            lowerTitle.Contains("options") ||
+            lowerTitle.Contains("cemu hook"))
         {
-            // If it contains FPS or game info, it's almost certainly the render window
-            if (lowerTitle.Contains("fps:") || lowerTitle.Contains("loading") || lowerTitle.Contains("compiling"))
-                return true;
-
-            return true;
+            return false;
         }
 
-        if (!string.IsNullOrWhiteSpace(title) &&
-            !lowerTitle.Contains("settings") &&
-            !lowerTitle.Contains("graphics") &&
-            !lowerTitle.Contains("audio") &&
-            !lowerTitle.Contains("input") &&
-            !lowerTitle.Contains("about") &&
-            !lowerTitle.Contains("profile") &&
-            !lowerTitle.Contains("update") &&
-            !lowerTitle.Contains("options") &&
-            !lowerTitle.Contains("vulkan") &&
-            !lowerTitle.Contains("opengl"))
+        if (lowerTitle.Contains("fps:") ||
+            lowerTitle.Contains("loading") ||
+            lowerTitle.Contains("compiling"))
         {
             return true;
         }
 
-        if (!string.IsNullOrWhiteSpace(lowerClass) && (lowerClass.Contains("qwindow") || lowerClass.Contains("qt6")) && hwnd != mainWindowHandle)
+        if (!string.IsNullOrWhiteSpace(title) && title.Length > 5)
             return true;
 
-        return false;
+        var lowerClass = GetWindowClassName(hwnd).ToLowerInvariant();
+        if ((lowerClass.Contains("qwindow") || lowerClass.Contains("qt6")) &&
+            hwnd != mainWindowHandle &&
+            Win32API.TryGetWindowClientSize(hwnd, out var width, out var height) &&
+            width >= 480 &&
+            height >= 270)
+        {
+            return true;
+        }
+
+        return hwnd == mainWindowHandle &&
+               !string.IsNullOrWhiteSpace(title) &&
+               !string.Equals(title, "Cemu", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? ResolveCemuLauncherPath(string? launcherPath)
