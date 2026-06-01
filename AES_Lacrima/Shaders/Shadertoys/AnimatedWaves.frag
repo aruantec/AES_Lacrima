@@ -127,21 +127,21 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 cp0 = coverUvUniformToFill(vec2(0.22, 0.30), res, iChannel1Size);
     vec2 cp1 = coverUvUniformToFill(vec2(0.78, 0.34), res, iChannel1Size);
     vec2 cp2 = coverUvUniformToFill(vec2(0.45, 0.70), res, iChannel1Size);
-    vec3 coverAvg = (
-        texture(iChannel1, clamp(cp0, 0.0, 1.0)).rgb +
-        texture(iChannel1, clamp(cp1, 0.0, 1.0)).rgb +
-        texture(iChannel1, clamp(cp2, 0.0, 1.0)).rgb
-    ) / 3.0;
+    vec3 sample0 = texture(iChannel1, clamp(cp0, 0.0, 1.0)).rgb;
+    vec3 sample1 = texture(iChannel1, clamp(cp1, 0.0, 1.0)).rgb;
+    vec3 sample2 = texture(iChannel1, clamp(cp2, 0.0, 1.0)).rgb;
+    vec3 coverAvg = (sample0 + sample1 + sample2) / 3.0;
 
-    // Strongly anchor palette to cover colors.
-    vec3 coverPaletteA = sat(mix(u_primary, coverAvg, 0.30), 1.10);
-    vec3 coverPaletteB = sat(mix(u_secondary, coverAvg.bgr, 0.26), 1.06);
-    vec3 warmBand = sat(mix(coverPaletteA, hueShift(coverPaletteA, 0.35), 0.48), 1.08);
+    // Anchor palette to three dominant cover colors (u_primary / u_secondary / u_tertiary).
+    vec3 coverPaletteA = sat(mix(mix(u_primary, sample0, 0.35), coverAvg, 0.18), 1.10);
+    vec3 coverPaletteB = sat(mix(mix(u_secondary, sample1, 0.35), coverAvg.bgr, 0.18), 1.06);
+    vec3 coverPaletteC = sat(mix(mix(u_tertiary, sample2, 0.35), coverAvg.gbr, 0.18), 1.04);
+    vec3 warmBand = sat(mix(coverPaletteA, hueShift(coverPaletteC, 0.22), 0.45), 1.08);
     vec3 coolBand = sat(mix(coverPaletteB, hueShift(coverPaletteB, -0.35), 0.50), 1.04);
-    vec3 lightBand = sat(mix(max(coverPaletteA, coverPaletteB), vec3(0.95), 0.48), 1.02);
+    vec3 lightBand = sat(mix(max(max(coverPaletteA, coverPaletteB), coverPaletteC), vec3(0.95), 0.48), 1.02);
     vec3 deepBand = mix(
         vscodeBg,
-        sat(mix(min(coverPaletteA, coverPaletteB) * 0.42, vec3(0.015, 0.02, 0.035), 0.58), 0.95),
+        sat(mix(min(min(coverPaletteA, coverPaletteB), coverPaletteC) * 0.42, vec3(0.015, 0.02, 0.035), 0.58), 0.95),
         0.28
     );
 
@@ -159,7 +159,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec3 color = mix(deepBand, coolBand, smoothstep(0.05, 0.85, uv.x) * 0.55);
     color = mix(color, lightBand,       band1 * 0.55);
     color = mix(color, warmBand,        band2 * 0.65);
-    color = mix(color, coverPaletteA,   band3 * 0.62);
+    color = mix(color, coverPaletteC,   band3 * 0.62);
     color = mix(color, dynamicAccent,   band4 * 0.50);
     color = mix(color, deepBand, smoothstep(-0.42, -0.96, q.y) * 0.96);
 

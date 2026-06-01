@@ -14,7 +14,7 @@ using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Text;
 using log4net;
-
+
 using AES_Core.Logging;
 namespace AES_Controls.GL;
 
@@ -51,12 +51,16 @@ public class GlShaderToyControl : OpenGlControlBase
     private readonly BitmapColorHelper _bitmapColorHelper = new();
     private Color? _coverPrimaryColor;
     private Color? _coverSecondaryColor;
+    private Color? _coverTertiaryColor;
     private float _primaryR = 0.5f, _primaryG = 0.5f, _primaryB = 0.5f;
     private float _secondaryR = 0.5f, _secondaryG = 0.5f, _secondaryB = 0.5f;
+    private float _tertiaryR = 0.5f, _tertiaryG = 0.5f, _tertiaryB = 0.5f;
     private float _fromPrimaryR = 0.5f, _fromPrimaryG = 0.5f, _fromPrimaryB = 0.5f;
     private float _fromSecondaryR = 0.5f, _fromSecondaryG = 0.5f, _fromSecondaryB = 0.5f;
+    private float _fromTertiaryR = 0.5f, _fromTertiaryG = 0.5f, _fromTertiaryB = 0.5f;
     private float _targetPrimaryR = 0.5f, _targetPrimaryG = 0.5f, _targetPrimaryB = 0.5f;
     private float _targetSecondaryR = 0.5f, _targetSecondaryG = 0.5f, _targetSecondaryB = 0.5f;
+    private float _targetTertiaryR = 0.5f, _targetTertiaryG = 0.5f, _targetTertiaryB = 0.5f;
     private bool _colorTransitionInitialized;
     private double _colorTransitionStartTime;
     private const float DefaultGray = 0.5f;
@@ -271,7 +275,7 @@ public class GlShaderToyControl : OpenGlControlBase
         // and any `main()` implementation. Keep functions like `mainImage`.
         var lines = content.Replace("\r\n", "\n").Split('\n');
         var keep = new List<string>();
-        var forbiddenUniformNames = new[] { "iResolution", "iTime", "iMouse", "u_fade", "iChannel0", "iChannel1", "iChannel1Size", "u_primary", "u_secondary", "u_grad0", "u_grad1", "u_grad2", "u_grad3", "u_grad4" };
+        var forbiddenUniformNames = new[] { "iResolution", "iTime", "iMouse", "u_fade", "iChannel0", "iChannel1", "iChannel1Size", "u_primary", "u_secondary", "u_tertiary", "u_grad0", "u_grad1", "u_grad2", "u_grad3", "u_grad4" };
 
         foreach (var raw in lines)
         {
@@ -538,7 +542,7 @@ public class GlShaderToyControl : OpenGlControlBase
             uniform vec3 iResolution; uniform float iTime; uniform vec4 iMouse;
             uniform float u_fade; uniform sampler2D iChannel0;
             uniform sampler2D iChannel1; uniform vec2 iChannel1Size;
-            uniform vec3 u_primary; uniform vec3 u_secondary;
+            uniform vec3 u_primary; uniform vec3 u_secondary; uniform vec3 u_tertiary;
             out vec4 outFragColor;
             {_processedShaderCode}
             void main() {{ vec4 c; mainImage(c, gl_FragCoord.xy); outFragColor = c; }}";
@@ -582,6 +586,9 @@ public class GlShaderToyControl : OpenGlControlBase
         float targetSecondaryR;
         float targetSecondaryG;
         float targetSecondaryB;
+        float targetTertiaryR;
+        float targetTertiaryG;
+        float targetTertiaryB;
 
         if (_coverPrimaryColor is Color coverPrimary)
         {
@@ -615,15 +622,31 @@ public class GlShaderToyControl : OpenGlControlBase
             targetSecondaryB = 1.0f - targetPrimaryB;
         }
 
+        if (_coverTertiaryColor is Color coverTertiary)
+        {
+            targetTertiaryR = coverTertiary.R / 255f;
+            targetTertiaryG = coverTertiary.G / 255f;
+            targetTertiaryB = coverTertiary.B / 255f;
+        }
+        else
+        {
+            targetTertiaryR = (targetPrimaryR + targetSecondaryR) * 0.5f;
+            targetTertiaryG = (targetPrimaryG + targetSecondaryG) * 0.5f;
+            targetTertiaryB = (targetPrimaryB + targetSecondaryB) * 0.5f;
+        }
+
         UpdateTransitionedCoverColors(targetPrimaryR, targetPrimaryG, targetPrimaryB, targetSecondaryR, targetSecondaryG,
-            targetSecondaryB);
+            targetSecondaryB, targetTertiaryR, targetTertiaryG, targetTertiaryB);
 
         SetUniform3F(gl, _program, "u_primary", _primaryR, _primaryG, _primaryB);
         SetUniform3F(gl, _program, "u_secondary", _secondaryR, _secondaryG, _secondaryB);
+        SetUniform3F(gl, _program, "u_tertiary", _tertiaryR, _tertiaryG, _tertiaryB);
         SetUniform1F(gl, _program, "u_fade", _fadeAlpha);
 
         var fallback = Color.FromRgb((byte)(_primaryR * 255f), (byte)(_primaryG * 255f), (byte)(_primaryB * 255f));
-        var gradientColors = GetGradientColors(SpectrumGradient, fallback);
+        var gradientColors = _coverPrimaryColor != null
+            ? GetCoverGradientColors()
+            : GetGradientColors(SpectrumGradient, fallback);
         SetUniform3F(gl, _program, "u_grad0", gradientColors[0].R / 255f, gradientColors[0].G / 255f,
             gradientColors[0].B / 255f);
         SetUniform3F(gl, _program, "u_grad1", gradientColors[1].R / 255f, gradientColors[1].G / 255f,
@@ -637,7 +660,8 @@ public class GlShaderToyControl : OpenGlControlBase
     }
     private void UpdateTransitionedCoverColors(
         float targetPrimaryR, float targetPrimaryG, float targetPrimaryB,
-        float targetSecondaryR, float targetSecondaryG, float targetSecondaryB)
+        float targetSecondaryR, float targetSecondaryG, float targetSecondaryB,
+        float targetTertiaryR, float targetTertiaryG, float targetTertiaryB)
     {
         var now = _st.Elapsed.TotalSeconds;
         if (!_colorTransitionInitialized)
@@ -648,18 +672,27 @@ public class GlShaderToyControl : OpenGlControlBase
             _secondaryR = targetSecondaryR;
             _secondaryG = targetSecondaryG;
             _secondaryB = targetSecondaryB;
+            _tertiaryR = targetTertiaryR;
+            _tertiaryG = targetTertiaryG;
+            _tertiaryB = targetTertiaryB;
             _fromPrimaryR = _primaryR;
             _fromPrimaryG = _primaryG;
             _fromPrimaryB = _primaryB;
             _fromSecondaryR = _secondaryR;
             _fromSecondaryG = _secondaryG;
             _fromSecondaryB = _secondaryB;
+            _fromTertiaryR = _tertiaryR;
+            _fromTertiaryG = _tertiaryG;
+            _fromTertiaryB = _tertiaryB;
             _targetPrimaryR = targetPrimaryR;
             _targetPrimaryG = targetPrimaryG;
             _targetPrimaryB = targetPrimaryB;
             _targetSecondaryR = targetSecondaryR;
             _targetSecondaryG = targetSecondaryG;
             _targetSecondaryB = targetSecondaryB;
+            _targetTertiaryR = targetTertiaryR;
+            _targetTertiaryG = targetTertiaryG;
+            _targetTertiaryB = targetTertiaryB;
             _colorTransitionStartTime = now;
             _colorTransitionInitialized = true;
             return;
@@ -671,7 +704,10 @@ public class GlShaderToyControl : OpenGlControlBase
             MathF.Abs(targetPrimaryB - _targetPrimaryB) > ColorTargetEpsilon ||
             MathF.Abs(targetSecondaryR - _targetSecondaryR) > ColorTargetEpsilon ||
             MathF.Abs(targetSecondaryG - _targetSecondaryG) > ColorTargetEpsilon ||
-            MathF.Abs(targetSecondaryB - _targetSecondaryB) > ColorTargetEpsilon;
+            MathF.Abs(targetSecondaryB - _targetSecondaryB) > ColorTargetEpsilon ||
+            MathF.Abs(targetTertiaryR - _targetTertiaryR) > ColorTargetEpsilon ||
+            MathF.Abs(targetTertiaryG - _targetTertiaryG) > ColorTargetEpsilon ||
+            MathF.Abs(targetTertiaryB - _targetTertiaryB) > ColorTargetEpsilon;
 
         if (targetChanged)
         {
@@ -681,12 +717,18 @@ public class GlShaderToyControl : OpenGlControlBase
             _fromSecondaryR = _secondaryR;
             _fromSecondaryG = _secondaryG;
             _fromSecondaryB = _secondaryB;
+            _fromTertiaryR = _tertiaryR;
+            _fromTertiaryG = _tertiaryG;
+            _fromTertiaryB = _tertiaryB;
             _targetPrimaryR = targetPrimaryR;
             _targetPrimaryG = targetPrimaryG;
             _targetPrimaryB = targetPrimaryB;
             _targetSecondaryR = targetSecondaryR;
             _targetSecondaryG = targetSecondaryG;
             _targetSecondaryB = targetSecondaryB;
+            _targetTertiaryR = targetTertiaryR;
+            _targetTertiaryG = targetTertiaryG;
+            _targetTertiaryB = targetTertiaryB;
             _colorTransitionStartTime = now;
         }
 
@@ -707,6 +749,9 @@ public class GlShaderToyControl : OpenGlControlBase
             _secondaryR = _fromSecondaryR + (DefaultGray - _fromSecondaryR) * k;
             _secondaryG = _fromSecondaryG + (DefaultGray - _fromSecondaryG) * k;
             _secondaryB = _fromSecondaryB + (DefaultGray - _fromSecondaryB) * k;
+            _tertiaryR = _fromTertiaryR + (DefaultGray - _fromTertiaryR) * k;
+            _tertiaryG = _fromTertiaryG + (DefaultGray - _fromTertiaryG) * k;
+            _tertiaryB = _fromTertiaryB + (DefaultGray - _fromTertiaryB) * k;
         }
         else
         {
@@ -717,29 +762,51 @@ public class GlShaderToyControl : OpenGlControlBase
             _secondaryR = DefaultGray + (_targetSecondaryR - DefaultGray) * k;
             _secondaryG = DefaultGray + (_targetSecondaryG - DefaultGray) * k;
             _secondaryB = DefaultGray + (_targetSecondaryB - DefaultGray) * k;
+            _tertiaryR = DefaultGray + (_targetTertiaryR - DefaultGray) * k;
+            _tertiaryG = DefaultGray + (_targetTertiaryG - DefaultGray) * k;
+            _tertiaryB = DefaultGray + (_targetTertiaryB - DefaultGray) * k;
         }
     }
+
+    private Color[] GetCoverGradientColors()
+    {
+        static Color Lerp(Color a, Color b, float t) =>
+            Color.FromRgb(
+                (byte)(a.R + (b.R - a.R) * t),
+                (byte)(a.G + (b.G - a.G) * t),
+                (byte)(a.B + (b.B - a.B) * t));
+
+        var c0 = Color.FromRgb((byte)(_primaryR * 255f), (byte)(_primaryG * 255f), (byte)(_primaryB * 255f));
+        var c1 = Color.FromRgb((byte)(_secondaryR * 255f), (byte)(_secondaryG * 255f), (byte)(_secondaryB * 255f));
+        var c2 = Color.FromRgb((byte)(_tertiaryR * 255f), (byte)(_tertiaryG * 255f), (byte)(_tertiaryB * 255f));
+
+        return
+        [
+            c0,
+            Lerp(c0, c1, 0.5f),
+            c1,
+            Lerp(c1, c2, 0.5f),
+            c2
+        ];
+    }
+
     private void UpdateCoverPalette(Bitmap? bitmap)
     {
         _coverPrimaryColor = null;
         _coverSecondaryColor = null;
+        _coverTertiaryColor = null;
 
         if (bitmap == null) return;
 
         try
         {
-            var dominant = BitmapColorHelper.GetDominantColor(bitmap);
-            if (dominant.A != 0)
-            {
-                _coverPrimaryColor = dominant;
-            }
-
-            var gradient = _bitmapColorHelper.GetColorGradient(bitmap);
-            var stops = gradient.GradientStops?.OrderBy(stop => stop.Offset).ToList();
-            if (stops != null && stops.Count >= 2)
-            {
-                _coverSecondaryColor = stops[^1].Color;
-            }
+            var colors = BitmapColorHelper.GetDominantColors(bitmap, 3);
+            if (colors.Length > 0 && colors[0].A != 0)
+                _coverPrimaryColor = colors[0];
+            if (colors.Length > 1)
+                _coverSecondaryColor = colors[1];
+            if (colors.Length > 2)
+                _coverTertiaryColor = colors[2];
         }
         catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
     }
