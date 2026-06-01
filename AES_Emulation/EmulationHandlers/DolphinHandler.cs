@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -6,7 +7,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Emulation.Windows.API;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Emulation.EmulationHandlers;
@@ -66,12 +67,8 @@ public sealed class DolphinHandler : EmulatorHandlerBase
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
         startInfo.ArgumentList.Clear();
 
-        var executableDirectory = Path.GetDirectoryName(startInfo.FileName);
-        var dolphinUserDirectory = string.IsNullOrWhiteSpace(executableDirectory)
-            ? startInfo.WorkingDirectory
-            : Path.Combine(executableDirectory, "User");
-
-        EnsurePauseOnFocusLossDisabled(dolphinUserDirectory);
+        var dolphinUserDirectory = ResolvePortableUserDirectory(startInfo.FileName, startInfo.WorkingDirectory);
+        ApplyDolphinLaunchConfigOverrides(dolphinUserDirectory);
 
         // Dolphin CLI: -b batch, -e executable/content path, -f fullscreen.
         if (!string.IsNullOrWhiteSpace(dolphinUserDirectory))
@@ -415,32 +412,124 @@ public sealed class DolphinHandler : EmulatorHandlerBase
         return null;
     }
 
-    private static void EnsurePauseOnFocusLossDisabled(string? userDirectory)
+    private static string? ResolvePortableUserDirectory(string? launcherExecutablePath, string? workingDirectory)
+    {
+        var executableDirectory = string.IsNullOrWhiteSpace(launcherExecutablePath)
+            ? null
+            : Path.GetDirectoryName(launcherExecutablePath);
+
+        if (!string.IsNullOrWhiteSpace(executableDirectory))
+            return Path.Combine(executableDirectory, "User");
+
+        return string.IsNullOrWhiteSpace(workingDirectory) ? null : Path.Combine(workingDirectory, "User");
+    }
+
+    /// <summary>
+    /// Applies launch-friendly Dolphin.ini overrides for both GameCube and Wii (same profile).
+    /// </summary>
+    private static void ApplyDolphinLaunchConfigOverrides(string? portableUserDirectory)
+    {
+        foreach (var userDirectory in EnumerateDolphinUserDirectories(portableUserDirectory))
+        {
+            TrySetDolphinIniValue(userDirectory, "PauseOnFocusLost", "False");
+            // Single NKit dialog for all platforms; Wii is mentioned in the dialog text but uses this same flag.
+            TrySetDolphinIniValue(userDirectory, "SkipNKitWarning", "True");
+        }
+    }
+
+    private static IEnumerable<string> EnumerateDolphinUserDirectories(string? portableUserDirectory)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(portableUserDirectory) && seen.Add(portableUserDirectory))
+            yield return portableUserDirectory;
+
+        foreach (var defaultUserDirectory in GetDefaultDolphinUserDirectories())
+        {
+            if (!string.IsNullOrWhiteSpace(defaultUserDirectory) && seen.Add(defaultUserDirectory))
+                yield return defaultUserDirectory;
+        }
+    }
+
+    private static IEnumerable<string> GetDefaultDolphinUserDirectories()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (OperatingSystem.IsWindows())
+        {
+            var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            if (!string.IsNullOrWhiteSpace(documents))
+                yield return Path.Combine(documents, "Dolphin Emulator");
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            if (!string.IsNullOrWhiteSpace(home))
+            {
+                yield return Path.Combine(home, ".local", "share", "dolphin-emu");
+                yield return Path.Combine(home, ".dolphin-emu");
+            }
+        }
+        else if (OperatingSystem.IsMacOS() && !string.IsNullOrWhiteSpace(home))
+        {
+            yield return Path.Combine(home, "Library", "Application Support", "Dolphin");
+        }
+    }
+
+    private static void TrySetDolphinIniValue(string? userDirectory, string key, string value)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(userDirectory))
                 return;
 
-            var configPath = Path.Combine(userDirectory, "Config", "Dolphin.ini");
-            if (!File.Exists(configPath))
-                return;
+            var configDirectory = Path.Combine(userDirectory, "Config");
+            Directory.CreateDirectory(configDirectory);
+            var configPath = Path.Combine(configDirectory, "Dolphin.ini");
 
-            var lines = File.ReadAllLines(configPath);
-            var modified = false;
-
-            for (var i = 0; i < lines.Length; i++)
+            List<string> lines;
+            if (File.Exists(configPath))
             {
-                if (lines[i].TrimStart().StartsWith("PauseOnFocusLost", StringComparison.OrdinalIgnoreCase) &&
-                    lines[i].Contains('='))
+                lines = [.. File.ReadAllLines(configPath)];
+            }
+            else
+            {
+                lines = ["[Interface]"];
+            }
+
+            var modified = false;
+            var keyFound = false;
+            for (var i = 0; i < lines.Count; i++)
+            {
+                var trimmed = lines[i].TrimStart();
+                if (!trimmed.StartsWith(key, StringComparison.OrdinalIgnoreCase) || !lines[i].Contains('='))
+                    continue;
+
+                keyFound = true;
+                var newLine = $"{key} = {value}";
+                if (!string.Equals(lines[i].Trim(), newLine, StringComparison.OrdinalIgnoreCase))
                 {
-                    var newLine = "PauseOnFocusLost = False";
-                    if (!string.Equals(lines[i].Trim(), newLine, StringComparison.OrdinalIgnoreCase))
-                    {
-                        lines[i] = newLine;
-                        modified = true;
-                    }
+                    lines[i] = newLine;
+                    modified = true;
                 }
+            }
+
+            if (!keyFound)
+            {
+                var interfaceHeaderIndex = lines.FindIndex(line =>
+                    string.Equals(line.Trim(), "[Interface]", StringComparison.OrdinalIgnoreCase));
+                if (interfaceHeaderIndex < 0)
+                {
+                    if (lines.Count > 0 && !string.IsNullOrWhiteSpace(lines[^1]))
+                        lines.Add(string.Empty);
+                    lines.Add("[Interface]");
+                    interfaceHeaderIndex = lines.Count - 1;
+                }
+
+                var insertAt = interfaceHeaderIndex + 1;
+                while (insertAt < lines.Count && lines[insertAt].TrimStart().StartsWith('['))
+                    insertAt++;
+
+                lines.Insert(insertAt, $"{key} = {value}");
+                modified = true;
             }
 
             if (modified)
