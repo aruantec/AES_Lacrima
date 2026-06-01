@@ -258,15 +258,18 @@ public class ScalableDecorator : Decorator
     public double GetContentRenderScale() => GetRenderScale(GetLayoutScale());
 
     /// <summary>
-    /// Caps internal arrange/render resolution without changing the final visual size.
+    /// Internal arrange/render multiplier paired with the inverse child transform.
+    /// Must match <paramref name="layoutScale"/> so measure/arrange preserve the user's scale.
     /// </summary>
     private double GetRenderScale(double layoutScale)
     {
         if (!EfficientScaling || layoutScale <= 1.0)
             return layoutScale;
 
-        var renderScale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-        return Math.Min(layoutScale, Math.Max(1.0, renderScale));
+        // Do not cap to TopLevel.RenderScaling (Windows display DPI). That value is already
+        // applied by the compositor; clamping here incorrectly limits UI scale to 1.5x on 150%
+        // displays even when ScaleFactor or carousel/album settings request 2x–3x.
+        return layoutScale;
     }
 
     protected override Size MeasureOverride(Size available)
