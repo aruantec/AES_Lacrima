@@ -32,7 +32,7 @@ internal sealed class FolderCompositionVisualHandler : CompositionCustomVisualHa
             CurY = y;
             TgtX = x;
             TgtY = y;
-            CurOpacity = 0;
+            CurOpacity = 1;
             TgtOpacity = 1;
             CoverFade = 0;
         }
@@ -42,7 +42,6 @@ internal sealed class FolderCompositionVisualHandler : CompositionCustomVisualHa
             bool any = false;
             double dx = TgtX - CurX;
             double dy = TgtY - CurY;
-            double dop = TgtOpacity - CurOpacity;
 
             if (Math.Abs(dx) > 0.1 || Math.Abs(dy) > 0.1)
             {
@@ -56,34 +55,15 @@ internal sealed class FolderCompositionVisualHandler : CompositionCustomVisualHa
                 CurY = TgtY;
             }
 
-            if (Math.Abs(dop) > 0.005)
-            {
-                CurOpacity += dop * speed;
-                any = true;
-            }
-            else
-            {
-                CurOpacity = TgtOpacity;
-            }
+            CurOpacity = TgtOpacity;
 
             double targetFade = Cover != null ? 1.0 : 0.0;
             if (!ReferenceEquals(Cover, LastCover))
             {
                 LastCover = Cover;
-                if (CoverFade > 0.1)
-                    CoverFade = 0;
             }
 
-            double df = targetFade - CoverFade;
-            if (Math.Abs(df) > 0.005)
-            {
-                CoverFade += df * (speed * 0.75);
-                any = true;
-            }
-            else
-            {
-                CoverFade = targetFade;
-            }
+            CoverFade = targetFade;
 
             return any;
         }
@@ -437,6 +417,8 @@ internal sealed class FolderCompositionVisualHandler : CompositionCustomVisualHa
                 state.TgtX = tx;
                 state.TgtY = ty;
                 state.TgtOpacity = 1;
+                state.CurOpacity = 1;
+                state.CoverFade = itemSnap.UseFolderCover || itemSnap.Cover != null ? 1.0 : 0.0;
                 _states.Add(state);
             }
             else
@@ -446,10 +428,12 @@ internal sealed class FolderCompositionVisualHandler : CompositionCustomVisualHa
                 state.TgtX = tx;
                 state.TgtY = ty;
                 state.TgtOpacity = 1;
+                state.CurOpacity = 1;
                 state.Cover = itemSnap.UseFolderCover ? null : itemSnap.Cover;
                 state.UseFolderCover = itemSnap.UseFolderCover;
                 if (!ReferenceEquals(state.Cover, itemSnap.Cover))
                     state.LastCover = null;
+                state.CoverFade = itemSnap.UseFolderCover || itemSnap.Cover != null ? 1.0 : 0.0;
             }
         }
 
@@ -484,7 +468,7 @@ internal sealed class FolderCompositionVisualHandler : CompositionCustomVisualHa
             state.CurX = state.TgtX;
             state.CurY = state.TgtY;
             state.CurOpacity = state.TgtOpacity;
-            state.CoverFade = state.Cover != null ? 1.0 : 0.0;
+            state.CoverFade = state.UseFolderCover || state.Cover != null ? 1.0 : 0.0;
         }
 
         _curPress = _tgtPress;
@@ -510,9 +494,7 @@ internal sealed class FolderCompositionVisualHandler : CompositionCustomVisualHa
         foreach (var state in _states)
         {
             if (Math.Abs(state.TgtX - state.CurX) > 0.1 ||
-                Math.Abs(state.TgtY - state.CurY) > 0.1 ||
-                Math.Abs(state.TgtOpacity - state.CurOpacity) > 0.005 ||
-                Math.Abs((state.Cover != null ? 1.0 : 0.0) - state.CoverFade) > 0.005)
+                Math.Abs(state.TgtY - state.CurY) > 0.1)
             {
                 return true;
             }
