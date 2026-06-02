@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using AES_Core.IO;
 using AES_Core.Logging;
 using AES_Emulation.EmulationHandlers;
+using AES_Lacrima.Services.Emulation;
 using log4net;
 
 namespace AES_Lacrima.Services.Dolphin;
@@ -113,11 +114,15 @@ public static class DolphinGameIniService
 
             var wiiId = NormalizeGameId(metadata.WiiTitleId);
             var gcId = NormalizeGameId(metadata.GameCubeTitleId);
+            var section = NintendoDiscMetadataHelper.ResolveDiscSection(albumTitle, romPath);
 
-            if (IsWiiContext(romPath, albumTitle))
+            if (section == DiscSection.Wii)
                 return wiiId ?? gcId;
 
-            return gcId ?? wiiId;
+            if (section == DiscSection.GameCube)
+                return gcId ?? wiiId;
+
+            return wiiId ?? gcId;
         }
         catch (Exception ex)
         {
@@ -357,18 +362,6 @@ public static class DolphinGameIniService
         {
             Log.Warn($"Failed to set Dolphin.ini {section}/{key}.", ex);
         }
-    }
-
-    private static bool IsWiiContext(string romPath, string? albumTitle)
-    {
-        if (!string.IsNullOrWhiteSpace(albumTitle) &&
-            albumTitle.Contains("wii", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        var extension = Path.GetExtension(romPath).ToLowerInvariant();
-        return extension is ".wbfs" or ".wad" or ".wia" or ".rvz" or ".nfs";
     }
 
     private static DolphinGameIniEntryKind SectionToKind(string section) =>

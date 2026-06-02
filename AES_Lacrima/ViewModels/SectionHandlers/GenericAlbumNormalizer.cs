@@ -12,7 +12,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Lacrima.ViewModels.SectionHandlers
@@ -77,18 +77,12 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
                     return ps4Title;
             }
 
-            if (IsGameCubeAlbum(albumTitle))
+            if (NintendoDiscMetadataHelper.IsNintendoDiscAlbum(albumTitle) ||
+                NintendoDiscMetadataHelper.IsNintendoDiscFile(filePath))
             {
-                var gameCubeTitle = ResolveNintendoDiscTitle(filePath, DiscSection.GameCube);
-                if (!string.IsNullOrWhiteSpace(gameCubeTitle))
-                    return gameCubeTitle;
-            }
-
-            if (IsWiiAlbum(albumTitle))
-            {
-                var wiiTitle = ResolveNintendoDiscTitle(filePath, DiscSection.Wii);
-                if (!string.IsNullOrWhiteSpace(wiiTitle))
-                    return wiiTitle;
+                var nintendoTitle = ResolveNintendoDiscTitle(filePath, albumTitle);
+                if (!string.IsNullOrWhiteSpace(nintendoTitle))
+                    return nintendoTitle;
             }
 
             if (IsWiiUAlbum(albumTitle) || WiiUInstalledGameHelper.IsInstalledGameFolder(filePath))
@@ -179,26 +173,6 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
                    string.Equals(albumTitle, "X360", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool IsGameCubeAlbum(string? albumTitle)
-        {
-            if (string.IsNullOrWhiteSpace(albumTitle))
-                return false;
-
-            return string.Equals(albumTitle, "Nintendo GameCube", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(albumTitle, "GameCube", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(albumTitle, "GCN", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(albumTitle, "GC", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool IsWiiAlbum(string? albumTitle)
-        {
-            if (string.IsNullOrWhiteSpace(albumTitle))
-                return false;
-
-            return string.Equals(albumTitle, "Nintendo Wii", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(albumTitle, "Wii", StringComparison.OrdinalIgnoreCase);
-        }
-
         private static bool IsWiiUAlbum(string? albumTitle)
         {
             if (string.IsNullOrWhiteSpace(albumTitle))
@@ -263,49 +237,27 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
 
             var cachePath = GetLocalMetadataCachePath(filePath);
             var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
-            return metadata?.RomScanned == true;
+            if (metadata?.RomScanned != true)
+                return false;
+
+            if (NintendoDiscMetadataHelper.IsNintendoDiscFile(filePath) &&
+                NintendoDiscMetadataHelper.NeedsGameIdRescan(metadata))
+                return false;
+
+            return true;
         }
 
-        private static string? ResolveNintendoDiscTitle(string? filePath, DiscSection section)
+        private static string? ResolveNintendoDiscTitle(string? filePath, string? albumTitle)
         {
-            if (string.IsNullOrWhiteSpace(filePath))
-                return null;
-
-            var cachePath = GetLocalMetadataCachePath(filePath);
-            var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
-
-            // Persistent fast path: previous scan already ran for this file, so
-            // trust the cache regardless of whether it yielded data.
-            if (metadata?.RomScanned == true || _inspectionAttempted.ContainsKey(filePath))
-                return string.IsNullOrWhiteSpace(metadata?.Title) ? null : metadata.Title.Trim();
-
-            if (!File.Exists(filePath) && !Directory.Exists(filePath))
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
                 return null;
 
             _inspectionAttempted[filePath] = 1;
 
-            var romInfo = RomInspector.Inspect(filePath, section);
-            var gameId = romInfo?.GameId;
-            var extractedTitle = romInfo?.InternalTitle;
-
-            metadata ??= new CustomMetadata();
-            if (!string.IsNullOrWhiteSpace(gameId))
-            {
-                if (section == DiscSection.Wii)
-                    metadata.WiiTitleId = gameId;
-                else
-                    metadata.GameCubeTitleId = gameId;
-            }
-
-            if (ShouldUpdateMetadataTitle(metadata.Title, extractedTitle))
-                metadata.Title = extractedTitle!.Trim();
-
-            metadata.RomScanned = true;
-            BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
-
-            return !string.IsNullOrWhiteSpace(extractedTitle)
-                ? extractedTitle.Trim()
-                : (string.IsNullOrWhiteSpace(metadata.Title) ? null : metadata.Title.Trim());
+            var result = NintendoDiscMetadataHelper.InspectAndPersist(filePath, albumTitle);
+            var cachePath = GetLocalMetadataCachePath(filePath);
+            var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
+            return NintendoDiscMetadataHelper.ResolveBestTitle(result.Title, filePath, metadata);
         }
 
         private static string? ResolveWiiUTitle(string? filePath)
@@ -644,11 +596,8 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
                          .ToUpperInvariant();
         }
 
-        private static string GetLocalMetadataCachePath(string filePath)
-        {
-            var cacheId = BinaryMetadataHelper.GetCacheId(filePath ?? string.Empty);
-            return ApplicationPaths.GetCacheFile(cacheId + ".meta");
-        }
+        private static string GetLocalMetadataCachePath(string filePath) =>
+            NintendoDiscMetadataHelper.GetMetadataCachePath(filePath);
 
     }
 }

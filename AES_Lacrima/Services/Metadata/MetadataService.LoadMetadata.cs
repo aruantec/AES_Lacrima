@@ -174,18 +174,17 @@ namespace AES_Lacrima.Services
                 }
             }
 
-            IsGameCubeMetadata = IsGameCubeAlbum(item.Album);
             GameCubeTitleId = null;
-            if (IsGameCubeMetadata && !string.IsNullOrWhiteSpace(item.FileName))
-            {
-                await LoadNintendoDiscMetadataAsync(item, DiscSection.GameCube).ConfigureAwait(false);
-            }
-
-            IsWiiMetadata = IsWiiAlbum(item.Album);
             WiiTitleId = null;
-            if (IsWiiMetadata && !string.IsNullOrWhiteSpace(item.FileName))
+            IsGameCubeMetadata = false;
+            IsWiiMetadata = false;
+            if (NintendoDiscMetadataHelper.ShouldLoadNintendoDiscMetadata(item.Album, item.FileName) &&
+                !string.IsNullOrWhiteSpace(item.FileName))
             {
-                await LoadNintendoDiscMetadataAsync(item, DiscSection.Wii).ConfigureAwait(false);
+                var nintendoSection = NintendoDiscMetadataHelper.ResolveDiscSection(item.Album, item.FileName);
+                IsWiiMetadata = nintendoSection == DiscSection.Wii;
+                IsGameCubeMetadata = nintendoSection == DiscSection.GameCube;
+                await LoadNintendoDiscMetadataAsync(item, nintendoSection).ConfigureAwait(false);
             }
 
             IsWiiUMetadata = IsWiiUAlbum(item.Album) ||
@@ -342,13 +341,27 @@ namespace AES_Lacrima.Services
             }
         }
 
-        public async Task LoadMetadataForItemAsync(MediaItem item)
+        public async Task LoadMetadataForItemAsync(MediaItem item, string? albumContext = null)
         {
             if (item == null)
                 return;
 
+            try
+            {
+                await LoadMetadataForItemCoreAsync(item, albumContext).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                SLog.Error("Failed to load metadata for item", ex);
+            }
+        }
+
+        private async Task LoadMetadataForItemCoreAsync(MediaItem item, string? albumContext)
+        {
             _currentSelectedMedia = item;
-            FilePath = item.FileName;
+            var romPath = NintendoDiscMetadataHelper.NormalizeRomPath(item.FileName);
+            FilePath = romPath ?? item.FileName;
+            var nintendoAlbumTitle = NintendoDiscMetadataHelper.ResolveAlbumTitle(item.Album, albumContext);
             IsXbox360Metadata = string.Equals(item.Album, "Xbox 360", StringComparison.OrdinalIgnoreCase);
             Xbox360TitleId = null;
             Xbox360MediaId = null;
@@ -372,10 +385,20 @@ namespace AES_Lacrima.Services
                             string.Equals(item.Album, "PS2", StringComparison.OrdinalIgnoreCase);
              Ps2TitleId = null;
              Ps2Version = null;
-             IsGameCubeMetadata = IsGameCubeAlbum(item.Album);
              GameCubeTitleId = null;
-             IsWiiMetadata = IsWiiAlbum(item.Album);
              WiiTitleId = null;
+             IsGameCubeMetadata = false;
+             IsWiiMetadata = false;
+             if (NintendoDiscMetadataHelper.ShouldLoadNintendoDiscMetadata(nintendoAlbumTitle, item.FileName))
+             {
+                 var nintendoSection = NintendoDiscMetadataHelper.ResolveDiscSection(nintendoAlbumTitle, item.FileName);
+                 if (nintendoSection == DiscSection.Wii)
+                     IsWiiMetadata = true;
+                 else if (nintendoSection == DiscSection.GameCube)
+                     IsGameCubeMetadata = true;
+                 NotifyNintendoDiscGameIdChanged();
+             }
+
              IsWiiUMetadata = IsWiiUAlbum(item.Album) ||
                               WiiUInstalledGameHelper.IsInstalledGameFolder(item.FileName);
              WiiUTitleId = null;
@@ -400,7 +423,7 @@ namespace AES_Lacrima.Services
 
             Images.Clear();
 
-            var cachePath = GetMetadataCachePath(item.FileName);
+            var cachePath = GetMetadataCachePath(FilePath ?? item.FileName);
             var metadata = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath));
 
             if (metadata != null)
@@ -434,6 +457,19 @@ namespace AES_Lacrima.Services
                  if (string.IsNullOrWhiteSpace(Nintendo3dsTitleId))
                     Nintendo3dsTitleId = metadata.Nintendo3dsTitleId;
 
+                NintendoDiscMetadataHelper.ApplyMetadataFlags(
+                    nintendoAlbumTitle,
+                    item.FileName,
+                    metadata,
+                    out var isWiiFromCache,
+                    out var isGameCubeFromCache);
+                if (isWiiFromCache)
+                    IsWiiMetadata = true;
+                if (isGameCubeFromCache)
+                    IsGameCubeMetadata = true;
+                if (isWiiFromCache || isGameCubeFromCache)
+                    NotifyNintendoDiscGameIdChanged();
+
                     Title = metadata.Title;
                 if (string.IsNullOrWhiteSpace(Artists))
                     Artists = metadata.Artist;
@@ -466,13 +502,20 @@ namespace AES_Lacrima.Services
 
             if (Images.Count == 0 && item.CoverBitmap != null)
             {
-                using var ms = new MemoryStream();
-                item.CoverBitmap.Save(ms);
-                var content = ms.ToArray();
-                Images.Add(new TagImageModel(TagImageKind.Cover, content, "image/png", "Cover from album item")
+                try
                 {
-                    OnDeleteImage = OnDeleteImage
-                });
+                    using var ms = new MemoryStream();
+                    item.CoverBitmap.Save(ms);
+                    var content = ms.ToArray();
+                    Images.Add(new TagImageModel(TagImageKind.Cover, content, "image/png", "Cover from album item")
+                    {
+                        OnDeleteImage = OnDeleteImage
+                    });
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn("Failed to copy album cover into metadata editor.", ex);
+                }
             }
 
             if (Images.Count == 0 && !string.IsNullOrWhiteSpace(item.FileName))
@@ -484,6 +527,20 @@ namespace AES_Lacrima.Services
                 else if (IsPs3Metadata && await TryApplyCoverFromPs3InstalledGameAsync(item, CancellationToken.None, persistToCache: true).ConfigureAwait(false))
                 {
                     await ReloadImagesFromMetadataCacheAsync(item.FileName).ConfigureAwait(false);
+                }
+            }
+
+            if (NintendoDiscMetadataHelper.ShouldLoadNintendoDiscMetadata(nintendoAlbumTitle, item.FileName) &&
+                !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                try
+                {
+                    var nintendoSection = NintendoDiscMetadataHelper.ResolveDiscSection(nintendoAlbumTitle, item.FileName);
+                    await LoadNintendoDiscMetadataAsync(item, nintendoSection, nintendoAlbumTitle).ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn("Failed to load Nintendo disc metadata.", ex);
                 }
             }
 
@@ -588,16 +645,6 @@ namespace AES_Lacrima.Services
                 {
                     await PersistPs2MetadataToMetadataCacheAsync(item.FileName, Ps2TitleId, Ps2Version).ConfigureAwait(false);
                 }
-            }
-
-            if (IsGameCubeMetadata && !string.IsNullOrWhiteSpace(item.FileName))
-            {
-                await LoadNintendoDiscMetadataAsync(item, DiscSection.GameCube).ConfigureAwait(false);
-            }
-
-            if (IsWiiMetadata && !string.IsNullOrWhiteSpace(item.FileName))
-            {
-                await LoadNintendoDiscMetadataAsync(item, DiscSection.Wii).ConfigureAwait(false);
             }
 
             if (IsWiiUMetadata && !string.IsNullOrWhiteSpace(item.FileName))

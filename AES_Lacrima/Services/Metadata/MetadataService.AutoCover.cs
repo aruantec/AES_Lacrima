@@ -55,7 +55,7 @@ namespace AES_Lacrima.Services
 
                 if (await TryApplyCoverFromLocalMetadataAsync(item, cancellationToken).ConfigureAwait(false))
                 {
-                    await MarkCoverLookupCompleteAsync(item, coverFound: item.CoverFound).ConfigureAwait(false);
+                    await MarkCoverLookupCompleteAsync(item, coverFound: true).ConfigureAwait(false);
                     return true;
                 }
 

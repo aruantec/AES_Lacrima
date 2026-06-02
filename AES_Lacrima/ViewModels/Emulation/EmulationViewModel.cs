@@ -335,6 +335,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         private double _renderSaturation = 1.0;
 
         [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(OpenMetadataCommand))]
+        [NotifyPropertyChangedFor(nameof(HasActiveAlbumItems))]
         private AvaloniaList<MediaItem> _coverItems = [];
 
         [ObservableProperty]
@@ -347,10 +349,14 @@ private bool _isShadPs4PatchesOverlayOpen;
         [NotifyCanExecuteChangedFor(nameof(AddRomsCommand))]
         [NotifyCanExecuteChangedFor(nameof(ScanFolderCommand))]
         [NotifyCanExecuteChangedFor(nameof(ClearAlbumCommand))]
+        [NotifyCanExecuteChangedFor(nameof(OpenMetadataCommand))]
+        [NotifyPropertyChangedFor(nameof(HasActiveAlbumItems))]
         private FolderMediaItem? _selectedAlbum;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(CanShowRenderOptions))]
+        [NotifyCanExecuteChangedFor(nameof(OpenMetadataCommand))]
+        [NotifyPropertyChangedFor(nameof(HasActiveAlbumItems))]
         private FolderMediaItem? _loadedAlbum;
 
         [ObservableProperty]
@@ -364,7 +370,11 @@ private bool _isShadPs4PatchesOverlayOpen;
         private int _pointedIndex = -1;
 
         public bool IsItemPointed => PointedIndex != -1 && PointedIndex < CoverItems.Count;
-        public bool HasActiveAlbumItems => (LoadedAlbum ?? SelectedAlbum)?.Children.Count > 0;
+        public bool HasActiveAlbumItems =>
+            CoverItems.Count > 0 ||
+            LoadedAlbum?.Children.Count > 0 ||
+            SelectedAlbum?.Children.Count > 0 ||
+            !string.IsNullOrWhiteSpace(HighlightedItem?.FileName);
         public bool ShowEmptyActiveAlbumHint => (LoadedAlbum ?? SelectedAlbum) != null && !HasActiveAlbumItems;
         public string EmptyLoadedAlbumMessage =>
             LoadedAlbum != null
@@ -1156,8 +1166,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             if (e.PropertyName == nameof(MetadataService.IsMetadataLoaded) && MetadataService != null && !MetadataService.IsMetadataLoaded)
             {
-                ApplyFilter();
-                SaveSettings();
+                RestoreCarouselAfterMetadataClosed();
+                Dispatcher.UIThread.Post(SaveSettings, DispatcherPriority.Background);
 
                 if (IsGameplayAutoplayEnabled)
                 {
@@ -1355,6 +1365,10 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             SyncSelectedAlbumIndexFromAlbum(value);
             SyncCurrentSectionEmulatorContext();
+
+            if (LoadedAlbum == null && value != null)
+                ApplyFilter();
+
             AutoSave();
         }
 

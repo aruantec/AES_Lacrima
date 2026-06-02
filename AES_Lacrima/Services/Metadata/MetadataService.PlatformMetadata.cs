@@ -191,13 +191,80 @@ namespace AES_Lacrima.Services
 
         private async Task<IReadOnlyList<WebImageSearchResult>> FindImageResultsForAutoCoverAsync(string query, CancellationToken cancellationToken)
         {
-            // Use the same search engine pipeline (SearchWebImagesAsync) as the manual "Use Title" button
-            // This ensures results are identical between manual search and the background scraper.
-            var results = await SearchWebImagesAsync(new[] { query }, isRomSearch: true).ConfigureAwait(false);
+            using var searchTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            searchTimeout.CancelAfter(TimeSpan.FromSeconds(AutoCoverSearchTimeoutSeconds));
 
-            return results
-                .Take(MaxAutoCoverCandidatesPerQuery)
-                .ToList();
+            try
+            {
+                var results = await SearchWebImagesAsync(new[] { query }, isRomSearch: true)
+                    .WaitAsync(searchTimeout.Token)
+                    .ConfigureAwait(false);
+
+                return results
+                    .Take(MaxAutoCoverCandidatesPerQuery)
+                    .ToList();
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                SLog.Debug($"Auto cover image search timed out for query '{query}'.");
+                return [];
+            }
+        }
+
+        private static bool HasPersistedCoverImage(CustomMetadata? metadata) =>
+            metadata?.Images?.Any(image => image.Kind == TagImageKind.Cover && image.Data.Length > 0) == true;
+
+        private static void SanitizeStaleCoverScannedFlags(CustomMetadata? metadata, string cachePath)
+        {
+            if (metadata == null)
+                return;
+
+            var changed = false;
+            if (metadata.CoverScanned && !HasPersistedCoverImage(metadata))
+            {
+                metadata.CoverScanned = false;
+                changed = true;
+            }
+
+            if (metadata.CoverLookupExhausted && HasPersistedCoverImage(metadata))
+            {
+                metadata.CoverLookupExhausted = false;
+                changed = true;
+            }
+
+            if (changed)
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+        }
+
+        private async Task TryApplyLocalMetadataTitlesAsync(
+            MediaItem item,
+            CustomMetadata? metadata,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (metadata == null)
+                return;
+
+            var resolvedTitle = NintendoDiscMetadataHelper.ResolveBestTitle(metadata.Title, item.FileName, metadata);
+            var shouldApplyTitle = !string.IsNullOrWhiteSpace(resolvedTitle) &&
+                                   (string.IsNullOrWhiteSpace(item.Title) ||
+                                    NintendoDiscMetadataHelper.IsFilenameLikeTitle(item.Title, item.FileName));
+
+            var shouldApplyAlbum = !string.IsNullOrWhiteSpace(metadata.Album) &&
+                                   (string.IsNullOrWhiteSpace(item.Album) ||
+                                    string.Equals(item.Album.Trim(), Path.GetFileNameWithoutExtension(item.FileName), StringComparison.OrdinalIgnoreCase));
+
+            if (!shouldApplyTitle && !shouldApplyAlbum)
+                return;
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (shouldApplyTitle)
+                    item.Title = resolvedTitle;
+
+                if (shouldApplyAlbum)
+                    item.Album = metadata.Album;
+            }, DispatcherPriority.Background);
         }
 
         private async Task<bool> TryApplyCoverFromLocalMetadataAsync(MediaItem item, CancellationToken cancellationToken)
@@ -205,58 +272,27 @@ namespace AES_Lacrima.Services
             cancellationToken.ThrowIfCancellationRequested();
 
             var cachePath = GetMetadataCachePath(item.FileName);
-            var metadata = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath), cancellationToken).ConfigureAwait(false);
+            var metadata = await Task.Run(() =>
+            {
+                var loaded = BinaryMetadataHelper.LoadMetadata(cachePath);
+                if (loaded != null)
+                    SanitizeStaleCoverScannedFlags(loaded, cachePath);
+                return BinaryMetadataHelper.LoadMetadata(cachePath);
+            }, cancellationToken).ConfigureAwait(false);
+
+            await TryApplyLocalMetadataTitlesAsync(item, metadata, cancellationToken).ConfigureAwait(false);
+
             var cover = metadata?.Images?.FirstOrDefault(image => image.Kind == TagImageKind.Cover && image.Data.Length > 0);
-
-            var shouldApplyTitle = !string.IsNullOrWhiteSpace(metadata?.Title) &&
-                                   (string.IsNullOrWhiteSpace(item.Title) ||
-                                    string.Equals(item.Title.Trim(), Path.GetFileNameWithoutExtension(item.FileName), StringComparison.OrdinalIgnoreCase));
-
-            var shouldApplyAlbum = !string.IsNullOrWhiteSpace(metadata?.Album) &&
-                                   (string.IsNullOrWhiteSpace(item.Album) ||
-                                    string.Equals(item.Album.Trim(), Path.GetFileNameWithoutExtension(item.FileName), StringComparison.OrdinalIgnoreCase));
-
             if (cover == null)
-            {
-                if (metadata?.CoverScanned == true)
-                {
-                    if (shouldApplyTitle)
-                        await Dispatcher.UIThread.InvokeAsync(() => item.Title = metadata!.Title);
+                return false;
 
-                    if (shouldApplyAlbum)
-                        await Dispatcher.UIThread.InvokeAsync(() => item.Album = metadata!.Album);
-
-                    return true;
-                }
-
-                if (!shouldApplyTitle && !shouldApplyAlbum)
-                    return false;
-
-                if (shouldApplyTitle)
-                {
-                    await Dispatcher.UIThread.InvokeAsync(() => item.Title = metadata!.Title);
-                }
-
-                if (shouldApplyAlbum)
-                {
-                    await Dispatcher.UIThread.InvokeAsync(() => item.Album = metadata!.Album);
-                }
-
-                return true;
-            }
-
-            await ApplyCoverBytesToItemAsync(item, cover.Data, cover.MimeType ?? GuessMimeTypeFromBytes(cover.Data), cancellationToken, cachePath)
+            await ApplyCoverBytesToItemAsync(
+                    item,
+                    cover.Data,
+                    cover.MimeType ?? GuessMimeTypeFromBytes(cover.Data),
+                    cancellationToken,
+                    cachePath)
                 .ConfigureAwait(false);
-
-            if (shouldApplyTitle)
-            {
-                await Dispatcher.UIThread.InvokeAsync(() => item.Title = metadata!.Title);
-            }
-
-            if (shouldApplyAlbum)
-            {
-                await Dispatcher.UIThread.InvokeAsync(() => item.Album = metadata!.Album);
-            }
 
             return true;
         }
@@ -347,39 +383,118 @@ namespace AES_Lacrima.Services
             }).ConfigureAwait(false);
         }
 
-        private async Task LoadNintendoDiscMetadataAsync(MediaItem item, DiscSection section)
+        private async Task LoadNintendoDiscMetadataAsync(MediaItem item, DiscSection section, string? albumContext = null)
         {
-            var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName!, section)).ConfigureAwait(false);
-            var gameId = romInfo?.GameId;
-            var extractedTitle = romInfo?.InternalTitle;
+            var romPath = NintendoDiscMetadataHelper.NormalizeRomPath(item.FileName);
+            if (string.IsNullOrWhiteSpace(romPath))
+                return;
 
-            if (section == DiscSection.Wii)
-                WiiTitleId = gameId;
-            else
-                GameCubeTitleId = gameId;
+            var albumTitle = NintendoDiscMetadataHelper.ResolveAlbumTitle(item.Album, albumContext);
+            var loadResult = await Task.Run(() =>
+                LoadNintendoDiscMetadataCore(romPath, albumTitle, section)).ConfigureAwait(false);
 
-            if (!string.IsNullOrWhiteSpace(gameId))
+            string? resolvedGameId = null;
+            string? extractedTitle = null;
+            var resolvedSection = loadResult.Section;
+            await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                await ApplyExtractedNintendoTitleAsync(item, extractedTitle, gameId, section).ConfigureAwait(false);
+                WiiTitleId = loadResult.WiiTitleId;
+                GameCubeTitleId = loadResult.GameCubeTitleId;
+                IsWiiMetadata = loadResult.IsWiiMetadata;
+                IsGameCubeMetadata = loadResult.IsGameCubeMetadata;
+                NotifyNintendoDiscGameIdChanged();
+                resolvedGameId = NintendoDiscGameId;
+                extractedTitle = loadResult.ExtractedTitle;
+            });
+
+            if (!string.IsNullOrWhiteSpace(resolvedGameId) || ShouldUpdateExtractedTitle(item.Title, extractedTitle))
+            {
+                await ApplyExtractedNintendoTitleAsync(item, extractedTitle, resolvedGameId, resolvedSection)
+                    .ConfigureAwait(false);
             }
-            else
+        }
+
+        private static NintendoDiscLoadResult LoadNintendoDiscMetadataCore(
+            string romPath,
+            string? albumTitle,
+            DiscSection section)
+        {
+            NintendoDiscInspectionResult inspection;
+            try
             {
-                var cachePath = GetMetadataCachePath(item.FileName);
-                var refreshed = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath)).ConfigureAwait(false);
+                inspection = NintendoDiscMetadataHelper.InspectAndPersist(romPath, albumTitle);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Nintendo disc inspection failed for '{romPath}'.", ex);
+                inspection = NintendoDiscInspectionResult.Empty;
+            }
+
+            section = inspection.Section != DiscSection.Auto
+                ? inspection.Section
+                : NintendoDiscMetadataHelper.ResolveDiscSection(albumTitle, romPath);
+
+            var cachePath = NintendoDiscMetadataHelper.GetMetadataCachePath(romPath);
+            var refreshed = BinaryMetadataHelper.LoadMetadata(cachePath);
+            if (refreshed != null)
+                NintendoDiscMetadataHelper.TryMigrateMisfiledTitleId(refreshed, section, cachePath);
+            refreshed = BinaryMetadataHelper.LoadMetadata(cachePath);
+
+            var wiiTitleId = CoalesceTitleId(
+                section == DiscSection.Wii ? inspection.GameId : null,
+                refreshed?.WiiTitleId,
+                refreshed?.GameCubeTitleId);
+            var gameCubeTitleId = CoalesceTitleId(
+                section == DiscSection.GameCube ? inspection.GameId : null,
+                refreshed?.GameCubeTitleId,
+                refreshed?.WiiTitleId);
+
+            if (string.IsNullOrWhiteSpace(wiiTitleId) && string.IsNullOrWhiteSpace(gameCubeTitleId))
+            {
+                var romInfo = RomInspector.Inspect(romPath, section);
+                var gameId = romInfo?.GameId;
                 if (section == DiscSection.Wii)
-                {
-                    if (string.IsNullOrWhiteSpace(WiiTitleId))
-                        WiiTitleId = refreshed?.WiiTitleId;
-                }
-                else if (string.IsNullOrWhiteSpace(GameCubeTitleId))
-                {
-                    GameCubeTitleId = refreshed?.GameCubeTitleId;
-                }
+                    wiiTitleId = gameId;
+                else
+                    gameCubeTitleId = gameId;
 
-                extractedTitle = refreshed?.Title;
-                if (ShouldUpdateExtractedTitle(item.Title, extractedTitle))
-                    await ApplyExtractedNintendoTitleAsync(item, extractedTitle, gameId, section).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(inspection.Title))
+                    inspection = inspection with { Title = romInfo?.InternalTitle };
             }
+
+            var isWiiMetadata = section == DiscSection.Wii || !string.IsNullOrWhiteSpace(wiiTitleId);
+            var isGameCubeMetadata = section == DiscSection.GameCube || !string.IsNullOrWhiteSpace(gameCubeTitleId);
+            var extractedTitle = NintendoDiscMetadataHelper.ResolveBestTitle(
+                CoalesceTitleId(inspection.Title, refreshed?.Title),
+                romPath,
+                refreshed);
+
+            return new NintendoDiscLoadResult(
+                section,
+                wiiTitleId,
+                gameCubeTitleId,
+                isWiiMetadata,
+                isGameCubeMetadata,
+                extractedTitle);
+        }
+
+        private readonly record struct NintendoDiscLoadResult(
+            DiscSection Section,
+            string? WiiTitleId,
+            string? GameCubeTitleId,
+            bool IsWiiMetadata,
+            bool IsGameCubeMetadata,
+            string? ExtractedTitle);
+
+        private static string? CoalesceTitleId(params string?[] candidates)
+        {
+            foreach (var candidate in candidates)
+            {
+                if (!string.IsNullOrWhiteSpace(candidate))
+                    return candidate.Trim();
+            }
+
+            return null;
         }
 
         private async Task LoadNintendo3dsMetadataAsync(MediaItem item)
@@ -513,17 +628,12 @@ namespace AES_Lacrima.Services
             await Task.Run(() =>
             {
                 var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
-                if (!string.IsNullOrWhiteSpace(gameId))
-                {
-                    if (section == DiscSection.Wii)
-                        metadata.WiiTitleId = gameId;
-                    else
-                        metadata.GameCubeTitleId = gameId;
-                }
+                NintendoDiscMetadataHelper.ApplyTitleIdToMetadata(metadata, gameId, section);
 
                 if (!string.IsNullOrWhiteSpace(titleName))
                     metadata.Title = titleName;
 
+                metadata.RomScanned = true;
                 BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
             }).ConfigureAwait(false);
         }
@@ -564,25 +674,11 @@ namespace AES_Lacrima.Services
             }).ConfigureAwait(false);
         }
 
-        private static bool IsGameCubeAlbum(string? albumTitle)
-        {
-            if (string.IsNullOrWhiteSpace(albumTitle))
-                return false;
+        private static bool IsGameCubeAlbum(string? albumTitle) =>
+            NintendoDiscMetadataHelper.IsGameCubeAlbum(albumTitle);
 
-            return string.Equals(albumTitle, "Nintendo GameCube", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(albumTitle, "GameCube", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(albumTitle, "GCN", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(albumTitle, "GC", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool IsWiiAlbum(string? albumTitle)
-        {
-            if (string.IsNullOrWhiteSpace(albumTitle))
-                return false;
-
-            return string.Equals(albumTitle, "Nintendo Wii", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(albumTitle, "Wii", StringComparison.OrdinalIgnoreCase);
-        }
+        private static bool IsWiiAlbum(string? albumTitle) =>
+            NintendoDiscMetadataHelper.IsWiiAlbum(albumTitle);
 
         private static bool IsWiiUAlbum(string? albumTitle)
         {
@@ -977,11 +1073,8 @@ namespace AES_Lacrima.Services
             return true;
         }
 
-        private static string GetMetadataCachePath(string? filePath)
-        {
-            var cacheId = BinaryMetadataHelper.GetCacheId(filePath ?? string.Empty);
-            return ApplicationPaths.GetCacheFile(cacheId + ".meta");
-        }
+        private static string GetMetadataCachePath(string? filePath) =>
+            NintendoDiscMetadataHelper.GetMetadataCachePath(filePath);
 
         public async Task ClearCacheForItemsAsync(IEnumerable<MediaItem> items)
         {
@@ -1110,24 +1203,42 @@ namespace AES_Lacrima.Services
                 return (null, null);
             }
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
-            request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
+            using var downloadTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            downloadTimeout.CancelAfter(TimeSpan.FromSeconds(AutoCoverDownloadTimeoutSeconds));
 
-            using var response = await ImageHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+                request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
+                request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
+
+                using var response = await ImageHttpClient
+                    .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, downloadTimeout.Token)
+                    .ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                    return (null, null);
+
+                var bytes = await response.Content.ReadAsByteArrayAsync(downloadTimeout.Token).ConfigureAwait(false);
+                if (bytes.Length == 0)
+                    return (null, null);
+
+                var mimeType = response.Content.Headers.ContentType?.MediaType;
+                mimeType ??= GuessMimeTypeFromUrl(uri.AbsolutePath);
+                if (!mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                    return (null, null);
+
+                return (bytes, mimeType);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                SLog.Debug($"Auto cover image download timed out: {url}");
                 return (null, null);
-
-            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-            if (bytes.Length == 0)
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug($"Auto cover image download failed: {url}", ex);
                 return (null, null);
-
-            var mimeType = response.Content.Headers.ContentType?.MediaType;
-            mimeType ??= GuessMimeTypeFromUrl(uri.AbsolutePath);
-            if (!mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
-                return (null, null);
-
-            return (bytes, mimeType);
+            }
         }
 
         private async Task SaveCoverToMetadataCacheAsync(MediaItem item, byte[] bytes, string mimeType, byte[]? backCoverBytes = null, string? backCoverMimeType = null)
@@ -1170,6 +1281,7 @@ namespace AES_Lacrima.Services
                 }
 
                 metadata.CoverScanned = true;
+                metadata.CoverLookupExhausted = false;
                 BinaryMetadataHelper.WriteMetadataImages(metadata, preserved);
                 BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
             }).ConfigureAwait(false);
@@ -1183,8 +1295,13 @@ namespace AES_Lacrima.Services
             return Task.Run(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var metadata = BinaryMetadataHelper.LoadMetadata(GetMetadataCachePath(filePath));
-                return metadata?.CoverScanned == true;
+                var cachePath = GetMetadataCachePath(filePath);
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
+                if (metadata != null)
+                    SanitizeStaleCoverScannedFlags(metadata, cachePath);
+
+                metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
+                return metadata?.CoverLookupExhausted == true || HasPersistedCoverImage(metadata);
             }, cancellationToken);
         }
 
@@ -1197,7 +1314,16 @@ namespace AES_Lacrima.Services
             {
                 var cachePath = GetMetadataCachePath(item.FileName);
                 var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
-                metadata.CoverScanned = true;
+                if (coverFound)
+                {
+                    metadata.CoverScanned = HasPersistedCoverImage(metadata);
+                    metadata.CoverLookupExhausted = false;
+                }
+                else
+                {
+                    metadata.CoverLookupExhausted = true;
+                }
+
                 if (!string.IsNullOrWhiteSpace(item.Title))
                     metadata.Title = item.Title;
                 if (!string.IsNullOrWhiteSpace(item.Album))
@@ -1208,7 +1334,7 @@ namespace AES_Lacrima.Services
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 item.MetadataProcessed = true;
-                item.CoverFound = true;
+                item.CoverFound = coverFound;
             }, DispatcherPriority.Background);
         }
 

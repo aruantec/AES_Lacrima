@@ -46,8 +46,6 @@ namespace AES_Lacrima.Services.Emulation
         private static readonly ILog Log = LogHelper.For(typeof(RomInspector));
         private const long FullHashThreshold = 200L * 1024 * 1024; // 200 MB
         private const long NormSha1Threshold = 512L * 1024 * 1024; // 512 MB
-        private const uint GameCubeDiscMagic = 0xC2339F3D;
-        private const uint WiiDiscMagic = 0x5D1C9EA3;
         private const int NintendoInternalNameLength = 0x60;
         private const uint Nintendo3dsCiaHeaderSize = 0x2020;
         private const int Nintendo3dsSmdhSize = 0x36C0;
@@ -2453,24 +2451,32 @@ namespace AES_Lacrima.Services.Emulation
 
             try
             {
+                if (!string.IsNullOrWhiteSpace(info.FilePath))
+                {
+                    var dolphin = DolphinDiscMetadataReader.TryRead(info.FilePath);
+                    if (!string.IsNullOrWhiteSpace(dolphin.GameId))
+                        TryApplyNintendoGameId(dolphin.GameId, info);
+
+                    if (!string.IsNullOrWhiteSpace(dolphin.Title) && string.IsNullOrEmpty(info.InternalTitle))
+                        info.InternalTitle = dolphin.Title;
+
+                    if (!string.IsNullOrEmpty(info.GameId))
+                        return true;
+                }
+
                 if (string.Equals(extension, ".wbfs", StringComparison.OrdinalIgnoreCase))
                 {
                     if (TryExtractNintendoGameIdFromWbfs(fs, info))
                         return true;
                 }
-                else
+                else if (string.Equals(extension, ".wad", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (TryExtractNintendoGameIdFromDiscOffset(fs, info, 0))
+                    if (TryExtractNintendoGameIdFromWad(fs, info))
                         return true;
-
-                    if (string.Equals(extension, ".ciso", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(extension, ".gcz", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(extension, ".rvz", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(extension, ".wia", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (TryExtractNintendoGameIdFromDiscOffset(fs, info, 0x8000))
-                            return true;
-                    }
+                }
+                else if (TryExtractNintendoGameIdFromDiscOffset(fs, info, 0))
+                {
+                    return true;
                 }
 
                 if (string.IsNullOrEmpty(info.GameId))
@@ -2486,18 +2492,73 @@ namespace AES_Lacrima.Services.Emulation
 
         private static bool TryExtractNintendoGameIdFromWbfs(Stream fs, RomInfo info)
         {
-            if (fs.Length < 14)
+            if (string.IsNullOrWhiteSpace(info.FilePath))
                 return false;
 
-            var header = new byte[14];
+            var dolphin = DolphinDiscMetadataReader.TryRead(info.FilePath);
+            if (string.IsNullOrWhiteSpace(dolphin.GameId))
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(dolphin.Title) && string.IsNullOrEmpty(info.InternalTitle))
+                info.InternalTitle = dolphin.Title;
+
+            return TryApplyNintendoGameId(dolphin.GameId, info);
+        }
+
+        private static bool TryExtractNintendoGameIdFromWad(Stream fs, RomInfo info)
+        {
+            if (fs.Length < 0x20)
+                return false;
+
+            var header = new byte[0x20];
             fs.Seek(0, SeekOrigin.Begin);
             if (fs.Read(header, 0, header.Length) != header.Length)
                 return false;
 
-            if (!Encoding.ASCII.GetString(header, 0, 4).Equals("WBFS", StringComparison.Ordinal))
+            if (BitConverter.ToUInt32(header, 0) != 0x00204973u)
                 return false;
 
-            return TryApplyNintendoGameId(Encoding.ASCII.GetString(header, 8, 6), info);
+            var certSize = BitConverter.ToInt32(header, 0x0C);
+            var crlSize = BitConverter.ToInt32(header, 0x10);
+            var ticketSize = BitConverter.ToInt32(header, 0x14);
+            var tmdOffset = AlignWadSize(0x20 + certSize) + AlignWadSize(crlSize) + AlignWadSize(ticketSize);
+
+            if (fs.Length < tmdOffset + 8)
+                return false;
+
+            var titleId = new byte[8];
+            fs.Seek(tmdOffset, SeekOrigin.Begin);
+            if (fs.Read(titleId, 0, titleId.Length) != titleId.Length)
+                return false;
+
+            // Dolphin-style 6-character game id from the title id (e.g. RMGE01).
+            var gameId = ConvertWadTitleIdToGameId(titleId);
+            if (TryApplyNintendoGameId(gameId, info))
+                return true;
+
+            return false;
+        }
+
+        private static int AlignWadSize(int size) => (size + 63) & ~63;
+
+        private static string ConvertWadTitleIdToGameId(byte[] titleId)
+        {
+            if (titleId.Length < 8)
+                return string.Empty;
+
+            var code = Encoding.ASCII.GetString(titleId, 4, 4);
+            if (code.Length != 4 || !code.All(static c => char.IsAsciiLetterOrDigit(c)))
+                return string.Empty;
+
+            // Title id bytes 2-3 often hold the region/version digits (e.g. 01 for USA).
+            var region = titleId[3].ToString("X2", System.Globalization.CultureInfo.InvariantCulture);
+            if (region == "00")
+                region = titleId[1].ToString("X2", System.Globalization.CultureInfo.InvariantCulture);
+
+            var gameId = code + region;
+            return IsValidNintendoGameId(NormalizeNintendoGameId(gameId) ?? string.Empty)
+                ? NormalizeNintendoGameId(gameId)!
+                : string.Empty;
         }
 
         private static bool TryExtractNintendoGameIdFromDiscOffset(Stream fs, RomInfo info, long offset)
@@ -2511,27 +2572,21 @@ namespace AES_Lacrima.Services.Emulation
                 return false;
 
             var hasDiscMagic = HasNintendoDiscMagic(header);
-            if (!hasDiscMagic && offset != 0)
-                return false;
-
             return TryApplyNintendoDiscHeader(header, info, hasDiscMagic);
         }
 
         private static bool HasNintendoDiscMagic(byte[] header)
         {
-            if (header.Length < 0x20)
-                return false;
-
-            var wiiMagic = BitConverter.ToUInt32(header, 0x18);
-            if (wiiMagic == WiiDiscMagic)
-                return true;
-
-            if (header.Length < 0x24)
-                return false;
-
-            var gameCubeMagic = BitConverter.ToUInt32(header, 0x1C);
-            return gameCubeMagic == GameCubeDiscMagic;
+            return DolphinDiscMetadataReader.DetectDiscSection(header) != DiscSection.Auto;
         }
+
+        private static bool IsNintendoIsoLikeExtension(string extension) =>
+            string.Equals(extension, ".iso", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(extension, ".bin", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(extension, ".ciso", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(extension, ".gcz", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(extension, ".rvz", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(extension, ".wia", StringComparison.OrdinalIgnoreCase);
 
         private static bool TryApplyNintendoDiscHeader(byte[] header, RomInfo info, bool hasDiscMagic)
         {

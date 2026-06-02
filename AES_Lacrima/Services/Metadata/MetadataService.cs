@@ -45,6 +45,8 @@ namespace AES_Lacrima.Services
         private const int MaxAutoCoverQueries = 8;
         private const int MaxAutoCoverCandidatesPerQuery = 3;
         private const int NormalizedCoverMaxDimension = 384;
+        private const int AutoCoverSearchTimeoutSeconds = 12;
+        private const int AutoCoverDownloadTimeoutSeconds = 8;
         private static readonly HttpClient ImageHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
         private static readonly Regex BracketCleanupRegex = new(@"[\(\[\{].*?[\)\]\}]", RegexOptions.Compiled);
         private static readonly Regex MultiSpaceRegex = new(@"\s{2,}", RegexOptions.Compiled);
@@ -163,5 +165,25 @@ namespace AES_Lacrima.Services
         // Keep this for existing bindings; default metadata overlay should not expose
         // emulation-only kinds.
         public IReadOnlyList<TagImageKind> ImageKinds => MetadataImageKinds;
+
+        public bool ShowNintendoDiscGameId => IsWiiMetadata || IsGameCubeMetadata;
+
+        public string? NintendoDiscGameId
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(WiiTitleId))
+                    return WiiTitleId.Trim();
+                if (!string.IsNullOrWhiteSpace(GameCubeTitleId))
+                    return GameCubeTitleId.Trim();
+                return null;
+            }
+        }
+
+        private void NotifyNintendoDiscGameIdChanged()
+        {
+            OnPropertyChanged(nameof(ShowNintendoDiscGameId));
+            OnPropertyChanged(nameof(NintendoDiscGameId));
+        }
     }
 }

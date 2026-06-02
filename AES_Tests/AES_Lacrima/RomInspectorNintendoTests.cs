@@ -1,6 +1,7 @@
+using System.Buffers.Binary;
 using System.Text;
 using AES_Lacrima.Services.Emulation;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Lacrima.Tests;
@@ -33,17 +34,16 @@ public sealed class RomInspectorNintendoTests
     }
 
     [Fact]
-    public void Inspect_Wbfs_ExtractsGameIdFromHeader()
+    public void DolphinDiscMetadataReader_Wbfs_ExtractsGameIdFromDiscVolume()
     {
         using var tempFile = new TempRomFile(".wbfs");
-        var header = new byte[64];
-        Encoding.ASCII.GetBytes("WBFS").CopyTo(header, 0);
-        Encoding.ASCII.GetBytes("RZDE01").CopyTo(header, 8);
-        File.WriteAllBytes(tempFile.Path, header);
+        WriteMinimalWbfsWithDiscHeader(tempFile.Path, "SF8E01", "DONKEY KONG COUNTRY RETURNS");
 
-        var romInfo = RomInspector.Inspect(tempFile.Path, DiscSection.Wii);
+        var result = DolphinDiscMetadataReader.TryRead(tempFile.Path);
 
-        Assert.Equal("RZDE01", romInfo.GameId);
+        Assert.Equal("SF8E01", result.GameId);
+        Assert.Contains("DONKEY KONG", result.Title, StringComparison.Ordinal);
+        Assert.Equal(DiscSection.Wii, result.Section);
     }
 
     [Fact]
@@ -96,8 +96,46 @@ public sealed class RomInspectorNintendoTests
         var header = new byte[0x100];
         Encoding.ASCII.GetBytes(gameId).CopyTo(header, 0);
         Encoding.ASCII.GetBytes(title).CopyTo(header, 0x20);
-        BitConverter.GetBytes(0xC2339F3Du).CopyTo(header, 0x1C);
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(0x1C), 0xC2339F3Du);
         File.WriteAllBytes(path, header);
+    }
+
+    private static void WriteMinimalWbfsWithDiscHeader(string path, string gameId, string title)
+    {
+        const int hdShift = 9;
+        const int wbfsShift = 21;
+        const ulong hdSectorSize = 1UL << hdShift;
+        const ulong wbfsSectorSize = 1UL << wbfsShift;
+        const ulong wiiSectorSize = 0x8000;
+        const ulong wiiSectorCount = 143432UL * 2;
+        var blocksPerDisc = (wiiSectorCount * wiiSectorSize + wbfsSectorSize - 1) / wbfsSectorSize;
+        var wlbaOffset = hdSectorSize + 256;
+        var wlbaBytes = blocksPerDisc * sizeof(ushort);
+        var clusterAddress = wbfsSectorSize;
+        var fileSize = clusterAddress + 0x100;
+
+        using var stream = File.Create(path);
+        stream.SetLength((long)fileSize);
+
+        var wbfsHeader = new byte[512];
+        Encoding.ASCII.GetBytes("WBFS").CopyTo(wbfsHeader, 0);
+        BinaryPrimitives.WriteUInt32BigEndian(wbfsHeader.AsSpan(4), (uint)(fileSize / hdSectorSize));
+        wbfsHeader[8] = hdShift;
+        wbfsHeader[9] = (byte)wbfsShift;
+        wbfsHeader[12] = 1;
+        stream.Write(wbfsHeader, 0, wbfsHeader.Length);
+
+        stream.Seek((long)wlbaOffset, SeekOrigin.Begin);
+        var wlba = new byte[wlbaBytes];
+        BinaryPrimitives.WriteUInt16BigEndian(wlba, 1);
+        stream.Write(wlba, 0, wlba.Length);
+
+        var discHeader = new byte[0x100];
+        Encoding.ASCII.GetBytes(gameId).CopyTo(discHeader, 0);
+        Encoding.ASCII.GetBytes(title).CopyTo(discHeader, 0x20);
+        BinaryPrimitives.WriteUInt32BigEndian(discHeader.AsSpan(0x18), 0x5D1C9EA3u);
+        stream.Seek((long)clusterAddress, SeekOrigin.Begin);
+        stream.Write(discHeader, 0, discHeader.Length);
     }
 
     private static void WriteWiiDiscHeader(string path, string gameId, string title)
@@ -105,7 +143,7 @@ public sealed class RomInspectorNintendoTests
         var header = new byte[0x100];
         Encoding.ASCII.GetBytes(gameId).CopyTo(header, 0);
         Encoding.ASCII.GetBytes(title).CopyTo(header, 0x20);
-        BitConverter.GetBytes(0x5D1C9EA3u).CopyTo(header, 0x60);
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(0x18), 0x5D1C9EA3u);
         File.WriteAllBytes(path, header);
     }
 

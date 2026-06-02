@@ -486,26 +486,79 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand(CanExecute = nameof(CanOpenMetadata))]
         private async Task OpenMetadata(object? parameter)
         {
-            var target = parameter switch
-            {
-                MediaItem mi => mi,
-                int idx when idx >= 0 && idx < CoverItems.Count => CoverItems[idx],
-                _ => HighlightedItem
-            };
+            EnsureCarouselForActiveAlbum();
 
+            var target = ResolveMetadataMenuTarget(parameter);
             if (target == null || MetadataService == null)
                 return;
 
-            if (MetadataService.IsMetadataLoaded)
-                MetadataService.IsMetadataLoaded = false;
+            try
+            {
+                await MetadataService.LoadMetadataForItemAsync(
+                    target,
+                    LoadedAlbum?.Title ?? SelectedAlbum?.Title).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed to open emulation metadata editor.", ex);
+            }
+            finally
+            {
+                RefreshActiveAlbumState();
+                OpenMetadataCommand.NotifyCanExecuteChanged();
+            }
+        }
 
-            await MetadataService.LoadMetadataForItemAsync(target);
+        private void EnsureCarouselForActiveAlbum()
+        {
+            if (CoverItems.Count > 0)
+                return;
+
+            if (HasActiveAlbumItems)
+                ApplyFilter();
+        }
+
+        private MediaItem? ResolveMetadataMenuTarget(object? parameter)
+        {
+            if (parameter is MediaItem mediaItem && !string.IsNullOrWhiteSpace(mediaItem.FileName))
+                return mediaItem;
+
+            var index = ResolveContextMenuIndex(parameter);
+            if (index >= 0 && index < CoverItems.Count)
+                return CoverItems[index];
+
+            var fromCarousel = GetCurrentCarouselSelectedItem();
+            if (fromCarousel != null && !string.IsNullOrWhiteSpace(fromCarousel.FileName))
+                return fromCarousel;
+
+            if (PointedIndex >= 0 && PointedIndex < CoverItems.Count)
+            {
+                var pointed = CoverItems[PointedIndex];
+                if (!string.IsNullOrWhiteSpace(pointed.FileName))
+                    return pointed;
+            }
+
+            if (!string.IsNullOrWhiteSpace(HighlightedItem?.FileName))
+                return HighlightedItem;
+
+            var album = LoadedAlbum ?? SelectedAlbum;
+            return album?.Children.FirstOrDefault(child => !string.IsNullOrWhiteSpace(child.FileName));
+        }
+
+        private static int ResolveContextMenuIndex(object? parameter)
+        {
+            return parameter switch
+            {
+                int idx => idx,
+                double value when !double.IsNaN(value) => (int)Math.Round(value),
+                _ => -1
+            };
         }
 
         [RelayCommand(CanExecute = nameof(CanClearLoadedAlbum))]
         private async Task ClearAlbumCache()
         {
-            var album = SelectedAlbum;
+            var album = LoadedAlbum ?? SelectedAlbum;
             if (album == null)
                 return;
 
@@ -574,7 +627,11 @@ namespace AES_Lacrima.ViewModels
             return Task.CompletedTask;
         }
 
-        private bool CanOpenMetadata(object? parameter) => HasActiveAlbumItems;
+        private bool CanOpenMetadata(object? parameter) =>
+            ResolveMetadataMenuTarget(parameter) != null ||
+            CoverItems.Count > 0 ||
+            LoadedAlbum?.Children.Count > 0 ||
+            SelectedAlbum?.Children.Count > 0;
 
         private bool CanClearLoadedAlbum() => HasActiveAlbumItems;
 
@@ -1382,11 +1439,8 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private static string GetLocalMetadataCachePath(string? filePath)
-        {
-            var cacheId = BinaryMetadataHelper.GetCacheId(filePath ?? string.Empty);
-            return ApplicationPaths.GetCacheFile(cacheId + ".meta");
-        }
+        private static string GetLocalMetadataCachePath(string? filePath) =>
+            NintendoDiscMetadataHelper.GetMetadataCachePath(filePath);
 
         private sealed class Xbox360TitleEntry
         {
@@ -1510,19 +1564,21 @@ namespace AES_Lacrima.ViewModels
 
         private static bool NeedsCoverLookup(MediaItem item, FolderMediaItem album)
         {
-            if (item.MetadataProcessed || item.CoverFound)
+            if (item.CoverFound)
                 return false;
 
-            if (IsRomCoverAlreadyScanned(item.FileName))
-            {
-                return HasLocalCoverInMetadata(item.FileName) &&
-                       (item.CoverBitmap == null || ReferenceEquals(item.CoverBitmap, album.CoverBitmap));
-            }
+            var isPlaceholderCover = item.CoverBitmap == null ||
+                                     ReferenceEquals(item.CoverBitmap, album.CoverBitmap);
+            if (!isPlaceholderCover)
+                return false;
 
-            if (item.CoverBitmap == null)
+            if (HasLocalCoverInMetadata(item.FileName))
                 return true;
 
-            return ReferenceEquals(item.CoverBitmap, album.CoverBitmap);
+            if (IsOnlineCoverLookupExhausted(item.FileName))
+                return false;
+
+            return true;
         }
 
         private static bool IsRomCoverAlreadyScanned(string? filePath)
@@ -1530,10 +1586,18 @@ namespace AES_Lacrima.ViewModels
             if (string.IsNullOrWhiteSpace(filePath))
                 return false;
 
+            return HasLocalCoverInMetadata(filePath) || IsOnlineCoverLookupExhausted(filePath);
+        }
+
+        private static bool IsOnlineCoverLookupExhausted(string? filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return false;
+
             try
             {
                 var metadata = BinaryMetadataHelper.LoadMetadata(GetLocalMetadataCachePath(filePath));
-                return metadata?.CoverScanned == true;
+                return metadata?.CoverLookupExhausted == true;
             }
             catch
             {
@@ -1559,7 +1623,7 @@ namespace AES_Lacrima.ViewModels
 
         private void ApplyFilter()
         {
-            var source = LoadedAlbum?.Children;
+            var source = (LoadedAlbum ?? SelectedAlbum)?.Children;
             if (source == null || source.Count == 0)
             {
                 CoverItems = [];
@@ -1618,6 +1682,34 @@ namespace AES_Lacrima.ViewModels
 
             ClearAlbumCommand.NotifyCanExecuteChanged();
             ClearAlbumCacheCommand.NotifyCanExecuteChanged();
+            OpenMetadataCommand.NotifyCanExecuteChanged();
+        }
+
+        private void RestoreCarouselAfterMetadataClosed()
+        {
+            var album = LoadedAlbum ?? SelectedAlbum;
+            if (album?.Children is not { Count: > 0 })
+            {
+                ApplyFilter();
+                RefreshActiveAlbumState();
+                OpenMetadataCommand.NotifyCanExecuteChanged();
+                return;
+            }
+
+            ApplyFilter();
+
+            int index = GetRoundedSelectedIndex(SelectedIndex);
+            if (index < 0 || index >= CoverItems.Count)
+                index = PointedIndex >= 0 && PointedIndex < CoverItems.Count ? PointedIndex : 0;
+
+            if (CoverItems.Count > 0)
+            {
+                SelectedIndex = index;
+                HighlightedItem = CoverItems[index];
+                IsNoAlbumLoadedVisible = false;
+            }
+
+            RefreshActiveAlbumState();
             OpenMetadataCommand.NotifyCanExecuteChanged();
         }
 

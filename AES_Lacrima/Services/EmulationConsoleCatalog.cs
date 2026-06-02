@@ -254,7 +254,7 @@ namespace AES_Lacrima.Services
             return string.Equals(definition.Key, "ARCADE", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool TryGetDefinition(string? consoleName, out EmulationConsoleDefinition definition)
+        internal static bool TryGetDefinition(string? consoleName, out EmulationConsoleDefinition definition)
         {
             definition = default!;
             if (string.IsNullOrWhiteSpace(consoleName))

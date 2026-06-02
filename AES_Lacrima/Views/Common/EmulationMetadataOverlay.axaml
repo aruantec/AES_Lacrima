@@ -126,13 +126,9 @@
                                     <TextBlock Text="Title ID (Serial)" Foreground="#D8D8D8" FontSize="14" />
                                     <TextBox Text="{Binding Ps2TitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
                                 </StackPanel>
-                                <StackPanel Spacing="4" IsVisible="{Binding IsGameCubeMetadata}">
+                                <StackPanel Spacing="4" IsVisible="{Binding ShowNintendoDiscGameId}">
                                     <TextBlock Text="Game ID" Foreground="#D8D8D8" FontSize="14" />
-                                    <TextBox Text="{Binding GameCubeTitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
-                                </StackPanel>
-                                <StackPanel Spacing="4" IsVisible="{Binding IsWiiMetadata}">
-                                    <TextBlock Text="Game ID" Foreground="#D8D8D8" FontSize="14" />
-                                    <TextBox Text="{Binding WiiTitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                    <TextBox Text="{Binding NintendoDiscGameId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
                                 </StackPanel>
                                 <StackPanel Spacing="4" IsVisible="{Binding IsWiiUMetadata}">
                                     <TextBlock Text="Title ID" Foreground="#D8D8D8" FontSize="14" />
