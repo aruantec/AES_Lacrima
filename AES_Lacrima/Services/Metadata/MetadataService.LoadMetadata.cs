@@ -202,6 +202,14 @@ namespace AES_Lacrima.Services
                 await LoadNintendo3dsMetadataAsync(item).ConfigureAwait(false);
             }
 
+            IsSwitchMetadata = IsSwitchAlbum(item.Album) ||
+                               SwitchRomMetadataHelper.IsSwitchFile(item.FileName);
+            SwitchTitleId = null;
+            if (IsSwitchMetadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                await LoadSwitchMetadataAsync(item).ConfigureAwait(false);
+            }
+
             await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyTitleFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyTitleFromPsxGameAsync(item, CancellationToken.None).ConfigureAwait(false);
@@ -404,6 +412,9 @@ namespace AES_Lacrima.Services
              WiiUTitleId = null;
              IsNintendo3dsMetadata = IsNintendo3dsAlbum(item.Album);
              Nintendo3dsTitleId = null;
+             IsSwitchMetadata = IsSwitchAlbum(item.Album) ||
+                                SwitchRomMetadataHelper.IsSwitchFile(item.FileName);
+             SwitchTitleId = null;
 
              await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyTitleFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
@@ -456,6 +467,8 @@ namespace AES_Lacrima.Services
                     WiiUTitleId = metadata.WiiUTitleId;
                  if (string.IsNullOrWhiteSpace(Nintendo3dsTitleId))
                     Nintendo3dsTitleId = metadata.Nintendo3dsTitleId;
+                 if (string.IsNullOrWhiteSpace(SwitchTitleId))
+                    SwitchTitleId = metadata.SwitchTitleId;
 
                 NintendoDiscMetadataHelper.ApplyMetadataFlags(
                     nintendoAlbumTitle,
@@ -650,6 +663,11 @@ namespace AES_Lacrima.Services
             if (IsWiiUMetadata && !string.IsNullOrWhiteSpace(item.FileName))
             {
                 await LoadWiiUMetadataAsync(item).ConfigureAwait(false);
+            }
+
+            if (IsSwitchMetadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                await LoadSwitchMetadataAsync(item).ConfigureAwait(false);
             }
         }
     }

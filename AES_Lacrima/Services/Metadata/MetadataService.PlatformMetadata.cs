@@ -497,6 +497,72 @@ namespace AES_Lacrima.Services
             return null;
         }
 
+        private async Task LoadSwitchMetadataAsync(MediaItem item)
+        {
+            var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName!, DiscSection.Switch))
+                .ConfigureAwait(false);
+
+            SwitchTitleId = romInfo?.GameId;
+
+            var inspection = await Task.Run(() => SwitchRomMetadataHelper.InspectAndPersist(item.FileName, item.Album))
+                .ConfigureAwait(false);
+
+            if (string.IsNullOrWhiteSpace(SwitchTitleId))
+                SwitchTitleId = inspection.TitleId;
+
+            var cachePath = GetMetadataCachePath(item.FileName);
+            var cached = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath)).ConfigureAwait(false);
+            var extractedTitle = SwitchRomMetadataHelper.ResolveBestTitle(
+                romInfo?.InternalTitle ?? inspection.Title,
+                item.FileName,
+                cached);
+
+            if (!string.IsNullOrWhiteSpace(SwitchTitleId) ||
+                ShouldUpdateExtractedTitle(item.Title, extractedTitle, item.FileName))
+            {
+                await ApplyExtractedSwitchTitleAsync(item, extractedTitle, SwitchTitleId).ConfigureAwait(false);
+            }
+        }
+
+        private async Task ApplyExtractedSwitchTitleAsync(MediaItem item, string? extractedTitle, string? titleId)
+        {
+            string? titleToPersist = null;
+            if (ShouldUpdateExtractedTitle(item.Title, extractedTitle, item.FileName))
+            {
+                titleToPersist = extractedTitle!.Trim();
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    item.Title = titleToPersist;
+                    if (_currentSelectedMedia == item)
+                        Title = titleToPersist;
+                }, DispatcherPriority.Background);
+            }
+
+            await PersistSwitchMetadataToMetadataCacheAsync(item.FileName, titleId, titleToPersist).ConfigureAwait(false);
+        }
+
+        private async Task PersistSwitchMetadataToMetadataCacheAsync(string? filePath, string? titleId, string? titleName = null)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            var cachePath = GetMetadataCachePath(filePath);
+            await Task.Run(() =>
+            {
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                if (!string.IsNullOrWhiteSpace(titleId))
+                    metadata.SwitchTitleId = titleId;
+                if (!string.IsNullOrWhiteSpace(titleName))
+                    metadata.Title = titleName;
+
+                metadata.RomScanned = true;
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            }).ConfigureAwait(false);
+        }
+
+        private static bool IsSwitchAlbum(string? albumTitle) =>
+            SwitchRomMetadataHelper.IsSwitchAlbum(albumTitle);
+
         private async Task LoadNintendo3dsMetadataAsync(MediaItem item)
         {
             var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName!, DiscSection.Nintendo3ds)).ConfigureAwait(false);
@@ -606,13 +672,24 @@ namespace AES_Lacrima.Services
             await PersistNintendo3dsMetadataToMetadataCacheAsync(item.FileName, titleId, titleToPersist).ConfigureAwait(false);
         }
 
-        private static bool ShouldUpdateExtractedTitle(string? currentTitle, string? extractedTitle)
+        private static bool ShouldUpdateExtractedTitle(
+            string? currentTitle,
+            string? extractedTitle,
+            string? filePath = null)
         {
             if (string.IsNullOrWhiteSpace(extractedTitle))
                 return false;
 
-            return string.IsNullOrWhiteSpace(currentTitle) ||
-                   !string.Equals(currentTitle.Trim(), extractedTitle.Trim(), StringComparison.Ordinal);
+            if (string.IsNullOrWhiteSpace(currentTitle))
+                return true;
+
+            if (!string.IsNullOrWhiteSpace(filePath) &&
+                NintendoDiscMetadataHelper.IsFilenameLikeTitle(currentTitle, filePath))
+            {
+                return true;
+            }
+
+            return !string.Equals(currentTitle.Trim(), extractedTitle.Trim(), StringComparison.Ordinal);
         }
 
         private async Task PersistNintendoDiscMetadataToMetadataCacheAsync(

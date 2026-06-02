@@ -112,6 +112,8 @@ namespace AES_Lacrima.Services
         [ObservableProperty] private string? _wiiUTitleId;
         [ObservableProperty] private bool _isNintendo3dsMetadata;
         [ObservableProperty] private string? _nintendo3dsTitleId;
+        [ObservableProperty] private bool _isSwitchMetadata;
+        [ObservableProperty] private string? _switchTitleId;
         [ObservableProperty] private double _replayGainTrackGain;
         [ObservableProperty] private double _replayGainAlbumGain;
         [ObservableProperty] private TagImageKind _selectedImageKind;

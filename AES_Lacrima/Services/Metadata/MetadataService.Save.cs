@@ -173,6 +173,7 @@ namespace AES_Lacrima.Services
                      WiiTitleId = WiiTitleId ?? string.Empty,
                      WiiUTitleId = WiiUTitleId ?? string.Empty,
                      Nintendo3dsTitleId = Nintendo3dsTitleId ?? string.Empty,
+                     SwitchTitleId = SwitchTitleId ?? string.Empty,
                      ReplayGainTrackGain = ReplayGainTrackGain,
                     ReplayGainAlbumGain = ReplayGainAlbumGain,
                     Duration = _currentSelectedMedia?.Duration ?? 0.0,

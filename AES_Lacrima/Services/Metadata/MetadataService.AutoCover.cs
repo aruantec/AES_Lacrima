@@ -85,14 +85,15 @@ namespace AES_Lacrima.Services
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var candidates = await FindImageResultsForAutoCoverAsync(searchQuery, cancellationToken).ConfigureAwait(false);
+                    var candidates = AutoCoverImageHeuristics.RankCandidates(
+                        await FindImageResultsForAutoCoverAsync(searchQuery, cancellationToken).ConfigureAwait(false));
                     if (candidates.Count == 0)
                     {
                         SLog.Debug($"Auto cover lookup returned no candidates for query '{searchQuery}'.");
                         continue;
                     }
 
-                    SLog.Debug($"Auto cover lookup returned {candidates.Count} candidates for query '{searchQuery}'.");
+                    SLog.Debug($"Auto cover lookup returned {candidates.Count} ranked candidates for query '{searchQuery}'.");
 
                     foreach (var candidate in candidates)
                     {
@@ -104,6 +105,12 @@ namespace AES_Lacrima.Services
                             if (download.Bytes == null || string.IsNullOrWhiteSpace(download.MimeType))
                             {
                                 SLog.Debug($"Skipping candidate that could not be downloaded as an image: {candidate.FullImageUrl}");
+                                continue;
+                            }
+
+                            if (!TryValidateAutoCoverImageBytes(download.Bytes, out var rejectReason))
+                            {
+                                SLog.Debug($"Skipping low-quality auto cover candidate ({rejectReason}): {candidate.FullImageUrl}");
                                 continue;
                             }
 
@@ -194,6 +201,8 @@ namespace AES_Lacrima.Services
             WiiUTitleId = null;
             IsNintendo3dsMetadata = false;
             Nintendo3dsTitleId = null;
+            IsSwitchMetadata = false;
+            SwitchTitleId = null;
             IsMetadataLoaded = false;
         }
 
@@ -272,6 +281,30 @@ namespace AES_Lacrima.Services
             AddDistinctQuery(queries, album);
 
             return queries;
+        }
+
+        private static bool TryValidateAutoCoverImageBytes(byte[] bytes, out string rejectReason)
+        {
+            rejectReason = string.Empty;
+            try
+            {
+                using var stream = new MemoryStream(bytes, writable: false);
+                var bitmap = new Bitmap(stream);
+                var width = bitmap.PixelSize.Width;
+                var height = bitmap.PixelSize.Height;
+                if (AutoCoverImageHeuristics.ShouldRejectDownloadedImage(bytes, width, height))
+                {
+                    rejectReason = $"{width}x{height}";
+                    return false;
+                }
+
+                return true;
+            }
+            catch
+            {
+                rejectReason = "decode-failed";
+                return false;
+            }
         }
 
         private static void AddDistinctQuery(List<string> queries, params string?[] parts)

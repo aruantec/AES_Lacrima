@@ -99,6 +99,14 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
                     return threeDsTitle;
             }
 
+            if (SwitchRomMetadataHelper.IsSwitchAlbum(albumTitle) ||
+                SwitchRomMetadataHelper.IsSwitchFile(filePath))
+            {
+                var switchTitle = ResolveSwitchTitle(filePath);
+                if (!string.IsNullOrWhiteSpace(switchTitle))
+                    return switchTitle;
+            }
+
             if (IsSnesAlbum(albumTitle) || IsNesAlbum(albumTitle) || IsN64Album(albumTitle))
             {
                 var cartridgeTitle = ResolveCartridgeRomTitle(filePath);
@@ -244,7 +252,27 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
                 NintendoDiscMetadataHelper.NeedsGameIdRescan(metadata))
                 return false;
 
+            if (SwitchRomMetadataHelper.IsSwitchFile(filePath) &&
+                SwitchRomMetadataHelper.NeedsTitleIdRescan(metadata))
+                return false;
+
             return true;
+        }
+
+        private static string? ResolveSwitchTitle(string? filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return null;
+
+            if (!File.Exists(filePath) && !Directory.Exists(filePath))
+                return null;
+
+            _inspectionAttempted[filePath] = 1;
+
+            var result = SwitchRomMetadataHelper.InspectAndPersist(filePath, null);
+            var cachePath = SwitchRomMetadataHelper.GetMetadataCachePath(filePath);
+            var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
+            return SwitchRomMetadataHelper.ResolveBestTitle(result.Title, filePath, metadata);
         }
 
         private static string? ResolveNintendoDiscTitle(string? filePath, string? albumTitle)

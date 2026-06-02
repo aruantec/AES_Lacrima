@@ -70,6 +70,8 @@ public class CustomMetadata
     public string WiiUTitleId { get; set; } = "";
     /// <summary>Gets or sets the Nintendo 3DS title ID for emulation metadata (16-char hex).</summary>
     public string Nintendo3dsTitleId { get; set; } = "";
+    /// <summary>Gets or sets the Nintendo Switch title ID (16-char hex) for emulation metadata.</summary>
+    public string SwitchTitleId { get; set; } = "";
     /// <summary>
     /// Marks the file as having been inspected by the ROM metadata scanner.
     /// Used to avoid re-inspecting ROMs whose extraction yielded nothing

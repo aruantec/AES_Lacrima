@@ -34,7 +34,9 @@ namespace AES_Lacrima.Services.Emulation
         /// <summary>Nintendo 3DS ROM container (NCSD/CCI/NCCH/CXI/CIA)</summary>
         Nintendo3ds = 7,
         /// <summary>PlayStation 4 installed package folder</summary>
-        PS4 = 8
+        PS4 = 8,
+        /// <summary>Nintendo Switch package (NSP, XCI, NCA, etc.)</summary>
+        Switch = 9
     }
 
     /// <summary>
@@ -60,6 +62,11 @@ namespace AES_Lacrima.Services.Emulation
         private static readonly string[] Nintendo3dsExtensions =
         [
             ".3ds", ".cci", ".cxi", ".cia"
+        ];
+
+        private static readonly string[] SwitchExtensions =
+        [
+            ".nsp", ".xci", ".nca", ".nsz", ".xcz"
         ];
 
         /// <summary>
@@ -98,6 +105,21 @@ namespace AES_Lacrima.Services.Emulation
                 return new RomInfo { Format = RomFormat.Unknown };
 
             var ext = Path.GetExtension(path).ToLowerInvariant();
+
+            if (IsSwitchExtension(ext) || section == DiscSection.Switch)
+            {
+                var switchMeta = Switch.SwitchRomMetadataReader.TryRead(path);
+                if (switchMeta.HasTitleId || !string.IsNullOrWhiteSpace(switchMeta.DisplayTitle))
+                {
+                    return new RomInfo
+                    {
+                        FilePath = path,
+                        Format = RomFormat.Iso,
+                        GameId = switchMeta.TitleId,
+                        InternalTitle = switchMeta.DisplayTitle
+                    };
+                }
+            }
 
             if (ext == ".zip")
                 return InspectArchive(path);
@@ -432,6 +454,15 @@ namespace AES_Lacrima.Services.Emulation
             {
                 fs.Seek(0, SeekOrigin.Begin);
                 if (TryExtract3dsMetadata(fs, info, streamExtension))
+                {
+                    info.Format = RomFormat.Iso;
+                    return info;
+                }
+            }
+
+            if (IsSwitchContext(streamExtension, section))
+            {
+                if (TryExtractSwitchMetadata(info))
                 {
                     info.Format = RomFormat.Iso;
                     return info;
@@ -2065,6 +2096,27 @@ namespace AES_Lacrima.Services.Emulation
 
         private static bool Is3dsContext(string extension, DiscSection section)
             => section == DiscSection.Nintendo3ds || Is3dsExtension(extension);
+
+        private static bool IsSwitchExtension(string extension)
+            => SwitchExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+
+        private static bool IsSwitchContext(string extension, DiscSection section)
+            => section == DiscSection.Switch || IsSwitchExtension(extension);
+
+        private static bool TryExtractSwitchMetadata(RomInfo info)
+        {
+            if (string.IsNullOrWhiteSpace(info.FilePath))
+                return false;
+
+            var result = Switch.SwitchRomMetadataReader.TryRead(info.FilePath);
+            if (!string.IsNullOrWhiteSpace(result.TitleId))
+                info.GameId = result.TitleId;
+
+            if (!string.IsNullOrWhiteSpace(result.DisplayTitle))
+                info.InternalTitle = result.DisplayTitle;
+
+            return !string.IsNullOrEmpty(info.GameId) || !string.IsNullOrEmpty(info.InternalTitle);
+        }
 
         /// <summary>
         /// Extracts title ID and (where available) product code / SMDH title from
