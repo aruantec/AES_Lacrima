@@ -437,7 +437,9 @@
                                                  ClearShaderWhenPathEmpty="{Binding ClearShaderWhenPathEmpty}"
                                                  RequestStopSession="{Binding RequestStopEmulatorCapture, Mode=TwoWay}"
                                                  RestoreTargetWindowOnStop="{Binding RestoreTargetWindowOnStop}"
-                                                 CaptureMode="{Binding SelectedCaptureMode}" />
+                                                 CaptureMode="{Binding SelectedCaptureMode}"
+                                                 UseBackCoverLetterboxFill="{Binding UseBackCoverLetterboxFill}"
+                                                 LetterboxBitmap="{Binding CaptureLetterboxBitmap}" />
             </Border>
             <StackPanel HorizontalAlignment="Center"
                         VerticalAlignment="Center"

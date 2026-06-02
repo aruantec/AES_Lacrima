@@ -945,6 +945,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 _subscribedSettingsViewModel.PropertyChanged -= SettingsViewModel_PropertyChanged;
                 _subscribedSettingsViewModel.EmulationUseFirstItemCoverChanged -= OnEmulationUseFirstItemCoverChanged;
                 _subscribedSettingsViewModel.EmulationGameplayAutoplayChanged -= OnEmulationGameplayAutoplayChanged;
+                _subscribedSettingsViewModel.EmulationUseBackCoverLetterboxFillChanged -= OnEmulationUseBackCoverLetterboxFillChanged;
             }
 
             _subscribedSettingsViewModel = settings;
@@ -952,6 +953,8 @@ private bool _isShadPs4PatchesOverlayOpen;
             _subscribedSettingsViewModel.PropertyChanged += SettingsViewModel_PropertyChanged;
             _subscribedSettingsViewModel.EmulationUseFirstItemCoverChanged += OnEmulationUseFirstItemCoverChanged;
             _subscribedSettingsViewModel.EmulationGameplayAutoplayChanged += OnEmulationGameplayAutoplayChanged;
+            _subscribedSettingsViewModel.EmulationUseBackCoverLetterboxFillChanged += OnEmulationUseBackCoverLetterboxFillChanged;
+            OnPropertyChanged(nameof(UseBackCoverLetterboxFill));
         }
 
         private void AttachEmulationSectionSubscriptions(SettingsViewModel settings)
@@ -1034,10 +1037,14 @@ private bool _isShadPs4PatchesOverlayOpen;
                 return;
 
             if (_subscribedMetadataService != null)
+            {
                 _subscribedMetadataService.PropertyChanged -= MetadataService_PropertyChanged;
+                ReleaseLetterboxMetadataSubscription(_subscribedMetadataService);
+            }
 
             _subscribedMetadataService = metadata;
             _subscribedMetadataService.PropertyChanged += MetadataService_PropertyChanged;
+            EnsureLetterboxMetadataSubscription(metadata);
         }
 
         partial void OnSettingsViewModelChanged(SettingsViewModel? value)
@@ -1050,7 +1057,10 @@ private bool _isShadPs4PatchesOverlayOpen;
         partial void OnMetadataServiceChanged(MetadataService? oldValue, MetadataService? newValue)
         {
             if (ReferenceEquals(oldValue, _subscribedMetadataService) && oldValue != null)
+            {
                 oldValue.PropertyChanged -= MetadataService_PropertyChanged;
+                ReleaseLetterboxMetadataSubscription(oldValue);
+            }
 
             _subscribedMetadataService = null;
             EnsureMetadataServiceSubscription();

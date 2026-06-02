@@ -582,6 +582,8 @@ namespace AES_Lacrima.ViewModels
                     SLog.Info($"EmulationViewModel clearing emulator hwnd 0x{EmulatorTargetHwnd.ToInt64():X} after capture stop request.");
                     EmulatorTargetHwnd = IntPtr.Zero;
                 }
+
+                ClearActiveCaptureRomPath();
             }, DispatcherPriority.Background);
 
             await Task.Delay(250).ConfigureAwait(false);
@@ -602,8 +604,11 @@ namespace AES_Lacrima.ViewModels
                 EmulatorTargetProcessId = 0;
                 IsEmulatorLaunchInProgress = false;
                 StopGameplayPreview();
+                ClearActiveCaptureRomPath();
                 return;
             }
+
+            SetActiveCaptureRomPath(romPath);
 
             DetachTrackedEmulatorProcess();
 

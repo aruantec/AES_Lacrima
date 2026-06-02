@@ -181,6 +181,7 @@ namespace AES_Lacrima.Services
 
                 BinaryMetadataHelper.WriteMetadataImages(customMetadata, ToMetadataImageEntries(Images));
                 BinaryMetadataHelper.SaveMetadata(metaDataPath, customMetadata);
+                MetadataCacheSaved?.Invoke(path);
             }
             catch (Exception e)
             {

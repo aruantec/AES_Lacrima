@@ -170,6 +170,15 @@
                             <TextBlock Text="Gameplay Autoplay" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
                             <ToggleSwitch FontSize="20" IsChecked="{Binding EmulationGameplayAutoplay, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,15" Spacing="10">
+                            <TextBlock Text="Fill letterbox bars with back cover art"
+                                       VerticalAlignment="Center"
+                                       Foreground="WhiteSmoke"
+                                       FontSize="20"
+                                       TextWrapping="Wrap"
+                                       MaxWidth="620"/>
+                            <ToggleSwitch FontSize="20" IsChecked="{Binding EmulationUseBackCoverLetterboxFill, Mode=TwoWay}" Margin="8,0"/>
+                        </StackPanel>
 
                         <TextBlock Text="Consoles" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,15,0,10"/>
                         <Separator Margin="0,0,0,15"/>

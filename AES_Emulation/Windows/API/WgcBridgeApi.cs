@@ -145,6 +145,10 @@ public static class WgcBridgeApi
     private static SetDirectCompositionPillarboxCropEnabledDel? s_setDirectCompositionPillarboxCropEnabled;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void ResetDirectCompositionContentBarCropDel(nint session);
+    private static ResetDirectCompositionContentBarCropDel? s_resetDirectCompositionContentBarCrop;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void SetDirectCompositionFrameGenerationDel(nint session, int enabled, int targetHz);
     private static SetDirectCompositionFrameGenerationDel? s_setDirectCompositionFrameGeneration;
 
@@ -206,6 +210,7 @@ public static class WgcBridgeApi
                     "GetDirectCompositionLastError",
                     "SetDirectCompositionRenderOptions",
                     "SetDirectCompositionPillarboxCropEnabled",
+                    "ResetDirectCompositionContentBarCrop",
                     "SetDirectCompositionFrameGeneration",
                     "GetDirectCompositionSyntheticPresentCount",
                     "SetDirectCompositionShader",
@@ -279,6 +284,8 @@ public static class WgcBridgeApi
                     s_setDirectCompositionRenderOptions = Marshal.GetDelegateForFunctionPointer<SetDirectCompositionRenderOptionsDel>(pDCompOptions);
                 if (NativeLibrary.TryGetExport(handle, "SetDirectCompositionPillarboxCropEnabled", out IntPtr pDCompPillarbox))
                     s_setDirectCompositionPillarboxCropEnabled = Marshal.GetDelegateForFunctionPointer<SetDirectCompositionPillarboxCropEnabledDel>(pDCompPillarbox);
+                if (NativeLibrary.TryGetExport(handle, "ResetDirectCompositionContentBarCrop", out IntPtr pResetContentBar))
+                    s_resetDirectCompositionContentBarCrop = Marshal.GetDelegateForFunctionPointer<ResetDirectCompositionContentBarCropDel>(pResetContentBar);
 
                 if (NativeLibrary.TryGetExport(handle, "SetDirectCompositionFrameGeneration", out IntPtr pDCompFrameGen))
                     s_setDirectCompositionFrameGeneration = Marshal.GetDelegateForFunctionPointer<SetDirectCompositionFrameGenerationDel>(pDCompFrameGen);
@@ -345,6 +352,9 @@ public static class WgcBridgeApi
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "SetDirectCompositionPillarboxCropEnabled")]
     private static extern void SetDirectCompositionPillarboxCropEnabledNative(nint session, int enabled);
+
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "ResetDirectCompositionContentBarCrop")]
+    private static extern void ResetDirectCompositionContentBarCropNative(nint session);
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "SetDirectCompositionFrameGeneration")]
     private static extern void SetDirectCompositionFrameGenerationNative(nint session, int enabled, int targetHz);
@@ -562,6 +572,29 @@ public static class WgcBridgeApi
         }
 
         SetDirectCompositionPillarboxCropEnabledNative(session, enabled ? 1 : 0);
+    }
+
+    public static void ResetDirectCompositionContentBarCrop(nint session)
+    {
+        if (session == nint.Zero)
+            return;
+
+        try
+        {
+            if (s_resetDirectCompositionContentBarCrop != null)
+            {
+                s_resetDirectCompositionContentBarCrop(session);
+                return;
+            }
+
+            ResetDirectCompositionContentBarCropNative(session);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // Older WgcBridge builds: toggle pillarbox crop to clear insets.
+            SetDirectCompositionPillarboxCropEnabled(session, false);
+            SetDirectCompositionPillarboxCropEnabled(session, true);
+        }
     }
 
     public static void SetDirectCompositionFrameGeneration(nint session, bool enabled, int targetHz = 120)

@@ -443,6 +443,19 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     }
 
     /// <summary>
+    /// When enabled, fills pillarbox/letterbox bars around 4:3 (and similar) capture frames with the ROM back-cover image.
+    /// </summary>
+    [ObservableProperty]
+    private bool _emulationUseBackCoverLetterboxFill = false;
+
+    public event Action<bool>? EmulationUseBackCoverLetterboxFillChanged;
+
+    partial void OnEmulationUseBackCoverLetterboxFillChanged(bool value)
+    {
+        EmulationUseBackCoverLetterboxFillChanged?.Invoke(value);
+    }
+
+    /// <summary>
     /// Backing field for the <c>ScaleFactor</c> observable property.
     /// Controls UI scaling applied by the <c>ScalableDecorator</c>.
     /// </summary>
@@ -2918,6 +2931,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         AppMode = ReadIntSetting(section, nameof(AppMode), AppMode);
         EmulationUseFirstItemCover = ReadBoolSetting(section, nameof(EmulationUseFirstItemCover), EmulationUseFirstItemCover);
         EmulationGameplayAutoplay = ReadBoolSetting(section, nameof(EmulationGameplayAutoplay), EmulationGameplayAutoplay);
+        EmulationUseBackCoverLetterboxFill = ReadBoolSetting(section, nameof(EmulationUseBackCoverLetterboxFill), EmulationUseBackCoverLetterboxFill);
         var emulationSectionConfigurations = ReadObjectSetting<Dictionary<string, EmulationSectionConfiguration>>(section, EmulationSectionConfigurationsSettingName)
             ?? new Dictionary<string, EmulationSectionConfiguration>(StringComparer.OrdinalIgnoreCase);
         var emulationSectionLauncherPaths = ReadObjectSetting<Dictionary<string, string>>(section, EmulationSectionLauncherPathsSettingName)
@@ -3048,6 +3062,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(AppMode), AppMode);
         WriteSetting(section, nameof(EmulationUseFirstItemCover), EmulationUseFirstItemCover);
         WriteSetting(section, nameof(EmulationGameplayAutoplay), EmulationGameplayAutoplay);
+        WriteSetting(section, nameof(EmulationUseBackCoverLetterboxFill), EmulationUseBackCoverLetterboxFill);
         WriteObjectSetting(
             section,
             EmulationSectionConfigurationsSettingName,

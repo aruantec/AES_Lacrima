@@ -40,6 +40,9 @@ namespace AES_Lacrima.Services
     [AutoRegister]
     public partial class MetadataService : ViewModelBase, IMetadataService 
     {
+        /// <summary>Raised after metadata is written to the per-item .meta cache file.</summary>
+        public event Action<string?>? MetadataCacheSaved;
+
         private static readonly ILog SLog = AES_Core.Logging.LogHelper.For<MetadataService>();
         private const int MaxImageSearchResults = 24;
         private const int MaxAutoCoverQueries = 8;

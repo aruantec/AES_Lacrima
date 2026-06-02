@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.OpenGL;
 using Avalonia.Platform;
 using Avalonia.Rendering.Composition;
@@ -329,6 +330,24 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
     {
         get => GetValue(CaptureWindowAspectRatioProperty);
         set => SetValue(CaptureWindowAspectRatioProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> UseBackCoverLetterboxFillProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(UseBackCoverLetterboxFill), false);
+
+    public bool UseBackCoverLetterboxFill
+    {
+        get => GetValue(UseBackCoverLetterboxFillProperty);
+        set => SetValue(UseBackCoverLetterboxFillProperty, value);
+    }
+
+    public static readonly StyledProperty<Bitmap?> LetterboxBitmapProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, Bitmap?>(nameof(LetterboxBitmap));
+
+    public Bitmap? LetterboxBitmap
+    {
+        get => GetValue(LetterboxBitmapProperty);
+        set => SetValue(LetterboxBitmapProperty, value);
     }
 
     // New: request the control to stop the active capture session immediately.
@@ -1069,9 +1088,14 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
                  change.Property == OverlayBackgroundColorProperty ||
                  change.Property == EnableAutoCropProperty ||
                  change.Property == OverlayXProperty ||
-                 change.Property == OverlayYProperty)
+                 change.Property == OverlayYProperty ||
+                 change.Property == UseBackCoverLetterboxFillProperty)
         {
             UpdateHandlerSettings();
+        }
+        else if (change.Property == LetterboxBitmapProperty)
+        {
+            SendLetterboxUpdate();
         }
         else if (change.Property == UseHostWindowCaptureProperty)
         {
@@ -1179,7 +1203,7 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
         if (!IsWindowsPlatform)
             return;
 
-        var effectiveEnableAutoCrop = EnableAutoCrop;
+        var effectiveEnableAutoCrop = EnableAutoCrop || UseBackCoverLetterboxFill;
 
         if (Log.IsDebugEnabled)
         {
@@ -1213,7 +1237,56 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
             OverlayPosition = new Vector2((float)OverlayPosition.X, (float)OverlayPosition.Y)
         });
 
+        SendLetterboxUpdate();
         UpdateNativePresentationPipeline(force: false);
+    }
+
+    private void SendLetterboxUpdate()
+    {
+        if (!IsWindowsPlatform)
+            return;
+
+        if (!UseBackCoverLetterboxFill)
+        {
+            SendHandlerMessage(new WgcLetterboxMessage { Enabled = false });
+            return;
+        }
+
+        var bitmap = LetterboxBitmap;
+        if (bitmap == null)
+        {
+            SendHandlerMessage(new WgcLetterboxMessage { Enabled = true });
+            return;
+        }
+
+        var width = bitmap.PixelSize.Width;
+        var height = bitmap.PixelSize.Height;
+        if (width <= 0 || height <= 0)
+        {
+            SendHandlerMessage(new WgcLetterboxMessage { Enabled = true });
+            return;
+        }
+
+        var stride = width * 4;
+        var bufferSize = height * stride;
+        var pixels = new byte[bufferSize];
+        var handle = GCHandle.Alloc(pixels, GCHandleType.Pinned);
+        try
+        {
+            bitmap.CopyPixels(new PixelRect(0, 0, width, height), handle.AddrOfPinnedObject(), bufferSize, stride);
+        }
+        finally
+        {
+            handle.Free();
+        }
+
+        SendHandlerMessage(new WgcLetterboxMessage
+        {
+            Enabled = true,
+            Width = width,
+            Height = height,
+            Pixels = pixels
+        });
     }
 
     private void UpdateNativePresentationPipeline(bool force)
@@ -1234,6 +1307,7 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
             ColorTint.B / 255f,
             ColorTint.A / 255f,
             DisableVSync);
+        WgcBridgeApi.SetDirectCompositionPillarboxCropEnabled(_session, EnableAutoCrop || UseBackCoverLetterboxFill);
         _lastNativeStretch = Stretch;
 
         if (shaderChanged)
@@ -1343,6 +1417,14 @@ internal class WgcSessionMessage
     public bool UseOwnerInvalidation;
 }
 
+internal class WgcLetterboxMessage
+{
+    public bool Enabled;
+    public int Width;
+    public int Height;
+    public byte[]? Pixels;
+}
+
 internal class WgcSettingsMessage
 {
     public Stretch Stretch;
@@ -1409,7 +1491,19 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private bool _enableAutoCrop = false;
     private int _cropLeft = 0;
     private int _cropRight = 0;
-    private int _consecutiveBlackFrames = 0;
+    private int _pillarboxStableFrames;
+    private int _lastDetectedLeft = -1;
+    private int _lastDetectedRight = -1;
+    private int _targetCropLeft;
+    private int _targetCropRight;
+    private int _forcePillarboxDetectFrames;
+    private long _pillarboxAnimStartTicks;
+    private int _animFromLeft;
+    private int _animFromRight;
+    private int _animToLeft;
+    private int _animToRight;
+    private bool _pillarboxAnimActive;
+    private bool _pillarboxAnimClosingBars;
 
     // Statistics Overlay
     private bool _showStatisticsOverlay = true;
@@ -1448,6 +1542,11 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private SlangShaderPipeline? _shaderPipeline;
     private string? _retroarchShaderFile;
     private bool _useNativeHlslPipeline = true;
+    private bool _useBackCoverLetterboxFill;
+    private SKImage? _letterboxImage;
+    private int _letterboxWidth;
+    private int _letterboxHeight;
+    private readonly SKPaint _letterboxFallbackPaint = new() { Color = SKColors.Black, Style = SKPaintStyle.Fill };
     private bool _interopCpuMirrorEnabled;
     private WgcAngleInterop? _angleInterop;
     private WgcWglDxInterop? _wglDxInterop;
@@ -1523,9 +1622,14 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             if (_visualSize != size)
             {
                 _visualSize = size;
-                _rectDirty = true;
+                OnCaptureLayoutChanged();
                 RequestRender();
             }
+        }
+        else if (message is WgcLetterboxMessage letterbox)
+        {
+            ApplyLetterboxMessage(letterbox);
+            RequestRender();
         }
         else if (message is WgcSettingsMessage st)
         {
@@ -1590,6 +1694,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         _angleInterop = null;
         _wglDxInterop?.Dispose();
         _wglDxInterop = null;
+        _letterboxImage?.Dispose();
+        _letterboxImage = null;
         _interopCpuMirrorEnabled = false;
         _gpuPresentFailures = 0;
         _sharedHandleFailures = 0;
@@ -1842,6 +1948,82 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             "WgcCaptureVisualHandler enabled interop CPU mirror fallback after GPU texture import failed.");
     }
 
+    private void ApplyLetterboxMessage(WgcLetterboxMessage letterbox)
+    {
+        _useBackCoverLetterboxFill = letterbox.Enabled;
+        _letterboxImage?.Dispose();
+        _letterboxImage = null;
+        _letterboxWidth = 0;
+        _letterboxHeight = 0;
+
+        if (!letterbox.Enabled)
+        {
+            if (!_enableAutoCrop && (_cropLeft != 0 || _cropRight != 0))
+            {
+                _cropLeft = 0;
+                _cropRight = 0;
+                _rectDirty = true;
+            }
+
+            return;
+        }
+
+        if (letterbox.Pixels == null ||
+            letterbox.Width <= 0 ||
+            letterbox.Height <= 0)
+        {
+            return;
+        }
+
+        var info = new SKImageInfo(letterbox.Width, letterbox.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
+        _letterboxImage = SKImage.FromPixelCopy(info, letterbox.Pixels);
+        _letterboxWidth = letterbox.Width;
+        _letterboxHeight = letterbox.Height;
+    }
+
+    private void DrawLetterboxBackground(SKCanvas canvas)
+    {
+        if (!_useBackCoverLetterboxFill)
+            return;
+
+        var viewW = _visualSize.X;
+        var viewH = _visualSize.Y;
+        if (viewW <= 0 || viewH <= 0)
+            return;
+
+        var viewRect = new SKRect(0, 0, viewW, viewH);
+        if (_letterboxImage != null && _letterboxWidth > 0 && _letterboxHeight > 0)
+        {
+            var dest = CalculateUniformToFillRect(viewW, viewH, _letterboxWidth, _letterboxHeight);
+            canvas.Save();
+            canvas.ClipRect(viewRect);
+            canvas.DrawImage(_letterboxImage, dest);
+            canvas.Restore();
+            return;
+        }
+
+        canvas.DrawRect(viewRect, _letterboxFallbackPaint);
+    }
+
+    private static SKRect CalculateUniformToFillRect(float viewW, float viewH, float imageW, float imageH)
+    {
+        var viewAspect = viewW / viewH;
+        var imageAspect = imageW / imageH;
+
+        if (imageAspect > viewAspect)
+        {
+            var height = viewH;
+            var width = viewH * imageAspect;
+            var x = (viewW - width) / 2f;
+            return new SKRect(x, 0, x + width, height);
+        }
+
+        var fillWidth = viewW;
+        var fillHeight = viewW / imageAspect;
+        var y = (viewH - fillHeight) / 2f;
+        return new SKRect(0, y, fillWidth, y + fillHeight);
+    }
+
     private bool TryDrawImportedGpuTexture(
         SKCanvas canvas,
         GRContext grContext,
@@ -1985,6 +2167,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         _renderSuspended = sm.Session == nint.Zero;
         _lastNativeFrameCount = -1;
         _pillarboxScanCounter = 0;
+        if (sm.Session != nint.Zero)
+            ResetPillarboxDetectionState();
         _ownerInvalidateQueued = 0;
         _ownerStatsUpdateQueued = 0;
         _loggedRenderEntry = false;
@@ -2065,6 +2249,9 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 // Clear then always draw — returning after Invalidate without painting causes flicker.
                 canvas.Clear(SKColors.Black);
 
+                if (_useBackCoverLetterboxFill)
+                    DrawLetterboxBackground(canvas);
+
                 var activeSession = _session;
                 if (activeSession == nint.Zero)
                     return;
@@ -2075,6 +2262,12 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                     $"ownerInvalidation={_useOwnerInvalidation}.");
 
                 EnsureGl(context, grContext, platformLeaseGl);
+
+                if (ShouldAutoCropPillarboxes)
+                {
+                    TryDetectPillarboxesFromSession(activeSession);
+                    StepPillarboxCropAnimation();
+                }
 
                 if (TryRenderSharedHandle(canvas, grContext, context, activeSession))
                 {
@@ -2131,9 +2324,11 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         }
     }
 
+    private bool ShouldAutoCropPillarboxes => _enableAutoCrop || _useBackCoverLetterboxFill;
+
     private void DrawCapturedFrame(SKCanvas canvas, GRContext? grContext, IntPtr ptr, int w, int h)
     {
-        if (_enableAutoCrop && ++_pillarboxScanCounter % 60 == 0)
+        if (ShouldAutoCropPillarboxes && ShouldScanPillarboxThisFrame())
             AutoDetectPillarboxes(ptr, w, h);
 
         if (_rectDirty || _texWidth != w || _texHeight != h)
@@ -2313,96 +2508,163 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         canvas.DrawText($"{Math.Round(_smoothedFrameTimeMs, 2)} ms", x + w - 50, y - 5, _overlayGraphTextPaint);
     }
 
-    private unsafe void AutoDetectPillarboxes(IntPtr ptr, int w, int h)
+    private bool ShouldScanPillarboxThisFrame()
     {
-        if (!_enableAutoCrop || w < 100 || h < 100)
+        if (_forcePillarboxDetectFrames > 0)
         {
-            if (_cropLeft != 0 || _cropRight != 0) { _cropLeft = 0; _cropRight = 0; _rectDirty = true; }
+            _forcePillarboxDetectFrames--;
+            return true;
+        }
+
+        var interval = _useBackCoverLetterboxFill ? 8 : 15;
+        return ++_pillarboxScanCounter % interval == 0;
+    }
+
+    private void ResetPillarboxDetectionState()
+    {
+        _cropLeft = 0;
+        _cropRight = 0;
+        _targetCropLeft = 0;
+        _targetCropRight = 0;
+        _pillarboxStableFrames = 0;
+        _lastDetectedLeft = -1;
+        _lastDetectedRight = -1;
+        _forcePillarboxDetectFrames = 18;
+        _pillarboxAnimActive = false;
+        _rectDirty = true;
+
+        if (_session != nint.Zero)
+            WgcBridgeApi.ResetDirectCompositionContentBarCrop(_session);
+    }
+
+    /// <summary>
+    /// Capture viewport resized (e.g. album panel hidden). Keep current crop so bars do not flash.
+    /// </summary>
+    private void OnCaptureLayoutChanged()
+    {
+        _pillarboxStableFrames = 0;
+        _lastDetectedLeft = -1;
+        _lastDetectedRight = -1;
+        _forcePillarboxDetectFrames = 24;
+        _rectDirty = true;
+    }
+
+    private void TryDetectPillarboxesFromSession(nint session)
+    {
+        if (!ShouldScanPillarboxThisFrame())
+            return;
+
+        if (!WgcBridgeApi.PeekLatestFrame(session, out int w, out int h, out nuint requiredSize) ||
+            w < 80 || h < 80 || requiredSize == 0)
+        {
             return;
         }
 
-        byte* pixels = (byte*)ptr.ToPointer();
-        int stride = w * 4;
+        EnsureFrameCopyBuffer(requiredSize);
+        if (_frameCopyBuffer == IntPtr.Zero)
+            return;
 
-        // Use stackalloc to avoid per-frame heap allocations.
-        Span<int> rows = stackalloc int[15]
+        if (!WgcBridgeApi.GetLatestFrame(session, _frameCopyBuffer, _frameCopyBufferSize, out w, out h) ||
+            w < 80 || h < 80)
         {
-            h / 16, h / 8, 3 * h / 16, h / 4, 5 * h / 16,
-            3 * h / 8, 7 * h / 16, h / 2, 9 * h / 16, 5 * h / 8,
-            11 * h / 16, 3 * h / 4, 13 * h / 16, 7 * h / 8, 15 * h / 16
-        };
-        int maxScan = w / 4;
-        const int contentThreshold = 1; // Extremely sensitive to remove almost-black edges
-
-        // Verify there is SOME content in sampled middle before trusting a crop (prevents cropping purely black screens)
-        bool hasContent = false;
-        Span<int> centerSampleX = stackalloc int[5] { w / 2, w / 3, 2 * w / 3, w / 4, 3 * w / 4 };
-        foreach (int x in centerSampleX)
-        {
-            foreach (int r in rows)
-            {
-                byte* p = pixels + (r * stride) + (x * 4);
-                if (p[0] > 3 || p[1] > 3 || p[2] > 3) { hasContent = true; break; }
-            }
-            if (hasContent) break;
-        }
-        if (!hasContent) return;
-
-        int detectedLeft = 0;
-        for (int x = 0; x < maxScan; x++)
-        {
-            bool hasContentInCol = false;
-            foreach (int r in rows)
-            {
-                byte* p = pixels + (r * stride) + (x * 4);
-                if (p[0] > contentThreshold || p[1] > contentThreshold || p[2] > contentThreshold) { hasContentInCol = true; break; }
-            }
-            if (hasContentInCol)
-            {
-                // Minimized margin to 1 pixel for a cleaner cut
-                detectedLeft = Math.Max(0, x - 1);
-                break;
-            }
+            return;
         }
 
-        int detectedRight = 0;
-        for (int x = w - 1; x > w - 1 - maxScan; x--)
+        AutoDetectPillarboxes(_frameCopyBuffer, w, h);
+    }
+
+    private unsafe void AutoDetectPillarboxes(IntPtr ptr, int w, int h)
+    {
+        if (!ShouldAutoCropPillarboxes || w < 80 || h < 80 || ptr == IntPtr.Zero)
         {
-            bool hasContentInCol = false;
-            foreach (int r in rows)
+            if (!_useBackCoverLetterboxFill && (_cropLeft != 0 || _cropRight != 0))
             {
-                byte* p = pixels + (r * stride) + (x * 4);
-                if (p[0] > contentThreshold || p[1] > contentThreshold || p[2] > contentThreshold) { hasContentInCol = true; break; }
+                _cropLeft = 0;
+                _cropRight = 0;
+                _rectDirty = true;
             }
-            if (hasContentInCol)
-            {
-                // Minimized margin
-                detectedRight = Math.Max(0, (w - 1 - x) - 1);
-                break;
-            }
+
+            return;
         }
 
-        bool changed = false;
-        // Fast shrink (instantly recover content if non-black is found inside existing crop)
-        if (detectedLeft < _cropLeft) { _cropLeft = detectedLeft; changed = true; _consecutiveBlackFrames = 0; }
-        if (detectedRight < _cropRight) { _cropRight = detectedRight; changed = true; _consecutiveBlackFrames = 0; }
+        var stride = w * 4;
+        var span = new ReadOnlySpan<byte>((void*)ptr, stride * h);
+        PillarboxBarDetector.DetectInsets(span, w, h, stride, out var detectedLeft, out var detectedRight, out _, out _);
+        UpdatePillarboxCropTargets(detectedLeft, detectedRight);
+    }
 
-        // Slow expand (wait for consistency before removing bars)
-        if (detectedLeft > _cropLeft || detectedRight > _cropRight)
+    private bool IsPillarboxCropAnimating =>
+        _pillarboxAnimActive || _cropLeft != _targetCropLeft || _cropRight != _targetCropRight;
+
+    private void UpdatePillarboxCropTargets(int detectedLeft, int detectedRight)
+    {
+        if (detectedLeft == _lastDetectedLeft && detectedRight == _lastDetectedRight)
+            _pillarboxStableFrames = Math.Min(_pillarboxStableFrames + 1, 60);
+        else
         {
-            _consecutiveBlackFrames++;
-            if (_consecutiveBlackFrames > 30) // Reduced from 120 (~0.5sec at 60fps) for faster reaction
-            {
-                _cropLeft = detectedLeft;
-                _cropRight = detectedRight;
-                _consecutiveBlackFrames = 0;
-                changed = true;
-            }
-
+            _lastDetectedLeft = detectedLeft;
+            _lastDetectedRight = detectedRight;
+            _pillarboxStableFrames = 1;
         }
-        else _consecutiveBlackFrames = 0;
 
-        if (changed) _rectDirty = true;
+        const int requiredStableFrames = 6;
+        if (_pillarboxStableFrames < requiredStableFrames)
+            return;
+
+        if (detectedLeft == _targetCropLeft && detectedRight == _targetCropRight)
+            return;
+
+        _targetCropLeft = detectedLeft;
+        _targetCropRight = detectedRight;
+        BeginPillarboxCropAnimation(detectedLeft, detectedRight);
+    }
+
+    private void BeginPillarboxCropAnimation(int toLeft, int toRight)
+    {
+        if (_cropLeft == toLeft && _cropRight == toRight)
+        {
+            _pillarboxAnimActive = false;
+            return;
+        }
+
+        _animFromLeft = _cropLeft;
+        _animFromRight = _cropRight;
+        _animToLeft = toLeft;
+        _animToRight = toRight;
+        _pillarboxAnimClosingBars = PillarboxCropAnimator.IsClosingBars(_animFromLeft, _animFromRight, toLeft, toRight);
+        _pillarboxAnimStartTicks = Stopwatch.GetTimestamp();
+        _pillarboxAnimActive = true;
+    }
+
+    private void StepPillarboxCropAnimation()
+    {
+        if (!_pillarboxAnimActive)
+        {
+            if (_cropLeft != _targetCropLeft || _cropRight != _targetCropRight)
+                BeginPillarboxCropAnimation(_targetCropLeft, _targetCropRight);
+            return;
+        }
+
+        var elapsedSeconds = (Stopwatch.GetTimestamp() - _pillarboxAnimStartTicks) / (double)Stopwatch.Frequency;
+        var linearT = Math.Clamp(elapsedSeconds / PillarboxCropAnimator.Duration.TotalSeconds, 0, 1);
+        var easedT = _pillarboxAnimClosingBars
+            ? PillarboxCropAnimator.CubicEaseIn(linearT)
+            : PillarboxCropAnimator.CubicEaseOut(linearT);
+
+        var prevLeft = _cropLeft;
+        var prevRight = _cropRight;
+        _cropLeft = PillarboxCropAnimator.Lerp(_animFromLeft, _animToLeft, easedT);
+        _cropRight = PillarboxCropAnimator.Lerp(_animFromRight, _animToRight, easedT);
+
+        if (linearT >= 1)
+        {
+            _cropLeft = _animToLeft;
+            _cropRight = _animToRight;
+            _pillarboxAnimActive = false;
+        }
+
+        if (_cropLeft != prevLeft || _cropRight != prevRight)
+            _rectDirty = true;
     }
 
 

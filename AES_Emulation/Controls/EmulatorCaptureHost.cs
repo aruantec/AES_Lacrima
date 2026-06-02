@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
 using AES_Emulation.Mac;
 using AES_Emulation.Windows;
@@ -152,6 +153,12 @@ public class EmulatorCaptureHost : ContentControl
 
     public static readonly StyledProperty<int> CaptureSessionStartDelayMsProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, int>(nameof(CaptureSessionStartDelayMs), 0);
+
+    public static readonly StyledProperty<bool> UseBackCoverLetterboxFillProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(UseBackCoverLetterboxFill), false);
+
+    public static readonly StyledProperty<Bitmap?> LetterboxBitmapProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, Bitmap?>(nameof(LetterboxBitmap));
 
     private Control _backend;
     private string _statusText = "Capture unavailable";
@@ -326,6 +333,18 @@ public class EmulatorCaptureHost : ContentControl
         set => SetValue(CaptureSessionStartDelayMsProperty, value);
     }
 
+    public bool UseBackCoverLetterboxFill
+    {
+        get => GetValue(UseBackCoverLetterboxFillProperty);
+        set => SetValue(UseBackCoverLetterboxFillProperty, value);
+    }
+
+    public Bitmap? LetterboxBitmap
+    {
+        get => GetValue(LetterboxBitmapProperty);
+        set => SetValue(LetterboxBitmapProperty, value);
+    }
+
     public string StatusText
     {
         get => _statusText;
@@ -441,6 +460,7 @@ public class EmulatorCaptureHost : ContentControl
         wgcBackend.RetroarchShaderFile = string.IsNullOrWhiteSpace(ShaderPath) && ClearShaderWhenPathEmpty ? null : ShaderPath;
         wgcBackend.ForceUseTargetClientSize = ForceUseTargetClientArea;
         wgcBackend.RestoreTargetWindowOnStop = RestoreTargetWindowOnStop;
+        wgcBackend.LetterBoxBitmap = UseBackCoverLetterboxFill ? LetterboxBitmap : null;
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -666,6 +686,8 @@ public class EmulatorCaptureHost : ContentControl
                     compositionBackend.ShowStatisticsOverlay = false;
                     compositionBackend.ShowFrametimeGraph = false;
                     compositionBackend.ShowDetailedGpuInfo = false;
+                    compositionBackend.UseBackCoverLetterboxFill = UseBackCoverLetterboxFill;
+                    compositionBackend.LetterboxBitmap = LetterboxBitmap;
                     return;
                 case WgcCaptureControl wgcBackend:
                     SyncWgcProperties(wgcBackend);

@@ -228,6 +228,26 @@ struct CaptureSession
     std::atomic<int> dcompPillarboxTop{ 0 };
     std::atomic<int> dcompPillarboxBottom{ 0 };
     std::atomic<int> dcompPillarboxDetectCounter{ 0 };
+    std::atomic<int> dcompPillarboxExpandStable{ 0 };
+    std::atomic<int> dcompPillarboxLastLeft{ -1 };
+    std::atomic<int> dcompPillarboxLastRight{ -1 };
+    std::atomic<int> dcompPillarboxLastTop{ -1 };
+    std::atomic<int> dcompPillarboxLastBottom{ -1 };
+    std::atomic<int> dcompPillarboxTargetLeft{ 0 };
+    std::atomic<int> dcompPillarboxTargetRight{ 0 };
+    std::atomic<int> dcompPillarboxTargetTop{ 0 };
+    std::atomic<int> dcompPillarboxTargetBottom{ 0 };
+    std::atomic<bool> dcompPillarboxAnimActive{ false };
+    std::atomic<bool> dcompPillarboxAnimClosingBars{ true };
+    std::chrono::steady_clock::time_point dcompPillarboxAnimStart{};
+    int dcompPillarboxAnimFromLeft{ 0 };
+    int dcompPillarboxAnimFromRight{ 0 };
+    int dcompPillarboxAnimFromTop{ 0 };
+    int dcompPillarboxAnimFromBottom{ 0 };
+    int dcompPillarboxAnimToLeft{ 0 };
+    int dcompPillarboxAnimToRight{ 0 };
+    int dcompPillarboxAnimToTop{ 0 };
+    int dcompPillarboxAnimToBottom{ 0 };
     rt::com_ptr<ID3D11Texture2D> pillarboxStagingTexture;
     int pillarboxStagingWidth = 0;
     int pillarboxStagingHeight = 0;
@@ -1599,6 +1619,113 @@ struct CaptureSession
         dcompPillarboxTop.store(0, std::memory_order_relaxed);
         dcompPillarboxBottom.store(0, std::memory_order_relaxed);
         dcompPillarboxDetectCounter.store(0, std::memory_order_relaxed);
+        dcompPillarboxExpandStable.store(0, std::memory_order_relaxed);
+        dcompPillarboxLastLeft.store(-1, std::memory_order_relaxed);
+        dcompPillarboxLastRight.store(-1, std::memory_order_relaxed);
+        dcompPillarboxLastTop.store(-1, std::memory_order_relaxed);
+        dcompPillarboxLastBottom.store(-1, std::memory_order_relaxed);
+        dcompPillarboxTargetLeft.store(0, std::memory_order_relaxed);
+        dcompPillarboxTargetRight.store(0, std::memory_order_relaxed);
+        dcompPillarboxTargetTop.store(0, std::memory_order_relaxed);
+        dcompPillarboxTargetBottom.store(0, std::memory_order_relaxed);
+        dcompPillarboxAnimActive.store(false, std::memory_order_relaxed);
+    }
+
+    static double CubicEaseIn(double t)
+    {
+        t = (std::max)(0.0, (std::min)(1.0, t));
+        return t * t * t;
+    }
+
+    static double CubicEaseOut(double t)
+    {
+        t = (std::max)(0.0, (std::min)(1.0, t));
+        const double inv = 1.0 - t;
+        return 1.0 - inv * inv * inv;
+    }
+
+    static int LerpCrop(int from, int to, double progress)
+    {
+        return static_cast<int>(std::lround(static_cast<double>(from) +
+            (static_cast<double>(to - from) * progress)));
+    }
+
+    void BeginPillarboxCropAnimation(int toLeft, int toRight, int toTop, int toBottom)
+    {
+        const int currentLeft = dcompPillarboxLeft.load(std::memory_order_relaxed);
+        const int currentRight = dcompPillarboxRight.load(std::memory_order_relaxed);
+        const int currentTop = dcompPillarboxTop.load(std::memory_order_relaxed);
+        const int currentBottom = dcompPillarboxBottom.load(std::memory_order_relaxed);
+
+        if (currentLeft == toLeft && currentRight == toRight && currentTop == toTop && currentBottom == toBottom)
+        {
+            dcompPillarboxAnimActive.store(false, std::memory_order_relaxed);
+            return;
+        }
+
+        dcompPillarboxAnimFromLeft = currentLeft;
+        dcompPillarboxAnimFromRight = currentRight;
+        dcompPillarboxAnimFromTop = currentTop;
+        dcompPillarboxAnimFromBottom = currentBottom;
+        dcompPillarboxAnimToLeft = toLeft;
+        dcompPillarboxAnimToRight = toRight;
+        dcompPillarboxAnimToTop = toTop;
+        dcompPillarboxAnimToBottom = toBottom;
+        dcompPillarboxAnimClosingBars.store(
+            toLeft > currentLeft || toRight > currentRight || toTop > currentTop || toBottom > currentBottom,
+            std::memory_order_relaxed);
+        dcompPillarboxAnimStart = std::chrono::steady_clock::now();
+        dcompPillarboxAnimActive.store(true, std::memory_order_relaxed);
+    }
+
+    void StepPillarboxCropAnimation()
+    {
+        if (!dcompPillarboxCropEnabled.load(std::memory_order_relaxed))
+            return;
+
+        static constexpr double kAnimDurationSec = 0.45;
+
+        if (!dcompPillarboxAnimActive.load(std::memory_order_relaxed))
+        {
+            const int targetLeft = dcompPillarboxTargetLeft.load(std::memory_order_relaxed);
+            const int targetRight = dcompPillarboxTargetRight.load(std::memory_order_relaxed);
+            const int targetTop = dcompPillarboxTargetTop.load(std::memory_order_relaxed);
+            const int targetBottom = dcompPillarboxTargetBottom.load(std::memory_order_relaxed);
+
+            const int currentLeft = dcompPillarboxLeft.load(std::memory_order_relaxed);
+            const int currentRight = dcompPillarboxRight.load(std::memory_order_relaxed);
+            const int currentTop = dcompPillarboxTop.load(std::memory_order_relaxed);
+            const int currentBottom = dcompPillarboxBottom.load(std::memory_order_relaxed);
+
+            if (currentLeft != targetLeft || currentRight != targetRight ||
+                currentTop != targetTop || currentBottom != targetBottom)
+            {
+                BeginPillarboxCropAnimation(targetLeft, targetRight, targetTop, targetBottom);
+            }
+
+            return;
+        }
+
+        const auto elapsed = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - dcompPillarboxAnimStart).count();
+        const double linearT = (std::min)(1.0, elapsed / kAnimDurationSec);
+        const double easedT = dcompPillarboxAnimClosingBars.load(std::memory_order_relaxed)
+            ? CubicEaseIn(linearT)
+            : CubicEaseOut(linearT);
+
+        dcompPillarboxLeft.store(LerpCrop(dcompPillarboxAnimFromLeft, dcompPillarboxAnimToLeft, easedT), std::memory_order_relaxed);
+        dcompPillarboxRight.store(LerpCrop(dcompPillarboxAnimFromRight, dcompPillarboxAnimToRight, easedT), std::memory_order_relaxed);
+        dcompPillarboxTop.store(LerpCrop(dcompPillarboxAnimFromTop, dcompPillarboxAnimToTop, easedT), std::memory_order_relaxed);
+        dcompPillarboxBottom.store(LerpCrop(dcompPillarboxAnimFromBottom, dcompPillarboxAnimToBottom, easedT), std::memory_order_relaxed);
+
+        if (linearT >= 1.0)
+        {
+            dcompPillarboxLeft.store(dcompPillarboxAnimToLeft, std::memory_order_relaxed);
+            dcompPillarboxRight.store(dcompPillarboxAnimToRight, std::memory_order_relaxed);
+            dcompPillarboxTop.store(dcompPillarboxAnimToTop, std::memory_order_relaxed);
+            dcompPillarboxBottom.store(dcompPillarboxAnimToBottom, std::memory_order_relaxed);
+            dcompPillarboxAnimActive.store(false, std::memory_order_relaxed);
+        }
     }
 
     static void ApplyHalfTexelInset(float& u0, float& v0, float& u1, float& v1, int texWidth, int texHeight)
@@ -1942,7 +2069,7 @@ struct CaptureSession
             }
         }
 
-        static constexpr int kContentBarWarmupFrames = 30;
+        static constexpr int kContentBarWarmupFrames = 2;
         if (dcompPillarboxCropEnabled.load(std::memory_order_relaxed) &&
             frameCount.load(std::memory_order_relaxed) >= kContentBarWarmupFrames &&
             contentWidth > 0 && contentHeight > 0)
@@ -2706,6 +2833,192 @@ struct CaptureSession
         dcompSmoothedFps.store(1000.0 / smoothedFrameTimeMs, std::memory_order_relaxed);
     }
 
+    static int PixelChannelMax(const uint8_t* p)
+    {
+        return (std::max)({ static_cast<int>(p[0]), static_cast<int>(p[1]), static_cast<int>(p[2]) });
+    }
+
+    static bool IsBorderBlackPixel(const uint8_t* p)
+    {
+        return PixelChannelMax(p) <= 12;
+    }
+
+    static bool IsContentPixel(const uint8_t* p)
+    {
+        return PixelChannelMax(p) >= 22;
+    }
+
+    static void BuildSampleLines(int extent, int* lines, int lineCount)
+    {
+        for (int i = 0; i < lineCount; ++i)
+        {
+            const double t = (static_cast<double>(i) + 0.5) / static_cast<double>(lineCount);
+            lines[i] = (std::max)(0, (std::min)(extent - 1, static_cast<int>(std::lround(t * (extent - 1)))));
+        }
+    }
+
+    static bool IsUniformBarColumn(const uint8_t* pixels, int stride, int height, const int* rows, int rowCount, int x)
+    {
+        int blackLines = 0;
+        int contentLines = 0;
+        int lumaSum = 0;
+        int samples = 0;
+        for (int i = 0; i < rowCount; ++i)
+        {
+            const int y = rows[i];
+            if (y < 0 || y >= height)
+                continue;
+
+            const uint8_t* p = pixels + (y * stride) + (x * 4);
+            ++samples;
+            lumaSum += PixelChannelMax(p);
+            if (IsBorderBlackPixel(p))
+                ++blackLines;
+            else if (IsContentPixel(p))
+                ++contentLines;
+        }
+
+        if (samples == 0)
+            return true;
+
+        if (contentLines > 1)
+            return false;
+
+        if (lumaSum / samples > 8)
+            return false;
+
+        return blackLines >= (samples * 94 + 99) / 100;
+    }
+
+    static bool IsUniformBarRow(const uint8_t* pixels, int stride, int width, const int* cols, int colCount, int y)
+    {
+        int blackLines = 0;
+        int contentLines = 0;
+        int lumaSum = 0;
+        int samples = 0;
+        for (int i = 0; i < colCount; ++i)
+        {
+            const int x = cols[i];
+            if (x < 0 || x >= width)
+                continue;
+
+            const uint8_t* p = pixels + (y * stride) + (x * 4);
+            ++samples;
+            lumaSum += PixelChannelMax(p);
+            if (IsBorderBlackPixel(p))
+                ++blackLines;
+            else if (IsContentPixel(p))
+                ++contentLines;
+        }
+
+        if (samples == 0)
+            return true;
+
+        if (contentLines > 1)
+            return false;
+
+        if (lumaSum / samples > 8)
+            return false;
+
+        return blackLines >= (samples * 94 + 99) / 100;
+    }
+
+    static bool HasSubstantialCentralContent(const uint8_t* pixels, int stride, int width, int height, const int* rows, int rowCount, const int* cols, int colCount)
+    {
+        const int innerLeft = width / 5;
+        const int innerRight = (width * 4) / 5;
+        const int innerTop = height / 5;
+        const int innerBottom = (height * 4) / 5;
+
+        int contentPixels = 0;
+        int sampled = 0;
+        for (int r = 0; r < rowCount; ++r)
+        {
+            const int y = rows[r];
+            if (y < innerTop || y > innerBottom)
+                continue;
+
+            for (int c = 0; c < colCount; ++c)
+            {
+                const int x = cols[c];
+                if (x < innerLeft || x > innerRight)
+                    continue;
+
+                ++sampled;
+                const uint8_t* p = pixels + (y * stride) + (x * 4);
+                if (IsContentPixel(p))
+                    ++contentPixels;
+            }
+        }
+
+        if (sampled == 0)
+            return false;
+
+        return contentPixels >= (std::max)(12, (sampled * 18) / 100);
+    }
+
+    static bool IsUniformBlackRegion(const uint8_t* pixels, int stride, int width, int height, int x0, int x1, int y0, int y1)
+    {
+        if (x1 <= x0 || y1 <= y0)
+            return false;
+
+        const int stepX = (std::max)(1, (x1 - x0) / 8);
+        const int stepY = (std::max)(1, (y1 - y0) / 8);
+        int samples = 0;
+        int blackSamples = 0;
+
+        for (int y = y0; y < y1; y += stepY)
+        {
+            for (int x = x0; x < x1; x += stepX)
+            {
+                const uint8_t* p = pixels + (y * stride) + (x * 4);
+                ++samples;
+                if (IsBorderBlackPixel(p))
+                    ++blackSamples;
+            }
+        }
+
+        return samples > 0 && blackSamples >= (samples * 97 + 99) / 100;
+    }
+
+    static void ValidateDetectedInsets(const uint8_t* pixels, int stride, int width, int height, int& outLeft, int& outRight, int& outTop, int& outBottom)
+    {
+        static constexpr int kMinBarPx = 8;
+        if (outLeft < kMinBarPx) outLeft = 0;
+        if (outRight < kMinBarPx) outRight = 0;
+        if (outTop < kMinBarPx) outTop = 0;
+        if (outBottom < kMinBarPx) outBottom = 0;
+
+        const int maxCropX = (std::max)(kMinBarPx, (width * 22) / 100);
+        const int maxCropY = (std::max)(kMinBarPx, (height * 22) / 100);
+        outLeft = (std::min)(outLeft, maxCropX);
+        outRight = (std::min)(outRight, maxCropX);
+        outTop = (std::min)(outTop, maxCropY);
+        outBottom = (std::min)(outBottom, maxCropY);
+
+        int contentW = width - outLeft - outRight;
+        int contentH = height - outTop - outBottom;
+        if (contentW < (width * 68) / 100 || contentH < (height * 68) / 100)
+        {
+            outLeft = outRight = outTop = outBottom = 0;
+            return;
+        }
+
+        if (outLeft > 0 && !IsUniformBlackRegion(pixels, stride, width, height, 0, outLeft, 0, height))
+            outLeft = 0;
+        if (outRight > 0 && !IsUniformBlackRegion(pixels, stride, width, height, width - outRight, width, 0, height))
+            outRight = 0;
+        if (outTop > 0 && !IsUniformBlackRegion(pixels, stride, width, height, 0, width, 0, outTop))
+            outTop = 0;
+        if (outBottom > 0 && !IsUniformBlackRegion(pixels, stride, width, height, 0, width, height - outBottom, height))
+            outBottom = 0;
+
+        contentW = width - outLeft - outRight;
+        contentH = height - outTop - outBottom;
+        if (contentW < (width * 68) / 100 || contentH < (height * 68) / 100)
+            outLeft = outRight = outTop = outBottom = 0;
+    }
+
     static void DetectContentBarInsets(
         const uint8_t* pixels,
         int stride,
@@ -2720,128 +3033,58 @@ struct CaptureSession
         outRight = 0;
         outTop = 0;
         outBottom = 0;
-        if (!pixels || width < 100 || height < 100)
+        if (!pixels || width < 80 || height < 80)
             return;
 
-        const int maxScanX = width / 4;
-        const int maxScanY = height / 4;
-        const int contentThreshold = 3;
-        const int rowCount = 15;
-        const int colCount = 15;
-        int rows[15] = {
-            height / 16, height / 8, 3 * height / 16, height / 4, 5 * height / 16,
-            3 * height / 8, 7 * height / 16, height / 2, 9 * height / 16, 5 * height / 8,
-            11 * height / 16, 3 * height / 4, 13 * height / 16, 7 * height / 8, 15 * height / 16
-        };
-        int cols[15] = {
-            width / 16, width / 8, 3 * width / 16, width / 4, 5 * width / 16,
-            3 * width / 8, 7 * width / 16, width / 2, 9 * width / 16, 5 * width / 8,
-            11 * width / 16, 3 * width / 4, 13 * width / 16, 7 * width / 8, 15 * width / 16
-        };
+        static constexpr int kLineCount = 17;
+        int rows[kLineCount];
+        int cols[kLineCount];
+        BuildSampleLines(height, rows, kLineCount);
+        BuildSampleLines(width, cols, kLineCount);
 
-        bool hasContent = false;
-        const int centerSamples[5] = { width / 2, width / 3, 2 * width / 3, width / 4, 3 * width / 4 };
-        for (int sample = 0; sample < 5 && !hasContent; ++sample)
-        {
-            const int x = centerSamples[sample];
-            for (int r = 0; r < rowCount; ++r)
-            {
-                const uint8_t* p = pixels + (rows[r] * stride) + (x * 4);
-                if (p[0] > 3 || p[1] > 3 || p[2] > 3)
-                {
-                    hasContent = true;
-                    break;
-                }
-            }
-        }
-        if (!hasContent)
+        if (!HasSubstantialCentralContent(pixels, stride, width, height, rows, kLineCount, cols, kLineCount))
             return;
 
-        for (int x = 0; x < maxScanX; ++x)
+        const int maxScanX = (std::max)(24, (width * 22) / 100);
+        const int maxScanY = (std::max)(24, (height * 22) / 100);
+
+        for (int x = 0; x < maxScanX && x < width; ++x)
         {
-            bool hasContentInCol = false;
-            for (int r = 0; r < rowCount; ++r)
+            if (!IsUniformBarColumn(pixels, stride, height, rows, kLineCount, x))
             {
-                const uint8_t* p = pixels + (rows[r] * stride) + (x * 4);
-                if (p[0] > contentThreshold || p[1] > contentThreshold || p[2] > contentThreshold)
-                {
-                    hasContentInCol = true;
-                    break;
-                }
-            }
-            if (hasContentInCol)
-            {
-                outLeft = x;
+                outLeft = (std::max)(0, x - 1);
                 break;
             }
         }
 
-        for (int x = width - 1; x > width - 1 - maxScanX; --x)
+        for (int x = width - 1; x >= width - maxScanX && x >= 0; --x)
         {
-            bool hasContentInCol = false;
-            for (int r = 0; r < rowCount; ++r)
+            if (!IsUniformBarColumn(pixels, stride, height, rows, kLineCount, x))
             {
-                const uint8_t* p = pixels + (rows[r] * stride) + (x * 4);
-                if (p[0] > contentThreshold || p[1] > contentThreshold || p[2] > contentThreshold)
-                {
-                    hasContentInCol = true;
-                    break;
-                }
-            }
-            if (hasContentInCol)
-            {
-                outRight = (std::max)(0, width - 1 - x);
+                outRight = (std::max)(0, width - 1 - x - 1);
                 break;
             }
         }
 
-        for (int y = 0; y < maxScanY; ++y)
+        for (int y = 0; y < maxScanY && y < height; ++y)
         {
-            bool hasContentInRow = false;
-            for (int c = 0; c < colCount; ++c)
+            if (!IsUniformBarRow(pixels, stride, width, cols, kLineCount, y))
             {
-                const uint8_t* p = pixels + (y * stride) + (cols[c] * 4);
-                if (p[0] > contentThreshold || p[1] > contentThreshold || p[2] > contentThreshold)
-                {
-                    hasContentInRow = true;
-                    break;
-                }
-            }
-            if (hasContentInRow)
-            {
-                outTop = y;
+                outTop = (std::max)(0, y - 1);
                 break;
             }
         }
 
-        for (int y = height - 1; y > height - 1 - maxScanY; --y)
+        for (int y = height - 1; y >= height - maxScanY && y >= 0; --y)
         {
-            bool hasContentInRow = false;
-            for (int c = 0; c < colCount; ++c)
+            if (!IsUniformBarRow(pixels, stride, width, cols, kLineCount, y))
             {
-                const uint8_t* p = pixels + (y * stride) + (cols[c] * 4);
-                if (p[0] > contentThreshold || p[1] > contentThreshold || p[2] > contentThreshold)
-                {
-                    hasContentInRow = true;
-                    break;
-                }
-            }
-            if (hasContentInRow)
-            {
-                outBottom = (std::max)(0, height - 1 - y);
+                outBottom = (std::max)(0, height - 1 - y - 1);
                 break;
             }
         }
 
-        static constexpr int kMinBarPx = 4;
-        if (outLeft < kMinBarPx)
-            outLeft = 0;
-        if (outRight < kMinBarPx)
-            outRight = 0;
-        if (outTop < kMinBarPx)
-            outTop = 0;
-        if (outBottom < kMinBarPx)
-            outBottom = 0;
+        ValidateDetectedInsets(pixels, stride, width, height, outLeft, outRight, outTop, outBottom);
     }
 
     static constexpr int kPillarboxDetectTargetWidth = 320;
@@ -2968,8 +3211,10 @@ struct CaptureSession
         if (!dcompPillarboxCropEnabled.load(std::memory_order_relaxed) || !texture || !d3dDevice || !d3dContext)
             return;
 
+        StepPillarboxCropAnimation();
+
         const int counter = dcompPillarboxDetectCounter.fetch_add(1, std::memory_order_relaxed);
-        if ((counter % 15) != 0)
+        if ((counter % 8) != 0)
             return;
 
         if (width < 100 || height < 100)
@@ -3013,30 +3258,42 @@ struct CaptureSession
         if (pillarboxDetectHeight > 0)
             detectedBottom = (detectedBottom * cropH) / pillarboxDetectHeight;
 
-        const int currentLeft = dcompPillarboxLeft.load(std::memory_order_relaxed);
-        const int currentRight = dcompPillarboxRight.load(std::memory_order_relaxed);
-        const int currentTop = dcompPillarboxTop.load(std::memory_order_relaxed);
-        const int currentBottom = dcompPillarboxBottom.load(std::memory_order_relaxed);
+        const int lastLeft = dcompPillarboxLastLeft.load(std::memory_order_relaxed);
+        const int lastRight = dcompPillarboxLastRight.load(std::memory_order_relaxed);
+        const int lastTop = dcompPillarboxLastTop.load(std::memory_order_relaxed);
+        const int lastBottom = dcompPillarboxLastBottom.load(std::memory_order_relaxed);
 
-        if (detectedLeft < currentLeft)
-            dcompPillarboxLeft.store(detectedLeft, std::memory_order_relaxed);
-        if (detectedRight < currentRight)
-            dcompPillarboxRight.store(detectedRight, std::memory_order_relaxed);
-        if (detectedTop < currentTop)
-            dcompPillarboxTop.store(detectedTop, std::memory_order_relaxed);
-        if (detectedBottom < currentBottom)
-            dcompPillarboxBottom.store(detectedBottom, std::memory_order_relaxed);
-
-        if (detectedLeft > currentLeft || detectedRight > currentRight ||
-            detectedTop > currentTop || detectedBottom > currentBottom)
+        if (detectedLeft == lastLeft && detectedRight == lastRight &&
+            detectedTop == lastTop && detectedBottom == lastBottom)
         {
-            const int pending = dcompPillarboxDetectCounter.load(std::memory_order_relaxed);
-            if ((pending % 30) == 0)
+            dcompPillarboxExpandStable.fetch_add(1, std::memory_order_relaxed);
+        }
+        else
+        {
+            dcompPillarboxExpandStable.store(1, std::memory_order_relaxed);
+        }
+
+        dcompPillarboxLastLeft.store(detectedLeft, std::memory_order_relaxed);
+        dcompPillarboxLastRight.store(detectedRight, std::memory_order_relaxed);
+        dcompPillarboxLastTop.store(detectedTop, std::memory_order_relaxed);
+        dcompPillarboxLastBottom.store(detectedBottom, std::memory_order_relaxed);
+
+        static constexpr int kRequiredStableFrames = 6;
+        if (dcompPillarboxExpandStable.load(std::memory_order_relaxed) >= kRequiredStableFrames)
+        {
+            const int targetLeft = dcompPillarboxTargetLeft.load(std::memory_order_relaxed);
+            const int targetRight = dcompPillarboxTargetRight.load(std::memory_order_relaxed);
+            const int targetTop = dcompPillarboxTargetTop.load(std::memory_order_relaxed);
+            const int targetBottom = dcompPillarboxTargetBottom.load(std::memory_order_relaxed);
+
+            if (detectedLeft != targetLeft || detectedRight != targetRight ||
+                detectedTop != targetTop || detectedBottom != targetBottom)
             {
-                dcompPillarboxLeft.store(detectedLeft, std::memory_order_relaxed);
-                dcompPillarboxRight.store(detectedRight, std::memory_order_relaxed);
-                dcompPillarboxTop.store(detectedTop, std::memory_order_relaxed);
-                dcompPillarboxBottom.store(detectedBottom, std::memory_order_relaxed);
+                dcompPillarboxTargetLeft.store(detectedLeft, std::memory_order_relaxed);
+                dcompPillarboxTargetRight.store(detectedRight, std::memory_order_relaxed);
+                dcompPillarboxTargetTop.store(detectedTop, std::memory_order_relaxed);
+                dcompPillarboxTargetBottom.store(detectedBottom, std::memory_order_relaxed);
+                BeginPillarboxCropAnimation(detectedLeft, detectedRight, detectedTop, detectedBottom);
             }
         }
     }
@@ -3877,6 +4134,12 @@ extern "C" {
         s->dcompPillarboxCropEnabled.store(enable, std::memory_order_relaxed);
         if (!enable)
             s->ResetContentBarCrop();
+    }
+
+    __declspec(dllexport) void ResetDirectCompositionContentBarCrop(void* ptr) {
+        auto s = static_cast<CaptureSession*>(ptr);
+        if (!s) return;
+        s->ResetContentBarCrop();
     }
 
     __declspec(dllexport) void SetDirectCompositionFrameGeneration(void* ptr, int enabled, int targetHz) {
