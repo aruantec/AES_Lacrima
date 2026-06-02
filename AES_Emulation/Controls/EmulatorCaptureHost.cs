@@ -674,7 +674,8 @@ public class EmulatorCaptureHost : ContentControl
                     compositionBackend.DisableVSync = DisableVSync;
                     compositionBackend.RetroarchShaderFile = string.IsNullOrWhiteSpace(ShaderPath) && ClearShaderWhenPathEmpty ? null : ShaderPath;
                     compositionBackend.ForceUseTargetClientSize = ForceUseTargetClientArea;
-                    compositionBackend.EnableAutoCrop = EnablePillarboxCrop;
+                    compositionBackend.EnableAutoCrop =
+                        UseBackCoverLetterboxFill && LetterboxBitmap != null;
                     compositionBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
                     compositionBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
                     compositionBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;

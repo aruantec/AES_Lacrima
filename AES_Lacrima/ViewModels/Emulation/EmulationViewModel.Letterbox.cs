@@ -23,6 +23,12 @@ public partial class EmulationViewModel
     public bool UseBackCoverLetterboxFill =>
         SettingsViewModel?.EmulationUseBackCoverLetterboxFill == true;
 
+    /// <summary>
+    /// Pillarbox crop runs only when letterbox fill is enabled and a back-cover image is loaded.
+    /// </summary>
+    public bool EnableLetterboxPillarboxCrop =>
+        UseBackCoverLetterboxFill && CaptureLetterboxBitmap != null;
+
     internal void SetActiveCaptureRomPath(string? romPath)
     {
         _activeCaptureRomPath = string.IsNullOrWhiteSpace(romPath) ? null : romPath.Trim();
@@ -35,9 +41,15 @@ public partial class EmulationViewModel
         CaptureLetterboxBitmap = null;
     }
 
+    partial void OnCaptureLetterboxBitmapChanged(Bitmap? value)
+    {
+        OnPropertyChanged(nameof(EnableLetterboxPillarboxCrop));
+    }
+
     private void OnEmulationUseBackCoverLetterboxFillChanged(bool enabled)
     {
         OnPropertyChanged(nameof(UseBackCoverLetterboxFill));
+        OnPropertyChanged(nameof(EnableLetterboxPillarboxCrop));
 
         if (!enabled)
         {

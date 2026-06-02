@@ -22,7 +22,7 @@
                                        TargetProcessId="{Binding EmulatorTargetProcessId}"
                                        TargetWindowTitleHint="{Binding CurrentEmulatorWindowTitleHint}"
                                        ForceUseTargetClientArea="{Binding ForceUseTargetClientAreaCapture}"
-                                       EnablePillarboxCrop="{Binding EnableCapturePillarboxCrop}"
+                                       EnablePillarboxCrop="{Binding EnableLetterboxPillarboxCrop}"
                                        ClientAreaCropLeftInset="{Binding ClientAreaCropLeftInset}"
                                        ClientAreaCropTopInset="{Binding ClientAreaCropTopInset}"
                                        ClientAreaCropRightInset="{Binding ClientAreaCropRightInset}"

@@ -1089,13 +1089,11 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
                  change.Property == EnableAutoCropProperty ||
                  change.Property == OverlayXProperty ||
                  change.Property == OverlayYProperty ||
-                 change.Property == UseBackCoverLetterboxFillProperty)
-        {
-            UpdateHandlerSettings();
-        }
-        else if (change.Property == LetterboxBitmapProperty)
+                 change.Property == UseBackCoverLetterboxFillProperty ||
+                 change.Property == LetterboxBitmapProperty)
         {
             SendLetterboxUpdate();
+            UpdateHandlerSettings();
         }
         else if (change.Property == UseHostWindowCaptureProperty)
         {
@@ -1198,12 +1196,15 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
         return true;
     }
 
+    private bool IsBackCoverLetterboxBackgroundActive =>
+        UseBackCoverLetterboxFill && LetterboxBitmap != null;
+
     private void UpdateHandlerSettings()
     {
         if (!IsWindowsPlatform)
             return;
 
-        var effectiveEnableAutoCrop = EnableAutoCrop || UseBackCoverLetterboxFill;
+        var effectiveEnableAutoCrop = IsBackCoverLetterboxBackgroundActive;
 
         if (Log.IsDebugEnabled)
         {
@@ -1307,7 +1308,7 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
             ColorTint.B / 255f,
             ColorTint.A / 255f,
             DisableVSync);
-        WgcBridgeApi.SetDirectCompositionPillarboxCropEnabled(_session, EnableAutoCrop || UseBackCoverLetterboxFill);
+        WgcBridgeApi.SetDirectCompositionPillarboxCropEnabled(_session, IsBackCoverLetterboxBackgroundActive);
         _lastNativeStretch = Stretch;
 
         if (shaderChanged)
@@ -1654,12 +1655,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _settingsDirty = true;
             _useNativeHlslPipeline = st.UseNativeHlslPipeline;
 
-            if (!_enableAutoCrop && (_cropLeft != 0 || _cropRight != 0))
-            {
-                _cropLeft = 0;
-                _cropRight = 0;
-                _rectDirty = true;
-            }
+            ClearPillarboxCropIfInactive();
 
             if (!_useNativeHlslPipeline && _retroarchShaderFile != st.RetroarchShaderFile)
             {
@@ -1958,13 +1954,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
         if (!letterbox.Enabled)
         {
-            if (!_enableAutoCrop && (_cropLeft != 0 || _cropRight != 0))
-            {
-                _cropLeft = 0;
-                _cropRight = 0;
-                _rectDirty = true;
-            }
-
+            ClearPillarboxCropIfInactive();
             return;
         }
 
@@ -1972,6 +1962,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             letterbox.Width <= 0 ||
             letterbox.Height <= 0)
         {
+            ClearPillarboxCropIfInactive();
             return;
         }
 
@@ -2324,7 +2315,24 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         }
     }
 
-    private bool ShouldAutoCropPillarboxes => _enableAutoCrop || _useBackCoverLetterboxFill;
+    private bool ShouldAutoCropPillarboxes =>
+        _useBackCoverLetterboxFill && _letterboxImage != null;
+
+    private void ClearPillarboxCropIfInactive()
+    {
+        if (ShouldAutoCropPillarboxes)
+            return;
+
+        if (_cropLeft == 0 && _cropRight == 0 && !_pillarboxAnimActive)
+            return;
+
+        _cropLeft = 0;
+        _cropRight = 0;
+        _targetCropLeft = 0;
+        _targetCropRight = 0;
+        _pillarboxAnimActive = false;
+        _rectDirty = true;
+    }
 
     private void DrawCapturedFrame(SKCanvas canvas, GRContext? grContext, IntPtr ptr, int w, int h)
     {
@@ -2577,13 +2585,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     {
         if (!ShouldAutoCropPillarboxes || w < 80 || h < 80 || ptr == IntPtr.Zero)
         {
-            if (!_useBackCoverLetterboxFill && (_cropLeft != 0 || _cropRight != 0))
-            {
-                _cropLeft = 0;
-                _cropRight = 0;
-                _rectDirty = true;
-            }
-
+            ClearPillarboxCropIfInactive();
             return;
         }
 
