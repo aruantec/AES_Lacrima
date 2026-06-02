@@ -152,6 +152,10 @@ namespace AES_Lacrima.Services
 
             try
             {
+                var existingCache = File.Exists(metaDataPath)
+                    ? await Task.Run(() => BinaryMetadataHelper.LoadMetadata(metaDataPath)).ConfigureAwait(false)
+                    : null;
+
                 var customMetadata = new CustomMetadata
                 {
                     Title = Title!,
@@ -178,6 +182,21 @@ namespace AES_Lacrima.Services
                     ReplayGainAlbumGain = ReplayGainAlbumGain,
                     Duration = _currentSelectedMedia?.Duration ?? 0.0,
                 };
+
+                if (existingCache != null)
+                {
+                    customMetadata.CoverScanned = existingCache.CoverScanned;
+                    customMetadata.CoverLookupExhausted = existingCache.CoverLookupExhausted;
+                    customMetadata.RomScanned = existingCache.RomScanned;
+                    if (string.IsNullOrWhiteSpace(customMetadata.Ps3TitleId))
+                        customMetadata.Ps3TitleId = existingCache.Ps3TitleId;
+                    if (string.IsNullOrWhiteSpace(customMetadata.Ps3Version))
+                        customMetadata.Ps3Version = existingCache.Ps3Version;
+                    if (string.IsNullOrWhiteSpace(customMetadata.Ps4TitleId))
+                        customMetadata.Ps4TitleId = existingCache.Ps4TitleId;
+                    if (string.IsNullOrWhiteSpace(customMetadata.Ps4Version))
+                        customMetadata.Ps4Version = existingCache.Ps4Version;
+                }
 
                 BinaryMetadataHelper.WriteMetadataImages(customMetadata, ToMetadataImageEntries(Images));
                 BinaryMetadataHelper.SaveMetadata(metaDataPath, customMetadata);

@@ -115,10 +115,22 @@ public static class CoverImageBarCropHelper
                 Directory.CreateDirectory(cacheDirectory);
 
             var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
-            var preserved = BinaryMetadataHelper.ReadMetadataImages(metadata)
+            var existingEntries = BinaryMetadataHelper.ReadMetadataImages(metadata);
+            var existingBackCover = existingEntries.FirstOrDefault(entry =>
+                entry.Kind == TagImageKind.BackCover && entry.Data is { Length: > 0 });
+
+            var preserved = existingEntries
                 .Where(entry => entry.Kind is not TagImageKind.Cover and not TagImageKind.BackCover)
                 .ToList();
             preserved.Insert(0, new MetadataImageEntry(TagImageKind.Cover, bytes.ToArray(), mimeType));
+
+            if (existingBackCover.Data is { Length: > 0 })
+            {
+                preserved.Insert(1, new MetadataImageEntry(
+                    TagImageKind.BackCover,
+                    existingBackCover.Data.ToArray(),
+                    existingBackCover.MimeType));
+            }
             metadata.CoverScanned = true;
             BinaryMetadataHelper.WriteMetadataImages(metadata, preserved);
             BinaryMetadataHelper.SaveMetadata(cachePath, metadata);

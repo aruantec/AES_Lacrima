@@ -1343,7 +1343,11 @@ namespace AES_Lacrima.Services
                 metadata.ReplayGainTrackGain = item.ReplayGainTrackGain;
                 metadata.ReplayGainAlbumGain = item.ReplayGainAlbumGain;
 
-                var preserved = BinaryMetadataHelper.ReadMetadataImages(metadata)
+                var existingEntries = BinaryMetadataHelper.ReadMetadataImages(metadata);
+                var existingBackCover = existingEntries.FirstOrDefault(entry =>
+                    entry.Kind == TagImageKind.BackCover && entry.Data is { Length: > 0 });
+
+                var preserved = existingEntries
                     .Where(entry => entry.Kind is not TagImageKind.Cover and not TagImageKind.BackCover)
                     .ToList();
 
@@ -1355,6 +1359,13 @@ namespace AES_Lacrima.Services
                         TagImageKind.BackCover,
                         backCoverBytes.ToArray(),
                         backCoverMimeType ?? GuessMimeTypeFromBytes(backCoverBytes)));
+                }
+                else if (existingBackCover.Data is { Length: > 0 })
+                {
+                    preserved.Insert(1, new MetadataImageEntry(
+                        TagImageKind.BackCover,
+                        existingBackCover.Data.ToArray(),
+                        existingBackCover.MimeType));
                 }
 
                 metadata.CoverScanned = true;
