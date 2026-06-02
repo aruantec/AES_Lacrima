@@ -1012,7 +1012,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 return;
             }
 
-            var activeSection = TryResolveEmulationSection(GetActiveEmulationAlbum());
+            var activeSection = TryResolveEmulationSection(GetActiveEmulationSectionAlbum());
             if (activeSection == null || !ReferenceEquals(activeSection, section))
                 return;
 

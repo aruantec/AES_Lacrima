@@ -46,10 +46,10 @@ namespace AES_Lacrima.ViewModels
     public partial class EmulationViewModel : ViewModelBase, IEmulationViewModel
     {
         public EmulationSectionItem? CurrentEmulationSectionItem =>
-            TryResolveEmulationSection(GetActiveEmulationAlbum());
+            TryResolveEmulationSection(GetActiveEmulationSectionAlbum());
 
         /// <summary>
-        /// Configured handler for the active emulation section (carousel/loaded album).
+        /// Configured handler for the active emulation section (album list selection).
         /// Unlike <see cref="CurrentEmulatorHandler"/>, this stays aligned with the section
         /// even while a game is running in another emulator.
         /// </summary>

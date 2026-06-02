@@ -647,21 +647,21 @@
                             <ScrollViewer>
                                 <StackPanel Margin="0,12,0,0" Spacing="12">
                                     <TextBlock Text="Current Emulator Handler" Foreground="White" FontSize="20" FontWeight="SemiBold" />
-                                    <TextBlock Text="{Binding CurrentEmulatorHandler.DisplayName}" Foreground="#E0E0E0" FontSize="18" />
-                                    <TextBlock Text="{Binding CurrentEmulatorHandler.SectionTitle}" Foreground="#B0B0B0" FontSize="16" />
+                                    <TextBlock Text="{Binding CurrentSectionEmulatorHandler.DisplayName}" Foreground="#E0E0E0" FontSize="18" />
+                                    <TextBlock Text="{Binding CurrentEmulationSectionItem.SectionTitle}" Foreground="#B0B0B0" FontSize="16" />
                                     <TextBlock Text="Launcher Path" Foreground="White" FontSize="18" Margin="0,12,0,0" />
-                                    <TextBlock Text="{Binding CurrentEmulatorHandler.LauncherDisplayPath}" TextWrapping="Wrap" Foreground="#D0D0D0" FontSize="16" />
+                                    <TextBlock Text="{Binding CurrentSectionEmulatorHandler.LauncherDisplayPath}" TextWrapping="Wrap" Foreground="#D0D0D0" FontSize="16" />
 
                                     <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,12,0,0">
                                         <Button Content="Browse Launcher"
-                                                Command="{Binding CurrentEmulatorHandler.BrowseLauncherCommand}"
+                                                Command="{Binding CurrentSectionEmulatorHandler.BrowseLauncherCommand}"
                                                 Padding="12,8"
                                                 Background="#222"
                                                 Foreground="White"
                                                 BorderBrush="#555"
                                                 BorderThickness="1"/>
                                         <Button Content="Clear Launcher"
-                                                Command="{Binding CurrentEmulatorHandler.ClearLauncherCommand}"
+                                                Command="{Binding CurrentSectionEmulatorHandler.ClearLauncherCommand}"
                                                 Padding="12,8"
                                                 Background="#222"
                                                 Foreground="White"

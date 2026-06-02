@@ -48,6 +48,12 @@ namespace AES_Lacrima.ViewModels
     {
         private FolderMediaItem? GetActiveEmulationAlbum() => LoadedAlbum ?? SelectedAlbum;
 
+        /// <summary>
+        /// Album used for section-scoped UI (render options handler tab, per-section settings).
+        /// Prefers the album list selection over a previously double-opened loaded album.
+        /// </summary>
+        private FolderMediaItem? GetActiveEmulationSectionAlbum() => SelectedAlbum ?? LoadedAlbum;
+
         private EmulationSectionItem? TryResolveEmulationSection(FolderMediaItem? album)
         {
             if (album == null || SettingsViewModel == null)
@@ -70,7 +76,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(CurrentSectionEmulatorHandler));
 
             if (!IsEmulatorRunning)
-                UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationAlbum());
+                UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationSectionAlbum());
 
             RefreshCurrentSectionLaunchOptionsState();
             SyncCurrentSectionRetroArchCoreSelection();
@@ -558,7 +564,7 @@ namespace AES_Lacrima.ViewModels
             EmulatorTargetHwnd = IntPtr.Zero;
             IsEmulatorRunning = false;
             IsEmulatorPaused = false;
-            UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationAlbum());
+            UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationSectionAlbum());
             DetachTrackedEmulatorProcess();
             ResetEmulatorShutdownCaptureState();
         }
