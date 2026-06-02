@@ -11,6 +11,7 @@ using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
 using AES_Lacrima.Services.Emulation;
 using AES_Lacrima.Services.Cemu;
+using AES_Lacrima.Services.Dolphin;
 using AES_Lacrima.Services.Rpcs3;
 using AES_Lacrima.Services.ShadPs4;
 using AES_Lacrima.Services.Xenia;
@@ -109,6 +110,18 @@ namespace AES_Lacrima.ViewModels
 
                 if (handler is CemuHandler cemuHandler)
                     cemuHandler.ApplyFullscreenScalingWorkaround(handler.LauncherPath ?? string.Empty);
+
+                if (handler is DolphinHandler)
+                {
+                    await Task.Run(() =>
+                    {
+                        var emulatorDir = DolphinGameIniService.ResolveEmulatorDirectory(
+                            null,
+                            handler.LauncherPath);
+                        var userDir = DolphinGameIniService.ResolvePortableUserDirectory(emulatorDir, handler.LauncherPath);
+                        DolphinGameIniService.EnsureCheatsEnabled(userDir, handler.LauncherPath);
+                    }).ConfigureAwait(false);
+                }
 
                 if (string.Equals(handler.HandlerId, XeniaHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
                     !string.IsNullOrWhiteSpace(handler.LauncherPath))
@@ -923,11 +936,12 @@ namespace AES_Lacrima.ViewModels
                 var hwnd = await ResolveCaptureTargetForCurrentPlatformAsync(process, handler).ConfigureAwait(false);
                 if (hwnd == IntPtr.Zero)
                 {
-                    var maxRetries = handler is RetroArchHandler or CemuHandler ? 4 : 1;
+                    var maxRetries = handler is RetroArchHandler or CemuHandler or DolphinHandler ? 4 : 1;
+                    var retryDelayMs = handler is DolphinHandler ? 3500 : 2000;
                     for (int i = 0; i < maxRetries && hwnd == IntPtr.Zero; i++)
                     {
                         SLog.Warn($"Failed to resolve emulator capture target for '{romPath}' (attempt {i + 1}). Retrying...");
-                        await Task.Delay(2000).ConfigureAwait(false);
+                        await Task.Delay(retryDelayMs).ConfigureAwait(false);
                         hwnd = await ResolveCaptureTargetForCurrentPlatformAsync(process, handler).ConfigureAwait(false);
                     }
                 }
@@ -1255,7 +1269,8 @@ namespace AES_Lacrima.ViewModels
             {
                 try
                 {
-                    await Task.Delay(AppTopmostRestoreTimeout, token).ConfigureAwait(false);
+                    var timeout = CurrentEmulatorHandler?.LaunchTopmostRestoreTimeout ?? AppTopmostRestoreTimeout;
+                    await Task.Delay(timeout, token).ConfigureAwait(false);
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
                         if (_appTopmostOverride)

@@ -862,6 +862,8 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         public DuckStationCheatsEditorViewModel DuckStationCheatsEditor { get; } = new();
 
+        public DolphinCheatsEditorViewModel DolphinCheatsEditor { get; } = new();
+
         public XeniaCustomConfigEditorViewModel XeniaCustomConfigEditor { get; } = new();
 
         public Rpcs3CustomConfigEditorViewModel Rpcs3CustomConfigEditor { get; } = new();

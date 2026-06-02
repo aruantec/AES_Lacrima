@@ -339,6 +339,8 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual int CaptureStartupDelayMs => HideUntilCaptured ? 200 : 3000;
 
+    public virtual TimeSpan LaunchTopmostRestoreTimeout => TimeSpan.FromSeconds(10);
+
     public virtual bool IsWindowEmbeddingSupported => false;
 
     public virtual void PrepareProcessForCapture(Process process)

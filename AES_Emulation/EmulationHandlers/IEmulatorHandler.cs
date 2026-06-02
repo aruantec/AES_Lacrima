@@ -79,6 +79,9 @@ public interface IEmulatorHandler : INotifyPropertyChanged
     double? CaptureWindowAspectRatio { get; }
 
     int CaptureStartupDelayMs { get; }
+
+    /// <summary>How long to keep the host window topmost while waiting for capture attach.</summary>
+    TimeSpan LaunchTopmostRestoreTimeout { get; }
     
     bool IsWindowEmbeddingSupported { get; }
 

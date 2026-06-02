@@ -158,6 +158,9 @@ namespace AES_Lacrima.ViewModels
         public bool ShowCurrentSectionDuckStationCheatsMenuItem =>
             ShowCurrentSectionDuckStationUpdateControls && HasActiveAlbumItems;
 
+        public bool ShowCurrentSectionDolphinCheatsMenuItem =>
+            ShowCurrentSectionDolphinUpdateControls && HasActiveAlbumItems;
+
         public bool ShowCurrentSectionCemuGraphicPacksMenuItem =>
             ShowCurrentSectionCemuSection && HasActiveAlbumItems;
 
@@ -315,6 +318,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3PatchesMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3CheatsMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionDuckStationCheatsMenuItem));
+            OnPropertyChanged(nameof(ShowCurrentSectionDolphinCheatsMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionCemuGraphicPacksMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionDolphinUpdateControls));
@@ -631,6 +635,7 @@ namespace AES_Lacrima.ViewModels
                 CurrentSectionDolphinUpdatePath = null;
                 CurrentSectionDolphinDownloadProgress = 0;
                 IsCurrentSectionDolphinDownloading = false;
+                DolphinCheatsEditor.ClearSession();
                 try
                 {
                     _isSyncingCurrentSectionDolphinIncludePrereleases = true;

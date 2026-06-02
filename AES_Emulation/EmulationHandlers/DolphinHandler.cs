@@ -86,7 +86,9 @@ public sealed class DolphinHandler : EmulatorHandlerBase
         return startInfo;
     }
 
-    public override int CaptureStartupDelayMs => 650;
+    public override int CaptureStartupDelayMs => 1800;
+
+    public override TimeSpan LaunchTopmostRestoreTimeout => TimeSpan.FromSeconds(60);
 
     public override void PrepareProcessForCapture(Process process)
     {
@@ -110,8 +112,8 @@ public sealed class DolphinHandler : EmulatorHandlerBase
 
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
-        const int maxAttempts = 160;
-        const int delayMs = 40;
+        const int maxAttempts = 400;
+        const int delayMs = 50;
         const int stableAttemptsBeforeAssign = 8;
 
         IntPtr observedHwnd = IntPtr.Zero;
@@ -434,6 +436,7 @@ public sealed class DolphinHandler : EmulatorHandlerBase
             TrySetDolphinIniValue(userDirectory, "PauseOnFocusLost", "False");
             // Single NKit dialog for all platforms; Wii is mentioned in the dialog text but uses this same flag.
             TrySetDolphinIniValue(userDirectory, "SkipNKitWarning", "True");
+            TrySetDolphinCoreIniValue(userDirectory, "EnableCheats", "True");
         }
     }
 
@@ -472,6 +475,67 @@ public sealed class DolphinHandler : EmulatorHandlerBase
         {
             yield return Path.Combine(home, "Library", "Application Support", "Dolphin");
         }
+    }
+
+    private static void TrySetDolphinCoreIniValue(string? userDirectory, string key, string value)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(userDirectory))
+                return;
+
+            var configDirectory = Path.Combine(userDirectory, "Config");
+            Directory.CreateDirectory(configDirectory);
+            var configPath = Path.Combine(configDirectory, "Dolphin.ini");
+
+            List<string> lines;
+            if (File.Exists(configPath))
+            {
+                lines = [.. File.ReadAllLines(configPath)];
+            }
+            else
+            {
+                lines = ["[Core]"];
+            }
+
+            var coreHeaderIndex = lines.FindIndex(line =>
+                string.Equals(line.Trim(), "[Core]", StringComparison.OrdinalIgnoreCase));
+            if (coreHeaderIndex < 0)
+            {
+                if (lines.Count > 0 && !string.IsNullOrWhiteSpace(lines[^1]))
+                    lines.Add(string.Empty);
+                lines.Add("[Core]");
+                coreHeaderIndex = lines.Count - 1;
+            }
+
+            var keyFound = false;
+            var newLine = $"{key} = {value}";
+            for (var i = coreHeaderIndex + 1; i < lines.Count; i++)
+            {
+                var trimmed = lines[i].TrimStart();
+                if (trimmed.StartsWith('['))
+                    break;
+
+                if (!trimmed.StartsWith(key, StringComparison.OrdinalIgnoreCase) || !lines[i].Contains('='))
+                    continue;
+
+                keyFound = true;
+                if (!string.Equals(lines[i].Trim(), newLine, StringComparison.OrdinalIgnoreCase))
+                    lines[i] = newLine;
+                break;
+            }
+
+            if (!keyFound)
+            {
+                var insertAt = coreHeaderIndex + 1;
+                while (insertAt < lines.Count && !lines[insertAt].TrimStart().StartsWith('['))
+                    insertAt++;
+                lines.Insert(insertAt, newLine);
+            }
+
+            File.WriteAllLines(configPath, lines);
+        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }
 
     private static void TrySetDolphinIniValue(string? userDirectory, string key, string value)
