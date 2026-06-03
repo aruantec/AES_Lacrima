@@ -33,4 +33,9 @@ internal static class PillarboxCropAnimator
     /// </summary>
     public static bool IsClosingBars(int fromLeft, int fromRight, int toLeft, int toRight) =>
         toLeft > fromLeft || toRight > fromRight;
+
+    public static bool IsClosingBars(
+        int fromLeft, int fromRight, int fromTop, int fromBottom,
+        int toLeft, int toRight, int toTop, int toBottom) =>
+        toLeft > fromLeft || toRight > fromRight || toTop > fromTop || toBottom > fromBottom;
 }

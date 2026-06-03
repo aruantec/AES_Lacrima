@@ -2076,24 +2076,34 @@ struct CaptureSession
         {
             const int cropLeft = dcompPillarboxLeft.load(std::memory_order_relaxed);
             const int cropRight = dcompPillarboxRight.load(std::memory_order_relaxed);
-            const int cropTop = dcompPillarboxTop.load(std::memory_order_relaxed);
-            const int cropBottom = dcompPillarboxBottom.load(std::memory_order_relaxed);
-            if (cropLeft > 0 || cropRight > 0 || cropTop > 0 || cropBottom > 0)
+            if (cropLeft > 0 || cropRight > 0)
             {
                 const float insetLeft = (static_cast<float>(cropLeft) / static_cast<float>(contentWidth)) * uSpan;
                 const float insetRight = (static_cast<float>(cropRight) / static_cast<float>(contentWidth)) * uSpan;
-                const float insetTop = (static_cast<float>(cropTop) / static_cast<float>(contentHeight)) * vSpan;
-                const float insetBottom = (static_cast<float>(cropBottom) / static_cast<float>(contentHeight)) * vSpan;
                 u0 = (std::min)(1.0f, (std::max)(0.0f, u0 + insetLeft));
                 u1 = (std::max)(0.0f, (std::min)(1.0f, u1 - insetRight));
-                v0 = (std::min)(1.0f, (std::max)(0.0f, v0 + insetTop));
-                v1 = (std::max)(0.0f, (std::min)(1.0f, v1 - insetBottom));
-                if (u1 - u0 > 0.02f && v1 - v0 > 0.02f)
+
+                const float croppedUSpan = u1 - u0;
+                const float croppedVSpan = v1 - v0;
+                if (croppedUSpan > 0.02f && croppedVSpan > 0.02f)
                 {
-                    left = -1.0f;
-                    right = 1.0f;
-                    top = 1.0f;
-                    bottom = -1.0f;
+                    const float cropAspect =
+                        (croppedUSpan * static_cast<float>(fullWidth)) /
+                        (croppedVSpan * static_cast<float>(fullHeight));
+
+                    // Uniform letterbox on cropped content (side pillars + back-cover fill).
+                    if (cropAspect > viewAspect)
+                    {
+                        const float scaleY = viewAspect / cropAspect;
+                        top = scaleY;
+                        bottom = -scaleY;
+                    }
+                    else
+                    {
+                        const float scaleX = cropAspect / viewAspect;
+                        left = -scaleX;
+                        right = scaleX;
+                    }
                 }
             }
         }
