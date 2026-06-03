@@ -446,7 +446,6 @@ namespace AES_Emulation.Windows.API
             int flags = 0;
             var props = e.GetCurrentPoint(_element).Properties;
             if (props.IsLeftButtonPressed) flags |= 0x0001;
-            if (props.IsRightButtonPressed) flags |= 0x0002;
             if (props.IsMiddleButtonPressed) flags |= 0x0010;
 
             SendMessage(TargetHwnd, WM_MOUSEMOVE, new IntPtr(flags), MakeLParam(clientX, clientY));
@@ -466,7 +465,6 @@ namespace AES_Emulation.Windows.API
 
             var props = e.GetCurrentPoint(_element).Properties;
             if (props.IsLeftButtonPressed) SendMessage(TargetHwnd, WM_LBUTTONDOWN, new IntPtr(0x0001), MakeLParam(clientX, clientY));
-            if (props.IsRightButtonPressed) SendMessage(TargetHwnd, WM_RBUTTONDOWN, new IntPtr(0x0002), MakeLParam(clientX, clientY));
             if (props.IsMiddleButtonPressed) SendMessage(TargetHwnd, WM_MBUTTONDOWN, new IntPtr(0x0010), MakeLParam(clientX, clientY));
         }
 
@@ -479,8 +477,10 @@ namespace AES_Emulation.Windows.API
                 return;
 
             var button = e.InitialPressMouseButton;
+            if (button == MouseButton.Right)
+                return;
+
             if (button == MouseButton.Left) SendMessage(TargetHwnd, WM_LBUTTONUP, IntPtr.Zero, MakeLParam(clientX, clientY));
-            else if (button == MouseButton.Right) SendMessage(TargetHwnd, WM_RBUTTONUP, IntPtr.Zero, MakeLParam(clientX, clientY));
             else if (button == MouseButton.Middle) SendMessage(TargetHwnd, WM_MBUTTONUP, IntPtr.Zero, MakeLParam(clientX, clientY));
 
             ForceEmulatorFocus(TargetHwnd);

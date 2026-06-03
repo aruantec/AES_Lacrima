@@ -18,6 +18,7 @@ using AES_Controls.Helpers;
 using AES_Emulation.Controls;
 using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
+using AES_Lacrima.Services;
 using EmulatorCaptureHostControl = AES_Emulation.Controls.EmulatorCaptureHost;
 
 namespace AES_Lacrima.Views;
@@ -201,6 +202,8 @@ public partial class EmulationView : UserControl
     private bool _compositionCaptureWasVisible;
     private bool _inlinePortalPresentationActive;
     private FullscreenCursorAutoHideHelper? _fullscreenCursorAutoHide;
+    private MetadataService? _subscribedMetadataServiceForCapture;
+    private bool _portalHiddenForMetadataOverlay;
 
     /// <summary>
     /// When <see langword="true"/>, composition capture renders in <c>InlineCaptureControl</c> on this view.
@@ -222,6 +225,8 @@ public partial class EmulationView : UserControl
         InitializeComponent();
         var captureHost = this.FindControl<Border>("EmulatorCaptureHost");
         captureHost?.AddHandler(InputElement.PointerPressedEvent, OnCaptureHostPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        var captureContextMenuLayer = this.FindControl<Border>("CaptureContextMenuLayer");
+        captureContextMenuLayer?.AddHandler(InputElement.PointerPressedEvent, OnCaptureContextMenuLayerPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
         var portalSurface = this.FindControl<Control>("PortalPortal");
         portalSurface?.AddHandler(InputElement.PointerPressedEvent, OnPortalSurfacePointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(InputElement.KeyDownEvent, OnEmulationViewKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -258,6 +263,13 @@ public partial class EmulationView : UserControl
 
     private void OnCaptureHostPointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        if (IsCaptureContextMenuPointer(e))
+        {
+            TryOpenCaptureContextMenu();
+            e.Handled = true;
+            return;
+        }
+
         if (TryHandleCaptureDoubleClick(e))
             return;
 
@@ -268,8 +280,80 @@ public partial class EmulationView : UserControl
         }
     }
 
+    private void OnCaptureContextMenuLayerPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (IsCaptureContextMenuPointer(e))
+        {
+            if (sender is Border layer)
+                OpenCaptureContextMenu(layer);
+            else
+                TryOpenCaptureContextMenu();
+            e.Handled = true;
+            return;
+        }
+
+        if (TryHandleCaptureDoubleClick(e))
+            return;
+
+        if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
+            ActiveCaptureHost?.ForwardFocusToTarget();
+    }
+
+    private void TryOpenCaptureContextMenu()
+    {
+        if (UseInlineCaptureHost)
+        {
+            var layer = this.FindControl<Border>("CaptureContextMenuLayer");
+            if (layer != null)
+                OpenCaptureContextMenu(layer);
+            return;
+        }
+
+        var portalLayer = _portalWindow?.FindControl<Border>("CaptureContextMenuLayer");
+        if (portalLayer != null)
+            OpenCaptureContextMenu(portalLayer);
+    }
+
+    private static void OpenCaptureContextMenu(Border layer)
+    {
+        if (layer.ContextMenu is not ContextMenu menu)
+            return;
+
+        menu.PlacementTarget = layer;
+        menu.Open(layer);
+    }
+
+    private void UpdateCapturePointerRouting(EmulationViewModel vm)
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var tunnelActive = vm.IsCompositionCaptureVisible && vm.IsEmulatorViewportVisible;
+        if (UseInlineCaptureHost)
+        {
+            EnsureInlineCaptureHost();
+            var layer = this.FindControl<Border>("CaptureContextMenuLayer");
+            _inlineCaptureHost?.ConfigurePointerTunnelSurface(tunnelActive ? layer : null);
+            return;
+        }
+
+        var portalLayer = _portalWindow?.FindControl<Border>("CaptureContextMenuLayer");
+        _portalWindow?.CaptureHostControl?.ConfigurePointerTunnelSurface(tunnelActive ? portalLayer : null);
+    }
+
+    private static bool IsCaptureContextMenuPointer(PointerPressedEventArgs e)
+    {
+        if (e.Source is not Visual visual)
+            return false;
+
+        return e.GetCurrentPoint(visual).Properties.IsRightButtonPressed;
+    }
+
     private void OnPortalSurfacePointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        if (IsCaptureContextMenuPointer(e))
+            return;
+
         if (TryHandleCaptureDoubleClick(e))
             return;
 
@@ -504,7 +588,9 @@ public partial class EmulationView : UserControl
         if (DataContext is EmulationViewModel vm)
         {
             vm.PropertyChanged += OnViewModelPropertyChanged;
+            AttachMetadataServiceForCapture(vm);
             UpdatePortalVisibility(vm);
+            UpdateCapturePointerRouting(vm);
         }
     }
 
@@ -514,14 +600,20 @@ public partial class EmulationView : UserControl
 
         var captureHost = this.FindControl<Border>("EmulatorCaptureHost");
         captureHost?.RemoveHandler(InputElement.PointerPressedEvent, OnCaptureHostPointerPressed);
+        var captureContextMenuLayer = this.FindControl<Border>("CaptureContextMenuLayer");
+        captureContextMenuLayer?.RemoveHandler(InputElement.PointerPressedEvent, OnCaptureContextMenuLayerPointerPressed);
         var portalSurface = this.FindControl<Control>("PortalPortal");
         portalSurface?.RemoveHandler(InputElement.PointerPressedEvent, OnPortalSurfacePointerPressed);
         RemoveHandler(InputElement.KeyDownEvent, OnEmulationViewKeyDown);
         LayoutUpdated -= OnViewLayoutUpdated;
 
+        _inlineCaptureHost?.ConfigurePointerTunnelSurface(null);
+        _portalWindow?.CaptureHostControl?.ConfigurePointerTunnelSurface(null);
+
         if (DataContext is EmulationViewModel vm)
         {
             vm.PropertyChanged -= OnViewModelPropertyChanged;
+            DetachMetadataServiceForCapture();
         }
 
         _boundsSubscription?.Dispose();
@@ -592,10 +684,12 @@ public partial class EmulationView : UserControl
 
         if (DataContext is EmulationViewModel vm)
         {
+            AttachMetadataServiceForCapture(vm);
             UpdatePortalVisibility(vm);
         }
         else
         {
+            DetachMetadataServiceForCapture();
             CancelPresentationTransitions();
             _inlinePortalPresentationActive = false;
             _captureHostPresentationVisible = false;
@@ -631,6 +725,7 @@ public partial class EmulationView : UserControl
             }
 
             UpdatePortalVisibility(vm);
+            UpdateCapturePointerRouting(vm);
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed) ||
                  e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen))
@@ -680,9 +775,68 @@ public partial class EmulationView : UserControl
         }
     }
 
+    private void AttachMetadataServiceForCapture(EmulationViewModel vm)
+    {
+        var metadata = vm.MetadataService;
+        if (metadata == null || ReferenceEquals(metadata, _subscribedMetadataServiceForCapture))
+            return;
+
+        DetachMetadataServiceForCapture();
+        _subscribedMetadataServiceForCapture = metadata;
+        _subscribedMetadataServiceForCapture.PropertyChanged += OnMetadataServicePropertyChangedForCapture;
+        UpdatePortalVisibilityForMetadataOverlay(vm);
+    }
+
+    private void DetachMetadataServiceForCapture()
+    {
+        if (_subscribedMetadataServiceForCapture == null)
+            return;
+
+        _subscribedMetadataServiceForCapture.PropertyChanged -= OnMetadataServicePropertyChangedForCapture;
+        _subscribedMetadataServiceForCapture = null;
+        _portalHiddenForMetadataOverlay = false;
+    }
+
+    private void OnMetadataServicePropertyChangedForCapture(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!string.Equals(e.PropertyName, nameof(MetadataService.IsMetadataLoaded), StringComparison.Ordinal))
+            return;
+
+        if (DataContext is not EmulationViewModel vm)
+            return;
+
+        UpdatePortalVisibilityForMetadataOverlay(vm);
+    }
+
+    private void UpdatePortalVisibilityForMetadataOverlay(EmulationViewModel vm)
+    {
+        if (UseInlineCaptureHost || _portalWindow == null)
+            return;
+
+        var metadataOpen = vm.MetadataService?.IsMetadataLoaded == true;
+        if (metadataOpen && vm.IsCompositionCaptureVisible)
+        {
+            if (_portalWindow.IsVisible)
+            {
+                _portalWindow.Hide();
+                _portalHiddenForMetadataOverlay = true;
+            }
+
+            return;
+        }
+
+        if (_portalHiddenForMetadataOverlay)
+        {
+            _portalHiddenForMetadataOverlay = false;
+            if (vm.IsCompositionCaptureVisible)
+                SyncPortalWindow();
+        }
+    }
+
     private void UpdatePortalVisibility(EmulationViewModel vm)
     {
         UpdateAlbumListTransitions(vm);
+        UpdatePortalVisibilityForMetadataOverlay(vm);
 
         var captureVisible = vm.IsCompositionCaptureVisible;
         var viewActive = vm.IsActive;
@@ -935,6 +1089,8 @@ public partial class EmulationView : UserControl
 
             _portalWindow.Show();
             SyncPortalWindowCore();
+            if (DataContext is EmulationViewModel portalVm)
+                UpdateCapturePointerRouting(portalVm);
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
                 LinuxWindowPlacement.TryConfigureClickThrough(_portalWindow);
             UpdateWindowZOrder();
@@ -1604,7 +1760,10 @@ public partial class EmulationView : UserControl
             return;
 
         if (DataContext is EmulationViewModel vm)
+        {
             UpdateInlineCaptureHostVisibility(vm);
+            UpdateCapturePointerRouting(vm);
+        }
     }
 
     private void UpdateInlineCaptureHostVisibility(EmulationViewModel vm)

@@ -88,6 +88,7 @@ namespace AES_Lacrima.ViewModels
                 item.FileName,
                 launchSettings);
 
+            _activeEmulationSessionItem = item;
             RequestEmulatorLaunch(launchRequest);
         }
 
@@ -101,6 +102,7 @@ namespace AES_Lacrima.ViewModels
             SelectedStretch = ReadStringSetting(section, nameof(SelectedStretch), "Fill") is string stretchString && Enum.TryParse<Stretch>(stretchString, out var stretchValue)
                 ? stretchValue
                 : Stretch.Uniform;
+            SelectedCaptureAspectRatioKey = ReadStringSetting(section, nameof(SelectedCaptureAspectRatioKey), "handler") ?? "handler";
             DisableVSync = ReadBoolSetting(section, nameof(DisableVSync), false);
             LowLatencyCapture = ReadBoolSetting(section, nameof(LowLatencyCapture), true);
             FrameGenerationMode = ReadIntSetting(section, nameof(FrameGenerationMode), (int)EmulationFrameGenerationMode.Off) switch
@@ -129,6 +131,7 @@ namespace AES_Lacrima.ViewModels
             WriteSetting(section, nameof(ShowDetailedGpuInfo), ShowDetailedGpuInfo);
             WriteSetting(section, nameof(RenderOverlayOpacity), RenderOverlayOpacity);
             WriteSetting(section, nameof(SelectedStretch), SelectedStretch.ToString());
+            WriteSetting(section, nameof(SelectedCaptureAspectRatioKey), SelectedCaptureAspectRatioKey);
             WriteSetting(section, nameof(DisableVSync), DisableVSync);
             WriteSetting(section, nameof(LowLatencyCapture), LowLatencyCapture);
             WriteSetting(section, nameof(FrameGenerationMode), (int)FrameGenerationMode);
@@ -520,6 +523,12 @@ namespace AES_Lacrima.ViewModels
 
         private MediaItem? ResolveMetadataMenuTarget(object? parameter)
         {
+            if (IsEmulatorRunning &&
+                _activeEmulationSessionItem is { FileName: { Length: > 0 } })
+            {
+                return _activeEmulationSessionItem;
+            }
+
             if (parameter is MediaItem mediaItem && !string.IsNullOrWhiteSpace(mediaItem.FileName))
                 return mediaItem;
 
@@ -628,6 +637,7 @@ namespace AES_Lacrima.ViewModels
         }
 
         private bool CanOpenMetadata(object? parameter) =>
+            (IsEmulatorRunning && _activeEmulationSessionItem is { FileName: { Length: > 0 } }) ||
             ResolveMetadataMenuTarget(parameter) != null ||
             CoverItems.Count > 0 ||
             LoadedAlbum?.Children.Count > 0 ||

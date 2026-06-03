@@ -211,6 +211,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         private string? _currentSetupLaunchIconExecutablePath;
         private Bitmap? _currentSetupLaunchIcon;
         private PendingEmulatorLaunchRequest? _pendingEmulatorLaunchRequest;
+        private MediaItem? _activeEmulationSessionItem;
         private string? _activeRpcs3SessionTitleId;
         private string? _activeRpcs3SessionEmulatorDirectory;
         private bool _isClosingActiveEmulatorForRelaunch;
@@ -516,6 +517,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
         SelectedCaptureMode = EmulatorCaptureMode.DirectComposition;
 
+            OnPropertyChanged(nameof(CaptureWindowAspectRatio));
             OnPropertyChanged(nameof(CanShowRenderOptions));
             OnPropertyChanged(nameof(ForceUseTargetClientAreaCapture));
             OnPropertyChanged(nameof(EnableCapturePillarboxCrop));
@@ -787,7 +789,6 @@ private bool _isShadPs4PatchesOverlayOpen;
         public int ClientAreaCropTopInset => CurrentEmulatorHandler?.ClientAreaCropTopInset ?? 0;
         public int ClientAreaCropRightInset => CurrentEmulatorHandler?.ClientAreaCropRightInset ?? 0;
         public int ClientAreaCropBottomInset => CurrentEmulatorHandler?.ClientAreaCropBottomInset ?? 0;
-        public double CaptureWindowAspectRatio => CurrentEmulatorHandler?.CaptureWindowAspectRatio ?? 0;
         public Stretch CurrentCaptureStretch => SelectedStretch;
         public string? CurrentEmulatorWindowTitleHint
         {
@@ -1130,10 +1131,17 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 IsEmulatorViewportDismissed = false;
                 StopGameplayPreview();
+                OpenMetadataCommand.NotifyCanExecuteChanged();
+                RebootEmulatorCommand.NotifyCanExecuteChanged();
                 return;
             }
 
+            if (_pendingEmulatorLaunchRequest == null)
+                _activeEmulationSessionItem = null;
+
             IsRenderOptionsOpen = false;
+            OpenMetadataCommand.NotifyCanExecuteChanged();
+            RebootEmulatorCommand.NotifyCanExecuteChanged();
             ClearRetroArchErrorState();
             SyncCurrentSectionEmulatorContext();
 
@@ -1145,6 +1153,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
             OnPropertyChanged(nameof(ShowCurrentSectionDuckStationSetupLaunchButton));
+            RebootEmulatorCommand.NotifyCanExecuteChanged();
         }
 
         partial void OnIsEmulatorViewportDismissedChanged(bool value)

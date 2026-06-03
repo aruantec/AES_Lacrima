@@ -2,7 +2,10 @@ using System;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.VisualTree;
 using AES_Emulation.Controls;
 using AES_Lacrima.Mac.API;
 
@@ -30,6 +33,55 @@ public partial class PortalWindow : Window
     public PortalWindow()
     {
         InitializeComponent();
+        CaptureHostControl?.AddHandler(InputElement.PointerPressedEvent, OnCaptureHostPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        var captureContextMenuLayer = this.FindControl<Border>("CaptureContextMenuLayer");
+        captureContextMenuLayer?.AddHandler(InputElement.PointerPressedEvent, OnCaptureContextMenuLayerPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+    }
+
+    private void OnCaptureHostPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!IsCaptureContextMenuPointer(e))
+            return;
+
+        TryOpenCaptureContextMenu();
+        e.Handled = true;
+    }
+
+    private void OnCaptureContextMenuLayerPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!IsCaptureContextMenuPointer(e))
+            return;
+
+        if (sender is Border layer)
+            OpenCaptureContextMenu(layer);
+        else
+            TryOpenCaptureContextMenu();
+
+        e.Handled = true;
+    }
+
+    private void TryOpenCaptureContextMenu()
+    {
+        var layer = this.FindControl<Border>("CaptureContextMenuLayer");
+        if (layer != null)
+            OpenCaptureContextMenu(layer);
+    }
+
+    private static void OpenCaptureContextMenu(Border layer)
+    {
+        if (layer.ContextMenu is not ContextMenu menu)
+            return;
+
+        menu.PlacementTarget = layer;
+        menu.Open(layer);
+    }
+
+    private static bool IsCaptureContextMenuPointer(PointerPressedEventArgs e)
+    {
+        if (e.Source is not Visual visual)
+            return false;
+
+        return e.GetCurrentPoint(visual).Properties.IsRightButtonPressed;
     }
 
     public EmulatorCaptureHost? CaptureHostControl => this.FindControl<EmulatorCaptureHost>("CaptureControl");

@@ -2,6 +2,7 @@ using System;
 using System.Runtime.Versioning;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
@@ -169,6 +170,7 @@ public class EmulatorCaptureHost : ContentControl
     private string _gpuRenderer = "Unknown";
     private string _gpuVendor = "Unknown";
     private MouseTunnelHelper? _mouseTunnel;
+    private InputElement? _pointerTunnelSurface;
 
     public EmulatorCaptureHost()
     {
@@ -179,14 +181,22 @@ public class EmulatorCaptureHost : ContentControl
 
         if (OperatingSystem.IsWindows())
         {
-            _mouseTunnel = new MouseTunnelHelper(this)
-            {
-                TunnelMouse = true,
-                MapToTargetClient = MapLocalToTargetClient
-            };
-            IsHitTestVisible = true;
+            RecreateMouseTunnel();
             Focusable = true;
         }
+    }
+
+    /// <summary>
+    /// Routes pointer tunneling through <paramref name="surface"/> (e.g. a transparent overlay)
+    /// so Avalonia receives right-clicks for context menus. When set, this host is not hit-testable.
+    /// </summary>
+    public void ConfigurePointerTunnelSurface(InputElement? surface)
+    {
+        if (ReferenceEquals(_pointerTunnelSurface, surface))
+            return;
+
+        _pointerTunnelSurface = surface;
+        RecreateMouseTunnel();
     }
 
     public IntPtr TargetHwnd
@@ -523,14 +533,45 @@ public class EmulatorCaptureHost : ContentControl
         HookBackendObservables();
 
         if (OperatingSystem.IsWindows())
+            RecreateMouseTunnel();
+    }
+
+    private void RecreateMouseTunnel()
+    {
+        _mouseTunnel?.Dispose();
+        _mouseTunnel = null;
+
+        if (!OperatingSystem.IsWindows())
         {
-            _mouseTunnel = new MouseTunnelHelper(this)
-            {
-                TunnelMouse = true,
-                MapToTargetClient = MapLocalToTargetClient
-            };
-            UpdateMouseTunnelTarget();
+            IsHitTestVisible = true;
+            return;
         }
+
+        var tunnelElement = (InputElement?)_pointerTunnelSurface ?? this;
+        IsHitTestVisible = _pointerTunnelSurface == null;
+
+        _mouseTunnel = new MouseTunnelHelper(tunnelElement)
+        {
+            TunnelMouse = true,
+            MapToTargetClient = local => MapTunnelLocalToTargetClient(local, tunnelElement)
+        };
+        UpdateMouseTunnelTarget();
+    }
+
+    private (int X, int Y)? MapTunnelLocalToTargetClient(Point local, InputElement tunnelElement)
+    {
+        if (!ReferenceEquals(tunnelElement, this) &&
+            tunnelElement is Visual tunnelVisual &&
+            this is Visual hostVisual)
+        {
+            var onHost = tunnelVisual.TranslatePoint(local, hostVisual);
+            if (onHost == null)
+                return null;
+
+            return MapLocalToTargetClient(onHost.Value);
+        }
+
+        return MapLocalToTargetClient(local);
     }
 
     private Control CreateBackend()
