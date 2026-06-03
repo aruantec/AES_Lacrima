@@ -163,7 +163,7 @@ namespace AES_Emulation.Windows.API
             }
         }
 
-        private static IAudioSessionManager2? TryActivateSessionManager(IMMDevice device)
+        internal static IAudioSessionManager2? TryActivateSessionManager(IMMDevice device)
         {
             var iid2 = typeof(IAudioSessionManager2).GUID;
 

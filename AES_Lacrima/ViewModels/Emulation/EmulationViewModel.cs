@@ -413,6 +413,8 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(ToggleEmulatorPauseCommand))]
+        [NotifyPropertyChangedFor(nameof(CanShowGameplayRecording))]
+        [NotifyPropertyChangedFor(nameof(CanToggleGameplayRecording))]
         private bool _isEmulatorRunning;
 
         [ObservableProperty]
@@ -755,6 +757,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         [NotifyPropertyChangedFor(nameof(IsCarouselVisible))]
         [NotifyPropertyChangedFor(nameof(IsSearchBoxVisible))]
         [NotifyPropertyChangedFor(nameof(IsRomCarouselAnimationPaused))]
+        [NotifyPropertyChangedFor(nameof(CanShowGameplayRecording))]
+        [NotifyPropertyChangedFor(nameof(CanToggleGameplayRecording))]
         private bool _isEmulatorViewportDismissed;
 
         public bool IsGameplayPreviewAvailable => IsGameplayAutoplayEnabled && IsYtDlpInstalled && !IsEmulatorRunning;
@@ -930,6 +934,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 OnPropertyChanged(nameof(IsCompositionCaptureVisible));
                 OnPropertyChanged(nameof(IsRomCarouselAnimationPaused));
                 OnPropertyChanged(nameof(IsEmulationFolderAnimationPaused));
+                NotifyGameplayRecordingAvailabilityChanged();
             }
         }
 
@@ -1112,6 +1117,10 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         partial void OnIsEmulatorRunningChanged(bool value)
         {
+            NotifyGameplayRecordingAvailabilityChanged();
+            if (!value && IsGameplayRecording)
+                StopGameplayRecording();
+
             OnPropertyChanged(nameof(CanShowRenderOptions));
             OnPropertyChanged(nameof(ShowShadPs4InGameCheatsButton));
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
@@ -1153,11 +1162,13 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             OnPropertyChanged(nameof(ShowCurrentSectionPcsx2SetupLaunchButton));
             OnPropertyChanged(nameof(ShowCurrentSectionDuckStationSetupLaunchButton));
+            NotifyGameplayRecordingAvailabilityChanged();
             RebootEmulatorCommand.NotifyCanExecuteChanged();
         }
 
         partial void OnIsEmulatorViewportDismissedChanged(bool value)
         {
+            NotifyGameplayRecordingAvailabilityChanged();
             OnPropertyChanged(nameof(IsEmulatorViewportVisible));
             OnPropertyChanged(nameof(IsCompositionCaptureVisible));
             OnPropertyChanged(nameof(IsRomCarouselAnimationPaused));

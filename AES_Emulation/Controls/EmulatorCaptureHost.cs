@@ -413,6 +413,15 @@ public class EmulatorCaptureHost : ContentControl
         }
     }
 
+    public void ConfigureGameplayRecording(
+        Action<byte[], int, int>? frameHandler,
+        int targetFps,
+        AES_Emulation.Services.GameplayRecordingResolutionCap resolutionCap = AES_Emulation.Services.GameplayRecordingResolutionCap.P1080)
+    {
+        if (_backend is CompositionWgcCaptureControl compositionBackend)
+            compositionBackend.ConfigureGameplayRecording(frameHandler, targetFps, resolutionCap);
+    }
+
     private (int X, int Y)? MapLocalToTargetClient(Point hostLocal)
     {
         if (_backend is not Visual backendVisual)

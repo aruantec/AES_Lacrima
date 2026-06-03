@@ -180,6 +180,31 @@
                             <ToggleSwitch FontSize="20" IsChecked="{Binding EmulationUseBackCoverLetterboxFill, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
 
+                        <TextBlock Text="Gameplay Recording" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,15,0,10"/>
+                        <Separator Margin="0,0,0,15"/>
+                        <StackPanel Spacing="8" Margin="0,0,0,15">
+                            <TextBlock Text="Output folder"
+                                       Foreground="WhiteSmoke"
+                                       FontSize="20"/>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding GameplayRecordingOutputDirectory, Mode=TwoWay}"
+                                         PlaceholderText="Folder for recorded videos"
+                                         Background="#2B2B2B"
+                                         Foreground="WhiteSmoke"
+                                         BorderBrush="DimGray"
+                                         BorderThickness="1"/>
+                                <Button Grid.Column="1"
+                                        Content="Browse"
+                                        Command="{Binding BrowseGameplayRecordingFolderCommand}"
+                                        Padding="14,8"
+                                        Background="#222"
+                                        Foreground="White"
+                                        BorderBrush="#555"
+                                        BorderThickness="1"/>
+                            </Grid>
+                        </StackPanel>
+
                         <TextBlock Text="Consoles" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,15,0,10"/>
                         <Separator Margin="0,0,0,15"/>
                         <TextBlock Text="Expand a console section to configure the supported emulator handlers for it."

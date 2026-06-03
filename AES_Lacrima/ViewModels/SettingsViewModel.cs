@@ -12,8 +12,11 @@ using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
 using AES_Emulation.EmulationHandlers;
+using AES_Emulation.Services;
+using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
+using AES_Lacrima.Services.Emulation;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -453,6 +456,146 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     partial void OnEmulationUseBackCoverLetterboxFillChanged(bool value)
     {
         EmulationUseBackCoverLetterboxFillChanged?.Invoke(value);
+    }
+
+    [ObservableProperty]
+    private string _gameplayRecordingOutputDirectory = GameplayRecorderService.GetDefaultOutputDirectory();
+
+    [ObservableProperty]
+    private GameplayRecordingContainer _gameplayRecordingContainer = GameplayRecordingContainer.Mp4;
+
+    [ObservableProperty]
+    private GameplayRecordingVideoCodec _gameplayRecordingVideoCodec = GameplayRecordingVideoCodec.H264;
+
+    [ObservableProperty]
+    private GameplayRecordingEncoderPreference _gameplayRecordingEncoderPreference = GameplayRecordingEncoderPreference.Auto;
+
+    /// <summary>Max long-edge resolution for recordings (OBS-style output size cap).</summary>
+    [ObservableProperty]
+    private GameplayRecordingResolutionCap _gameplayRecordingResolutionCap = GameplayRecordingResolutionCap.P1080;
+
+    [ObservableProperty]
+    private int _gameplayRecordingFps = 60;
+
+    [ObservableProperty]
+    private int _gameplayRecordingBitrateKbps = 12_000;
+
+    [ObservableProperty]
+    private GameplayRecordingAudioSource _gameplayRecordingAudioSource = GameplayRecordingAudioSource.EmulatorProcess;
+
+    [ObservableProperty]
+    private string _gameplayRecordingAudioDeviceId = string.Empty;
+
+    [ObservableProperty]
+    private int _gameplayRecordingAudioProcessId;
+
+    [ObservableProperty]
+    private GameplayRecordingAudioDeviceItem? _selectedGameplayRecordingAudioDevice;
+
+    [ObservableProperty]
+    private GameplayRecordingAudioSessionItem? _selectedGameplayRecordingAudioSession;
+
+    [ObservableProperty]
+    private AvaloniaList<GameplayRecordingAudioDeviceItem> _gameplayRecordingAudioDevices = [];
+
+    [ObservableProperty]
+    private AvaloniaList<GameplayRecordingAudioSessionItem> _gameplayRecordingAudioSessions = [];
+
+    public IReadOnlyList<GameplayRecordingAudioSource> GameplayRecordingAudioSourceOptions { get; } =
+        Enum.GetValues<GameplayRecordingAudioSource>();
+
+    public bool IsGameplayRecordingDeviceSourceVisible =>
+        GameplayRecordingAudioSource == GameplayRecordingAudioSource.OutputDevice;
+
+    public bool IsGameplayRecordingApplicationSourceVisible =>
+        GameplayRecordingAudioSource == GameplayRecordingAudioSource.Application;
+
+    partial void OnGameplayRecordingAudioSourceChanged(GameplayRecordingAudioSource value)
+    {
+        OnPropertyChanged(nameof(IsGameplayRecordingDeviceSourceVisible));
+        OnPropertyChanged(nameof(IsGameplayRecordingApplicationSourceVisible));
+        SaveSettings();
+    }
+
+    partial void OnSelectedGameplayRecordingAudioDeviceChanged(GameplayRecordingAudioDeviceItem? value)
+    {
+        GameplayRecordingAudioDeviceId = value?.Id ?? string.Empty;
+        SaveSettings();
+    }
+
+    partial void OnSelectedGameplayRecordingAudioSessionChanged(GameplayRecordingAudioSessionItem? value)
+    {
+        GameplayRecordingAudioProcessId = value?.ProcessId ?? 0;
+        SaveSettings();
+    }
+
+    [RelayCommand]
+    private void RefreshGameplayRecordingAudioLists()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var devices = GameplayAudioDeviceEnumerator.EnumerateRenderDevices();
+        GameplayRecordingAudioDevices = new AvaloniaList<GameplayRecordingAudioDeviceItem>(devices);
+        SelectedGameplayRecordingAudioDevice =
+            devices.FirstOrDefault(d => string.Equals(d.Id, GameplayRecordingAudioDeviceId, StringComparison.OrdinalIgnoreCase))
+            ?? devices.FirstOrDefault(d => d.IsDefault)
+            ?? devices.FirstOrDefault();
+
+        var sessions = GameplayAudioSessionEnumerator.EnumerateActiveSessions();
+        GameplayRecordingAudioSessions = new AvaloniaList<GameplayRecordingAudioSessionItem>(sessions);
+        SelectedGameplayRecordingAudioSession =
+            sessions.FirstOrDefault(s => s.ProcessId == GameplayRecordingAudioProcessId)
+            ?? sessions.FirstOrDefault();
+    }
+
+    partial void OnGameplayRecordingBitrateKbpsChanged(int value) => SaveSettings();
+
+    partial void OnGameplayRecordingOutputDirectoryChanged(string value) => SaveSettings();
+
+    partial void OnGameplayRecordingContainerChanged(GameplayRecordingContainer value) => SaveSettings();
+
+    partial void OnGameplayRecordingVideoCodecChanged(GameplayRecordingVideoCodec value) => SaveSettings();
+
+    partial void OnGameplayRecordingEncoderPreferenceChanged(GameplayRecordingEncoderPreference value) => SaveSettings();
+
+    partial void OnGameplayRecordingResolutionCapChanged(GameplayRecordingResolutionCap value) => SaveSettings();
+
+    partial void OnGameplayRecordingFpsChanged(int value) => SaveSettings();
+
+    public IReadOnlyList<GameplayRecordingContainer> GameplayRecordingContainerOptions { get; } =
+        Enum.GetValues<GameplayRecordingContainer>();
+
+    public IReadOnlyList<GameplayRecordingVideoCodec> GameplayRecordingVideoCodecOptions { get; } =
+        Enum.GetValues<GameplayRecordingVideoCodec>();
+
+    public IReadOnlyList<GameplayRecordingEncoderPreference> GameplayRecordingEncoderPreferenceOptions { get; } =
+        Enum.GetValues<GameplayRecordingEncoderPreference>();
+
+    public IReadOnlyList<GameplayRecordingResolutionCap> GameplayRecordingResolutionCapOptions { get; } =
+        Enum.GetValues<GameplayRecordingResolutionCap>();
+
+    [RelayCommand]
+    private async Task BrowseGameplayRecordingFolderAsync()
+    {
+        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return;
+
+        var storageProvider = desktop.MainWindow?.StorageProvider;
+        if (storageProvider == null)
+            return;
+
+        var folders = await storageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Gameplay recording output folder",
+            AllowMultiple = false
+        });
+
+        if (folders.Count == 0 || folders[0].TryGetLocalPath() is not { } path || string.IsNullOrWhiteSpace(path))
+            return;
+
+        GameplayRecordingOutputDirectory = path;
+        SaveSettings();
     }
 
     /// <summary>
@@ -2932,6 +3075,61 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         EmulationUseFirstItemCover = ReadBoolSetting(section, nameof(EmulationUseFirstItemCover), EmulationUseFirstItemCover);
         EmulationGameplayAutoplay = ReadBoolSetting(section, nameof(EmulationGameplayAutoplay), EmulationGameplayAutoplay);
         EmulationUseBackCoverLetterboxFill = ReadBoolSetting(section, nameof(EmulationUseBackCoverLetterboxFill), EmulationUseBackCoverLetterboxFill);
+        GameplayRecordingOutputDirectory = ReadStringSetting(
+            section,
+            nameof(GameplayRecordingOutputDirectory),
+            GameplayRecorderService.GetDefaultOutputDirectory())!;
+        if (ReadStringSetting(section, nameof(GameplayRecordingContainer)) is { } containerString &&
+            Enum.TryParse<GameplayRecordingContainer>(containerString, out var container))
+        {
+            GameplayRecordingContainer = container;
+        }
+
+        if (ReadStringSetting(section, nameof(GameplayRecordingVideoCodec)) is { } codecString &&
+            Enum.TryParse<GameplayRecordingVideoCodec>(codecString, out var codec))
+        {
+            GameplayRecordingVideoCodec = codec;
+        }
+
+        if (ReadStringSetting(section, nameof(GameplayRecordingEncoderPreference)) is { } encoderString &&
+            Enum.TryParse<GameplayRecordingEncoderPreference>(encoderString, out var encoderPref))
+        {
+            GameplayRecordingEncoderPreference = encoderPref;
+        }
+
+        if (ReadStringSetting(section, nameof(GameplayRecordingResolutionCap)) is { } capString &&
+            Enum.TryParse<GameplayRecordingResolutionCap>(capString, out var cap))
+        {
+            GameplayRecordingResolutionCap = cap;
+        }
+        else
+        {
+            var legacyScale = ReadIntSetting(section, "GameplayRecordingScalePercent", 100);
+            GameplayRecordingResolutionCap = legacyScale switch
+            {
+                <= 50 => GameplayRecordingResolutionCap.P720,
+                <= 75 => GameplayRecordingResolutionCap.P1080,
+                _ => GameplayRecordingResolutionCap.Native
+            };
+        }
+
+        GameplayRecordingFps = Math.Clamp(ReadIntSetting(section, nameof(GameplayRecordingFps), GameplayRecordingFps), 15, 120);
+        GameplayRecordingBitrateKbps = ReadIntSetting(section, nameof(GameplayRecordingBitrateKbps), GameplayRecordingBitrateKbps);
+        if (ReadStringSetting(section, nameof(GameplayRecordingAudioSource)) is { } audioSourceString &&
+            Enum.TryParse<GameplayRecordingAudioSource>(audioSourceString, out var audioSource))
+        {
+            GameplayRecordingAudioSource = audioSource;
+        }
+
+        GameplayRecordingAudioDeviceId = ReadStringSetting(
+            section,
+            nameof(GameplayRecordingAudioDeviceId),
+            GameplayRecordingAudioDeviceId) ?? string.Empty;
+        GameplayRecordingAudioProcessId = ReadIntSetting(
+            section,
+            nameof(GameplayRecordingAudioProcessId),
+            GameplayRecordingAudioProcessId);
+        RefreshGameplayRecordingAudioLists();
         var emulationSectionConfigurations = ReadObjectSetting<Dictionary<string, EmulationSectionConfiguration>>(section, EmulationSectionConfigurationsSettingName)
             ?? new Dictionary<string, EmulationSectionConfiguration>(StringComparer.OrdinalIgnoreCase);
         var emulationSectionLauncherPaths = ReadObjectSetting<Dictionary<string, string>>(section, EmulationSectionLauncherPathsSettingName)
@@ -3063,6 +3261,16 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(EmulationUseFirstItemCover), EmulationUseFirstItemCover);
         WriteSetting(section, nameof(EmulationGameplayAutoplay), EmulationGameplayAutoplay);
         WriteSetting(section, nameof(EmulationUseBackCoverLetterboxFill), EmulationUseBackCoverLetterboxFill);
+        WriteSetting(section, nameof(GameplayRecordingOutputDirectory), GameplayRecordingOutputDirectory);
+        WriteSetting(section, nameof(GameplayRecordingContainer), GameplayRecordingContainer.ToString());
+        WriteSetting(section, nameof(GameplayRecordingVideoCodec), GameplayRecordingVideoCodec.ToString());
+        WriteSetting(section, nameof(GameplayRecordingEncoderPreference), GameplayRecordingEncoderPreference.ToString());
+        WriteSetting(section, nameof(GameplayRecordingResolutionCap), GameplayRecordingResolutionCap.ToString());
+        WriteSetting(section, nameof(GameplayRecordingFps), GameplayRecordingFps);
+        WriteSetting(section, nameof(GameplayRecordingBitrateKbps), GameplayRecordingBitrateKbps);
+        WriteSetting(section, nameof(GameplayRecordingAudioSource), GameplayRecordingAudioSource.ToString());
+        WriteSetting(section, nameof(GameplayRecordingAudioDeviceId), GameplayRecordingAudioDeviceId);
+        WriteSetting(section, nameof(GameplayRecordingAudioProcessId), GameplayRecordingAudioProcessId);
         WriteObjectSetting(
             section,
             EmulationSectionConfigurationsSettingName,

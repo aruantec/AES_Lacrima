@@ -1406,6 +1406,20 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
         UpdateHandlerSize();
     }
 
+    public void ConfigureGameplayRecording(
+        Action<byte[], int, int>? frameHandler,
+        int targetFps,
+        Services.GameplayRecordingResolutionCap resolutionCap = Services.GameplayRecordingResolutionCap.P1080)
+    {
+        if (_handler == null)
+            return;
+
+        _handler.RecordingFrameHandler = frameHandler;
+        _handler.SetRecordingTargetFps(targetFps);
+        _handler.SetRecordingResolutionCap(resolutionCap);
+        _handler.SetRecordingWorkerActive(frameHandler != null);
+    }
+
     [DllImport("user32.dll")]
     private static extern bool IsWindow(IntPtr hWnd);
 }
@@ -1505,6 +1519,12 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private int _animToRight;
     private bool _pillarboxAnimActive;
     private bool _pillarboxAnimClosingBars;
+
+    internal Action<byte[], int, int>? RecordingFrameHandler;
+    private readonly GameplayRecordingFrameWorker _recordingFrameWorker = new();
+    private long _lastRecordingPublishTicks;
+    private int _recordingTargetFps = 30;
+    private Services.GameplayRecordingResolutionCap _recordingResolutionCap = Services.GameplayRecordingResolutionCap.P1080;
 
     // Statistics Overlay
     private bool _showStatisticsOverlay = true;
@@ -2369,6 +2389,68 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
         if (_showStatisticsOverlay)
             RenderOverlay(canvas);
+
+        TryPublishRecordingFrame(ptr, w, h);
+    }
+
+    private unsafe void TryPublishRecordingFrame(IntPtr ptr, int w, int h)
+    {
+        var handler = RecordingFrameHandler;
+        if (handler == null || ptr == IntPtr.Zero || w < 16 || h < 16)
+            return;
+
+        var fps = Math.Clamp(_recordingTargetFps, 1, 120);
+        var intervalTicks = Stopwatch.Frequency / fps;
+        var now = Stopwatch.GetTimestamp();
+        if (now - _lastRecordingPublishTicks < intervalTicks)
+            return;
+        _lastRecordingPublishTicks = now;
+
+        var cropL = Math.Max(0, _cropLeft);
+        var cropR = Math.Max(0, _cropRight);
+        if (cropL + cropR >= w)
+            return;
+
+        // Size from captured pixel content, not the on-screen layout rect (avoids HiDPI / letterbox mismatch).
+        var contentW = Math.Max(16, w - cropL - cropR);
+        var contentH = Math.Max(16, h);
+
+        var (outputW, outputH) = Services.GameplayRecordingResolution.FitEvenDimensions(
+            contentW, contentH, _recordingResolutionCap);
+        if (outputW < 16 || outputH < 16)
+            return;
+
+        var required = w * h * 4;
+        var sourceCopy = GC.AllocateUninitializedArray<byte>(required);
+        fixed (byte* destBase = sourceCopy)
+        {
+            Buffer.MemoryCopy((void*)ptr, destBase, required, required);
+        }
+
+        _recordingFrameWorker.TryEnqueue(new GameplayRecordingFrameWorker.RecordingSnapshot
+        {
+            Source = sourceCopy,
+            SourceWidth = w,
+            SourceHeight = h,
+            CropLeft = _cropLeft,
+            CropRight = _cropRight,
+            OutputWidth = outputW,
+            OutputHeight = outputH,
+            Handler = handler
+        });
+    }
+
+    internal void SetRecordingTargetFps(int fps) => _recordingTargetFps = Math.Clamp(fps, 1, 120);
+
+    internal void SetRecordingResolutionCap(Services.GameplayRecordingResolutionCap cap) =>
+        _recordingResolutionCap = cap;
+
+    internal void SetRecordingWorkerActive(bool active)
+    {
+        if (active)
+            _recordingFrameWorker.Start();
+        else
+            _recordingFrameWorker.Stop();
     }
 
     private bool TryCopyLatestFrame(nint session, out IntPtr ptr, out int width, out int height)

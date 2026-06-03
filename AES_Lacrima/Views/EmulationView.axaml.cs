@@ -726,6 +726,12 @@ public partial class EmulationView : UserControl
 
             UpdatePortalVisibility(vm);
             UpdateCapturePointerRouting(vm);
+            if (e.PropertyName == nameof(EmulationViewModel.IsCompositionCaptureVisible) ||
+                e.PropertyName == nameof(EmulationViewModel.IsEmulatorRunning))
+            {
+                EnsureInlineCaptureHost();
+                vm.SetActiveCaptureHostForRecording(ActiveCaptureHost);
+            }
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed) ||
                  e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen))
@@ -756,6 +762,11 @@ public partial class EmulationView : UserControl
         else if (e.PropertyName == nameof(EmulationViewModel.IsEmulatorLaunchInProgress))
         {
             UpdateCaptureChromeVisibilityFromOpacity();
+        }
+        else if (e.PropertyName == nameof(EmulationViewModel.IsGameplayRecording))
+        {
+            EnsureInlineCaptureHost();
+            vm.SetActiveCaptureHostForRecording(ActiveCaptureHost);
         }
         else if (e.PropertyName == nameof(EmulationViewModel.LoadedAlbum) ||
                  e.PropertyName == nameof(EmulationViewModel.SelectedAlbum))
@@ -1763,6 +1774,7 @@ public partial class EmulationView : UserControl
         {
             UpdateInlineCaptureHostVisibility(vm);
             UpdateCapturePointerRouting(vm);
+            vm.SetActiveCaptureHostForRecording(_inlineCaptureHost);
         }
     }
 

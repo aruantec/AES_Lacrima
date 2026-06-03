@@ -393,7 +393,7 @@
               Opacity="{Binding ElementName=RootView, Path=CapturePresentationOpacity}"
               IsVisible="{Binding ElementName=RootView, Path=IsCaptureChromeVisible}"
               ZIndex="5"
-              Margin="{Binding IsRenderOptionsOpen, Converter={StaticResource BoolToValueConverter}, ConverterParameter='0,0,660,0'}">
+              Margin="{Binding CaptureChromeRightMargin}">
             <Grid.IsHitTestVisible>
                 <MultiBinding Converter="{StaticResource BoolOrConverter}">
                     <Binding Path="IsCompositionCaptureVisible"/>
@@ -540,7 +540,7 @@
                         </Grid.RowDefinitions>
 
                         <Grid ColumnDefinitions="*,Auto" Grid.Row="0">
-                            <TextBlock Text="Render Options"
+                            <TextBlock Text="Settings"
                                        FontSize="26"
                                        FontWeight="SemiBold"
                                        Foreground="White"
@@ -1695,6 +1695,151 @@
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>
+                        <TabItem Header="Recording">
+                            <ScrollViewer>
+                                <StackPanel Margin="0,12,0,0" Spacing="12">
+                                    <TextBlock Text="{Binding GameplayRecordingStatus, FallbackValue=Ready}"
+                                               Foreground="#C8C8C8"
+                                               FontSize="14"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="Recording FPS is independent of your monitor refresh (120 Hz display is fine). Cap output resolution like OBS (e.g. 1080p). Hardware encoders (AMD/NVIDIA) are used when available."
+                                               Foreground="#AAAAAA"
+                                               FontSize="13"
+                                               TextWrapping="Wrap"
+                                               MaxWidth="560" />
+                                    <TextBlock Text="Choose where audio is captured. With FxSound, try Output device and pick the FxSound virtual device, or Application and select FxSound or your emulator."
+                                               Foreground="#AAAAAA"
+                                               FontSize="13"
+                                               TextWrapping="Wrap"
+                                               MaxWidth="560" />
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Audio source" Foreground="White" FontSize="18" Width="220"/>
+                                        <ComboBox MinWidth="280"
+                                                  ItemsSource="{Binding SettingsViewModel.GameplayRecordingAudioSourceOptions}"
+                                                  SelectedItem="{Binding SettingsViewModel.GameplayRecordingAudioSource, Mode=TwoWay}">
+                                            <Interaction.Behaviors>
+                                                <controlBehaviors:ComboBoxPopupScaler/>
+                                            </Interaction.Behaviors>
+                                        </ComboBox>
+                                        <Button Content="Refresh lists"
+                                                Command="{Binding SettingsViewModel.RefreshGameplayRecordingAudioListsCommand}"
+                                                Padding="12,8"
+                                                Background="#222"
+                                                Foreground="White"
+                                                BorderBrush="#555"
+                                                BorderThickness="1"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center"
+                                                IsVisible="{Binding SettingsViewModel.IsGameplayRecordingDeviceSourceVisible}">
+                                        <TextBlock Text="Output device" Foreground="White" FontSize="18" Width="220"/>
+                                        <ComboBox MinWidth="420"
+                                                  ItemsSource="{Binding SettingsViewModel.GameplayRecordingAudioDevices}"
+                                                  SelectedItem="{Binding SettingsViewModel.SelectedGameplayRecordingAudioDevice, Mode=TwoWay}">
+                                            <Interaction.Behaviors>
+                                                <controlBehaviors:ComboBoxPopupScaler/>
+                                            </Interaction.Behaviors>
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center"
+                                                IsVisible="{Binding SettingsViewModel.IsGameplayRecordingApplicationSourceVisible}">
+                                        <TextBlock Text="Application" Foreground="White" FontSize="18" Width="220"/>
+                                        <ComboBox MinWidth="420"
+                                                  ItemsSource="{Binding SettingsViewModel.GameplayRecordingAudioSessions}"
+                                                  SelectedItem="{Binding SettingsViewModel.SelectedGameplayRecordingAudioSession, Mode=TwoWay}">
+                                            <Interaction.Behaviors>
+                                                <controlBehaviors:ComboBoxPopupScaler/>
+                                            </Interaction.Behaviors>
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Container" Foreground="White" FontSize="18" Width="220"/>
+                                        <ComboBox MinWidth="220"
+                                                  ItemsSource="{Binding SettingsViewModel.GameplayRecordingContainerOptions}"
+                                                  SelectedItem="{Binding SettingsViewModel.GameplayRecordingContainer, Mode=TwoWay}">
+                                            <Interaction.Behaviors>
+                                                <controlBehaviors:ComboBoxPopupScaler/>
+                                            </Interaction.Behaviors>
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Video Codec" Foreground="White" FontSize="18" Width="220"/>
+                                        <ComboBox MinWidth="220"
+                                                  ItemsSource="{Binding SettingsViewModel.GameplayRecordingVideoCodecOptions}"
+                                                  SelectedItem="{Binding SettingsViewModel.GameplayRecordingVideoCodec, Mode=TwoWay}">
+                                            <Interaction.Behaviors>
+                                                <controlBehaviors:ComboBoxPopupScaler/>
+                                            </Interaction.Behaviors>
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Encoder" Foreground="White" FontSize="18" Width="220"/>
+                                        <ComboBox MinWidth="220"
+                                                  ItemsSource="{Binding SettingsViewModel.GameplayRecordingEncoderPreferenceOptions}"
+                                                  SelectedItem="{Binding SettingsViewModel.GameplayRecordingEncoderPreference, Mode=TwoWay}">
+                                            <Interaction.Behaviors>
+                                                <controlBehaviors:ComboBoxPopupScaler/>
+                                            </Interaction.Behaviors>
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Output resolution" Foreground="White" FontSize="18" Width="220"/>
+                                        <ComboBox MinWidth="200"
+                                                  ItemsSource="{Binding SettingsViewModel.GameplayRecordingResolutionCapOptions}"
+                                                  SelectedItem="{Binding SettingsViewModel.GameplayRecordingResolutionCap, Mode=TwoWay}">
+                                            <Interaction.Behaviors>
+                                                <controlBehaviors:ComboBoxPopupScaler/>
+                                            </Interaction.Behaviors>
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Recording FPS" Foreground="White" FontSize="18" Width="220"/>
+                                        <Slider Width="280"
+                                                Minimum="15"
+                                                Maximum="120"
+                                                TickFrequency="15"
+                                                IsSnapToTickEnabled="True"
+                                                Value="{Binding SettingsViewModel.GameplayRecordingFps, Mode=TwoWay}" />
+                                        <TextBlock Text="{Binding SettingsViewModel.GameplayRecordingFps, StringFormat='{}{0} fps'}"
+                                                   Foreground="White"
+                                                   Width="70"
+                                                   FontSize="16"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Bitrate (kbps)" Foreground="White" FontSize="18" Width="220"/>
+                                        <Slider Width="280"
+                                                Minimum="2000"
+                                                Maximum="50000"
+                                                SmallChange="500"
+                                                LargeChange="1000"
+                                                Value="{Binding SettingsViewModel.GameplayRecordingBitrateKbps, Mode=TwoWay}" />
+                                        <TextBlock Text="{Binding SettingsViewModel.GameplayRecordingBitrateKbps}"
+                                                   Foreground="White"
+                                                   Width="70"
+                                                   FontSize="16"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <TextBlock Text="Output folder" Foreground="White" FontSize="18" Width="220" VerticalAlignment="Center"/>
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" MinWidth="420">
+                                            <TextBox Grid.Column="0"
+                                                     Text="{Binding SettingsViewModel.GameplayRecordingOutputDirectory, Mode=TwoWay}"
+                                                     PlaceholderText="Folder for recorded videos"
+                                                     Background="#2B2B2B"
+                                                     Foreground="WhiteSmoke"
+                                                     BorderBrush="DimGray"
+                                                     BorderThickness="1"/>
+                                            <Button Grid.Column="1"
+                                                    Content="Browse"
+                                                    Command="{Binding SettingsViewModel.BrowseGameplayRecordingFolderCommand}"
+                                                    Padding="14,8"
+                                                    Background="#222"
+                                                    Foreground="White"
+                                                    BorderBrush="#555"
+                                                    BorderThickness="1"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
                     </TabControl>
                 </Grid>
             </ScrollViewer>
@@ -2273,13 +2418,75 @@
                     </Viewbox>
                 </Button>
 
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Margin="0,4,0,0"
+                            IsVisible="{Binding CanShowGameplayRecording}">
+                    <Button Height="60"
+                            Width="60"
+                            Margin="0,1,0,0"
+                            VerticalAlignment="Center"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"
+                            Cursor="Hand"
+                            Command="{Binding ToggleGameplayRecordingCommand}"
+                            ToolTip.Tip="Start / stop recording">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="Transparent" BorderThickness="0">
+                                    <ContentPresenter Content="{TemplateBinding Content}"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <Viewbox Stretch="Uniform"
+                                 Opacity="0.9"
+                                 Margin="5,7,5,3"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Center">
+                            <Canvas Width="100" Height="100">
+                                <Ellipse Canvas.Left="5"
+                                         Canvas.Top="5"
+                                         Width="90"
+                                         Height="90"
+                                         Stroke="DimGray"
+                                         StrokeThickness="7"
+                                         Fill="Transparent"/>
+                                <Ellipse Canvas.Left="23"
+                                         Canvas.Top="23"
+                                         Width="54"
+                                         Height="54"
+                                         Fill="#E53935"
+                                         Opacity="{Binding GameplayRecordingCenterOpacity}">
+                                    <Ellipse.Transitions>
+                                        <Transitions>
+                                            <DoubleTransition Property="Opacity" Duration="0:0:0.25" />
+                                        </Transitions>
+                                    </Ellipse.Transitions>
+                                </Ellipse>
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
+
+                    <TextBlock Text="{Binding GameplayRecordingElapsedText}"
+                               VerticalAlignment="Center"
+                               Foreground="#E53935"
+                               FontSize="20"
+                               FontWeight="SemiBold"
+                               FontFamily="Consolas"
+                               MinWidth="52"
+                               Margin="26,12,0,0"
+                               IsVisible="{Binding IsGameplayRecording}"/>
+                </StackPanel>
+
                 <Button Height="60"
                         Width="60"
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding ToggleRenderOptionsCommand}"
                         IsVisible="{Binding CanShowRenderOptions}"
-                        ToolTip.Tip="Render Options">
+                        ToolTip.Tip="Settings">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="Transparent" BorderThickness="0">

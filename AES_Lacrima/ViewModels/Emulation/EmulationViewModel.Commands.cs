@@ -188,6 +188,7 @@ namespace AES_Lacrima.ViewModels
         private void ToggleRenderOptions()
         {
             IsRenderOptionsOpen = !IsRenderOptionsOpen;
+            NotifyCaptureChromeMarginChanged();
         }
 
         private async Task OpenCurrentSectionEdenUpdates()
@@ -500,7 +501,7 @@ namespace AES_Lacrima.ViewModels
 
             EmulatorUpdateNoticeDetails = details.Length > 0 ? details.ToString().TrimEnd() : null;
             EmulatorUpdateNoticeChanges = _sectionLatestReleaseNotes;
-            EmulatorUpdateNoticeFooter = "Open Render Options ΓåÆ Updates to download and install the update.";
+            EmulatorUpdateNoticeFooter = "Open Settings → Handler to download and install the update.";
             IsEmulatorUpdateNoticeOverlayOpen = true;
         }
 
