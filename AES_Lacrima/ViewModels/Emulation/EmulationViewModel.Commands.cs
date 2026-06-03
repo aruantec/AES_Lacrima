@@ -74,6 +74,7 @@ namespace AES_Lacrima.ViewModels
         {
             OnPropertyChanged(nameof(CurrentEmulationSectionItem));
             OnPropertyChanged(nameof(CurrentSectionEmulatorHandler));
+            OnPropertyChanged(nameof(CanShowRenderOptions));
 
             if (!IsEmulatorRunning)
                 UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationSectionAlbum());

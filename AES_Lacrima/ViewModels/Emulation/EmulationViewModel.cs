@@ -351,6 +351,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         [NotifyCanExecuteChangedFor(nameof(ClearAlbumCommand))]
         [NotifyCanExecuteChangedFor(nameof(OpenMetadataCommand))]
         [NotifyPropertyChangedFor(nameof(HasActiveAlbumItems))]
+        [NotifyPropertyChangedFor(nameof(CanShowRenderOptions))]
         private FolderMediaItem? _selectedAlbum;
 
         [ObservableProperty]
@@ -404,8 +405,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         public string AlbumListToggleText => IsAlbumListCollapsed ? "Show Albums" : "Hide Albums";
 
         public bool CanShowRenderOptions =>
-            LoadedAlbum?.Children.Count > 0 &&
-            (SelectedCaptureMode == EmulatorCaptureMode.DirectComposition ||
+            CurrentEmulationSectionItem != null &&
+            (!HasActiveAlbumItems ||
+             SelectedCaptureMode == EmulatorCaptureMode.DirectComposition ||
              CurrentEmulatorHandler?.IsWindowEmbeddingSupported != true);
 
         [ObservableProperty]
