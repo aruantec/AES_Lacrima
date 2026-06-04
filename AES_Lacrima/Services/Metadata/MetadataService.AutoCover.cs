@@ -203,6 +203,7 @@ namespace AES_Lacrima.Services
             Nintendo3dsTitleId = null;
             IsSwitchMetadata = false;
             SwitchTitleId = null;
+            IsMetadataLoading = false;
             IsMetadataLoaded = false;
         }
 

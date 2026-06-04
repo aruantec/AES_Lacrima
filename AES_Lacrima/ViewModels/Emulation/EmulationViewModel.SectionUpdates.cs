@@ -347,6 +347,23 @@ namespace AES_Lacrima.ViewModels
             SettingsViewModel?.SaveSettings();
         }
 
+        private void OnSelectedCurrentSectionXemuVersionChanged(string? value)
+        {
+            if (_isSyncingCurrentSectionXemuVersionSelection)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            if (section?.LaunchSettings == null)
+                return;
+
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (string.Equals(section.LaunchSettings.SelectedXemuVersion, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            section.LaunchSettings.SelectedXemuVersion = normalized;
+            SettingsViewModel?.SaveSettings();
+        }
+
         private void OnSelectedCurrentSectionPcsx2VersionChanged(string? value)
         {
             if (_isSyncingCurrentSectionPcsx2VersionSelection)

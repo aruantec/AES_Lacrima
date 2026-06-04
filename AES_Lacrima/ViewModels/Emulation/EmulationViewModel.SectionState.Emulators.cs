@@ -744,6 +744,187 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
+        private AvaloniaList<string> _currentSectionXemuAvailableVersions = [];
+        public AvaloniaList<string> CurrentSectionXemuAvailableVersions
+        {
+            get => _currentSectionXemuAvailableVersions;
+            set
+            {
+                if (ReferenceEquals(_currentSectionXemuAvailableVersions, value))
+                    return;
+
+                _currentSectionXemuAvailableVersions = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _selectedCurrentSectionXemuVersion;
+        public string? SelectedCurrentSectionXemuVersion
+        {
+            get => _selectedCurrentSectionXemuVersion;
+            set
+            {
+                if (string.Equals(_selectedCurrentSectionXemuVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _selectedCurrentSectionXemuVersion = value;
+                OnPropertyChanged();
+                OnSelectedCurrentSectionXemuVersionChanged(value);
+            }
+        }
+
+        private string? _currentSectionXemuCurrentVersion;
+        public string? CurrentSectionXemuCurrentVersion
+        {
+            get => _currentSectionXemuCurrentVersion;
+            set
+            {
+                if (string.Equals(_currentSectionXemuCurrentVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionXemuCurrentVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionXemuLatestVersion;
+        public string? CurrentSectionXemuLatestVersion
+        {
+            get => _currentSectionXemuLatestVersion;
+            set
+            {
+                if (string.Equals(_currentSectionXemuLatestVersion, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionXemuLatestVersion = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string _currentSectionXemuStatus = "Select an Xbox section to manage updates.";
+        public string CurrentSectionXemuStatus
+        {
+            get => _currentSectionXemuStatus;
+            set
+            {
+                if (string.Equals(_currentSectionXemuStatus, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionXemuStatus = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _includeCurrentSectionXemuPrereleases;
+        public bool IncludeCurrentSectionXemuPrereleases
+        {
+            get => _includeCurrentSectionXemuPrereleases;
+            set
+            {
+                if (_includeCurrentSectionXemuPrereleases == value)
+                    return;
+
+                _includeCurrentSectionXemuPrereleases = value;
+                OnPropertyChanged();
+
+                if (_isSyncingCurrentSectionXemuIncludePrereleases)
+                    return;
+
+                var section = CurrentEmulationSectionItem;
+                if (section?.LaunchSettings == null)
+                    return;
+
+                section.LaunchSettings.IncludeXemuPrereleases = value;
+                SettingsViewModel?.SaveSettings();
+                _ = RefreshCurrentSectionXemuInfo();
+            }
+        }
+
+        private bool _isCurrentSectionXemuUpdateAvailable;
+        public bool IsCurrentSectionXemuUpdateAvailable
+        {
+            get => _isCurrentSectionXemuUpdateAvailable;
+            set
+            {
+                if (_isCurrentSectionXemuUpdateAvailable == value)
+                    return;
+
+                _isCurrentSectionXemuUpdateAvailable = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentSectionHandlerUpdateAvailable));
+            }
+        }
+
+        private bool _isCurrentSectionXemuBusy;
+        public bool IsCurrentSectionXemuBusy
+        {
+            get => _isCurrentSectionXemuBusy;
+            set
+            {
+                if (_isCurrentSectionXemuBusy == value)
+                    return;
+
+                _isCurrentSectionXemuBusy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isCurrentSectionXemuDownloading;
+        public bool IsCurrentSectionXemuDownloading
+        {
+            get => _isCurrentSectionXemuDownloading;
+            set
+            {
+                if (_isCurrentSectionXemuDownloading == value)
+                    return;
+
+                _isCurrentSectionXemuDownloading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private double _currentSectionXemuDownloadProgress;
+        public double CurrentSectionXemuDownloadProgress
+        {
+            get => _currentSectionXemuDownloadProgress;
+            set
+            {
+                if (Math.Abs(_currentSectionXemuDownloadProgress - value) < 0.01)
+                    return;
+
+                _currentSectionXemuDownloadProgress = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionXemuEmulatorPath;
+        public string? CurrentSectionXemuEmulatorPath
+        {
+            get => _currentSectionXemuEmulatorPath;
+            set
+            {
+                if (string.Equals(_currentSectionXemuEmulatorPath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionXemuEmulatorPath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private string? _currentSectionXemuUpdatePath;
+        public string? CurrentSectionXemuUpdatePath
+        {
+            get => _currentSectionXemuUpdatePath;
+            set
+            {
+                if (string.Equals(_currentSectionXemuUpdatePath, value, StringComparison.Ordinal))
+                    return;
+
+                _currentSectionXemuUpdatePath = value;
+                OnPropertyChanged();
+            }
+        }
+
         public bool IsXeniaPatchesOverlayOpen
         {
             get => _isXeniaPatchesOverlayOpen;

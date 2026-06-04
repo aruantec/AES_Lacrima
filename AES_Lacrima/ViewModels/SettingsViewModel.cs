@@ -132,6 +132,7 @@ public sealed class EmulationHandlerAppItem : ObservableObject
                    string.Equals(id, "eden", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(id, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(id, "xenia", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "xemu", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(id, "dolphin", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(id, "flycast", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(id, "rpcs3", StringComparison.OrdinalIgnoreCase) ||
@@ -304,6 +305,10 @@ public sealed class EmulationSectionLaunchSettings
 
     public string? SelectedXeniaVersion { get; set; }
 
+    public string? SelectedXemuVersion { get; set; }
+
+    public bool IncludeXemuPrereleases { get; set; }
+
     public string? SelectedRpcs3Version { get; set; }
 
     public bool IncludeRpcs3Prereleases { get; set; }
@@ -340,6 +345,8 @@ public sealed class EmulationSectionLaunchSettings
             SelectedShadPs4Version = SelectedShadPs4Version,
             IncludeShadPs4Prereleases = IncludeShadPs4Prereleases,
             SelectedXeniaVersion = SelectedXeniaVersion,
+            SelectedXemuVersion = SelectedXemuVersion,
+            IncludeXemuPrereleases = IncludeXemuPrereleases,
             SelectedRpcs3Version = SelectedRpcs3Version,
             IncludeRpcs3Prereleases = IncludeRpcs3Prereleases,
             SelectedPcsx2Version = SelectedPcsx2Version,
@@ -1946,6 +1953,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             {
                 await DownloadOrUpdateXeniaHandlerAsync(handlerItem, section, handler);
             }
+            else if (string.Equals(handlerId, "xemu", StringComparison.OrdinalIgnoreCase))
+            {
+                await DownloadOrUpdateXemuHandlerAsync(handlerItem, section, handler);
+            }
             else if (string.Equals(handlerId, "dolphin", StringComparison.OrdinalIgnoreCase))
             {
                 await DownloadOrUpdateDolphinHandlerAsync(handlerItem, section, handler);
@@ -2109,6 +2120,41 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             handlerItem.DownloadStatusMessage = "Downloading...";
             var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
                 section.LaunchSettings?.SelectedXeniaVersion).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                handlerItem.DownloadProgress = 100;
+                handlerItem.DownloadStatusMessage = state.StatusMessage;
+                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    handler.LauncherPath = state.ResolvedLauncherPath;
+                    SaveSettings();
+                }
+            });
+        }
+        else
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = "Already up to date.");
+        }
+    }
+
+    private async Task DownloadOrUpdateXemuHandlerAsync(EmulationHandlerAppItem handlerItem, EmulationSectionItem section, IEmulatorHandler handler)
+    {
+        var updater = DiLocator.ResolveViewModel<XemuEmulatorUpdateService>();
+        if (updater == null) { handlerItem.DownloadStatusMessage = "Update service not available."; return; }
+
+        handlerItem.DownloadStatusMessage = "Checking for updates...";
+        var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+            section.LaunchSettings?.IncludeXemuPrereleases ?? false, forceRefresh: true).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
+
+        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        {
+            handlerItem.DownloadStatusMessage = "Downloading...";
+            var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
+                section.LaunchSettings?.IncludeXemuPrereleases ?? false,
+                section.LaunchSettings?.SelectedXemuVersion).ConfigureAwait(false);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -3359,6 +3405,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedDuckStationVersion) ||
                item.LaunchSettings?.IncludeDuckStationPrereleases == true ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedXeniaVersion) ||
+               !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedXemuVersion) ||
+               item.LaunchSettings?.IncludeXemuPrereleases == true ||
                !string.IsNullOrWhiteSpace(item.SelectedHandlerId);
     }
 
@@ -3381,6 +3429,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             SelectedShadPs4Version = persisted.SelectedShadPs4Version ?? defaults.SelectedShadPs4Version,
             IncludeShadPs4Prereleases = persisted.IncludeShadPs4Prereleases || defaults.IncludeShadPs4Prereleases,
             SelectedXeniaVersion = persisted.SelectedXeniaVersion ?? defaults.SelectedXeniaVersion,
+            SelectedXemuVersion = persisted.SelectedXemuVersion ?? defaults.SelectedXemuVersion,
+            IncludeXemuPrereleases = persisted.IncludeXemuPrereleases || defaults.IncludeXemuPrereleases,
             SelectedRpcs3Version = persisted.SelectedRpcs3Version ?? defaults.SelectedRpcs3Version,
             IncludeRpcs3Prereleases = persisted.IncludeRpcs3Prereleases || defaults.IncludeRpcs3Prereleases,
             SelectedDolphinVersion = persisted.SelectedDolphinVersion ?? defaults.SelectedDolphinVersion,

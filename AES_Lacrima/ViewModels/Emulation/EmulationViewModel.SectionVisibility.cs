@@ -68,6 +68,11 @@ namespace AES_Lacrima.ViewModels
             string.Equals(CurrentSectionEmulatorHandler.HandlerId, XeniaHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
             CurrentEmulationSectionItem != null;
 
+        public bool ShowCurrentSectionXemuUpdateControls =>
+            CurrentSectionEmulatorHandler != null &&
+            string.Equals(CurrentSectionEmulatorHandler.HandlerId, XemuHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
+            CurrentEmulationSectionItem != null;
+
         public bool ShowCurrentSectionRpcs3UpdateControls =>
             CurrentSectionEmulatorHandler != null &&
             string.Equals(CurrentSectionEmulatorHandler.HandlerId, Rpcs3Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
@@ -169,6 +174,7 @@ namespace AES_Lacrima.ViewModels
             (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable) ||
             (ShowCurrentSectionShadPs4UpdateControls && IsCurrentSectionShadPs4UpdateAvailable) ||
             (ShowCurrentSectionXeniaUpdateControls && IsCurrentSectionXeniaUpdateAvailable) ||
+            (ShowCurrentSectionXemuUpdateControls && IsCurrentSectionXemuUpdateAvailable) ||
             (ShowCurrentSectionRpcs3UpdateControls && IsCurrentSectionRpcs3UpdateAvailable) ||
             (ShowCurrentSectionDolphinUpdateControls && IsCurrentSectionDolphinUpdateAvailable) ||
             (ShowCurrentSectionFlycastUpdateControls && IsCurrentSectionFlycastUpdateAvailable) ||
@@ -312,6 +318,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4CustomConfigMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4CheatsMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaUpdateControls));
+            OnPropertyChanged(nameof(ShowCurrentSectionXemuUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaPatchesMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaCustomConfigMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionRpcs3CustomConfigMenuItem));
@@ -465,6 +472,20 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
+            var sectionXemuVersion = section?.LaunchSettings?.SelectedXemuVersion;
+            if (!string.Equals(SelectedCurrentSectionXemuVersion, sectionXemuVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _isSyncingCurrentSectionXemuVersionSelection = true;
+                    SelectedCurrentSectionXemuVersion = sectionXemuVersion;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionXemuVersionSelection = false;
+                }
+            }
+
             var sectionRpcs3Version = section?.LaunchSettings?.SelectedRpcs3Version;
             if (!string.Equals(SelectedCurrentSectionRpcs3Version, sectionRpcs3Version, StringComparison.OrdinalIgnoreCase))
             {
@@ -534,6 +555,46 @@ namespace AES_Lacrima.ViewModels
                 CurrentSectionXeniaUpdatePath = null;
                 CurrentSectionXeniaDownloadProgress = 0;
                 IsCurrentSectionXeniaDownloading = false;
+            }
+
+            if (ShowCurrentSectionXemuUpdateControls)
+            {
+                _ = RefreshCurrentSectionXemuInfo();
+            }
+            else
+            {
+                CurrentSectionXemuAvailableVersions.Clear();
+                CurrentSectionXemuCurrentVersion = null;
+                CurrentSectionXemuLatestVersion = null;
+                CurrentSectionXemuStatus = "Select an Xbox section to manage updates.";
+                IsCurrentSectionXemuUpdateAvailable = false;
+                CurrentSectionXemuEmulatorPath = null;
+                CurrentSectionXemuUpdatePath = null;
+                CurrentSectionXemuDownloadProgress = 0;
+                IsCurrentSectionXemuDownloading = false;
+                try
+                {
+                    _isSyncingCurrentSectionXemuIncludePrereleases = true;
+                    IncludeCurrentSectionXemuPrereleases = false;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionXemuIncludePrereleases = false;
+                }
+            }
+
+            var includeXemuPrereleases = section?.LaunchSettings?.IncludeXemuPrereleases == true;
+            if (IncludeCurrentSectionXemuPrereleases != includeXemuPrereleases)
+            {
+                try
+                {
+                    _isSyncingCurrentSectionXemuIncludePrereleases = true;
+                    IncludeCurrentSectionXemuPrereleases = includeXemuPrereleases;
+                }
+                finally
+                {
+                    _isSyncingCurrentSectionXemuIncludePrereleases = false;
+                }
             }
 
             var sectionPcsx2Version = section?.LaunchSettings?.SelectedPcsx2Version;

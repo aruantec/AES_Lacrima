@@ -22,6 +22,7 @@ public static class EmulatorHandlerRegistry
         RetroArchSaturnHandler.Instance,
         AresHandler.Instance,
         XeniaHandler.Instance,
+        XemuHandler.Instance,
         EdenHandler.Instance,
         CemuHandler.Instance,
         Snes9xHandler.Instance

@@ -340,6 +340,94 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
+        private async Task RefreshCurrentSectionXemuInfo()
+        {
+            if (!ShowCurrentSectionXemuUpdateControls)
+            {
+                CurrentSectionXemuStatus = "Select an Xbox section to manage updates.";
+                CurrentSectionXemuAvailableVersions.Clear();
+                CurrentSectionXemuCurrentVersion = null;
+                CurrentSectionXemuLatestVersion = null;
+                IsCurrentSectionXemuUpdateAvailable = false;
+                CurrentSectionXemuEmulatorPath = null;
+                CurrentSectionXemuUpdatePath = null;
+                CurrentSectionXemuDownloadProgress = 0;
+                IsCurrentSectionXemuDownloading = false;
+                return;
+            }
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentSectionEmulatorHandler;
+            var updater = _xemuEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionXemuBusy = true;
+            IsCurrentSectionXemuDownloading = false;
+            CurrentSectionXemuDownloadProgress = 0;
+            try
+            {
+                var state = await updater.GetUpdateInfoAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    IncludeCurrentSectionXemuPrereleases,
+                    forceRefresh: false).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() => ApplyXemuUpdateState(state));
+            }
+            finally
+            {
+                IsCurrentSectionXemuBusy = false;
+                IsCurrentSectionXemuDownloading = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task DownloadOrUpdateCurrentSectionXemu()
+        {
+            if (!ShowCurrentSectionXemuUpdateControls)
+                return;
+
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentSectionEmulatorHandler;
+            var updater = _xemuEmulatorUpdateService;
+            if (section == null || handler == null || updater == null)
+                return;
+
+            IsCurrentSectionXemuBusy = true;
+            IsCurrentSectionXemuDownloading = true;
+            CurrentSectionXemuDownloadProgress = 5;
+            try
+            {
+                var state = await updater.DownloadOrUpdateAsync(
+                    section.SectionKey,
+                    section.SectionTitle,
+                    handler.LauncherPath,
+                    IncludeCurrentSectionXemuPrereleases,
+                    SelectedCurrentSectionXemuVersion).ConfigureAwait(false);
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CurrentSectionXemuDownloadProgress = 100;
+                    ApplyXemuUpdateState(state);
+
+                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                        !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        handler.LauncherPath = state.ResolvedLauncherPath;
+                        SettingsViewModel?.SaveSettings();
+                    }
+                });
+            }
+            finally
+            {
+                IsCurrentSectionXemuBusy = false;
+                IsCurrentSectionXemuDownloading = false;
+            }
+        }
+
+        [RelayCommand]
         private async Task RefreshCurrentSectionRpcs3Info()
         {
             if (!ShowCurrentSectionRpcs3UpdateControls)
@@ -991,6 +1079,40 @@ namespace AES_Lacrima.ViewModels
             finally
             {
                 _isSyncingCurrentSectionXeniaVersionSelection = false;
+            }
+
+            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
+            SyncEmulatorUpdateNoticeOverlay();
+        }
+
+        private void ApplyXemuUpdateState(XemuUpdateState state)
+        {
+            CurrentSectionXemuCurrentVersion = state.CurrentVersion;
+            CurrentSectionXemuLatestVersion = state.LatestVersion;
+            IsCurrentSectionXemuUpdateAvailable = state.IsUpdateAvailable;
+            CurrentSectionXemuStatus = state.StatusMessage;
+            CurrentSectionXemuEmulatorPath = state.EmulatorDirectory;
+            CurrentSectionXemuUpdatePath = state.UpdateDirectory;
+
+            CurrentSectionXemuAvailableVersions.Clear();
+            foreach (var version in state.AvailableVersions.Take(10))
+                CurrentSectionXemuAvailableVersions.Add(version);
+
+            var selectedVersion = SelectedCurrentSectionXemuVersion;
+            if (string.IsNullOrWhiteSpace(selectedVersion) ||
+                !CurrentSectionXemuAvailableVersions.Contains(selectedVersion, StringComparer.OrdinalIgnoreCase))
+            {
+                selectedVersion = CurrentSectionXemuAvailableVersions.FirstOrDefault() ?? state.LatestVersion;
+            }
+
+            try
+            {
+                _isSyncingCurrentSectionXemuVersionSelection = true;
+                SelectedCurrentSectionXemuVersion = selectedVersion;
+            }
+            finally
+            {
+                _isSyncingCurrentSectionXemuVersionSelection = false;
             }
 
             _sectionLatestReleaseNotes = state.LatestReleaseNotes;

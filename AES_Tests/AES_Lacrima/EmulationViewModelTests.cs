@@ -180,6 +180,45 @@ public sealed class EmulationViewModelTests
     }
 
     [Fact]
+    public void EmulatorHandlerRegistry_Xbox_IncludesXemuHandler()
+    {
+        var handlers = EmulatorHandlerRegistry.GetHandlersForSection("Xbox");
+
+        Assert.Contains(handlers, handler => string.Equals(handler.HandlerId, "xemu", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void XemuHandler_BuildStartInfo_EnablesBackgroundInputCaptureInConfig()
+    {
+        using var tempDir = new TempDirectory();
+        var launcherPath = Path.Combine(tempDir.Path, "xemu.exe");
+        var configPath = Path.Combine(tempDir.Path, "xemu.toml");
+        File.WriteAllText(launcherPath, string.Empty);
+        File.WriteAllText(configPath, "[input]\nbackground_input_capture = false\n");
+
+        _ = XemuHandler.Instance.BuildStartInfo(launcherPath, Path.Combine(tempDir.Path, "game.iso"), startFullscreen: false);
+
+        var config = File.ReadAllText(configPath);
+        Assert.Contains("background_input_capture = true", config, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void XemuHandler_BuildStartInfo_UsesDvdPathForDiscImages()
+    {
+        using var tempDir = new TempDirectory();
+        var launcherPath = Path.Combine(tempDir.Path, "xemu.exe");
+        var romPath = Path.Combine(tempDir.Path, "game.iso");
+        File.WriteAllText(launcherPath, string.Empty);
+        File.WriteAllText(romPath, string.Empty);
+
+        var startInfo = XemuHandler.Instance.BuildStartInfo(launcherPath, romPath, startFullscreen: true);
+
+        Assert.Equal("-full-screen", startInfo.ArgumentList[0]);
+        Assert.Equal("-dvd_path", startInfo.ArgumentList[1]);
+        Assert.Equal(romPath, startInfo.ArgumentList[2]);
+    }
+
+    [Fact]
     public void EmulatorHandlerRegistry_PlayStation4_IncludesShadPs4Handler()
     {
         var handlers = EmulatorHandlerRegistry.GetHandlersForSection("PlayStation 4");

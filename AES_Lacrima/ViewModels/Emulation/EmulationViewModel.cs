@@ -110,6 +110,8 @@ namespace AES_Lacrima.ViewModels
         private bool _isSyncingCurrentSectionDuckStationVersionSelection;
         private bool _isSyncingCurrentSectionDuckStationIncludePrereleases;
         private bool _isSyncingCurrentSectionXeniaVersionSelection;
+        private bool _isSyncingCurrentSectionXemuVersionSelection;
+        private bool _isSyncingCurrentSectionXemuIncludePrereleases;
         private bool _isXeniaPatchesOverlayOpen;
         private bool _isXeniaPatchesBusy;
         private bool _isCurrentSectionXeniaPatchDirty;
@@ -265,6 +267,9 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         [AutoResolve]
         private XeniaEmulatorUpdateService? _xeniaEmulatorUpdateService;
+
+        [AutoResolve]
+        private XemuEmulatorUpdateService? _xemuEmulatorUpdateService;
 
         [AutoResolve]
         private DolphinEmulatorUpdateService? _dolphinEmulatorUpdateService;

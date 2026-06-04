@@ -125,6 +125,9 @@ namespace AES_Lacrima.Services
         private bool _isMetadataLoaded;
 
         [ObservableProperty]
+        private bool _isMetadataLoading;
+
+        [ObservableProperty]
         private AvaloniaList<TagImageModel> _images = [];
 
         [ObservableProperty] private string? _addImageUrl;

@@ -41,6 +41,18 @@
                                Foreground="White"
                                FontSize="20" />
                 </StackPanel>
+                <StackPanel Orientation="Horizontal"
+                            Spacing="12"
+                            IsVisible="{Binding IsMetadataLoading}"
+                            VerticalAlignment="Center">
+                    <ProgressBar IsIndeterminate="True"
+                                 Width="180"
+                                 Height="6" />
+                    <TextBlock Text="Loading metadata..."
+                               Foreground="#FFD166"
+                               FontSize="16"
+                               VerticalAlignment="Center" />
+                </StackPanel>
             </StackPanel>
 
             <Border Grid.Row="1"
@@ -271,12 +283,18 @@
             </Border>
 
             <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="6,12,0,0">
-                <TextBlock Grid.Column="0"
-                           Text="Edit metadata and images for the selected game."
-                           Foreground="#D8D8D8"
-                           FontSize="18"
-                           TextWrapping="Wrap"
-                           VerticalAlignment="Center" />
+                <Panel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="Loading additional metadata…"
+                               Foreground="#FFD166"
+                               FontSize="18"
+                               TextWrapping="Wrap"
+                               IsVisible="{Binding IsMetadataLoading}" />
+                    <TextBlock Text="Edit metadata and images for the selected game."
+                               Foreground="#D8D8D8"
+                               FontSize="18"
+                               TextWrapping="Wrap"
+                               IsVisible="{Binding !IsMetadataLoading}" />
+                </Panel>
                 <Button Grid.Column="1"
                         Content="Save"
                         Command="{Binding SaveMetadataCommand}"

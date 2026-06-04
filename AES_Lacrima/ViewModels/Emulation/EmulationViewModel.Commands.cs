@@ -523,6 +523,8 @@ namespace AES_Lacrima.ViewModels
                 return (CurrentSectionDolphinCurrentVersion, CurrentSectionDolphinLatestVersion);
             if (ShowCurrentSectionFlycastUpdateControls && IsCurrentSectionFlycastUpdateAvailable)
                 return (CurrentSectionFlycastCurrentVersion, CurrentSectionFlycastLatestVersion);
+            if (ShowCurrentSectionXemuUpdateControls && IsCurrentSectionXemuUpdateAvailable)
+                return (CurrentSectionXemuCurrentVersion, CurrentSectionXemuLatestVersion);
             if (ShowCurrentSectionDuckStationUpdateControls && IsCurrentSectionDuckStationUpdateAvailable)
                 return (CurrentSectionDuckStationCurrentVersion, CurrentSectionDuckStationLatestVersion);
             if (ShowCurrentSectionCemuSection && IsCurrentSectionCemuUpdateAvailable)

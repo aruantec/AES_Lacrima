@@ -366,6 +366,20 @@ namespace AES_Lacrima.Services
 
         private async Task LoadMetadataForItemCoreAsync(MediaItem item, string? albumContext)
         {
+            OpenMetadataEditorShell(item, albumContext);
+
+            try
+            {
+                await LoadMetadataForItemDetailsAsync(item, albumContext).ConfigureAwait(true);
+            }
+            finally
+            {
+                IsMetadataLoading = false;
+            }
+        }
+
+        private void OpenMetadataEditorShell(MediaItem item, string? albumContext)
+        {
             _currentSelectedMedia = item;
             var romPath = NintendoDiscMetadataHelper.NormalizeRomPath(item.FileName);
             FilePath = romPath ?? item.FileName;
@@ -416,10 +430,6 @@ namespace AES_Lacrima.Services
                                 SwitchRomMetadataHelper.IsSwitchFile(item.FileName);
              SwitchTitleId = null;
 
-             await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
-            await TryApplyTitleFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
-            await TryApplyTitleFromPsxGameAsync(item, CancellationToken.None).ConfigureAwait(false);
-
             Title = item.Title;
             Artists = item.Artist;
             Album = item.Album;
@@ -433,6 +443,17 @@ namespace AES_Lacrima.Services
             ReplayGainAlbumGain = item.ReplayGainAlbumGain;
 
             Images.Clear();
+            IsMetadataLoading = true;
+            IsMetadataLoaded = true;
+        }
+
+        private async Task LoadMetadataForItemDetailsAsync(MediaItem item, string? albumContext)
+        {
+            var nintendoAlbumTitle = NintendoDiscMetadataHelper.ResolveAlbumTitle(item.Album, albumContext);
+
+            await TryApplyTitleFromPs3InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(true);
+            await TryApplyTitleFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(true);
+            await TryApplyTitleFromPsxGameAsync(item, CancellationToken.None).ConfigureAwait(true);
 
             var cachePath = GetMetadataCachePath(FilePath ?? item.FileName);
             var metadata = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath));
@@ -556,8 +577,6 @@ namespace AES_Lacrima.Services
                     SLog.Warn("Failed to load Nintendo disc metadata.", ex);
                 }
             }
-
-            IsMetadataLoaded = true;
 
             if (IsXbox360Metadata && !string.IsNullOrWhiteSpace(item.FileName))
             {

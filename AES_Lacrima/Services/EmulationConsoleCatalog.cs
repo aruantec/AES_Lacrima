@@ -121,6 +121,12 @@ namespace AES_Lacrima.Services
                 "FBNEO",
                 "FINALBURNNEO"),
             new(
+                "XBOX",
+                "Xbox",
+                ["Xbox", "Original Xbox", "Microsoft Xbox"],
+                ["*.iso", "*.xbe", "*.xiso"],
+                "ORIGINALXBOX"),
+            new(
                 "XBOX360",
                 "Xbox 360",
                 ["Xbox 360"],
