@@ -941,8 +941,8 @@ namespace AES_Lacrima.ViewModels
                 var hwnd = await ResolveCaptureTargetForCurrentPlatformAsync(process, handler).ConfigureAwait(false);
                 if (hwnd == IntPtr.Zero)
                 {
-                    var maxRetries = handler is RetroArchHandler or CemuHandler or DolphinHandler ? 4 : 1;
-                    var retryDelayMs = handler is DolphinHandler ? 3500 : 2000;
+                    var maxRetries = handler is RetroArchHandler or CemuHandler or DolphinHandler or Rpcs3Handler ? 4 : 1;
+                    var retryDelayMs = handler is DolphinHandler or Rpcs3Handler ? 3500 : 2000;
                     for (int i = 0; i < maxRetries && hwnd == IntPtr.Zero; i++)
                     {
                         SLog.Warn($"Failed to resolve emulator capture target for '{romPath}' (attempt {i + 1}). Retrying...");

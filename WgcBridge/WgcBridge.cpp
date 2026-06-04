@@ -3899,15 +3899,26 @@ extern "C" {
             }
 
             HWND captureTargetHwnd = targetHwnd;
-            HWND rootOwnerHwnd = GetAncestor(targetHwnd, GA_ROOTOWNER);
-            HWND rootHwnd = GetAncestor(targetHwnd, GA_ROOT);
-            if (rootOwnerHwnd && rootOwnerHwnd != targetHwnd)
+            // Qt emulators (e.g. RPCS3 gs_frame) expose a dedicated render QWindow that must be
+            // captured directly. Normalizing to GA_ROOTOWNER pulls in launcher/dialog surfaces.
+            RECT targetClientRect{};
+            const bool hasUsableClient =
+                GetClientRect(targetHwnd, &targetClientRect) &&
+                (targetClientRect.right - targetClientRect.left) >= 480 &&
+                (targetClientRect.bottom - targetClientRect.top) >= 270;
+
+            if (!hasUsableClient)
             {
-                captureTargetHwnd = rootOwnerHwnd;
-            }
-            else if (rootHwnd && rootHwnd != targetHwnd)
-            {
-                captureTargetHwnd = rootHwnd;
+                HWND rootOwnerHwnd = GetAncestor(targetHwnd, GA_ROOTOWNER);
+                HWND rootHwnd = GetAncestor(targetHwnd, GA_ROOT);
+                if (rootOwnerHwnd && rootOwnerHwnd != targetHwnd)
+                {
+                    captureTargetHwnd = rootOwnerHwnd;
+                }
+                else if (rootHwnd && rootHwnd != targetHwnd)
+                {
+                    captureTargetHwnd = rootHwnd;
+                }
             }
 
             if (captureTargetHwnd != targetHwnd)

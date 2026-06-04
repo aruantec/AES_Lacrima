@@ -7,7 +7,7 @@ using AES_Emulation.Controls;
 using AES_Emulation.EmulationHandlers;
 using AES_Lacrima.Services;
 using AES_Lacrima.ViewModels;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Lacrima.Tests;
@@ -414,6 +414,7 @@ public sealed class EmulationViewModelTests
         Assert.Equal(EmulatorCaptureMode.DirectComposition, Rpcs3Handler.Instance.PreferredCaptureMode);
         Assert.True(Rpcs3Handler.Instance.HideUntilCaptured);
         Assert.True(Rpcs3Handler.Instance.IsWindowEmbeddingSupported);
+        Assert.True(Rpcs3Handler.Instance.ForceUseTargetClientAreaCapture);
     }
 
     private static byte[] CreateParamSfo(string titleId, string? titleName = null)
