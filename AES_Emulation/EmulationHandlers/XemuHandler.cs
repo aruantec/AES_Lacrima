@@ -1,9 +1,8 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Core.Logging;
@@ -202,73 +201,41 @@ public sealed class XemuHandler : EmulatorHandlerBase
         return !looksLikePrimaryUi;
     }
 
+    private static readonly Regex BackgroundInputCaptureLineRegex = new(
+        @"^\s*background_input_capture\s*=.*$",
+        RegexOptions.Multiline | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    private static readonly Regex InputSectionHeaderRegex = new(
+        @"^\s*\[input\]\s*$",
+        RegexOptions.Multiline | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
     private static void EnsureBackgroundInputCaptureEnabled(string? launcherPath)
     {
-        foreach (var configPath in ResolveXemuConfigPaths(launcherPath))
+        var configPath = ResolveLauncherConfigPath(launcherPath);
+        if (string.IsNullOrWhiteSpace(configPath))
+            return;
+
+        try
         {
-            try
-            {
-                if (TryEnableBackgroundInputCapture(configPath))
-                    Log.Info($"Enabled xemu background controller input capture in '{configPath}'.");
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Failed to update xemu config at '{configPath}'.", ex);
-            }
+            if (TryEnableBackgroundInputCapture(configPath))
+                Log.Info($"Enabled xemu background controller input capture in '{configPath}'.");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Failed to update xemu config at '{configPath}'.", ex);
         }
     }
 
-    private static IEnumerable<string> ResolveXemuConfigPaths(string? launcherPath)
+    private static string? ResolveLauncherConfigPath(string? launcherPath)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
         var executablePath = ResolveLauncherExecutablePath(launcherPath) ?? launcherPath;
-        if (!string.IsNullOrWhiteSpace(executablePath))
-        {
-            var launcherDirectory = Path.GetDirectoryName(executablePath);
-            if (!string.IsNullOrWhiteSpace(launcherDirectory))
-            {
-                var nextToExecutable = Path.Combine(launcherDirectory, "xemu.toml");
-                if (seen.Add(nextToExecutable))
-                    yield return nextToExecutable;
-            }
-        }
+        if (string.IsNullOrWhiteSpace(executablePath))
+            return null;
 
-        foreach (var root in GetXemuDataRoots())
-        {
-            var configPath = Path.Combine(root, "xemu.toml");
-            if (seen.Add(configPath))
-                yield return configPath;
-        }
-    }
-
-    private static IEnumerable<string> GetXemuDataRoots()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            if (!string.IsNullOrWhiteSpace(appData))
-                yield return Path.Combine(appData, "xemu", "xemu");
-
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (!string.IsNullOrWhiteSpace(localAppData))
-                yield return Path.Combine(localAppData, "xemu", "xemu");
-        }
-        else if (OperatingSystem.IsLinux())
-        {
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (!string.IsNullOrWhiteSpace(home))
-            {
-                yield return Path.Combine(home, ".local", "share", "xemu", "xemu");
-                yield return Path.Combine(home, ".var", "app", "app.xemu.xemu", "data", "xemu", "xemu");
-            }
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (!string.IsNullOrWhiteSpace(home))
-                yield return Path.Combine(home, "Library", "Application Support", "xemu", "xemu");
-        }
+        var launcherDirectory = Path.GetDirectoryName(executablePath);
+        return string.IsNullOrWhiteSpace(launcherDirectory)
+            ? null
+            : Path.Combine(launcherDirectory, "xemu.toml");
     }
 
     private static bool TryEnableBackgroundInputCapture(string configPath)
@@ -280,82 +247,40 @@ public sealed class XemuHandler : EmulatorHandlerBase
         if (!string.IsNullOrWhiteSpace(directory))
             Directory.CreateDirectory(directory);
 
-        List<string> lines;
-        if (File.Exists(configPath))
+        if (!File.Exists(configPath))
         {
-            lines = File.ReadAllLines(configPath).ToList();
-        }
-        else
-        {
-            lines =
-            [
-                "[general]",
-                "show_welcome = false",
-                string.Empty,
-                "[input]"
-            ];
+            File.WriteAllText(
+                configPath,
+                "[input]" + Environment.NewLine + "background_input_capture = true" + Environment.NewLine,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            return true;
         }
 
-        var modified = UpsertTomlBool(lines, "[input]", "background_input_capture", true);
-        if (!modified && File.Exists(configPath))
+        var original = File.ReadAllText(configPath);
+        var updated = PatchBackgroundInputCapture(original);
+        if (string.Equals(original, updated, StringComparison.Ordinal))
             return false;
 
-        File.WriteAllLines(configPath, lines, Encoding.UTF8);
+        File.WriteAllText(configPath, updated, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         return true;
     }
 
-    private static bool UpsertTomlBool(List<string> lines, string sectionHeader, string key, bool value)
+    private static string PatchBackgroundInputCapture(string content)
     {
-        var desiredLine = $"{key} = {(value ? "true" : "false")}";
-        var sectionIndex = FindSectionIndex(lines, sectionHeader);
-        if (sectionIndex < 0)
-        {
-            if (lines.Count > 0 && !string.IsNullOrWhiteSpace(lines[^1]))
-                lines.Add(string.Empty);
+        if (BackgroundInputCaptureLineRegex.IsMatch(content))
+            return BackgroundInputCaptureLineRegex.Replace(content, "background_input_capture = true");
 
-            lines.Add(sectionHeader);
-            lines.Add(desiredLine);
-            return true;
+        var sectionMatch = InputSectionHeaderRegex.Match(content);
+        if (sectionMatch.Success)
+        {
+            var insertAt = sectionMatch.Index + sectionMatch.Length;
+            return content.Insert(insertAt, Environment.NewLine + "background_input_capture = true");
         }
 
-        var sectionEnd = FindSectionEnd(lines, sectionIndex + 1);
-        for (var i = sectionIndex + 1; i < sectionEnd; i++)
-        {
-            var trimmed = lines[i].TrimStart();
-            if (!trimmed.StartsWith(key, StringComparison.OrdinalIgnoreCase) || !trimmed.Contains('='))
-                continue;
+        if (content.Length == 0)
+            return "[input]" + Environment.NewLine + "background_input_capture = true" + Environment.NewLine;
 
-            if (string.Equals(lines[i].Trim(), desiredLine, StringComparison.Ordinal))
-                return false;
-
-            lines[i] = desiredLine;
-            return true;
-        }
-
-        lines.Insert(sectionEnd, desiredLine);
-        return true;
-    }
-
-    private static int FindSectionIndex(IReadOnlyList<string> lines, string sectionHeader)
-    {
-        for (var i = 0; i < lines.Count; i++)
-        {
-            if (string.Equals(lines[i].Trim(), sectionHeader, StringComparison.OrdinalIgnoreCase))
-                return i;
-        }
-
-        return -1;
-    }
-
-    private static int FindSectionEnd(IReadOnlyList<string> lines, int startIndex)
-    {
-        for (var i = startIndex; i < lines.Count; i++)
-        {
-            var trimmed = lines[i].Trim();
-            if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
-                return i;
-        }
-
-        return lines.Count;
+        var suffix = content.EndsWith('\n') ? string.Empty : Environment.NewLine;
+        return content + suffix + Environment.NewLine + "[input]" + Environment.NewLine + "background_input_capture = true" + Environment.NewLine;
     }
 }

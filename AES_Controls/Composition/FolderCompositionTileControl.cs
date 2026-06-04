@@ -28,6 +28,7 @@ public class FolderCompositionTileControl : Grid, IScaleExclusionRenderTarget
 
     private const int ClosePollMs = 16;
     private const int CloseTimeoutMs = 750;
+    private const int PointerLeaveDebounceMs = 48;
 
     private readonly Image _previewImage;
     private readonly FolderCompositionControl _liveFolder;
@@ -41,6 +42,7 @@ public class FolderCompositionTileControl : Grid, IScaleExclusionRenderTarget
     private MediaItem? _subscribedFolderCoverItem;
     private IDisposable? _pointerOverSubscription;
     private DispatcherTimer? _closePollTimer;
+    private DispatcherTimer? _pointerLeaveDebounceTimer;
     private long _closeStartedTicks;
 
     public static readonly StyledProperty<AvaloniaList<MediaItem>> ItemsProperty =
@@ -194,6 +196,7 @@ public class FolderCompositionTileControl : Grid, IScaleExclusionRenderTarget
         _pointerOverSubscription = null;
 
         CancelScheduledDeactivate();
+        CancelPointerLeaveDebounce();
         CompleteDeactivate(force: true);
         _snapshotGeneration++;
 
@@ -268,18 +271,55 @@ public class FolderCompositionTileControl : Grid, IScaleExclusionRenderTarget
 
         if (isPointerOver)
         {
+            CancelPointerLeaveDebounce();
             CancelScheduledDeactivate();
             ActivateLiveFolder();
             return;
         }
 
+        SchedulePointerLeaveClose();
+    }
+
+    private void SchedulePointerLeaveClose()
+    {
+        if (!_isLiveActive && !_isClosing)
+            return;
+
+        _pointerLeaveDebounceTimer ??= new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(PointerLeaveDebounceMs)
+        };
+
+        _pointerLeaveDebounceTimer.Stop();
+        _pointerLeaveDebounceTimer.Tick -= OnPointerLeaveDebounced;
+        _pointerLeaveDebounceTimer.Tick += OnPointerLeaveDebounced;
+        _pointerLeaveDebounceTimer.Start();
+    }
+
+    private void OnPointerLeaveDebounced(object? sender, EventArgs e)
+    {
+        CancelPointerLeaveDebounce();
+
+        if (IsLiveInteractionSuppressed || IsPointerOver)
+            return;
+
         if (_isLiveActive || _isClosing)
             BeginCloseAnimation();
+    }
+
+    private void CancelPointerLeaveDebounce()
+    {
+        if (_pointerLeaveDebounceTimer == null)
+            return;
+
+        _pointerLeaveDebounceTimer.Stop();
+        _pointerLeaveDebounceTimer.Tick -= OnPointerLeaveDebounced;
     }
 
     private void ForceStaticImmediate()
     {
         _liveActivationGeneration++;
+        CancelPointerLeaveDebounce();
         CancelScheduledDeactivate();
 
         if (_activeLiveTile == this)
@@ -378,6 +418,7 @@ public class FolderCompositionTileControl : Grid, IScaleExclusionRenderTarget
 
     private void CancelScheduledDeactivate()
     {
+        CancelPointerLeaveDebounce();
         _closePollTimer?.Stop();
         _isClosing = false;
     }
@@ -387,13 +428,6 @@ public class FolderCompositionTileControl : Grid, IScaleExclusionRenderTarget
         if (IsLiveInteractionSuppressed)
         {
             ForceStaticImmediate();
-            return;
-        }
-
-        if (IsPointerOver)
-        {
-            CancelScheduledDeactivate();
-            ActivateLiveFolder();
             return;
         }
 

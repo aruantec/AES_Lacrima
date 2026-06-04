@@ -48,6 +48,8 @@ namespace AES_Lacrima.ViewModels
     {
         private FolderMediaItem? GetActiveEmulationAlbum() => LoadedAlbum ?? SelectedAlbum;
 
+        public bool ShowAlbumRomImportMenuItems => GetActiveEmulationAlbum() != null;
+
         /// <summary>
         /// Album used for section-scoped UI (render options handler tab, per-section settings).
         /// Prefers the album list selection over a previously double-opened loaded album.

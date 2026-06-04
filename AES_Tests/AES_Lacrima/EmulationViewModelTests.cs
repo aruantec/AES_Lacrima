@@ -194,12 +194,23 @@ public sealed class EmulationViewModelTests
         var launcherPath = Path.Combine(tempDir.Path, "xemu.exe");
         var configPath = Path.Combine(tempDir.Path, "xemu.toml");
         File.WriteAllText(launcherPath, string.Empty);
-        File.WriteAllText(configPath, "[input]\nbackground_input_capture = false\n");
+        File.WriteAllText(configPath, """
+            [general]
+            show_welcome = false
+
+            [input]
+            background_input_capture = false
+
+            [display.window]
+            startup_size = '1280x720'
+            """);
 
         _ = XemuHandler.Instance.BuildStartInfo(launcherPath, Path.Combine(tempDir.Path, "game.iso"), startFullscreen: false);
 
         var config = File.ReadAllText(configPath);
         Assert.Contains("background_input_capture = true", config, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("show_welcome = false", config, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("startup_size = '1280x720'", config, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -766,7 +766,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         [NotifyPropertyChangedFor(nameof(CanToggleGameplayRecording))]
         private bool _isEmulatorViewportDismissed;
 
-        public bool IsGameplayPreviewAvailable => IsGameplayAutoplayEnabled && IsYtDlpInstalled && !IsEmulatorRunning;
+        public bool IsGameplayPreviewAvailable =>
+            IsGameplayAutoplayEnabled && IsYtDlpInstalled && !IsEmulatorRunning;
         public bool IsEmulatorViewportVisible => IsEmulatorRunning && !IsEmulatorViewportDismissed;
         public bool IsCompositionCaptureVisible => IsActive && IsEmulatorViewportVisible;
         public bool IsCarouselVisible => !IsEmulatorViewportVisible;
@@ -787,6 +788,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         /// </summary>
         public bool IsGameplayPreviewPublishBoundsActive =>
             IsGameplayPreviewHostVisible && !IsEmulatorViewportVisible && IsAlbumListCollapsed;
+
+        public bool IsRomCarouselSelectedItemBoundsActive =>
+            IsGameplayPreviewPublishBoundsActive;
 
         public bool IsGameplayPreviewViewportVisible => IsGameplayPreviewPublishBoundsActive;
         public bool IsGameplayVideoSurfaceVisible => IsGameplayVideoVisible && !IsEmulatorViewportVisible;
@@ -1402,6 +1406,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             SyncSelectedAlbumIndexFromAlbum(value);
             SyncCurrentSectionEmulatorContext();
+            OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));
 
             if (LoadedAlbum == null && value != null)
                 ApplyFilter();
@@ -1426,6 +1431,8 @@ private bool _isShadPs4PatchesOverlayOpen;
             QueueSelectedAlbumCoverScan(value);
             RefreshActiveAlbumState();
             SyncCurrentSectionEmulatorContext();
+
+            OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));
         }
 
     }
