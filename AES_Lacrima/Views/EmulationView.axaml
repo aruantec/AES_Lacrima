@@ -522,7 +522,7 @@
                 Background="#B0000000"
                 BorderBrush="DimGray"
                 BorderThickness="0.5,0,0,0"
-                Width="660"
+                Width="760"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Stretch"
                 Margin="0,0,0,0"
@@ -533,7 +533,7 @@
                               Margin="0,40,0,0"
                               HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Auto">
-                    <Grid Margin="25,0,25,0">
+                    <Grid Margin="25,0,20,0">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
@@ -1712,85 +1712,112 @@
                                                FontSize="13"
                                                TextWrapping="Wrap"
                                                MaxWidth="560" />
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                        <TextBlock Text="Audio source" Foreground="White" FontSize="18" Width="220"/>
-                                        <ComboBox MinWidth="280"
-                                                  ItemsSource="{Binding SettingsViewModel.GameplayRecordingAudioSourceOptions}"
-                                                  SelectedItem="{Binding SettingsViewModel.GameplayRecordingAudioSource, Mode=TwoWay}">
-                                            <Interaction.Behaviors>
-                                                <controlBehaviors:ComboBoxPopupScaler/>
-                                            </Interaction.Behaviors>
-                                        </ComboBox>
-                                        <Button Content="Refresh lists"
-                                                Command="{Binding SettingsViewModel.RefreshGameplayRecordingAudioListsCommand}"
-                                                Padding="12,8"
-                                                Background="#222"
-                                                Foreground="White"
-                                                BorderBrush="#555"
-                                                BorderThickness="1"/>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center"
-                                                IsVisible="{Binding SettingsViewModel.IsGameplayRecordingDeviceSourceVisible}">
-                                        <TextBlock Text="Output device" Foreground="White" FontSize="18" Width="220"/>
-                                        <ComboBox MinWidth="420"
+                                    <Grid ColumnDefinitions="220,*" ColumnSpacing="12" VerticalAlignment="Center">
+                                        <TextBlock Grid.Column="0" Text="Audio source" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
+                                        <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                            <ComboBox Grid.Column="0"
+                                                      HorizontalAlignment="Stretch"
+                                                      MinWidth="0"
+                                                      ItemsSource="{Binding SettingsViewModel.GameplayRecordingAudioSourceOptions}"
+                                                      SelectedItem="{Binding SettingsViewModel.GameplayRecordingAudioSource, Mode=TwoWay}">
+                                                <Interaction.Behaviors>
+                                                    <controlBehaviors:ComboBoxPopupScaler/>
+                                                </Interaction.Behaviors>
+                                            </ComboBox>
+                                            <Button Grid.Column="1"
+                                                    Content="Refresh lists"
+                                                    Command="{Binding SettingsViewModel.RefreshGameplayRecordingAudioListsCommand}"
+                                                    Padding="12,8"
+                                                    Background="#222"
+                                                    Foreground="White"
+                                                    BorderBrush="#555"
+                                                    BorderThickness="1"/>
+                                        </Grid>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="220,*" ColumnSpacing="12"
+                                          IsVisible="{Binding SettingsViewModel.IsGameplayRecordingDeviceSourceVisible}">
+                                        <TextBlock Grid.Column="0" Text="Output device" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1"
+                                                  HorizontalAlignment="Stretch"
+                                                  MinWidth="0"
                                                   ItemsSource="{Binding SettingsViewModel.GameplayRecordingAudioDevices}"
                                                   SelectedItem="{Binding SettingsViewModel.SelectedGameplayRecordingAudioDevice, Mode=TwoWay}">
                                             <Interaction.Behaviors>
                                                 <controlBehaviors:ComboBoxPopupScaler/>
                                             </Interaction.Behaviors>
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
                                         </ComboBox>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center"
-                                                IsVisible="{Binding SettingsViewModel.IsGameplayRecordingApplicationSourceVisible}">
-                                        <TextBlock Text="Application" Foreground="White" FontSize="18" Width="220"/>
-                                        <ComboBox MinWidth="420"
+                                    </Grid>
+                                    <Grid ColumnDefinitions="220,*" ColumnSpacing="12"
+                                          IsVisible="{Binding SettingsViewModel.IsGameplayRecordingApplicationSourceVisible}">
+                                        <TextBlock Grid.Column="0" Text="Application" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1"
+                                                  HorizontalAlignment="Stretch"
+                                                  MinWidth="0"
                                                   ItemsSource="{Binding SettingsViewModel.GameplayRecordingAudioSessions}"
                                                   SelectedItem="{Binding SettingsViewModel.SelectedGameplayRecordingAudioSession, Mode=TwoWay}">
                                             <Interaction.Behaviors>
                                                 <controlBehaviors:ComboBoxPopupScaler/>
                                             </Interaction.Behaviors>
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
                                         </ComboBox>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                        <TextBlock Text="Container" Foreground="White" FontSize="18" Width="220"/>
-                                        <ComboBox MinWidth="220"
+                                    </Grid>
+                                    <Grid ColumnDefinitions="220,*" ColumnSpacing="12" VerticalAlignment="Center">
+                                        <TextBlock Grid.Column="0" Text="Container" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1"
+                                                  HorizontalAlignment="Stretch"
+                                                  MinWidth="0"
                                                   ItemsSource="{Binding SettingsViewModel.GameplayRecordingContainerOptions}"
                                                   SelectedItem="{Binding SettingsViewModel.GameplayRecordingContainer, Mode=TwoWay}">
                                             <Interaction.Behaviors>
                                                 <controlBehaviors:ComboBoxPopupScaler/>
                                             </Interaction.Behaviors>
                                         </ComboBox>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                        <TextBlock Text="Video Codec" Foreground="White" FontSize="18" Width="220"/>
-                                        <ComboBox MinWidth="220"
+                                    </Grid>
+                                    <Grid ColumnDefinitions="220,*" ColumnSpacing="12" VerticalAlignment="Center">
+                                        <TextBlock Grid.Column="0" Text="Video Codec" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1"
+                                                  HorizontalAlignment="Stretch"
+                                                  MinWidth="0"
                                                   ItemsSource="{Binding SettingsViewModel.GameplayRecordingVideoCodecOptions}"
                                                   SelectedItem="{Binding SettingsViewModel.GameplayRecordingVideoCodec, Mode=TwoWay}">
                                             <Interaction.Behaviors>
                                                 <controlBehaviors:ComboBoxPopupScaler/>
                                             </Interaction.Behaviors>
                                         </ComboBox>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                        <TextBlock Text="Encoder" Foreground="White" FontSize="18" Width="220"/>
-                                        <ComboBox MinWidth="220"
+                                    </Grid>
+                                    <Grid ColumnDefinitions="220,*" ColumnSpacing="12" VerticalAlignment="Center">
+                                        <TextBlock Grid.Column="0" Text="Encoder" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1"
+                                                  HorizontalAlignment="Stretch"
+                                                  MinWidth="0"
                                                   ItemsSource="{Binding SettingsViewModel.GameplayRecordingEncoderPreferenceOptions}"
                                                   SelectedItem="{Binding SettingsViewModel.GameplayRecordingEncoderPreference, Mode=TwoWay}">
                                             <Interaction.Behaviors>
                                                 <controlBehaviors:ComboBoxPopupScaler/>
                                             </Interaction.Behaviors>
                                         </ComboBox>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                        <TextBlock Text="Output resolution" Foreground="White" FontSize="18" Width="220"/>
-                                        <ComboBox MinWidth="200"
+                                    </Grid>
+                                    <Grid ColumnDefinitions="220,*" ColumnSpacing="12" VerticalAlignment="Center">
+                                        <TextBlock Grid.Column="0" Text="Output resolution" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1"
+                                                  HorizontalAlignment="Stretch"
+                                                  MinWidth="0"
                                                   ItemsSource="{Binding SettingsViewModel.GameplayRecordingResolutionCapOptions}"
                                                   SelectedItem="{Binding SettingsViewModel.GameplayRecordingResolutionCap, Mode=TwoWay}">
                                             <Interaction.Behaviors>
                                                 <controlBehaviors:ComboBoxPopupScaler/>
                                             </Interaction.Behaviors>
                                         </ComboBox>
-                                    </StackPanel>
+                                    </Grid>
                                     <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                         <TextBlock Text="Recording FPS" Foreground="White" FontSize="18" Width="220"/>
                                         <Slider Width="280"
@@ -1817,9 +1844,9 @@
                                                    Width="70"
                                                    FontSize="16"/>
                                     </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                        <TextBlock Text="Output folder" Foreground="White" FontSize="18" Width="220" VerticalAlignment="Center"/>
-                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" MinWidth="420">
+                                    <Grid ColumnDefinitions="220,*" ColumnSpacing="12" VerticalAlignment="Center">
+                                        <TextBlock Grid.Column="0" Text="Output folder" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
+                                        <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                             <TextBox Grid.Column="0"
                                                      Text="{Binding SettingsViewModel.GameplayRecordingOutputDirectory, Mode=TwoWay}"
                                                      PlaceholderText="Folder for recorded videos"
@@ -1836,7 +1863,7 @@
                                                     BorderBrush="#555"
                                                     BorderThickness="1"/>
                                         </Grid>
-                                    </StackPanel>
+                                    </Grid>
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>

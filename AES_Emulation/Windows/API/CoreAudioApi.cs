@@ -10,12 +10,72 @@ namespace AES_Emulation.Windows.API
     }
 
     [ComImport]
+    [Guid("0BD7A1BE-7A7A-4D66-9B64-6A7B8E8D4D8B")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IMMDeviceCollection
+    {
+        [PreserveSig]
+        int GetCount(out uint pcDevices);
+
+        [PreserveSig]
+        int Item(uint nDevice, [MarshalAs(UnmanagedType.Interface)] out IMMDevice ppDevice);
+    }
+
+    [ComImport]
+    [Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IPropertyStore
+    {
+        void GetCount(out uint cProps);
+        void GetAt(uint iProp, out PropertyKey pkey);
+        void GetValue(ref PropertyKey key, out PropVariant pv);
+        void SetValue(ref PropertyKey key, ref PropVariant propvar);
+        void Commit();
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PropertyKey
+    {
+        public Guid fmtid;
+        public uint pid;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    internal struct PropVariant
+    {
+        [FieldOffset(0)] public ushort vt;
+        [FieldOffset(8)] public IntPtr pointerValue;
+
+        public string? GetString()
+        {
+            if (vt == 31 && pointerValue != IntPtr.Zero)
+                return Marshal.PtrToStringUni(pointerValue);
+            return null;
+        }
+    }
+
+    internal static class PropVariantHelper
+    {
+        [DllImport("ole32.dll")]
+        internal static extern int PropVariantClear(ref PropVariant pvar);
+    }
+
+    internal static class CoreAudioConstants
+    {
+        internal static readonly PropertyKey DeviceFriendlyNameKey = new()
+        {
+            fmtid = new Guid("a45c254e-df1c-4efd-8020-67d146a850e0"),
+            pid = 14
+        };
+    }
+
+    [ComImport]
     [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IMMDeviceEnumerator
     {
         [PreserveSig]
-        int EnumAudioEndpoints(int dataFlow, int dwStateMask, out IntPtr ppDevices);
+        int EnumAudioEndpoints(int dataFlow, int dwStateMask, [MarshalAs(UnmanagedType.Interface)] out IMMDeviceCollection ppDevices);
         void GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppDevice);
         void GetDevice([MarshalAs(UnmanagedType.LPWStr)] string pwstrId, out IMMDevice ppDevice);
         void RegisterEndpointNotificationCallback(IntPtr pClient);
@@ -29,7 +89,7 @@ namespace AES_Emulation.Windows.API
     {
         [PreserveSig]
         int Activate(ref Guid iid, uint dwClsCtx, IntPtr pActivationParams, out IntPtr ppInterface);
-        void OpenPropertyStore(uint stgmAccess, out IntPtr ppProperties);
+        void OpenPropertyStore(uint stgmAccess, [MarshalAs(UnmanagedType.Interface)] out IPropertyStore ppProperties);
         void GetId([MarshalAs(UnmanagedType.LPWStr)] out string ppstrId);
         void QueryHardwareSupport(out uint pdwHardwareSupportMask);
     }

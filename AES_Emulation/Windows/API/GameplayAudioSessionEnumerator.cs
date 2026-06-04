@@ -22,23 +22,19 @@ public static class GameplayAudioSessionEnumerator
         try
         {
             var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
-            int hr = enumerator.EnumAudioEndpoints(EDataFlowRender, DeviceStateActive, out IntPtr collectionPtr);
-            if (hr < 0 || collectionPtr == IntPtr.Zero)
+            int hr = enumerator.EnumAudioEndpoints(EDataFlowRender, DeviceStateActive, out IMMDeviceCollection collection);
+            if (hr < 0 || collection == null)
                 return results;
 
-            try
+            if (collection.GetCount(out uint count) < 0)
+                return results;
+
+            for (uint i = 0; i < count; i++)
             {
-                var collection = (IMMDeviceCollection)Marshal.GetObjectForIUnknown(collectionPtr);
-                collection.GetCount(out uint count);
-                for (uint i = 0; i < count; i++)
-                {
-                    collection.Item(i, out IMMDevice device);
-                    CollectSessionsFromDevice(device, results, seen);
-                }
-            }
-            finally
-            {
-                Marshal.Release(collectionPtr);
+                if (collection.Item(i, out IMMDevice device) < 0 || device == null)
+                    continue;
+
+                CollectSessionsFromDevice(device, results, seen);
             }
         }
         catch
@@ -105,14 +101,5 @@ public static class GameplayAudioSessionEnumerator
         {
             return $"Process {pid}";
         }
-    }
-
-    [ComImport]
-    [Guid("0BD7A1BE-7A7A-4D66-9B64-6A7B8E8D4D8B")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IMMDeviceCollection
-    {
-        void GetCount(out uint count);
-        void Item(uint index, out IMMDevice device);
     }
 }

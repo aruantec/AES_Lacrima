@@ -514,6 +514,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     {
         OnPropertyChanged(nameof(IsGameplayRecordingDeviceSourceVisible));
         OnPropertyChanged(nameof(IsGameplayRecordingApplicationSourceVisible));
+        RefreshGameplayRecordingAudioLists();
         SaveSettings();
     }
 

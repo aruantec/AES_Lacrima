@@ -6,5 +6,12 @@
     <Assembly Name="Autofac">
       <Type Name="Autofac.Core.Activators.Reflection.ReflectionActivator" Dynamic="Required All" />
     </Assembly>
+    <Assembly Name="AES_Emulation">
+      <Type Name="AES_Emulation.Windows.API.MMDeviceEnumerator" Dynamic="Required All" />
+      <Type Name="AES_Emulation.Windows.API.IMMDeviceEnumerator" Dynamic="Required All" />
+      <Type Name="AES_Emulation.Windows.API.IMMDeviceCollection" Dynamic="Required All" />
+      <Type Name="AES_Emulation.Windows.API.IMMDevice" Dynamic="Required All" />
+      <Type Name="AES_Emulation.Windows.API.IPropertyStore" Dynamic="Required All" />
+    </Assembly>
   </Application>
 </Directives>
