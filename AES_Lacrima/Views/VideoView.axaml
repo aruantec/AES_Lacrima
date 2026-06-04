@@ -786,31 +786,26 @@
 
         <Grid Grid.Row="2"
               Background="#FF000000">
-            <Grid Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
-                  ColumnDefinitions="Auto,*">
-                <TextBlock Grid.Column="0"
-                           Margin="24,0,8,7"
-                           VerticalAlignment="Center"
-                           FontSize="22"
-                           Foreground="#E6FFFFFF">
-                    <TextBlock.Text>
-                        <MultiBinding StringFormat="\{0\} / \{1\}">
-                            <Binding Path="AudioPlayer.Position" Converter="{StaticResource TimeSpanConverter}" />
-                            <Binding Path="AudioPlayer.Duration" Converter="{StaticResource TimeSpanConverter}" />
-                        </MultiBinding>
-                    </TextBlock.Text>
-                </TextBlock>
-
-                <composition:CompositionSlider Grid.Column="1"
-                                               Height="60"
-                                               Margin="1,5,1,10"
-                                               Minimum="0"
-                                               Maximum="{Binding AudioPlayer.Duration, FallbackValue=1}"
-                                               Value="{Binding AudioPlayer.Position, Mode=TwoWay}"
-                                               SetValueCommand="{Binding SetPositionCommand}"
-                                               ExecuteDuringDrag="True"
-                                               SliderTrackHeight="13"/>
-            </Grid>
+            <composition:PillProgressSlider Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
+                                            Height="70"
+                                            Margin="24,5,24,15"
+                                            Minimum="0"
+                                            Maximum="{Binding AudioPlayer.Duration, FallbackValue=1}"
+                                            Value="{Binding AudioPlayer.Position, Mode=TwoWay}"
+                                            SetValueCommand="{Binding SetPositionCommand}"
+                                            ExecuteDuringDrag="True"
+                                            TrackHeight="42"
+                                            LabelFontSize="22"
+                                            ShowPositionLabel="True"
+                                            TrackBorderBrush="#CCCCCC"
+                                            FillBrush="#99F5F5F5">
+                <composition:PillProgressSlider.LabelText>
+                    <MultiBinding StringFormat="{}{0} / {1}">
+                        <Binding Path="AudioPlayer.Position" Converter="{StaticResource TimeSpanConverter}" />
+                        <Binding Path="AudioPlayer.Duration" Converter="{StaticResource TimeSpanConverter}" />
+                    </MultiBinding>
+                </composition:PillProgressSlider.LabelText>
+            </composition:PillProgressSlider>
         </Grid>
 
         <!-- Menu-->

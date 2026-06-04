@@ -255,14 +255,16 @@
                                     <StackPanel>
                                         <Label Foreground="White" FontSize="12" HorizontalAlignment="Center"
                                                Content="{Binding MusicViewModel.AudioPlayer.Volume, StringFormat='Volume: {0:0}%', FallbackValue='Volume: 0%'}" />
-								        <composition:CompositionSlider Height="20"
-                                                                       Width="100"
-                                                                       SliderTrackHeight="10"
-                                                                       ExecuteDuringDrag="True"
-                                                                       Maximum="100"
-                                                                       Minimum="0"
-                                                                       SmallThumb="True"
-                                                                       Value="{Binding MusicViewModel.AudioPlayer.Volume, Mode=TwoWay}"/>
+								        <composition:PillProgressSlider Height="20"
+                                                                        Width="100"
+                                                                        TrackHeight="10"
+                                                                        ExecuteDuringDrag="True"
+                                                                        Maximum="100"
+                                                                        Minimum="0"
+                                                                        ShowPositionLabel="False"
+                                                                        TrackBorderBrush="#CCCCCC"
+                                                                        FillBrush="#99F5F5F5"
+                                                                        Value="{Binding MusicViewModel.AudioPlayer.Volume, Mode=TwoWay}"/>
                                     </StackPanel>
                                   </Flyout>
                                 </Button.Flyout>
@@ -367,16 +369,18 @@
                     </Grid>
                     
                     <!-- Player slider -->
-                    <composition:CompositionSlider Height="25"
-                                                   MaxWidth="280"
-                                                   Minimum="0"
-                                                   Maximum="{Binding MusicViewModel.AudioPlayer.Duration, FallbackValue=1}"
-                                                   Value="{Binding MusicViewModel.AudioPlayer.Position, Mode=TwoWay}"
-                                                   SetValueCommand="{Binding SetPositionCommand}"
-                                                   ExecuteDuringDrag="True"
-                                                   SliderTrackHeight="14"
-                                                   PlayedAreaBrush="{Binding ControlsBrush, TargetNullValue=#007DF9}"
-                                                   Margin="0,0,0,0"/>
+                    <composition:PillProgressSlider Height="25"
+                                                    MaxWidth="280"
+                                                    Minimum="0"
+                                                    Maximum="{Binding MusicViewModel.AudioPlayer.Duration, FallbackValue=1}"
+                                                    Value="{Binding MusicViewModel.AudioPlayer.Position, Mode=TwoWay}"
+                                                    SetValueCommand="{Binding SetPositionCommand}"
+                                                    ExecuteDuringDrag="True"
+                                                    TrackHeight="14"
+                                                    ShowPositionLabel="False"
+                                                    TrackBorderBrush="#CCCCCC"
+                                                    FillBrush="#99F5F5F5"
+                                                    Margin="0,0,0,0"/>
                 </StackPanel>
             </StackPanel>
         </Grid>
