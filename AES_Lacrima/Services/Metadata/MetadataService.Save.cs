@@ -198,6 +198,12 @@ namespace AES_Lacrima.Services
                         customMetadata.Ps4Version = existingCache.Ps4Version;
                 }
 
+                if (Images.Any(img => img.Kind is TagImageKind.Cover or TagImageKind.Other))
+                {
+                    customMetadata.CoverScanned = true;
+                    customMetadata.CoverLookupExhausted = false;
+                }
+
                 BinaryMetadataHelper.WriteMetadataImages(customMetadata, ToMetadataImageEntries(Images));
                 BinaryMetadataHelper.SaveMetadata(metaDataPath, customMetadata);
                 MetadataCacheSaved?.Invoke(path);
@@ -224,13 +230,15 @@ namespace AES_Lacrima.Services
                 // CoverBitmap is often shared across album tiles/items; never dispose the previous instance here.
                 var ms = new MemoryStream(coverImage.Data);
                 _currentSelectedMedia.CoverBitmap = Bitmap.DecodeToWidth(ms, NormalizedCoverMaxDimension);
-                _currentSelectedMedia.CoverFound = true;
+                _currentSelectedMedia.CoverFound = false;
+                _currentSelectedMedia.MetadataProcessed = true;
                 if (!string.IsNullOrWhiteSpace(metadataCachePath))
                     _currentSelectedMedia.LocalCoverPath = metadataCachePath;
             }
             else
             {
                 _currentSelectedMedia.CoverBitmap = null;
+                _currentSelectedMedia.CoverFound = false;
             }
 
             if (wallpaperImage != null)

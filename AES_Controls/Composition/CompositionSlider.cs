@@ -24,8 +24,16 @@ namespace AES_Controls.Composition
             if (brush is not ISolidColorBrush solidColorBrush)
                 return SKColors.Transparent;
 
-            var c = solidColorBrush.Color;
-            return new SKColor(c.R, c.G, c.B, c.A);
+            try
+            {
+                var c = solidColorBrush.Color;
+                return new SKColor(c.R, c.G, c.B, c.A);
+            }
+            catch (InvalidOperationException)
+            {
+                // Brush was created off the UI thread; ignore until a UI-thread brush is bound.
+                return SKColor.Parse("#007DF9");
+            }
         }
 
         

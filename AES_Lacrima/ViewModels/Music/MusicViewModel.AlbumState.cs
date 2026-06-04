@@ -85,6 +85,9 @@ namespace AES_Lacrima.ViewModels
         partial void OnSelectedAlbumChanged(FolderMediaItem? value)
         {
             SyncSelectedAlbumIndexFromAlbum(value);
+            ApplyFilter();
+            if (value != null)
+                QueueAlbumPreviewCoverLoad(value);
         }
 
         partial void OnFilteredAlbumListChanged(AvaloniaList<FolderMediaItem>? oldValue, AvaloniaList<FolderMediaItem> newValue)

@@ -46,7 +46,7 @@ namespace AES_Lacrima.ViewModels
 {
     public partial class EmulationViewModel : ViewModelBase, IEmulationViewModel
     {
-        private FolderMediaItem? GetActiveEmulationAlbum() => LoadedAlbum ?? SelectedAlbum;
+        private FolderMediaItem? GetActiveEmulationAlbum() => GetBrowseAlbum();
 
         public bool ShowAlbumRomImportMenuItems => GetActiveEmulationAlbum() != null;
 

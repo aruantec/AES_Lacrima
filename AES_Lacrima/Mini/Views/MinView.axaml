@@ -16,6 +16,7 @@
         <conv:BoolToStringConverter x:Key="BoolToString" />
         <conv:TimeSpanConverter x:Key="TimeSpanConverter" />
         <conv:ObjectEqualsConverter x:Key="ObjectEqualsConverter" />
+        <conv:MiniListItemForegroundConverter x:Key="MiniListForegroundConverter" />
     </UserControl.Resources>
 
     <Grid Background="Transparent" RowDefinitions="Auto,Auto,*,Auto">
@@ -495,11 +496,14 @@
                             </ControlTemplate>
                         </Setter>
                     </Style>
+                    <Style Selector="ListBoxItem:not(:selected) /template/ ContentPresenter Grid">
+                        <Setter Property="Opacity" Value="0.8"/>
+                    </Style>
                 </ListBox.Styles>
 
                 <ListBox.ItemTemplate>
                     <DataTemplate>
-                        <Grid Margin="0,2" Background="Transparent" Opacity="0.8">
+                        <Grid Margin="0,2" Background="Transparent">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" SharedSizeGroup="AlbumIndexColumn" />
                                 <ColumnDefinition Width="*" />
@@ -519,8 +523,18 @@
                             <TextBlock Grid.Column="1" Text="{Binding Title}" 
                                        IsVisible="{Binding !IsRenaming}"
                                        Grid.RowSpan="2"
-                                       Foreground="White" FontSize="12" 
-                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="6,0" />
+                                       FontSize="12" 
+                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="6,0">
+                                <TextBlock.Foreground>
+                                    <MultiBinding Converter="{StaticResource MiniListForegroundConverter}">
+                                        <Binding Path="."/>
+                                        <Binding Path="((vm:MinViewModel)DataContext).LoadedMediaItem" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                        <Binding Path="((vm:MinViewModel)DataContext).LoadedForegroundBrush" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                        <Binding Path="IsSelected" RelativeSource="{RelativeSource AncestorType=ListBoxItem}"/>
+                                        <Binding Path="((vm:MinViewModel)DataContext).SelectionForegroundBrush" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                    </MultiBinding>
+                                </TextBlock.Foreground>
+                            </TextBlock>
 
                             <TextBox Grid.Column="1" Grid.Row="0" Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      IsVisible="{Binding IsRenaming}"
@@ -558,8 +572,18 @@
 
                             <!-- Total Tracks -->
                             <TextBlock Grid.Column="3" Grid.RowSpan="2" Text="{Binding Children.Count, StringFormat='{}{0} Tracks'}" 
-                                       Foreground="White" FontSize="12" Margin="6,0,10,0" 
-                                       HorizontalAlignment="Left" VerticalAlignment="Center" />
+                                       FontSize="12" Margin="6,0,10,0" 
+                                       HorizontalAlignment="Left" VerticalAlignment="Center">
+                                <TextBlock.Foreground>
+                                    <MultiBinding Converter="{StaticResource MiniListForegroundConverter}">
+                                        <Binding Path="."/>
+                                        <Binding Path="((vm:MinViewModel)DataContext).LoadedMediaItem" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                        <Binding Path="((vm:MinViewModel)DataContext).LoadedForegroundBrush" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                        <Binding Path="IsSelected" RelativeSource="{RelativeSource AncestorType=ListBoxItem}"/>
+                                        <Binding Path="((vm:MinViewModel)DataContext).SelectionForegroundBrush" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                    </MultiBinding>
+                                </TextBlock.Foreground>
+                            </TextBlock>
                         </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
@@ -661,6 +685,9 @@
                         </ControlTemplate>
                     </Setter>
                 </Style>
+                <Style Selector="ListBoxItem:not(:selected) /template/ ContentPresenter Grid">
+                    <Setter Property="Opacity" Value="0.7"/>
+                </Style>
             </ListBox.Styles>
 
             <!-- Behaviors -->
@@ -678,7 +705,7 @@
             <!-- Playlist item template -->
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <Grid Margin="0" Background="Transparent" Opacity="0.7">
+                    <Grid Margin="0" Background="Transparent">
                         <Grid.ColumnDefinitions>
                             <!-- Index column: use a SharedSizeGroup so all items reserve the same width -->
                             <ColumnDefinition Width="Auto" SharedSizeGroup="IndexColumn" />
@@ -691,11 +718,30 @@
                         </Grid.ColumnDefinitions>
 
                         <!-- Row index (1-based) - bind directly to MediaItem.Index so updates notify correctly -->
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="White" FontSize="12" Margin="6,0,6,0"
-                                   Text="{Binding Index, StringFormat='{}{0}.', FallbackValue=''}" />
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12" Margin="6,0,6,0"
+                                   Text="{Binding Index, StringFormat='{}{0}.', FallbackValue=''}" >
+                            <TextBlock.Foreground>
+                                <MultiBinding Converter="{StaticResource MiniListForegroundConverter}">
+                                    <Binding Path="."/>
+                                    <Binding Path="((vm:MinViewModel)DataContext).LoadedMediaItem" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                    <Binding Path="((vm:MinViewModel)DataContext).LoadedForegroundBrush" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                    <Binding Path="IsSelected" RelativeSource="{RelativeSource AncestorType=ListBoxItem}"/>
+                                    <Binding Path="((vm:MinViewModel)DataContext).SelectionForegroundBrush" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                </MultiBinding>
+                            </TextBlock.Foreground>
+                        </TextBlock>
 
                         <Border Grid.Column="1" Margin="6,4" Background="Transparent" ClipToBounds="True">
-                            <TextBlock Foreground="White" FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                            <TextBlock FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                                <TextBlock.Foreground>
+                                    <MultiBinding Converter="{StaticResource MiniListForegroundConverter}">
+                                        <Binding Path="."/>
+                                        <Binding Path="((vm:MinViewModel)DataContext).LoadedMediaItem" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                        <Binding Path="((vm:MinViewModel)DataContext).LoadedForegroundBrush" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                        <Binding Path="IsSelected" RelativeSource="{RelativeSource AncestorType=ListBoxItem}"/>
+                                        <Binding Path="((vm:MinViewModel)DataContext).SelectionForegroundBrush" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                    </MultiBinding>
+                                </TextBlock.Foreground>
                                 <TextBlock.Text>
                                     <MultiBinding StringFormat="{}{0} - {1}">
                                         <Binding Path="Title" />
@@ -707,7 +753,17 @@
                                 </Interaction.Behaviors>
                             </TextBlock>
                         </Border>
-                        <TextBlock Grid.Column="3" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}, ConverterParameter=UnknownAsDashes}" Foreground="White" FontSize="12" Margin="6,4,10,4" HorizontalAlignment="Left" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="3" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}, ConverterParameter=UnknownAsDashes}" FontSize="12" Margin="6,4,10,4" HorizontalAlignment="Left" VerticalAlignment="Center">
+                            <TextBlock.Foreground>
+                                <MultiBinding Converter="{StaticResource MiniListForegroundConverter}">
+                                    <Binding Path="."/>
+                                    <Binding Path="((vm:MinViewModel)DataContext).LoadedMediaItem" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                    <Binding Path="((vm:MinViewModel)DataContext).LoadedForegroundBrush" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                    <Binding Path="IsSelected" RelativeSource="{RelativeSource AncestorType=ListBoxItem}"/>
+                                    <Binding Path="((vm:MinViewModel)DataContext).SelectionForegroundBrush" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                </MultiBinding>
+                            </TextBlock.Foreground>
+                        </TextBlock>
                     </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>

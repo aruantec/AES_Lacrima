@@ -32,7 +32,7 @@ using System.Text;
 using log4net;
 using TagLib;
 
-
+
 using AES_Core.Logging;
 namespace AES_Lacrima.ViewModels
 {
@@ -375,7 +375,8 @@ namespace AES_Lacrima.ViewModels
 
         private void ApplyFilter()
         {
-            if (LoadedAlbum?.Children == null)
+            var browseAlbum = GetBrowseAlbum();
+            if (browseAlbum?.Children == null)
             {
                 CoverItems = new AvaloniaList<MediaItem>();
                 SelectedIndex = -1;
@@ -395,10 +396,10 @@ namespace AES_Lacrima.ViewModels
             preferredItem ??= SelectedMediaItem;
 
             if (string.IsNullOrWhiteSpace(query))
-                CoverItems = LoadedAlbum.Children;
+                CoverItems = browseAlbum.Children;
             else
             {
-                var filtered = LoadedAlbum.Children
+                var filtered = browseAlbum.Children
                     .Where(item =>
                         (item.Title?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
                         (item.Artist?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||

@@ -11,9 +11,16 @@ namespace AES_Lacrima.Converters
         {
             if (value is SolidColorBrush solidColorBrush)
             {
-                return solidColorBrush.Color;
+                try
+                {
+                    return solidColorBrush.Color;
+                }
+                catch (InvalidOperationException)
+                {
+                    return Colors.Transparent;
+                }
             }
-            return Avalonia.Media.Colors.Transparent; // Or a default color
+            return Colors.Transparent;
         }
 
         public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)

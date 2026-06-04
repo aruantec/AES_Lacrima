@@ -23,7 +23,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-
+
 using AES_Core.Logging;
 namespace AES_Lacrima.Mini.ViewModels
 {
@@ -62,7 +62,6 @@ namespace AES_Lacrima.Mini.ViewModels
         private string? _pendingSelectedItemFileName;
         private int _pendingSelectedItemIndex = -1;
         private string? _pendingLastPlayedFileName;
-        private BitmapColorHelper _colorHelper = new();
         private MediaItem? _coverDisplayOverrideItem = null;
 
         #endregion
@@ -146,7 +145,13 @@ namespace AES_Lacrima.Mini.ViewModels
         private IBrush? _selectionBrush = new SolidColorBrush(Color.Parse("#005CFE"));
 
         [ObservableProperty]
+        private IBrush? _selectionForegroundBrush = Brushes.White;
+
+        [ObservableProperty]
         private IBrush? _loadedBrush;
+
+        [ObservableProperty]
+        private IBrush? _loadedForegroundBrush = Brushes.White;
 
         [ObservableProperty]
         private IBrush? _controlsBrush;
@@ -183,13 +188,15 @@ namespace AES_Lacrima.Mini.ViewModels
         // supported types
         private readonly string[] _supportedTypes = ["*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.mp4"];
         private MediaItem? _pendingTrackLoadItem;
+        private FolderMediaItem? _selectedAlbumCoverSubscription;
+        private readonly HashSet<MediaItem> _subscribedAlbumPreviewItems = new();
 
         #endregion
 
         #region Public properties
         public double DisplayDuration => LoadedMediaItem?.Duration ?? SelectedMediaItem?.Duration ?? 0.0;
 
-        public Bitmap LoadedCoverBitmap => LoadedMediaItem?.CoverBitmap ?? _defaultCover;
+        public Bitmap LoadedCoverBitmap => ResolveCoverBitmap() ?? _defaultCover;
 
         public bool ShuffleMode
         {
@@ -646,6 +653,9 @@ namespace AES_Lacrima.Mini.ViewModels
             }
 
             OnPropertyChanged(nameof(DisplayDuration));
+
+            if (!ShowPlaylist)
+                RefreshCoverPresentation();
         }
 
         partial void OnSelectedPlaylistIndexChanged(int value)
@@ -673,6 +683,10 @@ namespace AES_Lacrima.Mini.ViewModels
             var index = value == null ? -1 : MusicViewModel.FilteredAlbumList.IndexOf(value);
             if (SelectedAlbumIndex != index)
                 SelectedAlbumIndex = index;
+
+            SubscribeSelectedAlbumCover(value);
+            if (ShowPlaylist)
+                RefreshCoverPresentation();
         }
 
         partial void OnSelectedAlbumIndexChanged(int value)
@@ -727,6 +741,7 @@ namespace AES_Lacrima.Mini.ViewModels
         {
             SyncSearchTextFromVisibleCollection();
             OnPropertyChanged(nameof(VisibleItemCount));
+            RefreshCoverPresentation();
         }
 
         // Called whenever SearchText or MediaItems change to rebuild the filtered collection
@@ -772,56 +787,83 @@ namespace AES_Lacrima.Mini.ViewModels
         #endregion
 
         #region Private methods
-        private void UpdateLoadedBrush(MediaItem? item)
+        private void UpdateLoadedBrush(MediaItem? item) =>
+            UpdateCoverBrushFromBitmap(item?.CoverBitmap);
+
+        private void UpdateCoverBrushFromBitmap(Bitmap? coverBitmap)
         {
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                Dispatcher.UIThread.Post(() => UpdateCoverBrushFromBitmap(coverBitmap), DispatcherPriority.Normal);
+                return;
+            }
+
             LoadedBrush = null;
             IsCoverPlaceholder = true;
 
-            var coverBitmap = item?.CoverBitmap;
             var hasCustomCover = coverBitmap != null && coverBitmap != _defaultCover;
-            var accentColor = ResolveSelectionColor(hasCustomCover ? coverBitmap : null);
+            var dominantColors = hasCustomCover
+                ? BitmapColorHelper.GetDominantColors(coverBitmap, 3)
+                : [];
 
-            if (hasCustomCover)
+            var accentColor = ResolveSelectionColor(dominantColors);
+            SelectionBrush = new SolidColorBrush(accentColor);
+            SelectionForegroundBrush = new SolidColorBrush(BitmapColorHelper.GetReadableForeground(accentColor));
+
+            if (hasCustomCover && dominantColors.Length > 0)
             {
-                LoadedBrush = new SolidColorBrush(BitmapColorHelper.GetDominantColor(coverBitmap));
+                LoadedBrush = new SolidColorBrush(dominantColors[0]);
+                LoadedForegroundBrush = new SolidColorBrush(BitmapColorHelper.GetReadableForeground(dominantColors[0]));
                 IsCoverPlaceholder = false;
             }
+            else
+            {
+                LoadedForegroundBrush = Brushes.White;
+            }
 
-            SelectionBrush = new SolidColorBrush(accentColor);
             ControlsBrush = LoadedBrush;
-            ColorGradientBrush = _colorHelper.GetColorGradient(hasCustomCover ? coverBitmap : null);
+            ColorGradientBrush = BitmapColorHelper.GetDominantColorGradient(hasCustomCover ? coverBitmap : null, 3);
         }
 
-        private Color ResolveSelectionColor(Bitmap? bitmap)
+        private Bitmap? ResolveCoverBitmap()
+        {
+            if (ShowPlaylist)
+                return GetAlbumCoverBitmap(SelectedAlbum);
+
+            var track = LoadedMediaItem ?? SelectedMediaItem;
+            return track?.CoverBitmap;
+        }
+
+        private static Bitmap? GetAlbumCoverBitmap(FolderMediaItem? album)
+        {
+            if (album == null)
+                return null;
+
+            if (album.CoverBitmap != null)
+                return album.CoverBitmap;
+
+            foreach (var child in album.Children)
+            {
+                if (child.CoverBitmap != null)
+                    return child.CoverBitmap;
+            }
+
+            return null;
+        }
+
+        private void RefreshCoverPresentation()
+        {
+            UpdateCoverBrushFromBitmap(ResolveCoverBitmap());
+            OnPropertyChanged(nameof(LoadedCoverBitmap));
+        }
+
+        private static Color ResolveSelectionColor(ReadOnlySpan<Color> dominantColors)
         {
             var fallback = Color.Parse("#005CFE");
-            if (bitmap == null)
-                return fallback;
-
-            try
+            foreach (var color in dominantColors)
             {
-                var gradient = _colorHelper.GetColorGradient(bitmap);
-                var gradientColor = gradient?.GradientStops?
-                    .Select(stop => stop.Color)
-                    .FirstOrDefault(IsUsableSelectionColor);
-
-                if (gradientColor is Color usableGradientColor)
-                    return usableGradientColor;
-            }
-            catch (Exception ex)
-            {
-                Log.Warn("ResolveSelectionColor: failed to derive gradient accent", ex);
-            }
-
-            try
-            {
-                var dominant = BitmapColorHelper.GetDominantColor(bitmap);
-                if (IsUsableSelectionColor(dominant))
-                    return dominant;
-            }
-            catch (Exception ex)
-            {
-                Log.Warn("ResolveSelectionColor: failed to derive dominant accent", ex);
+                if (IsUsableSelectionColor(color))
+                    return color;
             }
 
             return fallback;
@@ -834,12 +876,6 @@ namespace AES_Lacrima.Mini.ViewModels
 
             // Reject colors that are effectively black/transparent-looking in the selection fill.
             return color.R > 24 || color.G > 24 || color.B > 24;
-        }
-
-        private void RefreshCoverPresentation()
-        {
-            UpdateLoadedBrush(LoadedMediaItem);
-            OnPropertyChanged(nameof(LoadedCoverBitmap));
         }
 
         private void SetCoverDisplayOverride(MediaItem? item)
@@ -882,11 +918,83 @@ namespace AES_Lacrima.Mini.ViewModels
                 OnPropertyChanged(nameof(DisplayDuration));
             }
             else if (sender is MediaItem item
-                && (ReferenceEquals(item, LoadedMediaItem) || ReferenceEquals(item, _coverDisplayOverrideItem))
-                && e.PropertyName == nameof(MediaItem.CoverBitmap))
+                && e.PropertyName == nameof(MediaItem.CoverBitmap)
+                && (ShowPlaylist
+                    ? ReferenceEquals(item, _coverDisplayOverrideItem)
+                    : ReferenceEquals(item, LoadedMediaItem)
+                      || ReferenceEquals(item, SelectedMediaItem)
+                      || ReferenceEquals(item, _coverDisplayOverrideItem)))
             {
                 RefreshCoverPresentation();
             }
+        }
+
+        private void SubscribeSelectedAlbumCover(FolderMediaItem? album)
+        {
+            UnsubscribeSelectedAlbumCover();
+
+            _selectedAlbumCoverSubscription = album;
+            if (album is INotifyPropertyChanged albumNotifier)
+                albumNotifier.PropertyChanged += SelectedAlbumCoverSource_PropertyChanged;
+
+            if (album?.Children is INotifyCollectionChanged childrenNotifier)
+                childrenNotifier.CollectionChanged += SelectedAlbumChildren_CollectionChanged;
+
+            ResubscribeAlbumPreviewItemCovers(album);
+        }
+
+        private void UnsubscribeSelectedAlbumCover()
+        {
+            if (_selectedAlbumCoverSubscription is INotifyPropertyChanged albumNotifier)
+                albumNotifier.PropertyChanged -= SelectedAlbumCoverSource_PropertyChanged;
+
+            if (_selectedAlbumCoverSubscription?.Children is INotifyCollectionChanged childrenNotifier)
+                childrenNotifier.CollectionChanged -= SelectedAlbumChildren_CollectionChanged;
+
+            foreach (var child in _subscribedAlbumPreviewItems)
+                child.PropertyChanged -= SelectedAlbumChildCover_PropertyChanged;
+            _subscribedAlbumPreviewItems.Clear();
+            _selectedAlbumCoverSubscription = null;
+        }
+
+        private void ResubscribeAlbumPreviewItemCovers(FolderMediaItem? album)
+        {
+            foreach (var child in _subscribedAlbumPreviewItems)
+                child.PropertyChanged -= SelectedAlbumChildCover_PropertyChanged;
+            _subscribedAlbumPreviewItems.Clear();
+
+            if (album == null)
+                return;
+
+            foreach (var child in album.Children.Take(3))
+            {
+                if (_subscribedAlbumPreviewItems.Add(child))
+                    child.PropertyChanged += SelectedAlbumChildCover_PropertyChanged;
+            }
+        }
+
+        private void SelectedAlbumCoverSource_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (!ShowPlaylist)
+                return;
+
+            if (e.PropertyName is nameof(FolderMediaItem.CoverBitmap) or nameof(FolderMediaItem.Children))
+                RefreshCoverPresentation();
+        }
+
+        private void SelectedAlbumChildren_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (!ShowPlaylist)
+                return;
+
+            ResubscribeAlbumPreviewItemCovers(_selectedAlbumCoverSubscription);
+            RefreshCoverPresentation();
+        }
+
+        private void SelectedAlbumChildCover_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (ShowPlaylist && e.PropertyName == nameof(MediaItem.CoverBitmap))
+                RefreshCoverPresentation();
         }
 
         private void UpdateTotalDuration()

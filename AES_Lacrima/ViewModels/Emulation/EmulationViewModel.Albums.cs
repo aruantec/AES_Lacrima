@@ -71,7 +71,7 @@ namespace AES_Lacrima.ViewModels
             if (item == null || string.IsNullOrWhiteSpace(item.FileName))
                 return;
 
-            var album = LoadedAlbum ?? SelectedAlbum;
+            var album = GetBrowseAlbum();
             if (album == null)
                 return;
 
@@ -467,7 +467,7 @@ namespace AES_Lacrima.ViewModels
             if (target == null)
                 return;
 
-            var album = LoadedAlbum ?? SelectedAlbum;
+            var album = GetBrowseAlbum();
             if (album == null)
                 return;
 
@@ -550,7 +550,7 @@ namespace AES_Lacrima.ViewModels
             if (!string.IsNullOrWhiteSpace(HighlightedItem?.FileName))
                 return HighlightedItem;
 
-            var album = LoadedAlbum ?? SelectedAlbum;
+            var album = GetBrowseAlbum();
             return album?.Children.FirstOrDefault(child => !string.IsNullOrWhiteSpace(child.FileName));
         }
 
@@ -567,7 +567,7 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand(CanExecute = nameof(CanClearLoadedAlbum))]
         private async Task ClearAlbumCache()
         {
-            var album = LoadedAlbum ?? SelectedAlbum;
+            var album = GetBrowseAlbum();
             if (album == null)
                 return;
 
@@ -1633,7 +1633,7 @@ namespace AES_Lacrima.ViewModels
 
         private void ApplyFilter()
         {
-            var source = (LoadedAlbum ?? SelectedAlbum)?.Children;
+            var source = GetBrowseAlbum()?.Children;
             if (source == null || source.Count == 0)
             {
                 CoverItems = [];
@@ -1697,7 +1697,7 @@ namespace AES_Lacrima.ViewModels
 
         private void RestoreCarouselAfterMetadataClosed()
         {
-            var album = LoadedAlbum ?? SelectedAlbum;
+            var album = GetBrowseAlbum();
             if (album?.Children is not { Count: > 0 })
             {
                 ApplyFilter();

@@ -13,6 +13,32 @@ public class BitmapColorHelper
     }
 
     /// <summary>
+    /// Picks white or black text depending on which contrasts better with <paramref name="background"/>.
+    /// </summary>
+    public static Color GetReadableForeground(Color background, Color lightForeground = default, Color darkForeground = default)
+    {
+        if (lightForeground == default)
+            lightForeground = Colors.White;
+        if (darkForeground == default)
+            darkForeground = Colors.Black;
+
+        static double Linearize(byte channel)
+        {
+            double s = channel / 255.0;
+            return s <= 0.03928 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+        }
+
+        double luminance =
+            0.2126 * Linearize(background.R) +
+            0.7152 * Linearize(background.G) +
+            0.0722 * Linearize(background.B);
+
+        double contrastWithLight = (1.05) / (luminance + 0.05);
+        double contrastWithDark = (luminance + 0.05) / 0.05;
+        return contrastWithLight >= contrastWithDark ? lightForeground : darkForeground;
+    }
+
+    /// <summary>
     /// Extract up to <paramref name="maxColors"/> vivid, hue-distinct colors from a bitmap.
     /// </summary>
     public static Color[] GetDominantColors(Bitmap? bitmap, int maxColors = 3)
@@ -284,208 +310,25 @@ public class BitmapColorHelper
     }
 
     /// <summary>
-    /// Extract up to five visually distinct colors from the provided bitmap and
-    /// return them as a horizontal linear gradient brush. Attempts to pick
-    /// different hues when possible; falls back to a default palette when no
-    /// usable pixels are found.
+    /// Build a horizontal gradient from up to <paramref name="maxColors"/> dominant cover colors.
     /// </summary>
-    public unsafe LinearGradientBrush GetColorGradient(Bitmap? bitmap)
+    public static LinearGradientBrush GetDominantColorGradient(Bitmap? bitmap, int maxColors = 3)
     {
-        // Default palette (matches existing default gradient in other controls)
-        var defaultColors = new[] {
-            Color.Parse("#00CCFF"), Color.Parse("#3333FF"), Color.Parse("#CC00CC"), Color.Parse("#FF004D"), Color.Parse("#FFB300")
+        var defaultColors = new[]
+        {
+            Color.Parse("#00CCFF"),
+            Color.Parse("#3333FF"),
+            Color.Parse("#CC00CC")
         };
 
-        if (bitmap == null)
-        {
-            var stopsFallback = new GradientStops();
-            for (int i = 0; i < defaultColors.Length; i++)
-            {
-                double offset = defaultColors.Length == 1 ? 0.0 : i / (double)(defaultColors.Length - 1);
-                stopsFallback.Add(new GradientStop(defaultColors[i], offset));
-            }
-            return new LinearGradientBrush
-            {
-                GradientStops = stopsFallback,
-                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative)
-            };
-        }
+        var picks = bitmap == null ? [] : GetDominantColors(bitmap, maxColors);
+        if (picks.Length == 0)
+            picks = defaultColors;
 
-        byte[] pixels;
-        try
-        {
-            var sourceSize = bitmap.Size;
-            if (sourceSize.Width <= 0 || sourceSize.Height <= 0)
-            {
-                var emptyStops = new GradientStops();
-                for (int i = 0; i < defaultColors.Length; i++)
-                {
-                    double offset = defaultColors.Length == 1 ? 0.0 : i / (double)(defaultColors.Length - 1);
-                    emptyStops.Add(new GradientStop(defaultColors[i], offset));
-                }
-                return new LinearGradientBrush
-                {
-                    GradientStops = emptyStops,
-                    StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                    EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative)
-                };
-            }
-
-            var size = new PixelSize(48, 48);
-            using var small = new RenderTargetBitmap(size);
-            using (var ctx = small.CreateDrawingContext())
-            {
-                ctx.DrawImage(bitmap, new Rect(0, 0, sourceSize.Width, sourceSize.Height), new Rect(0, 0, size.Width, size.Height));
-            }
-
-            pixels = new byte[size.Width * size.Height * 4];
-            fixed (byte* p = pixels)
-            {
-                small.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), (IntPtr)p, pixels.Length, size.Width * 4);
-            }
-        }
-        catch
-        {
-            var fallbackStops = new GradientStops();
-            for (int i = 0; i < defaultColors.Length; i++)
-            {
-                double offset = defaultColors.Length == 1 ? 0.0 : i / (double)(defaultColors.Length - 1);
-                fallbackStops.Add(new GradientStop(defaultColors[i], offset));
-            }
-            return new LinearGradientBrush
-            {
-                GradientStops = fallbackStops,
-                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative)
-            };
-        }
-
-        // store count plus sums so we can recover a more accurate representative color later
-        var colorCounts = new Dictionary<uint, (int Count, uint SumR, uint SumG, uint SumB)>();
-        bool sawAnyOpaque = false;
-        bool sawAnyNonBlack = false;
-
-        for (var i = 0; i < pixels.Length; i += 4)
-        {
-            byte b = pixels[i], g = pixels[i + 1], r = pixels[i + 2], a = pixels[i + 3];
-
-            if (a >= 128) sawAnyOpaque = true;
-            if (!(r < 20 && g < 20 && b < 20)) sawAnyNonBlack = true;
-
-            // initial filtering: ignore almost-transparent pixels and true black
-            if (a < 32) continue;
-            if (r < 20 && g < 20 && b < 20) continue;
-
-            uint binR = (uint)(r / 16) * 16;
-            uint binG = (uint)(g / 16) * 16;
-            uint binB = (uint)(b / 16) * 16;
-            uint key = (binR << 16) | (binG << 8) | binB;
-
-            if (colorCounts.TryGetValue(key, out var entry))
-            {
-                entry.Count++;
-                entry.SumR += r;
-                entry.SumG += g;
-                entry.SumB += b;
-                colorCounts[key] = entry;
-            }
-            else
-            {
-                colorCounts[key] = (1, r, g, b);
-            }
-        }
-
-        // if we ended up with nothing useful, relax the filtering and count every non‑transparent pixel
-        if (colorCounts.Count == 0)
-        {
-            for (var i = 0; i < pixels.Length; i += 4)
-            {
-                byte b = pixels[i], g = pixels[i + 1], r = pixels[i + 2], a = pixels[i + 3];
-                if (a <= 16) continue;
-                uint key = ((uint)r << 16) | ((uint)g << 8) | b;
-                if (colorCounts.TryGetValue(key, out var entry))
-                {
-                    entry.Count++;
-                    entry.SumR += r;
-                    entry.SumG += g;
-                    entry.SumB += b;
-                    colorCounts[key] = entry;
-                }
-                else
-                {
-                    colorCounts[key] = (1, r, g, b);
-                }
-            }
-        }
-
-        var topColors = colorCounts
-            .Select(kv => {
-                // recover an average color from the original samples in this bin
-                var entry = kv.Value;
-                byte avgR = (byte)(entry.SumR / entry.Count);
-                byte avgG = (byte)(entry.SumG / entry.Count);
-                byte avgB = (byte)(entry.SumB / entry.Count);
-                var c = Color.FromRgb(avgR, avgG, avgB);
-                int max = Math.Max(c.R, Math.Max(c.G, c.B));
-                int min = Math.Min(c.R, Math.Min(c.G, c.B));
-                float chroma = (max - min) / 255f;
-                return new { Color = c, Score = entry.Count * (chroma * chroma) };
-            })
-            .OrderByDescending(x => x.Score)
-            .ToList();
-
-        List<Color> picks = new();
-        
-        // If no opaque or non‑black pixels were seen, it's probably a fully-transparent or all-black
-        // image; fall back immediately so that defaultColors are used instead of garbage.
-        if (topColors.Count == 0 || (!sawAnyOpaque && !sawAnyNonBlack))
-        {
-            picks.AddRange(defaultColors);
-        }
-        else
-        {
-            // pick most frequent/vivid as first
-            picks.Add(OverdriveColor(topColors[0].Color));
-            float primaryHue = GetHue(picks[0]);
-
-            // try to pick distinct hues for the remaining slots
-            foreach (var item in topColors.Skip(1))
-            {
-                if (picks.Count >= 5) break;
-                var cand = OverdriveColor(item.Color);
-                float h = GetHue(cand);
-                float diff = Math.Abs(h - primaryHue);
-                if (diff > 3.0f) diff = 6.0f - diff;
-                if (diff > 0.6f && !picks.Any(pc => Math.Abs(GetHue(pc) - h) < 0.35f))
-                {
-                    picks.Add(cand);
-                }
-            }
-
-            // If we still don't have enough, relax criteria and add next best
-            if (picks.Count < 5)
-            {
-                foreach (var item in topColors.Skip(1))
-                {
-                    if (picks.Count >= 5) break;
-                    var cand = OverdriveColor(item.Color);
-                    if (!picks.Contains(cand)) picks.Add(cand);
-                }
-            }
-
-            // Fill remaining slots with variations of primary if needed
-            while (picks.Count < 5)
-            {
-                picks.Add(picks.Count > 0 ? picks[0] : defaultColors[picks.Count]);
-            }
-        }
-
-        // Create gradient stops evenly spaced
         var stops = new GradientStops();
-        for (int i = 0; i < Math.Min(5, picks.Count); i++)
+        for (int i = 0; i < picks.Length; i++)
         {
-            double offset = (picks.Count == 1) ? 0.0 : i / (double)(picks.Count - 1);
+            double offset = picks.Length == 1 ? 0.0 : i / (double)(picks.Length - 1);
             stops.Add(new GradientStop(picks[i], offset));
         }
 
@@ -496,6 +339,9 @@ public class BitmapColorHelper
             EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative)
         };
     }
+
+    public LinearGradientBrush GetColorGradient(Bitmap? bitmap) =>
+        GetDominantColorGradient(bitmap, 3);
 
     // Replaces NormalizeBrightness to give that HDR "Pop"
     private static Color OverdriveColor(Color c)

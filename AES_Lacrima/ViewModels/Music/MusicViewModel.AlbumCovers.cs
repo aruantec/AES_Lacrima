@@ -199,7 +199,7 @@ namespace AES_Lacrima.ViewModels
                 {
                     if (folder.Children.Contains(item))
                     {
-                        SyncAlbumFolderCoverFromChildren(folder);
+                        SyncAlbumFolderCoverFromChildren(folder, item);
                         folder.RebuildPreviewItems(rebuildStructure: false);
                         break;
                     }
@@ -434,15 +434,29 @@ namespace AES_Lacrima.ViewModels
                 .ToList();
         }
 
-        private void SyncAlbumFolderCoverFromChildren(FolderMediaItem folder)
+        private void SyncAlbumFolderCoverFromChildren(FolderMediaItem folder, MediaItem? changedChild = null)
         {
             DefaultFolderCover ??= GenerateDefaultFolderCover();
-            if (!NeedsVisibleCoverLoad(folder))
-                return;
 
             var childWithCover = folder.Children.FirstOrDefault(child => !NeedsVisibleCoverLoad(child));
-            if (childWithCover?.CoverBitmap != null)
-                folder.CoverBitmap = childWithCover.CoverBitmap;
+
+            if (NeedsVisibleCoverLoad(folder))
+            {
+                if (childWithCover?.CoverBitmap != null)
+                    folder.CoverBitmap = childWithCover.CoverBitmap;
+                return;
+            }
+
+            if (changedChild == null)
+                return;
+
+            var childIndex = folder.Children.IndexOf(changedChild);
+            if (childIndex < 0 || childIndex >= FolderPreviewCoverCount)
+                return;
+
+            // The first preview track drives the album-tile shell; refresh when its art changes.
+            if (childIndex == 0)
+                folder.CoverBitmap = changedChild.CoverBitmap ?? DefaultFolderCover;
         }
 
         private void EndAlbumPreviewCoverLoad(FolderMediaItem folder)

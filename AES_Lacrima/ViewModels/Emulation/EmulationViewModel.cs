@@ -382,11 +382,13 @@ private bool _isShadPs4PatchesOverlayOpen;
             LoadedAlbum?.Children.Count > 0 ||
             SelectedAlbum?.Children.Count > 0 ||
             !string.IsNullOrWhiteSpace(HighlightedItem?.FileName);
-        public bool ShowEmptyActiveAlbumHint => (LoadedAlbum ?? SelectedAlbum) != null && !HasActiveAlbumItems;
+        public bool ShowEmptyActiveAlbumHint => GetBrowseAlbum() != null && !HasActiveAlbumItems;
         public string EmptyLoadedAlbumMessage =>
-            LoadedAlbum != null
+            GetBrowseAlbum() != null
                 ? "Right-click to add ROMs or scan folder"
                 : "No album loaded";
+
+        private FolderMediaItem? GetBrowseAlbum() => SelectedAlbum ?? LoadedAlbum;
 
         [ObservableProperty]
         private MediaItem _highlightedItem = CreateEmptyMediaItem();
@@ -1408,8 +1410,10 @@ private bool _isShadPs4PatchesOverlayOpen;
             SyncCurrentSectionEmulatorContext();
             OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));
 
-            if (LoadedAlbum == null && value != null)
-                ApplyFilter();
+            ApplyFilter();
+
+            if (value is EmulationAlbumItem album)
+                QueueAlbumPreviewCoverLoad(album);
 
             AutoSave();
         }
