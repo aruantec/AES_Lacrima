@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:composition="using:AES_Controls.Composition"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              xmlns:controls="using:AES_Controls"
              x:Class="AES_Lacrima.Rpcs3CustomConfigOverlay"
@@ -104,13 +105,11 @@
                                                   ColumnDefinitions="*,Auto"
                                                   ColumnSpacing="12"
                                                   VerticalAlignment="Center">
-                                                <Slider Grid.Column="0"
+                                                <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Column="0"
                                                         VerticalAlignment="Center"
                                                         Minimum="{Binding ResolutionScaleMin}"
                                                         Maximum="{Binding ResolutionScaleMax}"
-                                                        Value="{Binding ResolutionScale, Mode=TwoWay}"
-                                                        TickFrequency="25"
-                                                        TickPlacement="BottomRight" />
+                                                        Value="{Binding ResolutionScale, Mode=TwoWay}"  />
                                                 <TextBlock Grid.Column="1"
                                                            Foreground="#D0D0D0"
                                                            FontSize="18"
@@ -128,14 +127,11 @@
                                                   ColumnDefinitions="*,Auto"
                                                   ColumnSpacing="12"
                                                   VerticalAlignment="Center">
-                                                <Slider Grid.Column="0"
+                                                <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Column="0"
                                                         VerticalAlignment="Center"
                                                         Minimum="{Binding ResolutionScaleThresholdMin}"
                                                         Maximum="{Binding ResolutionScaleThresholdMax}"
-                                                        Value="{Binding ResolutionScaleThreshold, Mode=TwoWay}"
-                                                        TickFrequency="16"
-                                                        IsSnapToTickEnabled="True"
-                                                        TickPlacement="BottomRight" />
+                                                        Value="{Binding ResolutionScaleThreshold, Mode=TwoWay}"  />
                                                 <TextBlock Grid.Column="1"
                                                            Foreground="#D0D0D0"
                                                            FontSize="18"

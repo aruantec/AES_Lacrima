@@ -38,13 +38,11 @@
                     <StackPanel Margin="15,20,0,0">
                         <TextBlock Text="Scaling" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke"/>
                         <StackPanel Orientation="Horizontal">
-                            <Slider Background="DarkGray"
+                            <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5"
                                     Width="260"
                                     Minimum="1.0"
                                     Maximum="3.0"
-                                    SmallChange="0.01"
-                                    LargeChange="0.1"
-                                    Value="{Binding ScaleFactor, Mode=TwoWay}" />
+                                    Value="{Binding ScaleFactor, Mode=TwoWay}"  />
                             <TextBlock Text="{Binding ScaleFactor, StringFormat='{} {0:0.00}X'}"
                                         VerticalAlignment="Center"
                                         Margin="8,0"
@@ -56,14 +54,11 @@
                                     Foreground="WhiteSmoke"
                                     FontSize="20"/>
                         <StackPanel Orientation="Horizontal">
-                            <Slider x:Name="ParticleSlider"
-                                    Background="DarkGray"
+                            <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" x:Name="ParticleSlider"
                                     Width="260"
                                     Minimum="10"
                                     Maximum="60000"
-                                    SmallChange="10"
-                                    LargeChange="30"
-                                    Value="{Binding ParticleCount, Mode=TwoWay}" />
+                                    Value="{Binding ParticleCount, Mode=TwoWay}"  />
                             <TextBlock Text="{Binding ParticleCount, StringFormat='{} {0:0} / 60000'}"
                                         VerticalAlignment="Center"
                                         Margin="8,0"
@@ -125,13 +120,11 @@
                         <StackPanel Margin="0,0,0,15" IsVisible="{Binding ShowBackground}">
                             <TextBlock Text="Background Opacity" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="20"/>
                             <StackPanel Orientation="Horizontal">
-                                <Slider Background="DarkGray"
+                                <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5"
                                         Width="260"
                                         Minimum="0"
                                         Maximum="1"
-                                        SmallChange="0.01"
-                                        LargeChange="0.1"
-                                        Value="{Binding BackgroundOpacity, Mode=TwoWay}" />
+                                        Value="{Binding BackgroundOpacity, Mode=TwoWay}"  />
                                 <TextBlock Text="{Binding BackgroundOpacity, StringFormat='{} {0:0%}'}"
                                            VerticalAlignment="Center"
                                            Margin="8,0"
@@ -532,15 +525,15 @@
                         <TextBlock Text="Spectrum" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,0,0,10"/>
                         <Grid ColumnDefinitions="Auto, Auto, Auto" RowDefinitions="Auto, Auto, Auto" Margin="0,0,0,8">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Height" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,8"/>
-                            <Slider Grid.Row="0" Grid.Column="1" Width="300" Minimum="50" Maximum="1000" Value="{Binding SpectrumHeight, Mode=TwoWay}" Margin="10,0,0,0"/>
+                            <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="0" Grid.Column="1" Width="300" Minimum="50" Maximum="1000" Value="{Binding SpectrumHeight, Mode=TwoWay}" Margin="10,0,0,0" />
                             <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding SpectrumHeight, StringFormat='{} {0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Bar Width" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,8"/>
-                            <Slider Grid.Row="1" Grid.Column="1" Width="300" Minimum="10" Maximum="100" Value="{Binding BarWidth, Mode=TwoWay}" Margin="10,0,0,0"/>
+                            <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="1" Grid.Column="1" Width="300" Minimum="10" Maximum="100" Value="{Binding BarWidth, Mode=TwoWay}" Margin="10,0,0,0" />
                             <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding BarWidth, StringFormat='{} {0:0.##}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="Bar Spacing" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,8"/>
-                            <Slider Grid.Row="2" Grid.Column="1" Width="300" Minimum="0" Maximum="100" Value="{Binding BarSpacing, Mode=TwoWay}" Margin="10,0,0,0"/>
+                            <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="2" Grid.Column="1" Width="300" Minimum="0" Maximum="100" Value="{Binding BarSpacing, Mode=TwoWay}" Margin="10,0,0,0" />
                             <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding BarSpacing, StringFormat='{} {0:0.##}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
                         </Grid>
 
@@ -593,7 +586,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
                                     <TextBlock Text="Preamp (dB):" VerticalAlignment="Center" Foreground="WhiteSmoke"/>
-                                    <Slider Width="220" Minimum="-12" Maximum="12" Value="{Binding ReplayGainPreampDb, Mode=TwoWay}"/>
+                                    <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Width="220" Minimum="-12" Maximum="12" Value="{Binding ReplayGainPreampDb, Mode=TwoWay}" />
                                     <TextBlock Text="{Binding ReplayGainPreampDb, StringFormat='{} {0:0.##} dB'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0,0,0"/>
                                 </StackPanel>
                             </StackPanel>
@@ -605,7 +598,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
                                     <TextBlock Text="Preamp (dB):" VerticalAlignment="Center" Foreground="WhiteSmoke"/>
-                                    <Slider Width="180" Minimum="-12" Maximum="12" Value="{Binding ReplayGainTagsPreampDb, Mode=TwoWay}"/>
+                                    <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Width="180" Minimum="-12" Maximum="12" Value="{Binding ReplayGainTagsPreampDb, Mode=TwoWay}" />
                                     <TextBlock Text="{Binding ReplayGainTagsPreampDb, StringFormat='{} {0:0.##} dB'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0,0,0"/>
                                     <ComboBox Width="120" SelectedIndex="{Binding ReplayGainTagSource, Mode=TwoWay}" Margin="12,0,0,0">
                                         <ComboBoxItem>Track</ComboBoxItem>
@@ -623,7 +616,7 @@
                             </StackPanel>
                             <Grid ColumnDefinitions="Auto, Auto, Auto" IsEnabled="{Binding RestartOnResumeEnabled}" Margin="20,0,0,0">
                                 <TextBlock Grid.Column="0" Text="0 to (s)" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="16"/>
-                                <Slider Grid.Column="1" Width="300" Minimum="0" Maximum="20" SmallChange="0.5" LargeChange="1" Value="{Binding RestartOnResumeThresholdSeconds, Mode=TwoWay}" Margin="10,0,0,0"/>
+                                <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Column="1" Width="300" Minimum="0" Maximum="20" Value="{Binding RestartOnResumeThresholdSeconds, Mode=TwoWay}" Margin="10,0,0,0" />
                                 <TextBlock Grid.Column="2" Text="{Binding RestartOnResumeThresholdSeconds, StringFormat='{} {0:0.0} s'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
                             </Grid>
                             <TextBlock IsEnabled="{Binding RestartOnResumeEnabled}" Margin="20,0,0,4" Text="Restart from the beginning when resuming after a pause within this timeframe." Foreground="#BBFFFFFF" FontSize="14" TextWrapping="Wrap" MaxWidth="520"/>
@@ -641,31 +634,31 @@
                     <TextBlock Text="Setup" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,0,0,10"/>
                     <Grid ColumnDefinitions="Auto, 320, Auto, *" RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto" Margin="0,0,0,8" HorizontalAlignment="Stretch" ClipToBounds="False">
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Item Spacing" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
-                        <Slider Grid.Row="0" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0.2" Maximum="3.0" SmallChange="0.01" LargeChange="0.1" Value="{Binding CarouselSpacing, Mode=TwoWay}" Margin="0,0"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="0" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0.2" Maximum="3.0" Value="{Binding CarouselSpacing, Mode=TwoWay}" Margin="0,0" />
                         <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding CarouselSpacing, StringFormat='{}{0:0.00}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Item Scale" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
-                        <Slider Grid.Row="1" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0.5" Maximum="2.0" SmallChange="0.01" LargeChange="0.1" Value="{Binding CarouselScale, Mode=TwoWay}" Margin="0,0"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="1" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0.5" Maximum="2.0" Value="{Binding CarouselScale, Mode=TwoWay}" Margin="0,0" />
                         <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding CarouselScale, StringFormat='{}{0:0.00}X'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Vertical Offset" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
-                        <Slider Grid.Row="2" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="-400" Maximum="400" SmallChange="1" LargeChange="10" Value="{Binding CarouselVerticalOffset, Mode=TwoWay}" Margin="0,0"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="2" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="-400" Maximum="400" Value="{Binding CarouselVerticalOffset, Mode=TwoWay}" Margin="0,0" />
                         <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding CarouselVerticalOffset, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Slider Vertical Offset" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
-                        <Slider Grid.Row="3" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="1080" SmallChange="1" LargeChange="5" Value="{Binding CarouselSliderVerticalOffset, Mode=TwoWay}" Margin="0,0"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="3" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="1080" Value="{Binding CarouselSliderVerticalOffset, Mode=TwoWay}" Margin="0,0" />
                         <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding CarouselSliderVerticalOffset, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="Slider Track Height" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
-                        <Slider Grid.Row="4" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="1" Maximum="40" SmallChange="1" LargeChange="2" Value="{Binding CarouselSliderTrackHeight, Mode=TwoWay}" Margin="0,0"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="4" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="1" Maximum="40" Value="{Binding CarouselSliderTrackHeight, Mode=TwoWay}" Margin="0,0" />
                         <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding CarouselSliderTrackHeight, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
                         <TextBlock Grid.Row="5" Grid.Column="0" Text="Side Translation" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
-                        <Slider Grid.Row="5" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="1000" SmallChange="1" LargeChange="10" Value="{Binding CarouselSideTranslation, Mode=TwoWay}" Margin="0,0"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="5" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="1000" Value="{Binding CarouselSideTranslation, Mode=TwoWay}" Margin="0,0" />
                         <TextBlock Grid.Row="5" Grid.Column="2" Text="{Binding CarouselSideTranslation, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
                         <TextBlock Grid.Row="6" Grid.Column="0" Text="Stack Spacing" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
-                        <Slider Grid.Row="6" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="400" SmallChange="1" LargeChange="10" Value="{Binding CarouselStackSpacing, Mode=TwoWay}" Margin="0,0"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="6" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="400" Value="{Binding CarouselStackSpacing, Mode=TwoWay}" Margin="0,0" />
                         <TextBlock Grid.Row="6" Grid.Column="2" Text="{Binding CarouselStackSpacing, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0"/>
 
                         <TextBlock Grid.Row="7" Grid.Column="0" Text="Full Cover Size" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>

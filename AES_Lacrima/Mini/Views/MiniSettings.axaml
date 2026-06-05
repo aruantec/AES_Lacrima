@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:composition="using:AES_Controls.Composition"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:viewmodels="using:AES_Lacrima.ViewModels"
@@ -17,7 +18,7 @@
                             <StackPanel Spacing="10">
                                 <TextBlock Text="Scale" FontSize="14" Foreground="WhiteSmoke"/>
                                 <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <Slider Width="220" Minimum="1" Maximum="2" Value="{Binding MiniScaleFactor, Mode=TwoWay}"/>
+                                    <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Width="220" Minimum="1" Maximum="2" Value="{Binding MiniScaleFactor, Mode=TwoWay}" />
                                     <TextBlock Text="{Binding MiniScaleFactor, StringFormat='{}{0:0.00}x'}"
                                                VerticalAlignment="Center"
                                                Foreground="WhiteSmoke"
@@ -124,7 +125,7 @@
                                 </StackPanel>
                                 <WrapPanel VerticalAlignment="Center" Orientation="Horizontal" ItemWidth="240" Margin="0,0,0,0">
                                     <TextBlock Text="Preamp (dB):" VerticalAlignment="Center" Foreground="WhiteSmoke"/>
-                                    <Slider Width="220" Minimum="-12" Maximum="12" Value="{Binding ReplayGainPreampDb, Mode=TwoWay}" Margin="8,0,0,0"/>
+                                    <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Width="220" Minimum="-12" Maximum="12" Value="{Binding ReplayGainPreampDb, Mode=TwoWay}" Margin="8,0,0,0" />
                                     <TextBlock Text="{Binding ReplayGainPreampDb, StringFormat='{}{0:0.##} dB'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0,0,0"/>
                                 </WrapPanel>
                             </StackPanel>
@@ -136,7 +137,7 @@
                                 </StackPanel>
                                 <WrapPanel VerticalAlignment="Center" Orientation="Horizontal">
                                     <TextBlock Text="Preamp (dB):" VerticalAlignment="Center" Foreground="WhiteSmoke"/>
-                                    <Slider Width="180" Minimum="-12" Maximum="12" Value="{Binding ReplayGainTagsPreampDb, Mode=TwoWay}" Margin="8,0,0,0"/>
+                                    <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Width="180" Minimum="-12" Maximum="12" Value="{Binding ReplayGainTagsPreampDb, Mode=TwoWay}" Margin="8,0,0,0" />
                                     <TextBlock Text="{Binding ReplayGainTagsPreampDb, StringFormat='{}{0:0.##} dB'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="8,0,0,0"/>
                                     <ComboBox Width="120" SelectedIndex="{Binding ReplayGainTagSource, Mode=TwoWay}" Margin="12,4,0,0">
                                         <ComboBoxItem>Track</ComboBoxItem>
@@ -153,7 +154,7 @@
                                 </StackPanel>
                                 <WrapPanel VerticalAlignment="Center" Orientation="Horizontal" IsEnabled="{Binding RestartOnResumeEnabled}" Margin="20,0,0,0">
                                     <TextBlock Text="0 to (s)" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="14"/>
-                                    <Slider Width="220" Minimum="0" Maximum="20" SmallChange="0.5" LargeChange="1" Value="{Binding RestartOnResumeThresholdSeconds, Mode=TwoWay}" Margin="10,0,0,0"/>
+                                    <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Width="220" Minimum="0" Maximum="20" Value="{Binding RestartOnResumeThresholdSeconds, Mode=TwoWay}" Margin="10,0,0,0" />
                                     <TextBlock Text="{Binding RestartOnResumeThresholdSeconds, StringFormat='{} {0:0.0} s'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0,0,0"/>
                                 </WrapPanel>
                                 <TextBlock IsEnabled="{Binding RestartOnResumeEnabled}" Margin="20,0,0,4" Text="Restart from the beginning when resuming after a pause within this timeframe." Foreground="#BBFFFFFF" FontSize="12" TextWrapping="Wrap" MaxWidth="520"/>

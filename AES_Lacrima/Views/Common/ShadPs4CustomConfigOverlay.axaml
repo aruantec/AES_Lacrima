@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:composition="using:AES_Controls.Composition"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AES_Lacrima.ViewModels"
@@ -97,7 +98,7 @@
                                 <Grid ColumnDefinitions="260,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                                       RowSpacing="12" Margin="8,12,8,12" MaxWidth="900">
                                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="fieldLabel" Text="Volume" />
-                                    <Slider Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding VolumeSlider, Mode=TwoWay}" />
+                                    <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding VolumeSlider, Mode=TwoWay}"  />
                                     <TextBlock Grid.Row="1" Grid.Column="0" Classes="fieldLabel" Text="Dev Kit Mode" />
                                     <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding DevKitMode, Mode=TwoWay}" />
                                     <TextBlock Grid.Row="2" Grid.Column="0" Classes="fieldLabel" Text="Neo Mode" />

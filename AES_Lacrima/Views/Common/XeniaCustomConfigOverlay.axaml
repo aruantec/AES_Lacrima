@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:composition="using:AES_Controls.Composition"
              xmlns:vm="using:AES_Lacrima.ViewModels"
              xmlns:controls="using:AES_Controls"
              x:Class="AES_Lacrima.XeniaCustomConfigOverlay"
@@ -104,14 +105,11 @@
                                               ColumnDefinitions="*,Auto"
                                               ColumnSpacing="12"
                                               VerticalAlignment="Center">
-                                            <Slider Grid.Column="0"
+                                            <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Column="0"
                                                     VerticalAlignment="Center"
                                                     Minimum="{Binding DrawResolutionScaleMin}"
                                                     Maximum="{Binding DrawResolutionScaleMax}"
-                                                    Value="{Binding DrawResolutionScale, Mode=TwoWay}"
-                                                    TickFrequency="1"
-                                                    IsSnapToTickEnabled="True"
-                                                    TickPlacement="BottomRight" />
+                                                    Value="{Binding DrawResolutionScale, Mode=TwoWay}"  />
                                             <TextBlock Grid.Column="1"
                                                        Foreground="#D0D0D0"
                                                        FontSize="18"

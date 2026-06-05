@@ -570,12 +570,10 @@
 
                                     <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                         <TextBlock Text="Brightness" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
-                                        <Slider Width="280"
+                                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Width="280"
                                                 Minimum="0.25"
                                                 Maximum="2.0"
-                                                SmallChange="0.01"
-                                                LargeChange="0.1"
-                                                Value="{Binding RenderBrightness, Mode=TwoWay}" />
+                                                Value="{Binding RenderBrightness, Mode=TwoWay}"  />
                                         <TextBlock Text="{Binding RenderBrightness, StringFormat='{}{0:0.00}'}"
                                                    Foreground="White"
                                                    VerticalAlignment="Center"
@@ -585,12 +583,10 @@
 
                                     <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                         <TextBlock Text="Saturation" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
-                                        <Slider Width="280"
+                                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Width="280"
                                                 Minimum="0"
                                                 Maximum="2"
-                                                SmallChange="0.01"
-                                                LargeChange="0.1"
-                                                Value="{Binding RenderSaturation, Mode=TwoWay}" />
+                                                Value="{Binding RenderSaturation, Mode=TwoWay}"  />
                                         <TextBlock Text="{Binding RenderSaturation, StringFormat='{}{0:0.00}'}"
                                                    Foreground="White"
                                                    VerticalAlignment="Center"
@@ -600,12 +596,10 @@
 
                                     <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                         <TextBlock Text="Overlay Opacity" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
-                                        <Slider Width="280"
+                                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Width="280"
                                                 Minimum="0"
                                                 Maximum="1"
-                                                SmallChange="0.01"
-                                                LargeChange="0.1"
-                                                Value="{Binding RenderOverlayOpacity, Mode=TwoWay}" />
+                                                Value="{Binding RenderOverlayOpacity, Mode=TwoWay}"  />
                                         <TextBlock Text="{Binding RenderOverlayOpacity, StringFormat='{}{0:0.00}'}"
                                                    Foreground="White"
                                                    VerticalAlignment="Center"
@@ -1910,12 +1904,10 @@
                                     </Grid>
                                     <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                         <TextBlock Text="Recording FPS" Foreground="White" FontSize="18" Width="220"/>
-                                        <Slider Width="280"
+                                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Width="280"
                                                 Minimum="15"
                                                 Maximum="120"
-                                                TickFrequency="15"
-                                                IsSnapToTickEnabled="True"
-                                                Value="{Binding SettingsViewModel.GameplayRecordingFps, Mode=TwoWay}" />
+                                                Value="{Binding SettingsViewModel.GameplayRecordingFps, Mode=TwoWay}"  />
                                         <TextBlock Text="{Binding SettingsViewModel.GameplayRecordingFps, StringFormat='{}{0} fps'}"
                                                    Foreground="White"
                                                    Width="70"
@@ -1923,12 +1915,10 @@
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                         <TextBlock Text="Bitrate (kbps)" Foreground="White" FontSize="18" Width="220"/>
-                                        <Slider Width="280"
+                                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Width="280"
                                                 Minimum="2000"
                                                 Maximum="50000"
-                                                SmallChange="500"
-                                                LargeChange="1000"
-                                                Value="{Binding SettingsViewModel.GameplayRecordingBitrateKbps, Mode=TwoWay}" />
+                                                Value="{Binding SettingsViewModel.GameplayRecordingBitrateKbps, Mode=TwoWay}"  />
                                         <TextBlock Text="{Binding SettingsViewModel.GameplayRecordingBitrateKbps}"
                                                    Foreground="White"
                                                    Width="70"
@@ -2652,13 +2642,17 @@
                     </Viewbox>
                 </Button>
 
-                <player:VerticalVolumeSliderControl Width="40"
-                                                    Height="100"
-                                                    Minimum="0"
-                                                    Maximum="100"
-                                                    Value="{Binding EmulatorVolume, Mode=TwoWay}"
-                                                    IsVisible="{Binding IsEmulatorRunning}"
-                                                    VerticalAlignment="Center"/>
+                <composition:PillProgressSlider Width="120"
+                                                Height="28"
+                                                TrackHeight="14"
+                                                ExecuteDuringDrag="True"
+                                                Minimum="0"
+                                                Maximum="100"
+                                                Value="{Binding EmulatorVolume, Mode=TwoWay}"
+                                                IsVisible="{Binding IsEmulatorRunning}"
+                                                VerticalAlignment="Center"
+                                                TrackBorderBrush="#CCCCCC"
+                                                FillBrush="#99F5F5F5"/>
             </StackPanel>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
