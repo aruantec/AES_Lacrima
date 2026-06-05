@@ -7,6 +7,7 @@ using AES_Core.IO;
 using AES_Lacrima.ViewModels;
 using AES_Core.Services;
 using AES_Lacrima.Services;
+using AES_Lacrima.Mini;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -183,6 +184,13 @@ namespace AES_Lacrima.Mini.ViewModels
         private bool _isEqualizerActive;
 
         [ObservableProperty]
+        private bool _isRetroMode;
+
+        private IBrush? _retroSelectionBorderBrush;
+        private IBrush? _retroProgressBorderBrush;
+        private IBrush? _retroProgressFillBrush;
+
+        [ObservableProperty]
         private bool _isTrackLoadPending;
 
         // supported types
@@ -195,6 +203,59 @@ namespace AES_Lacrima.Mini.ViewModels
 
         #region Public properties
         public double DisplayDuration => LoadedMediaItem?.Duration ?? SelectedMediaItem?.Duration ?? 0.0;
+
+        public FontFamily MiniFontFamily => IsRetroMode ? MiniRetroTheme.PixelFontFamily : FontFamily.Default;
+
+        public IBrush MiniWindowBackgroundBrush =>
+            IsRetroMode ? MiniRetroTheme.WindowBackgroundBrush : new SolidColorBrush(Color.Parse("#0F0F0F"));
+
+        public IBrush MiniWindowBorderBrush =>
+            IsRetroMode ? MiniRetroTheme.WindowBorderBrush : Brushes.DimGray;
+
+        public IBrush MiniPrimaryTextBrush =>
+            IsRetroMode ? MiniRetroTheme.PrimaryTextBrush : Brushes.White;
+
+        public IBrush MiniMutedTextBrush =>
+            IsRetroMode ? MiniRetroTheme.MutedTextBrush : new SolidColorBrush(Color.Parse("#b8b8b8"));
+
+        public IBrush MiniPanelBackgroundBrush =>
+            IsRetroMode ? MiniRetroTheme.PanelBackgroundBrush : Brushes.Transparent;
+
+        public IBrush MiniPanelBorderBrush =>
+            IsRetroMode ? MiniRetroTheme.PanelBorderBrush : Brushes.Transparent;
+
+        public IBrush MiniDividerBrush =>
+            IsRetroMode ? MiniRetroTheme.DividerBrush : Brushes.DimGray;
+
+        public IBrush MiniSelectionBorderBrush =>
+            IsRetroMode ? _retroSelectionBorderBrush ?? MiniRetroTheme.SelectionBorderBrush : Brushes.Transparent;
+
+        public Thickness MiniSelectionBorderThickness =>
+            IsRetroMode ? new Thickness(2) : new Thickness(0);
+
+        public IBrush MiniProgressBorderBrush =>
+            IsRetroMode ? _retroProgressBorderBrush ?? MiniRetroTheme.ProgressBorderBrush : new SolidColorBrush(Color.Parse("#CCCCCC"));
+
+        public IBrush MiniProgressFillBrush =>
+            IsRetroMode ? _retroProgressFillBrush ?? MiniRetroTheme.ProgressFillBrush : new SolidColorBrush(Color.Parse("#99F5F5F5"));
+
+        public IBrush MiniListIdleForegroundBrush =>
+            IsRetroMode ? MiniRetroTheme.PrimaryTextBrush : Brushes.White;
+
+        public bool MiniShowAccentGradient => IsRetroMode
+            ? ControlsBrush != null
+            : ColorGradientBrush != null;
+
+        public bool MiniShowEdgeGlow => !IsRetroMode && (SettingsViewModel?.ShowEdgeBorder ?? false);
+
+        public CornerRadius MiniWindowCornerRadius =>
+            IsRetroMode ? new CornerRadius(0) : new CornerRadius(10);
+
+        public double MiniBodyFontSize => IsRetroMode ? 9 : 12;
+
+        public double MiniHeaderFontSize => IsRetroMode ? 10 : 14;
+
+        public double MiniCaptionFontSize => IsRetroMode ? 8 : 12;
 
         public Bitmap LoadedCoverBitmap => ResolveCoverBitmap() ?? _defaultCover;
 
@@ -807,6 +868,13 @@ namespace AES_Lacrima.Mini.ViewModels
                 : [];
 
             var accentColor = ResolveSelectionColor(dominantColors);
+
+            if (IsRetroMode)
+            {
+                ApplyRetroColorization(accentColor, dominantColors, hasCustomCover, coverBitmap);
+                return;
+            }
+
             SelectionBrush = new SolidColorBrush(accentColor);
             SelectionForegroundBrush = new SolidColorBrush(BitmapColorHelper.GetReadableForeground(accentColor));
 
@@ -823,6 +891,69 @@ namespace AES_Lacrima.Mini.ViewModels
 
             ControlsBrush = LoadedBrush;
             ColorGradientBrush = BitmapColorHelper.GetDominantColorGradient(hasCustomCover ? coverBitmap : null, 3);
+        }
+
+        partial void OnIsRetroModeChanged(bool value)
+        {
+            RefreshCoverPresentation();
+            NotifyMiniThemeChanged();
+        }
+
+        private void ApplyRetroColorization(Color accentColor, Color[] dominantColors, bool hasCustomCover, Bitmap? coverBitmap)
+        {
+            var selectionFill = MiniRetroTheme.Tint(MiniRetroTheme.SelectionFill, accentColor, 0.42);
+            SelectionBrush = new SolidColorBrush(selectionFill);
+            SelectionForegroundBrush = new SolidColorBrush(BitmapColorHelper.GetReadableForeground(selectionFill));
+
+            _retroSelectionBorderBrush = new SolidColorBrush(MiniRetroTheme.Tint(MiniRetroTheme.SelectionBorder, accentColor, 0.38));
+            _retroProgressBorderBrush = new SolidColorBrush(MiniRetroTheme.Tint(MiniRetroTheme.ProgressBorder, accentColor, 0.35));
+            _retroProgressFillBrush = new SolidColorBrush(
+                MiniRetroTheme.TintWithAlpha(MiniRetroTheme.PrimaryText, accentColor, 0.28, 153));
+
+            if (hasCustomCover && dominantColors.Length > 0)
+            {
+                var loadedFill = MiniRetroTheme.Tint(MiniRetroTheme.LoadedRowFill, dominantColors[0], 0.48);
+                LoadedBrush = new SolidColorBrush(loadedFill);
+                LoadedForegroundBrush = new SolidColorBrush(BitmapColorHelper.GetReadableForeground(loadedFill));
+                ControlsBrush = new SolidColorBrush(MiniRetroTheme.Tint(MiniRetroTheme.Accent, dominantColors[0], 0.58));
+                IsCoverPlaceholder = false;
+            }
+            else
+            {
+                LoadedBrush = MiniRetroTheme.LoadedRowFillBrush;
+                LoadedForegroundBrush = MiniRetroTheme.LoadedRowTextBrush;
+                ControlsBrush = MiniRetroTheme.AccentBrush;
+            }
+
+            ColorGradientBrush = BitmapColorHelper.GetDominantColorGradient(hasCustomCover ? coverBitmap : null, 3);
+
+            OnPropertyChanged(nameof(MiniSelectionBorderBrush));
+            OnPropertyChanged(nameof(MiniProgressBorderBrush));
+            OnPropertyChanged(nameof(MiniProgressFillBrush));
+            OnPropertyChanged(nameof(MiniShowAccentGradient));
+        }
+
+        private void NotifyMiniThemeChanged()
+        {
+            OnPropertyChanged(nameof(MiniFontFamily));
+            OnPropertyChanged(nameof(MiniWindowBackgroundBrush));
+            OnPropertyChanged(nameof(MiniWindowBorderBrush));
+            OnPropertyChanged(nameof(MiniPrimaryTextBrush));
+            OnPropertyChanged(nameof(MiniMutedTextBrush));
+            OnPropertyChanged(nameof(MiniPanelBackgroundBrush));
+            OnPropertyChanged(nameof(MiniPanelBorderBrush));
+            OnPropertyChanged(nameof(MiniDividerBrush));
+            OnPropertyChanged(nameof(MiniSelectionBorderBrush));
+            OnPropertyChanged(nameof(MiniSelectionBorderThickness));
+            OnPropertyChanged(nameof(MiniProgressBorderBrush));
+            OnPropertyChanged(nameof(MiniProgressFillBrush));
+            OnPropertyChanged(nameof(MiniListIdleForegroundBrush));
+            OnPropertyChanged(nameof(MiniShowAccentGradient));
+            OnPropertyChanged(nameof(MiniShowEdgeGlow));
+            OnPropertyChanged(nameof(MiniWindowCornerRadius));
+            OnPropertyChanged(nameof(MiniBodyFontSize));
+            OnPropertyChanged(nameof(MiniHeaderFontSize));
+            OnPropertyChanged(nameof(MiniCaptionFontSize));
         }
 
         private Bitmap? ResolveCoverBitmap()
@@ -1553,6 +1684,7 @@ namespace AES_Lacrima.Mini.ViewModels
             WriteSetting(section, "RepeatMode", (int)(MusicViewModel?.AudioPlayer?.RepeatMode ?? RepeatMode.Off));
             // Persist visualizer toggle so the mini player restores it on next run
             WriteSetting(section, "IsVisualizerActive", IsVisualizerActive);
+            WriteSetting(section, "IsRetroMode", IsRetroMode);
             var openedAlbum = MusicViewModel?.LoadedAlbum ?? SelectedAlbum;
             if (openedAlbum != null)
             {
@@ -1591,6 +1723,9 @@ namespace AES_Lacrima.Mini.ViewModels
             TryRestorePendingMiniState();
             // Restore visualizer state if previously active
             var visActive = ReadBoolSetting(section, "IsVisualizerActive", false);
+            IsRetroMode = ReadBoolSetting(section, "IsRetroMode", false);
+            RefreshCoverPresentation();
+            NotifyMiniThemeChanged();
             if (visActive)
             {
                 var desiredVm = DiLocator.ResolveViewModel<VisualizerViewModel>();

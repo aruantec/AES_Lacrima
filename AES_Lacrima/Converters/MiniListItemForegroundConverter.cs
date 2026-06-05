@@ -30,6 +30,9 @@ public sealed class MiniListItemForegroundConverter : IMultiValueConverter
         if (isSelected)
             return selectionForeground;
 
+        if (values.Count >= 6 && values[5] is IBrush idleForeground)
+            return idleForeground;
+
         return Brushes.White;
     }
 }

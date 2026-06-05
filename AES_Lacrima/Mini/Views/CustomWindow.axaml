@@ -9,6 +9,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:chrome="clr-namespace:Avalonia.Controls.Chrome;assembly=Avalonia.Controls"
         xmlns:vm="using:AES_Lacrima.Mini.ViewModels"
+        xmlns:conv="using:AES_Lacrima.Converters"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="AES_Lacrima.Mini.Views.CustomWindow"
         x:DataType="vm:MinViewModel"
@@ -20,64 +21,88 @@
         Height="{Binding WindowHeight, Mode=TwoWay}"
         Width="{Binding WindowWidth, Mode=TwoWay}"
         Background="#0F0F0F">
-    <!-- Sets the DataContext for the previewer -->
     <Design.DataContext>
         <vm:MinViewModel/>
     </Design.DataContext>
+    <Window.Resources>
+        <conv:UppercaseWhenRetroConverter x:Key="UppercaseWhenRetroConverter" />
+    </Window.Resources>
     <Interaction.Behaviors>
         <behaviors:WindowResizeBehavior ResizeBorderThickness="8"/>
         <behaviors:MiniWindowScaleBehavior/>
     </Interaction.Behaviors>
 
-	<!-- Content -->
 	<Grid x:DataType="vm:MinViewModel" ClipToBounds="False">
         <composition:TransparentComposition/>
         <controls:ScalableDecorator Scale="{Binding SettingsViewModel.MiniScaleFactor}">
-            <Border x:Name="MainBorder" ClipToBounds="True" CornerRadius="10" BorderBrush="DimGray" BorderThickness="0.5" Background="#0F0F0F">
+            <Border x:Name="MainBorder"
+                    ClipToBounds="True"
+                    CornerRadius="{Binding MiniWindowCornerRadius}"
+                    BorderBrush="{Binding MiniWindowBorderBrush}"
+                    BorderThickness="1"
+                    Background="{Binding MiniWindowBackgroundBrush}">
 	        <Grid RowDefinitions="Auto,*">
 
-        <!-- Gradient -->
-		<Border Grid.RowSpan="2" Height="180" VerticalAlignment="Top" IsHitTestVisible="False" Opacity="0.6">
+        <Border Grid.RowSpan="2"
+                Height="180"
+                VerticalAlignment="Top"
+                IsHitTestVisible="False"
+                Opacity="0.6"
+                IsVisible="{Binding MiniShowAccentGradient}">
 			<Border.Background>
 				<LinearGradientBrush StartPoint="50%,10%" EndPoint="50%,50%">
 					<GradientStop Color="{Binding ControlsBrush, Converter={StaticResource BrushToColorConverter}}" Offset="0" />
-					<GradientStop Color="#0F0F0F" Offset="1" />
+					<GradientStop Color="{Binding MiniWindowBackgroundBrush, Converter={StaticResource BrushToColorConverter}}" Offset="1" />
 				</LinearGradientBrush>
 			</Border.Background>
 		</Border>
 
-		<!-- Top bar -->
-		<Grid Grid.Row="0"
-              Background="Transparent">
-            <!--Behaviors-->
+		<Grid Grid.Row="0" Background="Transparent">
             <Interaction.Behaviors>
                 <behaviors:WindowDragBehavior/>
             </Interaction.Behaviors>
-            <!-- Title -->
             <Label HorizontalAlignment="Center"
                    VerticalAlignment="Center"
-                   Content="AES LACRIMA MINI"
-                   Margin="5"/>
+                   Margin="5"
+                   FontFamily="{Binding MiniFontFamily}"
+                   Foreground="{Binding MiniPrimaryTextBrush}">
+                <Label.Content>
+                    <MultiBinding Converter="{StaticResource UppercaseWhenRetroConverter}">
+                        <Binding Source="AES LACRIMA MINI" />
+                        <Binding Path="IsRetroMode" />
+                    </MultiBinding>
+                </Label.Content>
+            </Label>
 			<StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="8,6,8,6" Spacing="6">
-                <!-- switch mode button (refresh icon) -->
+                <ToggleButton Cursor="Hand"
+                              Width="52"
+                              Height="22"
+                              Padding="4,2"
+                              IsChecked="{Binding IsRetroMode, Mode=TwoWay}"
+                              ToolTip.Tip="Switch To Retro Mode"
+                              Background="Transparent"
+                              BorderBrush="{Binding MiniPanelBorderBrush}"
+                              BorderThickness="1">
+                    <TextBlock FontFamily="{Binding MiniFontFamily}"
+                               FontSize="7"
+                               Foreground="{Binding MiniPrimaryTextBrush}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Text="RETRO"/>
+                </ToggleButton>
                 <Button Cursor="Hand" Background="Transparent" BorderBrush="Transparent" Width="28" Height="25" Padding="2" Command="{Binding SwitchModeCommand}" ToolTip.Tip="Switch to AES Mode">
                     <Path Fill="#DDD" Data="M12,4V1L8,5l4,4V6c3.31,0,6,2.69,6,6c0,1.01-0.25,1.97-0.7,2.8l1.46,1.46C19.54,15.03,20,13.57,20,12C20,7.58,16.42,4,12,4z M12,18c-3.31,0-6-2.69-6-6c0-1.01,0.25-1.97,0.7-2.8L5.24,7.74C4.46,8.97,4,10.43,4,12c0,4.42,3.58,8,8,8v3l4-4l-4-4V18z"
                           Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Button>
-                <!-- Minimize -->
                 <Button Cursor="Hand" Command="{Binding MinimizeWindowCommand}" Background="Transparent" BorderBrush="Transparent" Width="28" Height="20" Padding="2">
                     <Path Stroke="#DDD" StrokeThickness="2" StrokeLineCap="Round" HorizontalAlignment="Center" VerticalAlignment="Center" Data="M3,10 L15,10" />
                 </Button>
-
-                <!-- Close -->
                 <Button Cursor="Hand" Command="{Binding CloseApplicationCommand}" Background="Transparent" BorderBrush="Transparent" Width="28" Height="20" Padding="2">
                     <Path Stroke="#DDD" StrokeThickness="2" StrokeLineCap="Round" HorizontalAlignment="Center" VerticalAlignment="Center" Data="M4,4 L14,14 M14,4 L4,14" />
                 </Button>
             </StackPanel>
         </Grid>
-        <!-- View -->
         <ContentControl Grid.Row="1" Content="{Binding}"/>
-        <!-- Settings Overlay -->
         <Border Grid.Row="1" IsVisible="{Binding SettingsVisible}" Background="#F2000000" Margin="0,0,0,28">
             <local:MiniSettings DataContext="{Binding SettingsViewModel}"/>
         </Border>
@@ -85,7 +110,7 @@
             </Border>
         </controls:ScalableDecorator>
         <composition:EdgeBorderCompositionControl IsHitTestVisible="False"
-                                                 IsVisible="{Binding SettingsViewModel.ShowEdgeBorder}"
+                                                 IsVisible="{Binding MiniShowEdgeGlow}"
                                                  Margin="-2"
                                                  BorderThickness="0.9"
                                                  CornerRadius="10"
