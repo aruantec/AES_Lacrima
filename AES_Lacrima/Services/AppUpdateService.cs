@@ -15,13 +15,12 @@ using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-
+
 using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
@@ -103,6 +102,7 @@ public partial class AppUpdateService : ObservableObject
         var target = ResolveInstallTarget();
         CanSelfUpdate = target.CanSelfUpdate;
         Status = target.UnsupportedReason ?? $"Installed version: {CurrentVersion}.";
+        RefreshPendingUpdateState();
     }
 
     public AppReleaseInfo? AvailableRelease
@@ -137,6 +137,9 @@ public partial class AppUpdateService : ObservableObject
     private bool _isDownloading;
 
     [ObservableProperty]
+    private bool _hasDeterminateDownloadProgress = true;
+
+    [ObservableProperty]
     private double _downloadProgress;
 
     [ObservableProperty]
@@ -144,6 +147,12 @@ public partial class AppUpdateService : ObservableObject
 
     [ObservableProperty]
     private bool _canSelfUpdate;
+
+    [ObservableProperty]
+    private bool _hasPendingUpdate;
+
+    [ObservableProperty]
+    private string? _pendingUpdateVersion;
 
     [ObservableProperty]
     private string? _availableAssetName;
@@ -273,7 +282,27 @@ public partial class AppUpdateService : ObservableObject
         }
     }
 
-    public async Task<bool> DownloadAndRestartToApplyUpdateAsync(AppReleaseInfo release)
+    public Task<bool> DownloadAndRestartToApplyUpdateAsync(AppReleaseInfo release) =>
+        DownloadAndStageUpdateAsync(release, restartImmediately: true);
+
+    public Task<bool> DownloadForNextLaunchAsync(AppReleaseInfo release) =>
+        DownloadAndStageUpdateAsync(release, restartImmediately: false);
+
+    public void RefreshPendingUpdateState()
+    {
+        var manifest = PendingUpdateApplier.TryReadPendingManifest();
+        HasPendingUpdate = manifest != null;
+        PendingUpdateVersion = manifest?.ReleaseVersion;
+
+        if (manifest == null || IsBusy)
+            return;
+
+        Status = string.IsNullOrWhiteSpace(manifest.ReleaseVersion)
+            ? "An update has been downloaded. Restart AES - Lacrima to apply it."
+            : $"Version {manifest.ReleaseVersion} has been downloaded. Restart AES - Lacrima to apply it.";
+    }
+
+    private async Task<bool> DownloadAndStageUpdateAsync(AppReleaseInfo release, bool restartImmediately)
     {
         if (release.SelectedAsset == null)
         {
@@ -292,19 +321,24 @@ public partial class AppUpdateService : ObservableObject
                 return false;
             }
 
-            IsBusy = true;
-            IsDownloading = true;
-            DownloadProgress = 0;
-            Status = $"Downloading {release.SelectedAsset.Name}...";
+            RunOnUiThread(() =>
+            {
+                IsBusy = true;
+                IsDownloading = true;
+                HasDeterminateDownloadProgress = true;
+                DownloadProgress = 0;
+                Status = $"Downloading {release.SelectedAsset.Name}...";
+            });
             WriteDiagnosticLog(
-                "Starting update download/apply",
+                restartImmediately ? "Starting update download/apply" : "Starting update download for next launch",
                 $"ReleaseVersion={release.Version}",
                 $"AssetName={release.SelectedAsset.Name}",
                 $"AssetUrl={release.SelectedAsset.DownloadUrl}",
                 $"CurrentVersion={CurrentVersionDisplay}",
                 $"TargetKind={installTarget.Kind}",
                 $"TargetPath={installTarget.TargetPath}",
-                $"RestartPath={installTarget.RestartPath}");
+                $"RestartPath={installTarget.RestartPath}",
+                $"RestartImmediately={restartImmediately}");
 
             var stagingRoot = Path.Combine(ApplicationPaths.UpdatesDirectory, Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(stagingRoot);
@@ -318,22 +352,39 @@ public partial class AppUpdateService : ObservableObject
 
             Status = "Preparing update...";
             var preparedSource = PrepareStagedPayload(downloadPath, stagingRoot, release.SelectedAsset, installTarget);
-            var scriptPath = CreateUpdateScript(installTarget, preparedSource, stagingRoot);
             WriteDiagnosticLog(
                 "Prepared update payload",
-                $"PreparedSource={preparedSource}",
-                $"ScriptPath={scriptPath}");
-            LaunchUpdateScript(scriptPath);
+                $"PreparedSource={preparedSource}");
+
+            var previousProcessId = restartImmediately ? Environment.ProcessId : 0;
+            PendingUpdateApplier.StageForNextLaunch(
+                ToPendingUpdateTargetKind(installTarget.Kind),
+                preparedSource,
+                installTarget.TargetPath,
+                installTarget.RestartPath,
+                stagingRoot,
+                release.Version,
+                previousProcessId);
 
             DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
+            RefreshPendingUpdateState();
+
+            if (!restartImmediately)
+            {
+                WriteDiagnosticLog("Pending update staged for next launch without immediate restart.");
+                return true;
+            }
+
             Status = "Restarting to apply update...";
             App.IsSelfUpdating = true;
-            WriteDiagnosticLog("Update helper launched successfully. Requesting app shutdown.");
+            PendingUpdateApplier.LaunchRelaunch(installTarget.RestartPath);
+            WriteDiagnosticLog("Pending update staged. Relaunch requested. Requesting app shutdown.");
             ShutdownApplication();
             return true;
         }
         catch (Exception ex)
         {
+            App.IsSelfUpdating = false;
             WriteDiagnosticLog($"Update apply failed: {ex}");
             Log.Error("Failed to download or stage application update", ex);
             Status = $"App update failed: {ex.Message}";
@@ -341,10 +392,12 @@ public partial class AppUpdateService : ObservableObject
         }
         finally
         {
-            IsDownloading = false;
-            IsBusy = false;
-            if (!OperatingSystem.IsWindows())
-                App.IsSelfUpdating = false;
+            RunOnUiThread(() =>
+            {
+                IsDownloading = false;
+                IsBusy = false;
+            });
+            _gate.Release();
         }
     }
 
@@ -523,12 +576,7 @@ public partial class AppUpdateService : ObservableObject
 
         if (OperatingSystem.IsLinux())
         {
-            var appImagePath = Environment.GetEnvironmentVariable("APPIMAGE");
-            if (string.IsNullOrWhiteSpace(appImagePath) && processPath.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
-            {
-                appImagePath = processPath;
-            }
-
+            var appImagePath = TryResolveLinuxAppImagePath(processPath);
             if (string.IsNullOrWhiteSpace(appImagePath))
             {
                 return new InstallTarget(
@@ -539,7 +587,18 @@ public partial class AppUpdateService : ObservableObject
                     "Linux self-update currently requires running the packaged AppImage build.");
             }
 
-            var canWrite = IsDirectoryWritable(Path.GetDirectoryName(appImagePath)!);
+            if (!File.Exists(appImagePath))
+            {
+                return new InstallTarget(
+                    UpdateTargetKind.Unsupported,
+                    appImagePath,
+                    appImagePath,
+                    false,
+                    "The running AppImage file could not be located for self-update.");
+            }
+
+            var appImageDirectory = Path.GetDirectoryName(appImagePath);
+            var canWrite = !string.IsNullOrWhiteSpace(appImageDirectory) && IsDirectoryWritable(appImageDirectory);
             return new InstallTarget(
                 UpdateTargetKind.LinuxAppImage,
                 appImagePath,
@@ -554,6 +613,43 @@ public partial class AppUpdateService : ObservableObject
             string.Empty,
             false,
             "This platform does not currently support self-update.");
+    }
+
+    private static string? TryResolveLinuxAppImagePath(string processPath)
+    {
+        foreach (var candidate in GetLinuxAppImagePathCandidates(processPath))
+        {
+            if (candidate.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) && File.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> GetLinuxAppImagePathCandidates(string processPath)
+    {
+        static bool IsAppImagePath(string? path) =>
+            !string.IsNullOrWhiteSpace(path) && path.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase);
+
+        var appImage = Environment.GetEnvironmentVariable("APPIMAGE");
+        if (IsAppImagePath(appImage))
+            yield return appImage!;
+
+        var argv0 = Environment.GetEnvironmentVariable("ARGV0");
+        if (IsAppImagePath(argv0))
+            yield return argv0!;
+
+        if (IsAppImagePath(processPath))
+            yield return processPath;
+
+        var appDir = Environment.GetEnvironmentVariable("APPDIR");
+        if (!string.IsNullOrWhiteSpace(appDir) && appDir.Contains(".mount_", StringComparison.Ordinal))
+        {
+            if (IsAppImagePath(argv0))
+                yield return argv0!;
+            if (IsAppImagePath(appImage))
+                yield return appImage!;
+        }
     }
 
     private static string? FindMacAppBundlePath(string processPath)
@@ -970,7 +1066,12 @@ public partial class AppUpdateService : ObservableObject
             .ThenBy(item => item.Asset.Name, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
 
-        return scored?.Score > 0 ? scored.Asset : null;
+        if (scored?.Score > 0)
+            return scored.Asset;
+
+        return candidates
+            .OrderBy(asset => asset.Name, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
     }
 
     private async Task DownloadFileAsync(string url, string destinationPath)
@@ -979,6 +1080,8 @@ public partial class AppUpdateService : ObservableObject
         response.EnsureSuccessStatusCode();
 
         var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+        ReportDownloadState(totalBytes > 0, 0);
+
         await using var sourceStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
         await using var destinationStream = File.Create(destinationPath);
 
@@ -994,13 +1097,45 @@ public partial class AppUpdateService : ObservableObject
             totalRead += read;
 
             if (totalBytes > 0)
-            {
-                DownloadProgress = (double)totalRead / totalBytes * 100.0;
-            }
+                ReportDownloadProgress((double)totalRead / totalBytes * 100.0);
         }
 
-        if (totalBytes <= 0)
-            DownloadProgress = 100.0;
+        ReportDownloadProgress(100.0);
+    }
+
+    private static void RunOnUiThread(Action action)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+            action();
+        else
+            Dispatcher.UIThread.Post(action);
+    }
+
+    private void ReportDownloadState(bool hasDeterminateProgress, double progress)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            HasDeterminateDownloadProgress = hasDeterminateProgress;
+            DownloadProgress = progress;
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            HasDeterminateDownloadProgress = hasDeterminateProgress;
+            DownloadProgress = progress;
+        });
+    }
+
+    private void ReportDownloadProgress(double progress)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            DownloadProgress = progress;
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() => DownloadProgress = progress);
     }
 
     private static string PrepareStagedPayload(
@@ -1050,272 +1185,14 @@ public partial class AppUpdateService : ObservableObject
         throw new InvalidOperationException($"Unsupported update asset '{selectedAsset.Name}' for this installation.");
     }
 
-    private static string CreateUpdateScript(InstallTarget installTarget, string preparedSource, string stagingRoot)
-    {
-        if (installTarget.Kind == UpdateTargetKind.DirectoryContents)
+    private static PendingUpdateTargetKind ToPendingUpdateTargetKind(UpdateTargetKind kind) =>
+        kind switch
         {
-            if (!OperatingSystem.IsWindows())
-                throw new InvalidOperationException("Directory-content self-update is only supported on Windows.");
-
-            return CreateWindowsUpdateScript(preparedSource, installTarget.TargetPath, installTarget.RestartPath, stagingRoot);
-        }
-
-        if (installTarget.Kind == UpdateTargetKind.MacBundle)
-            return CreateMacUpdateScript(preparedSource, installTarget.TargetPath, stagingRoot);
-
-        if (installTarget.Kind == UpdateTargetKind.LinuxAppImage)
-            return CreateLinuxUpdateScript(preparedSource, installTarget.TargetPath, stagingRoot);
-
-        throw new InvalidOperationException("This installation does not support self-update.");
-    }
-
-    [SupportedOSPlatform("windows")]
-    private static string CreateWindowsUpdateScript(string sourceDirectory, string targetDirectory, string restartExecutable, string stagingRoot)
-    {
-        Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
-        Directory.CreateDirectory(ApplicationPaths.UpdaterLogsDirectory);
-        var scriptPath = Path.Combine(ApplicationPaths.UpdatesDirectory, $"aes-lacrima-update-{Guid.NewGuid():N}.ps1");
-        var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
-        var sourceDirectoryShort = TryGetWindowsShortPath(sourceDirectory) ?? sourceDirectory;
-        var targetDirectoryShort = TryGetWindowsShortPath(targetDirectory) ?? targetDirectory;
-        var restartExecutableShort = TryGetWindowsShortPath(restartExecutable) ?? restartExecutable;
-        var pid = Environment.ProcessId;
-        var script = $$"""
-            $ErrorActionPreference = 'Continue'
-            $PidToWaitFor = {{pid}}
-            $SourceDirectory = '{{EscapeShellValue(sourceDirectory)}}'
-            $TargetDirectory = '{{EscapeShellValue(targetDirectory)}}'
-            $RestartExecutable = '{{EscapeShellValue(restartExecutable)}}'
-            $SourceDirectoryShort = '{{EscapeShellValue(sourceDirectoryShort)}}'
-            $TargetDirectoryShort = '{{EscapeShellValue(targetDirectoryShort)}}'
-            $RestartExecutableShort = '{{EscapeShellValue(restartExecutableShort)}}'
-            $StagingRoot = '{{EscapeShellValue(stagingRoot)}}'
-            $LogPath = '{{EscapeShellValue(helperLogPath)}}'
-            $LogDirectory = [System.IO.Path]::GetDirectoryName($LogPath)
-            $AliasRoot = Join-Path $env:TEMP ('AESLacrimaUpdate-' + $PidToWaitFor)
-            [System.IO.Directory]::CreateDirectory($LogDirectory) | Out-Null
-            [System.IO.Directory]::CreateDirectory($AliasRoot) | Out-Null
-
-            function Write-HelperLog {
-                param([string]$Message)
-                $timestamp = [DateTimeOffset]::Now.ToString('O')
-                Add-Content -LiteralPath $LogPath -Value "[$timestamp] $Message"
-            }
-
-            function Resolve-PreferredDirectoryPath {
-                param(
-                    [string]$LongPath,
-                    [string]$ShortPath,
-                    [string]$AliasName)
-
-                if (-not [string]::IsNullOrWhiteSpace($ShortPath) -and $ShortPath -notmatch ' ') {
-                    return $ShortPath
-                }
-
-                if ($LongPath -notmatch ' ') {
-                    return $LongPath
-                }
-
-                $aliasPath = Join-Path $AliasRoot $AliasName
-                if (Test-Path -LiteralPath $aliasPath) {
-                    Remove-Item -LiteralPath $aliasPath -Recurse -Force -ErrorAction SilentlyContinue
-                }
-
-                New-Item -ItemType Junction -Path $aliasPath -Target $LongPath | Out-Null
-                return $aliasPath
-            }
-
-            Write-HelperLog "Helper start"
-            Write-HelperLog "PID=$PidToWaitFor"
-            Write-HelperLog "SRC=$SourceDirectory"
-            Write-HelperLog "DST=$TargetDirectory"
-            Write-HelperLog "EXE=$RestartExecutable"
-            Write-HelperLog "SRC_SHORT=$SourceDirectoryShort"
-            Write-HelperLog "DST_SHORT=$TargetDirectoryShort"
-            Write-HelperLog "EXE_SHORT=$RestartExecutableShort"
-            Write-HelperLog "STAGING=$StagingRoot"
-
-            while (Get-Process -Id $PidToWaitFor -ErrorAction SilentlyContinue) {
-                Write-HelperLog "Waiting for PID $PidToWaitFor to exit"
-                Start-Sleep -Seconds 1
-            }
-
-            $EffectiveSourceDirectory = Resolve-PreferredDirectoryPath -LongPath $SourceDirectory -ShortPath $SourceDirectoryShort -AliasName 'src'
-            $EffectiveTargetDirectory = Resolve-PreferredDirectoryPath -LongPath $TargetDirectory -ShortPath $TargetDirectoryShort -AliasName 'dst'
-            Write-HelperLog "SRC_EFFECTIVE=$EffectiveSourceDirectory"
-            Write-HelperLog "DST_EFFECTIVE=$EffectiveTargetDirectory"
-            Write-HelperLog "EXE_EFFECTIVE=$RestartExecutable"
-            Write-HelperLog "Process exited, starting robocopy"
-            $robocopyPath = Join-Path $env:SystemRoot 'System32\robocopy.exe'
-            $robocopyProcess = Start-Process -FilePath $robocopyPath `
-                                             -ArgumentList @($EffectiveSourceDirectory, $EffectiveTargetDirectory, '/E', '/R:10', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NP') `
-                                             -Wait `
-                                             -PassThru `
-                                             -NoNewWindow
-            $robocopyExitCode = $robocopyProcess.ExitCode
-            Write-HelperLog "Robocopy exit code: $robocopyExitCode"
-
-            if ($robocopyExitCode -ge 8) {
-                Write-HelperLog "Copy failed"
-                Start-Process -FilePath $RestartExecutable -WorkingDirectory $TargetDirectory | Out-Null
-                exit 1
-            }
-
-            Write-HelperLog "Copy succeeded, restarting app"
-            Start-Process -FilePath $RestartExecutable -WorkingDirectory $TargetDirectory | Out-Null
-
-            try {
-                if (Test-Path -LiteralPath $StagingRoot) {
-                    Remove-Item -LiteralPath $StagingRoot -Recurse -Force -ErrorAction SilentlyContinue
-                }
-                if (Test-Path -LiteralPath $AliasRoot) {
-                    Remove-Item -LiteralPath $AliasRoot -Recurse -Force -ErrorAction SilentlyContinue
-                }
-            }
-            catch {
-                Write-HelperLog "Cleanup warning: $($_.Exception.Message)"
-            }
-
-            Write-HelperLog "Cleanup finished"
-            """;
-
-        File.WriteAllText(scriptPath, script, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        return scriptPath;
-    }
-
-    private static string CreateMacUpdateScript(string sourceAppBundle, string targetAppBundle, string stagingRoot)
-    {
-        Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
-        Directory.CreateDirectory(ApplicationPaths.UpdaterLogsDirectory);
-        var scriptPath = Path.Combine(ApplicationPaths.UpdatesDirectory, $"aes-lacrima-update-{Guid.NewGuid():N}.sh");
-        var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
-        var pid = Environment.ProcessId;
-        var script = $$"""
-            #!/bin/sh
-            PID={{pid}}
-            SOURCE_APP='{{EscapeShellValue(sourceAppBundle)}}'
-            TARGET_APP='{{EscapeShellValue(targetAppBundle)}}'
-            STAGING='{{EscapeShellValue(stagingRoot)}}'
-            LOG='{{EscapeShellValue(helperLogPath)}}'
-            mkdir -p "$(dirname "$LOG")"
-            {
-                echo "==== $(date '+%Y-%m-%dT%H:%M:%S%z') helper start ===="
-                echo "PID=$PID"
-                echo "SOURCE_APP=$SOURCE_APP"
-                echo "TARGET_APP=$TARGET_APP"
-                echo "STAGING=$STAGING"
-            } >>"$LOG"
-            while kill -0 "$PID" 2>/dev/null; do
-                echo "waiting for PID $PID to exit" >>"$LOG"
-                sleep 1
-            done
-            echo "process exited, replacing app bundle" >>"$LOG"
-            TMP_APP="${TARGET_APP}.new"
-            rm -rf "$TMP_APP"
-            cp -R "$SOURCE_APP" "$TMP_APP"
-            rm -rf "$TARGET_APP"
-            mv "$TMP_APP" "$TARGET_APP"
-            echo "replacement finished, relaunching app bundle" >>"$LOG"
-            open -n "$TARGET_APP" >/dev/null 2>&1 &
-            rm -rf "$STAGING"
-            echo "cleanup finished" >>"$LOG"
-            rm -- "$0"
-            """;
-
-        File.WriteAllText(scriptPath, script, Encoding.UTF8);
-        if (OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
-            SetUnixExecutablePermissions(scriptPath);
-        return scriptPath;
-    }
-
-    private static string CreateLinuxUpdateScript(string sourceFile, string targetFile, string stagingRoot)
-    {
-        Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
-        Directory.CreateDirectory(ApplicationPaths.UpdaterLogsDirectory);
-        var scriptPath = Path.Combine(ApplicationPaths.UpdatesDirectory, $"aes-lacrima-update-{Guid.NewGuid():N}.sh");
-        var helperLogPath = Path.Combine(ApplicationPaths.UpdaterLogsDirectory, $"helper-{Environment.ProcessId}.log");
-        var pid = Environment.ProcessId;
-        var script = $$"""
-            #!/bin/sh
-            PID={{pid}}
-            SOURCE_FILE='{{EscapeShellValue(sourceFile)}}'
-            TARGET_FILE='{{EscapeShellValue(targetFile)}}'
-            STAGING='{{EscapeShellValue(stagingRoot)}}'
-            LOG='{{EscapeShellValue(helperLogPath)}}'
-            mkdir -p "$(dirname "$LOG")"
-            {
-                echo "==== $(date '+%Y-%m-%dT%H:%M:%S%z') helper start ===="
-                echo "PID=$PID"
-                echo "SOURCE_FILE=$SOURCE_FILE"
-                echo "TARGET_FILE=$TARGET_FILE"
-                echo "STAGING=$STAGING"
-            } >>"$LOG"
-            while kill -0 "$PID" 2>/dev/null; do
-                echo "waiting for PID $PID to exit" >>"$LOG"
-                sleep 1
-            done
-            echo "process exited, replacing AppImage" >>"$LOG"
-            chmod +x "$SOURCE_FILE"
-            cp "$SOURCE_FILE" "${TARGET_FILE}.new"
-            chmod +x "${TARGET_FILE}.new"
-            mv "${TARGET_FILE}.new" "$TARGET_FILE"
-            echo "replacement finished, relaunching AppImage" >>"$LOG"
-            nohup "$TARGET_FILE" >/dev/null 2>&1 &
-            rm -rf "$STAGING"
-            echo "cleanup finished" >>"$LOG"
-            rm -- "$0"
-            """;
-
-        File.WriteAllText(scriptPath, script, Encoding.UTF8);
-        if (OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
-            SetUnixExecutablePermissions(scriptPath);
-        return scriptPath;
-    }
-
-    private static void LaunchUpdateScript(string scriptPath)
-    {
-        ProcessStartInfo startInfo;
-        Directory.CreateDirectory(ApplicationPaths.UpdaterLogsDirectory);
-        if (OperatingSystem.IsWindows())
-        {
-            var powerShellPath = GetWindowsPowerShellPath();
-            startInfo = new ProcessStartInfo
-            {
-                FileName = powerShellPath,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = Path.GetDirectoryName(scriptPath)
-            };
-            startInfo.ArgumentList.Add("-NoProfile");
-            startInfo.ArgumentList.Add("-ExecutionPolicy");
-            startInfo.ArgumentList.Add("Bypass");
-            startInfo.ArgumentList.Add("-File");
-            startInfo.ArgumentList.Add(scriptPath);
-            WriteDiagnosticLog(
-                "Launching Windows update helper",
-                $"PowerShell={powerShellPath}",
-                $"ScriptPath={scriptPath}");
-        }
-        else
-        {
-            startInfo = new ProcessStartInfo
-            {
-                FileName = "/bin/sh",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = Path.GetDirectoryName(scriptPath)
-            };
-            startInfo.ArgumentList.Add(scriptPath);
-            WriteDiagnosticLog(
-                "Launching POSIX update helper",
-                $"Shell=/bin/sh",
-                $"ScriptPath={scriptPath}");
-        }
-
-        using var process = Process.Start(startInfo);
-        if (process == null)
-            throw new InvalidOperationException("Failed to launch the update helper process.");
-    }
+            UpdateTargetKind.DirectoryContents => PendingUpdateTargetKind.DirectoryContents,
+            UpdateTargetKind.MacBundle => PendingUpdateTargetKind.MacBundle,
+            UpdateTargetKind.LinuxAppImage => PendingUpdateTargetKind.LinuxAppImage,
+            _ => throw new InvalidOperationException($"Unsupported update target kind '{kind}'.")
+        };
 
     private static void ShutdownApplication()
     {
@@ -1330,79 +1207,12 @@ public partial class AppUpdateService : ObservableObject
                 Dispatcher.UIThread.Invoke(() => desktop.Shutdown());
             }
 
-            if (OperatingSystem.IsWindows())
+            if (App.IsSelfUpdating)
                 Environment.Exit(0);
             return;
         }
 
         Environment.Exit(0);
-    }
-
-    private static string EscapeBatchValue(string value)
-        => value.Replace("%", "%%", StringComparison.Ordinal);
-
-    private static string EscapeShellValue(string value)
-        => value.Replace("'", "'\"'\"'", StringComparison.Ordinal);
-
-    [SupportedOSPlatform("windows")]
-    private static string? TryGetWindowsShortPath(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-            return null;
-
-        try
-        {
-            var fullPath = Path.GetFullPath(path);
-            var buffer = new StringBuilder(260);
-            var result = GetShortPathName(fullPath, buffer, buffer.Capacity);
-            if (result == 0)
-                return fullPath;
-
-            if (result > buffer.Capacity)
-            {
-                buffer.EnsureCapacity((int)result);
-                result = GetShortPathName(fullPath, buffer, buffer.Capacity);
-                if (result == 0)
-                    return fullPath;
-            }
-
-            return buffer.ToString();
-        }
-        catch
-        {
-            return path;
-        }
-    }
-
-    [DllImport("kernel32.dll", EntryPoint = "GetShortPathNameW", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern uint GetShortPathName(string lpszLongPath, StringBuilder lpszShortPath, int cchBuffer);
-
-    [SupportedOSPlatform("linux")]
-    [SupportedOSPlatform("macos")]
-    private static void SetUnixExecutablePermissions(string path)
-    {
-        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-    }
-
-    private static string GetWindowsPowerShellPath()
-    {
-        var systemDirectory = Environment.SystemDirectory;
-        if (!string.IsNullOrWhiteSpace(systemDirectory))
-        {
-            var powerShellPath = Path.Combine(systemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
-            if (File.Exists(powerShellPath))
-                return powerShellPath;
-        }
-
-        var windowsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-        if (!string.IsNullOrWhiteSpace(windowsDirectory))
-        {
-            var powerShellPath = Path.Combine(windowsDirectory, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-            if (File.Exists(powerShellPath))
-                return powerShellPath;
-        }
-
-        return "powershell.exe";
     }
 
     private static void WriteDiagnosticLog(string message, params string[] details)

@@ -11,8 +11,10 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
-
+
 using AES_Core.Logging;
+using AES_Lacrima.Services;
+
 namespace AES_Lacrima
 {
     internal sealed class Program
@@ -81,6 +83,16 @@ namespace AES_Lacrima
                 Directory.CreateDirectory(ApplicationPaths.SettingsDirectory);
                 Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
                 Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
+
+                try
+                {
+                    PendingUpdateApplier.TryApplyAtStartup();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Failed to apply a pending application update during startup", ex);
+                }
+
                 Directory.CreateDirectory(ApplicationPaths.ShadersDirectory);
                 Directory.CreateDirectory(Path.Combine(ApplicationPaths.ShadersDirectory, "hlsl"));
                 Directory.CreateDirectory(Path.Combine(ApplicationPaths.ShadersDirectory, "glsl"));

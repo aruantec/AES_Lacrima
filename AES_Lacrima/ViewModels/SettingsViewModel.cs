@@ -1415,6 +1415,40 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     }
 
     [RelayCommand]
+    private async Task DownloadAvailableAppUpdateForLater()
+    {
+        if (AppUpdateService?.AvailableRelease is not { } release)
+            return;
+
+        await AppUpdateService.DownloadForNextLaunchAsync(release);
+    }
+
+    [RelayCommand]
+    private async Task DownloadSelectedAppReleaseForLater()
+    {
+        if (AppUpdateService == null || SelectedAppRelease == null)
+            return;
+
+        var preparedRelease = AppUpdateService.PrepareReleaseForInstall(SelectedAppRelease);
+        if (preparedRelease == null)
+        {
+            SelectedAppReleaseStatus = $"Version {SelectedAppRelease.DisplayLabel} does not have a compatible {PreferredAppUpdateFlavorLabel} package for this platform.";
+            return;
+        }
+
+        IsInstallingSelectedAppRelease = true;
+        try
+        {
+            await AppUpdateService.DownloadForNextLaunchAsync(preparedRelease);
+        }
+        finally
+        {
+            IsInstallingSelectedAppRelease = false;
+            SyncSelectedAppReleaseState();
+        }
+    }
+
+    [RelayCommand]
     private void DismissAvailableAppUpdate()
     {
         AppUpdateService?.DismissAvailableUpdate();
@@ -1801,6 +1835,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         if (e.PropertyName == nameof(AppUpdateService.IsBusy) ||
             e.PropertyName == nameof(AppUpdateService.IsDownloading) ||
+            e.PropertyName == nameof(AppUpdateService.HasDeterminateDownloadProgress) ||
             e.PropertyName == nameof(AppUpdateService.DownloadProgress) ||
             e.PropertyName == nameof(AppUpdateService.Status))
         {

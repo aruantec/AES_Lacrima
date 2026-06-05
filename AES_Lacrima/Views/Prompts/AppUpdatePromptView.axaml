@@ -56,14 +56,19 @@
                     <TextBlock Text="{Binding UpdateService.Status}"
                                Foreground="#D5D5D5"
                                TextWrapping="Wrap"/>
-                    <ProgressBar Height="8"
-                                 Minimum="0"
-                                 Maximum="100"
-                                 Value="{Binding UpdateService.DownloadProgress}"
-                                 IsVisible="{Binding UpdateService.IsDownloading}"/>
-                    <TextBlock Text="{Binding UpdateService.DownloadProgress, StringFormat='{}{0:0}% downloaded'}"
-                               Foreground="#A8A8A8"
-                               IsVisible="{Binding UpdateService.IsDownloading}"/>
+                    <StackPanel Spacing="6" IsVisible="{Binding UpdateService.IsDownloading}">
+                        <ProgressBar Height="8"
+                                     Minimum="0"
+                                     Maximum="100"
+                                     Value="{Binding UpdateService.DownloadProgress}"
+                                     IsIndeterminate="{Binding !UpdateService.HasDeterminateDownloadProgress}"/>
+                        <TextBlock Text="{Binding UpdateService.DownloadProgress, StringFormat='{}{0:0}% downloaded'}"
+                                   Foreground="#A8A8A8"
+                                   IsVisible="{Binding UpdateService.HasDeterminateDownloadProgress}"/>
+                        <TextBlock Text="Downloading update..."
+                                   Foreground="#A8A8A8"
+                                   IsVisible="{Binding !UpdateService.HasDeterminateDownloadProgress}"/>
+                    </StackPanel>
                 </StackPanel>
 
                 <StackPanel Grid.Row="4"
@@ -77,6 +82,12 @@
                             Background="Transparent"
                             BorderBrush="#555555"
                             Width="110"/>
+                    <Button Content="DOWNLOAD FOR LATER"
+                            Command="{Binding DownloadForLaterCommand}"
+                            IsEnabled="{Binding !UpdateService.IsBusy}"
+                            Background="Transparent"
+                            BorderBrush="#555555"
+                            Width="180"/>
                     <Button Content="DOWNLOAD AND RESTART"
                             Command="{Binding DownloadAndRestartCommand}"
                             IsEnabled="{Binding !UpdateService.IsBusy}"

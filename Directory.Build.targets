@@ -1,8 +1,17 @@
 <Project>
-  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
-    <!-- Ensure linker incremental linking is enabled (overrides project setting) -->
-    <LinkIncremental>true</LinkIncremental>
-    <!-- Use Program Database debug info instead of Edit-and-Continue to avoid /EDITANDCONTINUE being emitted -->
-    <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-  </PropertyGroup>
+  <!-- .NET SDK 10 can leave literal ** globs in default item groups for projects with no matching files. -->
+  <Target Name="ClearLiteralAvaloniaXamlGlobs" BeforeTargets="GenerateAvaloniaResources">
+    <ItemGroup>
+      <AvaloniaXaml Remove="@(AvaloniaXaml)"
+                    Condition="$([System.String]::Copy('%(Identity)').Contains('*'))" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="ClearLiteralEmbeddedResourceGlobs" BeforeTargets="CoreResGen">
+    <ItemGroup>
+      <EmbeddedResource Remove="@(EmbeddedResource)"
+                        Condition="$([System.String]::Copy('%(Identity)').Contains('*'))" />
+    </ItemGroup>
+  </Target>
+
 </Project>

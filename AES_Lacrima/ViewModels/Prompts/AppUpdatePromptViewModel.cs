@@ -41,13 +41,19 @@ public partial class AppUpdatePromptViewModel : ViewModelBase
 
     public string SecondaryMessage =>
         UpdateService.IsFlavorSwitchRelease(Release)
-            ? "Download this build to switch between AOT and non-AOT without waiting for a new version. Skipping only closes this prompt for the current session."
-            : "Download the update now and the app will restart to apply it. Skipping only closes this prompt for the current session.";
+            ? "Download this build to switch between AOT and non-AOT without waiting for a new version. You can restart now or download now and restart later. Skipping only closes this prompt for the current session."
+            : "Download the update now and restart immediately, or download now and restart later when convenient. Skipping only closes this prompt for the current session.";
 
     [RelayCommand]
     private async Task DownloadAndRestart()
     {
         await UpdateService.DownloadAndRestartToApplyUpdateAsync(Release);
+    }
+
+    [RelayCommand]
+    private async Task DownloadForLater()
+    {
+        await UpdateService.DownloadForNextLaunchAsync(Release);
     }
 
     [RelayCommand]

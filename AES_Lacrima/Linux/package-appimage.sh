@@ -113,7 +113,10 @@ printf '%s\n' "$APP_VERSION" > "$APPDIR/usr/share/aes-lacrima/version.txt"
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-APPDIR="$(cd "$(dirname "$0")" && pwd)"
+export APPDIR="$(cd "$(dirname "$0")" && pwd)"
+if [[ -z "${APPIMAGE:-}" && -n "${ARGV0:-}" ]]; then
+  export APPIMAGE="$ARGV0"
+fi
 exec "$APPDIR/usr/bin/AES_Lacrima" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
