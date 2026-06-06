@@ -58,6 +58,12 @@ namespace AES_Controls.Composition
         public static readonly StyledProperty<bool> ShowPositionLabelProperty =
             AvaloniaProperty.Register<PillProgressSlider, bool>(nameof(ShowPositionLabel), false);
 
+        public static readonly StyledProperty<double> SmallChangeProperty =
+            AvaloniaProperty.Register<PillProgressSlider, double>(nameof(SmallChange), 0.0);
+
+        public static readonly StyledProperty<double> LargeChangeProperty =
+            AvaloniaProperty.Register<PillProgressSlider, double>(nameof(LargeChange), 0.0);
+
         private CompositionCustomVisual? _visual;
         private bool _isPressed;
         private DateTime _suppressExternalUpdatesUntil = DateTime.MinValue;
@@ -142,6 +148,18 @@ namespace AES_Controls.Composition
         {
             get => GetValue(ShowPositionLabelProperty);
             set => SetValue(ShowPositionLabelProperty, value);
+        }
+
+        public double SmallChange
+        {
+            get => GetValue(SmallChangeProperty);
+            set => SetValue(SmallChangeProperty, value);
+        }
+
+        public double LargeChange
+        {
+            get => GetValue(LargeChangeProperty);
+            set => SetValue(LargeChangeProperty, value);
         }
 
         private Rect TrackBounds
@@ -288,6 +306,44 @@ namespace AES_Controls.Composition
             e.Handled = true;
         }
 
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (e.Handled)
+                return;
+
+            double? delta = e.Key switch
+            {
+                Key.Left or Key.Down => -GetSmallChange(),
+                Key.Right or Key.Up => GetSmallChange(),
+                Key.PageDown => -GetLargeChange(),
+                Key.PageUp => GetLargeChange(),
+                _ => null
+            };
+
+            if (delta.HasValue)
+            {
+                if (delta.Value != 0.0)
+                    ApplyKeyboardValue(Math.Clamp(Value + delta.Value, Minimum, Maximum));
+
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Home)
+            {
+                ApplyKeyboardValue(Minimum);
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.End)
+            {
+                ApplyKeyboardValue(Maximum);
+                e.Handled = true;
+            }
+        }
+
         private void SendVisualConfiguration()
         {
             if (_visual == null)
@@ -313,6 +369,39 @@ namespace AES_Controls.Composition
             double min = Minimum;
             double max = Maximum;
             Value = min + pct * Math.Max(0, max - min);
+        }
+
+        private void ApplyKeyboardValue(double newValue)
+        {
+            Value = newValue;
+            _visual?.SendHandlerMessage(new InstantSliderPositionMessage(NormalizeValue(newValue)));
+
+            if (SetValueCommand?.CanExecute(Value) == true)
+            {
+                SetValueCommand.Execute(Value);
+                _suppressExternalUpdatesUntil = DateTime.UtcNow.AddMilliseconds(800);
+            }
+        }
+
+        private double GetSmallChange()
+        {
+            if (SmallChange > 0.0)
+                return SmallChange;
+
+            double range = Maximum - Minimum;
+            return range <= 0.0 ? 0.0 : Math.Max(range / 100.0, 0.001);
+        }
+
+        private double GetLargeChange()
+        {
+            if (LargeChange > 0.0)
+                return LargeChange;
+
+            double range = Maximum - Minimum;
+            if (range <= 0.0)
+                return 0.0;
+
+            return Math.Max(range / 10.0, GetSmallChange());
         }
 
         private double NormalizeValue(double val)

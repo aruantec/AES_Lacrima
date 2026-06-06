@@ -773,17 +773,13 @@
                 </Button>
 
                 <!-- Volume -->
-                <composition:PillProgressSlider Width="120"
-                                                Height="28"
-                                                TrackHeight="14"
-                                                ExecuteDuringDrag="True"
-                                                Minimum="0"
-                                                Maximum="100"
-                                                Value="{Binding AudioPlayer.Volume, Mode=TwoWay}"
-                                                HorizontalAlignment="Right"
-                                                Margin="0,0,70,0"
-                                                TrackBorderBrush="#CCCCCC"
-                                                FillBrush="#99F5F5F5"/>
+                <player:VerticalVolumeSliderControl Width="52"
+                                                    Height="100"
+                                                    Minimum="0"
+                                                    Maximum="100"
+                                                    Value="{Binding AudioPlayer.Volume, Mode=TwoWay}"
+                                                    HorizontalAlignment="Right"
+                                                    Margin="0,0,70,0"/>
             </StackPanel>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>

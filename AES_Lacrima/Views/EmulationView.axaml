@@ -2642,17 +2642,13 @@
                     </Viewbox>
                 </Button>
 
-                <composition:PillProgressSlider Width="120"
-                                                Height="28"
-                                                TrackHeight="14"
-                                                ExecuteDuringDrag="True"
-                                                Minimum="0"
-                                                Maximum="100"
-                                                Value="{Binding EmulatorVolume, Mode=TwoWay}"
-                                                IsVisible="{Binding IsEmulatorRunning}"
-                                                VerticalAlignment="Center"
-                                                TrackBorderBrush="#CCCCCC"
-                                                FillBrush="#99F5F5F5"/>
+                <player:VerticalVolumeSliderControl Width="40"
+                                                    Height="100"
+                                                    Minimum="0"
+                                                    Maximum="100"
+                                                    Value="{Binding EmulatorVolume, Mode=TwoWay}"
+                                                    IsVisible="{Binding IsEmulatorRunning}"
+                                                    VerticalAlignment="Center"/>
             </StackPanel>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>

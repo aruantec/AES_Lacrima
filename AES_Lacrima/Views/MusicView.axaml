@@ -754,43 +754,48 @@
                 </Button>
 
                 <!-- Volume -->
-                <composition:PillProgressSlider Width="120"
-                                                Height="28"
-                                                TrackHeight="14"
-                                                ExecuteDuringDrag="True"
-                                                Minimum="0"
-                                                Maximum="100"
-                                                Value="{Binding AudioPlayer.Volume, Mode=TwoWay}"
-                                                HorizontalAlignment="Right"
-                                                Margin="0,0,70,0"
-                                                TrackBorderBrush="#CCCCCC"
-                                                FillBrush="#99F5F5F5"/>
+                <player:VerticalVolumeSliderControl Width="52"
+                                                    Height="100"
+                                                    Minimum="0"
+                                                    Maximum="100"
+                                                    Value="{Binding AudioPlayer.Volume, Mode=TwoWay}"
+                                                    HorizontalAlignment="Right"
+                                                    Margin="0,0,70,0"/>
             </StackPanel>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
 
         <!-- Progressbar -->
         <Grid Grid.Row="2" Background="#FF000000">
-            <composition:PillProgressSlider Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
-                                            Height="70"
-                                            Margin="24,5,24,15"
-                                            Minimum="0"
-                                            Maximum="{Binding AudioPlayer.Duration, FallbackValue=1}"
-                                            Value="{Binding AudioPlayer.Position, Mode=TwoWay}"
-                                            SetValueCommand="{Binding SetPositionCommand}"
-                                            ExecuteDuringDrag="True"
-                                            TrackHeight="42"
-                                            LabelFontSize="22"
-                                            ShowPositionLabel="True"
-                                            TrackBorderBrush="#CCCCCC"
-                                            FillBrush="#99F5F5F5">
-                <composition:PillProgressSlider.LabelText>
-                    <MultiBinding StringFormat="{}{0} / {1}">
-                        <Binding Path="AudioPlayer.Position" Converter="{StaticResource TimeSpanConverter}" />
-                        <Binding Path="AudioPlayer.Duration" Converter="{StaticResource TimeSpanConverter}" />
-                    </MultiBinding>
-                </composition:PillProgressSlider.LabelText>
-            </composition:PillProgressSlider>
+			<player:WaveformProgressBar Margin="1,5,1,10"
+                                        IndicatorColor="Gray"
+                                        Waveform="{Binding AudioPlayer.Waveform}"
+                                        Value="{Binding AudioPlayer.Position, Mode=TwoWay}"
+                                        Maximum="{Binding AudioPlayer.Duration}"
+                                        IsLoading="{Binding AudioPlayer.IsLoadingWaveform}"
+                                        PlayedColor="{Binding SettingsViewModel.WaveformPlayedColor, Converter={StaticResource ColorToBrushConverter}}"
+                                        UnPlayedColor="{Binding SettingsViewModel.WaveformUnplayedColor, Converter={StaticResource ColorToBrushConverter}}"
+                                        BarGap="{Binding SettingsViewModel.WaveformBarGap}"
+                                        BlockHeight="{Binding SettingsViewModel.WaveformBlockHeight}"
+                                        VerticalGap="{Binding SettingsViewModel.WaveformVerticalGap}"
+                                        VisualBarCount="{Binding SettingsViewModel.WaveformVisualBars}"
+                                        BarGradient="{Binding SettingsViewModel.UseWaveformGradient, Converter={StaticResource BoolToValueConverter}, ConverterParameter={StaticResource DigitalWaveformGradient}}"
+                                        IsSymmetric="{Binding SettingsViewModel.IsWaveformSymmetric}"
+                                        Height="60"
+                                        BorderBrush="Gray"
+                                        Background="Transparent"
+                                        BorderThickness="1"
+                                        DragCompletedCommand="{Binding SetPositionCommand}"
+                                        TextForegroundColor="LightGray"
+                                        TextSize="16"
+                                        TriangleOffset="-14"
+                                        Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}">
+                <player:WaveformProgressBar.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.500" Easing="SineEaseInOut"/>
+                    </Transitions>
+                </player:WaveformProgressBar.Transitions>
+            </player:WaveformProgressBar>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
 
