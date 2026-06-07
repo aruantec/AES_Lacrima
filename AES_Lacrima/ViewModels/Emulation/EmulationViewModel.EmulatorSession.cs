@@ -804,6 +804,7 @@ namespace AES_Lacrima.ViewModels
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
             IsEmulatorPaused = false;
+
             if (!_isClosingActiveEmulatorForRelaunch)
                 RequestStopEmulatorCapture = true;
             if (currentHandler is CemuHandler cemuHandler)
