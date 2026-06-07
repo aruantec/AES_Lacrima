@@ -100,6 +100,21 @@ namespace AES_Lacrima
                 Directory.CreateDirectory(ApplicationPaths.ToolsDirectory);
                 Directory.CreateDirectory(ApplicationPaths.EmulatorsDirectory);
 
+                if (OperatingSystem.IsLinux())
+                {
+                    var captureBridgePath = Path.Combine(AppContext.BaseDirectory, "libAesLinuxCaptureBridge.so");
+                    if (File.Exists(captureBridgePath))
+                    {
+                        var libraryPath = Environment.GetEnvironmentVariable("LD_LIBRARY_PATH") ?? string.Empty;
+                        if (!libraryPath.Contains(AppContext.BaseDirectory, StringComparison.Ordinal))
+                        {
+                            Environment.SetEnvironmentVariable(
+                                "LD_LIBRARY_PATH",
+                                $"{AppContext.BaseDirectory}{pathSeparator}{libraryPath}");
+                        }
+                    }
+                }
+
                 // Ensure libmpv and other native helpers are loaded from the per-user Tools folder
                 try
                 {

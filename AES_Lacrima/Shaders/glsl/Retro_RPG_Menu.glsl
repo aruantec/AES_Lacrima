@@ -120,7 +120,7 @@ void main()
 
     float lumaOut = GetLuma(color);
     color = mix(vec3(lumaOut, lumaOut, lumaOut), color, saturation * 1.08);
-    color = pow(clamp(color, 0.0, 1.0), 0.97);
+    color = pow(clamp(color, 0.0, 1.0), vec3(0.97));
     color *= brightness;
     color *= tint.rgb;
 

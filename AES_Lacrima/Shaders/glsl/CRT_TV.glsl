@@ -78,7 +78,7 @@ void main()
     float frameShape = 0.35;
     float frameLimit = 0.30;
     float frameSharpness = 1.10;
-    float frame = saturate(frameSharpness * (pow(f, frameShape) - frameLimit));
+    float frame = clamp(frameSharpness * (pow(f, frameShape) - frameLimit), 0.0, 1.0);
     color *= frame;
 
     color *= brightness;

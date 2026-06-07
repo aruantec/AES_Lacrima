@@ -49,7 +49,7 @@ vec3 AcesTonemap(vec3 x)
     const float c = 2.43;
     const float d = 0.59;
     const float e = 0.14;
-    return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
 
 vec3 ApplyVibrance(vec3 color, float amount)
@@ -91,7 +91,7 @@ void main()
     color += vec3(0.06, 0.03, 0.0) * smoothstep(0.55, 1.0, dot(color, vec3(0.299, 0.587, 0.114)));
 
     color = ApplyVibrance(color, 0.55 * saturation);
-    color = pow(clamp(color, 0.0, 1.0), 0.92);
+    color = pow(clamp(color, 0.0, 1.0), vec3(0.92));
 
     float luma = dot(color, vec3(0.299, 0.587, 0.114));
     color = mix(vec3(luma, luma, luma), color, saturation * 1.18);

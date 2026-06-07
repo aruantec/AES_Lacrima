@@ -1,0 +1,613 @@
+using System;
+using System.Runtime.Versioning;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Platform;
+using Avalonia.Threading;
+using AES_Controls;
+using AES_Emulation.Linux.API;
+
+namespace AES_Emulation.Linux;
+
+[SupportedOSPlatform("linux")]
+public class LinuxCaptureHost : NativeControlHost, IScaleExclusionRenderTarget
+{
+    public static readonly StyledProperty<IntPtr> TargetHwndProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, IntPtr>(nameof(TargetHwnd));
+
+    public static readonly StyledProperty<int> CompositorProcessIdProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, int>(nameof(CompositorProcessId));
+
+    public static readonly StyledProperty<string?> TargetWindowTitleHintProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, string?>(nameof(TargetWindowTitleHint), null);
+
+    public static readonly StyledProperty<bool> RequestStopSessionProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, bool>(nameof(RequestStopSession), false);
+
+    public static readonly StyledProperty<Stretch> StretchProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, Stretch>(nameof(Stretch), Stretch.UniformToFill);
+
+    public static readonly StyledProperty<double> BrightnessProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, double>(nameof(Brightness), 1.0);
+
+    public static readonly StyledProperty<double> SaturationProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, double>(nameof(Saturation), 1.0);
+
+    public static readonly StyledProperty<Color> ColorTintProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, Color>(nameof(ColorTint), Colors.White);
+
+    public static readonly StyledProperty<bool> DisableVSyncProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, bool>(nameof(DisableVSync), false);
+
+    public static readonly StyledProperty<string?> ShaderPathProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, string?>(nameof(ShaderPath), null);
+
+    public static readonly StyledProperty<bool> ClearShaderWhenPathEmptyProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, bool>(nameof(ClearShaderWhenPathEmpty), false);
+
+    public static readonly StyledProperty<bool> ForceUseTargetClientAreaProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, bool>(nameof(ForceUseTargetClientArea), false);
+
+    public static readonly StyledProperty<bool> PreferPipeWireProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, bool>(nameof(PreferPipeWire), true);
+
+    public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
+
+    public static readonly StyledProperty<int> ClientAreaCropLeftInsetProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, int>(nameof(ClientAreaCropLeftInset), 0);
+
+    public static readonly StyledProperty<int> ClientAreaCropTopInsetProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, int>(nameof(ClientAreaCropTopInset), 0);
+
+    public static readonly StyledProperty<int> ClientAreaCropRightInsetProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, int>(nameof(ClientAreaCropRightInset), 0);
+
+    public static readonly StyledProperty<int> ClientAreaCropBottomInsetProperty =
+        AvaloniaProperty.Register<LinuxCaptureHost, int>(nameof(ClientAreaCropBottomInset), 0);
+
+    public static readonly DirectProperty<LinuxCaptureHost, string> StatusTextProperty =
+        AvaloniaProperty.RegisterDirect<LinuxCaptureHost, string>(
+            nameof(StatusText),
+            o => o.StatusText);
+
+    public static readonly DirectProperty<LinuxCaptureHost, bool> IsDirectCompositionActiveProperty =
+        AvaloniaProperty.RegisterDirect<LinuxCaptureHost, bool>(
+            nameof(IsDirectCompositionActive),
+            o => o.IsDirectCompositionActive);
+
+    public static readonly DirectProperty<LinuxCaptureHost, bool> IsCaptureInitializingProperty =
+        AvaloniaProperty.RegisterDirect<LinuxCaptureHost, bool>(
+            nameof(IsCaptureInitializing),
+            o => o.IsCaptureInitializing);
+
+    public static readonly DirectProperty<LinuxCaptureHost, double> FpsProperty =
+        AvaloniaProperty.RegisterDirect<LinuxCaptureHost, double>(
+            nameof(Fps),
+            o => o.Fps);
+
+    public static readonly DirectProperty<LinuxCaptureHost, double> FrameTimeMsProperty =
+        AvaloniaProperty.RegisterDirect<LinuxCaptureHost, double>(
+            nameof(FrameTimeMs),
+            o => o.FrameTimeMs);
+
+    public static readonly DirectProperty<LinuxCaptureHost, string> GpuRendererProperty =
+        AvaloniaProperty.RegisterDirect<LinuxCaptureHost, string>(
+            nameof(GpuRenderer),
+            o => o.GpuRenderer);
+
+    public static readonly DirectProperty<LinuxCaptureHost, string> GpuVendorProperty =
+        AvaloniaProperty.RegisterDirect<LinuxCaptureHost, string>(
+            nameof(GpuVendor),
+            o => o.GpuVendor);
+
+    private readonly DispatcherTimer _statusTimer;
+    private IntPtr _capture;
+    private bool _isAttached;
+    private bool _hasAppliedRenderOptions;
+    private double _lastBrightness = -1;
+    private double _lastSaturation = -1;
+    private Color _lastTint = Colors.Transparent;
+    private int _lastStretch = -1;
+    private int _lastCropLeft = -1;
+    private int _lastCropTop = -1;
+    private int _lastCropRight = -1;
+    private int _lastCropBottom = -1;
+    private bool _lastHideTargetWindowAfterCaptureStarts = false;
+    private string? _lastShaderPath = null;
+    private bool? _lastDisableVSync = null;
+    private bool? _lastPreferPipeWire = null;
+    private bool _portalSessionRequested;
+    private int _lastCompositorProcessId;
+    private IntPtr _lastTargetHwnd;
+    private int _renderOptionsUpdateCount = 0;
+    private int _lastHostWidth = -1;
+    private int _lastHostHeight = -1;
+    private bool _lastCropFrameExtents = true;
+
+    private string _statusText = "Idle";
+    private bool _isDirectCompositionActive;
+    private bool _isCaptureInitializing;
+    private double _fps;
+    private double _frameTimeMs;
+    private string _gpuRenderer = "Unknown";
+    private string _gpuVendor = "Unknown";
+
+    public LinuxCaptureHost()
+    {
+        ClipToBounds = true;
+        _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Background, (_, _) => RefreshStatus());
+    }
+
+    public IntPtr TargetHwnd
+    {
+        get => GetValue(TargetHwndProperty);
+        set => SetValue(TargetHwndProperty, value);
+    }
+
+    public int CompositorProcessId
+    {
+        get => GetValue(CompositorProcessIdProperty);
+        set => SetValue(CompositorProcessIdProperty, value);
+    }
+
+    public string? TargetWindowTitleHint
+    {
+        get => GetValue(TargetWindowTitleHintProperty);
+        set => SetValue(TargetWindowTitleHintProperty, value);
+    }
+
+    public bool RequestStopSession
+    {
+        get => GetValue(RequestStopSessionProperty);
+        set => SetValue(RequestStopSessionProperty, value);
+    }
+
+    public Stretch Stretch
+    {
+        get => GetValue(StretchProperty);
+        set => SetValue(StretchProperty, value);
+    }
+
+    public double Brightness
+    {
+        get => GetValue(BrightnessProperty);
+        set => SetValue(BrightnessProperty, value);
+    }
+
+    public double Saturation
+    {
+        get => GetValue(SaturationProperty);
+        set => SetValue(SaturationProperty, value);
+    }
+
+    public Color ColorTint
+    {
+        get => GetValue(ColorTintProperty);
+        set => SetValue(ColorTintProperty, value);
+    }
+
+    public bool DisableVSync
+    {
+        get => GetValue(DisableVSyncProperty);
+        set => SetValue(DisableVSyncProperty, value);
+    }
+
+    public string? ShaderPath
+    {
+        get => GetValue(ShaderPathProperty);
+        set => SetValue(ShaderPathProperty, value);
+    }
+
+    public bool ClearShaderWhenPathEmpty
+    {
+        get => GetValue(ClearShaderWhenPathEmptyProperty);
+        set => SetValue(ClearShaderWhenPathEmptyProperty, value);
+    }
+
+    public bool ForceUseTargetClientArea
+    {
+        get => GetValue(ForceUseTargetClientAreaProperty);
+        set => SetValue(ForceUseTargetClientAreaProperty, value);
+    }
+
+    public bool PreferPipeWire
+    {
+        get => GetValue(PreferPipeWireProperty);
+        set => SetValue(PreferPipeWireProperty, value);
+    }
+
+    public bool HideTargetWindowAfterCaptureStarts
+    {
+        get => GetValue(HideTargetWindowAfterCaptureStartsProperty);
+        set => SetValue(HideTargetWindowAfterCaptureStartsProperty, value);
+    }
+
+    public int ClientAreaCropLeftInset
+    {
+        get => GetValue(ClientAreaCropLeftInsetProperty);
+        set => SetValue(ClientAreaCropLeftInsetProperty, value);
+    }
+
+    public int ClientAreaCropTopInset
+    {
+        get => GetValue(ClientAreaCropTopInsetProperty);
+        set => SetValue(ClientAreaCropTopInsetProperty, value);
+    }
+
+    public int ClientAreaCropRightInset
+    {
+        get => GetValue(ClientAreaCropRightInsetProperty);
+        set => SetValue(ClientAreaCropRightInsetProperty, value);
+    }
+
+    public int ClientAreaCropBottomInset
+    {
+        get => GetValue(ClientAreaCropBottomInsetProperty);
+        set => SetValue(ClientAreaCropBottomInsetProperty, value);
+    }
+
+    public string StatusText
+    {
+        get => _statusText;
+        private set => SetAndRaise(StatusTextProperty, ref _statusText, value);
+    }
+
+    public bool IsDirectCompositionActive
+    {
+        get => _isDirectCompositionActive;
+        private set => SetAndRaise(IsDirectCompositionActiveProperty, ref _isDirectCompositionActive, value);
+    }
+
+    public bool IsCaptureInitializing
+    {
+        get => _isCaptureInitializing;
+        private set => SetAndRaise(IsCaptureInitializingProperty, ref _isCaptureInitializing, value);
+    }
+
+    public double Fps
+    {
+        get => _fps;
+        private set => SetAndRaise(FpsProperty, ref _fps, value);
+    }
+
+    public double FrameTimeMs
+    {
+        get => _frameTimeMs;
+        private set => SetAndRaise(FrameTimeMsProperty, ref _frameTimeMs, value);
+    }
+
+    public string GpuRenderer
+    {
+        get => _gpuRenderer;
+        private set => SetAndRaise(GpuRendererProperty, ref _gpuRenderer, value);
+    }
+
+    public string GpuVendor
+    {
+        get => _gpuVendor;
+        private set => SetAndRaise(GpuVendorProperty, ref _gpuVendor, value);
+    }
+
+    public void ForwardFocusToTarget()
+    {
+        if (_capture != IntPtr.Zero)
+            LinuxCaptureBridge.aes_linux_capture_forward_focus(_capture);
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        _isAttached = true;
+        EnsureCaptureSession();
+        _statusTimer.Start();
+        Dispatcher.UIThread.Post(UpdateHostBounds, DispatcherPriority.Loaded);
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnDetachedFromVisualTree(e);
+        _isAttached = false;
+        _statusTimer.Stop();
+        StopSession();
+    }
+
+    protected override Size ArrangeOverride(Size finalSize)
+    {
+        var arranged = base.ArrangeOverride(finalSize);
+        UpdateHostBounds();
+        return arranged;
+    }
+
+    public void RefreshExclusionRenderSize() => UpdateHostBounds();
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        if (change.Property == BoundsProperty)
+            UpdateHostBounds();
+        else if (change.Property == TargetHwndProperty ||
+            change.Property == CompositorProcessIdProperty ||
+            change.Property == TargetWindowTitleHintProperty)
+        {
+            EnsureCaptureSession();
+        }
+        else if (change.Property == RequestStopSessionProperty && change.GetNewValue<bool>())
+        {
+            StopSession();
+            SetCurrentValue(RequestStopSessionProperty, false);
+        }
+        else if (change.Property == StretchProperty ||
+                 change.Property == BrightnessProperty ||
+                 change.Property == SaturationProperty ||
+                 change.Property == ColorTintProperty ||
+                 change.Property == DisableVSyncProperty ||
+                 change.Property == ShaderPathProperty ||
+                 change.Property == ClearShaderWhenPathEmptyProperty ||
+                 change.Property == PreferPipeWireProperty ||
+                 change.Property == HideTargetWindowAfterCaptureStartsProperty ||
+                 change.Property == ForceUseTargetClientAreaProperty ||
+                 change.Property == ClientAreaCropLeftInsetProperty ||
+                 change.Property == ClientAreaCropTopInsetProperty ||
+                 change.Property == ClientAreaCropRightInsetProperty ||
+                 change.Property == ClientAreaCropBottomInsetProperty)
+        {
+            ApplyRenderOptions();
+        }
+    }
+
+    protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
+    {
+        if (!OperatingSystem.IsLinux())
+            return base.CreateNativeControlCore(parent);
+
+        _capture = LinuxCaptureBridge.aes_linux_capture_create(parent.Handle);
+        if (_capture == IntPtr.Zero)
+        {
+            StatusText = "Linux capture host creation failed";
+            return base.CreateNativeControlCore(parent);
+        }
+
+        _hasAppliedRenderOptions = false;
+
+        var view = LinuxCaptureBridge.aes_linux_capture_get_view(_capture);
+        if (view == IntPtr.Zero)
+        {
+            StatusText = "Linux capture Window creation failed";
+            return base.CreateNativeControlCore(parent);
+        }
+
+        ApplyRenderOptions();
+        EnsureCaptureSession();
+        UpdateHostBounds();
+        return new PlatformHandle(view, "X11Window");
+    }
+
+    protected override void DestroyNativeControlCore(IPlatformHandle control)
+    {
+        StopSession();
+
+        if (_capture != IntPtr.Zero)
+        {
+            LinuxCaptureBridge.aes_linux_capture_destroy(_capture);
+            _capture = IntPtr.Zero;
+            _hasAppliedRenderOptions = false;
+        }
+
+        base.DestroyNativeControlCore(control);
+    }
+
+    private void EnsureCaptureSession()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            StatusText = "Linux capture is Linux-only";
+            return;
+        }
+
+        if (!_isAttached || _capture == IntPtr.Zero)
+            return;
+
+        ApplyRenderOptions();
+
+        if (TargetHwnd != IntPtr.Zero)
+        {
+            if (_lastTargetHwnd == TargetHwnd && _portalSessionRequested)
+                return;
+
+            _lastTargetHwnd = TargetHwnd;
+            _lastCompositorProcessId = CompositorProcessId;
+            _portalSessionRequested = true;
+            LinuxCaptureBridge.aes_linux_capture_set_target_window(_capture, TargetHwnd);
+        }
+        else if (CompositorProcessId > 0)
+        {
+            if (_portalSessionRequested && _lastCompositorProcessId == CompositorProcessId)
+                return;
+
+            _lastCompositorProcessId = CompositorProcessId;
+            _lastTargetHwnd = IntPtr.Zero;
+            _portalSessionRequested = true;
+            LinuxCaptureBridge.aes_linux_capture_set_use_pipewire(_capture, 1);
+            LinuxCaptureBridge.aes_linux_capture_set_target(_capture, CompositorProcessId, "gamescope");
+        }
+        else
+        {
+            StatusText = "Waiting for gamescope";
+            return;
+        }
+
+        RefreshStatus();
+    }
+
+    private void StopSession()
+    {
+        if (_capture != IntPtr.Zero)
+            LinuxCaptureBridge.aes_linux_capture_stop(_capture);
+
+        _portalSessionRequested = false;
+        _lastCompositorProcessId = 0;
+        _lastTargetHwnd = IntPtr.Zero;
+        IsCaptureInitializing = false;
+        IsDirectCompositionActive = false;
+        Fps = 0;
+        FrameTimeMs = 0;
+    }
+
+    private void ApplyRenderOptions()
+    {
+        if (_capture == IntPtr.Zero)
+            return;
+
+        LinuxCaptureBridge.aes_linux_capture_set_use_pipewire(_capture, 1);
+
+        var shouldClearShader = string.IsNullOrWhiteSpace(ShaderPath) && ClearShaderWhenPathEmpty;
+        var shaderPath = shouldClearShader ? string.Empty : (ShaderPath ?? string.Empty);
+        var stretch = MapStretch(Stretch);
+
+        if (!_hasAppliedRenderOptions || _lastStretch != stretch)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_stretch(_capture, stretch);
+            _lastStretch = stretch;
+        }
+
+        if (!_hasAppliedRenderOptions ||
+            Math.Abs(_lastBrightness - Brightness) > 0.0001 ||
+            Math.Abs(_lastSaturation - Saturation) > 0.0001 ||
+            _lastTint != ColorTint)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_render_options(
+                _capture,
+                (float)Brightness,
+                (float)Saturation,
+                ColorTint.R / 255f,
+                ColorTint.G / 255f,
+                ColorTint.B / 255f,
+                ColorTint.A / 255f);
+            _lastBrightness = Brightness;
+            _lastSaturation = Saturation;
+            _lastTint = ColorTint;
+        }
+
+        if (!_hasAppliedRenderOptions ||
+            _lastCropLeft != ClientAreaCropLeftInset ||
+            _lastCropTop != ClientAreaCropTopInset ||
+            _lastCropRight != ClientAreaCropRightInset ||
+            _lastCropBottom != ClientAreaCropBottomInset)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_crop_insets(
+                _capture,
+                ClientAreaCropLeftInset,
+                ClientAreaCropTopInset,
+                ClientAreaCropRightInset,
+                ClientAreaCropBottomInset);
+            _lastCropLeft = ClientAreaCropLeftInset;
+            _lastCropTop = ClientAreaCropTopInset;
+            _lastCropRight = ClientAreaCropRightInset;
+            _lastCropBottom = ClientAreaCropBottomInset;
+        }
+
+        if (!_hasAppliedRenderOptions || _lastHideTargetWindowAfterCaptureStarts != HideTargetWindowAfterCaptureStarts)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_capture_behavior(_capture, HideTargetWindowAfterCaptureStarts ? 1 : 0);
+            _lastHideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
+        }
+
+        if (!_hasAppliedRenderOptions || _lastShaderPath != shaderPath)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_shader_path(_capture, shaderPath);
+            _lastShaderPath = shaderPath;
+        }
+
+        if (!_hasAppliedRenderOptions || _lastDisableVSync != DisableVSync)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_disable_vsync(_capture, DisableVSync ? 1 : 0);
+            _lastDisableVSync = DisableVSync;
+        }
+
+        if (!_hasAppliedRenderOptions || _lastPreferPipeWire != PreferPipeWire)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_use_pipewire(_capture, PreferPipeWire ? 1 : 0);
+            _lastPreferPipeWire = PreferPipeWire;
+        }
+
+        var cropFrameExtents = ForceUseTargetClientArea || PreferPipeWire;
+        if (!_hasAppliedRenderOptions || _lastCropFrameExtents != cropFrameExtents)
+        {
+            LinuxCaptureBridge.aes_linux_capture_set_crop_frame_extents(_capture, cropFrameExtents ? 1 : 0);
+            _lastCropFrameExtents = cropFrameExtents;
+        }
+
+        _renderOptionsUpdateCount++;
+        _hasAppliedRenderOptions = true;
+    }
+
+    private int MapStretch(Stretch stretch)
+    {
+        return stretch switch
+        {
+            Stretch.None => 0,
+            Stretch.Fill => 1,
+            Stretch.Uniform => 2,
+            Stretch.UniformToFill => 3,
+            _ => 3
+        };
+    }
+
+    private void UpdateHostBounds()
+    {
+        if (!OperatingSystem.IsLinux() || _capture == IntPtr.Zero)
+            return;
+
+        var boundsSize = Bounds.Size;
+        if (boundsSize.Width <= 0 || boundsSize.Height <= 0)
+            return;
+
+        var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+        var exclusionScale = Math.Max(1.0, ScalableDecorator.GetExclusionRenderScale(this));
+        var width = Math.Max(1, (int)Math.Ceiling(boundsSize.Width * scaling / exclusionScale));
+        var height = Math.Max(1, (int)Math.Ceiling(boundsSize.Height * scaling / exclusionScale));
+
+        if (width == _lastHostWidth && height == _lastHostHeight)
+            return;
+
+        _lastHostWidth = width;
+        _lastHostHeight = height;
+        LinuxCaptureBridge.aes_linux_capture_set_host_size(_capture, width, height);
+    }
+
+    private void RefreshStatus()
+    {
+        if (_capture == IntPtr.Zero)
+            return;
+
+        var status = LinuxCaptureBridge.GetStatusText(_capture);
+        if (_hasAppliedRenderOptions && !string.IsNullOrEmpty(status))
+            status += $" (RenderOpts v{_renderOptionsUpdateCount})";
+
+        if (!string.IsNullOrEmpty(status) && status != StatusText)
+            StatusText = status;
+
+        var isActive = LinuxCaptureBridge.IsCaptureActive(_capture);
+        if (isActive != IsDirectCompositionActive)
+            IsDirectCompositionActive = isActive;
+
+        var isInit = LinuxCaptureBridge.IsCaptureInitializing(_capture);
+        if (isInit != IsCaptureInitializing)
+            IsCaptureInitializing = isInit;
+
+        var fps = LinuxCaptureBridge.aes_linux_capture_get_fps(_capture);
+        Fps = isActive ? fps : 0;
+
+        var ft = LinuxCaptureBridge.aes_linux_capture_get_frame_time_ms(_capture);
+        FrameTimeMs = isActive ? ft : 0;
+
+        if (string.IsNullOrEmpty(GpuRenderer) || GpuRenderer == "Unknown")
+            GpuRenderer = LinuxCaptureBridge.GetGpuRenderer(_capture);
+
+        if (string.IsNullOrEmpty(GpuVendor) || GpuVendor == "Unknown")
+            GpuVendor = LinuxCaptureBridge.GetGpuVendor(_capture);
+    }
+}

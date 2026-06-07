@@ -139,6 +139,7 @@ public partial class EmulationView : UserControl
     private IDisposable? _mainWindowBoundsSubscription;
     private IDisposable? _mainWindowStateSubscription;
     private IDisposable? _captureInitializingSubscription;
+    private IDisposable? _capturePresentingFramesSubscription;
     private IDisposable? _captureStatusSubscription;
     private IDisposable? _captureActiveSubscription;
     private IDisposable? _captureFpsSubscription;
@@ -208,9 +209,9 @@ public partial class EmulationView : UserControl
     /// <summary>
     /// When <see langword="true"/>, composition capture renders in <c>InlineCaptureControl</c> on this view.
     /// When <see langword="false"/> on macOS, capture uses <see cref="PortalWindow"/> instead.
-    /// Linux launches emulators externally until capture is reimplemented.
+    /// Linux uses inline PipeWire portal capture in the emulator viewport.
     /// </summary>
-    private static bool UseInlineCaptureHost => OperatingSystem.IsWindows();
+    private static bool UseInlineCaptureHost => OperatingSystem.IsWindows() || OperatingSystem.IsLinux();
 
     private static bool UsePortalCaptureHost => OperatingSystem.IsMacOS();
 
@@ -622,6 +623,7 @@ public partial class EmulationView : UserControl
         _mainWindowBoundsSubscription?.Dispose();
         _mainWindowStateSubscription?.Dispose();
         _captureInitializingSubscription?.Dispose();
+        _capturePresentingFramesSubscription?.Dispose();
         _captureStatusSubscription?.Dispose();
         _captureActiveSubscription?.Dispose();
         _captureFpsSubscription?.Dispose();
@@ -1660,10 +1662,20 @@ public partial class EmulationView : UserControl
         _portalFullscreenOverlayWindow.Height = Math.Ceiling(screenBounds.Height / renderScaling);
     }
 
+    private void OnCaptureFramesPresented()
+    {
+        IsPortalCaptureInitializing = false;
+        if (DataContext is EmulationViewModel vm)
+            vm.CompleteEmulatorLaunchAfterCaptureFrames();
+        UpdateCaptureChromeVisibilityFromOpacity();
+    }
+
     private void AttachPortalCaptureBindings()
     {
         _captureInitializingSubscription?.Dispose();
         _captureInitializingSubscription = null;
+        _capturePresentingFramesSubscription?.Dispose();
+        _capturePresentingFramesSubscription = null;
         _captureStatusSubscription?.Dispose();
         _captureStatusSubscription = null;
         _captureActiveSubscription?.Dispose();
@@ -1701,7 +1713,22 @@ public partial class EmulationView : UserControl
 
         _captureInitializingSubscription = captureControl
             .GetObservable(EmulatorCaptureHostControl.IsCaptureInitializingProperty)
-            .Subscribe(new SimpleObserver<bool>(value => IsPortalCaptureInitializing = value));
+            .Subscribe(new SimpleObserver<bool>(value =>
+            {
+                IsPortalCaptureInitializing = value;
+                UpdateCaptureChromeVisibilityFromOpacity();
+            }));
+
+        _capturePresentingFramesSubscription = captureControl
+            .GetObservable(EmulatorCaptureHostControl.IsCapturePresentingFramesProperty)
+            .Subscribe(new SimpleObserver<bool>(value =>
+            {
+                if (value)
+                    OnCaptureFramesPresented();
+            }));
+
+        if (captureControl.IsCapturePresentingFrames)
+            OnCaptureFramesPresented();
 
         _captureStatusSubscription = captureControl
             .GetObservable(EmulatorCaptureHostControl.StatusTextProperty)

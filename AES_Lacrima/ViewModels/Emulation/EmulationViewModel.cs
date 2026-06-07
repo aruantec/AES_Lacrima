@@ -203,6 +203,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         private string? _activeGameplayPreviewItemPath;
         private long _gameplayPreviewRequestVersion;
         private Process? _activeEmulatorProcess;
+        private AES_Emulation.Linux.LinuxCompositorSession? _linuxCompositorSession;
+        private int _linuxCompositorPid;
         private string? _activeEmulatorRomPath;
         private string? _activeEmulatorGameTitle;
         private ShadPs4IpcSession? _shadPs4IpcSession;
@@ -453,6 +455,14 @@ private bool _isShadPs4PatchesOverlayOpen;
             ApplyEmulatorVolumeToProcess(EmulatorVolume);
         }
 
+        internal void CompleteEmulatorLaunchAfterCaptureFrames()
+        {
+            if (!IsEmulatorLaunchInProgress)
+                return;
+
+            IsEmulatorLaunchInProgress = false;
+        }
+
         private void ApplyEmulatorVolumeToProcess(double volumePercent)
         {
             if (!OperatingSystem.IsWindows())
@@ -475,11 +485,16 @@ private bool _isShadPs4PatchesOverlayOpen;
         [ObservableProperty]
         private bool _isRenderOptionsOpen;
 
+        public bool UseInTreeRenderOptionsDismiss => !OperatingSystem.IsLinux();
+
         [ObservableProperty]
         private bool _isFullscreen;
 
         [ObservableProperty]
         private bool _isRetroArchErrorOverlayOpen;
+
+        [ObservableProperty]
+        private string _emulatorErrorOverlayTitle = "Emulator launch warning";
 
         [ObservableProperty]
         private string? _retroArchErrorSummary;
@@ -755,7 +770,10 @@ private bool _isShadPs4PatchesOverlayOpen;
         private bool _isSyncingCurrentSectionCemuVersionSelection;
 
         partial void OnSelectedCaptureModeChanged(EmulatorCaptureMode value)
-            => OnPropertyChanged(nameof(CanShowRenderOptions));
+        {
+            OnPropertyChanged(nameof(CanShowRenderOptions));
+            NotifyCaptureChromeMarginChanged();
+        }
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsEmulatorViewportVisible))]
@@ -802,7 +820,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool ForceUseTargetClientAreaCapture => CurrentEmulatorHandler?.ForceUseTargetClientAreaCapture == true;
 
         public bool EnableCapturePillarboxCrop => CurrentEmulatorHandler?.EnableCapturePillarboxCrop == true;
-        public bool HideTargetWindowAfterCaptureStarts => CurrentEmulatorHandler?.HideUntilCaptured != false;
+        public bool HideTargetWindowAfterCaptureStarts =>
+            OperatingSystem.IsLinux() ? false : CurrentEmulatorHandler?.HideUntilCaptured != false;
         public int ClientAreaCropLeftInset => CurrentEmulatorHandler?.ClientAreaCropLeftInset ?? 0;
         public int ClientAreaCropTopInset => CurrentEmulatorHandler?.ClientAreaCropTopInset ?? 0;
         public int ClientAreaCropRightInset => CurrentEmulatorHandler?.ClientAreaCropRightInset ?? 0;
@@ -845,26 +864,13 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         private static IReadOnlyList<ShaderFileItem> LoadShaderFileItems()
         {
-            // Windows portal capture compiles pixel shaders via D3DCompileFromFile (.hlsl only).
-            // GLSL/slang presets belong to the OpenGL path on Linux/macOS and must not appear on Windows.
-            var extensions = OperatingSystem.IsWindows()
-                ? new[] { "*.hlsl" }
-                : new[] { "*.glsl", "*.slang" };
-            var subDirs = OperatingSystem.IsWindows()
-                ? new[] { "hlsl" }
-                : new[] { "glsl" };
-
-            var files = new List<string>();
-            foreach (var subDir in subDirs)
-            {
-                var shaderDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, subDir);
-                if (!Directory.Exists(shaderDirectory)) continue;
-
-                foreach (var ext in extensions)
-                {
-                    files.AddRange(Directory.EnumerateFiles(shaderDirectory, ext, SearchOption.TopDirectoryOnly));
-                }
-            }
+            // Both platforms list Shaders/hlsl/*.hlsl. Windows compiles them through D3D;
+            // Linux composition capture runs the paired Shaders/glsl/*.glsl preset at runtime.
+            const string hlslSubDir = "hlsl";
+            var shaderDirectory = Path.Combine(ApplicationPaths.ShadersDirectory, hlslSubDir);
+            var files = Directory.Exists(shaderDirectory)
+                ? Directory.EnumerateFiles(shaderDirectory, "*.hlsl", SearchOption.TopDirectoryOnly).ToList()
+                : [];
 
             var entries = new List<ShaderFileItem> { new(string.Empty, "None") };
             entries.AddRange(files
@@ -872,17 +878,17 @@ private bool _isShadPs4PatchesOverlayOpen;
                 .OrderBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
                 .Select(path =>
                 {
-                    var extension = Path.GetExtension(path);
-                    var isSupported = OperatingSystem.IsWindows()
-                        ? extension.Equals(".hlsl", StringComparison.OrdinalIgnoreCase)
-                        : extension.Equals(".glsl", StringComparison.OrdinalIgnoreCase)
-                          || extension.Equals(".slang", StringComparison.OrdinalIgnoreCase);
+                    var hasGlslTwin = OperatingSystem.IsWindows() ||
+                        File.Exists(path
+                            .Replace($"{Path.DirectorySeparatorChar}hlsl{Path.DirectorySeparatorChar}",
+                                $"{Path.DirectorySeparatorChar}glsl{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
+                            .Replace(".hlsl", ".glsl", StringComparison.OrdinalIgnoreCase));
 
-                    var displayName = isSupported
+                    var displayName = hasGlslTwin
                         ? Path.GetFileName(path)
-                        : $"{Path.GetFileName(path)} (unsupported on this platform)";
+                        : $"{Path.GetFileName(path)} (no OpenGL preset on Linux)";
 
-                    return new ShaderFileItem(path, displayName, isSupported);
+                    return new ShaderFileItem(path, displayName, hasGlslTwin);
                 }));
             return entries;
         }

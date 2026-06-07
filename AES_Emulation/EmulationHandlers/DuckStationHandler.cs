@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Emulation.Windows.API;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Emulation.EmulationHandlers;
@@ -84,6 +84,14 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
 
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            if (CaptureStartupDelayMs > 0)
+                await Task.Delay(CaptureStartupDelayMs, cancellationToken).ConfigureAwait(false);
+
+            return await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
+        }
+
         const int maxAttempts = 120;
         const int delayMs = 40;
         const int stableAttemptsBeforeAssign = 6;

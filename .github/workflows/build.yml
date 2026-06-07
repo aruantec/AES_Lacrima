@@ -134,7 +134,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev libgl1-mesa-dev
+          sudo apt-get install -y libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev libgl1-mesa-dev libpipewire-0.3-dev libdbus-1-dev gamescope || true
 
       - name: Install Linux Native AOT prerequisites
         if: runner.os == 'Linux' && matrix.publish_aot

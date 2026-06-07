@@ -6,6 +6,8 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
+using AES_Controls;
+using AES_Emulation.Linux;
 using AES_Emulation.Mac;
 using AES_Emulation.Windows;
 using AES_Emulation.Windows.API;
@@ -128,6 +130,11 @@ public class EmulatorCaptureHost : ContentControl
             nameof(IsCaptureInitializing),
             o => o.IsCaptureInitializing);
 
+    public static readonly DirectProperty<EmulatorCaptureHost, bool> IsCapturePresentingFramesProperty =
+        AvaloniaProperty.RegisterDirect<EmulatorCaptureHost, bool>(
+            nameof(IsCapturePresentingFrames),
+            o => o.IsCapturePresentingFrames);
+
     public static readonly DirectProperty<EmulatorCaptureHost, double> FpsProperty =
         AvaloniaProperty.RegisterDirect<EmulatorCaptureHost, double>(
             nameof(Fps),
@@ -164,6 +171,7 @@ public class EmulatorCaptureHost : ContentControl
     private string _statusText = "Capture unavailable";
     private bool _isDirectCompositionActive;
     private bool _isCaptureInitializing;
+    private bool _isCapturePresentingFrames;
     private double _fps;
     private double _frameTimeMs;
     private string _gpuRenderer = "Unknown";
@@ -173,7 +181,11 @@ public class EmulatorCaptureHost : ContentControl
 
     public EmulatorCaptureHost()
     {
+        if (OperatingSystem.IsLinux())
+            ClipToBounds = true;
+
         _backend = CreateBackend();
+        ApplyLinuxScaleExclusionCompensation();
         Content = _backend;
         SyncBackendProperties();
         HookBackendObservables();
@@ -372,6 +384,12 @@ public class EmulatorCaptureHost : ContentControl
         private set => SetAndRaise(IsCaptureInitializingProperty, ref _isCaptureInitializing, value);
     }
 
+    public bool IsCapturePresentingFrames
+    {
+        get => _isCapturePresentingFrames;
+        private set => SetAndRaise(IsCapturePresentingFramesProperty, ref _isCapturePresentingFrames, value);
+    }
+
     public double Fps
     {
         get => _fps;
@@ -512,6 +530,19 @@ public class EmulatorCaptureHost : ContentControl
 
     private void PropagateStopSession()
     {
+        switch (_backend)
+        {
+            case LinuxCompositionCaptureControl linuxCompositionBackend:
+                linuxCompositionBackend.RequestStopSession = true;
+                break;
+            case LinuxCaptureHost linuxBackend:
+                linuxBackend.RequestStopSession = true;
+                break;
+            case ScreenCaptureKitCaptureHost macBackend:
+                macBackend.RequestStopSession = true;
+                break;
+        }
+
         if (!OperatingSystem.IsWindows())
             return;
 
@@ -536,6 +567,7 @@ public class EmulatorCaptureHost : ContentControl
 
         Content = null;
         _backend = CreateBackend();
+        ApplyLinuxScaleExclusionCompensation();
         Content = _backend;
         SyncBackendProperties();
         HookBackendObservables();
@@ -597,10 +629,29 @@ public class EmulatorCaptureHost : ContentControl
         if (OperatingSystem.IsMacOS())
             return new ScreenCaptureKitCaptureHost();
 
+        if (OperatingSystem.IsLinux())
+        {
+            return CaptureMode == EmulatorCaptureMode.NativeWindow
+                ? new LinuxCaptureHost()
+                : new LinuxCompositionCaptureControl();
+        }
+
         return new Border
         {
             Background = Brushes.Black
         };
+    }
+
+    private void ApplyLinuxScaleExclusionCompensation()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        // Composition capture draws through a nested control that already fills the host
+        // layout bounds; extra compensation on Linux double-scales the presentation.
+        ScalableDecorator.SetExcludeFromScaleCompensation(
+            this,
+            OperatingSystem.IsWindows() && CaptureMode != EmulatorCaptureMode.NativeWindow);
     }
 
     private void HookBackendObservables()
@@ -626,10 +677,60 @@ public class EmulatorCaptureHost : ContentControl
             case ScreenCaptureKitCaptureHost macBackend:
                 BindToMacBackend(macBackend);
                 break;
+            case LinuxCaptureHost linuxBackend when OperatingSystem.IsLinux():
+                BindToLinuxBackend(linuxBackend);
+                break;
+            case LinuxCompositionCaptureControl linuxCompositionBackend when OperatingSystem.IsLinux():
+                BindToLinuxCompositionBackend(linuxCompositionBackend);
+                break;
             default:
                 StatusText = "Capture backend unavailable on this platform";
                 break;
         }
+    }
+
+    [SupportedOSPlatform("linux")]
+    private void BindToLinuxBackend(LinuxCaptureHost backend)
+    {
+        StatusText = "PipeWire portal capture (DMA-BUF)";
+        backend.GetObservable(LinuxCaptureHost.IsCaptureInitializingProperty)
+            .Subscribe(new LambdaObserver<bool>(value => IsCaptureInitializing = value));
+        backend.GetObservable(LinuxCaptureHost.StatusTextProperty)
+            .Subscribe(new LambdaObserver<string>(value => StatusText = value));
+        backend.GetObservable(LinuxCaptureHost.IsDirectCompositionActiveProperty)
+            .Subscribe(new LambdaObserver<bool>(value => IsDirectCompositionActive = value));
+        backend.GetObservable(LinuxCaptureHost.FpsProperty)
+            .Subscribe(new LambdaObserver<double>(value => Fps = value));
+        backend.GetObservable(LinuxCaptureHost.FrameTimeMsProperty)
+            .Subscribe(new LambdaObserver<double>(value => FrameTimeMs = value));
+        backend.GetObservable(LinuxCaptureHost.GpuRendererProperty)
+            .Subscribe(new LambdaObserver<string>(value => GpuRenderer = value));
+        backend.GetObservable(LinuxCaptureHost.GpuVendorProperty)
+            .Subscribe(new LambdaObserver<string>(value => GpuVendor = value));
+    }
+
+    [SupportedOSPlatform("linux")]
+    private void BindToLinuxCompositionBackend(LinuxCompositionCaptureControl backend)
+    {
+        StatusText = "Avalonia composition capture (PipeWire)";
+        IsDirectCompositionActive = true;
+
+        backend.GetObservable(LinuxCompositionCaptureControl.IsCaptureInitializingProperty)
+            .Subscribe(new LambdaObserver<bool>(value => IsCaptureInitializing = value));
+        backend.GetObservable(LinuxCompositionCaptureControl.IsCapturePresentingFramesProperty)
+            .Subscribe(new LambdaObserver<bool>(value => IsCapturePresentingFrames = value));
+        backend.GetObservable(LinuxCompositionCaptureControl.StatusTextProperty)
+            .Subscribe(new LambdaObserver<string>(value => StatusText = value));
+        backend.GetObservable(LinuxCompositionCaptureControl.IsDirectCompositionActiveProperty)
+            .Subscribe(new LambdaObserver<bool>(value => IsDirectCompositionActive = value));
+        backend.GetObservable(LinuxCompositionCaptureControl.FpsProperty)
+            .Subscribe(new LambdaObserver<double>(value => Fps = value));
+        backend.GetObservable(LinuxCompositionCaptureControl.FrameTimeMsProperty)
+            .Subscribe(new LambdaObserver<double>(value => FrameTimeMs = value));
+        backend.GetObservable(LinuxCompositionCaptureControl.GpuRendererProperty)
+            .Subscribe(new LambdaObserver<string>(value => GpuRenderer = value));
+        backend.GetObservable(LinuxCompositionCaptureControl.GpuVendorProperty)
+            .Subscribe(new LambdaObserver<string>(value => GpuVendor = value));
     }
 
     [SupportedOSPlatform("windows")]
@@ -762,6 +863,45 @@ public class EmulatorCaptureHost : ContentControl
                 macBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
                 macBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
                 macBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
+                break;
+            case LinuxCaptureHost linuxBackend:
+                linuxBackend.TargetHwnd = TargetHwnd;
+                linuxBackend.CompositorProcessId = TargetProcessId;
+                linuxBackend.TargetWindowTitleHint = "gamescope";
+                linuxBackend.RequestStopSession = RequestStopSession;
+                linuxBackend.Stretch = Stretch;
+                linuxBackend.Brightness = Brightness;
+                linuxBackend.Saturation = Saturation;
+                linuxBackend.ColorTint = ColorTint;
+                linuxBackend.DisableVSync = DisableVSync;
+                linuxBackend.ShaderPath = ShaderPath;
+                linuxBackend.ClearShaderWhenPathEmpty = ClearShaderWhenPathEmpty;
+                linuxBackend.ForceUseTargetClientArea = ForceUseTargetClientArea;
+                linuxBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
+                linuxBackend.PreferPipeWire = true;
+                linuxBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
+                linuxBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
+                linuxBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
+                linuxBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
+                break;
+            case LinuxCompositionCaptureControl linuxCompositionBackend:
+                linuxCompositionBackend.TargetHwnd = TargetHwnd;
+                linuxCompositionBackend.CompositorProcessId = TargetProcessId;
+                linuxCompositionBackend.TargetWindowTitleHint = "gamescope";
+                linuxCompositionBackend.RequestStopSession = RequestStopSession;
+                linuxCompositionBackend.Stretch = Stretch;
+                linuxCompositionBackend.Brightness = Brightness;
+                linuxCompositionBackend.Saturation = Saturation;
+                linuxCompositionBackend.ColorTint = ColorTint;
+                linuxCompositionBackend.DisableVSync = DisableVSync;
+                linuxCompositionBackend.ShaderPath = ShaderPath;
+                linuxCompositionBackend.ClearShaderWhenPathEmpty = ClearShaderWhenPathEmpty;
+                linuxCompositionBackend.ForceUseTargetClientArea = ForceUseTargetClientArea;
+                linuxCompositionBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
+                linuxCompositionBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
+                linuxCompositionBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
+                linuxCompositionBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
+                linuxCompositionBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
                 break;
         }
     }

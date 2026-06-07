@@ -94,26 +94,26 @@ float Rect(vec2 p, vec2 origin, vec2 size)
 }
 
 // 5x7 OSD font (row 0 = top of glyph box). Each row is 5 bits, MSB = left column.
-float Font5x7Glyph(vec2 p, uint r0, uint r1, uint r2, uint r3, uint r4, uint r5, uint r6)
+float Font5x7Glyph(vec2 p, int r0, int r1, int r2, int r3, int r4, int r5, int r6)
 {
     p = clamp(p, 0.0, 1.0);
-    int col = clamp((int)(p.x * 5.0), 0, 4);
-    int row = clamp((int)(p.y * 7.0), 0, 6);
-    uint bits = r0;
+    int col = clamp(int(floor(p.x * 5.0)), 0, 4);
+    int row = clamp(int(floor(p.y * 7.0)), 0, 6);
+    int bits = r0;
     if (row == 1) bits = r1;
     else if (row == 2) bits = r2;
     else if (row == 3) bits = r3;
     else if (row == 4) bits = r4;
     else if (row == 5) bits = r5;
     else if (row == 6) bits = r6;
-    return float((bits >> (4 - col)) & 1u);
+    return float((bits >> (4 - col)) & 1);
 }
 
-float DrawHudCharP(vec2 p) { return Font5x7Glyph(p, 31u, 17u, 17u, 30u, 16u, 16u, 16u); }
-float DrawHudCharL(vec2 p) { return Font5x7Glyph(p, 16u, 16u, 16u, 16u, 16u, 16u, 31u); }
-float DrawHudCharA(vec2 p) { return Font5x7Glyph(p, 14u, 17u, 17u, 31u, 17u, 17u, 17u); }
-float DrawHudCharY(vec2 p) { return Font5x7Glyph(p, 17u, 17u, 17u, 14u, 4u, 4u, 4u); }
-float DrawHudCharS(vec2 p) { return Font5x7Glyph(p, 15u, 16u, 16u, 14u, 1u, 1u, 30u); }
+float DrawHudCharP(vec2 p) { return Font5x7Glyph(p, 31, 17, 17, 30, 16, 16, 16); }
+float DrawHudCharL(vec2 p) { return Font5x7Glyph(p, 16, 16, 16, 16, 16, 16, 31); }
+float DrawHudCharA(vec2 p) { return Font5x7Glyph(p, 14, 17, 17, 31, 17, 17, 17); }
+float DrawHudCharY(vec2 p) { return Font5x7Glyph(p, 17, 17, 17, 14, 4, 4, 4); }
+float DrawHudCharS(vec2 p) { return Font5x7Glyph(p, 15, 16, 16, 14, 1, 1, 30); }
 
 float DrawHudChar(vec2 p, int code)
 {
@@ -128,16 +128,16 @@ float DrawHudChar(vec2 p, int code)
 float DrawHudDigit(vec2 p, int digit)
 {
     digit = digit % 10;
-    if (digit == 0) return Font5x7Glyph(p, 31u, 17u, 17u, 17u, 17u, 17u, 31u);
-    if (digit == 1) return Font5x7Glyph(p, 12u, 12u, 4u, 4u, 4u, 4u, 14u);
-    if (digit == 2) return Font5x7Glyph(p, 30u, 1u, 1u, 30u, 16u, 16u, 31u);
-    if (digit == 3) return Font5x7Glyph(p, 30u, 1u, 1u, 14u, 1u, 1u, 30u);
-    if (digit == 4) return Font5x7Glyph(p, 18u, 18u, 18u, 31u, 2u, 2u, 2u);
-    if (digit == 5) return Font5x7Glyph(p, 31u, 16u, 16u, 30u, 1u, 1u, 30u);
-    if (digit == 6) return Font5x7Glyph(p, 14u, 16u, 16u, 30u, 17u, 17u, 14u);
-    if (digit == 7) return Font5x7Glyph(p, 31u, 1u, 2u, 4u, 8u, 16u, 16u);
-    if (digit == 8) return Font5x7Glyph(p, 31u, 17u, 17u, 31u, 17u, 17u, 31u);
-    return Font5x7Glyph(p, 14u, 17u, 17u, 14u, 1u, 1u, 14u);
+    if (digit == 0) return Font5x7Glyph(p, 31, 17, 17, 17, 17, 17, 31);
+    if (digit == 1) return Font5x7Glyph(p, 12, 12, 4, 4, 4, 4, 14);
+    if (digit == 2) return Font5x7Glyph(p, 30, 1, 1, 30, 16, 16, 31);
+    if (digit == 3) return Font5x7Glyph(p, 30, 1, 1, 14, 1, 1, 30);
+    if (digit == 4) return Font5x7Glyph(p, 18, 18, 18, 31, 2, 2, 2);
+    if (digit == 5) return Font5x7Glyph(p, 31, 16, 16, 30, 1, 1, 30);
+    if (digit == 6) return Font5x7Glyph(p, 14, 16, 16, 30, 17, 17, 14);
+    if (digit == 7) return Font5x7Glyph(p, 31, 1, 2, 4, 8, 16, 16);
+    if (digit == 8) return Font5x7Glyph(p, 31, 17, 17, 31, 17, 17, 31);
+    return Font5x7Glyph(p, 14, 17, 17, 14, 1, 1, 14);
 }
 
 float DrawHudColon(vec2 p)
@@ -223,7 +223,7 @@ vec3 DrawVcrHud(vec3 color, vec2 screenUv, vec2 outputSize, float t)
     hudColor = ApplyHudGlyph(hudColor, HudGlyphInBox(pUv) * DrawHudChar(pUv, 0));
 
     // Bottom-right: HH:MM:SS timecode (e.g. 00:00:03).
-    int totalSec = (int)floor(t);
+    int totalSec = int(floor(t));
     int h0 = (totalSec / 3600) % 100 / 10;
     int h1 = (totalSec / 3600) % 10;
     int m0 = (totalSec / 60) % 60 / 10;

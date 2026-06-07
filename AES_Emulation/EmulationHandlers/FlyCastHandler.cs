@@ -66,6 +66,14 @@ public sealed class FlyCastHandler : EmulatorHandlerBase
 
     public override async Task<IntPtr> ResolveCaptureTargetAsync(Process process, CancellationToken cancellationToken)
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            if (CaptureStartupDelayMs > 0)
+                await Task.Delay(CaptureStartupDelayMs, cancellationToken).ConfigureAwait(false);
+
+            return await base.ResolveCaptureTargetAsync(process, cancellationToken).ConfigureAwait(false);
+        }
+
         const int maxAttempts = 120;
         const int delayMs = 40;
         const int stableAttemptsBeforeAssign = 3;

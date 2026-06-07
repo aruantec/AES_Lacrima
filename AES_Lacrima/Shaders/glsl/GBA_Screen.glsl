@@ -41,13 +41,13 @@ void main()
 {
     vec3 color = texture(Texture, vTex).rgb;
 
-    color = pow(clamp(color, 0.0, 1.0), 1.5);
+    color = pow(clamp(color, 0.0, 1.0), vec3(1.5));
 
     vec3 matrixed;
     matrixed.r = dot(color, vec3(0.84, 0.16, 0.0));
     matrixed.g = dot(color, vec3(0.08, 0.77, 0.15));
     matrixed.b = dot(color, vec3(0.15, 0.0, 0.81));
-    color = pow(clamp(matrixed, 0.0, 1.0), 1.0 / 1.2);
+    color = pow(clamp(matrixed, 0.0, 1.0), vec3(1.0 / 1.2));
 
     vec2 texSize = vec2(max(sourceWidth, 1.0), max(sourceHeight, 1.0));
     vec2 cell = fract(vTex * texSize);

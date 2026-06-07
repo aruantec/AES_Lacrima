@@ -4,7 +4,7 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Controls.GL;
@@ -55,6 +55,23 @@ public static class GlProgramBinaryCache
             return;
 
         SaveProgramBinary(gl, program, GetCacheFilePath(category, cacheKey));
+    }
+
+    public static void ClearCategory(string category)
+    {
+        try
+        {
+            var directory = Path.Combine(CacheRoot, category);
+            if (!Directory.Exists(directory))
+                return;
+
+            foreach (var file in Directory.EnumerateFiles(directory, "*.bin"))
+            {
+                try { File.Delete(file); }
+                catch (Exception logEx) { Log.Warn("Failed to delete cached shader binary.", logEx); }
+            }
+        }
+        catch (Exception logEx) { Log.Warn("Failed to clear shader cache category.", logEx); }
     }
 
     private static string GetCacheFilePath(string category, string cacheKey)

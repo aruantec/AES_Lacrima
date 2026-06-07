@@ -55,7 +55,7 @@ void main()
     float grid = smoothstep(0.92, 1.0, max(cell.x, cell.y)) + smoothstep(0.08, 0.0, min(cell.x, cell.y));
     color *= 1.0 - grid * 0.08;
 
-    color = pow(clamp(color, 0.0, 1.0), 0.96);
+    color = pow(clamp(color, 0.0, 1.0), vec3(0.96));
 
     float luma = dot(color, vec3(0.299, 0.587, 0.114));
     color = mix(vec3(luma, luma, luma), color, saturation);

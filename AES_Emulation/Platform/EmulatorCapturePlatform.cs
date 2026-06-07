@@ -8,10 +8,10 @@ public static class EmulatorCapturePlatform
 {
     /// <summary>
     /// Whether the host UI should embed emulator output via composition/portal capture.
-    /// Linux capture was removed pending a rewrite; emulators launch in their own window there.
+    /// Linux embeds emulator output via PipeWire portal capture (DMA-BUF).
     /// </summary>
     public static bool SupportsCompositionCapture =>
-        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux();
 
     public static void RevealWindowForCapture(IntPtr platformWindowHandle)
     {

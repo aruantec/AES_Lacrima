@@ -71,7 +71,7 @@ void main()
 
     float luma = dot(color, vec3(0.299, 0.587, 0.114));
     color = mix(vec3(luma, luma, luma), color, saturation * 1.05);
-    color = pow(clamp(color, 0.0, 1.0), 0.94);
+    color = pow(clamp(color, 0.0, 1.0), vec3(0.94));
     color *= brightness;
     color *= tint.rgb;
 

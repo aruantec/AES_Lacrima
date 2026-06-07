@@ -741,6 +741,26 @@
                             <Button Content="Check for Updates" Command="{Binding RefreshYtDlpInfoCommand}" IsEnabled="{Binding !YtDlp.IsBusy}" Padding="15,8"/>
                         </StackPanel>
                         <ProgressBar IsIndeterminate="True" IsVisible="{Binding YtDlp.IsBusy}" Margin="0,30,0,0" Height="2" Width="400" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                        <StackPanel IsVisible="{Binding IsGamescopeSupported}">
+                            <TextBlock Text="gamescope Status" FontSize="20" Foreground="WhiteSmoke" Margin="0,30,0,10"/>
+                            <Separator Margin="0,0,0,15"/>
+                            <StackPanel Spacing="10" Margin="0,0,0,15">
+                                <TextBlock Text="{Binding GamescopeManager.Status}" FontSize="16" Foreground="DarkGray"/>
+                                <StackPanel Orientation="Horizontal" Spacing="40" Margin="0,0,0,10" IsVisible="{Binding IsGamescopeInstalled}">
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Text="CURRENT VERSION" FontSize="14" Foreground="DarkGray" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding GamescopeVersion, FallbackValue='Not Found'}" FontSize="18" Foreground="WhiteSmoke"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Button Content="Install gamescope" Command="{Binding InstallGamescopeCommand}" IsVisible="{Binding !IsGamescopeInstalled}" IsEnabled="{Binding !GamescopeManager.IsBusy}" Padding="15,8"/>
+                                <Button Content="Update" Command="{Binding UpdateGamescopeCommand}" IsVisible="{Binding IsGamescopeInstalled}" IsEnabled="{Binding !GamescopeManager.IsBusy}" Padding="15,8"/>
+                                <Button Content="Uninstall" Background="#F44336" Foreground="White" Command="{Binding UninstallGamescopeCommand}" IsVisible="{Binding IsGamescopeInstalled}" IsEnabled="{Binding !GamescopeManager.IsBusy}" Padding="15,8"/>
+                                <Button Content="Refresh gamescope Info" Command="{Binding RefreshGamescopeInfoCommand}" IsEnabled="{Binding !GamescopeManager.IsBusy}" Padding="15,8"/>
+                            </StackPanel>
+                            <ProgressBar IsIndeterminate="True" IsVisible="{Binding GamescopeManager.IsBusy}" Margin="0,30,0,0" Height="2" Width="400" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

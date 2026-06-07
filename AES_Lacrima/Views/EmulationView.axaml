@@ -24,7 +24,8 @@
              d:DesignHeight="450"
              x:Name="RootView"
              x:Class="AES_Lacrima.Views.EmulationView"
-             x:DataType="vm:EmulationViewModel">
+             x:DataType="vm:EmulationViewModel"
+             Background="#FF000000">
 
     <Design.DataContext>
         <vm:EmulationViewModel/>
@@ -33,8 +34,14 @@
     <Interaction.Behaviors>
         <behaviors:CloseOnClickOutsideBehavior 
             TargetControl="{Binding #RenderOptionsOverlay}"
-            IsEnabled="{Binding IsRenderOptionsOpen}"
-            CloseCommand="{Binding ToggleRenderOptionsCommand}" />
+            CloseCommand="{Binding ToggleRenderOptionsCommand}">
+            <behaviors:CloseOnClickOutsideBehavior.IsEnabled>
+                <MultiBinding Converter="{StaticResource BoolAndConverter}">
+                    <Binding Path="IsRenderOptionsOpen"/>
+                    <Binding Path="UseInTreeRenderOptionsDismiss"/>
+                </MultiBinding>
+            </behaviors:CloseOnClickOutsideBehavior.IsEnabled>
+        </behaviors:CloseOnClickOutsideBehavior>
         <behaviors:CloseOnClickOutsideBehavior 
             TargetControl="{Binding #RetroArchErrorOverlay}"
             IsEnabled="{Binding IsRetroArchErrorOverlayOpen}"
@@ -46,34 +53,7 @@
     </Interaction.Behaviors>
 
     <Grid RowDefinitions="*,Auto,Auto" ClipToBounds="False">
-        <Grid.Styles>
-            <Style Selector="Border#PortalFallbackOverlay">
-                <Setter Property="Transitions">
-                    <Setter.Value>
-                        <Transitions>
-                            <DoubleTransition Property="Opacity" Duration="0:0:0.20" Easing="CubicEaseOut" />
-                        </Transitions>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-        </Grid.Styles>
         <Border Background="#FF000000" Grid.RowSpan="3"/>
-        <!--Removes the background on purpose and forces transparency-->
-        <composition:TransparentComposition x:Name="PortalPortal"
-                            IsVisible="{Binding ElementName=RootView, Path=IsPortalChromeVisible}"
-                            IsHitTestVisible="False"
-                            Opacity="{Binding ElementName=RootView, Path=IsPortalSurfaceVisible, Converter={StaticResource BoolToOpacityConverter}}">
-            <composition:TransparentComposition.Transitions>
-                <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.30" Easing="CubicEaseOut" />
-                </Transitions>
-            </composition:TransparentComposition.Transitions>
-        </composition:TransparentComposition>
-        <Border x:Name="PortalFallbackOverlay"
-                Background="#FF000000"
-                IsVisible="{Binding ElementName=RootView, Path=IsPortalChromeVisible}"
-                IsHitTestVisible="False"
-                Opacity="{Binding ElementName=RootView, Path=PortalFallbackOpacity}"/>
 
         <composition:CompositionCarouselControl x:Name="RomCarousel"
                                                 ItemsSource="{Binding CoverItems}"
@@ -388,29 +368,22 @@
             </Border>
         </Canvas>
 
-        <Grid x:Name="EmulatorCaptureOverlay"
+        <Grid x:Name="EmulatorCaptureOverlayHost"
               Grid.Row="0"
-              Opacity="{Binding ElementName=RootView, Path=CapturePresentationOpacity}"
-              IsVisible="{Binding ElementName=RootView, Path=IsCaptureChromeVisible}"
               ZIndex="5"
               Margin="{Binding CaptureChromeRightMargin}">
-            <Grid.IsHitTestVisible>
-                <MultiBinding Converter="{StaticResource BoolOrConverter}">
-                    <Binding Path="IsCompositionCaptureVisible"/>
-                    <Binding Path="IsRenderOptionsOpen"/>
-                </MultiBinding>
-            </Grid.IsHitTestVisible>
-            <Grid.Transitions>
-                <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.30" Easing="CubicEaseInOut" />
-                </Transitions>
-            </Grid.Transitions>
+            <!-- Opaque backing during capture — always solid black (never a compositor hole). -->
+            <Border Background="#FF000000"
+                    IsHitTestVisible="False"
+                    IsVisible="{Binding ElementName=RootView, Path=IsCaptureChromeVisible}"/>
+            <!-- Capture lives outside the opacity-faded overlay so chrome fades independently. -->
             <Border x:Name="EmulatorCaptureHost"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch"
-                    Background="Transparent"
+                    Background="#FF000000"
                     ClipToBounds="True"
-                    ZIndex="0">
+                    ZIndex="0"
+                    IsVisible="{Binding ElementName=RootView, Path=IsCaptureChromeVisible}">
                 <!-- Compiled bindings (AOT-safe). Keep in sync with CaptureControl in PortalWindow.axaml. -->
                 <emuControls:EmulatorCaptureHost x:Name="InlineCaptureControl"
                                                  controls:ScalableDecorator.ExcludeFromScale="True"
@@ -441,6 +414,21 @@
                                                  UseBackCoverLetterboxFill="{Binding UseBackCoverLetterboxFill}"
                                                  LetterboxBitmap="{Binding CaptureLetterboxBitmap}" />
             </Border>
+            <Grid x:Name="EmulatorCaptureOverlay"
+                  ZIndex="100"
+                  Opacity="{Binding ElementName=RootView, Path=CapturePresentationOpacity}"
+                  IsVisible="{Binding ElementName=RootView, Path=IsCaptureChromeVisible}">
+            <Grid.IsHitTestVisible>
+                <MultiBinding Converter="{StaticResource BoolOrConverter}">
+                    <Binding Path="IsCompositionCaptureVisible"/>
+                    <Binding Path="IsRenderOptionsOpen"/>
+                </MultiBinding>
+            </Grid.IsHitTestVisible>
+            <Grid.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.30" Easing="CubicEaseInOut" />
+                </Transitions>
+            </Grid.Transitions>
             <Border x:Name="CaptureContextMenuLayer"
                     Background="Transparent"
                     HorizontalAlignment="Stretch"
@@ -514,6 +502,7 @@
                                              Settings="{Binding}"
                                              IsVisible="{Binding !IsFullscreen}"
                                              ZIndex="1500"/>
+            </Grid>
         </Grid>
 
         <Border x:Name="RenderOptionsOverlay"
@@ -1969,7 +1958,7 @@
                 IsHitTestVisible="{Binding IsRetroArchErrorOverlayOpen}">
             <StackPanel Margin="20" Spacing="16">
                 <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Text="RetroArch launch warning"
+                    <TextBlock Text="{Binding EmulatorErrorOverlayTitle}"
                                FontSize="24"
                                FontWeight="SemiBold"
                                Foreground="White"
@@ -2358,7 +2347,7 @@
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding ToggleRetroArchErrorOverlayCommand}"
-                        ToolTip.Tip="Show RetroArch warning">
+                        ToolTip.Tip="Show launch warning">
                     <Button.IsVisible>
                         <MultiBinding Converter="{StaticResource BoolAndConverter}">
                             <Binding Path="IsEmulatorRunning"/>

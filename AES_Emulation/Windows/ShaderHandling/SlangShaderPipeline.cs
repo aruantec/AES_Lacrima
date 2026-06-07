@@ -8,7 +8,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
-
+using System.Threading;
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Controls.EmuGrabbing.ShaderHandling;
@@ -24,6 +25,8 @@ namespace AES_Controls.EmuGrabbing.ShaderHandling;
 public class SlangShaderPipeline : IDisposable
 {
     private static readonly ILog Log = LogHelper.For<SlangShaderPipeline>();
+    private const int EmulationShaderCacheGeneration = 4;
+    private static int s_appliedEmulationCacheGeneration;
     private readonly GlInterface _gl;
     private readonly List<ShaderPass> _passes = new();
     private readonly FrameHistoryManager _frameHistory;
@@ -74,9 +77,12 @@ public class SlangShaderPipeline : IDisposable
         Debug.WriteLine($"[Pipeline] SlangShaderPipeline initialized");
     }
 
+    public bool UsedPassthroughFallback { get; private set; }
+
     public void LoadShaderPreset(string path)
     {
         LastError = null;
+        UsedPassthroughFallback = false;
         Dispose();
         RequiresFrameHistory = false;
         if (string.IsNullOrEmpty(path)) return;
@@ -234,18 +240,29 @@ public class SlangShaderPipeline : IDisposable
                     @"uniform\s+int\s+(FrameCount|FrameDirection)\b", 
                     "uniform float $1", RegexOptions.IgnoreCase);
                 
-                // NOTE: Not converting other int uniforms to avoid breaking working shaders
-                // If a shader requires motion blur (multiple texture inputs), it will fall back to passthrough
+                // C-style (int) casts are invalid in GLSL ES; use int() constructors.
+                source = Regex.Replace(source, @"\(int\)\s*floor\s*\(", "int(floor(", RegexOptions.IgnoreCase);
+                source = Regex.Replace(source, @"\(int\)\s*\(", "int(", RegexOptions.IgnoreCase);
+
+                // GLSL requires pow(genType, genType); HLSL sources often use pow(vec3, float).
+                source = Regex.Replace(source,
+                    @"\bpow\(\s*(clamp\([^)]+\))\s*,\s*(?!vec3\s*\()([^)]+)\)",
+                    "pow($1, vec3($2))");
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[Pipeline] Preprocess shader source failed: {ex.Message}");
             }
 
-            string fullHeader = _shaderVersionHeader + "\n" + (_isEs ? "precision mediump float;\n" : "");
+            var compatHeader = "#define saturate(x) clamp(x, 0.0, 1.0)\n";
+            var esHeader = _isEs ? "precision mediump float;\n" : "";
+            string fullHeader = _shaderVersionHeader + "\n" + esHeader + compatHeader;
             string vertexSource = fullHeader + "#define VERTEX\n" + source;
             string fragmentSource = fullHeader + "#define FRAGMENT\n" + source;
-            var cacheKey = GlProgramBinaryCache.ComputeKey(vertexSource, fragmentSource);
+            var cacheKey = GlProgramBinaryCache.ComputeKey("slang-v4\n" + vertexSource, fragmentSource);
+
+            if (Interlocked.Exchange(ref s_appliedEmulationCacheGeneration, EmulationShaderCacheGeneration) != EmulationShaderCacheGeneration)
+                GlProgramBinaryCache.ClearCategory(GlProgramBinaryCache.EmulationCategory);
 
             int cachedProgram = GlProgramBinaryCache.TryLoadProgram(_gl, GlProgramBinaryCache.EmulationCategory, cacheKey);
             if (cachedProgram != 0)
@@ -292,7 +309,11 @@ public class SlangShaderPipeline : IDisposable
 
             if (!compiledReal)
             {
-                Debug.WriteLine($"[Pipeline] Real shader compile/link failed, using debug passthrough for {path}");
+                var compileDetail = CollectShaderCompileErrors(vs, fs);
+                LastError = string.IsNullOrWhiteSpace(compileDetail)
+                    ? "Shader compile/link failed; using compatibility passthrough."
+                    : $"Shader compile/link failed; using compatibility passthrough. {compileDetail}";
+                Debug.WriteLine($"[Pipeline] Real shader compile/link failed, using debug passthrough for {path}: {compileDetail}");
                 // delete any partially compiled shaders
                 try { if (vs != 0) _gl.DeleteShader(vs); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
                 try { if (fs != 0) _gl.DeleteShader(fs); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
@@ -375,10 +396,15 @@ void main(){
                     _gl.GetProgramiv(prog, GL_LINK_STATUS, &status);
                     if (status != 0)
                     {
-                        GlProgramBinaryCache.SaveProgram(_gl, prog, GlProgramBinaryCache.EmulationCategory, cacheKey);
+                        if (compiledReal)
+                        {
+                            GlProgramBinaryCache.SaveProgram(_gl, prog, GlProgramBinaryCache.EmulationCategory, cacheKey);
+                            LastError = null;
+                        }
+
                         _passes.Add(new ShaderPass { ProgramId = prog });
-                        Debug.WriteLine($"[Pipeline] Shader linked and added: {path}");
-                        LastError = null;
+                        UsedPassthroughFallback = !compiledReal;
+                        Debug.WriteLine($"[Pipeline] Shader linked and added: {path}{(compiledReal ? "" : " (passthrough fallback)")}");
                     }
                     else
                     {
@@ -429,6 +455,23 @@ void main(){
             LastError = ex.ToString();
             SaveShaderLog(path, "load_exception", ex.ToString());
         }
+    }
+
+    private string CollectShaderCompileErrors(int vs, int fs)
+    {
+        if (!string.IsNullOrWhiteSpace(LastError))
+        {
+            var msg = LastError.Trim();
+            return msg.Length > 320 ? msg[..320] : msg;
+        }
+
+        if (vs == 0 && fs == 0)
+            return "vertex and fragment shader compilation failed";
+        if (vs == 0)
+            return "vertex shader compilation failed";
+        if (fs == 0)
+            return "fragment shader compilation failed";
+        return "shader program link failed";
     }
 
     private unsafe int CompileShader(int type, string source)
@@ -516,6 +559,9 @@ void main(){
     {
         if (_passes.Count == 0) return;
 
+        // Skia may leave scissor enabled; shader draws must fill the full target FBO.
+        _gl.Disable(0x0C11);
+
         // Ensure intermediate buffers are ready if multi-pass
         if (_passes.Count > 1) EnsureIntermediateBuffers(w, h);
 
@@ -539,8 +585,8 @@ void main(){
             _gl.UseProgram(pass.ProgramId);
 
             // Set Uniforms
-            SetUniform1i(pass.ProgramId, "FrameCount", _frameCounter);
-            SetUniform1i(pass.ProgramId, "FrameDirection", _frameCounter % 2 == 0 ? 1 : -1);
+            SetUniform1f(pass.ProgramId, "FrameCount", _frameCounter);
+            SetUniform1f(pass.ProgramId, "FrameDirection", _frameCounter % 2 == 0 ? 1f : -1f);
             SetUniform1f(pass.ProgramId, "uBrightness", Brightness);
             SetUniform1f(pass.ProgramId, "uSaturation", Saturation);
             SetUniform4fv(pass.ProgramId, "uColorTint", ColorTint);

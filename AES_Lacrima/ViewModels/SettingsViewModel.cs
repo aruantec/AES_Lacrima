@@ -944,6 +944,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private YtDlpManager? _ytDlp;
 
     /// <summary>
+    /// Gets or sets the gamescope manager for Linux emulator compositor support.
+    /// </summary>
+    [AutoResolve]
+    [ObservableProperty]
+    private GamescopeManager? _gamescopeManager;
+
+    /// <summary>
     /// Gets or sets the application updater service.
     /// </summary>
     [AutoResolve]
@@ -1009,6 +1016,23 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// </summary>
     [ObservableProperty]
     private bool _isYtDlpUpdateAvailable;
+
+    /// <summary>
+    /// Gets whether gamescope management is supported on this platform.
+    /// </summary>
+    public bool IsGamescopeSupported => GamescopeManager.IsSupported;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether gamescope is currently installed.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isGamescopeInstalled;
+
+    /// <summary>
+    /// Gets or sets the currently installed gamescope version.
+    /// </summary>
+    [ObservableProperty]
+    private string? _gamescopeVersion;
 
     /// <summary>
     /// Gets or sets the currently selected tab in the compact mini settings view.
@@ -1313,6 +1337,72 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (YtDlp == null) return;
         await YtDlp.UninstallAsync();
         await RefreshYtDlpInfo();
+    }
+
+    /// <summary>
+    /// Refreshes information about the gamescope installation.
+    /// </summary>
+    [RelayCommand]
+    public async Task RefreshGamescopeInfo()
+    {
+        if (GamescopeManager == null || !IsGamescopeSupported)
+            return;
+
+        try
+        {
+            IsGamescopeInstalled = GamescopeManager.IsAvailable();
+            GamescopeVersion = await GamescopeManager.GetCurrentVersionAsync();
+
+            if (!IsGamescopeInstalled)
+            {
+                GamescopeManager.Status = "gamescope check completed: Not found.";
+                GamescopeVersion = null;
+            }
+            else
+            {
+                GamescopeManager.Status = string.IsNullOrWhiteSpace(GamescopeVersion)
+                    ? "gamescope is installed."
+                    : $"gamescope is installed ({GamescopeVersion}).";
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Failed to refresh gamescope info", ex);
+            GamescopeManager.Status = $"gamescope check failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Installs gamescope using the system package manager.
+    /// </summary>
+    [RelayCommand]
+    private async Task InstallGamescope()
+    {
+        if (GamescopeManager == null) return;
+        await GamescopeManager.InstallAsync();
+        await RefreshGamescopeInfo();
+    }
+
+    /// <summary>
+    /// Updates gamescope using the system package manager.
+    /// </summary>
+    [RelayCommand]
+    private async Task UpdateGamescope()
+    {
+        if (GamescopeManager == null) return;
+        await GamescopeManager.UpgradeAsync();
+        await RefreshGamescopeInfo();
+    }
+
+    /// <summary>
+    /// Uninstalls gamescope using the system package manager.
+    /// </summary>
+    [RelayCommand]
+    private async Task UninstallGamescope()
+    {
+        if (GamescopeManager == null) return;
+        await GamescopeManager.UninstallAsync();
+        await RefreshGamescopeInfo();
     }
 
     /// <summary>
@@ -2987,13 +3077,14 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         FfmpegManager ??= DiLocator.ResolveViewModel<FFmpegManager>();
         MpvManager ??= DiLocator.ResolveViewModel<MpvLibraryManager>();
         YtDlp ??= DiLocator.ResolveViewModel<YtDlpManager>();
+        GamescopeManager ??= DiLocator.ResolveViewModel<GamescopeManager>();
         AppUpdateService ??= DiLocator.ResolveViewModel<AppUpdateService>();
 
-        if (FfmpegManager == null || MpvManager == null || YtDlp == null || AppUpdateService == null)
+        if (FfmpegManager == null || MpvManager == null || YtDlp == null || GamescopeManager == null || AppUpdateService == null)
         {
             Log.Warn("One or more external tool managers failed to resolve during SettingsViewModel.Prepare. " +
                      $"FFmpegManager={(FfmpegManager != null)}, MpvManager={(MpvManager != null)}, " +
-                     $"YtDlp={(YtDlp != null)}, AppUpdateService={(AppUpdateService != null)}");
+                     $"YtDlp={(YtDlp != null)}, GamescopeManager={(GamescopeManager != null)}, AppUpdateService={(AppUpdateService != null)}");
         }
 
         // Load shader items from the local shaders directory (Linux-safe path resolution).
@@ -3030,6 +3121,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         _ = RefreshFFmpegInfo();
         _ = RefreshMpvInfo();
         _ = RefreshYtDlpInfo();
+        _ = RefreshGamescopeInfo();
         _ = RefreshAppReleaseHistory(forceRefresh: false);
 
         // Generate dummy preview items

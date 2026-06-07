@@ -537,14 +537,29 @@ namespace AES_Lacrima.ViewModels
 
         private void ClearRetroArchErrorState()
         {
+            EmulatorErrorOverlayTitle = "Emulator launch warning";
             RetroArchErrorSummary = null;
             RetroArchErrorDetails = null;
             IsRetroArchErrorOverlayOpen = false;
         }
 
+        private void ShowEmulatorLaunchFailure(IEmulatorHandler? handler, string? context, string details)
+        {
+            var handlerName = !string.IsNullOrWhiteSpace(handler?.DisplayName)
+                ? handler.DisplayName
+                : "Emulator";
+            EmulatorErrorOverlayTitle = $"{handlerName} launch warning";
+            RetroArchErrorSummary = string.IsNullOrWhiteSpace(context)
+                ? "Emulator launch failed."
+                : $"Could not launch {context}.";
+            RetroArchErrorDetails = details;
+            IsRetroArchErrorOverlayOpen = true;
+        }
+
         private void ShowEmulatorCaptureFailure(string romPath, IEmulatorHandler handler, string? details = null)
         {
             var handlerName = string.IsNullOrWhiteSpace(handler.DisplayName) ? "emulator" : handler.DisplayName;
+            EmulatorErrorOverlayTitle = $"{handlerName} capture warning";
             RetroArchErrorSummary = $"{handlerName} capture failed.";
             RetroArchErrorDetails = string.IsNullOrWhiteSpace(details)
                 ? $"AES could not capture '{romPath}'. The emulator may still be running. Please retry, or reopen the emulator window and try again."

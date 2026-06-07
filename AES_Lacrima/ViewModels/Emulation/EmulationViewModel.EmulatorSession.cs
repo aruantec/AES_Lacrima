@@ -5,6 +5,7 @@ using AES_Core.DI;
 using AES_Core.IO;
 using AES_Emulation.Controls;
 using AES_Emulation.EmulationHandlers;
+using AES_Emulation.Linux;
 using AES_Emulation.Platform;
 using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
@@ -190,7 +191,24 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 PrepareLinuxAppImageStartInfo(startInfo);
-                var process = Process.Start(startInfo);
+
+                Process? process;
+                if (OperatingSystem.IsLinux())
+                {
+                    var (width, height) = LinuxCompositorLaunchHelper.ResolveOutputSize();
+                    _linuxCompositorSession?.Dispose();
+                    _linuxCompositorSession = await LinuxCompositorSession.StartAsync(
+                        startInfo,
+                        width,
+                        height,
+                        CancellationToken.None).ConfigureAwait(false);
+                    process = _linuxCompositorSession.CompositorProcess;
+                    _linuxCompositorPid = process.Id;
+                }
+                else
+                {
+                    process = Process.Start(startInfo);
+                }
                 SLog.Info($"Emulation launch started for '{request.AlbumTitle}'/'{request.ItemTitle}' after {launchStopwatch.ElapsedMilliseconds} ms. pid={(process?.Id ?? 0)}.");
 
                 if (process != null)
@@ -223,7 +241,8 @@ namespace AES_Lacrima.ViewModels
                     if (EmulatorCapturePlatform.SupportsCompositionCapture &&
                         handler.HideUntilCaptured &&
                         !handler.DeferWindowHidingUntilCaptured &&
-                        runtimeProcess != null)
+                        runtimeProcess != null &&
+                        OperatingSystem.IsWindows())
                     {
                         try
                         {
@@ -251,6 +270,22 @@ namespace AES_Lacrima.ViewModels
 
                     TrackEmulatorProcess(runtimeProcess, request.RomPath, handler, request.ItemTitle);
                 }, DispatcherPriority.Background);
+            }
+            catch (LinuxCompositorLaunchException ex)
+            {
+                SLog.Warn($"Failed to launch emulator inside gamescope for '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
+                if (request.Handler is CemuHandler cemuHandler)
+                    cemuHandler.RestoreFullscreenScalingWorkaround(request.Handler.LauncherPath ?? string.Empty);
+                _linuxCompositorSession?.Dispose();
+                _linuxCompositorSession = null;
+                _linuxCompositorPid = 0;
+                RestoreAppTopMost();
+                RestoreHostWindowFocus();
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    ShowEmulatorLaunchFailure(request.Handler, request.ItemTitle, ex.Message);
+                    IsEmulatorLaunchInProgress = false;
+                });
             }
             catch (Exception ex)
             {
@@ -624,7 +659,9 @@ namespace AES_Lacrima.ViewModels
             _activeEmulatorProcess = process;
             _activeEmulatorRomPath = romPath;
             _activeEmulatorGameTitle = gameTitle;
-            EmulatorTargetProcessId = process?.Id ?? 0;
+            EmulatorTargetProcessId = OperatingSystem.IsLinux() && _linuxCompositorPid > 0
+                ? _linuxCompositorPid
+                : process?.Id ?? 0;
 
             if (OperatingSystem.IsWindows() && process != null)
             {
@@ -857,8 +894,47 @@ namespace AES_Lacrima.ViewModels
                 EmulatorTargetProcessId = 0;
                 _emulatorAudioVolume.Detach();
                 DetachShadPs4IpcSession();
+
+                var compositorSession = _linuxCompositorSession;
+                _linuxCompositorSession = null;
+                if (compositorSession != null)
+                {
+                    if (OperatingSystem.IsLinux())
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(400).ConfigureAwait(false);
+                            compositorSession.Dispose();
+                        });
+                    }
+                    else
+                    {
+                        compositorSession.Dispose();
+                    }
+                }
+
                 OnPropertyChanged(nameof(ShowShadPs4InGameCheatsButton));
             }
+        }
+
+        private Process? TryGetLiveCompositorProcess()
+        {
+            if (!OperatingSystem.IsLinux() || _linuxCompositorPid <= 0)
+                return null;
+
+            try
+            {
+                var process = Process.GetProcessById(_linuxCompositorPid);
+                process.Refresh();
+                if (!process.HasExited)
+                    return process;
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to resolve live gamescope process for capture.", ex);
+            }
+
+            return null;
         }
 
         private void AttachShadPs4IpcSessionIfNeeded(IEmulatorHandler handler, Process? process)
@@ -940,6 +1016,20 @@ namespace AES_Lacrima.ViewModels
         [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "IsWindow")]
         private static extern bool NativeIsWindow(IntPtr hWnd);
 
+        private static int GetCaptureTargetResolutionAttempts(IEmulatorHandler handler) => handler switch
+        {
+            DolphinHandler or Rpcs3Handler => 4,
+            FlyCastHandler or DuckStationHandler or CemuHandler or RetroArchHandler => 3,
+            _ => OperatingSystem.IsLinux() ? 2 : 1,
+        };
+
+        private static int GetCaptureTargetResolutionRetryDelayMs(IEmulatorHandler handler) => handler switch
+        {
+            DolphinHandler or Rpcs3Handler => 3500,
+            FlyCastHandler or DuckStationHandler => 1500,
+            _ => 2000,
+        };
+
         private async Task ResolveEmulatorTargetHwndAsync(Process process, string romPath, IEmulatorHandler handler)
         {
             var captureStopwatch = Stopwatch.StartNew();
@@ -948,8 +1038,8 @@ namespace AES_Lacrima.ViewModels
                 var hwnd = await ResolveCaptureTargetForCurrentPlatformAsync(process, handler).ConfigureAwait(false);
                 if (hwnd == IntPtr.Zero)
                 {
-                    var maxRetries = handler is RetroArchHandler or CemuHandler or DolphinHandler or Rpcs3Handler ? 4 : 1;
-                    var retryDelayMs = handler is DolphinHandler or Rpcs3Handler ? 3500 : 2000;
+                    var maxRetries = GetCaptureTargetResolutionAttempts(handler);
+                    var retryDelayMs = GetCaptureTargetResolutionRetryDelayMs(handler);
                     for (int i = 0; i < maxRetries && hwnd == IntPtr.Zero; i++)
                     {
                         SLog.Warn($"Failed to resolve emulator capture target for '{romPath}' (attempt {i + 1}). Retrying...");
@@ -990,19 +1080,22 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private static async Task<IntPtr> ResolveCaptureTargetForCurrentPlatformAsync(Process process, IEmulatorHandler handler)
+        private async Task<IntPtr> ResolveCaptureTargetForCurrentPlatformAsync(Process process, IEmulatorHandler handler)
         {
-            if (OperatingSystem.IsWindows())
-                return await handler.ResolveCaptureTargetAsync(process, CancellationToken.None).ConfigureAwait(false);
+            if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+            {
+                var captureProcess = TryGetLiveCompositorProcess() ?? process;
+                return await handler.ResolveCaptureTargetAsync(captureProcess, CancellationToken.None).ConfigureAwait(false);
+            }
 
             if (handler.CaptureStartupDelayMs > 0)
                 await Task.Delay(handler.CaptureStartupDelayMs).ConfigureAwait(false);
 
-            var captureProcess = ResolveCaptureProcessForCurrentPlatform(process, handler);
+            var macCaptureProcess = ResolveCaptureProcessForCurrentPlatform(process, handler);
             try
             {
-                captureProcess.Refresh();
-                if (captureProcess.HasExited)
+                macCaptureProcess.Refresh();
+                if (macCaptureProcess.HasExited)
                     return IntPtr.Zero;
             }
             catch
@@ -1010,7 +1103,7 @@ namespace AES_Lacrima.ViewModels
                 return IntPtr.Zero;
             }
 
-            return new IntPtr(captureProcess.Id);
+            return new IntPtr(macCaptureProcess.Id);
         }
 
         private static Process ResolveCaptureProcessForCurrentPlatform(Process process, IEmulatorHandler handler)
@@ -1101,6 +1194,7 @@ namespace AES_Lacrima.ViewModels
             if (string.IsNullOrWhiteSpace(details))
                 return;
 
+            EmulatorErrorOverlayTitle = "RetroArch launch warning";
             RetroArchErrorSummary = string.IsNullOrWhiteSpace(summary)
                 ? "RetroArch reported an error during launch."
                 : summary;
@@ -1151,6 +1245,7 @@ namespace AES_Lacrima.ViewModels
                         {
                             await Dispatcher.UIThread.InvokeAsync(() =>
                             {
+                                EmulatorErrorOverlayTitle = "RetroArch launch warning";
                                 RetroArchErrorSummary = string.IsNullOrWhiteSpace(summary)
                                     ? "RetroArch reported an error during launch."
                                     : summary;
@@ -1214,6 +1309,7 @@ namespace AES_Lacrima.ViewModels
 
                 RestoreAppTopMost();
                 RestoreHostWindowFocus();
+                ClearRetroArchErrorState();
 
                 if (EmulatorTargetHwnd != hwnd)
                     EmulatorTargetHwnd = hwnd;
