@@ -770,7 +770,10 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         public bool IsGameplayPreviewAvailable =>
             IsGameplayAutoplayEnabled && IsYtDlpInstalled && !IsEmulatorRunning;
-        public bool IsEmulatorViewportVisible => IsEmulatorRunning && !IsEmulatorViewportDismissed;
+        public bool IsEmulatorViewportVisible =>
+            EmulatorCapturePlatform.SupportsCompositionCapture &&
+            IsEmulatorRunning &&
+            !IsEmulatorViewportDismissed;
         public bool IsCompositionCaptureVisible => IsActive && IsEmulatorViewportVisible;
         public bool IsCarouselVisible => !IsEmulatorViewportVisible;
         public bool IsRomCarouselAnimationPaused => IsCompositionCaptureVisible;

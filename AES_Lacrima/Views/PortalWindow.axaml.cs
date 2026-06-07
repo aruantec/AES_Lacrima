@@ -88,16 +88,10 @@ public partial class PortalWindow : Window
 
     public void MoveResizeUnconstrained(PixelPoint position, int widthPixels, int heightPixels)
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) 
-        {
-            this.Position = position;
-            var scaling = this.RenderScaling > 0 ? this.RenderScaling : 1;
-            this.Width = Math.Ceiling(widthPixels / scaling);
-            this.Height = Math.Ceiling(heightPixels / scaling);
-            return;
-        }
-
-        LinuxWindowPlacement.TryMoveResize(this, position.X, position.Y, widthPixels, heightPixels);
+        this.Position = position;
+        var scaling = this.RenderScaling > 0 ? this.RenderScaling : 1;
+        this.Width = Math.Ceiling(widthPixels / scaling);
+        this.Height = Math.Ceiling(heightPixels / scaling);
     }
 
     private void InitializeComponent()
@@ -134,11 +128,6 @@ public partial class PortalWindow : Window
             var handle = TryGetPlatformHandle()?.Handle;
             if (handle != null && handle != IntPtr.Zero)
                 MacSystemDialogs.ConfigurePortalWindow(handle.Value);
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            LinuxWindowPlacement.TryConfigureAsNormalWindow(this);
-            LinuxWindowPlacement.TryConfigureClickThrough(this);
         }
     }
 }

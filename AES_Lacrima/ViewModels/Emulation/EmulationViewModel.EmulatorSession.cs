@@ -220,7 +220,8 @@ namespace AES_Lacrima.ViewModels
                         runtimeProcess = process;
                     }
 
-                    if (handler.HideUntilCaptured &&
+                    if (EmulatorCapturePlatform.SupportsCompositionCapture &&
+                        handler.HideUntilCaptured &&
                         !handler.DeferWindowHidingUntilCaptured &&
                         runtimeProcess != null)
                     {
@@ -672,6 +673,11 @@ namespace AES_Lacrima.ViewModels
 
             if (process.HasExited)
                 HandleTrackedEmulatorExited(process);
+            else if (!EmulatorCapturePlatform.SupportsCompositionCapture)
+            {
+                StartActiveEmulatorWatchdog(process);
+                IsEmulatorLaunchInProgress = false;
+            }
             else
             {
                 StartActiveEmulatorWatchdog(process);

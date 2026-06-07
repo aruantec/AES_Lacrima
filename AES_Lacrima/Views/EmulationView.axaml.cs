@@ -207,15 +207,17 @@ public partial class EmulationView : UserControl
 
     /// <summary>
     /// When <see langword="true"/>, composition capture renders in <c>InlineCaptureControl</c> on this view.
-    /// When <see langword="false"/>, capture uses <see cref="PortalWindow"/> instead.
-    /// Windows uses inline capture with Avalonia 12 NativeControlHost/DComp for lowest overhead.
+    /// When <see langword="false"/> on macOS, capture uses <see cref="PortalWindow"/> instead.
+    /// Linux launches emulators externally until capture is reimplemented.
     /// </summary>
     private static bool UseInlineCaptureHost => OperatingSystem.IsWindows();
+
+    private static bool UsePortalCaptureHost => OperatingSystem.IsMacOS();
 
     /// <summary>
     /// Portal chrome (transparent hole + fallback overlay) is only used with the external portal window.
     /// </summary>
-    public bool IsPortalChromeVisible => !UseInlineCaptureHost;
+    public bool IsPortalChromeVisible => UsePortalCaptureHost;
 
     private EmulatorCaptureHostControl? ActiveCaptureHost
         => UseInlineCaptureHost ? _inlineCaptureHost : _portalWindow?.CaptureHostControl;
@@ -247,7 +249,7 @@ public partial class EmulationView : UserControl
 
     private void OnViewLayoutUpdated(object? sender, EventArgs e)
     {
-        if (UseInlineCaptureHost || _portalWindow == null || _isCaptureFullscreen)
+        if (UseInlineCaptureHost || !UsePortalCaptureHost || _portalWindow == null || _isCaptureFullscreen)
             return;
 
         if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
@@ -558,7 +560,7 @@ public partial class EmulationView : UserControl
                 EnsureInlineCaptureHost();
                 AttachPortalCaptureBindings();
             }
-            else if (_portalWindow == null)
+            else if (UsePortalCaptureHost && _portalWindow == null)
             {
                 _portalWindow = new PortalWindow();
                 _portalWindow.DataContext = DataContext;
@@ -629,7 +631,7 @@ public partial class EmulationView : UserControl
 
         if (TopLevel.GetTopLevel(this) is Window mainWindow)
         {
-            if (!UseInlineCaptureHost)
+            if (UsePortalCaptureHost)
                 mainWindow.PositionChanged -= OnMainWindowPositionChanged;
             mainWindow.Activated -= OnMainWindowActivated;
             mainWindow.Deactivated -= OnMainWindowDeactivated;
@@ -821,7 +823,7 @@ public partial class EmulationView : UserControl
 
     private void UpdatePortalVisibilityForMetadataOverlay(EmulationViewModel vm)
     {
-        if (UseInlineCaptureHost || _portalWindow == null)
+        if (!UsePortalCaptureHost || _portalWindow == null)
             return;
 
         var metadataOpen = vm.MetadataService?.IsMetadataLoaded == true;
@@ -960,7 +962,7 @@ public partial class EmulationView : UserControl
             SetCaptureChromeVisible(vmAfter.IsEmulatorLaunchInProgress || IsPortalCaptureInitializing);
         }
 
-        if (!UseInlineCaptureHost)
+        if (UsePortalCaptureHost)
             await CompletePortalHideAfterFadeAsync(cancellationToken);
     }
 
@@ -1102,12 +1104,7 @@ public partial class EmulationView : UserControl
             SyncPortalWindowCore();
             if (DataContext is EmulationViewModel portalVm)
                 UpdateCapturePointerRouting(portalVm);
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-                LinuxWindowPlacement.TryConfigureClickThrough(_portalWindow);
             UpdateWindowZOrder();
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && TopLevel.GetTopLevel(this) is Window mainWindow)
-                mainWindow.Activate();
 
             if (wasSurfaceVisible)
                 PortalFallbackOpacity = 0;
@@ -1187,7 +1184,7 @@ public partial class EmulationView : UserControl
                 _viewportTransitionCancellation = cancellation;
                 _ = TransitionToCaptureAsync(cancellation.Token);
             }
-            else if (!UseInlineCaptureHost)
+            else if (UsePortalCaptureHost)
             {
                 Dispatcher.UIThread.Post(() =>
                 {
@@ -1203,7 +1200,7 @@ public partial class EmulationView : UserControl
 
     private void OnMainWindowDeactivated(object? sender, EventArgs e)
     {
-        if (!UseInlineCaptureHost)
+        if (UsePortalCaptureHost)
             UpdateWindowZOrder();
     }
 
@@ -1257,10 +1254,6 @@ public partial class EmulationView : UserControl
             return;
 
         SyncPortalWindowCore();
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && TopLevel.GetTopLevel(this) is Window mainWindow)
-        {
-            mainWindow.Activate();
-        }
 
         ResetPortalCaptureBrightness();
         IsPortalSurfaceVisible = true;
@@ -1601,16 +1594,6 @@ public partial class EmulationView : UserControl
             screenTopLeft = new PixelPoint((int)Math.Round(topLeftScreenX), (int)Math.Round(topLeftScreenY));
             screenBottomRight = new PixelPoint((int)Math.Round(bottomRightScreenX), (int)Math.Round(bottomRightScreenY));
         }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            var renderScale = Math.Max(1.0, mainWindow.RenderScaling);
-            screenTopLeft = new PixelPoint(
-                mainWindow.Position.X + (int)Math.Round(topLeft.Value.X * renderScale),
-                mainWindow.Position.Y + (int)Math.Round(topLeft.Value.Y * renderScale));
-            screenBottomRight = new PixelPoint(
-                mainWindow.Position.X + (int)Math.Round(bottomRight.Value.X * renderScale),
-                mainWindow.Position.Y + (int)Math.Round(bottomRight.Value.Y * renderScale));
-        }
         else
         {
             screenTopLeft = mainWindow.PointToScreen(topLeft.Value);
@@ -1630,11 +1613,6 @@ public partial class EmulationView : UserControl
             Math.Ceiling(heightPixels / portalRenderScaling));
         if (_lastPortalPosition == portalPosition && _lastPortalSize == portalSize)
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            {
-                _portalWindow.MoveResizeUnconstrained(portalPosition, widthPixels, heightPixels);
-                LinuxWindowPlacement.TryConfigureClickThrough(_portalWindow);
-            }
             UpdateWindowZOrder();
             return;
         }
@@ -1667,12 +1645,6 @@ public partial class EmulationView : UserControl
         _portalWindow.Position = position;
         _portalWindow.Width = width;
         _portalWindow.Height = height;
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            _portalWindow.MoveResizeUnconstrained(position, widthPixels, heightPixels);
-            LinuxWindowPlacement.TryConfigureClickThrough(_portalWindow);
-        }
     }
 
     private void ApplyFullscreenOverlayBounds(PixelRect screenBounds, Window mainWindow)
@@ -1837,18 +1809,7 @@ public partial class EmulationView : UserControl
 
     private void UpdatePortalLinuxFallbackState()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            IsPortalFallbackLimited = false;
-            return;
-        }
-
-        var statusFallback = !string.IsNullOrWhiteSpace(PortalStatusText) &&
-            PortalStatusText.Contains("fallback", StringComparison.OrdinalIgnoreCase);
-        var rendererFallback = !string.IsNullOrWhiteSpace(PortalGpuRenderer) &&
-            PortalGpuRenderer.Contains("fallback", StringComparison.OrdinalIgnoreCase);
-
-        IsPortalFallbackLimited = statusFallback || rendererFallback;
+        IsPortalFallbackLimited = false;
     }
 
     private void UpdateAlbumListTransitions(EmulationViewModel vm)
@@ -1871,7 +1832,7 @@ public partial class EmulationView : UserControl
 
         if (vm.IsCompositionCaptureVisible && captureVisible)
         {
-            if (!UseInlineCaptureHost)
+            if (UsePortalCaptureHost)
             {
                 PortalFallbackOpacity = 1;
                 IsPortalSurfaceVisible = false;
@@ -1900,7 +1861,7 @@ public partial class EmulationView : UserControl
                         return;
 
                     SyncPortalWindow();
-                    IsPortalSurfaceVisible = !UseInlineCaptureHost;
+                    IsPortalSurfaceVisible = UsePortalCaptureHost;
                     PortalFallbackOpacity = 0;
                 }, DispatcherPriority.Render);
             }
