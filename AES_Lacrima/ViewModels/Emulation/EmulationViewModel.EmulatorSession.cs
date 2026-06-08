@@ -199,25 +199,16 @@ namespace AES_Lacrima.ViewModels
                 if (OperatingSystem.IsLinux())
                 {
                     var (width, height) = LinuxCompositorLaunchHelper.ResolveOutputSize();
-                    if (_linuxCompositorSession?.IsActive == true)
-                    {
-                        process = await _linuxCompositorSession.LaunchEmulatorAsync(
-                            startInfo,
-                            CancellationToken.None).ConfigureAwait(false);
-                        _linuxCompositorPid = process.Id;
-                        SLog.Info($"Reused existing gamescope compositor pid={_linuxCompositorPid} for emulator launch.");
-                    }
-                    else
-                    {
-                        _linuxCompositorSession?.Dispose();
-                        _linuxCompositorSession = await LinuxCompositorSession.StartAsync(
-                            startInfo,
-                            width,
-                            height,
-                            CancellationToken.None).ConfigureAwait(false);
-                        process = _linuxCompositorSession.CompositorProcess;
-                        _linuxCompositorPid = process.Id;
-                    }
+                    TeardownLinuxGamescopeSession();
+
+                    _linuxCompositorSession = await LinuxCompositorSession.StartAsync(
+                        startInfo,
+                        width,
+                        height,
+                        CancellationToken.None).ConfigureAwait(false);
+                    process = _linuxCompositorSession.CompositorProcess;
+                    _linuxCompositorPid = process.Id;
+                    SLog.Info($"Started fresh gamescope session pid={_linuxCompositorPid}.");
                 }
                 else
                 {
@@ -290,9 +281,7 @@ namespace AES_Lacrima.ViewModels
                 SLog.Warn($"Failed to launch emulator inside gamescope for '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
                 if (request.Handler is CemuHandler cemuHandler)
                     cemuHandler.RestoreFullscreenScalingWorkaround(request.Handler.LauncherPath ?? string.Empty);
-                _linuxCompositorSession?.Dispose();
-                _linuxCompositorSession = null;
-                _linuxCompositorPid = 0;
+                TeardownLinuxGamescopeSession();
                 RestoreAppTopMost();
                 RestoreHostWindowFocus();
                 await Dispatcher.UIThread.InvokeAsync(() =>
@@ -458,9 +447,40 @@ namespace AES_Lacrima.ViewModels
 
             _isClosingActiveEmulatorForRelaunch = true;
             SLog.Info($"EmulationViewModel starting tracked emulator shutdown. pid={process.Id}.");
-            if (!OperatingSystem.IsLinux())
-                PrepareEmulatorShutdownCapture();
+            PrepareEmulatorShutdownCapture();
             _ = CloseTrackedEmulatorForPendingLaunchAsync(process);
+        }
+
+        /// <summary>
+        /// Stops the active gamescope -- emulator session and clears all Linux compositor state.
+        /// Safe to call multiple times; next launch starts from a clean slate.
+        /// </summary>
+        private void TeardownLinuxGamescopeSession(bool waitForProcessExit = false, bool scheduleKill = false)
+        {
+            if (!OperatingSystem.IsLinux())
+                return;
+
+            var session = _linuxCompositorSession;
+            var compositorPid = _linuxCompositorPid;
+            _linuxCompositorSession = null;
+            _linuxCompositorPid = 0;
+
+            try
+            {
+                if (session != null)
+                    session.Dispose(waitForProcessExit, scheduleKill);
+                else if (compositorPid > 0)
+                {
+                    if (scheduleKill)
+                        LinuxCompositorKillHelper.ScheduleKillProcessTree(compositorPid);
+                    else
+                        LinuxCompositorKillHelper.ForceKillProcessTree(compositorPid, waitForProcessExit);
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to tear down gamescope session.", ex);
+            }
         }
 
         private void PrepareEmulatorShutdownCapture()
@@ -517,7 +537,11 @@ namespace AES_Lacrima.ViewModels
             {
                 if (OperatingSystem.IsLinux())
                 {
-                    await Task.Run(() => ForceCloseTrackedEmulatorProcess(process)).ConfigureAwait(false);
+                    await Dispatcher.UIThread.InvokeAsync(() => EmulatorTargetProcessId = 0, DispatcherPriority.Background)
+                        .GetTask()
+                        .ConfigureAwait(false);
+
+                    await Task.Run(() => TeardownLinuxGamescopeSession(waitForProcessExit: true)).ConfigureAwait(false);
                 }
                 else
                 {
@@ -547,9 +571,6 @@ namespace AES_Lacrima.ViewModels
                     DetachTrackedEmulatorProcess();
                     IsEmulatorRunning = false;
                     IsEmulatorPaused = false;
-
-                    if (OperatingSystem.IsLinux() && _linuxCompositorPid > 0)
-                        EmulatorTargetProcessId = _linuxCompositorPid;
 
                     TryLaunchPendingEmulatorRequest();
                 }, DispatcherPriority.Background);
@@ -931,12 +952,13 @@ namespace AES_Lacrima.ViewModels
             _activeRpcs3SessionTitleId = null;
             _activeRpcs3SessionEmulatorDirectory = null;
 
+            if (OperatingSystem.IsLinux())
+                TeardownLinuxGamescopeSession();
+
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
             IsEmulatorPaused = false;
-
-            if (OperatingSystem.IsLinux() && _linuxCompositorPid > 0)
-                EmulatorTargetProcessId = _linuxCompositorPid;
+            EmulatorTargetProcessId = 0;
 
             if (!_isClosingActiveEmulatorForRelaunch)
                 RequestStopEmulatorCapture = true;
@@ -950,13 +972,14 @@ namespace AES_Lacrima.ViewModels
             }
 
             var hadPendingLaunch = _pendingEmulatorLaunchRequest != null;
-            TryLaunchPendingEmulatorRequest();
+            if (!_isClosingActiveEmulatorForRelaunch)
+                TryLaunchPendingEmulatorRequest();
 
             if (!hadPendingLaunch)
                 IsEmulatorLaunchInProgress = false;
         }
 
-        private void DetachTrackedEmulatorProcess(bool disposeLinuxCompositorSession = false)
+        private void DetachTrackedEmulatorProcess()
         {
             _activeEmulatorWatchdogCts?.Cancel();
             _activeEmulatorWatchdogCts?.Dispose();
@@ -965,10 +988,7 @@ namespace AES_Lacrima.ViewModels
             if (_activeEmulatorProcess == null)
             {
                 EmulatorTargetHwnd = IntPtr.Zero;
-                if (OperatingSystem.IsLinux() && !disposeLinuxCompositorSession && _linuxCompositorPid > 0)
-                    EmulatorTargetProcessId = _linuxCompositorPid;
-                else
-                    EmulatorTargetProcessId = 0;
+                EmulatorTargetProcessId = 0;
                 _retroArchLogWatcherCts?.Cancel();
                 _retroArchLogWatcherCts?.Dispose();
                 _retroArchLogWatcherCts = null;
@@ -990,34 +1010,9 @@ namespace AES_Lacrima.ViewModels
                 _activeEmulatorRomPath = null;
                 _activeEmulatorGameTitle = null;
                 EmulatorTargetHwnd = IntPtr.Zero;
-                if (OperatingSystem.IsLinux() && !disposeLinuxCompositorSession && _linuxCompositorPid > 0)
-                    EmulatorTargetProcessId = _linuxCompositorPid;
-                else
-                    EmulatorTargetProcessId = 0;
+                EmulatorTargetProcessId = 0;
                 _emulatorAudioVolume.Detach();
                 DetachShadPs4IpcSession();
-
-                if (disposeLinuxCompositorSession)
-                {
-                    var compositorSession = _linuxCompositorSession;
-                    _linuxCompositorSession = null;
-                    _linuxCompositorPid = 0;
-                    if (compositorSession != null)
-                    {
-                        if (OperatingSystem.IsLinux())
-                        {
-                            _ = Task.Run(async () =>
-                            {
-                                await Task.Delay(400).ConfigureAwait(false);
-                                compositorSession.Dispose();
-                            });
-                        }
-                        else
-                        {
-                            compositorSession.Dispose();
-                        }
-                    }
-                }
 
                 OnPropertyChanged(nameof(ShowShadPs4InGameCheatsButton));
             }

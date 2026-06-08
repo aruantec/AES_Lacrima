@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading.Tasks;
 using AES_Core.Logging;
 using log4net;
 
@@ -46,74 +47,88 @@ public static class LinuxCompositorKillHelper
             return;
         }
 
-        SLog.Info($"Force-killing emulator process tree (pid={pid}), keeping gamescope alive.");
-
-        try
-        {
-            process.Kill(entireProcessTree: true);
-        }
-        catch (ArgumentException)
-        {
-            // Already gone.
-        }
-        catch (Exception ex)
-        {
-            SLog.Debug($"Process.Kill(entireProcessTree) failed for emulator pid={pid}.", ex);
-        }
-
-        KillDescendantsRecursive(pid);
-        TryKill(pid, SigKill);
+        SLog.Info($"Force-killing emulator process tree (pid={pid}).");
+        KillProcessTreeSinglePass(pid);
     }
 
-    public static void ForceKillProcessTree(int rootPid)
+    /// <summary>
+    /// Sends SIGKILL to a process tree. Uses one /proc scan; does not block on Process.WaitForExit.
+    /// </summary>
+    public static void ForceKillProcessTree(int rootPid, bool waitForFallback = false)
     {
         if (!OperatingSystem.IsLinux() || rootPid <= 0)
             return;
 
         SLog.Info($"Force-killing gamescope/emulator process tree (root pid={rootPid}).");
-
-        try
-        {
-            using var process = Process.GetProcessById(rootPid);
-            if (!process.HasExited)
-                process.Kill(entireProcessTree: true);
-        }
-        catch (ArgumentException)
-        {
-            // Already gone.
-        }
-        catch (Exception ex)
-        {
-            SLog.Debug($"Process.Kill(entireProcessTree) failed for pid={rootPid}.", ex);
-        }
-
-        KillDescendantsRecursive(rootPid);
-        TryKill(rootPid, SigKill);
-        RunShellKillFallback(rootPid);
+        KillProcessTreeSinglePass(rootPid);
+        RunShellKillFallback(rootPid, waitForFallback);
     }
 
-    private static void KillDescendantsRecursive(int parentPid)
+    /// <summary>
+    /// Signals a process tree on a background thread so the UI thread never waits on gamescope teardown.
+    /// </summary>
+    public static void ScheduleKillProcessTree(int rootPid)
     {
-        foreach (var childPid in EnumerateChildProcessIds(parentPid))
+        if (!OperatingSystem.IsLinux() || rootPid <= 0)
+            return;
+
+        _ = Task.Run(() =>
         {
-            KillDescendantsRecursive(childPid);
-            TryKill(childPid, SigKill);
-        }
+            try
+            {
+                SLog.Info($"Scheduling background kill for gamescope/emulator tree (root pid={rootPid}).");
+                KillProcessTreeSinglePass(rootPid);
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug($"Background kill failed for pid={rootPid}.", ex);
+            }
+        });
     }
 
-    private static IEnumerable<int> EnumerateChildProcessIds(int parentPid)
+    private static void KillProcessTreeSinglePass(int rootPid)
     {
+        var childrenByParent = BuildChildrenByParentMap();
+
+        void KillDepthFirst(int pid)
+        {
+            if (childrenByParent.TryGetValue(pid, out var children))
+            {
+                foreach (var childPid in children)
+                    KillDepthFirst(childPid);
+            }
+
+            TryKill(pid, SigKill);
+        }
+
+        KillDepthFirst(rootPid);
+    }
+
+    private static Dictionary<int, List<int>> BuildChildrenByParentMap()
+    {
+        var childrenByParent = new Dictionary<int, List<int>>();
+
         if (!Directory.Exists("/proc"))
-            yield break;
+            return childrenByParent;
 
         foreach (var entry in Directory.EnumerateDirectories("/proc"))
         {
             if (!int.TryParse(Path.GetFileName(entry), out var pid) || pid <= 1)
                 continue;
 
-            if (TryReadParentProcessId(entry, out var ppid) && ppid == parentPid)
-                yield return pid;
+            if (!TryReadParentProcessId(entry, out var parentPid))
+                continue;
+
+            if (!childrenByParent.TryGetValue(parentPid, out var children))
+            {
+                children = new List<int>();
+                childrenByParent[parentPid] = children;
+            }
+
+            children.Add(pid);
         }
+
+        return childrenByParent;
     }
 
     private static bool TryReadParentProcessId(string procDir, out int parentPid)
@@ -142,7 +157,7 @@ public static class LinuxCompositorKillHelper
         return false;
     }
 
-    private static void RunShellKillFallback(int rootPid)
+    private static void RunShellKillFallback(int rootPid, bool waitForExit)
     {
         try
         {
@@ -159,7 +174,10 @@ public static class LinuxCompositorKillHelper
                 CreateNoWindow = true,
             });
 
-            shell?.WaitForExit(2000);
+            if (shell == null || !waitForExit)
+                return;
+
+            shell.WaitForExit(250);
         }
         catch (Exception ex)
         {

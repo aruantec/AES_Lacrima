@@ -199,6 +199,7 @@ typedef struct
     int                      pw_frame_ready; // 1 when pw_pending_buf is valid
     int                      pw_init_requested; // set by set_target, cleared by render thread
     int                      pw_shutdown_requested; // set by stop; render thread tears down pw_loop
+    int                      pw_reconnect_requested; // headless: reconnect stream only (keep pw_loop)
 
     // ――― EGL context (used by PipeWire backend for DMA-BUF import) ―――
     EGLDisplay               egl_display;
@@ -1631,6 +1632,8 @@ static bool InitEglContext(LinuxCapture*);
 static void CleanupEglContext(LinuxCapture*);
 static bool InitPipeWireBackend(LinuxCapture*);
 static bool InitGamescopeDirectPipeWireBackend(LinuxCapture*);
+static bool ReconnectGamescopeDirectPipeWireStream(LinuxCapture*);
+static bool ConnectGamescopeDirectPipeWireStream(LinuxCapture*, uint32_t node_id, int registry_found);
 static void StopPipeWireBackend(LinuxCapture*);
 static void DestroyPipeWireBackend(LinuxCapture*);
 static void RenderPipeWireFrame(LinuxCapture*, struct pw_buffer*);
@@ -1665,6 +1668,13 @@ static void* RenderThreadMain(void* arg)
             LogNative("PipeWire: render thread entered headless export mode");
             while (!cap->stop_render_thread && cap->pw_active)
             {
+                pthread_mutex_lock(&cap->mutex);
+                const int shutdown_requested = cap->pw_shutdown_requested;
+                const int reconnect_requested = cap->pw_reconnect_requested;
+                pthread_mutex_unlock(&cap->mutex);
+                if (shutdown_requested || reconnect_requested)
+                    break;
+
                 struct pw_buffer* pbuf = nullptr;
 
                 pthread_mutex_lock(&cap->pw_frame_mutex);
@@ -1817,11 +1827,17 @@ static void* RenderThreadMain(void* arg)
         {
             int do_pw_shutdown = 0;
             int do_pw_init = 0;
+            int do_pw_reconnect = 0;
             pthread_mutex_lock(&cap->mutex);
             if (cap->pw_shutdown_requested)
             {
                 cap->pw_shutdown_requested = 0;
                 do_pw_shutdown = 1;
+            }
+            else if (cap->pw_reconnect_requested)
+            {
+                cap->pw_reconnect_requested = 0;
+                do_pw_reconnect = 1;
             }
             else if (cap->pw_init_requested)
             {
@@ -1836,6 +1852,29 @@ static void* RenderThreadMain(void* arg)
                 {
                     LogNative("PipeWire: headless shutdown — tearing down stream on render thread");
                     StopPipeWireBackend(cap);
+                }
+                continue;
+            }
+
+            if (do_pw_reconnect)
+            {
+                if (cap->pw_loop)
+                {
+                    LogNative("PipeWire: headless reconnect — replacing stream for pid=%d", cap->target_pid);
+                    if (ReconnectGamescopeDirectPipeWireStream(cap))
+                    {
+                        EnterPwRenderLoop();
+                        cap->backend_mode = BackendNone;
+                    }
+                    else
+                    {
+                        LogNative("PipeWire: headless reconnect failed");
+                        pthread_mutex_lock(&cap->mutex);
+                        cap->initializing = 0;
+                        cap->active = 0;
+                        SetStatusText(cap, "Gamescope PipeWire reconnect failed");
+                        pthread_mutex_unlock(&cap->mutex);
+                    }
                 }
                 continue;
             }
@@ -2526,6 +2565,9 @@ static void PwOnParamChanged(void* userdata, uint32_t id,
 static void PwOnProcess(void* userdata)
 {
     LinuxCapture* cap = static_cast<LinuxCapture*>(userdata);
+    if (!cap || !cap->pw_stream || !cap->pw_active)
+        return;
+
     struct pw_buffer* buf = pw_stream_dequeue_buffer(cap->pw_stream);
     if (!buf)
         return;
@@ -2906,6 +2948,146 @@ static const struct pw_registry_events g_gamescope_registry_events = {
     .global_remove = nullptr,
 };
 
+static bool ConnectGamescopeDirectPipeWireStream(LinuxCapture* cap, uint32_t node_id, int registry_found)
+{
+    if (!cap || !cap->pw_loop || !cap->pw_core)
+        return false;
+
+    struct pw_properties* stream_props = pw_properties_new(
+        PW_KEY_MEDIA_TYPE, "Video",
+        PW_KEY_MEDIA_CATEGORY, "Capture",
+        PW_KEY_MEDIA_ROLE, "Screen",
+        nullptr);
+    if (!registry_found && stream_props)
+        pw_properties_set(stream_props, PW_KEY_TARGET_OBJECT, "gamescope");
+
+    cap->pw_stream = pw_stream_new(cap->pw_core, "aes-gamescope-capture", stream_props);
+    if (!cap->pw_stream)
+    {
+        LogNative("PipeWire: pw_stream_new failed (gamescope direct)");
+        return false;
+    }
+
+    pw_stream_add_listener(cap->pw_stream, &cap->pw_stream_hook,
+                           &g_pw_stream_events, cap);
+
+    uint8_t pbuf[1024];
+    struct spa_pod_builder sb{};
+    spa_pod_builder_init(&sb, pbuf, sizeof(pbuf));
+    const struct spa_pod* params[1];
+    struct spa_rectangle defSz  = { 1280, 720 };
+    struct spa_rectangle minSz  = { 1, 1 };
+    struct spa_rectangle maxSz  = { 7680, 4320 };
+    struct spa_fraction  defFps = { 60, 1 };
+    struct spa_fraction  minFps = { 0, 1 };
+    struct spa_fraction  maxFps = { 240, 1 };
+    uint32_t fmts[] = { SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_BGRx,
+                        SPA_VIDEO_FORMAT_RGBA, SPA_VIDEO_FORMAT_RGBx };
+    params[0] = reinterpret_cast<const struct spa_pod*>(
+        spa_pod_builder_add_object(&sb,
+            SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat,
+            SPA_FORMAT_mediaType,    SPA_POD_Id(SPA_MEDIA_TYPE_video),
+            SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
+            SPA_FORMAT_VIDEO_format,
+                SPA_POD_CHOICE_ENUM_Id(5,
+                    fmts[0], fmts[0], fmts[1], fmts[2], fmts[3]),
+            SPA_FORMAT_VIDEO_size,
+                SPA_POD_CHOICE_RANGE_Rectangle(&defSz, &minSz, &maxSz),
+            SPA_FORMAT_VIDEO_framerate,
+                SPA_POD_CHOICE_RANGE_Fraction(&defFps, &minFps, &maxFps)));
+
+    const uint32_t connect_id = registry_found ? node_id : PW_ID_ANY;
+    const int r = pw_stream_connect(cap->pw_stream,
+        PW_DIRECTION_INPUT,
+        connect_id,
+        static_cast<enum pw_stream_flags>(
+            PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_MAP_BUFFERS),
+        params, 1);
+    if (r < 0)
+    {
+        LogNative("PipeWire: gamescope direct pw_stream_connect failed: %s", spa_strerror(r));
+        spa_hook_remove(&cap->pw_stream_hook);
+        pw_stream_destroy(cap->pw_stream);
+        cap->pw_stream = nullptr;
+        return false;
+    }
+
+    cap->pw_fd = -1;
+    cap->pw_node_id = connect_id;
+    cap->pw_gamescope_direct = 1;
+    cap->backend_mode = BackendPipeWire;
+    cap->pw_active = 1;
+    cap->active = 1;
+    cap->initializing = 0;
+    SetBackendDetail(cap, "gamescope PipeWire direct");
+    SetGpuInfo(cap, "PipeWire DMA-BUF (gamescope)", "Linux");
+    SetStatusText(cap, "Gamescope PipeWire capture active");
+    LogNative("PipeWire: gamescope direct stream connected (node=%u, pid=%d)",
+              connect_id, cap->target_pid);
+    return true;
+}
+
+static bool ReconnectGamescopeDirectPipeWireStream(LinuxCapture* cap)
+{
+    if (!cap || !cap->pw_loop || !cap->pw_core)
+        return false;
+
+    pthread_mutex_lock(&cap->export_mutex);
+    ReleaseHeldExportFrameLocked(cap);
+    cap->export_buf = nullptr;
+    cap->export_held = 0;
+    cap->export_acquired_fd = -1;
+    cap->export_frame_id = 0;
+    cap->export_next_frame_id = 0;
+    pthread_mutex_unlock(&cap->export_mutex);
+
+    cap->source_last_event_ns = 0;
+    cap->source_fps = 0.0;
+    cap->source_frame_time_ms = 0.0;
+    cap->fps = 0.0;
+    cap->frame_time_ms = 0.0;
+
+    pthread_mutex_lock(&cap->pw_frame_mutex);
+    cap->pw_frame_ready = 0;
+    cap->pw_pending_buf = nullptr;
+    pthread_mutex_unlock(&cap->pw_frame_mutex);
+
+    GamescopeRegistryData registry_data{ cap->target_pid, 0, 0, 0, 0 };
+    struct spa_hook registry_hook{};
+    struct pw_registry* registry = pw_core_get_registry(cap->pw_core, PW_VERSION_REGISTRY, 0);
+    if (registry)
+        pw_registry_add_listener(registry, &registry_hook, &g_gamescope_registry_events, &registry_data);
+
+    pw_thread_loop_lock(cap->pw_loop);
+    if (cap->pw_stream)
+    {
+        spa_hook_remove(&cap->pw_stream_hook);
+        pw_stream_disconnect(cap->pw_stream);
+        pw_stream_destroy(cap->pw_stream);
+        cap->pw_stream = nullptr;
+    }
+
+    for (int attempt = 0; attempt < 200 && !registry_data.found; ++attempt)
+    {
+        pw_thread_loop_unlock(cap->pw_loop);
+        usleep(50000);
+        pw_thread_loop_lock(cap->pw_loop);
+    }
+
+    if (registry)
+    {
+        spa_hook_remove(&registry_hook);
+        pw_proxy_destroy(reinterpret_cast<struct pw_proxy*>(registry));
+    }
+
+    const bool connected = ConnectGamescopeDirectPipeWireStream(
+        cap,
+        registry_data.found ? registry_data.node_id : PW_ID_ANY,
+        registry_data.found);
+    pw_thread_loop_unlock(cap->pw_loop);
+    return connected;
+}
+
 static bool InitGamescopeDirectPipeWireBackend(LinuxCapture* cap)
 {
     if (!cap)
@@ -2968,71 +3150,14 @@ static bool InitGamescopeDirectPipeWireBackend(LinuxCapture* cap)
         pw_proxy_destroy(reinterpret_cast<struct pw_proxy*>(registry));
     }
 
-    struct pw_properties* stream_props = pw_properties_new(
-        PW_KEY_MEDIA_TYPE, "Video",
-        PW_KEY_MEDIA_CATEGORY, "Capture",
-        PW_KEY_MEDIA_ROLE, "Screen",
-        nullptr);
-    if (!registry_data.found && stream_props)
-        pw_properties_set(stream_props, PW_KEY_TARGET_OBJECT, "gamescope");
-
-    cap->pw_stream = pw_stream_new(cap->pw_core, "aes-gamescope-capture", stream_props);
-    if (!cap->pw_stream)
-    {
-        LogNative("PipeWire: pw_stream_new failed (gamescope direct)");
-        pw_thread_loop_unlock(cap->pw_loop);
-        pw_thread_loop_stop(cap->pw_loop);
-        pw_thread_loop_destroy(cap->pw_loop);
-        cap->pw_loop = nullptr;
-        pw_core_disconnect(cap->pw_core);
-        cap->pw_core = nullptr;
-        pw_context_destroy(cap->pw_ctx);
-        cap->pw_ctx = nullptr;
-        return false;
-    }
-
-    pw_stream_add_listener(cap->pw_stream, &cap->pw_stream_hook,
-                           &g_pw_stream_events, cap);
-
-    uint8_t pbuf[1024];
-    struct spa_pod_builder sb{};
-    spa_pod_builder_init(&sb, pbuf, sizeof(pbuf));
-    const struct spa_pod* params[1];
-    struct spa_rectangle defSz  = { 1280, 720 };
-    struct spa_rectangle minSz  = { 1, 1 };
-    struct spa_rectangle maxSz  = { 7680, 4320 };
-    struct spa_fraction  defFps = { 60, 1 };
-    struct spa_fraction  minFps = { 0, 1 };
-    struct spa_fraction  maxFps = { 240, 1 };
-    uint32_t fmts[] = { SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_BGRx,
-                        SPA_VIDEO_FORMAT_RGBA, SPA_VIDEO_FORMAT_RGBx };
-    params[0] = reinterpret_cast<const struct spa_pod*>(
-        spa_pod_builder_add_object(&sb,
-            SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat,
-            SPA_FORMAT_mediaType,    SPA_POD_Id(SPA_MEDIA_TYPE_video),
-            SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
-            SPA_FORMAT_VIDEO_format,
-                SPA_POD_CHOICE_ENUM_Id(5,
-                    fmts[0], fmts[0], fmts[1], fmts[2], fmts[3]),
-            SPA_FORMAT_VIDEO_size,
-                SPA_POD_CHOICE_RANGE_Rectangle(&defSz, &minSz, &maxSz),
-            SPA_FORMAT_VIDEO_framerate,
-                SPA_POD_CHOICE_RANGE_Fraction(&defFps, &minFps, &maxFps)));
-
-    const uint32_t connect_id = registry_data.found ? registry_data.node_id : PW_ID_ANY;
-    const int r = pw_stream_connect(cap->pw_stream,
-        PW_DIRECTION_INPUT,
-        connect_id,
-        static_cast<enum pw_stream_flags>(
-            PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_MAP_BUFFERS),
-        params, 1);
+    const bool ok = ConnectGamescopeDirectPipeWireStream(
+        cap,
+        registry_data.found ? registry_data.node_id : PW_ID_ANY,
+        registry_data.found);
     pw_thread_loop_unlock(cap->pw_loop);
 
-    if (r < 0)
+    if (!ok)
     {
-        LogNative("PipeWire: gamescope direct pw_stream_connect failed: %s", spa_strerror(r));
-        pw_stream_destroy(cap->pw_stream);
-        cap->pw_stream = nullptr;
         pw_thread_loop_stop(cap->pw_loop);
         pw_thread_loop_destroy(cap->pw_loop);
         cap->pw_loop = nullptr;
@@ -3043,18 +3168,8 @@ static bool InitGamescopeDirectPipeWireBackend(LinuxCapture* cap)
         return false;
     }
 
-    cap->pw_fd = -1;
-    cap->pw_node_id = connect_id;
-    cap->pw_gamescope_direct = 1;
-    cap->backend_mode = BackendPipeWire;
-    cap->pw_active = 1;
-    cap->active = 1;
-    cap->initializing = 0;
-    SetBackendDetail(cap, "gamescope PipeWire direct");
-    SetGpuInfo(cap, "PipeWire DMA-BUF (gamescope)", "Linux");
-    SetStatusText(cap, "Gamescope PipeWire capture active");
     LogNative("PipeWire: gamescope direct backend initialised (node=%u, pid=%d)",
-              connect_id, cap->target_pid);
+              cap->pw_node_id, cap->target_pid);
     return true;
 }
 
@@ -3097,11 +3212,12 @@ static void SampleSourceFrameMetrics(LinuxCapture* cap, uint64_t now)
 
 static void QueueExportBuffer(LinuxCapture* cap, struct pw_buffer* buf)
 {
-    if (!cap || !buf || !cap->pw_loop)
+    if (!cap || !buf || !cap->pw_loop || !cap->pw_stream)
         return;
 
     pw_thread_loop_lock(cap->pw_loop);
-    pw_stream_queue_buffer(cap->pw_stream, buf);
+    if (cap->pw_stream)
+        pw_stream_queue_buffer(cap->pw_stream, buf);
     pw_thread_loop_unlock(cap->pw_loop);
 }
 
@@ -3180,24 +3296,27 @@ static void StopPipeWireBackend(LinuxCapture* cap)
     {
         pthread_mutex_lock(&cap->export_mutex);
         ReleaseHeldExportFrameLocked(cap);
-        if (cap->export_buf)
-        {
-            struct pw_buffer* buf = cap->export_buf;
-            cap->export_buf = nullptr;
-            pthread_mutex_unlock(&cap->export_mutex);
-            QueueExportBuffer(cap, buf);
-        }
-        else
-        {
-            pthread_mutex_unlock(&cap->export_mutex);
-        }
+        // Drop any pending export buffer — the stream is about to be destroyed and
+        // re-queueing into a disconnecting stream can crash PipeWire.
+        cap->export_buf = nullptr;
+        cap->export_held = 0;
+        cap->export_acquired_fd = -1;
+        pthread_mutex_unlock(&cap->export_mutex);
     }
+
+    pthread_mutex_lock(&cap->pw_frame_mutex);
+    cap->pw_active = 0;
+    cap->pw_frame_ready = 0;
+    cap->pw_pending_buf = nullptr;
+    pthread_cond_broadcast(&cap->pw_frame_cond);
+    pthread_mutex_unlock(&cap->pw_frame_mutex);
 
     if (cap->pw_loop)
     {
         pw_thread_loop_lock(cap->pw_loop);
         if (cap->pw_stream)
         {
+            spa_hook_remove(&cap->pw_stream_hook);
             pw_stream_disconnect(cap->pw_stream);
             pw_stream_destroy(cap->pw_stream);
             cap->pw_stream = nullptr;
@@ -3207,13 +3326,6 @@ static void StopPipeWireBackend(LinuxCapture* cap)
         pw_thread_loop_destroy(cap->pw_loop);
         cap->pw_loop = nullptr;
     }
-
-    pthread_mutex_lock(&cap->pw_frame_mutex);
-    cap->pw_active  = 0;
-    cap->pw_frame_ready = 0;
-    cap->pw_pending_buf = nullptr;
-    pthread_cond_signal(&cap->pw_frame_cond);
-    pthread_mutex_unlock(&cap->pw_frame_mutex);
 
     if (cap->pw_core)
     {
@@ -3235,6 +3347,9 @@ static void StopPipeWireBackend(LinuxCapture* cap)
 
     cap->pw_gamescope_direct = 0;
     CleanupEglContext(cap);
+
+    if (cap->headless)
+        LogNative("PipeWire: headless shutdown complete");
 }
 
 static void DestroyPipeWireBackend(LinuxCapture* cap)
@@ -3873,9 +3988,13 @@ void aes_linux_capture_destroy(LinuxCapture* cap)
     if (!cap)
         return;
 
+    LogNative("headless capture destroy: begin (headless=%d pw_loop=%p)",
+              cap->headless, cap->pw_loop);
+
     cap->stop_render_thread = 1;
     cap->pw_shutdown_requested = 0;
     cap->pw_init_requested = 0;
+    cap->pw_reconnect_requested = 0;
     // Wake any waiting PipeWire frame delivery so the render thread can exit
     if (cap->backend_mode == BackendPipeWire || cap->headless)
     {
@@ -3933,6 +4052,7 @@ void aes_linux_capture_destroy(LinuxCapture* cap)
         pthread_cond_destroy(&cap->pw_frame_cond);
         pthread_mutex_destroy(&cap->pw_frame_mutex);
     }
+    LogNative("headless capture destroy: complete");
     free(cap);
 }
 
@@ -4087,7 +4207,20 @@ void aes_linux_capture_set_target(LinuxCapture* cap, int processId, const char* 
         {
             if (cap->pw_loop)
             {
-                LogNative("headless set_target ignored: PipeWire backend still active (pid=%d)", processId);
+                // Reconnect the PipeWire stream only — keep pw_loop alive. Full loop
+                // teardown (pw_thread_loop_stop) from the render thread crashes PipeWire.
+                LogNative("headless set_target: reconnect PipeWire stream to pid=%d", processId);
+                cap->use_pipewire = 1;
+                cap->active = 1;
+                cap->initializing = 1;
+                cap->pw_shutdown_requested = 0;
+                cap->pw_init_requested = 0;
+                pthread_mutex_lock(&cap->pw_frame_mutex);
+                cap->pw_active = 0;
+                pthread_cond_broadcast(&cap->pw_frame_cond);
+                pthread_mutex_unlock(&cap->pw_frame_mutex);
+                cap->pw_reconnect_requested = 1;
+                SetStatusText(cap, "Reconnecting to gamescope PipeWire...");
                 pthread_mutex_unlock(&cap->mutex);
                 return;
             }
@@ -4387,12 +4520,23 @@ void aes_linux_capture_stop(LinuxCapture* cap)
 
     if (cap->headless && cap->pw_loop)
     {
+        pthread_mutex_lock(&cap->export_mutex);
+        ReleaseHeldExportFrameLocked(cap);
+        cap->export_buf = nullptr;
+        cap->export_held = 0;
+        cap->export_acquired_fd = -1;
+        pthread_mutex_unlock(&cap->export_mutex);
+
         pthread_mutex_lock(&cap->pw_frame_mutex);
         cap->pw_active = 0;
+        cap->pw_frame_ready = 0;
+        cap->pw_pending_buf = nullptr;
         pthread_cond_broadcast(&cap->pw_frame_cond);
         pthread_mutex_unlock(&cap->pw_frame_mutex);
         cap->pw_init_requested = 0;
-        cap->pw_shutdown_requested = 1;
+        cap->pw_reconnect_requested = 0;
+        // Do not tear down pw_loop here — gamescope exit pauses the stream and full
+        // loop teardown from the render thread is unsafe. Loop cleanup happens in destroy().
     }
     else if (cap->backend_mode == BackendPipeWire)
     {

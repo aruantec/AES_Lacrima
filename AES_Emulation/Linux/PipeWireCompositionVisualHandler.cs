@@ -59,7 +59,32 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
         lock (_renderLock)
         {
             _capture = nint.Zero;
+            ClearPresentedFrameLocked();
         }
+    }
+
+    internal void PrepareForNewSession(nint capture)
+    {
+        lock (_renderLock)
+        {
+            ClearPresentedFrameLocked();
+            _capture = capture;
+            _lastFrameWidth = -1;
+            _lastFrameHeight = -1;
+            _rectDirty = true;
+            _lastPresentTicks = 0;
+            _smoothedFps = 0;
+            _smoothedFrameTimeMs = 0;
+        }
+
+        _renderSuspended = false;
+        NotifyCompositor();
+    }
+
+    private void ClearPresentedFrameLocked()
+    {
+        _presentedFrame?.Dispose();
+        _presentedFrame = null;
     }
 
     internal void TryWaitForRenderIdle(TimeSpan timeout)
@@ -79,12 +104,7 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
         switch (message)
         {
             case PipeWireSessionMessage session:
-                lock (_renderLock)
-                {
-                    _capture = session.Capture;
-                }
-                _renderSuspended = false;
-                NotifyCompositor();
+                PrepareForNewSession(session.Capture);
                 break;
             case Vector2 size:
                 if (_visualSize != size)
@@ -239,6 +259,8 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
     {
         if (_visualSize.X < 1 || _visualSize.Y < 1 || _renderSuspended)
             return;
+
+        TryAdvanceFrame();
 
         var leaseFeature = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
         if (leaseFeature == null)

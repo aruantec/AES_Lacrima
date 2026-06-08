@@ -343,7 +343,9 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
             _handler?.OnMessage(null);
         }
 
-        _handler?.TryWaitForRenderIdle(TimeSpan.FromMilliseconds(250));
+        if (!LinuxEmulationLifecycle.IsApplicationExitInProgress)
+            _handler?.TryWaitForRenderIdle(TimeSpan.FromMilliseconds(250));
+
         ResetCaptureNative();
     }
 
@@ -422,18 +424,15 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         if (!_isAttached)
             return;
 
-        if (_capture == IntPtr.Zero)
+        if (TargetHwnd == IntPtr.Zero && CompositorProcessId <= 0)
         {
-            _capture = LinuxCaptureBridge.aes_linux_capture_create_headless();
             if (_capture == IntPtr.Zero)
-            {
-                StatusText = "Linux composition capture creation failed";
-                return;
-            }
-
-            _hasAppliedRenderOptions = false;
-            SendHandlerMessage(new PipeWireSessionMessage(_capture));
+                StatusText = "Waiting for gamescope";
+            return;
         }
+
+        if (!EnsureHeadlessCaptureCreated())
+            return;
 
         ApplyRenderOptions();
 
@@ -448,14 +447,12 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
             IsCaptureInitializing = true;
             SendHandlerMessage(new PipeWireSessionMessage(_capture));
             LinuxCaptureBridge.aes_linux_capture_set_target_window(_capture, TargetHwnd);
+            UpdateFallbackRenderLoop();
         }
         else if (CompositorProcessId > 0)
         {
             if (_portalSessionRequested && _lastCompositorProcessId == CompositorProcessId)
                 return;
-
-            if (_lastCompositorProcessId > 0 && _lastCompositorProcessId != CompositorProcessId)
-                ResetCaptureNative();
 
             _lastCompositorProcessId = CompositorProcessId;
             _lastTargetHwnd = IntPtr.Zero;
@@ -467,6 +464,7 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
                 _capture,
                 CompositorProcessId,
                 TargetWindowTitleHint ?? "gamescope");
+            UpdateFallbackRenderLoop();
         }
         else
         {
@@ -475,12 +473,32 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         }
 
         RefreshStatus();
+        InvalidateVisual();
+    }
+
+    private bool EnsureHeadlessCaptureCreated()
+    {
+        if (_capture != IntPtr.Zero)
+            return true;
+
+        _capture = LinuxCaptureBridge.aes_linux_capture_create_headless();
+        if (_capture == IntPtr.Zero)
+        {
+            StatusText = "Linux composition capture creation failed";
+            return false;
+        }
+
+        _hasAppliedRenderOptions = false;
+        SendHandlerMessage(new PipeWireSessionMessage(_capture));
+        return true;
     }
 
     private void SuspendPresentation()
     {
         _fallbackRenderTimer?.Stop();
         _handler?.SuspendRendering();
+        if (_capture != IntPtr.Zero)
+            LinuxCaptureBridge.aes_linux_capture_stop(_capture);
         _portalSessionRequested = false;
         _lastCompositorProcessId = 0;
         _lastTargetHwnd = IntPtr.Zero;
@@ -503,6 +521,10 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         var capture = _capture;
         _capture = IntPtr.Zero;
         _hasAppliedRenderOptions = false;
+
+        if (LinuxEmulationLifecycle.IsApplicationExitInProgress)
+            return;
+
         _ = Task.Run(() => LinuxCaptureBridge.aes_linux_capture_destroy(capture));
     }
 

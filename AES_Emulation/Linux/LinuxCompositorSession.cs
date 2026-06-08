@@ -74,16 +74,29 @@ public sealed class LinuxCompositorSession : IDisposable
         return process;
     }
 
-    public void Dispose()
+    public void Release()
+    {
+        if (_compositorProcess == null)
+            return;
+
+        var process = _compositorProcess;
+        _compositorProcess = null;
+
+        try { process.Dispose(); } catch { /* already disposed */ }
+    }
+
+    public void Dispose() => Dispose(waitForProcessExit: false, scheduleKill: false);
+
+    public void Dispose(bool waitForProcessExit, bool scheduleKill = false)
     {
         if (_disposed)
             return;
 
         _disposed = true;
-        StopGracefully();
+        StopGracefully(waitForProcessExit, scheduleKill);
     }
 
-    public void StopGracefully()
+    public void StopGracefully(bool waitForProcessExit = false, bool scheduleKill = false)
     {
         if (_compositorProcess == null)
             return;
@@ -101,18 +114,14 @@ public sealed class LinuxCompositorSession : IDisposable
 
         _compositorProcess = null;
 
-        try
-        {
-            if (pid > 0)
-                LinuxCompositorKillHelper.ForceKillProcessTree(pid);
-        }
-        catch (Exception ex)
-        {
-            SLog.Debug("Failed to force-kill gamescope compositor.", ex);
-        }
-        finally
-        {
-            try { process.Dispose(); } catch { /* already disposed */ }
-        }
+        try { process.Dispose(); } catch { /* already disposed */ }
+
+        if (pid <= 0)
+            return;
+
+        if (scheduleKill)
+            LinuxCompositorKillHelper.ScheduleKillProcessTree(pid);
+        else
+            LinuxCompositorKillHelper.ForceKillProcessTree(pid, waitForProcessExit);
     }
 }

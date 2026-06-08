@@ -2,6 +2,7 @@ using AES_Controls.Helpers;
 using AES_Core.DI;
 using AES_Core.Interfaces;
 using AES_Core.Services;
+using AES_Emulation.Linux;
 using AES_Lacrima.Mini.Views;
 using AES_Lacrima.Mini.ViewModels;
 using AES_Lacrima.ViewModels;
@@ -417,6 +418,9 @@ namespace AES_Lacrima
         private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
         {
             PortalWindow.SetApplicationShuttingDown();
+
+            if (OperatingSystem.IsLinux())
+                LinuxEmulationLifecycle.IsApplicationExitInProgress = true;
 
             if (IsSelfUpdating)
             {

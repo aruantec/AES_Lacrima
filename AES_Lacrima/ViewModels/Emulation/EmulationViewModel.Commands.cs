@@ -578,16 +578,16 @@ namespace AES_Lacrima.ViewModels
 
             if (TryGetRunningTrackedEmulatorProcess(out var process))
             {
-                if (!OperatingSystem.IsLinux())
-                    PrepareEmulatorShutdownCapture();
-                else
-                    RestoreTargetWindowOnStop = false;
+                PrepareEmulatorShutdownCapture();
                 CloseTrackedEmulatorForPendingLaunch(process);
                 return;
             }
 
             PrepareEmulatorShutdownCapture();
+            if (OperatingSystem.IsLinux())
+                TeardownLinuxGamescopeSession();
             EmulatorTargetHwnd = IntPtr.Zero;
+            EmulatorTargetProcessId = 0;
             IsEmulatorRunning = false;
             IsEmulatorPaused = false;
             UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationSectionAlbum());
@@ -622,18 +622,23 @@ namespace AES_Lacrima.ViewModels
             IsRenderOptionsOpen = false;
             ClearRetroArchErrorState();
 
-            if (OperatingSystem.IsLinux() && _linuxCompositorPid > 0)
+            if (OperatingSystem.IsLinux())
             {
-                var compositorPid = _linuxCompositorPid;
-                _linuxCompositorSession = null;
-                _linuxCompositorPid = 0;
-                LinuxCompositorKillHelper.ForceKillProcessTree(compositorPid);
+                LinuxEmulationLifecycle.IsApplicationExitInProgress = true;
+                TeardownLinuxGamescopeSession(scheduleKill: true);
                 RequestStopEmulatorCapture = true;
+                EmulatorTargetProcessId = 0;
+                EmulatorTargetHwnd = IntPtr.Zero;
+                IsEmulatorRunning = false;
+                IsEmulatorPaused = false;
+                CurrentEmulatorHandler = null;
+                DetachTrackedEmulatorProcess();
+                ResetEmulatorShutdownCaptureState();
+                SLog.Info("EmulationViewModel.ShutdownForApplicationExit finished (Linux fast path).");
+                return;
             }
-            else
-            {
-                PrepareEmulatorShutdownCapture();
-            }
+
+            PrepareEmulatorShutdownCapture();
 
             var shutdownHwnd = EmulatorTargetHwnd;
             if (shutdownHwnd != IntPtr.Zero)
@@ -647,7 +652,7 @@ namespace AES_Lacrima.ViewModels
                 IsEmulatorRunning = false;
                 IsEmulatorPaused = false;
                 CurrentEmulatorHandler = null;
-                DetachTrackedEmulatorProcess(disposeLinuxCompositorSession: true);
+                DetachTrackedEmulatorProcess();
                 ResetEmulatorShutdownCaptureState();
                 return;
             }
@@ -723,7 +728,7 @@ namespace AES_Lacrima.ViewModels
                 IsEmulatorRunning = false;
                 IsEmulatorPaused = false;
                 CurrentEmulatorHandler = null;
-                DetachTrackedEmulatorProcess(disposeLinuxCompositorSession: true);
+                DetachTrackedEmulatorProcess();
                 ResetEmulatorShutdownCaptureState();
                 SLog.Info("EmulationViewModel.ShutdownForApplicationExit finished.");
             }
