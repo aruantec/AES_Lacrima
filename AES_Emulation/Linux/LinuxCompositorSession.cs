@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Core.Logging;
@@ -13,8 +12,6 @@ namespace AES_Emulation.Linux;
 /// </summary>
 public sealed class LinuxCompositorSession : IDisposable
 {
-    private const int SigTerm = 15;
-
     private static readonly ILog SLog = LogHelper.For<LinuxCompositorSession>();
 
     private Process? _compositorProcess;
@@ -76,56 +73,30 @@ public sealed class LinuxCompositorSession : IDisposable
             return;
 
         var process = _compositorProcess;
+        var pid = 0;
+        try
+        {
+            pid = process.Id;
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug("Failed to read gamescope pid before kill.", ex);
+        }
+
         _compositorProcess = null;
 
         try
         {
-            if (!process.HasExited)
-            {
-                TrySendSignal(process.Id, SigTerm);
-                if (!process.WaitForExit(5000))
-                {
-                    SLog.Info($"gamescope pid={process.Id} did not exit after SIGTERM; sending SIGKILL.");
-                    process.Kill(entireProcessTree: true);
-                    process.WaitForExit(3000);
-                }
-            }
+            if (pid > 0)
+                LinuxCompositorKillHelper.ForceKillProcessTree(pid);
         }
         catch (Exception ex)
         {
-            SLog.Debug("Failed to stop gamescope compositor gracefully.", ex);
-            try
-            {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                    process.WaitForExit(2000);
-                }
-            }
-            catch (Exception killEx)
-            {
-                SLog.Debug("Failed to force-kill gamescope compositor.", killEx);
-            }
+            SLog.Debug("Failed to force-kill gamescope compositor.", ex);
         }
         finally
         {
-            process.Dispose();
+            try { process.Dispose(); } catch { /* already disposed */ }
         }
     }
-
-    private static void TrySendSignal(int pid, int signal)
-    {
-        try
-        {
-            if (kill(pid, signal) != 0)
-                SLog.Debug($"kill({pid}, {signal}) failed with errno={Marshal.GetLastWin32Error()}.");
-        }
-        catch (Exception ex)
-        {
-            SLog.Debug($"Failed to send signal {signal} to pid={pid}.", ex);
-        }
-    }
-
-    [DllImport("libc", SetLastError = true)]
-    private static extern int kill(int pid, int sig);
 }

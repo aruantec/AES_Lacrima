@@ -1,5 +1,6 @@
 using System;
 using System.Numerics;
+using System.Threading.Tasks;
 using System.Runtime.Versioning;
 using Avalonia;
 using Avalonia.Controls;
@@ -343,7 +344,7 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         }
 
         _handler?.TryWaitForRenderIdle(TimeSpan.FromMilliseconds(250));
-        DestroyCaptureNative();
+        ResetCaptureNative();
     }
 
     protected override Size ArrangeOverride(Size finalSize)
@@ -386,7 +387,7 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
             EnsureCaptureSession();
         else if (change.Property == RequestStopSessionProperty && change.GetNewValue<bool>())
         {
-            StopSession();
+            SuspendPresentation();
             SetCurrentValue(RequestStopSessionProperty, false);
         }
         else if (change.Property == StretchProperty ||
@@ -453,6 +454,9 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
             if (_portalSessionRequested && _lastCompositorProcessId == CompositorProcessId)
                 return;
 
+            if (_lastCompositorProcessId > 0 && _lastCompositorProcessId != CompositorProcessId)
+                ResetCaptureNative();
+
             _lastCompositorProcessId = CompositorProcessId;
             _lastTargetHwnd = IntPtr.Zero;
             _portalSessionRequested = true;
@@ -473,13 +477,10 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         RefreshStatus();
     }
 
-    private void StopSession()
+    private void SuspendPresentation()
     {
+        _fallbackRenderTimer?.Stop();
         _handler?.SuspendRendering();
-
-        if (_capture != IntPtr.Zero)
-            LinuxCaptureBridge.aes_linux_capture_stop(_capture);
-
         _portalSessionRequested = false;
         _lastCompositorProcessId = 0;
         _lastTargetHwnd = IntPtr.Zero;
@@ -488,19 +489,21 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         IsDirectCompositionActive = false;
         Fps = 0;
         FrameTimeMs = 0;
+        StatusText = "Capture suspended";
     }
 
-    private void DestroyCaptureNative()
+    private void ResetCaptureNative()
     {
-        StopSession();
+        SuspendPresentation();
+        _handler?.OnMessage(null);
 
-        if (_capture != IntPtr.Zero)
-        {
-            LinuxCaptureBridge.aes_linux_capture_destroy(_capture);
-            _capture = IntPtr.Zero;
-        }
+        if (_capture == IntPtr.Zero)
+            return;
 
+        var capture = _capture;
+        _capture = IntPtr.Zero;
         _hasAppliedRenderOptions = false;
+        _ = Task.Run(() => LinuxCaptureBridge.aes_linux_capture_destroy(capture));
     }
 
     private void ApplyRenderOptions()

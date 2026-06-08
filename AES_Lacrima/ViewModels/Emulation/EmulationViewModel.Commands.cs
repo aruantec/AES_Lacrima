@@ -5,6 +5,7 @@ using AES_Core.DI;
 using AES_Core.IO;
 using AES_Emulation.Controls;
 using AES_Emulation.EmulationHandlers;
+using AES_Emulation.Linux;
 using AES_Emulation.Platform;
 using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
@@ -577,7 +578,10 @@ namespace AES_Lacrima.ViewModels
 
             if (TryGetRunningTrackedEmulatorProcess(out var process))
             {
-                PrepareEmulatorShutdownCapture();
+                if (!OperatingSystem.IsLinux())
+                    PrepareEmulatorShutdownCapture();
+                else
+                    RestoreTargetWindowOnStop = false;
                 CloseTrackedEmulatorForPendingLaunch(process);
                 return;
             }
@@ -617,7 +621,19 @@ namespace AES_Lacrima.ViewModels
             _pendingEmulatorLaunchRequest = null;
             IsRenderOptionsOpen = false;
             ClearRetroArchErrorState();
-            PrepareEmulatorShutdownCapture();
+
+            if (OperatingSystem.IsLinux() && _linuxCompositorPid > 0)
+            {
+                var compositorPid = _linuxCompositorPid;
+                _linuxCompositorSession = null;
+                _linuxCompositorPid = 0;
+                LinuxCompositorKillHelper.ForceKillProcessTree(compositorPid);
+                RequestStopEmulatorCapture = true;
+            }
+            else
+            {
+                PrepareEmulatorShutdownCapture();
+            }
 
             var shutdownHwnd = EmulatorTargetHwnd;
             if (shutdownHwnd != IntPtr.Zero)

@@ -55,8 +55,7 @@ public static class LinuxCompositorLaunchHelper
             compositorStartInfo.Environment[variable.Key] = variable.Value;
 
         compositorStartInfo.ArgumentList.Add("--backend");
-        compositorStartInfo.ArgumentList.Add("auto");
-        compositorStartInfo.ArgumentList.Add("-b");
+        compositorStartInfo.ArgumentList.Add("headless");
         compositorStartInfo.ArgumentList.Add("-W");
         compositorStartInfo.ArgumentList.Add(width.ToString());
         compositorStartInfo.ArgumentList.Add("-H");
@@ -114,7 +113,7 @@ public static class LinuxCompositorLaunchHelper
                     : $"gamescope did not become ready in time.{Environment.NewLine}{details}");
         }
 
-        SLog.Info($"gamescope compositor ready at {width}x{height} (16:9, pid={process.Id}).");
+        SLog.Info($"gamescope headless compositor ready at {width}x{height} (16:9, pid={process.Id}).");
         return process;
     }
 

@@ -61,7 +61,10 @@ namespace AES_Lacrima.ViewModels
         private void RequestEmulatorLaunch(PendingEmulatorLaunchRequest request)
         {
             _pendingEmulatorLaunchRequest = request;
-            PrepareEmulatorShutdownCapture();
+            if (!OperatingSystem.IsLinux())
+                PrepareEmulatorShutdownCapture();
+            else
+                RestoreTargetWindowOnStop = false;
             EmulatorTargetHwnd = IntPtr.Zero;
             IsEmulatorLaunchInProgress = true;
 
@@ -444,7 +447,8 @@ namespace AES_Lacrima.ViewModels
 
             _isClosingActiveEmulatorForRelaunch = true;
             SLog.Info($"EmulationViewModel starting tracked emulator shutdown. pid={process.Id}.");
-            PrepareEmulatorShutdownCapture();
+            if (!OperatingSystem.IsLinux())
+                PrepareEmulatorShutdownCapture();
             _ = CloseTrackedEmulatorForPendingLaunchAsync(process);
         }
 
@@ -458,6 +462,7 @@ namespace AES_Lacrima.ViewModels
         private void ResetEmulatorShutdownCaptureState()
         {
             RestoreTargetWindowOnStop = true;
+            RequestStopEmulatorCapture = false;
         }
 
         private static void TryKeepEmulatorHiddenForShutdown(IntPtr targetHwnd, Process process)
@@ -495,22 +500,59 @@ namespace AES_Lacrima.ViewModels
         private async Task CloseTrackedEmulatorForPendingLaunchAsync(Process process)
         {
             IntPtr shutdownHwnd = IntPtr.Zero;
+            _activeEmulatorWatchdogCts?.Cancel();
+
+            var compositorPid = 0;
             try
             {
-                await Dispatcher.UIThread.InvokeAsync(() => shutdownHwnd = EmulatorTargetHwnd, DispatcherPriority.Background)
-                    .GetTask()
-                    .ConfigureAwait(false);
+                compositorPid = _linuxCompositorPid;
+                if (compositorPid <= 0)
+                    compositorPid = process.Id;
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to resolve compositor pid during shutdown.", ex);
+            }
 
-                await WaitForCaptureStopBeforeClosingProcessAsync().ConfigureAwait(false);
-
-                if (TryRequestRpcs3Shutdown(process))
+            try
+            {
+                if (OperatingSystem.IsLinux())
                 {
-                    return;
+                    SLog.Info($"EmulationViewModel force-killing gamescope pid={compositorPid}.");
+                    await Task.Run(() => LinuxCompositorKillHelper.ForceKillProcessTree(compositorPid))
+                        .ConfigureAwait(false);
+
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        EmulatorTargetHwnd = IntPtr.Zero;
+                        EmulatorTargetProcessId = 0;
+                        RequestStopEmulatorCapture = true;
+                        _linuxCompositorSession = null;
+                        _linuxCompositorPid = 0;
+                    }, DispatcherPriority.Background).GetTask().ConfigureAwait(false);
+
+                    await Task.Delay(150).ConfigureAwait(false);
+                    await Dispatcher.UIThread.InvokeAsync(
+                        () => RequestStopEmulatorCapture = false,
+                        DispatcherPriority.Background).GetTask().ConfigureAwait(false);
+                }
+                else
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() => shutdownHwnd = EmulatorTargetHwnd, DispatcherPriority.Background)
+                        .GetTask()
+                        .ConfigureAwait(false);
+
+                    await WaitForCaptureStopBeforeClosingProcessAsync().ConfigureAwait(false);
+
+                    if (TryRequestRpcs3Shutdown(process))
+                        return;
                 }
 
-                await Task.Run(() =>
+                if (!OperatingSystem.IsLinux())
                 {
-                    TryKeepEmulatorHiddenForShutdown(shutdownHwnd, process);
+                    await Task.Run(() =>
+                    {
+                        TryKeepEmulatorHiddenForShutdown(shutdownHwnd, process);
 
                     var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
                     forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase);
@@ -582,7 +624,8 @@ namespace AES_Lacrima.ViewModels
                     {
                         SLog.Debug("Final forced emulator shutdown hit a process race.", ex);
                     }
-                }).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+                }
             }
             finally
             {
@@ -591,6 +634,10 @@ namespace AES_Lacrima.ViewModels
                     SLog.Info("EmulationViewModel finished the tracked emulator shutdown flow.");
                     _isClosingActiveEmulatorForRelaunch = false;
                     ResetEmulatorShutdownCaptureState();
+                    DetachTrackedEmulatorProcess();
+                    IsEmulatorRunning = false;
+                    IsEmulatorPaused = false;
+                    EmulatorTargetProcessId = 0;
                     TryLaunchPendingEmulatorRequest();
                 }, DispatcherPriority.Background);
             }
@@ -715,6 +762,11 @@ namespace AES_Lacrima.ViewModels
                 StartActiveEmulatorWatchdog(process);
                 IsEmulatorLaunchInProgress = false;
             }
+            else if (ShouldUseLinuxGamescopeCapture())
+            {
+                StartActiveEmulatorWatchdog(process);
+                _ = CompleteLinuxGamescopeCaptureHandoffAsync(process, romPath);
+            }
             else
             {
                 StartActiveEmulatorWatchdog(process);
@@ -722,6 +774,39 @@ namespace AES_Lacrima.ViewModels
             }
 
             RestoreHostWindowFocus();
+        }
+
+        private bool ShouldUseLinuxGamescopeCapture()
+            => OperatingSystem.IsLinux()
+               && _linuxCompositorPid > 0
+               && SelectedCaptureMode == EmulatorCaptureMode.DirectComposition;
+
+        private async Task CompleteLinuxGamescopeCaptureHandoffAsync(Process process, string romPath)
+        {
+            try
+            {
+                await Task.Delay(500).ConfigureAwait(false);
+                if (!ReferenceEquals(_activeEmulatorProcess, process))
+                    return;
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (!ReferenceEquals(_activeEmulatorProcess, process) || _isClosingActiveEmulatorForRelaunch)
+                        return;
+
+                    RestoreAppTopMost();
+                    RestoreHostWindowFocus();
+                    ClearRetroArchErrorState();
+                    IsEmulatorLaunchInProgress = false;
+                    SLog.Info(
+                        $"Linux gamescope PipeWire capture handoff completed for '{romPath}'. compositorPid={_linuxCompositorPid}.");
+                }, DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Linux gamescope capture handoff failed for '{romPath}'.", ex);
+                await Dispatcher.UIThread.InvokeAsync(() => IsEmulatorLaunchInProgress = false);
+            }
         }
 
         private void StartActiveEmulatorWatchdog(Process process)
@@ -837,6 +922,14 @@ namespace AES_Lacrima.ViewModels
 
             _activeRpcs3SessionTitleId = null;
             _activeRpcs3SessionEmulatorDirectory = null;
+
+            if (OperatingSystem.IsLinux() && !_isClosingActiveEmulatorForRelaunch && _linuxCompositorPid > 0)
+            {
+                var compositorPid = _linuxCompositorPid;
+                _linuxCompositorSession = null;
+                _linuxCompositorPid = 0;
+                _ = Task.Run(() => LinuxCompositorKillHelper.ForceKillProcessTree(compositorPid));
+            }
 
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
