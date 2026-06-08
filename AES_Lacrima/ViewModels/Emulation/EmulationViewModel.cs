@@ -6,6 +6,7 @@ using AES_Core.IO;
 using AES_Emulation;
 using AES_Emulation.Controls;
 using AES_Emulation.EmulationHandlers;
+using AES_Emulation.Linux;
 using AES_Emulation.Platform;
 using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
@@ -209,6 +210,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         private string? _activeEmulatorGameTitle;
         private ShadPs4IpcSession? _shadPs4IpcSession;
         private readonly EmulatorAudioVolumeController _emulatorAudioVolume = new();
+        private LinuxEmulatorAudioVolumeController? _linuxEmulatorAudioVolume;
+        private bool _syncingEmulatorVolumeFromSystem;
         private CancellationTokenSource? _retroArchLogWatcherCts;
         private CancellationTokenSource? _activeEmulatorWatchdogCts;
         private CancellationTokenSource? _appTopmostRestoreCts;
@@ -442,7 +445,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         partial void OnEmulatorVolumeChanged(double value)
         {
-            if (!OperatingSystem.IsWindows())
+            if (_syncingEmulatorVolumeFromSystem)
                 return;
 
             ApplyEmulatorVolumeToProcess(value);
@@ -451,6 +454,38 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         internal void ApplyEmulatorVolumeAfterCaptureActive()
         {
+            if (OperatingSystem.IsLinux() && _linuxCompositorPid > 0)
+            {
+                try
+                {
+                    var compositorPid = LinuxCompositorProcessHelper.ResolveCompositorRootPid(_linuxCompositorPid);
+                    if (compositorPid <= 0)
+                        compositorPid = _linuxCompositorPid;
+
+                    _linuxCompositorPid = compositorPid;
+                    var seeds = new List<int> { compositorPid };
+                    if (_activeEmulatorProcess != null)
+                    {
+                        try
+                        {
+                            _activeEmulatorProcess.Refresh();
+                            if (!_activeEmulatorProcess.HasExited)
+                                seeds.Add(_activeEmulatorProcess.Id);
+                        }
+                        catch (Exception ex)
+                        {
+                            SLog.Debug("Failed to refresh active emulator pid for volume control.", ex);
+                        }
+                    }
+
+                    GetOrCreateLinuxEmulatorAudioVolume().Attach(compositorPid, seeds.ToArray());
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Failed to refresh Linux emulator volume attachment.", ex);
+                }
+            }
+
             ApplyEmulatorVolumeToProcess(EmulatorVolume);
         }
 
@@ -464,16 +499,80 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         private void ApplyEmulatorVolumeToProcess(double volumePercent)
         {
-            if (!OperatingSystem.IsWindows())
-                return;
-
             if (EmulatorTargetProcessId <= 0 && _activeEmulatorProcess == null)
                 return;
 
-            _emulatorAudioVolume.EnsureSession();
             float normalized = (float)Math.Clamp(volumePercent / 100.0, 0.0, 1.0);
-            _emulatorAudioVolume.Volume = normalized;
+
+            if (OperatingSystem.IsWindows())
+            {
+                _emulatorAudioVolume.EnsureSession();
+                _emulatorAudioVolume.Volume = normalized;
+                return;
+            }
+
+            if (OperatingSystem.IsLinux())
+            {
+                var controller = GetOrCreateLinuxEmulatorAudioVolume();
+                if (!controller.IsAttached && _linuxCompositorPid > 0)
+                {
+                    var emulatorPid = 0;
+                    try
+                    {
+                        if (_activeEmulatorProcess != null)
+                        {
+                            _activeEmulatorProcess.Refresh();
+                            if (!_activeEmulatorProcess.HasExited)
+                                emulatorPid = _activeEmulatorProcess.Id;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        SLog.Debug("Failed to resolve emulator pid for volume attach.", ex);
+                    }
+
+                    controller.Attach(_linuxCompositorPid, emulatorPid);
+                }
+
+                controller.Volume = normalized;
+            }
         }
+
+#pragma warning disable CA1416 // Linux-only audio volume controller
+        private LinuxEmulatorAudioVolumeController GetOrCreateLinuxEmulatorAudioVolume()
+        {
+            if (_linuxEmulatorAudioVolume != null)
+                return _linuxEmulatorAudioVolume;
+
+            var controller = new LinuxEmulatorAudioVolumeController();
+            controller.SystemVolumeChanged += OnLinuxEmulatorSystemVolumeChanged;
+            _linuxEmulatorAudioVolume = controller;
+            return controller;
+        }
+
+        private void OnLinuxEmulatorSystemVolumeChanged(float normalizedVolume)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!IsEmulatorRunning)
+                    return;
+
+                var percent = Math.Round(normalizedVolume * 100.0, 1);
+                if (Math.Abs(EmulatorVolume - percent) < 0.5)
+                    return;
+
+                _syncingEmulatorVolumeFromSystem = true;
+                try
+                {
+                    EmulatorVolume = percent;
+                }
+                finally
+                {
+                    _syncingEmulatorVolumeFromSystem = false;
+                }
+            });
+        }
+#pragma warning restore CA1416
 
         [ObservableProperty]
         private bool _requestStopEmulatorCapture;

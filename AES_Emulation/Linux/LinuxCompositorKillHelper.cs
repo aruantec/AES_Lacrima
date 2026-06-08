@@ -185,6 +185,52 @@ public static class LinuxCompositorKillHelper
         }
     }
 
+    /// <summary>
+    /// Kills leftover gamescope/gamescopereaper sessions from prior launches.
+    /// </summary>
+    public static void KillOrphanedGamescopeSessions(int exceptRootPid = 0)
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        foreach (var pid in EnumerateLiveCompositorRootPids())
+        {
+            if (pid == exceptRootPid)
+                continue;
+
+            SLog.Info($"Killing orphaned gamescope session (root pid={pid}).");
+            ForceKillProcessTree(pid, waitForFallback: false);
+        }
+    }
+
+    private static IEnumerable<int> EnumerateLiveCompositorRootPids()
+    {
+        if (!Directory.Exists("/proc"))
+            yield break;
+
+        foreach (var entry in Directory.EnumerateDirectories("/proc"))
+        {
+            if (!int.TryParse(Path.GetFileName(entry), out var pid) || pid <= 1)
+                continue;
+
+            string comm;
+            try
+            {
+                comm = File.ReadAllText(Path.Combine(entry, "comm")).Trim();
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (comm.Equals("gamescopereaper", StringComparison.OrdinalIgnoreCase) ||
+                comm.Equals("gamescope-wl", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return pid;
+            }
+        }
+    }
+
     private static void TryKill(int pid, int signal)
     {
         try

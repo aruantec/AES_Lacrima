@@ -200,6 +200,7 @@ namespace AES_Lacrima.ViewModels
                 {
                     var (width, height) = LinuxCompositorLaunchHelper.ResolveOutputSize();
                     TeardownLinuxGamescopeSession();
+                    LinuxCompositorKillHelper.KillOrphanedGamescopeSessions();
 
                     _linuxCompositorSession = await LinuxCompositorSession.StartAsync(
                         startInfo,
@@ -207,8 +208,10 @@ namespace AES_Lacrima.ViewModels
                         height,
                         CancellationToken.None).ConfigureAwait(false);
                     process = _linuxCompositorSession.CompositorProcess;
-                    _linuxCompositorPid = process.Id;
-                    SLog.Info($"Started fresh gamescope session pid={_linuxCompositorPid}.");
+                    _linuxCompositorPid = LinuxCompositorProcessHelper.ResolveCompositorRootPid(process.Id);
+                    if (_linuxCompositorPid <= 0)
+                        _linuxCompositorPid = process.Id;
+                    SLog.Info($"Started fresh gamescope session pid={process.Id}, compositorRoot={_linuxCompositorPid}.");
                 }
                 else
                 {
@@ -760,6 +763,19 @@ namespace AES_Lacrima.ViewModels
                     // Keep the persisted slider value; volume will be retried when capture becomes active.
                 }
             }
+            else if (OperatingSystem.IsLinux() && process != null)
+            {
+                try
+                {
+                    var compositorPid = _linuxCompositorPid > 0 ? _linuxCompositorPid : process.Id;
+                    GetOrCreateLinuxEmulatorAudioVolume().Attach(compositorPid, process.Id);
+                    ApplyEmulatorVolumeToProcess(EmulatorVolume);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Failed to attach Linux emulator volume control.", ex);
+                }
+            }
 
             if (_shadPs4IpcSession == null)
                 AttachShadPs4IpcSessionIfNeeded(handler, process);
@@ -1012,6 +1028,8 @@ namespace AES_Lacrima.ViewModels
                 EmulatorTargetHwnd = IntPtr.Zero;
                 EmulatorTargetProcessId = 0;
                 _emulatorAudioVolume.Detach();
+                if (OperatingSystem.IsLinux())
+                    _linuxEmulatorAudioVolume?.Detach();
                 DetachShadPs4IpcSession();
 
                 OnPropertyChanged(nameof(ShowShadPs4InGameCheatsButton));
