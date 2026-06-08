@@ -18,6 +18,53 @@ public static class LinuxCompositorKillHelper
 
     private static readonly ILog SLog = LogHelper.For(typeof(LinuxCompositorKillHelper));
 
+    public static void ForceKillEmulatorProcess(Process process)
+    {
+        if (!OperatingSystem.IsLinux() || process == null)
+            return;
+
+        try
+        {
+            process.Refresh();
+            if (process.HasExited)
+                return;
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug("Failed to inspect emulator process before termination.", ex);
+            return;
+        }
+
+        var pid = 0;
+        try
+        {
+            pid = process.Id;
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug("Failed to read emulator pid before termination.", ex);
+            return;
+        }
+
+        SLog.Info($"Force-killing emulator process tree (pid={pid}), keeping gamescope alive.");
+
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch (ArgumentException)
+        {
+            // Already gone.
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug($"Process.Kill(entireProcessTree) failed for emulator pid={pid}.", ex);
+        }
+
+        KillDescendantsRecursive(pid);
+        TryKill(pid, SigKill);
+    }
+
     public static void ForceKillProcessTree(int rootPid)
     {
         if (!OperatingSystem.IsLinux() || rootPid <= 0)

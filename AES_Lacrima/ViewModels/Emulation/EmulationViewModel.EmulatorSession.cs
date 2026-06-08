@@ -199,14 +199,25 @@ namespace AES_Lacrima.ViewModels
                 if (OperatingSystem.IsLinux())
                 {
                     var (width, height) = LinuxCompositorLaunchHelper.ResolveOutputSize();
-                    _linuxCompositorSession?.Dispose();
-                    _linuxCompositorSession = await LinuxCompositorSession.StartAsync(
-                        startInfo,
-                        width,
-                        height,
-                        CancellationToken.None).ConfigureAwait(false);
-                    process = _linuxCompositorSession.CompositorProcess;
-                    _linuxCompositorPid = process.Id;
+                    if (_linuxCompositorSession?.IsActive == true)
+                    {
+                        process = await _linuxCompositorSession.LaunchEmulatorAsync(
+                            startInfo,
+                            CancellationToken.None).ConfigureAwait(false);
+                        _linuxCompositorPid = process.Id;
+                        SLog.Info($"Reused existing gamescope compositor pid={_linuxCompositorPid} for emulator launch.");
+                    }
+                    else
+                    {
+                        _linuxCompositorSession?.Dispose();
+                        _linuxCompositorSession = await LinuxCompositorSession.StartAsync(
+                            startInfo,
+                            width,
+                            height,
+                            CancellationToken.None).ConfigureAwait(false);
+                        process = _linuxCompositorSession.CompositorProcess;
+                        _linuxCompositorPid = process.Id;
+                    }
                 }
                 else
                 {
@@ -502,39 +513,11 @@ namespace AES_Lacrima.ViewModels
             IntPtr shutdownHwnd = IntPtr.Zero;
             _activeEmulatorWatchdogCts?.Cancel();
 
-            var compositorPid = 0;
-            try
-            {
-                compositorPid = _linuxCompositorPid;
-                if (compositorPid <= 0)
-                    compositorPid = process.Id;
-            }
-            catch (Exception ex)
-            {
-                SLog.Debug("Failed to resolve compositor pid during shutdown.", ex);
-            }
-
             try
             {
                 if (OperatingSystem.IsLinux())
                 {
-                    SLog.Info($"EmulationViewModel force-killing gamescope pid={compositorPid}.");
-                    await Task.Run(() => LinuxCompositorKillHelper.ForceKillProcessTree(compositorPid))
-                        .ConfigureAwait(false);
-
-                    await Dispatcher.UIThread.InvokeAsync(() =>
-                    {
-                        EmulatorTargetHwnd = IntPtr.Zero;
-                        EmulatorTargetProcessId = 0;
-                        RequestStopEmulatorCapture = true;
-                        _linuxCompositorSession = null;
-                        _linuxCompositorPid = 0;
-                    }, DispatcherPriority.Background).GetTask().ConfigureAwait(false);
-
-                    await Task.Delay(150).ConfigureAwait(false);
-                    await Dispatcher.UIThread.InvokeAsync(
-                        () => RequestStopEmulatorCapture = false,
-                        DispatcherPriority.Background).GetTask().ConfigureAwait(false);
+                    await Task.Run(() => ForceCloseTrackedEmulatorProcess(process)).ConfigureAwait(false);
                 }
                 else
                 {
@@ -546,84 +529,11 @@ namespace AES_Lacrima.ViewModels
 
                     if (TryRequestRpcs3Shutdown(process))
                         return;
-                }
 
-                if (!OperatingSystem.IsLinux())
-                {
                     await Task.Run(() =>
                     {
                         TryKeepEmulatorHiddenForShutdown(shutdownHwnd, process);
-
-                    var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
-                    forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase);
-                    forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "duckstation", StringComparison.OrdinalIgnoreCase);
-                    forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "dolphin", StringComparison.OrdinalIgnoreCase);
-                    forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase);
-                    if (!forceKillFirst)
-                    {
-                        try
-                        {
-                            forceKillFirst = process.ProcessName.Contains("pcsx2", StringComparison.OrdinalIgnoreCase) ||
-                                             process.ProcessName.Contains("rpcs3", StringComparison.OrdinalIgnoreCase) ||
-                                             process.ProcessName.Contains("duckstation", StringComparison.OrdinalIgnoreCase) ||
-                                             process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
-                            forceKillFirst |= process.ProcessName.Contains("shadps4", StringComparison.OrdinalIgnoreCase);
-                        }
-                        catch (Exception logEx) { SLog.Warn("Non-critical error", logEx); }
-                    }
-
-                    try
-                    {
-                        if (forceKillFirst)
-                        {
-                            SLog.Info($"EmulationViewModel using direct termination for pid={process.Id} to bypass confirm-shutdown dialogs.");
-                            process.Kill(true);
-                        }
-                        else
-                        {
-                            var closeMainWindowResult = process.CloseMainWindow();
-                            SLog.Info($"EmulationViewModel CloseMainWindow returned {closeMainWindowResult} for pid={process.Id}.");
-                            if (!closeMainWindowResult)
-                                process.Kill(true);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        SLog.Debug("Failed to close the emulator gracefully; forcing termination.", ex);
-
-                        try
-                        {
-                            process.Kill(true);
-                        }
-                        catch (Exception killEx)
-                        {
-                            SLog.Debug("Failed to force-close the emulator process during relaunch.", killEx);
-                        }
-                    }
-
-                    try
-                    {
-                        SLog.Info($"EmulationViewModel waiting up to 5000 ms for emulator pid={process.Id} to exit.");
-                        process.WaitForExit(5000);
-                    }
-                    catch (Exception ex)
-                    {
-                        SLog.Debug("Timed wait for emulator shutdown failed; continuing with final state checks.", ex);
-                    }
-
-                    try
-                    {
-                        if (!process.HasExited)
-                        {
-                            SLog.Info($"EmulationViewModel is force-closing emulator pid={process.Id} after graceful shutdown timed out.");
-                            process.Kill(true);
-                            process.WaitForExit(3000);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        SLog.Debug("Final forced emulator shutdown hit a process race.", ex);
-                    }
+                        ForceCloseTrackedEmulatorProcess(process);
                     }).ConfigureAwait(false);
                 }
             }
@@ -637,9 +547,107 @@ namespace AES_Lacrima.ViewModels
                     DetachTrackedEmulatorProcess();
                     IsEmulatorRunning = false;
                     IsEmulatorPaused = false;
-                    EmulatorTargetProcessId = 0;
+
+                    if (OperatingSystem.IsLinux() && _linuxCompositorPid > 0)
+                        EmulatorTargetProcessId = _linuxCompositorPid;
+
                     TryLaunchPendingEmulatorRequest();
                 }, DispatcherPriority.Background);
+            }
+        }
+
+        private void ForceCloseTrackedEmulatorProcess(Process process)
+        {
+            var forceKillFirst = string.Equals(CurrentEmulatorHandler?.HandlerId, "pcsx2", StringComparison.OrdinalIgnoreCase);
+            forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase);
+            forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "duckstation", StringComparison.OrdinalIgnoreCase);
+            forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "dolphin", StringComparison.OrdinalIgnoreCase);
+            forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase);
+            if (!forceKillFirst)
+            {
+                try
+                {
+                    forceKillFirst = process.ProcessName.Contains("pcsx2", StringComparison.OrdinalIgnoreCase) ||
+                                     process.ProcessName.Contains("rpcs3", StringComparison.OrdinalIgnoreCase) ||
+                                     process.ProcessName.Contains("duckstation", StringComparison.OrdinalIgnoreCase) ||
+                                     process.ProcessName.Contains("dolphin", StringComparison.OrdinalIgnoreCase);
+                    forceKillFirst |= process.ProcessName.Contains("shadps4", StringComparison.OrdinalIgnoreCase);
+                }
+                catch (Exception logEx) { SLog.Warn("Non-critical error", logEx); }
+            }
+
+            try
+            {
+                if (OperatingSystem.IsLinux())
+                {
+                    if (forceKillFirst)
+                    {
+                        SLog.Info($"EmulationViewModel terminating emulator pid={process.Id} while keeping gamescope alive.");
+                        LinuxCompositorKillHelper.ForceKillEmulatorProcess(process);
+                    }
+                    else
+                    {
+                        var closeMainWindowResult = process.CloseMainWindow();
+                        SLog.Info($"EmulationViewModel CloseMainWindow returned {closeMainWindowResult} for pid={process.Id}.");
+                        if (!closeMainWindowResult)
+                            LinuxCompositorKillHelper.ForceKillEmulatorProcess(process);
+                    }
+                }
+                else if (forceKillFirst)
+                {
+                    SLog.Info($"EmulationViewModel using direct termination for pid={process.Id} to bypass confirm-shutdown dialogs.");
+                    process.Kill(true);
+                }
+                else
+                {
+                    var closeMainWindowResult = process.CloseMainWindow();
+                    SLog.Info($"EmulationViewModel CloseMainWindow returned {closeMainWindowResult} for pid={process.Id}.");
+                    if (!closeMainWindowResult)
+                        process.Kill(true);
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to close the emulator gracefully; forcing termination.", ex);
+
+                try
+                {
+                    if (OperatingSystem.IsLinux())
+                        LinuxCompositorKillHelper.ForceKillEmulatorProcess(process);
+                    else
+                        process.Kill(true);
+                }
+                catch (Exception killEx)
+                {
+                    SLog.Debug("Failed to force-close the emulator process during relaunch.", killEx);
+                }
+            }
+
+            try
+            {
+                SLog.Info($"EmulationViewModel waiting up to 5000 ms for emulator pid={process.Id} to exit.");
+                process.WaitForExit(5000);
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Timed wait for emulator shutdown failed; continuing with final state checks.", ex);
+            }
+
+            try
+            {
+                if (!process.HasExited)
+                {
+                    SLog.Info($"EmulationViewModel is force-closing emulator pid={process.Id} after graceful shutdown timed out.");
+                    if (OperatingSystem.IsLinux())
+                        LinuxCompositorKillHelper.ForceKillEmulatorProcess(process);
+                    else
+                        process.Kill(true);
+                    process.WaitForExit(3000);
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Final forced emulator shutdown hit a process race.", ex);
             }
         }
 
@@ -923,17 +931,12 @@ namespace AES_Lacrima.ViewModels
             _activeRpcs3SessionTitleId = null;
             _activeRpcs3SessionEmulatorDirectory = null;
 
-            if (OperatingSystem.IsLinux() && !_isClosingActiveEmulatorForRelaunch && _linuxCompositorPid > 0)
-            {
-                var compositorPid = _linuxCompositorPid;
-                _linuxCompositorSession = null;
-                _linuxCompositorPid = 0;
-                _ = Task.Run(() => LinuxCompositorKillHelper.ForceKillProcessTree(compositorPid));
-            }
-
             DetachTrackedEmulatorProcess();
             IsEmulatorRunning = false;
             IsEmulatorPaused = false;
+
+            if (OperatingSystem.IsLinux() && _linuxCompositorPid > 0)
+                EmulatorTargetProcessId = _linuxCompositorPid;
 
             if (!_isClosingActiveEmulatorForRelaunch)
                 RequestStopEmulatorCapture = true;
@@ -953,7 +956,7 @@ namespace AES_Lacrima.ViewModels
                 IsEmulatorLaunchInProgress = false;
         }
 
-        private void DetachTrackedEmulatorProcess()
+        private void DetachTrackedEmulatorProcess(bool disposeLinuxCompositorSession = false)
         {
             _activeEmulatorWatchdogCts?.Cancel();
             _activeEmulatorWatchdogCts?.Dispose();
@@ -962,7 +965,10 @@ namespace AES_Lacrima.ViewModels
             if (_activeEmulatorProcess == null)
             {
                 EmulatorTargetHwnd = IntPtr.Zero;
-                EmulatorTargetProcessId = 0;
+                if (OperatingSystem.IsLinux() && !disposeLinuxCompositorSession && _linuxCompositorPid > 0)
+                    EmulatorTargetProcessId = _linuxCompositorPid;
+                else
+                    EmulatorTargetProcessId = 0;
                 _retroArchLogWatcherCts?.Cancel();
                 _retroArchLogWatcherCts?.Dispose();
                 _retroArchLogWatcherCts = null;
@@ -984,25 +990,32 @@ namespace AES_Lacrima.ViewModels
                 _activeEmulatorRomPath = null;
                 _activeEmulatorGameTitle = null;
                 EmulatorTargetHwnd = IntPtr.Zero;
-                EmulatorTargetProcessId = 0;
+                if (OperatingSystem.IsLinux() && !disposeLinuxCompositorSession && _linuxCompositorPid > 0)
+                    EmulatorTargetProcessId = _linuxCompositorPid;
+                else
+                    EmulatorTargetProcessId = 0;
                 _emulatorAudioVolume.Detach();
                 DetachShadPs4IpcSession();
 
-                var compositorSession = _linuxCompositorSession;
-                _linuxCompositorSession = null;
-                if (compositorSession != null)
+                if (disposeLinuxCompositorSession)
                 {
-                    if (OperatingSystem.IsLinux())
+                    var compositorSession = _linuxCompositorSession;
+                    _linuxCompositorSession = null;
+                    _linuxCompositorPid = 0;
+                    if (compositorSession != null)
                     {
-                        _ = Task.Run(async () =>
+                        if (OperatingSystem.IsLinux())
                         {
-                            await Task.Delay(400).ConfigureAwait(false);
+                            _ = Task.Run(async () =>
+                            {
+                                await Task.Delay(400).ConfigureAwait(false);
+                                compositorSession.Dispose();
+                            });
+                        }
+                        else
+                        {
                             compositorSession.Dispose();
-                        });
-                    }
-                    else
-                    {
-                        compositorSession.Dispose();
+                        }
                     }
                 }
 

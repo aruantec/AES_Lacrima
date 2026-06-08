@@ -647,7 +647,7 @@ namespace AES_Lacrima.ViewModels
                 IsEmulatorRunning = false;
                 IsEmulatorPaused = false;
                 CurrentEmulatorHandler = null;
-                DetachTrackedEmulatorProcess();
+                DetachTrackedEmulatorProcess(disposeLinuxCompositorSession: true);
                 ResetEmulatorShutdownCaptureState();
                 return;
             }
@@ -723,7 +723,7 @@ namespace AES_Lacrima.ViewModels
                 IsEmulatorRunning = false;
                 IsEmulatorPaused = false;
                 CurrentEmulatorHandler = null;
-                DetachTrackedEmulatorProcess();
+                DetachTrackedEmulatorProcess(disposeLinuxCompositorSession: true);
                 ResetEmulatorShutdownCaptureState();
                 SLog.Info("EmulationViewModel.ShutdownForApplicationExit finished.");
             }

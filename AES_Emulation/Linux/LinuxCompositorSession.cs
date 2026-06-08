@@ -58,6 +58,22 @@ public sealed class LinuxCompositorSession : IDisposable
         return new LinuxCompositorSession { _compositorProcess = process };
     }
 
+    public async Task<Process> LaunchEmulatorAsync(
+        ProcessStartInfo emulatorStartInfo,
+        CancellationToken cancellationToken = default)
+    {
+        if (_compositorProcess == null)
+            throw new InvalidOperationException("The gamescope compositor session is not active.");
+
+        var process = await LinuxCompositorLaunchHelper.LaunchEmulatorInExistingCompositorAsync(
+            _compositorProcess,
+            emulatorStartInfo,
+            cancellationToken).ConfigureAwait(false);
+
+        _compositorProcess = process;
+        return process;
+    }
+
     public void Dispose()
     {
         if (_disposed)
