@@ -46,7 +46,7 @@ public partial class EmulationViewModel
     {
         get
         {
-            if (!IsRenderOptionsOpen)
+            if (!IsRenderOptionsOpen || !IsCompositionCaptureVisible)
                 return 0;
 
             // Linux in-tree composition draws render options over the capture viewport.

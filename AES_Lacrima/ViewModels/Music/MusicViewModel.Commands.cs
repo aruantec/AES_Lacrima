@@ -301,11 +301,7 @@ namespace AES_Lacrima.ViewModels
         {
             if (IsEqualizerVisible) IsEqualizerVisible = false;
 
-            MediaItem? target;
-            if (parameter is MediaItem mi) target = mi;
-            else if (parameter is int index && index >= 0 && index < CoverItems.Count) target = CoverItems[index];
-            else target = SelectedMediaItem ?? HighlightedItem ?? AudioPlayer?.CurrentMediaItem;
-
+            var target = ResolveMetadataTarget(parameter);
             if (target == null || MetadataService == null) return;
 
             if (MetadataService.IsMetadataLoaded)
@@ -317,11 +313,7 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private async Task ReloadMetadata(object? parameter)
         {
-            MediaItem? target;
-            if (parameter is MediaItem mi) target = mi;
-            else if (parameter is int index && index >= 0 && index < CoverItems.Count) target = CoverItems[index];
-            else target = SelectedMediaItem ?? HighlightedItem ?? AudioPlayer?.CurrentMediaItem;
-
+            var target = ResolveMetadataTarget(parameter);
             if (target == null || AudioPlayer == null) return;
 
             if (!ShouldScanMetadataForItem(target))
@@ -334,6 +326,28 @@ namespace AES_Lacrima.ViewModels
             var allowOnlineForTarget = IsOnlineMediaItem(target) || AllowOnlineCoverLookup;
             var scrapper = new MetadataScrapper(new AvaloniaList<MediaItem>(), AudioPlayer, DefaultFolderCover, agentInfo, 512, allowOnlineLookup: allowOnlineForTarget);
             await scrapper.EnqueueLoadForPublic(target);
+        }
+
+        private MediaItem? ResolveMetadataTarget(object? parameter)
+        {
+            if (parameter is MediaItem mediaItem)
+                return mediaItem;
+
+            if (parameter is int intIndex && intIndex >= 0 && intIndex < CoverItems.Count)
+                return CoverItems[intIndex];
+
+            if (parameter is double value && !double.IsNaN(value))
+            {
+                var roundedIndex = GetRoundedSelectedIndex(value);
+                if (roundedIndex >= 0 && roundedIndex < CoverItems.Count)
+                    return CoverItems[roundedIndex];
+            }
+
+            var centeredIndex = GetRoundedSelectedIndex(SelectedIndex);
+            if (centeredIndex >= 0 && centeredIndex < CoverItems.Count)
+                return CoverItems[centeredIndex];
+
+            return SelectedMediaItem ?? HighlightedItem ?? AudioPlayer?.CurrentMediaItem;
         }
 
         [RelayCommand]

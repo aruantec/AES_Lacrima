@@ -382,15 +382,14 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool HasActiveAlbumItems =>
             CoverItems.Count > 0 ||
             LoadedAlbum?.Children.Count > 0 ||
-            SelectedAlbum?.Children.Count > 0 ||
             !string.IsNullOrWhiteSpace(HighlightedItem?.FileName);
-        public bool ShowEmptyActiveAlbumHint => GetBrowseAlbum() != null && !HasActiveAlbumItems;
+        public bool ShowEmptyActiveAlbumHint => LoadedAlbum != null && !HasActiveAlbumItems;
         public string EmptyLoadedAlbumMessage =>
-            GetBrowseAlbum() != null
+            LoadedAlbum != null
                 ? "Right-click to add ROMs or scan folder"
                 : "No album loaded";
 
-        private FolderMediaItem? GetBrowseAlbum() => SelectedAlbum ?? LoadedAlbum;
+        private FolderMediaItem? GetBrowseAlbum() => LoadedAlbum;
 
         [ObservableProperty]
         private MediaItem _highlightedItem = CreateEmptyMediaItem();
@@ -1155,6 +1154,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(IsSearchBoxVisible));
             OnPropertyChanged(nameof(IsGameplayPreviewViewportVisible));
             OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
+            NotifyCaptureChromeMarginChanged();
 
             if (value)
             {
@@ -1198,6 +1198,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(IsSearchBoxVisible));
             OnPropertyChanged(nameof(IsGameplayPreviewViewportVisible));
             OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
+            NotifyCaptureChromeMarginChanged();
         }
 
         private void RefreshAlbumPreviews()
@@ -1418,8 +1419,6 @@ private bool _isShadPs4PatchesOverlayOpen;
             SyncSelectedAlbumIndexFromAlbum(value);
             SyncCurrentSectionEmulatorContext();
             OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));
-
-            ApplyFilter();
 
             if (value is EmulationAlbumItem album)
                 QueueAlbumPreviewCoverLoad(album);

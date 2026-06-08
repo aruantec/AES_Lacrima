@@ -541,7 +541,6 @@ public partial class EmulationView : UserControl
                 _capturePresentationOpacity > 0.001 ||
                 vm.IsCompositionCaptureVisible ||
                 vm.IsEmulatorLaunchInProgress ||
-                vm.IsRenderOptionsOpen ||
                 IsPortalCaptureInitializing;
         }
         else

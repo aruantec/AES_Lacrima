@@ -199,19 +199,19 @@ namespace AES_Lacrima.ViewModels
         public bool HasAlbums => AlbumList.Count > 0;
         public bool ShowEmptyAlbumListHint => !HasAlbums;
         public bool CanSortAlbums => AlbumList.Count > 1;
-        public bool HasLoadedAlbumItems => GetBrowseAlbum()?.Children.Count > 0;
-        public bool ShowEmptyLoadedAlbumHint => GetBrowseAlbum() != null && !HasLoadedAlbumItems;
+        public bool HasLoadedAlbumItems => LoadedAlbum?.Children.Count > 0;
+        public bool ShowEmptyLoadedAlbumHint => LoadedAlbum != null && !HasLoadedAlbumItems;
         public bool HasCurrentMediaLoaded => AudioPlayer?.CurrentMediaItem != null;
         public string EmptyAlbumListMessage => "Right-click to open a folder, create an album or scan folders";
         public string EmptyLoadedAlbumMessage =>
-            GetBrowseAlbum() != null
+            LoadedAlbum != null
                 ? "Right-click to add files, URL or playlist"
                 : "No album loaded";
 
         /// <summary>
-        /// Album currently driving the carousel: selected strip item previews before double-open.
+        /// Album currently driving the carousel. Only set when the user double-opens an album.
         /// </summary>
-        private FolderMediaItem? GetBrowseAlbum() => SelectedAlbum ?? LoadedAlbum;
+        private FolderMediaItem? GetBrowseAlbum() => LoadedAlbum;
 
         public virtual bool IsVideoMode => false;
 

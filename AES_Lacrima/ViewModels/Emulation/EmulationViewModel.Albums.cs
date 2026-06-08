@@ -532,13 +532,13 @@ namespace AES_Lacrima.ViewModels
             if (parameter is MediaItem mediaItem && !string.IsNullOrWhiteSpace(mediaItem.FileName))
                 return mediaItem;
 
-            var index = ResolveContextMenuIndex(parameter);
-            if (index >= 0 && index < CoverItems.Count)
-                return CoverItems[index];
-
             var fromCarousel = GetCurrentCarouselSelectedItem();
             if (fromCarousel != null && !string.IsNullOrWhiteSpace(fromCarousel.FileName))
                 return fromCarousel;
+
+            var index = ResolveContextMenuIndex(parameter);
+            if (index >= 0 && index < CoverItems.Count)
+                return CoverItems[index];
 
             if (PointedIndex >= 0 && PointedIndex < CoverItems.Count)
             {
