@@ -4,8 +4,9 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using AES_Emulation.Linux;
 using AES_Emulation.Windows.API;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Emulation.EmulationHandlers;
@@ -44,18 +45,28 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
         startInfo.ArgumentList.Clear();
 
-        EnsurePauseOnFocusLossDisabled(startInfo.FileName, startInfo.WorkingDirectory);
-
-        // PCSX2 Qt supports batch mode and optional fullscreen startup.
-        // `-nogui` reduces chances of capturing the full shell window instead of the render surface.
-        // `-portable` keeps settings/config within the emulator folder.
+        if (OperatingSystem.IsLinux())
+            EnsurePauseOnFocusLossDisabled(launcherPath, preferredDirectory: null);
         startInfo.ArgumentList.Add("-batch");
         startInfo.ArgumentList.Add("-nogui");
-        startInfo.ArgumentList.Add("-portable");
+        if (!OperatingSystem.IsLinux())
+            startInfo.ArgumentList.Add("-portable");
         if (startFullscreen)
             startInfo.ArgumentList.Add("-fullscreen");
 
         startInfo.ArgumentList.Add(romPath);
+        return startInfo;
+    }
+
+    public override ProcessStartInfo BuildSetupStartInfo(string? launcherPath, string? preferredEmulatorDirectory = null)
+    {
+        var startInfo = base.BuildSetupStartInfo(launcherPath, preferredEmulatorDirectory);
+
+        if (OperatingSystem.IsLinux())
+            Pcsx2PathsService.PrepareLinuxPortableSetupLaunch(startInfo, launcherPath);
+        else
+            startInfo.ArgumentList.Add("-portable");
+
         return startInfo;
     }
 
@@ -263,18 +274,36 @@ public sealed class Pcsx2Handler : EmulatorHandlerBase
         return best;
     }
 
-    private static void EnsurePauseOnFocusLossDisabled(string? executablePath, string? workingDirectory)
+    private static void EnsurePauseOnFocusLossDisabled(string? launcherPath, string? preferredDirectory)
     {
         try
         {
-            var baseDirectory = !string.IsNullOrWhiteSpace(workingDirectory)
-                ? workingDirectory
-                : Path.GetDirectoryName(executablePath ?? string.Empty);
+            string settingsPath;
+            if (OperatingSystem.IsLinux())
+            {
+                settingsPath = Pcsx2PathsService.GetSettingsFilePath(
+                    Pcsx2PathsService.ResolveDataPath(preferredDirectory, launcherPath));
+            }
+            else
+            {
+                var baseDirectory = EmulatorHandlerBase.ResolveLauncherWorkingDirectory(launcherPath)
+                    ?? Path.GetDirectoryName(EmulatorHandlerBase.ResolveLauncherExecutablePath(launcherPath) ?? launcherPath ?? string.Empty);
 
-            if (string.IsNullOrWhiteSpace(baseDirectory) || !Directory.Exists(baseDirectory))
-                return;
+                if (string.IsNullOrWhiteSpace(baseDirectory))
+                    return;
 
-            var settingsPath = Path.Combine(baseDirectory, "inis", "PCSX2.ini");
+                settingsPath = Path.Combine(baseDirectory, "inis", "PCSX2.ini");
+            }
+
+            PatchPauseOnFocusLoss(settingsPath);
+        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+    }
+
+    private static void PatchPauseOnFocusLoss(string settingsPath)
+    {
+        try
+        {
             if (!File.Exists(settingsPath))
                 return;
 

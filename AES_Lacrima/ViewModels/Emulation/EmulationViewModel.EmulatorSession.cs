@@ -132,8 +132,10 @@ namespace AES_Lacrima.ViewModels
                     !string.IsNullOrWhiteSpace(handler.LauncherPath))
                 {
                     var xeniaTitleId = XeniaTitleIdResolver.Resolve(request.RomPath);
-                    var xeniaDirectory = Path.GetDirectoryName(handler.LauncherPath);
-                    await Task.Run(() => XeniaCustomConfigService.PrepareConfigForLaunch(xeniaDirectory, xeniaTitleId))
+                    var xeniaStorageRoot = XeniaPathsService.ResolveStorageRoot(
+                        CurrentSectionXeniaEmulatorPath,
+                        handler.LauncherPath);
+                    await Task.Run(() => XeniaCustomConfigService.PrepareConfigForLaunch(xeniaStorageRoot, xeniaTitleId))
                         .ConfigureAwait(false);
                 }
 
@@ -194,10 +196,29 @@ namespace AES_Lacrima.ViewModels
                         _activeRpcs3SessionEmulatorDirectory);
                 }
 
-                PrepareLinuxAppImageStartInfo(startInfo);
+                var pcsx2PortableLaunchWrapped = false;
+                if (OperatingSystem.IsLinux() &&
+                    string.Equals(handler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+                {
+                    pcsx2PortableLaunchWrapped = Pcsx2PathsService.TryApplyLinuxPortableGameLaunch(
+                        startInfo,
+                        handler.LauncherPath);
+                }
+
+                if (!pcsx2PortableLaunchWrapped)
+                    PrepareLinuxAppImageStartInfo(startInfo);
 
                 if (OperatingSystem.IsLinux())
+                {
                     LinuxCompositorLaunchHelper.PrepareEmulatorStartInfoForGamescope(startInfo);
+                    if (string.Equals(handler.HandlerId, XeniaHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        XeniaPathsService.ApplyLinuxStorageRootLaunchArguments(
+                            startInfo,
+                            CurrentSectionXeniaEmulatorPath,
+                            handler.LauncherPath);
+                    }
+                }
 
                 Process? process;
                 if (OperatingSystem.IsLinux())
@@ -1459,7 +1480,9 @@ namespace AES_Lacrima.ViewModels
                 if (EmulatorTargetHwnd != hwnd)
                     EmulatorTargetHwnd = hwnd;
 
-                IsEmulatorLaunchInProgress = false;
+                if (!OperatingSystem.IsLinux() || !handler.HideUntilCaptured)
+                    IsEmulatorLaunchInProgress = false;
+
                 SLog.Info($"Emulation capture handoff completed in {handoffStopwatch.ElapsedMilliseconds} ms for pid={process.Id}. hwnd=0x{hwnd.ToInt64():X}, showWindowForCapture={showWindowForCapture}.");
 
                 return true;

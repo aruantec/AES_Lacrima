@@ -89,6 +89,8 @@ public interface IEmulatorHandler : INotifyPropertyChanged
 
     ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null);
 
+    ProcessStartInfo BuildSetupStartInfo(string? launcherPath, string? preferredEmulatorDirectory = null);
+
     void PrepareProcessForCapture(Process process);
 
     void PrepareWindowForCapture(IntPtr hwnd);

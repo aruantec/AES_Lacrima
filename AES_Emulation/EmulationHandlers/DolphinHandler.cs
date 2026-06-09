@@ -86,6 +86,19 @@ public sealed class DolphinHandler : EmulatorHandlerBase
         return startInfo;
     }
 
+    public override ProcessStartInfo BuildSetupStartInfo(string? launcherPath, string? preferredEmulatorDirectory = null)
+    {
+        var startInfo = base.BuildSetupStartInfo(launcherPath, preferredEmulatorDirectory);
+        var dolphinUserDirectory = ResolvePortableUserDirectory(startInfo.FileName, startInfo.WorkingDirectory);
+        if (!string.IsNullOrWhiteSpace(dolphinUserDirectory))
+        {
+            startInfo.ArgumentList.Add("-u");
+            startInfo.ArgumentList.Add(dolphinUserDirectory);
+        }
+
+        return startInfo;
+    }
+
     public override int CaptureStartupDelayMs => 1800;
 
     public override TimeSpan LaunchTopmostRestoreTimeout => TimeSpan.FromSeconds(60);

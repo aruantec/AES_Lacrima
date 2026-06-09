@@ -791,6 +791,21 @@ public partial class EmulationView : UserControl
         {
             UpdateEmulatorLaunchGateActive();
             UpdateCaptureChromeVisibilityFromOpacity();
+
+            if (vm.IsEmulatorLaunchInProgress && vm.IsActive && UseInlineCaptureHost)
+            {
+                _captureHostPresentationVisible = true;
+                SetCaptureChromeVisible(true);
+                UpdateInlineCaptureHostVisibility(vm);
+
+                if (!vm.IsCompositionCaptureVisible && CarouselOpacity > 0.05)
+                {
+                    CancelPresentationTransitions();
+                    var cancellation = new CancellationTokenSource();
+                    _viewportTransitionCancellation = cancellation;
+                    _ = TransitionToCaptureAsync(cancellation.Token);
+                }
+            }
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsGameplayRecording))
         {

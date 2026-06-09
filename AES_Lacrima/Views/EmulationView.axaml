@@ -416,7 +416,7 @@
                                                  LetterboxBitmap="{Binding CaptureLetterboxBitmap}" />
             </Border>
             <Grid x:Name="EmulatorLaunchGateOverlay"
-                  ZIndex="75"
+                  ZIndex="2500"
                   HorizontalAlignment="Stretch"
                   VerticalAlignment="Stretch"
                   IsHitTestVisible="False"
@@ -2376,13 +2376,13 @@
                     </Viewbox>
                 </Button>
 
-                <Button Height="60"
-                        Width="60"
+                <Button Height="90"
+                        Width="90"
                         VerticalAlignment="Center"
                         Cursor="Hand"
                         Command="{Binding LaunchCurrentSectionHandlerSetupCommand}"
                         IsEnabled="{Binding CanLaunchCurrentSectionHandlerSetup}"
-                        IsVisible="{Binding !IsEmulatorRunning}"
+                        IsVisible="{Binding CanLaunchCurrentSectionHandlerSetup}"
                         ToolTip.Tip="{Binding CurrentSectionSetupLaunchToolTip}">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
@@ -2394,26 +2394,31 @@
                             </Border>
                         </ControlTemplate>
                     </Button.Template>
-                    <Viewbox Stretch="Uniform" Opacity="0.9" Margin="0,6,0,0">
-                        <Border Width="120"
-                                Height="120"
-                                CornerRadius="16"
-                                Background="#111111"
-                                Opacity="{Binding HasCurrentSectionSetupLaunchIcon, Converter={StaticResource BoolToOpacityConverter}}">
-                            <Border.Transitions>
-                                <Transitions>
-                                    <DoubleTransition Property="Opacity" Duration="0:0:0.35" Easing="CubicEaseOut" />
-                                </Transitions>
-                            </Border.Transitions>
-                            <Image Width="102"
-                                   Height="102"
-                                   Margin="0,4,0,0"
-                                   Stretch="Uniform"
+                    <Border Width="82"
+                            Height="82"
+                            CornerRadius="16"
+                            Background="#181818"
+                            BorderBrush="#666666"
+                            BorderThickness="1.5">
+                        <Grid>
+                            <TextBlock Text="{Binding CurrentSectionEmulatorHandler.DisplayName, FallbackValue=Setup}"
+                                       Foreground="#EEEEEE"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       TextAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       Margin="6"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       IsVisible="{Binding !HasCurrentSectionSetupLaunchIcon}"/>
+                            <Image Stretch="Uniform"
+                                   Margin="6"
                                    Source="{Binding CurrentSectionSetupLaunchIcon}"
                                    HorizontalAlignment="Center"
-                                   VerticalAlignment="Center" />
-                        </Border>
-                    </Viewbox>
+                                   VerticalAlignment="Center"
+                                   IsVisible="{Binding HasCurrentSectionSetupLaunchIcon}" />
+                        </Grid>
+                    </Border>
                 </Button>
 
                 <Button Height="60"

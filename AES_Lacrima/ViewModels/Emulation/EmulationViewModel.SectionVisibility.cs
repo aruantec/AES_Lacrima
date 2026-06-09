@@ -117,9 +117,9 @@ namespace AES_Lacrima.ViewModels
             !IsEmulatorRunning &&
             !IsEmulatorLaunchInProgress;
 
-        public Bitmap? CurrentSectionSetupLaunchIcon => ResolveCurrentSectionSetupLaunchIcon();
+        public Bitmap? CurrentSectionSetupLaunchIcon => _currentSetupLaunchIcon;
 
-        public bool HasCurrentSectionSetupLaunchIcon => CurrentSectionSetupLaunchIcon != null;
+        public bool HasCurrentSectionSetupLaunchIcon => _currentSetupLaunchIcon != null;
 
         public string CurrentSectionSetupLaunchToolTip =>
             CurrentSectionEmulatorHandler?.DisplayName is { Length: > 0 } handlerName
@@ -184,8 +184,7 @@ namespace AES_Lacrima.ViewModels
 
         private void RefreshCurrentSectionLaunchOptionsState()
         {
-            OnPropertyChanged(nameof(CurrentSectionSetupLaunchIcon));
-            OnPropertyChanged(nameof(HasCurrentSectionSetupLaunchIcon));
+            RefreshCurrentSectionSetupLaunchIcon();
             OnPropertyChanged(nameof(CurrentSectionSetupLaunchToolTip));
             OnPropertyChanged(nameof(CanLaunchCurrentSectionHandlerSetup));
             LaunchCurrentSectionHandlerSetupCommand.NotifyCanExecuteChanged();

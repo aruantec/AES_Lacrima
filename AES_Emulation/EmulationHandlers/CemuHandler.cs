@@ -103,6 +103,21 @@ public sealed class CemuHandler : EmulatorHandlerBase
         return startInfo;
     }
 
+    public override ProcessStartInfo BuildSetupStartInfo(string? launcherPath, string? preferredEmulatorDirectory = null)
+    {
+        var startInfo = base.BuildSetupStartInfo(launcherPath, preferredEmulatorDirectory);
+        var executableDirectory = Path.GetDirectoryName(ResolveCemuLauncherPath(launcherPath) ?? launcherPath);
+        if (!string.IsNullOrWhiteSpace(executableDirectory))
+        {
+            startInfo.ArgumentList.Add("-c");
+            startInfo.ArgumentList.Add(executableDirectory);
+            startInfo.ArgumentList.Add("-mlc");
+            startInfo.ArgumentList.Add(executableDirectory);
+        }
+
+        return startInfo;
+    }
+
     public void ApplyFullscreenScalingWorkaround(string launcherPath)
     {
         if (!TryResolveSettingsPath(launcherPath, out var settingsPath))

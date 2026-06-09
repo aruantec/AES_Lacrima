@@ -4,6 +4,7 @@ using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
 using AES_Emulation.Controls;
+using AES_Emulation;
 using AES_Emulation.EmulationHandlers;
 using AES_Emulation.Linux;
 using AES_Emulation.Platform;
@@ -40,7 +41,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using AES_Core.Logging;
-using DrawingIcon = System.Drawing.Icon;
 
 
 namespace AES_Lacrima.ViewModels
@@ -237,126 +237,6 @@ namespace AES_Lacrima.ViewModels
             if (!CanLaunchCurrentSectionHandlerSetup)
                 return;
 
-            var handlerId = CurrentSectionEmulatorHandler?.HandlerId;
-            if (string.Equals(handlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
-            {
-                LaunchCurrentSectionDuckStationSetup();
-                return;
-            }
-
-            if (string.Equals(handlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
-            {
-                LaunchCurrentSectionPcsx2Setup();
-                return;
-            }
-
-            if (string.Equals(handlerId, DolphinHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
-            {
-                LaunchCurrentSectionDolphinSetup();
-                return;
-            }
-
-            LaunchCurrentSectionGenericHandlerSetup();
-        }
-
-        [RelayCommand]
-        private void LaunchCurrentSectionDolphinSetup()
-        {
-            var handler = CurrentSectionEmulatorHandler;
-            if (handler == null ||
-                !string.Equals(handler.HandlerId, DolphinHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
-            if (IsEmulatorRunning || IsEmulatorLaunchInProgress)
-                return;
-
-            var launcherPath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(handler.LauncherPath);
-            if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
-                return;
-
-            try
-            {
-                RestoreAppTopMost();
-
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = launcherPath,
-                    UseShellExecute = false,
-                    WorkingDirectory = EmulatorHandlerBase.ResolveLauncherWorkingDirectory(handler.LauncherPath)
-                                       ?? Path.GetDirectoryName(launcherPath)
-                                       ?? string.Empty
-                };
-
-                var executableDirectory = Path.GetDirectoryName(startInfo.FileName);
-                var dolphinUserDirectory = string.IsNullOrWhiteSpace(executableDirectory)
-                    ? startInfo.WorkingDirectory
-                    : Path.Combine(executableDirectory, "User");
-
-                if (!string.IsNullOrWhiteSpace(dolphinUserDirectory))
-                {
-                    startInfo.ArgumentList.Add("-u");
-                    startInfo.ArgumentList.Add(dolphinUserDirectory);
-                }
-
-                _ = Process.Start(startInfo);
-            }
-            catch (Exception ex)
-            {
-                SLog.Warn("Failed to launch Dolphin.", ex);
-            }
-        }
-
-        private Bitmap? ResolveCurrentSectionSetupLaunchIcon()
-        {
-            if (!OperatingSystem.IsWindows())
-                return null;
-
-            var executablePath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(CurrentSectionEmulatorHandler?.LauncherPath);
-            if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
-                return null;
-
-            if (string.Equals(_currentSetupLaunchIconExecutablePath, executablePath, StringComparison.OrdinalIgnoreCase) &&
-                _currentSetupLaunchIcon != null)
-            {
-                return _currentSetupLaunchIcon;
-            }
-
-            _currentSetupLaunchIcon?.Dispose();
-            _currentSetupLaunchIcon = TryLoadExecutableIcon(executablePath);
-            _currentSetupLaunchIconExecutablePath = executablePath;
-            return _currentSetupLaunchIcon;
-        }
-
-        private static Bitmap? TryLoadExecutableIcon(string executablePath)
-        {
-#pragma warning disable CA1416 // Windows-only System.Drawing APIs
-            try
-            {
-                using var icon = DrawingIcon.ExtractAssociatedIcon(executablePath);
-                if (icon == null)
-                    return null;
-
-                using var drawingBitmap = icon.ToBitmap();
-                using var stream = new MemoryStream();
-                drawingBitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
-                stream.Position = 0;
-                return new Bitmap(stream);
-            }
-            catch
-            {
-                return null;
-            }
-#pragma warning restore CA1416
-        }
-
-        private static bool IsCurrentSectionSetupLaunchSupported()
-            => true;
-
-        [RelayCommand]
-        private void LaunchCurrentSectionGenericHandlerSetup()
-        {
             var handler = CurrentSectionEmulatorHandler;
             if (handler == null)
                 return;
@@ -364,109 +244,97 @@ namespace AES_Lacrima.ViewModels
             if (IsEmulatorRunning || IsEmulatorLaunchInProgress)
                 return;
 
-            var launcherPath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(handler.LauncherPath);
-            if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
-                return;
-
             try
             {
                 RestoreAppTopMost();
 
-                var startInfo = new ProcessStartInfo
+                var startInfo = handler.BuildSetupStartInfo(
+                    handler.LauncherPath,
+                    ResolveCurrentSectionPreferredEmulatorDirectory(handler));
+
+                if (OperatingSystem.IsLinux())
                 {
-                    FileName = launcherPath,
-                    UseShellExecute = false,
-                    WorkingDirectory = EmulatorHandlerBase.ResolveLauncherWorkingDirectory(handler.LauncherPath)
-                                       ?? Path.GetDirectoryName(launcherPath)
-                                       ?? string.Empty
-                };
+                    if (string.Equals(handler.HandlerId, XeniaHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        XeniaPathsService.ApplyLinuxStorageRootLaunchArguments(
+                            startInfo,
+                            CurrentSectionXeniaEmulatorPath,
+                            handler.LauncherPath);
+                    }
+
+                    LinuxAppImageLaunchHelper.PrepareDirectExtractAndRunLaunch(startInfo);
+                }
 
                 _ = Process.Start(startInfo);
             }
             catch (Exception ex)
             {
-                SLog.Warn($"Failed to launch {handler.DisplayName}.", ex);
+                SLog.Warn($"Failed to launch {handler.DisplayName} setup.", ex);
             }
         }
 
-        [RelayCommand]
-        private void LaunchCurrentSectionPcsx2Setup()
+        private string? ResolveCurrentSectionPreferredEmulatorDirectory(IEmulatorHandler handler)
         {
-            var handler = CurrentSectionEmulatorHandler;
-            if (handler == null ||
-                !string.Equals(handler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
+            if (string.Equals(handler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+                return CurrentSectionPcsx2EmulatorPath;
+            if (string.Equals(handler.HandlerId, XeniaHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+                return CurrentSectionXeniaEmulatorPath;
+            if (string.Equals(handler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+                return CurrentSectionDuckStationEmulatorPath;
+            if (string.Equals(handler.HandlerId, DolphinHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+                return CurrentSectionDolphinEmulatorPath;
+            if (string.Equals(handler.HandlerId, CemuHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+                return CurrentSectionCemuEmulatorPath;
+            if (string.Equals(handler.HandlerId, Rpcs3Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+                return CurrentSectionRpcs3EmulatorPath;
+            if (string.Equals(handler.HandlerId, ShadPs4Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+                return CurrentSectionShadPs4EmulatorPath;
+            if (string.Equals(handler.HandlerId, FlyCastHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+                return CurrentSectionFlycastEmulatorPath;
+            if (string.Equals(handler.HandlerId, XemuHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+                return CurrentSectionXemuEmulatorPath;
+            if (string.Equals(handler.HandlerId, EdenHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+                return CurrentSectionEdenEmulatorPath;
+            if (handler.UsesRetroArchCores)
+                return CurrentSectionRetroArchEmulatorPath;
 
-            if (IsEmulatorRunning || IsEmulatorLaunchInProgress)
-                return;
-
-            var launcherPath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(handler.LauncherPath);
-            if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
-                return;
-
-            try
-            {
-                RestoreAppTopMost();
-
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = launcherPath,
-                    UseShellExecute = false,
-                    WorkingDirectory = EmulatorHandlerBase.ResolveLauncherWorkingDirectory(handler.LauncherPath)
-                                       ?? Path.GetDirectoryName(launcherPath)
-                                       ?? string.Empty
-                };
-
-                startInfo.ArgumentList.Add("-portable");
-
-                _ = Process.Start(startInfo);
-            }
-            catch (Exception ex)
-            {
-                SLog.Warn("Failed to launch PCSX2.", ex);
-            }
+            return null;
         }
 
-        [RelayCommand]
-        private void LaunchCurrentSectionDuckStationSetup()
+        private void RefreshCurrentSectionSetupLaunchIcon()
         {
-            var handler = CurrentSectionEmulatorHandler;
-            if (handler == null ||
-                !string.Equals(handler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+            var launcherPath = CurrentSectionEmulatorHandler?.LauncherPath;
+            if (string.IsNullOrWhiteSpace(launcherPath))
+            {
+                ReplaceSetupLaunchIcon(null, null);
+                return;
+            }
+
+            var executablePath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(launcherPath);
+            if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
+            {
+                ReplaceSetupLaunchIcon(null, null);
+                return;
+            }
+
+            if (string.Equals(_currentSetupLaunchIconExecutablePath, executablePath, StringComparison.OrdinalIgnoreCase) &&
+                _currentSetupLaunchIcon != null)
             {
                 return;
             }
 
-            if (IsEmulatorRunning || IsEmulatorLaunchInProgress)
-                return;
+            var newIcon = EmulatorSetupLaunchIconService.TryLoadSetupLaunchIcon(launcherPath);
+            ReplaceSetupLaunchIcon(newIcon, executablePath);
+        }
 
-            var launcherPath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(handler.LauncherPath);
-            if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
-                return;
-
-            try
-            {
-                RestoreAppTopMost();
-
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = launcherPath,
-                    UseShellExecute = false,
-                    WorkingDirectory = EmulatorHandlerBase.ResolveLauncherWorkingDirectory(handler.LauncherPath)
-                                       ?? Path.GetDirectoryName(launcherPath)
-                                       ?? string.Empty
-                };
-
-                DuckStationHandler.EnsurePortableModeMarker(startInfo.FileName, startInfo.WorkingDirectory);
-
-                _ = Process.Start(startInfo);
-            }
-            catch (Exception ex)
-            {
-                SLog.Warn("Failed to launch DuckStation.", ex);
-            }
+        private void ReplaceSetupLaunchIcon(Bitmap? newIcon, string? executablePath)
+        {
+            var oldIcon = _currentSetupLaunchIcon;
+            _currentSetupLaunchIcon = newIcon;
+            _currentSetupLaunchIconExecutablePath = executablePath;
+            OnPropertyChanged(nameof(CurrentSectionSetupLaunchIcon));
+            OnPropertyChanged(nameof(HasCurrentSectionSetupLaunchIcon));
+            oldIcon?.Dispose();
         }
 
         [RelayCommand]

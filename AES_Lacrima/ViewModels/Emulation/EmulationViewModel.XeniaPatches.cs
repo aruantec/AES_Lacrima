@@ -77,9 +77,12 @@ namespace AES_Lacrima.ViewModels
 
             try
             {
-                var xeniaDirectory = CurrentSectionXeniaEmulatorPath;
                 var metadataService = _xbox360MetadataService;
-                var availablePatchTitleIds = await Task.Run(() => GetAvailableXeniaPatchTitleIds(xeniaDirectory)).ConfigureAwait(false);
+                var availablePatchTitleIds = await Task.Run(() =>
+                    GetAvailableXeniaPatchTitleIds(
+                        CurrentSectionXeniaEmulatorPath,
+                        CurrentSectionEmulatorHandler?.LauncherPath ?? CurrentEmulatorHandler?.LauncherPath))
+                    .ConfigureAwait(false);
                 var metadata = await Task.Run(() => metadataService?.TryReadGameMetadata(target.FileName)).ConfigureAwait(false);
                 var titleId = metadata?.TitleId;
                 var mediaId = metadata?.MediaId;
@@ -94,7 +97,15 @@ namespace AES_Lacrima.ViewModels
                     !string.IsNullOrWhiteSpace(target.Title))
                 {
                     var fallbackMatch = availablePatchTitleIds
-                        .Select(id => new { Id = id, Score = ComputeXeniaPatchCandidateScore(target.Title, id, xeniaDirectory) })
+                        .Select(id => new
+                        {
+                            Id = id,
+                            Score = ComputeXeniaPatchCandidateScore(
+                                target.Title,
+                                id,
+                                CurrentSectionXeniaEmulatorPath,
+                                CurrentSectionEmulatorHandler?.LauncherPath ?? CurrentEmulatorHandler?.LauncherPath)
+                        })
                         .Where(static candidate => candidate.Score > 0)
                         .OrderByDescending(static candidate => candidate.Score)
                         .ThenBy(static candidate => candidate.Id, StringComparer.OrdinalIgnoreCase)
@@ -121,7 +132,10 @@ namespace AES_Lacrima.ViewModels
                     return;
                 }
 
-                var patchFiles = await Task.Run(() => FindXeniaPatchFiles(xeniaDirectory, titleId)).ConfigureAwait(false);
+                var patchFiles = await Task.Run(() => FindXeniaPatchFiles(
+                    CurrentSectionXeniaEmulatorPath,
+                    CurrentSectionEmulatorHandler?.LauncherPath ?? CurrentEmulatorHandler?.LauncherPath,
+                    titleId)).ConfigureAwait(false);
 
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
@@ -416,46 +430,55 @@ namespace AES_Lacrima.ViewModels
             });
         }
 
-        private static IReadOnlyList<XeniaPatchFileItem> FindXeniaPatchFiles(string? emulatorDirectory, string titleId)
+        private static IReadOnlyList<XeniaPatchFileItem> FindXeniaPatchFiles(
+            string? preferredDirectory,
+            string? launcherPath,
+            string titleId)
         {
-            if (string.IsNullOrWhiteSpace(emulatorDirectory))
-                return Array.Empty<XeniaPatchFileItem>();
+            var patchesRoot = XeniaPathsService.ResolvePatchesDirectory(preferredDirectory, launcherPath);
+            return FindXeniaPatchFilesInDirectory(patchesRoot, titleId);
+        }
 
-            var root = Path.Combine(emulatorDirectory, "patches");
-            if (!Directory.Exists(root))
+        private static IReadOnlyList<XeniaPatchFileItem> FindXeniaPatchFilesInDirectory(string patchesRoot, string titleId)
+        {
+            if (string.IsNullOrWhiteSpace(patchesRoot) || !Directory.Exists(patchesRoot))
                 return Array.Empty<XeniaPatchFileItem>();
 
             var normalizedTitleId = titleId.ToUpperInvariant();
             return Directory
-                .EnumerateFiles(root, "*.patch.toml", SearchOption.AllDirectories)
+                .EnumerateFiles(patchesRoot, "*.patch.toml", SearchOption.AllDirectories)
                 .Where(path => Path.GetFileName(path).StartsWith(normalizedTitleId, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .Select(path => new XeniaPatchFileItem(path, Path.GetFileNameWithoutExtension(path)))
                 .ToArray();
         }
 
-        private static int ComputeXeniaPatchCandidateScore(string gameTitle, string candidateTitleId, string? emulatorDirectory)
+        private static int ComputeXeniaPatchCandidateScore(
+            string gameTitle,
+            string candidateTitleId,
+            string? preferredDirectory,
+            string? launcherPath)
         {
-            if (string.IsNullOrWhiteSpace(gameTitle) || string.IsNullOrWhiteSpace(candidateTitleId) || string.IsNullOrWhiteSpace(emulatorDirectory))
+            if (string.IsNullOrWhiteSpace(gameTitle) || string.IsNullOrWhiteSpace(candidateTitleId))
                 return 0;
 
             try
             {
-                var patchesRoot = Path.Combine(emulatorDirectory, "patches");
-                if (!Directory.Exists(patchesRoot))
-                    return 0;
-
                 var normalizedTitle = NormalizeXeniaPatchSearchText(gameTitle);
                 if (normalizedTitle.Length == 0)
                     return 0;
 
+                var patchesRoot = XeniaPathsService.ResolvePatchesDirectory(preferredDirectory, launcherPath);
+                if (!Directory.Exists(patchesRoot))
+                    return 0;
+
+                var score = 0;
                 var candidateFiles = Directory
                     .EnumerateFiles(patchesRoot, "*.patch.toml", SearchOption.AllDirectories)
                     .Where(path => Path.GetFileName(path).StartsWith(candidateTitleId, StringComparison.OrdinalIgnoreCase))
                     .Take(4)
                     .ToArray();
 
-                var score = 0;
                 foreach (var candidateFile in candidateFiles)
                 {
                     var displayName = Path.GetFileNameWithoutExtension(candidateFile);
@@ -520,17 +543,14 @@ namespace AES_Lacrima.ViewModels
 
 
 
-        private static HashSet<string> GetAvailableXeniaPatchTitleIds(string? emulatorDirectory)
+        private static HashSet<string> GetAvailableXeniaPatchTitleIds(string? preferredDirectory, string? launcherPath)
         {
             var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (string.IsNullOrWhiteSpace(emulatorDirectory))
+            var patchesRoot = XeniaPathsService.ResolvePatchesDirectory(preferredDirectory, launcherPath);
+            if (!Directory.Exists(patchesRoot))
                 return set;
 
-            var root = Path.Combine(emulatorDirectory, "patches");
-            if (!Directory.Exists(root))
-                return set;
-
-            foreach (var path in Directory.EnumerateFiles(root, "*.patch.toml", SearchOption.AllDirectories))
+            foreach (var path in Directory.EnumerateFiles(patchesRoot, "*.patch.toml", SearchOption.AllDirectories))
             {
                 var fileName = Path.GetFileName(path);
                 var match = Regex.Match(fileName, @"^(?<id>[0-9A-Fa-f]{8})\s*-", RegexOptions.IgnoreCase);

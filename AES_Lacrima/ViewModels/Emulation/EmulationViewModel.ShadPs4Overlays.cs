@@ -358,7 +358,9 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             await XeniaCustomConfigEditor.LoadAsync(
-                CurrentSectionXeniaEmulatorPath,
+                XeniaPathsService.ResolveStorageRoot(
+                    CurrentSectionXeniaEmulatorPath,
+                    CurrentSectionEmulatorHandler?.LauncherPath ?? CurrentEmulatorHandler?.LauncherPath),
                 target.FileName,
                 target.Title).ConfigureAwait(true);
         }

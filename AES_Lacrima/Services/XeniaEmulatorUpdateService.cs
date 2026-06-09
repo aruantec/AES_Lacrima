@@ -14,8 +14,9 @@ using System.Threading.Tasks;
 using AES_Core.DI;
 using AES_Core.IO;
 using AES_Lacrima.Serialization;
+using AES_Lacrima.Services.Xenia;
 using log4net;
-
+
 using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
@@ -477,17 +478,8 @@ public partial class XeniaEmulatorUpdateService
         }
     }
 
-    private static string ResolvePatchesDirectory(string emulatorDirectory, string? resolvedLauncherPath)
-    {
-        if (!string.IsNullOrWhiteSpace(resolvedLauncherPath) && File.Exists(resolvedLauncherPath))
-        {
-            var launcherDirectory = Path.GetDirectoryName(resolvedLauncherPath);
-            if (!string.IsNullOrWhiteSpace(launcherDirectory))
-                return Path.Combine(launcherDirectory, "patches");
-        }
-
-        return Path.Combine(emulatorDirectory, "patches");
-    }
+    private static string ResolvePatchesDirectory(string emulatorDirectory, string? resolvedLauncherPath) =>
+        XeniaPathsService.ResolvePatchesDirectory(emulatorDirectory, resolvedLauncherPath);
 
     private static string? ResolveExtractedPatchesDirectory(string extractDirectory)
     {

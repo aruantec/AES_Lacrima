@@ -64,6 +64,13 @@ public sealed class DuckStationHandler : EmulatorHandlerBase
         return startInfo;
     }
 
+    public override ProcessStartInfo BuildSetupStartInfo(string? launcherPath, string? preferredEmulatorDirectory = null)
+    {
+        var startInfo = base.BuildSetupStartInfo(launcherPath, preferredEmulatorDirectory);
+        EnsurePortableModeMarker(startInfo.FileName, startInfo.WorkingDirectory);
+        return startInfo;
+    }
+
     public static void EnsurePortableModeMarker(string? executablePath, string? workingDirectory)
     {
         try

@@ -14,6 +14,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using AES_Emulation.Linux;
 using AES_Emulation.Platform;
 using AES_Core.DI;
 using AES_Emulation.Controls;
@@ -189,6 +190,28 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     public virtual ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
         return CreateBaseStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
+    }
+
+    public virtual ProcessStartInfo BuildSetupStartInfo(string? launcherPath, string? preferredEmulatorDirectory = null)
+    {
+        var startInfo = CreateSetupStartInfo(launcherPath);
+        LinuxAppImageLaunchHelper.ApplyExtractAndRunEnvironment(startInfo, launcherPath);
+        return startInfo;
+    }
+
+    protected static ProcessStartInfo CreateSetupStartInfo(string? launcherPath)
+    {
+        var executablePath = ResolveLauncherExecutablePath(launcherPath) ?? launcherPath ?? string.Empty;
+        var workingDirectory = ResolveLauncherWorkingDirectory(launcherPath) ??
+                               Path.GetDirectoryName(executablePath) ??
+                               string.Empty;
+
+        return new ProcessStartInfo
+        {
+            FileName = executablePath,
+            UseShellExecute = false,
+            WorkingDirectory = workingDirectory
+        };
     }
 
     private static bool IsAppImagePath(string? executablePath)

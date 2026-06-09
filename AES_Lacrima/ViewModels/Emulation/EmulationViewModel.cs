@@ -504,7 +504,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             // Keep the black launch gate briefly so the first PipeWire frames (often
             // Xenia's empty window) stay hidden, then dismiss as soon as capture is live.
-            const int minimumGateMs = 900;
+            var minimumGateMs = Math.Max(900, handler.CaptureStartupDelayMs);
             const int frameSettleMs = 200;
 
             var elapsedMs = (DateTime.UtcNow - _emulatorLaunchStartedUtc).TotalMilliseconds;
