@@ -55,16 +55,35 @@ public sealed class EdenHandler : EmulatorHandlerBase
 
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
-            EnsureEdenConfigOverrides();
+            var launchFullscreen = startFullscreen || OperatingSystem.IsLinux();
+            EnsureEdenConfigOverrides(launchFullscreen);
 
             var resolvedLauncherPath = launcherPath;
-            if (!string.IsNullOrWhiteSpace(launcherPath) && string.Equals(Path.GetFileName(launcherPath), "eden.exe", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(launcherPath))
             {
-                var cliCandidate = Path.Combine(Path.GetDirectoryName(launcherPath) ?? string.Empty, "eden-cli.exe");
-                if (File.Exists(cliCandidate))
+                var launcherDirectory = Path.GetDirectoryName(launcherPath) ?? string.Empty;
+                if (OperatingSystem.IsWindows() &&
+                    string.Equals(Path.GetFileName(launcherPath), "eden.exe", StringComparison.OrdinalIgnoreCase))
                 {
-                    resolvedLauncherPath = cliCandidate;
-                    Log.Info($"EdenHandler: switching from eden.exe to eden-cli.exe for capture: '{resolvedLauncherPath}'");
+                    var cliCandidate = Path.Combine(launcherDirectory, "eden-cli.exe");
+                    if (File.Exists(cliCandidate))
+                    {
+                        resolvedLauncherPath = cliCandidate;
+                        Log.Info($"EdenHandler: switching from eden.exe to eden-cli.exe for capture: '{resolvedLauncherPath}'");
+                    }
+                }
+                else if (OperatingSystem.IsLinux())
+                {
+                    foreach (var cliName in new[] { "eden-cli", "eden-cli.AppImage" })
+                    {
+                        var cliCandidate = Path.Combine(launcherDirectory, cliName);
+                        if (File.Exists(cliCandidate))
+                        {
+                            resolvedLauncherPath = cliCandidate;
+                            Log.Info($"EdenHandler: switching to eden-cli for capture: '{resolvedLauncherPath}'");
+                            break;
+                        }
+                    }
                 }
             }
 
@@ -89,9 +108,9 @@ public sealed class EdenHandler : EmulatorHandlerBase
             if (isCli)
             {
                 startInfo.ArgumentList.Add("--config");
-                startInfo.ArgumentList.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "eden", "config", "qt-config.ini"));
+                startInfo.ArgumentList.Add(ResolveEdenConfigPath());
 
-                if (startFullscreen)
+                if (launchFullscreen)
                     startInfo.ArgumentList.Add("--fullscreen");
 
                 startInfo.ArgumentList.Add("-g");
@@ -99,7 +118,7 @@ public sealed class EdenHandler : EmulatorHandlerBase
             }
             else
             {
-                if (startFullscreen)
+                if (launchFullscreen)
                     startInfo.ArgumentList.Add("-f");
 
                 startInfo.ArgumentList.Add("-g");
@@ -385,20 +404,41 @@ public sealed class EdenHandler : EmulatorHandlerBase
             public string szExeFile;
         }
 
-        private static void EnsureEdenConfigOverrides()
+        private static string ResolveEdenConfigPath()
+        {
+            if (OperatingSystem.IsLinux())
+            {
+                var xdgConfigHome = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+                if (!string.IsNullOrWhiteSpace(xdgConfigHome))
+                    return Path.Combine(xdgConfigHome, "eden", "config", "qt-config.ini");
+
+                var home = Environment.GetEnvironmentVariable("HOME");
+                if (!string.IsNullOrWhiteSpace(home))
+                    return Path.Combine(home, ".config", "eden", "config", "qt-config.ini");
+            }
+
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "eden",
+                "config",
+                "qt-config.ini");
+        }
+
+        private static void EnsureEdenConfigOverrides(bool launchFullscreen)
         {
             try
             {
-                var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                var configPath = Path.Combine(appData, "eden", "config", "qt-config.ini");
+                var configPath = ResolveEdenConfigPath();
                 var configDir = Path.GetDirectoryName(configPath);
                 if (!string.IsNullOrWhiteSpace(configDir))
                     Directory.CreateDirectory(configDir);
 
+                var configFullscreen = OperatingSystem.IsLinux() && launchFullscreen;
+                var fullscreenValue = configFullscreen ? "true" : "false";
                 var desiredValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
-                    ["fullscreen\\default"] = "false",
-                    ["fullscreen"] = "false",
+                    ["fullscreen\\default"] = fullscreenValue,
+                    ["fullscreen"] = fullscreenValue,
                     ["showStatusBar\\default"] = "false",
                     ["showStatusBar"] = "false",
                     ["pause_on_focus_loss\\default"] = "false",

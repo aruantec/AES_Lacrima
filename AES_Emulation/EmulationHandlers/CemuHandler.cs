@@ -84,10 +84,12 @@ public sealed class CemuHandler : EmulatorHandlerBase
 
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
-        var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
+        var launchFullscreen = startFullscreen || OperatingSystem.IsLinux();
+        var resolvedLauncherPath = ResolveCemuLauncherPath(launcherPath) ?? launcherPath;
+        var startInfo = base.BuildStartInfo(resolvedLauncherPath, romPath, startFullscreen, sectionTitle);
         startInfo.ArgumentList.Clear();
 
-        var executableDirectory = Path.GetDirectoryName(launcherPath);
+        var executableDirectory = Path.GetDirectoryName(resolvedLauncherPath);
         if (!string.IsNullOrWhiteSpace(executableDirectory))
         {
             // Force portable mode by pointing config and mlc to the local directory
@@ -96,6 +98,9 @@ public sealed class CemuHandler : EmulatorHandlerBase
             startInfo.ArgumentList.Add("-mlc");
             startInfo.ArgumentList.Add(executableDirectory);
         }
+
+        if (launchFullscreen)
+            startInfo.ArgumentList.Add("-f");
 
         startInfo.ArgumentList.Add("-g");
         startInfo.ArgumentList.Add(romPath);

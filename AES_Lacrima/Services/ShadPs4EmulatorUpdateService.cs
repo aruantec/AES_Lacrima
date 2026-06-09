@@ -15,7 +15,7 @@ using AES_Core.DI;
 using AES_Core.IO;
 using AES_Lacrima.Serialization;
 using log4net;
-
+
 using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
@@ -369,12 +369,18 @@ public partial class ShadPs4EmulatorUpdateService
 
         if (OperatingSystem.IsLinux())
         {
-            return assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
-                   ?? assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+            return EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset =>
+                           asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
+                           asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset =>
+                           asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
+                           asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
         }
 
         if (OperatingSystem.IsMacOS())

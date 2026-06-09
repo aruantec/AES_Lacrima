@@ -17,7 +17,7 @@ using AES_Core.DI;
 using AES_Core.IO;
 using AES_Lacrima.Serialization;
 using log4net;
-
+
 using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
@@ -568,8 +568,18 @@ public partial class RetroArchEmulatorUpdateService
                    ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase));
         }
 
-        return assets.FirstOrDefault(asset => asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) && (asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || asset.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) || asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase)))
-               ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        return EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                   assets,
+                   static asset => asset.Name,
+                   static asset =>
+                       asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
+                       (asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+                        asset.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) ||
+                        asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase)))
+               ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                   assets,
+                   static asset => asset.Name,
+                   static asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -775,9 +785,15 @@ public partial class RetroArchEmulatorUpdateService
             return "https://buildbot.libretro.com/nightly/windows/x86_64/";
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            return "https://buildbot.libretro.com/nightly/apple/osx/x86_64/";
+        {
+            var macArch = EmulatorReleaseAssetSelection.ResolveHostArchitecture() == Architecture.Arm64
+                ? "arm64"
+                : "x86_64";
+            return $"https://buildbot.libretro.com/nightly/apple/osx/{macArch}/";
+        }
 
-        return "https://buildbot.libretro.com/nightly/linux/x86_64/";
+        var linuxArch = EmulatorReleaseAssetSelection.ResolveLinuxLibretroBuildbotArchDirectory();
+        return $"https://buildbot.libretro.com/nightly/linux/{linuxArch}/";
     }
 
     private static string ResolveNightlyEndpoint(string value)

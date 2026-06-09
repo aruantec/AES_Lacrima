@@ -380,13 +380,18 @@ public partial class XemuEmulatorUpdateService
 
         if (OperatingSystem.IsLinux())
         {
-            return assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("x86_64", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) &&
-                       !asset.Name.Contains("dbg", StringComparison.OrdinalIgnoreCase))
+            return EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset =>
+                           asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) &&
+                           !asset.Name.Contains("dbg", StringComparison.OrdinalIgnoreCase))
                    ?? assets.FirstOrDefault(asset =>
                        asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) &&
-                       !asset.Name.Contains("dbg", StringComparison.OrdinalIgnoreCase));
+                       !asset.Name.Contains("dbg", StringComparison.OrdinalIgnoreCase) &&
+                       !EmulatorReleaseAssetSelection.IsConflictingLinuxAssetArchitecture(
+                           asset.Name,
+                           EmulatorReleaseAssetSelection.ResolveHostArchitecture()));
         }
 
         if (OperatingSystem.IsMacOS())

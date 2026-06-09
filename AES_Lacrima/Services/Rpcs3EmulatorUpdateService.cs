@@ -15,7 +15,7 @@ using System.Threading.Tasks;
 using AES_Core.DI;
 using AES_Core.IO;
 using log4net;
-
+
 using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
@@ -1139,12 +1139,19 @@ public partial class Rpcs3EmulatorUpdateService
 
         if (OperatingSystem.IsLinux())
         {
-            return assets.FirstOrDefault(asset =>
-                        asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
-                        asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
-                   ?? assets.FirstOrDefault(asset =>
-                        asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
-                        (asset.Name.EndsWith(".tar.xz", StringComparison.OrdinalIgnoreCase) || asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)))
+            return EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset =>
+                           asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
+                           asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset =>
+                           asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
+                           (asset.Name.EndsWith(".tar.xz", StringComparison.OrdinalIgnoreCase) ||
+                            asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)))
                    ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
         }
 

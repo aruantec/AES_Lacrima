@@ -16,7 +16,7 @@ using AES_Core.IO;
 using AES_Lacrima.Serialization;
 using AES_Emulation.EmulationHandlers;
 using log4net;
-
+
 using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
@@ -380,11 +380,14 @@ public partial class DuckStationEmulatorUpdateService
 
         if (OperatingSystem.IsLinux())
         {
-            return assets.FirstOrDefault(asset =>
-                       asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.Contains("x64", StringComparison.OrdinalIgnoreCase))
-                   ?? assets.FirstOrDefault(asset =>
-                       asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+            return EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset => asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                    ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
         }
 

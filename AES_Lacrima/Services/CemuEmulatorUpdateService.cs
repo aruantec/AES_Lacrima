@@ -157,6 +157,22 @@ public partial class CemuEmulatorUpdateService
             {
                 var destinationPath = Path.Combine(emulatorDirectory, Path.GetFileName(downloadedAssetPath));
                 File.Copy(downloadedAssetPath, destinationPath, overwrite: true);
+                if (OperatingSystem.IsLinux() &&
+                    destinationPath.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        File.SetUnixFileMode(
+                            destinationPath,
+                            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                            UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Debug($"Failed to mark Cemu AppImage as executable: '{destinationPath}'.", ex);
+                    }
+                }
             }
 
             PrepareUpdateDirectory(updateDirectory);
@@ -225,9 +241,63 @@ public partial class CemuEmulatorUpdateService
         if (!string.IsNullOrWhiteSpace(launcherPath) && File.Exists(launcherPath))
             return Path.GetFullPath(launcherPath);
 
-        var exeName = "Cemu.exe";
-        var candidate = Path.Combine(emulatorDirectory, exeName);
-        return File.Exists(candidate) ? Path.GetFullPath(candidate) : Path.GetFullPath(candidate);
+        if (OperatingSystem.IsWindows())
+        {
+            var candidate = Path.Combine(emulatorDirectory, "Cemu.exe");
+            return File.Exists(candidate) ? Path.GetFullPath(candidate) : null;
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            try
+            {
+                var appImage = Directory.EnumerateFiles(emulatorDirectory, "*.AppImage", SearchOption.AllDirectories)
+                    .FirstOrDefault(path => path.Contains("cemu", StringComparison.OrdinalIgnoreCase));
+                if (!string.IsNullOrWhiteSpace(appImage))
+                    return Path.GetFullPath(appImage);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"Failed while searching for Cemu AppImage under '{emulatorDirectory}'.", ex);
+            }
+
+            foreach (var name in new[] { "Cemu", "cemu" })
+            {
+                try
+                {
+                    var candidate = Directory.EnumerateFiles(emulatorDirectory, name, SearchOption.AllDirectories)
+                        .FirstOrDefault();
+                    if (!string.IsNullOrWhiteSpace(candidate))
+                        return Path.GetFullPath(candidate);
+                }
+                catch (Exception ex)
+                {
+                    Log.Debug($"Failed while searching for Cemu binary '{name}' under '{emulatorDirectory}'.", ex);
+                }
+            }
+
+            return null;
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            foreach (var name in new[] { "Cemu", "cemu", "Cemu.app" })
+            {
+                try
+                {
+                    var candidate = Directory.EnumerateFileSystemEntries(emulatorDirectory, name, SearchOption.AllDirectories)
+                        .FirstOrDefault();
+                    if (!string.IsNullOrWhiteSpace(candidate))
+                        return Path.GetFullPath(candidate);
+                }
+                catch (Exception ex)
+                {
+                    Log.Debug($"Failed while searching for Cemu launcher '{name}' under '{emulatorDirectory}'.", ex);
+                }
+            }
+        }
+
+        return null;
     }
 
     private static string? GetInstalledVersion(string emulatorDirectory, string? resolvedLauncherPath)
@@ -263,9 +333,47 @@ public partial class CemuEmulatorUpdateService
 
     private static ReleaseAsset? SelectAssetForPlatform(IReadOnlyList<ReleaseAsset> assets)
     {
-        return assets.FirstOrDefault(a => 
-            a.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) && 
-            a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        if (assets.Count == 0)
+            return null;
+
+        if (OperatingSystem.IsWindows())
+        {
+            return assets.FirstOrDefault(asset =>
+                       asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
+                       asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                   ?? assets.FirstOrDefault(asset =>
+                       asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) &&
+                       !EmulatorReleaseAssetSelection.IsConflictingLinuxAssetArchitecture(
+                           asset.Name,
+                           EmulatorReleaseAssetSelection.ResolveHostArchitecture()));
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            return EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset => asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset =>
+                           (asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) ||
+                            asset.Name.Contains("ubuntu", StringComparison.OrdinalIgnoreCase)) &&
+                           asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return assets.FirstOrDefault(asset =>
+                       asset.Name.Contains("macos", StringComparison.OrdinalIgnoreCase) &&
+                       asset.Name.EndsWith(".dmg", StringComparison.OrdinalIgnoreCase))
+                   ?? assets.FirstOrDefault(asset =>
+                       asset.Name.Contains("mac", StringComparison.OrdinalIgnoreCase) &&
+                       asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        }
+
+        return assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
     }
 
     private static void PrepareUpdateDirectory(string updateDirectory)
