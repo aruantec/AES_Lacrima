@@ -84,6 +84,7 @@
                    VerticalAlignment="Center"
                    Margin="5"
                    FontFamily="{Binding MiniFontFamily}"
+                   FontSize="{Binding MiniWindowTitleFontSize}"
                    Foreground="{Binding MiniPrimaryTextBrush}">
                 <Label.Content>
                     <MultiBinding Converter="{StaticResource UppercaseWhenRetroConverter}">

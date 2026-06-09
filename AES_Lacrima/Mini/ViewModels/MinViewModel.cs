@@ -251,11 +251,23 @@ namespace AES_Lacrima.Mini.ViewModels
         public CornerRadius MiniWindowCornerRadius =>
             IsRetroMode ? new CornerRadius(0) : new CornerRadius(10);
 
-        public double MiniBodyFontSize => IsRetroMode ? 9 : 12;
+        public double MiniBodyFontSize => IsRetroMode ? 8 : 12;
 
-        public double MiniHeaderFontSize => IsRetroMode ? 10 : 14;
+        public double MiniHeaderFontSize => IsRetroMode ? 8 : 14;
 
-        public double MiniCaptionFontSize => IsRetroMode ? 8 : 12;
+        public double MiniCaptionFontSize => IsRetroMode ? 7 : 12;
+
+        public double MiniWindowTitleFontSize => IsRetroMode ? 9 : 13;
+
+        public double MiniSearchFontSize => IsRetroMode ? 7 : 10;
+
+        public double MiniSearchCollapsedWidth => IsRetroMode ? 92 : 68;
+
+        public double MiniListFontSize => IsRetroMode ? 8 : 12;
+
+        public double MiniFooterFontSize => IsRetroMode ? 8 : 12;
+
+        public double MiniEmptyHintFontSize => IsRetroMode ? 10 : 18;
 
         public Bitmap LoadedCoverBitmap => ResolveCoverBitmap() ?? _defaultCover;
 
@@ -954,6 +966,12 @@ namespace AES_Lacrima.Mini.ViewModels
             OnPropertyChanged(nameof(MiniBodyFontSize));
             OnPropertyChanged(nameof(MiniHeaderFontSize));
             OnPropertyChanged(nameof(MiniCaptionFontSize));
+            OnPropertyChanged(nameof(MiniWindowTitleFontSize));
+            OnPropertyChanged(nameof(MiniSearchFontSize));
+            OnPropertyChanged(nameof(MiniSearchCollapsedWidth));
+            OnPropertyChanged(nameof(MiniListFontSize));
+            OnPropertyChanged(nameof(MiniFooterFontSize));
+            OnPropertyChanged(nameof(MiniEmptyHintFontSize));
         }
 
         private Bitmap? ResolveCoverBitmap()

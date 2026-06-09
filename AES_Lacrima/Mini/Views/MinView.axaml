@@ -34,12 +34,15 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Background" Value="{Binding $parent[UserControl].((vm:MinViewModel)DataContext).MiniPanelBackgroundBrush}" />
         </Style>
+        <Style Selector="UserControl.retro TextBlock.playStatus">
+            <Setter Property="Margin" Value="0,-3,0,0" />
+        </Style>
     </UserControl.Styles>
 
     <Grid Background="Transparent" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
         <!-- Thumbnail & Controls -->
-        <Grid Grid.Row="0" Height="86">
-			<Grid ColumnDefinitions="Auto,*" Margin="0,-10,0,0">
+        <Grid Grid.Row="0" Height="90" ColumnDefinitions="*,Auto">
+			<Grid Grid.Column="0" ColumnDefinitions="Auto,*" VerticalAlignment="Top" Margin="0,5,0,0">
                 <Border x:Name="CoverBorder"
                         Grid.Column="0"
                         VerticalAlignment="Top"
@@ -52,12 +55,14 @@
                         ClipToBounds="True">
 					<Image Source="{Binding LoadedCoverBitmap}"/>
                 </Border>
-                <Grid Grid.Column="1"
-                      Height="80"
-                      Margin="0,0,5,0"
-                      RowDefinitions="*,Auto">
-				<StackPanel Grid.Row="0" VerticalAlignment="Top" Spacing="5" Margin="0,10,0,0" ClipToBounds="True">
-					<TextBlock FontSize="{Binding MiniCaptionFontSize}"
+                <DockPanel Grid.Column="1"
+                           Height="80"
+                           VerticalAlignment="Top"
+                           Margin="0,0,5,0"
+                           LastChildFill="True">
+					<TextBlock DockPanel.Dock="Top"
+                               Classes="playStatus"
+							   FontSize="{Binding MiniCaptionFontSize}"
 							   Foreground="{Binding MiniMutedTextBrush}">
                         <TextBlock.Text>
                             <MultiBinding Converter="{StaticResource UppercaseWhenRetroConverter}">
@@ -66,6 +71,21 @@
                             </MultiBinding>
                         </TextBlock.Text>
                     </TextBlock>
+                    <TextBlock DockPanel.Dock="Bottom"
+                               FontSize="{Binding MiniBodyFontSize}"
+                               Foreground="{Binding MiniPrimaryTextBrush}"
+                               HorizontalAlignment="Left"
+                               TextWrapping="NoWrap"
+                               TextTrimming="CharacterEllipsis">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0} / {1}">
+                                <Binding Path="MusicViewModel.AudioPlayer.Position" Converter="{StaticResource TimeSpanConverter}" FallbackValue="00:00" />
+                                <Binding Path="LoadedMediaItem.Duration" Converter="{StaticResource TimeSpanConverter}" ConverterParameter="UnknownAsDashes" FallbackValue="--:--" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+                    <StackPanel VerticalAlignment="Center"
+                                Spacing="2">
 					<TextBlock FontSize="{Binding MiniHeaderFontSize}"
 							   Foreground="{Binding MiniPrimaryTextBrush}">
                         <TextBlock.Text>
@@ -80,7 +100,7 @@
 					</TextBlock>
                     <TextBlock FontSize="{Binding MiniCaptionFontSize}"
                                Foreground="{Binding MiniMutedTextBrush}"
-                               TextWrapping="Wrap"
+                               TextWrapping="NoWrap"
 							   MaxLines="1"
                                TextTrimming="CharacterEllipsis">
                         <TextBlock.Text>
@@ -90,24 +110,175 @@
                             </MultiBinding>
                         </TextBlock.Text>
                     </TextBlock>
-				</StackPanel>
-                <TextBlock Grid.Row="1"
-                           VerticalAlignment="Bottom"
-                           Margin="0"
-                           FontSize="{Binding MiniBodyFontSize}"
-                           Foreground="{Binding MiniPrimaryTextBrush}"
-                           HorizontalAlignment="Left"
-                           TextWrapping="NoWrap"
-                           TextTrimming="CharacterEllipsis">
-                    <TextBlock.Text>
-                        <MultiBinding StringFormat="{}{0} / {1}">
-                            <Binding Path="MusicViewModel.AudioPlayer.Position" Converter="{StaticResource TimeSpanConverter}" FallbackValue="00:00" />
-                            <Binding Path="LoadedMediaItem.Duration" Converter="{StaticResource TimeSpanConverter}" ConverterParameter="UnknownAsDashes" FallbackValue="--:--" />
-                        </MultiBinding>
-                    </TextBlock.Text>
-                </TextBlock>
-                </Grid>
+                    </StackPanel>
+                </DockPanel>
             </Grid>
+
+            <Border Grid.Column="1"
+                    Height="80"
+                    VerticalAlignment="Top"
+                    Margin="4,5,12,0">
+            <StackPanel Orientation="Horizontal"
+                        Spacing="12"
+                        VerticalAlignment="Center">
+                <!-- Stop button -->
+                <Button Height="26"
+                        Width="26"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        ToolTip.Tip="Stop"
+                        Command="{Binding StopCommand}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <Rectangle Canvas.Left="25" Canvas.Top="25" Width="50" Height="50" Fill="White" RadiusX="4" RadiusY="4" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+
+                <!-- Previous button -->
+                <Button Height="26"
+                        Width="26"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        ToolTip.Tip="Previous"
+                        Command="{Binding PreviousCommand}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <Rectangle Canvas.Left="10" Canvas.Top="15" Width="12" Height="70" RadiusX="6" RadiusY="6" Fill="White" />
+                            <Path Data="M 85,15 L 35,50 L 85,85 Z" Fill="White" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+
+                <!-- Play button -->
+                <Button Width="54"
+                        Height="54"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        ToolTip.Tip="{Binding MusicViewModel.AudioPlayer.IsPlaying, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Pause, Play'}"
+                        Command="{Binding PlayPauseCommand}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <Ellipse Canvas.Left="4" Canvas.Top="4" Width="92" Height="92" Stroke="White" StrokeThickness="7" />
+                            <Rectangle Canvas.Left="35" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding MusicViewModel.AudioPlayer.IsPlaying}" />
+                            <Rectangle Canvas.Left="55" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding MusicViewModel.AudioPlayer.IsPlaying}" />
+                            <Path Data="M 38,30 L 72,50 L 38,70 Z" Fill="White" IsVisible="{Binding !MusicViewModel.AudioPlayer.IsPlaying}" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+
+                <!-- Next button -->
+                <Button Height="26"
+                        Width="26"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        ToolTip.Tip="Next"
+                        Command="{Binding NextCommand}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <Path Data="M 15,15 L 65,50 L 15,85 Z" Fill="White" />
+                            <Rectangle Canvas.Left="78" Canvas.Top="15" Width="12" Height="70" RadiusX="6" RadiusY="6" Fill="White" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+
+                <!-- Repeat button -->
+                <Button Height="26"
+                        Width="26"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        Command="{Binding MusicViewModel.ToggleRepeatCommand}"
+                        ToolTip.Tip="{Binding MusicViewModel.NextRepeatToolTip}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Grid>
+                            <Canvas Width="120" Height="120" ClipToBounds="False" IsVisible="{Binding !ShuffleMode}">
+                                <Path Data="M 15,65 V 45 C 15,30 15,30 30,30 H 105 M 105,30 L 88,14 M 105,30 L 88,46"
+                                      Stroke="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                      StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
+                                <Path Data="M 105,55 V 75 C 105,90 105,90 90,90 H 15 M 15,90 L 32,74 M 15,90 L 32,106"
+                                      Stroke="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                      StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
+                                <Grid Width="{Binding Width, RelativeSource={RelativeSource AncestorType=Canvas}}"
+                                      Height="{Binding Height, RelativeSource={RelativeSource AncestorType=Canvas}}"
+                                      Canvas.Left="0" Canvas.Top="0" IsHitTestVisible="False">
+                                    <TextBlock Text="1"
+                                               Foreground="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                               FontSize="32"
+                                               FontWeight="Heavy"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               IsVisible="{Binding MusicViewModel.AudioPlayer.IsRepeatOne}"/>
+                                </Grid>
+                            </Canvas>
+                            <Canvas Width="140" Height="120" IsVisible="{Binding ShuffleMode}">
+                                <Path Data="M 10,25 L 35,25 C 70,25 70,95 105,95 L 115,95"
+                                      Stroke="White"
+                                      StrokeThickness="14"
+                                      StrokeLineCap="Round"
+                                      Fill="Transparent" />
+                                <Path Data="M 10,95 L 35,95 C 70,95 70,25 105,25 L 115,25"
+                                      Stroke="White"
+                                      StrokeThickness="14"
+                                      StrokeLineCap="Round"
+                                      Fill="Transparent" />
+                                <Path Data="M 100,5 L 135,25 L 100,45 Z" Fill="White" />
+                                <Path Data="M 100,75 L 135,95 L 100,115 Z" Fill="White" />
+                            </Canvas>
+                        </Grid>
+                    </Viewbox>
+                </Button>
+            </StackPanel>
+            </Border>
         </Grid>
 
         <!-- Progress -->
@@ -125,68 +296,11 @@
                                           TrackBorderBrush="{Binding MiniProgressBorderBrush}"
                                           FillBrush="{Binding MiniProgressFillBrush}"/>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="10,0,10,4">
-            <StackPanel Grid.Column="0"
-                        Orientation="Horizontal"
+        <Grid Grid.Row="2" Margin="10,0,10,4">
+            <StackPanel Orientation="Horizontal"
                         HorizontalAlignment="Left"
                         Spacing="10"
                         VerticalAlignment="Center">
-                        <!-- Repeat button -->
-                        <Button Height="20"
-                                Width="20"
-                                VerticalAlignment="Center"
-                                Cursor="Hand"
-                                Command="{Binding MusicViewModel.ToggleRepeatCommand}"
-                                ToolTip.Tip="{Binding MusicViewModel.NextRepeatToolTip}">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="Transparent" BorderThickness="0">
-                                        <ContentPresenter Content="{TemplateBinding Content}"
-                                                          ContentTemplate="{TemplateBinding ContentTemplate}"
-                                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Button.Template>
-                            <Viewbox Stretch="Uniform">
-                                <Grid>
-                                    <Canvas Width="120" Height="120" ClipToBounds="False" IsVisible="{Binding !ShuffleMode}">
-                                        <Path Data="M 15,65 V 45 C 15,30 15,30 30,30 H 105 M 105,30 L 88,14 M 105,30 L 88,46"
-                                              Stroke="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
-                                              StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
-                                        <Path Data="M 105,55 V 75 C 105,90 105,90 90,90 H 15 M 15,90 L 32,74 M 15,90 L 32,106"
-                                              Stroke="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
-                                              StrokeThickness="11" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" />
-                                        <Grid Width="{Binding Width, RelativeSource={RelativeSource AncestorType=Canvas}}"
-                                              Height="{Binding Height, RelativeSource={RelativeSource AncestorType=Canvas}}"
-                                              Canvas.Left="0" Canvas.Top="0" IsHitTestVisible="False">
-                                            <TextBlock Text="1"
-                                                       Foreground="{Binding MusicViewModel.AudioPlayer.Loop, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
-                                                       FontSize="32"
-                                                       FontWeight="Heavy"
-                                                       HorizontalAlignment="Center"
-                                                       VerticalAlignment="Center"
-                                                       IsVisible="{Binding MusicViewModel.AudioPlayer.IsRepeatOne}"/>
-                                        </Grid>
-                                    </Canvas>
-                                    <Canvas Width="140" Height="120" IsVisible="{Binding ShuffleMode}">
-                                        <Path Data="M 10,25 L 35,25 C 70,25 70,95 105,95 L 115,95"
-                                              Stroke="White"
-                                              StrokeThickness="14"
-                                              StrokeLineCap="Round"
-                                              Fill="Transparent" />
-                                        <Path Data="M 10,95 L 35,95 C 70,95 70,25 105,25 L 115,25"
-                                              Stroke="White"
-                                              StrokeThickness="14"
-                                              StrokeLineCap="Round"
-                                              Fill="Transparent" />
-                                        <Path Data="M 100,5 L 135,25 L 100,45 Z" Fill="White" />
-                                        <Path Data="M 100,75 L 135,95 L 100,115 Z" Fill="White" />
-                                    </Canvas>
-                                </Grid>
-                            </Viewbox>
-                        </Button>
-
                         <!-- Visualizer toggle -->
                         <ToggleButton Height="20"
                                       Width="20"
@@ -293,89 +407,6 @@
                                 </Canvas>
                             </Viewbox>
                         </Button>
-            </StackPanel>
-
-            <StackPanel Grid.Column="1"
-                        Orientation="Horizontal"
-                        HorizontalAlignment="Right"
-                        Spacing="10"
-                        VerticalAlignment="Center">
-                <!-- Previous button -->
-                <Button Height="20"
-                        Width="20"
-                        VerticalAlignment="Center"
-                        Cursor="Hand"
-                        ToolTip.Tip="Previous"
-                        Command="{Binding PreviousCommand}">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="Transparent" BorderThickness="0">
-                                <ContentPresenter Content="{TemplateBinding Content}"
-                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
-                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                    <Viewbox Stretch="Uniform">
-                        <Canvas Width="100" Height="100">
-                            <Rectangle Canvas.Left="10" Canvas.Top="15" Width="12" Height="70" RadiusX="6" RadiusY="6" Fill="White" />
-                            <Path Data="M 85,15 L 35,50 L 85,85 Z" Fill="White" />
-                        </Canvas>
-                    </Viewbox>
-                </Button>
-
-                <!-- Play button -->
-                <Button Width="26"
-                        Height="26"
-                        VerticalAlignment="Center"
-                        Cursor="Hand"
-                        ToolTip.Tip="{Binding MusicViewModel.AudioPlayer.IsPlaying, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Pause, Play'}"
-                        Command="{Binding PlayPauseCommand}">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="Transparent" BorderThickness="0">
-                                <ContentPresenter Content="{TemplateBinding Content}"
-                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
-                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                    <Viewbox Stretch="Uniform">
-                        <Canvas Width="100" Height="100">
-                            <Ellipse Canvas.Left="4" Canvas.Top="4" Width="92" Height="92" Stroke="White" StrokeThickness="7" />
-                            <Rectangle Canvas.Left="35" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding MusicViewModel.AudioPlayer.IsPlaying}" />
-                            <Rectangle Canvas.Left="55" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding MusicViewModel.AudioPlayer.IsPlaying}" />
-                            <Path Data="M 38,30 L 72,50 L 38,70 Z" Fill="White" IsVisible="{Binding !MusicViewModel.AudioPlayer.IsPlaying}" />
-                        </Canvas>
-                    </Viewbox>
-                </Button>
-
-                <!-- Next -->
-                <Button Height="20"
-                        Width="20"
-                        VerticalAlignment="Center"
-                        Cursor="Hand"
-                        ToolTip.Tip="Next"
-                        Command="{Binding NextCommand}">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="Transparent" BorderThickness="0">
-                                <ContentPresenter Content="{TemplateBinding Content}"
-                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
-                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                    <Viewbox Stretch="Uniform">
-                        <Canvas Width="100" Height="100">
-                            <Path Data="M 15,15 L 65,50 L 15,85 Z" Fill="White" />
-                            <Rectangle Canvas.Left="78" Canvas.Top="15" Width="12" Height="70" RadiusX="6" RadiusY="6" Fill="White" />
-                        </Canvas>
-                    </Viewbox>
-                </Button>
             </StackPanel>
         </Grid>
 
@@ -535,13 +566,13 @@
 
                             <!-- Name Placeholder (Or Folder Icon) -->
                             <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" 
-                                       Foreground="DimGray" FontSize="12" Margin="6,0,6,0" Text="📁" />
+                                       Foreground="DimGray" FontSize="{Binding $parent[UserControl].((vm:MinViewModel)DataContext).MiniListFontSize}" Margin="6,0,6,0" Text="📁" />
 
                             <!-- Album Title -->
                             <TextBlock Grid.Column="1" Text="{Binding Title}" 
                                        IsVisible="{Binding !IsRenaming}"
                                        Grid.RowSpan="2"
-                                       FontSize="12" 
+                                       FontSize="{Binding $parent[UserControl].((vm:MinViewModel)DataContext).MiniListFontSize}" 
                                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="6,0">
                                 <TextBlock.Foreground>
                                     <MultiBinding Converter="{StaticResource MiniListForegroundConverter}">
@@ -557,7 +588,7 @@
 
                             <TextBox Grid.Column="1" Grid.Row="0" Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      IsVisible="{Binding IsRenaming}"
-                                     Foreground="White" FontSize="12"
+                                     Foreground="White" FontSize="{Binding $parent[UserControl].((vm:MinViewModel)DataContext).MiniListFontSize}"
                                      VerticalAlignment="Center" Margin="6,0"
                                      Background="#44000000"
                                      Classes.invalid="{Binding IsNameInvalid}"
@@ -584,14 +615,14 @@
                             <TextBlock Grid.Column="1" Grid.Row="1"
                                        Margin="6,3,6,0"
                                        Foreground="White"
-                                       FontSize="10"
+                                       FontSize="{Binding $parent[UserControl].((vm:MinViewModel)DataContext).MiniCaptionFontSize}"
                                        Text="{Binding NameInvalidMessage}"
                                        TextWrapping="Wrap"
                                        IsVisible="{Binding IsNameInvalid}" />
 
                             <!-- Total Tracks -->
                             <TextBlock Grid.Column="3" Grid.RowSpan="2" Text="{Binding Children.Count, StringFormat='{}{0} Tracks'}" 
-                                       FontSize="12" Margin="6,0,10,0" 
+                                       FontSize="{Binding $parent[UserControl].((vm:MinViewModel)DataContext).MiniListFontSize}" Margin="6,0,10,0" 
                                        HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBlock.Foreground>
                                     <MultiBinding Converter="{StaticResource MiniListForegroundConverter}">
@@ -616,7 +647,7 @@
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"
                            TextAlignment="Center"
-                           FontSize="18"
+                           FontSize="{Binding MiniEmptyHintFontSize}"
                            MaxWidth="420"
                            Margin="18"
                            Foreground="#88787878"
@@ -741,7 +772,7 @@
                         </Grid.ColumnDefinitions>
 
                         <!-- Row index (1-based) - bind directly to MediaItem.Index so updates notify correctly -->
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12" Margin="6,0,6,0"
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="{Binding $parent[UserControl].((vm:MinViewModel)DataContext).MiniListFontSize}" Margin="6,0,6,0"
                                    Text="{Binding Index, StringFormat='{}{0}.', FallbackValue=''}" >
                             <TextBlock.Foreground>
                                 <MultiBinding Converter="{StaticResource MiniListForegroundConverter}">
@@ -756,7 +787,7 @@
                         </TextBlock>
 
                         <Border Grid.Column="1" Margin="6,4" Background="Transparent" ClipToBounds="True">
-                            <TextBlock FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                            <TextBlock FontSize="{Binding $parent[UserControl].((vm:MinViewModel)DataContext).MiniListFontSize}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
                                 <TextBlock.Foreground>
                                     <MultiBinding Converter="{StaticResource MiniListForegroundConverter}">
                                         <Binding Path="."/>
@@ -778,7 +809,7 @@
                                 </Interaction.Behaviors>
                             </TextBlock>
                         </Border>
-                        <TextBlock Grid.Column="3" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}, ConverterParameter=UnknownAsDashes}" FontSize="12" Margin="6,4,10,4" HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <TextBlock Grid.Column="3" Text="{Binding Duration, Converter={StaticResource TimeSpanConverter}, ConverterParameter=UnknownAsDashes}" FontSize="{Binding $parent[UserControl].((vm:MinViewModel)DataContext).MiniListFontSize}" Margin="6,4,10,4" HorizontalAlignment="Left" VerticalAlignment="Center">
                             <TextBlock.Foreground>
                                 <MultiBinding Converter="{StaticResource MiniListForegroundConverter}">
                                     <Binding Path="."/>
@@ -798,7 +829,7 @@
                        HorizontalAlignment="Center"
                        VerticalAlignment="Center"
                        TextAlignment="Center"
-                       FontSize="18"
+                       FontSize="{Binding MiniEmptyHintFontSize}"
                        MaxWidth="420"
                        Margin="18"
                        Foreground="#88787878"
@@ -938,16 +969,15 @@
                          Classes="AlbumSearch"
                          Height="18"
                          MaxHeight="18"
-                         FontSize="10"
+                         FontSize="{Binding MiniSearchFontSize}"
+                         Width="{Binding MiniSearchCollapsedWidth}"
+                         MinWidth="{Binding MiniSearchCollapsedWidth}"
                          Cursor="Hand"
                          MaxWidth="200">
                     <TextBox.Styles>
                         <Style Selector="TextBox.AlbumSearch">
-                            <Setter Property="Width" Value="35"/>
                             <Setter Property="Height" Value="18"/>
-                            <Setter Property="MinWidth" Value="35"/>
                             <Setter Property="MinHeight" Value="18"/>
-                            <Setter Property="FontSize" Value="10"/>
                             <Setter Property="Transitions">
                                 <Transitions>
                                     <DoubleTransition Property="Width" Duration="0:0:0.35" Easing="CubicEaseOut"/>
@@ -973,7 +1003,7 @@
                             <Setter Property="Foreground" Value="White"/>
                         </Style>
                         <Style Selector="TextBox.AlbumSearch /template/ TextBlock#PART_Watermark">
-                            <Setter Property="Opacity" Value="0"/>
+                            <Setter Property="Opacity" Value="0.45"/>
                             <Setter Property="Transitions">
                                 <Transitions>
                                     <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
@@ -1053,7 +1083,7 @@
             </StackPanel>
 
             <!-- count/total info stays centered across first two columns -->
-            <TextBlock Grid.Column="1" IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#BDBDBD" FontSize="12" TextAlignment="Center" TextTrimming="CharacterEllipsis" Margin="8,0,8,0">
+            <TextBlock Grid.Column="1" IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#BDBDBD" FontSize="{Binding MiniFooterFontSize}" TextAlignment="Center" TextTrimming="CharacterEllipsis" Margin="8,0,8,0">
                 <Run Text="{Binding LoadedMediaItem.Index, FallbackValue=0}" />
                 <Run Text=" of " />
                 <Run Text="{Binding VisibleItemCount, FallbackValue=0}" />
