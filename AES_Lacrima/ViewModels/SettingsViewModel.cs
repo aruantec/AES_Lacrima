@@ -3015,14 +3015,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         return match.Handlers.Select(item => item.Handler).FirstOrDefault();
     }
 
-    public EmulationSectionLaunchSettings GetResolvedEmulationSectionLaunchSettings(string? sectionTitle)
+    public EmulationSectionLaunchSettings GetResolvedEmulationSectionLaunchSettings(string? sectionKeyOrTitle)
     {
-        if (string.IsNullOrWhiteSpace(sectionTitle))
+        if (string.IsNullOrWhiteSpace(sectionKeyOrTitle))
             return new EmulationSectionLaunchSettings();
 
-        var match = EmulationSections.FirstOrDefault(item =>
-            string.Equals(item.SectionTitle, sectionTitle, StringComparison.OrdinalIgnoreCase));
-
+        var match = FindEmulationSection(sectionKeyOrTitle);
         return match?.LaunchSettings?.Clone() ?? new EmulationSectionLaunchSettings();
     }
 

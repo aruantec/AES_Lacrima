@@ -217,6 +217,19 @@ public static class LinuxCompositorLaunchHelper
         return (width, height);
     }
 
+    /// <summary>
+    /// Applies environment defaults for emulators running inside gamescope's XWayland session.
+    /// </summary>
+    public static void PrepareEmulatorStartInfoForGamescope(ProcessStartInfo startInfo)
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        startInfo.Environment["SDL_VIDEODRIVER"] = "x11";
+        startInfo.Environment["GDK_BACKEND"] = "x11";
+        startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
+    }
+
     private static async Task<bool> WaitForCompositorReadyAsync(
         Process process,
         AnonymousPipeServerStream readyPipe,

@@ -75,12 +75,12 @@ namespace AES_Lacrima.ViewModels
             if (album == null)
                 return;
 
-            var handler = SettingsViewModel?.GetConfiguredEmulatorHandler(album.Title);
+            var handler = ResolveEmulatorHandlerForAlbum(album);
             var launcherPath = handler?.LauncherPath;
             if (handler == null || !handler.IsLauncherPathValid(launcherPath))
                 return;
 
-            var launchSettings = SettingsViewModel?.GetResolvedEmulationSectionLaunchSettings(album.Title);
+            var launchSettings = ResolveEmulationLaunchSettingsForAlbum(album);
             var launchRequest = new PendingEmulatorLaunchRequest(
                 album.Title ?? string.Empty,
                 item.Title ?? Path.GetFileNameWithoutExtension(item.FileName),
@@ -916,8 +916,12 @@ namespace AES_Lacrima.ViewModels
                 _albumsWithMetadataScanned.Remove(album);
             }
 
-            if (ReferenceEquals(LoadedAlbum, album))
+            if (ReferenceEquals(SelectedAlbum, album) && !ReferenceEquals(LoadedAlbum, album))
+                LoadedAlbum = album;
+            else if (ReferenceEquals(LoadedAlbum, album))
                 ApplyFilter();
+
+            SyncCurrentSectionEmulatorContext();
 
             UpdatePreviewItems(album as EmulationAlbumItem);
             QueueAlbumPreviewCoverLoad(album as EmulationAlbumItem);

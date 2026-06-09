@@ -38,6 +38,11 @@ public partial class EmulationView : UserControl
             nameof(IsPortalCaptureInitializing),
             o => o.IsPortalCaptureInitializing);
 
+    public static readonly DirectProperty<EmulationView, bool> IsEmulatorLaunchGateActiveProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, bool>(
+            nameof(IsEmulatorLaunchGateActive),
+            o => o.IsEmulatorLaunchGateActive);
+
     public static readonly DirectProperty<EmulationView, Color> PortalCaptureTintProperty =
         AvaloniaProperty.RegisterDirect<EmulationView, Color>(
             nameof(PortalCaptureTint),
@@ -147,6 +152,7 @@ public partial class EmulationView : UserControl
     private IDisposable? _captureGpuRendererSubscription;
     private IDisposable? _captureGpuVendorSubscription;
     private bool _isPortalCaptureInitializing;
+    private bool _isEmulatorLaunchGateActive;
     private Color _portalCaptureTint = Colors.White;
     private double _portalFallbackOpacity;
     private bool _isPortalSurfaceVisible;
@@ -407,7 +413,25 @@ public partial class EmulationView : UserControl
     public bool IsPortalCaptureInitializing
     {
         get => _isPortalCaptureInitializing;
-        private set => SetAndRaise(IsPortalCaptureInitializingProperty, ref _isPortalCaptureInitializing, value);
+        private set
+        {
+            if (SetAndRaise(IsPortalCaptureInitializingProperty, ref _isPortalCaptureInitializing, value))
+                UpdateEmulatorLaunchGateActive();
+        }
+    }
+
+    public bool IsEmulatorLaunchGateActive
+    {
+        get => _isEmulatorLaunchGateActive;
+        private set => SetAndRaise(IsEmulatorLaunchGateActiveProperty, ref _isEmulatorLaunchGateActive, value);
+    }
+
+    private void UpdateEmulatorLaunchGateActive()
+    {
+        var active = ((DataContext as EmulationViewModel)?.IsEmulatorLaunchInProgress ?? false)
+                     || IsPortalCaptureInitializing;
+        if (active != IsEmulatorLaunchGateActive)
+            IsEmulatorLaunchGateActive = active;
     }
 
     public Color PortalCaptureTint
@@ -689,6 +713,7 @@ public partial class EmulationView : UserControl
         {
             AttachMetadataServiceForCapture(vm);
             UpdatePortalVisibility(vm);
+            UpdateEmulatorLaunchGateActive();
         }
         else
         {
@@ -764,6 +789,7 @@ public partial class EmulationView : UserControl
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsEmulatorLaunchInProgress))
         {
+            UpdateEmulatorLaunchGateActive();
             UpdateCaptureChromeVisibilityFromOpacity();
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsGameplayRecording))
@@ -999,6 +1025,29 @@ public partial class EmulationView : UserControl
         await TransitionToCaptureAsync(cancellationToken);
     }
 
+    private async Task WaitForEmulatorLaunchGateToClearAsync(CancellationToken cancellationToken)
+    {
+        const int pollMs = 50;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            if (DataContext is EmulationViewModel { IsEmulatorLaunchInProgress: false } &&
+                !IsPortalCaptureInitializing)
+            {
+                return;
+            }
+
+            try
+            {
+                await Task.Delay(pollMs, cancellationToken).ConfigureAwait(true);
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
     private async Task TransitionToCaptureAsync(CancellationToken cancellationToken)
     {
         if (UseInlineCaptureHost)
@@ -1026,6 +1075,13 @@ public partial class EmulationView : UserControl
                 return;
             }
 
+            if (cancellationToken.IsCancellationRequested)
+                return;
+
+            if (DataContext is not EmulationViewModel { IsActive: true, IsCompositionCaptureVisible: true })
+                return;
+
+            await WaitForEmulatorLaunchGateToClearAsync(cancellationToken).ConfigureAwait(true);
             if (cancellationToken.IsCancellationRequested)
                 return;
 

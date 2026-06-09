@@ -386,6 +386,7 @@
                     IsVisible="{Binding ElementName=RootView, Path=IsCaptureChromeVisible}">
                 <!-- Compiled bindings (AOT-safe). Keep in sync with CaptureControl in PortalWindow.axaml. -->
                 <emuControls:EmulatorCaptureHost x:Name="InlineCaptureControl"
+                                                 IsVisible="{Binding ElementName=RootView, Path=IsEmulatorLaunchGateActive, Converter={x:Static converters:NegateBoolConverter.Instance}}"
                                                  controls:ScalableDecorator.ExcludeFromScale="True"
                                                  HorizontalAlignment="Stretch"
                                                  VerticalAlignment="Stretch"
@@ -414,6 +415,30 @@
                                                  UseBackCoverLetterboxFill="{Binding UseBackCoverLetterboxFill}"
                                                  LetterboxBitmap="{Binding CaptureLetterboxBitmap}" />
             </Border>
+            <Grid x:Name="EmulatorLaunchGateOverlay"
+                  ZIndex="75"
+                  HorizontalAlignment="Stretch"
+                  VerticalAlignment="Stretch"
+                  IsHitTestVisible="False"
+                  IsVisible="{Binding ElementName=RootView, Path=IsEmulatorLaunchGateActive}">
+                <Border Background="#FF000000"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Stretch" />
+                <StackPanel HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="10"
+                            Margin="0,0,0,12">
+                    <controls:LoadingControl Width="80"
+                                             Height="80"
+                                             Foreground="White" />
+                    <TextBlock Text="Launching emulator..."
+                               FontSize="22"
+                               FontWeight="SemiBold"
+                               Foreground="White"
+                               HorizontalAlignment="Center"
+                               TextAlignment="Center" />
+                </StackPanel>
+            </Grid>
             <Grid x:Name="EmulatorCaptureOverlay"
                   ZIndex="100"
                   Opacity="{Binding ElementName=RootView, Path=CapturePresentationOpacity}"
@@ -471,28 +496,6 @@
                     </ContextMenu>
                 </Border.ContextMenu>
             </Border>
-            <StackPanel HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Spacing="10"
-                        Margin="0,0,0,12"
-                        IsHitTestVisible="False"
-                        ZIndex="1400">
-                <StackPanel.IsVisible>
-                    <MultiBinding Converter="{StaticResource BoolOrConverter}">
-                        <Binding Path="IsEmulatorLaunchInProgress"/>
-                        <Binding ElementName="RootView" Path="IsPortalCaptureInitializing"/>
-                    </MultiBinding>
-                </StackPanel.IsVisible>
-                <controls:LoadingControl Width="80"
-                                         Height="80"
-                                         Foreground="White" />
-                <TextBlock Text="Launching emulator..."
-                           FontSize="22"
-                           FontWeight="SemiBold"
-                           Foreground="White"
-                           HorizontalAlignment="Center"
-                           TextAlignment="Center" />
-            </StackPanel>
 
             <views:PortalCaptureStatsOverlay x:Name="CaptureStatsOverlay"
                                              CaptureHost="{Binding #RootView}"

@@ -26,8 +26,7 @@ public sealed class XeniaHandler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => true;
 
-
-    public override int CaptureStartupDelayMs => 150;
+    public override int CaptureStartupDelayMs => OperatingSystem.IsLinux() ? 1500 : 150;
 
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
@@ -46,8 +45,12 @@ public sealed class XeniaHandler : EmulatorHandlerBase
     {
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
 
-        if (startFullscreen)
+        if (OperatingSystem.IsLinux())
+            startInfo.ArgumentList.Insert(0, "--fullscreen=true");
+        else if (startFullscreen)
+        {
             startInfo.ArgumentList.Insert(0, "--fullscreen");
+        }
 
         return startInfo;
     }

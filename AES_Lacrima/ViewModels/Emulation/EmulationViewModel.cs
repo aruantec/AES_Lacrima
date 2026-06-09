@@ -218,6 +218,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         private string? _currentSetupLaunchIconExecutablePath;
         private Bitmap? _currentSetupLaunchIcon;
         private PendingEmulatorLaunchRequest? _pendingEmulatorLaunchRequest;
+        private DateTime _emulatorLaunchStartedUtc;
         private MediaItem? _activeEmulationSessionItem;
         private string? _activeRpcs3SessionTitleId;
         private string? _activeRpcs3SessionEmulatorDirectory;
@@ -494,7 +495,42 @@ private bool _isShadPs4PatchesOverlayOpen;
             if (!IsEmulatorLaunchInProgress)
                 return;
 
-            IsEmulatorLaunchInProgress = false;
+            var handler = CurrentEmulatorHandler;
+            if (!OperatingSystem.IsLinux() || handler?.HideUntilCaptured != true)
+            {
+                IsEmulatorLaunchInProgress = false;
+                return;
+            }
+
+            // Keep the black launch gate briefly so the first PipeWire frames (often
+            // Xenia's empty window) stay hidden, then dismiss as soon as capture is live.
+            const int minimumGateMs = 900;
+            const int frameSettleMs = 200;
+
+            var elapsedMs = (DateTime.UtcNow - _emulatorLaunchStartedUtc).TotalMilliseconds;
+            var remainingMs = (int)Math.Max(0, minimumGateMs - elapsedMs) + frameSettleMs;
+            if (remainingMs <= 0)
+            {
+                IsEmulatorLaunchInProgress = false;
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(remainingMs).ConfigureAwait(false);
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (IsEmulatorLaunchInProgress)
+                            IsEmulatorLaunchInProgress = false;
+                    }, DispatcherPriority.Background);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Failed to defer emulator launch overlay dismissal.", ex);
+                }
+            });
         }
 
         private void ApplyEmulatorVolumeToProcess(double volumePercent)

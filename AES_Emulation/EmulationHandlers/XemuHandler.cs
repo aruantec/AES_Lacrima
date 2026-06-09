@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -53,7 +54,7 @@ public sealed class XemuHandler : EmulatorHandlerBase
         var startInfo = CreateBaseStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
         startInfo.ArgumentList.Clear();
 
-        if (startFullscreen)
+        if (startFullscreen || OperatingSystem.IsLinux())
             startInfo.ArgumentList.Add("-full-screen");
 
         if (IsDiscImagePath(romPath))

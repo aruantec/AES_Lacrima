@@ -73,6 +73,27 @@ namespace AES_Lacrima.ViewModels
             return SettingsViewModel.FindEmulationSection(album.Title);
         }
 
+        private IEmulatorHandler? ResolveEmulatorHandlerForAlbum(FolderMediaItem album)
+        {
+            EnsureSettingsViewModelSubscription();
+
+            if (TryResolveEmulationSection(album) is { } section)
+                return SettingsViewModel?.GetConfiguredEmulatorHandlerForSection(section);
+
+            return SettingsViewModel?.GetConfiguredEmulatorHandler(album.Title);
+        }
+
+        private EmulationSectionLaunchSettings? ResolveEmulationLaunchSettingsForAlbum(FolderMediaItem album)
+        {
+            EnsureSettingsViewModelSubscription();
+
+            var sectionKey = TryResolveEmulationSection(album)?.SectionKey;
+            if (!string.IsNullOrWhiteSpace(sectionKey))
+                return SettingsViewModel?.GetResolvedEmulationSectionLaunchSettings(sectionKey);
+
+            return SettingsViewModel?.GetResolvedEmulationSectionLaunchSettings(album.Title);
+        }
+
         private void SyncCurrentSectionEmulatorContext()
         {
             OnPropertyChanged(nameof(CurrentEmulationSectionItem));

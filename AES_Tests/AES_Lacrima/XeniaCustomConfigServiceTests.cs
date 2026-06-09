@@ -1,7 +1,7 @@
 using AES_Lacrima.Services.Xenia;
 using Tomlyn;
 using Tomlyn.Model;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Tests.AES_Lacrima;
@@ -169,5 +169,28 @@ public sealed class XeniaCustomConfigServiceTests
         Assert.True(document.Overrides.TryGetValue("GPU", out var gpu));
         Assert.Single(gpu);
         Assert.Equal("false", gpu["vsync"]);
+    }
+
+    [Fact]
+    public void ApplyGamescopeLaunchValues_SetsFullscreenAndOutputSize()
+    {
+        var root = new TomlTable
+        {
+            ["Display"] = new TomlTable { ["fullscreen"] = false },
+            ["UI"] = new TomlTable { ["window_size_x"] = 1280L, ["window_size_y"] = 720L },
+        };
+
+        XeniaCustomConfigService.ApplyGamescopeLaunchValues(root, 1280, 720);
+
+        var display = Assert.IsType<TomlTable>(root["Display"]);
+        var ui = Assert.IsType<TomlTable>(root["UI"]);
+        var gpu = Assert.IsType<TomlTable>(root["GPU"]);
+
+        Assert.True(Assert.IsType<bool>(display["fullscreen"]));
+        Assert.False(Assert.IsType<bool>(display["present_letterbox"]));
+        Assert.Equal(1280L, Assert.IsType<long>(ui["window_size_x"]));
+        Assert.Equal(720L, Assert.IsType<long>(ui["window_size_y"]));
+        Assert.Equal("vulkan", Assert.IsType<string>(gpu["gpu"]));
+        Assert.Equal("fbo", Assert.IsType<string>(gpu["render_target_path_vulkan"]));
     }
 }

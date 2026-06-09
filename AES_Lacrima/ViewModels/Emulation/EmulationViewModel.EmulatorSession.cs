@@ -60,6 +60,7 @@ namespace AES_Lacrima.ViewModels
 
         private void RequestEmulatorLaunch(PendingEmulatorLaunchRequest request)
         {
+            _emulatorLaunchStartedUtc = DateTime.UtcNow;
             _pendingEmulatorLaunchRequest = request;
             if (!OperatingSystem.IsLinux())
                 PrepareEmulatorShutdownCapture();
@@ -194,6 +195,9 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 PrepareLinuxAppImageStartInfo(startInfo);
+
+                if (OperatingSystem.IsLinux())
+                    LinuxCompositorLaunchHelper.PrepareEmulatorStartInfoForGamescope(startInfo);
 
                 Process? process;
                 if (OperatingSystem.IsLinux())
@@ -842,16 +846,38 @@ namespace AES_Lacrima.ViewModels
                     RestoreAppTopMost();
                     RestoreHostWindowFocus();
                     ClearRetroArchErrorState();
-                    IsEmulatorLaunchInProgress = false;
                     SLog.Info(
                         $"Linux gamescope PipeWire capture handoff completed for '{romPath}'. compositorPid={_linuxCompositorPid}.");
                 }, DispatcherPriority.Background);
+
+                ScheduleEmulatorLaunchOverlayFallbackClear();
             }
             catch (Exception ex)
             {
                 SLog.Warn($"Linux gamescope capture handoff failed for '{romPath}'.", ex);
-                await Dispatcher.UIThread.InvokeAsync(() => IsEmulatorLaunchInProgress = false);
+                ScheduleEmulatorLaunchOverlayFallbackClear();
             }
+        }
+
+        private void ScheduleEmulatorLaunchOverlayFallbackClear()
+        {
+            const int fallbackMs = 12000;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(fallbackMs).ConfigureAwait(false);
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (IsEmulatorLaunchInProgress)
+                            IsEmulatorLaunchInProgress = false;
+                    }, DispatcherPriority.Background);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Failed to apply emulator launch overlay fallback clear.", ex);
+                }
+            });
         }
 
         private void StartActiveEmulatorWatchdog(Process process)

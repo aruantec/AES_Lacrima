@@ -34,14 +34,16 @@ public partial class EmulationViewModel
         var album = LoadedAlbum ?? SelectedAlbum;
         var albumTitle = album?.Title ?? item.Album ?? string.Empty;
 
-        var handler = CurrentEmulatorHandler;
-        if (handler == null && !string.IsNullOrWhiteSpace(albumTitle))
-            handler = SettingsViewModel?.GetConfiguredEmulatorHandler(albumTitle);
+        var handler = album != null
+            ? ResolveEmulatorHandlerForAlbum(album)
+            : CurrentEmulatorHandler;
 
         if (handler == null || !handler.IsLauncherPathValid(handler.LauncherPath))
             return null;
 
-        var launchSettings = SettingsViewModel?.GetResolvedEmulationSectionLaunchSettings(albumTitle);
+        var launchSettings = album != null
+            ? ResolveEmulationLaunchSettingsForAlbum(album)
+            : SettingsViewModel?.GetResolvedEmulationSectionLaunchSettings(albumTitle);
         return new PendingEmulatorLaunchRequest(
             albumTitle,
             item.Title ?? Path.GetFileNameWithoutExtension(item.FileName),

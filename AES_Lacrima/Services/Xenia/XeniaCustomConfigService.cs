@@ -4,10 +4,12 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Core.Logging;
+using AES_Emulation.Linux;
 using AES_Lacrima.Serialization;
 using log4net;
 using Tomlyn;
@@ -225,11 +227,83 @@ public static class XeniaCustomConfigService
                 : LoadOrEmpty(emulatorDirectory, titleId);
 
             ApplyOverrides(emulatorDirectory, overrides);
+
+            if (OperatingSystem.IsLinux())
+                EnsureGamescopeLaunchSettings(emulatorDirectory);
         }
         catch (Exception ex)
         {
             Log.Error($"Failed to prepare Xenia config for launch (title '{titleId ?? "unknown"}').", ex);
         }
+    }
+
+    /// <summary>
+    /// Forces fullscreen and output-sized window dimensions for gamescope capture on Linux.
+    /// </summary>
+    public static void EnsureGamescopeLaunchSettings(string? emulatorDirectory)
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(emulatorDirectory))
+            return;
+
+        var activePath = GetActiveConfigPath(emulatorDirectory);
+        if (!File.Exists(activePath))
+            return;
+
+        var (width, height) = LinuxCompositorLaunchHelper.ResolveOutputSize();
+        try
+        {
+            var root = Toml.Parse(File.ReadAllText(activePath)).ToModel();
+            ApplyGamescopeLaunchValues(root, width, height);
+            File.WriteAllText(activePath, Toml.FromModel(root));
+            Log.Info(
+                $"Patched Xenia gamescope launch settings ({width}x{height}, fullscreen) in '{activePath}'.");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Failed to patch Xenia gamescope launch settings in '{activePath}'.", ex);
+        }
+    }
+
+    internal static void ApplyGamescopeLaunchValues(TomlTable root, int width, int height)
+    {
+        SetTomlBool(root, "Display", "fullscreen", true);
+        SetTomlBool(root, "Display", "present_letterbox", false);
+        SetTomlBool(root, "UI", "headless", true);
+        SetTomlBool(root, "UI", "show_profiler", false);
+        SetTomlBool(root, "UI", "storage_selection_dialog", false);
+        SetTomlLong(root, "UI", "window_size_x", width);
+        SetTomlLong(root, "UI", "window_size_y", height);
+        SetTomlString(root, "GPU", "gpu", "vulkan");
+        SetTomlString(root, "GPU", "render_target_path_vulkan", "fbo");
+    }
+
+    private static void SetTomlBool(TomlTable root, string section, string key, bool value)
+    {
+        var sectionTable = GetOrCreateSection(root, section);
+        sectionTable[key] = value;
+    }
+
+    private static void SetTomlLong(TomlTable root, string section, string key, long value)
+    {
+        var sectionTable = GetOrCreateSection(root, section);
+        sectionTable[key] = value;
+    }
+
+    private static void SetTomlString(TomlTable root, string section, string key, string value)
+    {
+        var sectionTable = GetOrCreateSection(root, section);
+        sectionTable[key] = value;
+    }
+
+    private static TomlTable GetOrCreateSection(TomlTable root, string section)
+    {
+        if (!root.TryGetValue(section, out var sectionObj) || sectionObj is not TomlTable sectionTable)
+        {
+            sectionTable = new TomlTable();
+            root[section] = sectionTable;
+        }
+
+        return sectionTable;
     }
 
     public static void ApplyOverrides(string? emulatorDirectory, XeniaCustomConfigDocument overrides)
