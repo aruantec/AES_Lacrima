@@ -257,7 +257,11 @@ namespace AES_Lacrima.Mini.ViewModels
 
         public double MiniCaptionFontSize => IsRetroMode ? 7 : 12;
 
-        public double MiniWindowTitleFontSize => IsRetroMode ? 9 : 13;
+        public double MiniWindowTitleFontSize => IsRetroMode ? 10 : 14;
+
+        public string MiniThemeToggleLabel => IsRetroMode ? "Modern" : "Retro";
+
+        public double MiniThemeToggleFontSize => IsRetroMode ? 6 : 9;
 
         public double MiniSearchFontSize => IsRetroMode ? 7 : 10;
 
@@ -967,6 +971,8 @@ namespace AES_Lacrima.Mini.ViewModels
             OnPropertyChanged(nameof(MiniHeaderFontSize));
             OnPropertyChanged(nameof(MiniCaptionFontSize));
             OnPropertyChanged(nameof(MiniWindowTitleFontSize));
+            OnPropertyChanged(nameof(MiniThemeToggleLabel));
+            OnPropertyChanged(nameof(MiniThemeToggleFontSize));
             OnPropertyChanged(nameof(MiniSearchFontSize));
             OnPropertyChanged(nameof(MiniSearchCollapsedWidth));
             OnPropertyChanged(nameof(MiniListFontSize));

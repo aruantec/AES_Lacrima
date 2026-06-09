@@ -85,9 +85,14 @@
                         </TextBlock.Text>
                     </TextBlock>
                     <StackPanel VerticalAlignment="Center"
-                                Spacing="2">
+                                Spacing="2"
+                                ClipToBounds="True">
+					<Border ClipToBounds="True"
+                            HorizontalAlignment="Stretch">
 					<TextBlock FontSize="{Binding MiniHeaderFontSize}"
-							   Foreground="{Binding MiniPrimaryTextBrush}">
+							   Foreground="{Binding MiniPrimaryTextBrush}"
+                               TextWrapping="NoWrap"
+                               TextTrimming="CharacterEllipsis">
                         <TextBlock.Text>
                             <MultiBinding Converter="{StaticResource UppercaseWhenRetroConverter}">
                                 <Binding Path="LoadedMediaItem.Title" FallbackValue="No File Loaded" />
@@ -98,6 +103,7 @@
 							<behaviors:MarqueeBehavior />
 						</Interaction.Behaviors>
 					</TextBlock>
+                    </Border>
                     <TextBlock FontSize="{Binding MiniCaptionFontSize}"
                                Foreground="{Binding MiniMutedTextBrush}"
                                TextWrapping="NoWrap"

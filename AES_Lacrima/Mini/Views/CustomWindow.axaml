@@ -72,11 +72,17 @@
                               BorderBrush="{Binding MiniPanelBorderBrush}"
                               BorderThickness="1">
                     <TextBlock FontFamily="{Binding MiniFontFamily}"
-                               FontSize="7"
+                               FontSize="{Binding MiniThemeToggleFontSize}"
                                Foreground="{Binding MiniPrimaryTextBrush}"
                                HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               Text="RETRO"/>
+                               VerticalAlignment="Center">
+                        <TextBlock.Text>
+                            <MultiBinding Converter="{StaticResource UppercaseWhenRetroConverter}">
+                                <Binding Path="MiniThemeToggleLabel" />
+                                <Binding Path="IsRetroMode" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
                 </ToggleButton>
             </StackPanel>
             <Label Grid.Column="1"

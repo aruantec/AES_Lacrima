@@ -15,7 +15,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using log4net;
-
+
 using AES_Core.Logging;
 namespace AES_Controls.Player;
 
@@ -31,6 +31,8 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     private string? _loadedFile, _waveformLoadedFile, _waveformCacheKey;
     private readonly SynchronizationContext? _syncContext;
     private volatile bool _isLoadingMedia, _isSeeking;
+    private double _seekTargetPosition;
+    private bool _seekAudioSuppressed;
     private CancellationTokenSource? _seekRestartCts;
     private CancellationTokenSource? _seekDispatchCts;
     private volatile bool _isInternalChange; // Guard to prevent playlist skipping
@@ -503,7 +505,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         SetProperty("cache", "yes");
         SetProperty("demuxer-max-bytes", $"{demuxerMaxBytes}M");
         SetProperty("demuxer-readahead-secs", isRemote ? "20" : "10");
-        SetProperty("hr-seek", isRemote ? "no" : "yes");
+        SetProperty("hr-seek", "no");
     }
 
     private sealed class WaveformCacheEntry
@@ -1073,7 +1075,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
 
             SetProperty("keep-open", "always");
             SetProperty("cache", "yes");
-            SetProperty("hr-seek", "yes");
+            SetProperty("hr-seek", "no");
             SetProperty("replaygain", "no"); // Disable internal mpv replaygain as we apply it manually
             SetProperty("demuxer-max-bytes", $"{CacheSize}M");
             SetProperty("demuxer-readahead-secs", "10");
@@ -1459,7 +1461,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                     IsBuffering = prop.ReadFlag();
                 }
             }
-            else if (prop.Name == MpvPropertyNames.Playback.TimePosition && !_isSeeking)
+            else if (prop.Name == MpvPropertyNames.Playback.TimePosition)
             {
                 if (prop.Format == MpvFormat.Double)
                 {
@@ -1471,6 +1473,17 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                     // which causes massive drift/restarts in the background spectrum analyzer.
                     if (_ignoreTimePos)
                     {
+                        return;
+                    }
+
+                    if (_isSeeking)
+                    {
+                        // Ignore transient time-pos reports near the start while seeking forward.
+                        if (_seekTargetPosition > 5.0 && newPos < 1.0)
+                            return;
+
+                        if (Math.Abs(newPos - _seekTargetPosition) <= 2.0)
+                            CompleteSeek(newPos);
                         return;
                     }
 
@@ -1502,7 +1515,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                     // For streams/opening URLs, duration may still be unknown or zero for a while,
                     // and treating EOF in that state as a real track end can cause false double-skips.
                     // Also skip if RepeatMode is One, as mpv handles looping internally.
-                    if (isEof && !_isInternalChange && !IsLoadingMedia && RepeatMode != RepeatMode.One)
+                    if (isEof && !_isInternalChange && !IsLoadingMedia && !_isSeeking && RepeatMode != RepeatMode.One)
                     {
                         if (Duration > 0 && Position > (Duration - 1.5))
                         {
@@ -2210,6 +2223,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     public void SetPosition(double pos)
     {
         pos = Math.Max(0, pos);
+        _seekTargetPosition = pos;
         _isSeeking = true;
         // Don't call Stop() here! Let the analyzer's loop handle fading out via the IsSeeking flag.
 
@@ -2237,24 +2251,18 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                         return;
 
                     var target = pos.ToString(CultureInfo.InvariantCulture);
-                    var seekMode = IsRemoteUri(_loadedFile) ? "absolute" : "absolute+exact";
                     InvokeOnMpvThread(() =>
                     {
-                        var wasPlaying = IsPlaying;
-                        try
+                        if (IsPlaying)
                         {
-                            if (wasPlaying)
-                                SetProperty("pause", true);
-
-                            RunCommand("seek", target, seekMode);
-                            Interlocked.Exchange(ref _lastSeekDispatchTicks, Stopwatch.GetTimestamp());
-                        }
-                        finally
-                        {
-                            if (wasPlaying && !_disposed)
-                                SetProperty("pause", false);
+                            SetProperty("mute", "yes");
+                            _seekAudioSuppressed = true;
                         }
 
+                        // Keyframe seeks avoid hr-seek decode passes that audibly replay
+                        // from an earlier keyframe (often near the start of the file).
+                        RunCommand("seek", target, "absolute+keyframes");
+                        Interlocked.Exchange(ref _lastSeekDispatchTicks, Stopwatch.GetTimestamp());
                         return true;
                     });
                 }
@@ -2262,7 +2270,11 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             });
         }
 
-        // Cancel previous restart attempt to debounce
+        ScheduleSeekFinalizeFallback(pos);
+    }
+
+    private void ScheduleSeekFinalizeFallback(double pos)
+    {
         _seekRestartCts?.Cancel();
         _seekRestartCts?.Dispose();
         _seekRestartCts = new CancellationTokenSource();
@@ -2272,32 +2284,40 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         {
             try
             {
-                // shorter debounce helps spectrum restart sooner on fast seeks
-                await Task.Delay(200, token);
-                if (token.IsCancellationRequested) return;
+                await Task.Delay(400, token);
+                if (token.IsCancellationRequested || _disposed || !_isSeeking)
+                    return;
 
-                if (!_disposed)
-                {
-                    // update the analyzer start position and force a restart if it
-                    // is currently running.  this handles the common case where the
-                    // analyzer is active while the user seeks; without restarting the
-                    // internal ffmpeg process it will continue decoding from the old
-                    // offset and the spectrum will remain stuck until something else
-                    // (eg. pause/play) restarts it.
-                    _spectrumAnalyzer.SetStartPosition(pos, true);
-                }
-
-                // clear the seeking flag before attempting to start the analyzer so
-                // subsequent events (e.g. Playing) are not suppressed.
-                _isSeeking = false;
-
-                // make sure the analyzer is running now that we've left the seek
-                // state.  CheckAndStartFfmpegTasks handles the usual enable/playing
-                // logic (and also restarts waveform if required).
-                CheckAndStartFfmpegTasks();
+                _syncContext?.Post(_ => CompleteSeek(pos), null);
             }
             catch (OperationCanceledException logEx) { Log.Warn("Exception caught", logEx); }
         });
+    }
+
+    private void CompleteSeek(double confirmedPosition)
+    {
+        if (!_isSeeking || _disposed)
+            return;
+
+        _isSeeking = false;
+        Position = confirmedPosition;
+
+        _seekRestartCts?.Cancel();
+        _seekRestartCts?.Dispose();
+        _seekRestartCts = null;
+
+        if (_seekAudioSuppressed && !_disposed)
+        {
+            InvokeOnMpvThread(() =>
+            {
+                SetProperty("mute", "no");
+                _seekAudioSuppressed = false;
+                return true;
+            });
+        }
+
+        _spectrumAnalyzer.SetStartPosition(confirmedPosition, true);
+        CheckAndStartFfmpegTasks();
     }
 
     /// <summary>
