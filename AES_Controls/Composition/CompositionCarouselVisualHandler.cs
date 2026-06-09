@@ -35,6 +35,7 @@ namespace AES_Controls.Composition
     internal record DropTargetMessage(int Index);
     internal record SliderPressedMessage(bool IsPressed);
     internal record DirectIndexFollowMessage(bool Enabled);
+    internal record SnapIndexMessage(double Index);
     internal record PauseLoadingSpinnerAnimationMessage(bool IsPaused);
     internal record CarouselAttachSyncMessage(CarouselAnimationSyncState State);
 
@@ -282,6 +283,16 @@ namespace AES_Controls.Composition
             }
             else if (message is SliderPressedMessage spm) { _isSliderPressed = spm.IsPressed; Invalidate(); }
             else if (message is DirectIndexFollowMessage dif) { _directIndexFollow = dif.Enabled; Invalidate(); }
+            else if (message is SnapIndexMessage snap)
+            {
+                double maxIndex = Math.Max(0, _images.Count - 1);
+                double snappedIndex = Math.Clamp(snap.Index, 0, maxIndex);
+                _targetIndex = snappedIndex;
+                _currentIndex = snappedIndex;
+                _currentVelocity = 0;
+                if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
+                RegisterForNextAnimationFrameUpdate();
+            }
             else if (message is PauseLoadingSpinnerAnimationMessage pauseLoading)
             {
                 _pauseLoadingSpinnerAnimation = pauseLoading.IsPaused;

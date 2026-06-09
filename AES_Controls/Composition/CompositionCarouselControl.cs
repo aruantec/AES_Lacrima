@@ -2170,6 +2170,43 @@ namespace AES_Controls.Composition
                 PublishSelectedIndex(committedIndex, force: true);
         }
 
+        private void CancelPendingPointerScroll(IPointer? pointer)
+        {
+            _longPressTimer?.Stop();
+            _autoScrollTimer?.Stop();
+            _settleCommitTimer?.Stop();
+
+            if (_lastPressedItem != -1)
+            {
+                _visual?.SendHandlerMessage(new UpdateOverlayPressedMessage(-1, 0));
+                _lastPressedItem = -1;
+                _lastPressedButton = 0;
+            }
+
+            if (_isDragging)
+            {
+                FinishDrag(_dragStartIndex, cancel: true, pointer);
+                return;
+            }
+
+            if (_isSliderPressed)
+            {
+                _isSliderPressed = false;
+                _visual?.SendHandlerMessage(new SliderPressedMessage(false));
+            }
+
+            _isPressed = false;
+            _velocity = 0;
+            _pressedItemIndex = -1;
+            _dragStartIndex = -1;
+            _currentDragTargetIndex = -1;
+            _dragPointerOffset = default;
+            _dragSlotFloat = double.NaN;
+
+            pointer?.Capture(null);
+            EndPointerScrollInteraction(forcePublishSelectedIndex: false);
+        }
+
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
             var pos = e.GetPosition(this);
@@ -2189,9 +2226,18 @@ namespace AES_Controls.Composition
             int hitIndex = IndexAtPoint(pos);
             if (e.ClickCount == 2 && hitIndex != -1)
             {
-                PublishSelectedIndex(hitIndex, force: true);
+                CancelPendingPointerScroll(e.Pointer);
+
+                double snapped = Math.Clamp(hitIndex, 0, Math.Max(0, _images.Count - 1));
+                _visual?.SendHandlerMessage(new SnapIndexMessage(snapped));
+                _uiTargetIndex = snapped;
+                _uiCurrentIndex = snapped;
+                _uiVelocity = 0;
+                _uiSyncTimer?.Stop();
+                PublishSelectedIndex(snapped, force: true);
                 ItemSelectedCommand?.Execute(hitIndex);
                 ItemDoubleClickedCommand?.Execute(hitIndex);
+                QueueSettleCommit();
                 e.Handled = true;
                 return;
             }
