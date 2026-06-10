@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
 using AES_Emulation.Linux.API;
+using AES_Emulation.Services;
 using AES_Core.Logging;
 using Avalonia;
 using Avalonia.Media;
@@ -50,6 +51,26 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
     private string? _shaderPath;
     private GlInterface? _gl;
     private bool _loggedMissingGl;
+
+    internal Action<byte[], int, int>? RecordingFrameHandler;
+    private readonly LinuxGameplayRecordingFrameWorker _recordingFrameWorker = new();
+    private int _recordingTargetFps = 60;
+    private GameplayRecordingResolutionCap _recordingResolutionCap = GameplayRecordingResolutionCap.P1080;
+    private long _lastRecordingPublishTicks;
+
+    public void SetRecordingFrameHandler(Action<byte[], int, int>? frameHandler) => RecordingFrameHandler = frameHandler;
+
+    internal void SetRecordingTargetFps(int fps) => _recordingTargetFps = Math.Clamp(fps, 1, 120);
+
+    internal void SetRecordingResolutionCap(GameplayRecordingResolutionCap cap) => _recordingResolutionCap = cap;
+
+    internal void SetRecordingWorkerActive(bool active)
+    {
+        if (active)
+            _recordingFrameWorker.Start();
+        else
+            _recordingFrameWorker.Stop();
+    }
 
     public void SetOwner(LinuxCompositionCaptureControl owner) => _ownerRef = new WeakReference<LinuxCompositionCaptureControl>(owner);
 
@@ -346,6 +367,7 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
                 {
                     RecordPresentMetrics();
                     PublishUiStats();
+                    TryPublishRecordingFrame(frame.Width, frame.Height, frame.Stride, frame.DrmFourcc);
                 }
             }
             finally
@@ -428,6 +450,62 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
         }
 
         return source.ReadPixels(_presentedFrame.Info, _presentedFrame.GetPixels(), _presentedFrame.RowBytes, 0, 0);
+    }
+
+    private void TryPublishRecordingFrame(int width, int height, int stride, uint drmFourcc)
+    {
+        _ = stride;
+        _ = drmFourcc;
+
+        var handler = RecordingFrameHandler;
+        if (handler == null || _presentedFrame == null || width < 16 || height < 16)
+            return;
+
+        var fps = Math.Clamp(_recordingTargetFps, 1, 120);
+        var intervalTicks = Stopwatch.Frequency / fps;
+        var now = Stopwatch.GetTimestamp();
+        if (now - _lastRecordingPublishTicks < intervalTicks)
+            return;
+
+        _lastRecordingPublishTicks = now;
+
+        var pixmap = _presentedFrame.PeekPixels();
+        if (pixmap == null)
+            return;
+
+        var rowBytes = width * 4;
+        var required = rowBytes * height;
+        var sourceCopy = GC.AllocateUninitializedArray<byte>(required);
+        var src = pixmap.GetPixelSpan();
+        if (src.Length < pixmap.RowBytes * height)
+            return;
+
+        if (pixmap.RowBytes == rowBytes)
+        {
+            src.Slice(0, required).CopyTo(sourceCopy);
+        }
+        else
+        {
+            for (var y = 0; y < height; y++)
+                src.Slice(y * pixmap.RowBytes, rowBytes).CopyTo(sourceCopy.AsSpan(y * rowBytes, rowBytes));
+        }
+
+        var (outputW, outputH) = GameplayRecordingResolution.FitEvenDimensions(width, height, _recordingResolutionCap);
+        if (outputW < 16 || outputH < 16)
+            return;
+
+        _recordingFrameWorker.TryEnqueue(new LinuxGameplayRecordingFrameWorker.RecordingSnapshot
+        {
+            Source = sourceCopy,
+            SourceWidth = width,
+            SourceHeight = height,
+            CropLeft = 0,
+            CropRight = 0,
+            OutputWidth = outputW,
+            OutputHeight = outputH,
+            SourceColorType = _presentedFrame.ColorType,
+            Handler = handler,
+        });
     }
 
     private SKRect MapDestRectToCanvas(SKRect destRect, Size canvasSize)
@@ -548,6 +626,8 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
         _shaderRenderer?.Dispose();
         _shaderRenderer = null;
         _gl = null;
+        _recordingFrameWorker.Stop();
+        RecordingFrameHandler = null;
 
         if (_cpuCopyBuffer != IntPtr.Zero)
         {

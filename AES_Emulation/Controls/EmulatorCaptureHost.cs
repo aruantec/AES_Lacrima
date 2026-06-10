@@ -435,8 +435,15 @@ public class EmulatorCaptureHost : ContentControl
         int targetFps,
         AES_Emulation.Services.GameplayRecordingResolutionCap resolutionCap = AES_Emulation.Services.GameplayRecordingResolutionCap.P1080)
     {
-        if (_backend is CompositionWgcCaptureControl compositionBackend)
-            compositionBackend.ConfigureGameplayRecording(frameHandler, targetFps, resolutionCap);
+        switch (_backend)
+        {
+            case CompositionWgcCaptureControl compositionBackend:
+                compositionBackend.ConfigureGameplayRecording(frameHandler, targetFps, resolutionCap);
+                break;
+            case LinuxCompositionCaptureControl linuxCompositionBackend:
+                linuxCompositionBackend.ConfigureGameplayRecording(frameHandler, targetFps, resolutionCap);
+                break;
+        }
     }
 
     private (int X, int Y)? MapLocalToTargetClient(Point hostLocal)

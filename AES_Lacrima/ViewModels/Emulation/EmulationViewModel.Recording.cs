@@ -1,5 +1,7 @@
 using AES_Core.DI;
 using AES_Emulation.Controls;
+using AES_Emulation.Linux;
+using AES_Emulation.Platform;
 using AES_Emulation.Services;
 using AES_Lacrima.Services.Emulation;
 using Avalonia;
@@ -15,6 +17,9 @@ public partial class EmulationViewModel
     [AutoResolve]
     private GameplayRecorderService? _gameplayRecorder;
 
+    [AutoResolve]
+    private LinuxGameplayRecorderService? _linuxGameplayRecorder;
+
     [ObservableProperty]
     private bool _isGameplayRecording;
 
@@ -28,7 +33,9 @@ public partial class EmulationViewModel
     private double _gameplayRecordingCenterOpacity = 1.0;
 
     public bool CanShowGameplayRecording =>
-        IsEmulatorRunning && IsCompositionCaptureVisible && OperatingSystem.IsWindows();
+        IsEmulatorRunning &&
+        IsCompositionCaptureVisible &&
+        (OperatingSystem.IsWindows() || OperatingSystem.IsLinux());
 
     public bool CanToggleGameplayRecording => CanShowGameplayRecording && !IsEmulatorLaunchInProgress;
 
@@ -123,7 +130,7 @@ public partial class EmulationViewModel
                 settings.GameplayRecordingVideoCodec,
                 settings.GameplayRecordingFps,
                 settings.GameplayRecordingBitrateKbps,
-                EmulatorTargetProcessId))
+                ResolveGameplayRecordingProcessId()))
         {
             return;
         }
@@ -172,13 +179,18 @@ public partial class EmulationViewModel
         NotifyGameplayRecordingAvailabilityChanged();
     }
 
-    private GameplayRecorderService? ResolveGameplayRecorder() =>
-        _gameplayRecorder ?? DiLocator.ResolveViewModel<GameplayRecorderService>();
+    private IGameplayRecorder? ResolveGameplayRecorder()
+    {
+        if (OperatingSystem.IsLinux())
+            return _linuxGameplayRecorder ?? DiLocator.ResolveViewModel<LinuxGameplayRecorderService>();
+
+        return _gameplayRecorder ?? DiLocator.ResolveViewModel<GameplayRecorderService>();
+    }
 
     private string ResolveRecordingUnavailableReason()
     {
-        if (!OperatingSystem.IsWindows())
-            return "Gameplay recording is only supported on Windows.";
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
+            return "Gameplay recording is not supported on this platform.";
 
         if (!IsEmulatorRunning)
             return "Start a game before recording.";
@@ -190,6 +202,19 @@ public partial class EmulationViewModel
             return "Wait for the emulator launch to finish.";
 
         return "Recording is not available right now.";
+    }
+
+    private int ResolveGameplayRecordingProcessId()
+    {
+        if (OperatingSystem.IsLinux() && _linuxCompositorPid > 0)
+        {
+            var compositorRoot = LinuxCompositorProcessHelper.ResolveCompositorRootPid(_linuxCompositorPid);
+            var primaryEmulatorPid = LinuxCompositorProcessHelper.FindPrimaryEmulatorPid(compositorRoot);
+            if (primaryEmulatorPid > 0)
+                return primaryEmulatorPid;
+        }
+
+        return EmulatorTargetProcessId;
     }
 
     private void StartRecordingTimers()

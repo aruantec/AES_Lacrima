@@ -300,6 +300,20 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
             LinuxCaptureBridge.aes_linux_capture_forward_focus(_capture);
     }
 
+    public void ConfigureGameplayRecording(
+        Action<byte[], int, int>? frameHandler,
+        int targetFps,
+        Services.GameplayRecordingResolutionCap resolutionCap = Services.GameplayRecordingResolutionCap.P1080)
+    {
+        if (_handler == null)
+            return;
+
+        _handler.SetRecordingFrameHandler(frameHandler);
+        _handler.SetRecordingTargetFps(targetFps);
+        _handler.SetRecordingResolutionCap(resolutionCap);
+        _handler.SetRecordingWorkerActive(frameHandler != null);
+    }
+
     public void RefreshExclusionRenderSize() => UpdateHandlerSize();
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)

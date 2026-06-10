@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -11,8 +10,8 @@ using AES_Controls.Helpers;
 using AES_Core.DI;
 using AES_Core.IO;
 using AES_Core.Logging;
+using AES_Emulation.Linux;
 using AES_Emulation.Services;
-using AES_Emulation.Windows.API;
 using AES_Lacrima.ViewModels;
 using log4net;
 using SkiaSharp;
@@ -20,12 +19,12 @@ using SkiaSharp;
 namespace AES_Lacrima.Services.Emulation;
 
 /// <summary>
-/// OBS-style gameplay recorder: real-time paced mux to FFmpeg, optional GPU encoding, latest-frame capture to limit overhead.
+/// Linux gameplay recorder: PipeWire composition frames to FFmpeg with optional PulseAudio input.
 /// </summary>
 [AutoRegister]
-public partial class GameplayRecorderService : IGameplayRecorder
+public partial class LinuxGameplayRecorderService : IGameplayRecorder
 {
-    private static readonly ILog Log = LogHelper.For<GameplayRecorderService>();
+    private static readonly ILog Log = LogHelper.For<LinuxGameplayRecorderService>();
 
     private readonly object _frameLock = new();
     private readonly object _processLock = new();
@@ -38,11 +37,6 @@ public partial class GameplayRecorderService : IGameplayRecorder
     private Stream? _videoStdin;
     private CancellationTokenSource? _writerCts;
     private Task? _videoWriterTask;
-    private Task? _audioWriterTask;
-    private Task? _audioPipeTask;
-    private GameplayAudioCapture? _audioCapture;
-    private NamedPipeServerStream? _audioPipe;
-    private string? _audioPipeName;
 
     private int _frameWidth;
     private int _frameHeight;
@@ -51,20 +45,22 @@ public partial class GameplayRecorderService : IGameplayRecorder
     private long _recordingStartTicks;
     private long _frameIntervalTicks;
     private long _videoFramesWritten;
-    private long _audioBytesWritten;
-    private int _audioBytesPerSecond = 48000 * 2 * 2;
 
     private string? _activeOutputPath;
     private volatile bool _isRecording;
     private int _emulatorProcessId;
     private bool _includeAudio;
+    private string? _pulseInput;
     private byte[]? _encodeScratch;
     private byte[]? _lastWrittenFrame;
     private bool _hasWrittenFrame;
     private readonly StringBuilder _ffmpegStderr = new();
-    private volatile bool _encoderStartupInProgress;
-    private string? _activeCodecName;
-    private string? _activeCodecExtra;
+    private int _recordingSessionId;
+    private Task? _finalizeTask;
+
+    private const int FinalizeWriterWaitMs = 5_000;
+    private const int FinalizeFfmpegWaitMs = 8_000;
+
     public bool IsRecording => _isRecording;
     public string? ActiveOutputPath => _activeOutputPath;
 
@@ -84,9 +80,13 @@ public partial class GameplayRecorderService : IGameplayRecorder
         if (_isRecording)
             return false;
 
-        if (!OperatingSystem.IsWindows())
+        WaitForPendingFinalize();
+
+        _recordingSessionId++;
+
+        if (!OperatingSystem.IsLinux())
         {
-            RecordingFailed?.Invoke("Gameplay recording is only supported on Windows.");
+            RecordingFailed?.Invoke("Linux gameplay recording is only available on Linux.");
             return false;
         }
 
@@ -112,12 +112,12 @@ public partial class GameplayRecorderService : IGameplayRecorder
 
         _emulatorProcessId = emulatorProcessId;
         _includeAudio = false;
+        _pulseInput = null;
         _activeOutputPath = outputPath;
         _targetFps = Math.Clamp(fps, 15, 120);
         _frameIntervalTicks = Stopwatch.Frequency / _targetFps;
         _recordingStartTicks = Stopwatch.GetTimestamp();
         _videoFramesWritten = 0;
-        _audioBytesWritten = 0;
         _hasLatestFrame = false;
         _latestFrame = null;
         _hasWrittenFrame = false;
@@ -126,7 +126,7 @@ public partial class GameplayRecorderService : IGameplayRecorder
         _isRecording = true;
         RecordingStateChanged?.Invoke(true);
 
-        Log.Info($"Gameplay recording armed. Output will be: {outputPath}");
+        Log.Info($"Linux gameplay recording armed. Output will be: {outputPath}");
         return true;
     }
 
@@ -135,14 +135,8 @@ public partial class GameplayRecorderService : IGameplayRecorder
         if (!_isRecording || pixels.Length == 0)
             return;
 
-        if (_ffmpegProcess == null)
-        {
-            if (_encoderStartupInProgress)
-                return;
-
-            if (!TryEnsureEncoder(width, height))
-                return;
-        }
+        if (_ffmpegProcess == null && !TryEnsureEncoder(width, height))
+            return;
 
         lock (_frameLock)
         {
@@ -191,29 +185,35 @@ public partial class GameplayRecorderService : IGameplayRecorder
                     settings.GameplayRecordingEncoderPreference,
                     out var missingEncoder))
             {
-                FailRecording(
-                    $"FFmpeg does not include {missingEncoder}. Install a full FFmpeg build from Settings → Components, or set Encoder to Auto / Software.");
-                return false;
+                Log.Warn($"Linux gameplay recording: {missingEncoder} is not in this FFmpeg build; falling back during probe.");
             }
 
-            _includeAudio = TryStartAudioCapture(settings, _emulatorProcessId);
-            if (settings.GameplayRecordingAudioSource != GameplayRecordingAudioSource.None && !_includeAudio)
-                Log.Warn("Gameplay recording: audio capture could not start; continuing with video only.");
-
-            _audioBytesPerSecond = _audioCapture?.SampleRate * (_audioCapture?.BytesPerSample ?? 4) ?? (48000 * 4);
-
-            string? audioPipePath = null;
-            if (_includeAudio)
+            var audioSource = settings.GameplayRecordingAudioSource;
+            var audioProcessId = audioSource switch
             {
-                _audioPipeName = $"aes_rec_audio_{Guid.NewGuid():N}";
-                audioPipePath = $@"\\.\pipe\{_audioPipeName}";
-            }
+                GameplayRecordingAudioSource.Application => settings.GameplayRecordingAudioProcessId,
+                GameplayRecordingAudioSource.EmulatorProcess => _emulatorProcessId,
+                _ => 0
+            };
+            var audioDeviceId = audioSource == GameplayRecordingAudioSource.OutputDevice
+                ? settings.GameplayRecordingAudioDeviceId
+                : null;
 
-            _encoderStartupInProgress = true;
+            _pulseInput = LinuxGameplayAudioCapture.CanCapturePulse()
+                ? LinuxGameplayAudioCapture.ResolvePulseInputForRecording(
+                    audioSource,
+                    audioProcessId,
+                    audioDeviceId)
+                : null;
+            _includeAudio = !string.IsNullOrWhiteSpace(_pulseInput);
+
+            if (audioSource != GameplayRecordingAudioSource.None && !_includeAudio)
+                Log.Warn("Linux gameplay recording: PulseAudio is unavailable; continuing with video only.");
+
             try
             {
                 var bitrate = Math.Clamp(settings.GameplayRecordingBitrateKbps, 1000, 100_000);
-                var probeResult = FfmpegRecordingPreflight.ProbeBestEncoderAsync(
+                var probeResult = LinuxFfmpegRecordingPreflight.ProbeBestEncoderAsync(
                         ffmpegPath,
                         settings.GameplayRecordingVideoCodec,
                         settings.GameplayRecordingEncoderPreference,
@@ -221,8 +221,7 @@ public partial class GameplayRecorderService : IGameplayRecorder
                         _frameWidth,
                         _frameHeight,
                         fps,
-                        bitrate,
-                        withAudioPipe: false)
+                        bitrate)
                     .GetAwaiter()
                     .GetResult();
 
@@ -230,154 +229,93 @@ public partial class GameplayRecorderService : IGameplayRecorder
                 {
                     FailRecording(
                         settings.GameplayRecordingVideoCodec == GameplayRecordingVideoCodec.H264
-                            ? "H.264 encoding failed on this GPU. Try Container: MKV, Encoder: AMD, or use AV1 + AMD."
+                            ? "H.264 encoding failed. Try Container: MKV or Encoder: Software."
                             : "Video encoder failed to start. Try Encoder: Software or a different container.");
                     return false;
                 }
 
-                var codecName = probeResult.CodecName;
-                var codecExtra = probeResult.CodecExtra;
-                _activeCodecName = codecName;
-                _activeCodecExtra = codecExtra;
-
-                var outputPath = _activeOutputPath!;
-                if (probeResult.Container != settings.GameplayRecordingContainer)
-                {
-                    var newExt = GameplayRecordingFormat.GetFileExtension(probeResult.Container);
-                    outputPath = Path.ChangeExtension(outputPath, newExt);
-                    _activeOutputPath = outputPath;
-                    Log.Info($"Recording container adjusted to {probeResult.Container} for {codecName}.");
-                }
-
-                var args = BuildFfmpegArguments(
-                    outputPath,
-                    _frameWidth,
-                    _frameHeight,
-                    fps,
-                    probeResult.Container,
-                    codecName,
-                    codecExtra,
-                    bitrate,
-                    audioPipePath);
-
-                if (_includeAudio && _audioPipeName != null)
-                {
-                    _audioPipe = new NamedPipeServerStream(
-                        _audioPipeName,
-                        PipeDirection.Out,
-                        1,
-                        PipeTransmissionMode.Byte,
-                        PipeOptions.Asynchronous,
-                        256 * 1024,
-                        256 * 1024);
-
-                    _audioPipeTask = Task.Run(() => WaitForAudioPipeClientAsync(_audioPipe));
-                }
-
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = ffmpegPath,
-                    Arguments = args,
-                    UseShellExecute = false,
-                    RedirectStandardInput = true,
-                    RedirectStandardError = true,
-                    RedirectStandardOutput = false,
-                    CreateNoWindow = true
-                };
-
-                _ffmpegProcess = Process.Start(startInfo);
-                if (_ffmpegProcess == null)
-                {
-                    FailRecording("Failed to start FFmpeg.");
-                    return false;
-                }
-
-                try
-                {
-                    _ffmpegProcess.PriorityClass = ProcessPriorityClass.BelowNormal;
-                }
-                catch
-                {
-                }
-
-                _videoStdin = _ffmpegProcess.StandardInput.BaseStream;
-                _writerCts = new CancellationTokenSource();
-                _videoWriterTask = Task.Run(() => VideoWriterLoop(_writerCts.Token), CancellationToken.None);
-
-                if (_includeAudio)
-                    _audioWriterTask = Task.Run(() => AudioWriterLoop(_writerCts.Token), CancellationToken.None);
-
-                _ffmpegStderr.Clear();
-                _ffmpegProcess.ErrorDataReceived += (_, e) =>
-                {
-                    if (string.IsNullOrWhiteSpace(e.Data))
-                        return;
-
-                    lock (_ffmpegStderr)
-                    {
-                        _ffmpegStderr.AppendLine(e.Data);
-                    }
-
-                    Log.Debug($"ffmpeg: {e.Data}");
-                };
-                _ffmpegProcess.EnableRaisingEvents = true;
-                _ffmpegProcess.Exited += OnFfmpegProcessExited;
-                _ffmpegProcess.BeginErrorReadLine();
-
-                Log.Info($"Gameplay recording started ({_frameWidth}x{_frameHeight} @ {fps}fps, {codecName}, audio={_includeAudio}): {_activeOutputPath}");
-                Log.Info($"FFmpeg arguments: {args}");
-                return true;
+                return StartEncoderProcess(ffmpegPath, settings, fps, bitrate, probeResult, _includeAudio);
             }
             catch (Exception ex)
             {
                 FailRecording($"Failed to start encoder: {ex.Message}");
                 return false;
             }
-            finally
-            {
-                _encoderStartupInProgress = false;
-            }
         }
     }
 
-    private bool TryStartAudioCapture(SettingsViewModel settings, int emulatorProcessId)
+    private bool StartEncoderProcess(
+        string ffmpegPath,
+        SettingsViewModel settings,
+        int fps,
+        int bitrate,
+        FfmpegRecordingPreflight.PreflightResult probeResult,
+        bool includeAudio)
     {
-        var source = settings.GameplayRecordingAudioSource;
-        if (source == GameplayRecordingAudioSource.None || !GameplayAudioCapture.IsSupported)
-            return false;
+        var codecName = probeResult.CodecName;
+        var codecExtra = probeResult.CodecExtra;
 
-        var processId = source switch
+        var outputPath = _activeOutputPath!;
+        if (probeResult.Container != settings.GameplayRecordingContainer)
         {
-            GameplayRecordingAudioSource.Application => settings.GameplayRecordingAudioProcessId,
-            GameplayRecordingAudioSource.EmulatorProcess => emulatorProcessId,
-            _ => 0
+            var newExt = GameplayRecordingFormat.GetFileExtension(probeResult.Container);
+            outputPath = Path.ChangeExtension(outputPath, newExt);
+            _activeOutputPath = outputPath;
+            Log.Info($"Recording container adjusted to {probeResult.Container} for {codecName}.");
+        }
+
+        var args = BuildFfmpegArguments(
+            outputPath,
+            _frameWidth,
+            _frameHeight,
+            fps,
+            probeResult.Container,
+            codecName,
+            codecExtra,
+            bitrate,
+            includeAudio ? _pulseInput : null);
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            Arguments = args,
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardError = true,
+            RedirectStandardOutput = false,
+            CreateNoWindow = true
         };
+        LinuxGameplayAudioCapture.ApplyAudioEnvironment(startInfo);
 
-        var deviceId = source == GameplayRecordingAudioSource.OutputDevice
-            ? settings.GameplayRecordingAudioDeviceId
-            : null;
-
-        _audioCapture?.Dispose();
-        _audioCapture = new GameplayAudioCapture();
-        if (_audioCapture.TryStart(source, processId, deviceId))
-            return true;
-
-        _audioCapture.Dispose();
-        _audioCapture = null;
-        return false;
-    }
-
-    private async Task WaitForAudioPipeClientAsync(NamedPipeServerStream pipe)
-    {
-        try
+        _ffmpegProcess = Process.Start(startInfo);
+        if (_ffmpegProcess == null)
         {
-            await pipe.WaitForConnectionAsync().ConfigureAwait(false);
-            Log.Info("Gameplay recording: FFmpeg connected to audio pipe.");
+            FailRecording("Failed to start FFmpeg.");
+            return false;
         }
-        catch (Exception ex)
+
+        _videoStdin = _ffmpegProcess.StandardInput.BaseStream;
+        _writerCts = new CancellationTokenSource();
+        _videoWriterTask = Task.Run(() => VideoWriterLoop(_writerCts.Token), CancellationToken.None);
+
+        _ffmpegStderr.Clear();
+        _ffmpegProcess.ErrorDataReceived += (_, e) =>
         {
-            Log.Warn("Gameplay recording audio pipe wait failed.", ex);
-        }
+            if (string.IsNullOrWhiteSpace(e.Data))
+                return;
+
+            lock (_ffmpegStderr)
+                _ffmpegStderr.AppendLine(e.Data);
+
+            Log.Debug($"ffmpeg: {e.Data}");
+        };
+        _ffmpegProcess.EnableRaisingEvents = true;
+        _ffmpegProcess.Exited += OnFfmpegProcessExited;
+        _ffmpegProcess.BeginErrorReadLine();
+
+        Log.Info($"Linux gameplay recording started ({_frameWidth}x{_frameHeight} @ {fps}fps, {codecName}, audio={includeAudio}): {_activeOutputPath}");
+        Log.Info($"FFmpeg arguments: {args}");
+        return true;
     }
 
     internal static string BuildFfmpegArguments(
@@ -389,29 +327,29 @@ public partial class GameplayRecorderService : IGameplayRecorder
         string codecName,
         string codecExtra,
         int bitrateKbps,
-        string? audioPipePath)
+        string? pulseInput)
     {
         var quotedOut = $"\"{outputPath}\"";
-        // AMF + fragmented/faststart MP4 often breaks H.264 on AMD; plain mux is safest.
         var movFlags = container == GameplayRecordingContainer.Mp4 && !FfmpegHardwareEncoderProbe.IsAmdAmfEncoder(codecName)
             ? "-movflags +faststart"
             : string.Empty;
         var videoFilter = FfmpegHardwareEncoderProbe.GetInputVideoFilter(codecName);
         var fpsMode = FfmpegHardwareEncoderProbe.UseCfrFpsMode(codecName) ? "-fps_mode cfr" : string.Empty;
 
-        if (!string.IsNullOrWhiteSpace(audioPipePath))
+        if (!string.IsNullOrWhiteSpace(pulseInput))
         {
-            var quotedAudio = $"\"{audioPipePath}\"";
+            var quotedPulse = pulseInput.Contains(' ') ? $"\"{pulseInput}\"" : pulseInput;
             return string.Join(' ',
                 "-hide_banner -loglevel warning -y",
                 $"-f rawvideo -pix_fmt bgra -video_size {width}x{height} -framerate {fps} -i pipe:0",
-                "-f s16le -ar 48000 -ac 2 -thread_queue_size 1024 -i", quotedAudio,
+                "-f pulse -ar 48000 -ac 2 -thread_queue_size 1024 -i", quotedPulse,
                 "-map 0:v:0 -map 1:a:0?",
                 videoFilter,
                 $"-c:v {codecName} {codecExtra}",
                 $"-b:v {bitrateKbps}k -maxrate {bitrateKbps}k -bufsize {bitrateKbps * 2}k",
                 fpsMode,
                 "-c:a aac -b:a 192k -ar 48000",
+                "-shortest",
                 "-max_interleave_delta 0",
                 movFlags,
                 quotedOut).Trim();
@@ -436,16 +374,121 @@ public partial class GameplayRecorderService : IGameplayRecorder
             return;
 
         var exitCode = _ffmpegProcess?.ExitCode ?? -1;
-        if (exitCode == 0 && _videoFramesWritten > 0)
+        if (exitCode == 0)
             return;
 
+        if (_includeAudio)
+        {
+            Log.Warn("Linux gameplay recording: FFmpeg exited while capturing audio; retrying video only.");
+            _includeAudio = false;
+            _pulseInput = null;
+            if (TryRestartEncoderWithoutAudio())
+                return;
+        }
+
         var message = ExtractFfmpegErrorMessage();
-        if (string.IsNullOrWhiteSpace(message) && exitCode != 0)
+        if (string.IsNullOrWhiteSpace(message))
             message = $"FFmpeg exited with code {exitCode}.";
 
-        FailRecording(string.IsNullOrWhiteSpace(message)
-            ? "FFmpeg stopped unexpectedly. For H.264 on AMD try MKV container, or use AV1 + AMD."
-            : message);
+        FailRecording(message);
+    }
+
+    private bool TryRestartEncoderWithoutAudio()
+    {
+        lock (_processLock)
+        {
+            CleanupEncoderProcess();
+
+            if (!_isRecording || string.IsNullOrWhiteSpace(_activeOutputPath))
+                return false;
+
+            var settings = DiLocator.ResolveViewModel<SettingsViewModel>();
+            if (settings == null)
+                return false;
+
+            var fps = Math.Clamp(settings.GameplayRecordingFps, 15, 120);
+            var ffmpegPath = FFmpegLocator.FindFFmpegPath();
+            if (ffmpegPath == null)
+                return false;
+
+            try
+            {
+                var bitrate = Math.Clamp(settings.GameplayRecordingBitrateKbps, 1000, 100_000);
+                var probeResult = LinuxFfmpegRecordingPreflight.ProbeBestEncoderAsync(
+                        ffmpegPath,
+                        settings.GameplayRecordingVideoCodec,
+                        settings.GameplayRecordingEncoderPreference,
+                        settings.GameplayRecordingContainer,
+                        _frameWidth,
+                        _frameHeight,
+                        fps,
+                        bitrate)
+                    .GetAwaiter()
+                    .GetResult();
+
+                if (probeResult == null)
+                    return false;
+
+                return StartEncoderProcess(ffmpegPath, settings, fps, bitrate, probeResult, includeAudio: false);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Linux gameplay recording video-only restart failed.", ex);
+                return false;
+            }
+        }
+    }
+
+    private void CleanupEncoderProcess()
+    {
+        try
+        {
+            _writerCts?.Cancel();
+            _videoWriterTask?.Wait(TimeSpan.FromSeconds(2));
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            _videoStdin?.Close();
+        }
+        catch
+        {
+        }
+
+        if (_ffmpegProcess != null)
+        {
+            try
+            {
+                _ffmpegProcess.Exited -= OnFfmpegProcessExited;
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                if (!_ffmpegProcess.HasExited)
+                    _ffmpegProcess.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+            }
+
+            try { _ffmpegProcess.Dispose(); } catch { }
+            _ffmpegProcess = null;
+        }
+
+        _videoStdin = null;
+        _writerCts?.Dispose();
+        _writerCts = null;
+        _videoWriterTask = null;
+        _ffmpegStderr.Clear();
+        _hasWrittenFrame = false;
+        _videoFramesWritten = 0;
+        _recordingStartTicks = Stopwatch.GetTimestamp();
     }
 
     private string ExtractFfmpegErrorMessage()
@@ -481,9 +524,6 @@ public partial class GameplayRecorderService : IGameplayRecorder
         }
     }
 
-    /// <summary>
-    /// Writes exactly one video frame per wall-clock interval (OBS-style CFR pacing).
-    /// </summary>
     private async Task VideoWriterLoop(CancellationToken cancellationToken)
     {
         try
@@ -526,14 +566,13 @@ public partial class GameplayRecorderService : IGameplayRecorder
                 await _videoStdin.WriteAsync(frame.AsMemory(0, frameSize), cancellationToken).ConfigureAwait(false);
                 _videoFramesWritten++;
             }
-
         }
         catch (OperationCanceledException)
         {
         }
         catch (Exception ex)
         {
-            Log.Warn("Gameplay recording video writer failed.", ex);
+            Log.Warn("Linux gameplay recording video writer failed.", ex);
             if (_ffmpegProcess is { HasExited: true })
             {
                 var ffmpegMessage = ExtractFfmpegErrorMessage();
@@ -572,57 +611,6 @@ public partial class GameplayRecorderService : IGameplayRecorder
             Buffer.BlockCopy(scaled, 0, frame, 0, frameSize);
             return true;
         }
-    }
-
-    private async Task AudioWriterLoop(CancellationToken cancellationToken)
-    {
-        try
-        {
-            if (_audioPipe == null || _audioCapture == null)
-                return;
-
-            while (!_audioPipe.IsConnected && !cancellationToken.IsCancellationRequested)
-                await Task.Delay(50, cancellationToken).ConfigureAwait(false);
-
-            var chunkSize = Math.Max(4096, _audioCapture.SampleRate * _audioCapture.BytesPerSample / 20);
-            var buffer = new byte[chunkSize];
-
-            while (!cancellationToken.IsCancellationRequested && _isRecording)
-            {
-                var read = _audioCapture.Read(buffer);
-                if (read <= 0)
-                {
-                    await Task.Delay(5, cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (_audioPipe.IsConnected)
-                    await _audioPipe.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-
-                _audioBytesWritten += read;
-                await PaceAudioAsync(cancellationToken).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("Gameplay recording audio writer failed.", ex);
-        }
-    }
-
-    private async Task PaceAudioAsync(CancellationToken cancellationToken)
-    {
-        var elapsed = Stopwatch.GetTimestamp() - _recordingStartTicks;
-        var expectedBytes = (long)(_audioBytesPerSecond * (elapsed / (double)Stopwatch.Frequency));
-        if (_audioBytesWritten <= expectedBytes + _audioBytesPerSecond / 20)
-            return;
-
-        var excess = _audioBytesWritten - expectedBytes;
-        var ms = (int)(excess * 1000.0 / _audioBytesPerSecond);
-        if (ms > 0)
-            await Task.Delay(Math.Min(ms, 100), cancellationToken).ConfigureAwait(false);
     }
 
     private static byte[] ScaleBgraFrame(byte[] source, int srcWidth, int srcHeight, int dstWidth, int dstHeight)
@@ -695,99 +683,118 @@ public partial class GameplayRecorderService : IGameplayRecorder
             return;
 
         _isRecording = false;
+        var sessionId = _recordingSessionId;
+        var outputPath = _activeOutputPath;
+
+        RecordingStateChanged?.Invoke(false);
+
+        _finalizeTask = Task.Run(() => FinalizeStopAsync(sessionId, outputPath));
+    }
+
+    private void WaitForPendingFinalize()
+    {
+        var task = _finalizeTask;
+        if (task == null || task.IsCompleted)
+            return;
 
         try
         {
-            _writerCts?.Cancel();
-            _videoWriterTask?.Wait(TimeSpan.FromSeconds(8));
-            _audioWriterTask?.Wait(TimeSpan.FromSeconds(3));
-            _audioPipeTask?.Wait(TimeSpan.FromSeconds(1));
+            task.Wait(TimeSpan.FromSeconds(10));
         }
         catch (Exception ex)
         {
-            Log.Warn("Error stopping recording writers.", ex);
+            Log.Warn("Timed out waiting for the previous Linux recording to finalize.", ex);
         }
+    }
 
-        lock (_processLock)
+    private void FinalizeStopAsync(int sessionId, string? outputPath)
+    {
+        try
         {
             try
             {
-                _videoStdin?.Flush();
-                _videoStdin?.Close();
+                _writerCts?.Cancel();
+                _videoWriterTask?.Wait(TimeSpan.FromMilliseconds(FinalizeWriterWaitMs));
             }
-            catch (Exception logEx)
+            catch (Exception ex)
             {
-                Log.Warn("Error closing ffmpeg video stdin.", logEx);
-            }
-
-            try
-            {
-                _audioPipe?.Dispose();
-            }
-            catch (Exception logEx)
-            {
-                Log.Warn("Error closing audio pipe.", logEx);
+                Log.Warn("Error stopping Linux recording writers.", ex);
             }
 
-            _audioPipe = null;
-            _audioPipeName = null;
-
-            if (_ffmpegProcess != null)
+            lock (_processLock)
             {
-                try
-                {
-                    _ffmpegProcess.Exited -= OnFfmpegProcessExited;
-                }
-                catch
-                {
-                }
+                if (sessionId != _recordingSessionId)
+                    return;
 
                 try
                 {
-                    if (!_ffmpegProcess.WaitForExit(60_000))
-                        _ffmpegProcess.Kill(entireProcessTree: true);
+                    _videoStdin?.Flush();
+                    _videoStdin?.Close();
                 }
                 catch (Exception logEx)
                 {
-                    Log.Warn("Error waiting for ffmpeg exit.", logEx);
+                    Log.Warn("Error closing ffmpeg video stdin.", logEx);
                 }
 
-                _ffmpegProcess.Dispose();
-                _ffmpegProcess = null;
+                if (_ffmpegProcess != null)
+                {
+                    try
+                    {
+                        _ffmpegProcess.Exited -= OnFfmpegProcessExited;
+                    }
+                    catch
+                    {
+                    }
+
+                    try
+                    {
+                        if (!_ffmpegProcess.WaitForExit(FinalizeFfmpegWaitMs))
+                            _ffmpegProcess.Kill(entireProcessTree: true);
+                    }
+                    catch (Exception logEx)
+                    {
+                        Log.Warn("Error waiting for ffmpeg exit.", logEx);
+                    }
+
+                    try { _ffmpegProcess.Dispose(); } catch { }
+                    _ffmpegProcess = null;
+                }
+
+                _videoStdin = null;
+                _writerCts?.Dispose();
+                _writerCts = null;
+                _videoWriterTask = null;
             }
 
-            _videoStdin = null;
-            _writerCts?.Dispose();
-            _writerCts = null;
-            _videoWriterTask = null;
-            _audioWriterTask = null;
-            _audioPipeTask = null;
+            if (sessionId != _recordingSessionId)
+                return;
+
+            lock (_frameLock)
+            {
+                _latestFrame = null;
+                _hasLatestFrame = false;
+            }
+
+            _encodeScratch = null;
+            _lastWrittenFrame = null;
+            _hasWrittenFrame = false;
+            _ffmpegStderr.Clear();
+            _activeOutputPath = null;
+            _emulatorProcessId = 0;
+            _includeAudio = false;
+            _pulseInput = null;
+
+            Log.Info($"Linux gameplay recording stopped: {outputPath}");
         }
-
-        _audioCapture?.Dispose();
-        _audioCapture = null;
-
-        lock (_frameLock)
+        catch (Exception ex)
         {
-            _latestFrame = null;
-            _hasLatestFrame = false;
+            Log.Warn("Error finalizing Linux gameplay recording.", ex);
         }
-
-        _encodeScratch = null;
-        _lastWrittenFrame = null;
-        _hasWrittenFrame = false;
-        _ffmpegStderr.Clear();
-
-        Log.Info($"Gameplay recording stopped: {_activeOutputPath}");
-        _activeOutputPath = null;
-        _emulatorProcessId = 0;
-        _includeAudio = false;
-        RecordingStateChanged?.Invoke(false);
     }
 
     private void FailRecording(string message)
     {
-        Log.Warn($"Gameplay recording failed: {message}");
+        Log.Warn($"Linux gameplay recording failed: {message}");
         var failedPath = _activeOutputPath;
         Stop();
         TryDeleteEmptyRecording(failedPath);
@@ -811,15 +818,4 @@ public partial class GameplayRecorderService : IGameplayRecorder
     }
 
     public void Dispose() => Stop();
-
-    public static string GetDefaultOutputDirectory()
-    {
-        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
-        if (!string.IsNullOrWhiteSpace(documents))
-            return Path.Combine(documents, ApplicationName);
-
-        return Path.Combine(ApplicationPaths.DataRootDirectory, "Recordings");
-    }
-
-    private const string ApplicationName = "AES_Lacrima";
 }
