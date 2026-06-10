@@ -619,7 +619,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         [ObservableProperty]
         private bool _isRenderOptionsOpen;
 
-        public bool UseInTreeRenderOptionsDismiss => !OperatingSystem.IsLinux();
+        public bool UseInTreeRenderOptionsDismiss => true;
 
         [ObservableProperty]
         private bool _isFullscreen;
@@ -1290,6 +1290,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(IsGameplayPreviewViewportVisible));
             OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
             NotifyCaptureChromeMarginChanged();
+            RefreshCurrentSectionLaunchOptionsState();
 
             if (value)
             {
@@ -1319,6 +1320,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(ShowCurrentSectionDuckStationSetupLaunchButton));
             NotifyGameplayRecordingAvailabilityChanged();
             RebootEmulatorCommand.NotifyCanExecuteChanged();
+            RefreshCurrentSectionLaunchOptionsState();
         }
 
         partial void OnIsEmulatorViewportDismissedChanged(bool value)
@@ -1334,6 +1336,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(IsGameplayPreviewViewportVisible));
             OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
             NotifyCaptureChromeMarginChanged();
+            RefreshCurrentSectionLaunchOptionsState();
         }
 
         private void RefreshAlbumPreviews()

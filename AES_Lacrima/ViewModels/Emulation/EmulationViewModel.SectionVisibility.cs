@@ -130,7 +130,8 @@ namespace AES_Lacrima.ViewModels
             CurrentSectionEmulatorHandler != null &&
             CurrentSectionEmulatorHandler?.IsLauncherPathValid(CurrentSectionEmulatorHandler.LauncherPath) == true &&
             !IsEmulatorRunning &&
-            !IsEmulatorLaunchInProgress;
+            !IsEmulatorLaunchInProgress &&
+            !IsCompositionCaptureVisible;
 
         public bool ShowCurrentSectionXeniaPatchesMenuItem =>
             ShowCurrentSectionXeniaUpdateControls && HasActiveAlbumItems;

@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Animation;
@@ -272,6 +273,9 @@ public partial class EmulationView : UserControl
 
     private void OnCaptureHostPointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        if (TryDismissRenderOptionsOnPointerPressed(e))
+            return;
+
         if (IsCaptureContextMenuPointer(e))
         {
             TryOpenCaptureContextMenu();
@@ -291,6 +295,9 @@ public partial class EmulationView : UserControl
 
     private void OnCaptureContextMenuLayerPointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        if (TryDismissRenderOptionsOnPointerPressed(e))
+            return;
+
         if (IsCaptureContextMenuPointer(e))
         {
             if (sender is Border layer)
@@ -350,6 +357,29 @@ public partial class EmulationView : UserControl
         _portalWindow?.CaptureHostControl?.ConfigurePointerTunnelSurface(tunnelActive ? portalLayer : null);
     }
 
+    private bool TryDismissRenderOptionsOnPointerPressed(PointerPressedEventArgs e)
+    {
+        if (DataContext is not EmulationViewModel { IsRenderOptionsOpen: true } vm)
+            return false;
+
+        var overlay = this.FindControl<Border>("RenderOptionsOverlay");
+        if (overlay == null)
+            return false;
+
+        if (e.Source is Visual sourceVisual)
+        {
+            if (sourceVisual.GetSelfAndVisualAncestors().Contains(overlay))
+                return false;
+
+            if (sourceVisual.GetSelfAndVisualAncestors().OfType<ComboBoxItem>().Any())
+                return false;
+        }
+
+        vm.IsRenderOptionsOpen = false;
+        e.Handled = true;
+        return true;
+    }
+
     private static bool IsCaptureContextMenuPointer(PointerPressedEventArgs e)
     {
         if (e.Source is not Visual visual)
@@ -360,6 +390,9 @@ public partial class EmulationView : UserControl
 
     private void OnPortalSurfacePointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        if (TryDismissRenderOptionsOnPointerPressed(e))
+            return;
+
         if (IsCaptureContextMenuPointer(e))
             return;
 

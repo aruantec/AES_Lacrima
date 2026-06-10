@@ -10,17 +10,20 @@ using Avalonia.Platform;
 using Avalonia.Rendering.Composition;
 using Avalonia.Skia;
 using SkiaSharp;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Controls.Composition;
 
 /// <summary>
-/// Handles the rendering of particles on the compositor thread.
+/// Handles the rendering of Lacrima raindrops on the compositor thread.
 /// This class can operate in two modes: OpenGL for hardware acceleration, or Skia for software fallback.
 /// </summary>
 public class ParticleVisualHandler : CompositionCustomVisualHandler
 {
+    private const int RainVerticesPerDrop = 9;
+    private const int RainFloatsPerVertex = 8;
+
     private static readonly ILog Log = LogHelper.For<ParticleVisualHandler>();
     private readonly Random _rnd = new();
     private readonly List<Particle> _particles = new();
@@ -33,8 +36,9 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
     private float _lastDelta = 1f / 60f;
     private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
     private long _lastTick;
-    private float[] _particleData = Array.Empty<float>();
+    private float[] _rainVertexData = Array.Empty<float>();
     private SKPaint? _skPaint = new() { IsAntialias = true };
+    private SKPath? _skRainPath;
     private double _frameAccum;
 
     private int _particleCount = 150;
@@ -46,7 +50,10 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
     private GlInterface? _gl;
     private bool _initialized;
 
-    private struct Particle { public float X, Y, Vx, Vy, Size, R, G, B, A; }
+    private struct Particle
+    {
+        public float X, Y, Vx, Vy, Width, Length, R, G, B, A;
+    }
 
     /// <inheritdoc />
     public override void OnMessage(object message)
@@ -108,6 +115,8 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
         // dispose managed GPU/Skia resources
         _skPaint?.Dispose();
         _skPaint = null;
+        _skRainPath?.Dispose();
+        _skRainPath = null;
     }
 
     private void EnsureGl(ImmediateDrawingContext context)
@@ -195,29 +204,36 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
         if (!_isPaused)
         {
             if (_particleCount != _lastCount) ResetParticles(_particleCount);
-            float timeFactor = _lastDelta * 60f;
-            for (int i = 0; i < _particles.Count; i++)
-            {
-                var p = _particles[i];
-                p.X += p.Vx * timeFactor; p.Y += p.Vy * timeFactor;
-                if (p.X < -1.1f) p.X = 1.1f; else if (p.X > 1.1f) p.X = -1.1f;
-                if (p.Y < -1.1f) p.Y = 1.1f; else if (p.Y > 1.1f) p.Y = -1.1f;
-                _particles[i] = p;
-            }
+            UpdateRainParticles(_lastDelta);
         }
 
-        using var paint = new SKPaint();
-        paint.IsAntialias = true;
-        // reuse SKPaint when possible
-        var paintToUse = _skPaint ??= new SKPaint { IsAntialias = true };
+        var paintToUse = _skPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+        paintToUse.MaskFilter = null;
+        var path = _skRainPath ??= new SKPath();
+
         for (int i = 0; i < _particles.Count; i++)
         {
             var p = _particles[i];
             float px = (p.X + 1f) * 0.5f * w;
-            float py = (1f - (p.Y + 1f) * 0.5f) * h; // flip Y
-            paintToUse.Color = new SKColor((byte)(p.R * 255), (byte)(p.G * 255), (byte)(p.B * 255), (byte)(p.A * 255));
-            float radius = Math.Max(1f, p.Size * 0.05f);
-            canvas.DrawCircle(px, py, radius, paintToUse);
+            float py = (1f - (p.Y + 1f) * 0.5f) * h;
+            float halfW = Math.Max(0.45f, p.Width * 0.5f);
+            float streakLen = Math.Max(4f, p.Length);
+            float topHalfW = halfW * 0.3f;
+            float bottomHalfW = halfW * 1.25f;
+            float topY = py - streakLen * 0.5f;
+            float headY = py + streakLen * 0.22f;
+            float tipY = py + streakLen * 0.5f + halfW * 0.35f;
+
+            path.Reset();
+            path.MoveTo(px - topHalfW, topY);
+            path.LineTo(px + topHalfW, topY);
+            path.LineTo(px + bottomHalfW, headY);
+            path.LineTo(px, tipY);
+            path.LineTo(px - bottomHalfW, headY);
+            path.Close();
+
+            paintToUse.Color = new SKColor(255, 255, 255, (byte)Math.Clamp(p.A * 255f, 0, 255));
+            canvas.DrawPath(path, paintToUse);
         }
 
         // Request a redraw and ask the compositor for the next animation-frame update
@@ -245,7 +261,6 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
         gl.TexParameteri(GlConsts.Texture2D, GlConsts.TextureMinFilter, GlConsts.Linear);
         gl.TexParameteri(GlConsts.Texture2D, GlConsts.TextureMagFilter, GlConsts.Linear);
 
-        gl.Enable(GlConsts.ProgramPointSize);
         _textureNeedsUpdate = true;
     }
 
@@ -286,18 +301,57 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
     private void ResetParticles(int count)
     {
         _particles.Clear();
-        for (int i = 0; i < count; i++) _particles.Add(new Particle
-        {
-            X = (float)_rnd.NextDouble() * 2 - 1,
-            Y = (float)_rnd.NextDouble() * 2 - 1,
-            Vx = (float)(_rnd.NextDouble() - 0.5) * 0.005f,
-            Vy = (float)(_rnd.NextDouble() - 0.5) * 0.005f,
-            Size = (float)_rnd.NextDouble() * 40 + 10,
-            R = (float)(_rnd.NextDouble() * 0.5 + 0.5),
-            G = (float)(_rnd.NextDouble() * 0.5 + 0.5),
-            B = 1.0f, A = 0.4f
-        });
+        for (int i = 0; i < count; i++)
+            _particles.Add(CreateRainParticle(spawnAnywhere: true));
         _lastCount = count;
+    }
+
+    private Particle CreateRainParticle(bool spawnAnywhere)
+    {
+        var speed = (float)(_rnd.NextDouble() * 2.8 + 1.6);
+        var length = speed * (float)(_rnd.NextDouble() * 4.5 + 3.5);
+        var width = (float)(_rnd.NextDouble() * 1.6 + 0.7);
+        var luminance = (float)(_rnd.NextDouble() * 0.12 + 0.88);
+
+        return new Particle
+        {
+            X = (float)_rnd.NextDouble() * 2f - 1f,
+            Y = spawnAnywhere
+                ? (float)_rnd.NextDouble() * 2.2f - 1.1f
+                : 1.05f + (float)_rnd.NextDouble() * 0.15f,
+            Vx = (float)(_rnd.NextDouble() - 0.5) * 0.0009f,
+            Vy = -speed * 0.00135f,
+            Width = width,
+            Length = length,
+            R = luminance,
+            G = luminance,
+            B = luminance,
+            A = (float)(_rnd.NextDouble() * 0.2 + 0.12)
+        };
+    }
+
+    private void UpdateRainParticles(float deltaSeconds)
+    {
+        float timeFactor = deltaSeconds * 60f;
+        for (int i = 0; i < _particles.Count; i++)
+        {
+            var p = _particles[i];
+            p.X += p.Vx * timeFactor;
+            p.Y += p.Vy * timeFactor;
+
+            if (p.Y < -1.15f)
+                p = CreateRainParticle(spawnAnywhere: false);
+            else if (p.X < -1.12f)
+            {
+                p.X = 1.12f;
+            }
+            else if (p.X > 1.12f)
+            {
+                p.X = -1.12f;
+            }
+
+            _particles[i] = p;
+        }
     }
 
     private unsafe void RenderBackground(GlInterface gl, int viewW, int viewH)
@@ -346,40 +400,81 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
     private unsafe void RenderParticles(GlInterface gl)
     {
         gl.Enable(GlConsts.Blend);
-        
-        // Manual BlendFunc
+
         var glBlendFunc = (delegate* unmanaged[Stdcall]<int, int, void>)gl.GetProcAddress("glBlendFunc");
         if (glBlendFunc != null) glBlendFunc(GlConsts.SrcAlpha, GlConsts.One);
 
-        float timeFactor = _lastDelta * 60f;
+        var w = Math.Max(1, (int)_visualSize.X);
+        var h = Math.Max(1, (int)_visualSize.Y);
+        UpdateRainParticles(_lastDelta);
 
-        // reuse data array to avoid allocations per-frame
-        if (_particleData.Length < _particles.Count * 7) _particleData = new float[_particles.Count * 7];
-        var data = _particleData;
+        var requiredLength = _particles.Count * RainVerticesPerDrop * RainFloatsPerVertex;
+        if (_rainVertexData.Length < requiredLength)
+            _rainVertexData = new float[requiredLength];
+
+        var data = _rainVertexData;
+        var vertexIndex = 0;
         for (int i = 0; i < _particles.Count; i++)
-        {
-            var p = _particles[i];
-            p.X += p.Vx * timeFactor; p.Y += p.Vy * timeFactor;
-            if (p.X < -1.1f) p.X = 1.1f; else if (p.X > 1.1f) p.X = -1.1f;
-            if (p.Y < -1.1f) p.Y = 1.1f; else if (p.Y > 1.1f) p.Y = -1.1f;
-            _particles[i] = p;
+            vertexIndex = AppendRainDropVertices(data, vertexIndex, _particles[i], w, h);
 
-            int o = i * 7;
-            data[o + 0] = p.X; data[o + 1] = p.Y;
-            data[o + 2] = p.R; data[o + 3] = p.G; data[o + 4] = p.B; data[o + 5] = p.A;
-            data[o + 6] = p.Size;
-        }
+        if (vertexIndex == 0)
+            return;
 
         gl.UseProgram(_pProgram);
         gl.BindVertexArray(_vao);
         gl.BindBuffer(GlConsts.ArrayBuffer, _vbo);
-        fixed (float* pData = data) gl.BufferData(GlConsts.ArrayBuffer, new IntPtr(data.Length * sizeof(float)), (IntPtr)pData, GlConsts.StreamDraw);
+        fixed (float* pData = data)
+            gl.BufferData(GlConsts.ArrayBuffer, new IntPtr(vertexIndex * sizeof(float)), (IntPtr)pData, GlConsts.StreamDraw);
 
-        gl.EnableVertexAttribArray(0); gl.VertexAttribPointer(0, 2, GlConsts.Float, 0, 28, IntPtr.Zero);
-        gl.EnableVertexAttribArray(1); gl.VertexAttribPointer(1, 4, GlConsts.Float, 0, 28, new IntPtr(8));
-        gl.EnableVertexAttribArray(2); gl.VertexAttribPointer(2, 1, GlConsts.Float, 0, 28, new IntPtr(24));
+        gl.EnableVertexAttribArray(0);
+        gl.VertexAttribPointer(0, 2, GlConsts.Float, 0, 32, IntPtr.Zero);
+        gl.EnableVertexAttribArray(1);
+        gl.VertexAttribPointer(1, 2, GlConsts.Float, 0, 32, new IntPtr(8));
+        gl.EnableVertexAttribArray(2);
+        gl.VertexAttribPointer(2, 4, GlConsts.Float, 0, 32, new IntPtr(16));
 
-        gl.DrawArrays(GlConsts.Points, 0, _particles.Count);
+        gl.DrawArrays(GlConsts.Triangles, 0, vertexIndex / RainFloatsPerVertex);
+    }
+
+    private static int AppendRainDropVertices(float[] data, int offset, Particle particle, int viewW, int viewH)
+    {
+        var widthNorm = particle.Width * 2f / viewW;
+        var lengthNorm = particle.Length * 2f / viewH;
+        var halfW = widthNorm * 0.5f;
+        var halfLen = lengthNorm * 0.5f;
+        var topHalfW = halfW * 0.3f;
+        var bottomHalfW = halfW * 1.25f;
+
+        var cx = particle.X;
+        var tailY = particle.Y + halfLen;
+        var headY = particle.Y - halfLen * 0.56f;
+        var tipY = particle.Y - halfLen * 1.12f;
+
+        AppendRainVertex(data, ref offset, cx - topHalfW, tailY, 0.1f, 0f, particle);
+        AppendRainVertex(data, ref offset, cx + topHalfW, tailY, 0.9f, 0f, particle);
+        AppendRainVertex(data, ref offset, cx + bottomHalfW, headY, 1f, 0.78f, particle);
+
+        AppendRainVertex(data, ref offset, cx - topHalfW, tailY, 0.1f, 0f, particle);
+        AppendRainVertex(data, ref offset, cx + bottomHalfW, headY, 1f, 0.78f, particle);
+        AppendRainVertex(data, ref offset, cx - bottomHalfW, headY, 0f, 0.78f, particle);
+
+        AppendRainVertex(data, ref offset, cx - bottomHalfW, headY, 0f, 0.78f, particle);
+        AppendRainVertex(data, ref offset, cx + bottomHalfW, headY, 1f, 0.78f, particle);
+        AppendRainVertex(data, ref offset, cx, tipY, 0.5f, 1f, particle);
+
+        return offset;
+    }
+
+    private static void AppendRainVertex(float[] data, ref int offset, float x, float y, float u, float v, Particle particle)
+    {
+        data[offset++] = x;
+        data[offset++] = y;
+        data[offset++] = u;
+        data[offset++] = v;
+        data[offset++] = particle.R;
+        data[offset++] = particle.G;
+        data[offset++] = particle.B;
+        data[offset++] = particle.A;
     }
 
     #region Shader Helpers
@@ -447,23 +542,28 @@ public class ParticleVisualHandler : CompositionCustomVisualHandler
 
     private string GetParticleVs(string shaderVersion) => $@"{shaderVersion}
 layout(location = 0) in vec2 aPos;
-layout(location = 1) in vec4 aCol;
-layout(location = 2) in float aSize;
+layout(location = 1) in vec2 aTex;
+layout(location = 2) in vec4 aCol;
+out vec2 vTex;
 out vec4 vCol;
 void main() {{
     gl_Position = vec4(aPos, 0.0, 1.0);
-    gl_PointSize = aSize;
+    vTex = aTex;
     vCol = aCol;
 }}";
 
     private string GetParticleFs(string shaderVersion, bool isEs) => $@"{shaderVersion}
 {(isEs ? "precision mediump float;" : string.Empty)}
+in vec2 vTex;
 in vec4 vCol;
 out vec4 fragColor;
 void main() {{
-    float d = distance(gl_PointCoord, vec2(0.5));
-    if (d > 0.5) discard;
-    fragColor = vec4(vCol.rgb, vCol.a * smoothstep(0.5, 0.1, d));
+    float across = abs(vTex.x - 0.5) * 2.0;
+    float horiz = smoothstep(1.0, 0.12, across);
+    float head = smoothstep(0.55, 1.0, vTex.y);
+    float tail = smoothstep(1.0, 0.2, 1.0 - vTex.y);
+    float alpha = horiz * mix(tail, 1.0, head) * vCol.a;
+    fragColor = vec4(vec3(1.0), alpha);
 }}";
 
     private string GetBgVs(string shaderVersion) => $@"{shaderVersion}
@@ -508,6 +608,7 @@ void main() {{
         public const int Texture0 = 0x84C0;
         public const int Texture1 = 0x84C1;
         public const int TriangleStrip = 0x0005;
+        public const int Triangles = 0x0004;
         public const int Points = 0x0000;
         public const int Version = 0x1F02;
         public const int VertexShader = 0x8B31;
