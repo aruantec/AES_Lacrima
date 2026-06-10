@@ -211,6 +211,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         private ShadPs4IpcSession? _shadPs4IpcSession;
         private readonly EmulatorAudioVolumeController _emulatorAudioVolume = new();
         private LinuxEmulatorAudioVolumeController? _linuxEmulatorAudioVolume;
+        private readonly HashSet<int> _linuxSuspendedEmulatorPids = new();
         private bool _syncingEmulatorVolumeFromSystem;
         private CancellationTokenSource? _retroArchLogWatcherCts;
         private CancellationTokenSource? _activeEmulatorWatchdogCts;

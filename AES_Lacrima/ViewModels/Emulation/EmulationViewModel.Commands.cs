@@ -492,13 +492,17 @@ namespace AES_Lacrima.ViewModels
 
             if (IsEmulatorPaused)
             {
-                ResumeProcessThreads(process);
+                if (!ResumeEmulatorExecution(process))
+                    return;
+
                 IsEmulatorPaused = false;
                 SLog.Info($"EmulationViewModel: Resumed emulator process PID {process.Id}.");
             }
             else
             {
-                SuspendProcessThreads(process);
+                if (!SuspendEmulatorExecution(process))
+                    return;
+
                 IsEmulatorPaused = true;
                 SLog.Info($"EmulationViewModel: Suspended emulator process PID {process.Id}.");
             }

@@ -1074,6 +1074,7 @@ namespace AES_Lacrima.ViewModels
                 _activeEmulatorGameTitle = null;
                 EmulatorTargetHwnd = IntPtr.Zero;
                 EmulatorTargetProcessId = 0;
+                _linuxSuspendedEmulatorPids.Clear();
                 _emulatorAudioVolume.Detach();
                 if (OperatingSystem.IsLinux())
                     _linuxEmulatorAudioVolume?.Detach();
@@ -1617,6 +1618,63 @@ namespace AES_Lacrima.ViewModels
 
         private bool IsGameplayAutoplayEnabled => SettingsViewModel?.EmulationGameplayAutoplay == true;
         private bool IsYtDlpInstalled => SettingsViewModel?.IsYtDlpInstalled ?? YtDlpManager.IsInstalled;
+
+        private bool SuspendEmulatorExecution(Process process)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                SuspendProcessThreads(process);
+                return true;
+            }
+
+            if (!OperatingSystem.IsLinux())
+                return false;
+
+            _linuxSuspendedEmulatorPids.Clear();
+            if (!LinuxEmulatorPauseHelper.TrySuspendEmulatorTree(process.Id, _linuxCompositorPid, out var suspendedPids))
+            {
+                SLog.Warn(
+                    $"EmulationViewModel: Failed to suspend Linux emulator tree for trackedPid={process.Id}, compositorPid={_linuxCompositorPid}.");
+                return false;
+            }
+
+            foreach (var pid in suspendedPids)
+                _linuxSuspendedEmulatorPids.Add(pid);
+
+            return _linuxSuspendedEmulatorPids.Count > 0;
+        }
+
+        private bool ResumeEmulatorExecution(Process process)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                ResumeProcessThreads(process);
+                return true;
+            }
+
+            if (!OperatingSystem.IsLinux())
+                return false;
+
+            HashSet<int> pidsToResume;
+            if (_linuxSuspendedEmulatorPids.Count > 0)
+            {
+                pidsToResume = new HashSet<int>(_linuxSuspendedEmulatorPids);
+            }
+            else if (!LinuxEmulatorPauseHelper.TryResolveEmulatorPids(process.Id, _linuxCompositorPid, out var discoveredPids))
+            {
+                SLog.Warn(
+                    $"EmulationViewModel: Failed to resolve Linux emulator tree for resume (trackedPid={process.Id}, compositorPid={_linuxCompositorPid}).");
+                return false;
+            }
+            else
+            {
+                pidsToResume = discoveredPids;
+            }
+
+            var resumed = LinuxEmulatorPauseHelper.TryResumeEmulatorTree(pidsToResume);
+            _linuxSuspendedEmulatorPids.Clear();
+            return resumed;
+        }
 
         private static void SuspendProcessThreads(Process process)
         {
