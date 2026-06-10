@@ -135,7 +135,8 @@ public partial class EmulationViewModel
             return;
         }
 
-        settings.SaveSettings();
+        ConfigureCaptureGameplayRecording(_activeCaptureHost);
+
         var audioHint = settings.GameplayRecordingAudioSource switch
         {
             GameplayRecordingAudioSource.None => "Recording video only.",
@@ -144,8 +145,9 @@ public partial class EmulationViewModel
             _ => "Recording with emulator audio."
         };
         GameplayRecordingStatus = $"Waiting for frames… {audioHint}";
-        ConfigureCaptureGameplayRecording(_activeCaptureHost);
         NotifyGameplayRecordingAvailabilityChanged();
+
+        Dispatcher.UIThread.Post(settings.SaveSettings, DispatcherPriority.Background);
     }
 
     private void StopGameplayRecording()

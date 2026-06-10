@@ -106,6 +106,9 @@ namespace AES_Lacrima.ViewModels
 
             RefreshCurrentSectionLaunchOptionsState();
             SyncCurrentSectionRetroArchCoreSelection();
+
+            if (!IsEmulatorRunning && !IsGameplayRecording)
+                RefreshCurrentSectionFlatpakApplications();
         }
 
         private void UpdateCurrentEmulatorHandlerForSelection(FolderMediaItem? album)
@@ -213,6 +216,9 @@ namespace AES_Lacrima.ViewModels
         {
             IsRenderOptionsOpen = !IsRenderOptionsOpen;
             NotifyCaptureChromeMarginChanged();
+
+            if (IsRenderOptionsOpen && !IsEmulatorRunning && !IsGameplayRecording)
+                RefreshCurrentSectionFlatpakApplications();
         }
 
         private async Task OpenCurrentSectionEdenUpdates()
@@ -262,7 +268,10 @@ namespace AES_Lacrima.ViewModels
                             handler.LauncherPath);
                     }
 
-                    LinuxAppImageLaunchHelper.PrepareDirectExtractAndRunLaunch(startInfo);
+                    if (string.IsNullOrWhiteSpace(handler.FlatpakAppId))
+                        LinuxAppImageLaunchHelper.PrepareDirectExtractAndRunLaunch(startInfo);
+                    else
+                        FlatpakLaunchHelper.Apply(startInfo, handler.FlatpakAppId);
                 }
 
                 _ = Process.Start(startInfo);
@@ -303,7 +312,31 @@ namespace AES_Lacrima.ViewModels
 
         private void RefreshCurrentSectionSetupLaunchIcon()
         {
-            var launcherPath = CurrentSectionEmulatorHandler?.LauncherPath;
+            if (IsEmulatorRunning || IsGameplayRecording)
+                return;
+
+            var handler = CurrentSectionEmulatorHandler;
+            if (handler == null)
+            {
+                ReplaceSetupLaunchIcon(null, null);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(handler.FlatpakAppId))
+            {
+                var flatpakKey = $"flatpak:{handler.FlatpakAppId}";
+                if (string.Equals(_currentSetupLaunchIconExecutablePath, flatpakKey, StringComparison.OrdinalIgnoreCase) &&
+                    _currentSetupLaunchIcon != null)
+                {
+                    return;
+                }
+
+                var flatpakIcon = EmulatorSetupLaunchIconService.TryLoadFlatpakSetupLaunchIcon(handler.FlatpakAppId);
+                ReplaceSetupLaunchIcon(flatpakIcon, flatpakKey);
+                return;
+            }
+
+            var launcherPath = handler.LauncherPath;
             if (string.IsNullOrWhiteSpace(launcherPath))
             {
                 ReplaceSetupLaunchIcon(null, null);

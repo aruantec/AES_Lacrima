@@ -76,8 +76,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var handler = ResolveEmulatorHandlerForAlbum(album);
-            var launcherPath = handler?.LauncherPath;
-            if (handler == null || !handler.IsLauncherPathValid(launcherPath))
+            if (handler == null || !handler.HasLauncherPath)
                 return;
 
             var launchSettings = ResolveEmulationLaunchSettingsForAlbum(album);

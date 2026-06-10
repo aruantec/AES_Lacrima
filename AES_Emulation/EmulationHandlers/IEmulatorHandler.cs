@@ -20,6 +20,8 @@ public interface IEmulatorHandler : INotifyPropertyChanged
 
     string? LauncherPath { get; set; }
 
+    string? FlatpakAppId { get; set; }
+
     string LauncherDisplayPath { get; }
 
     bool HasLauncherPath { get; }

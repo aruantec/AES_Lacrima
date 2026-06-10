@@ -12,6 +12,7 @@ using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
 using AES_Emulation.EmulationHandlers;
+using AES_Emulation.Linux;
 using AES_Emulation.Services;
 using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
@@ -37,6 +38,11 @@ namespace AES_Lacrima.ViewModels;
 /// </summary>
 public interface ISettingsViewModel;
 
+public partial class SettingsViewModel
+{
+    public event EventHandler<IEmulatorHandler>? EmulatorHandlerConfigurationChanged;
+}
+
 /// <summary>
 /// Represents a shader resource with its file path and display name.
 /// </summary>
@@ -48,6 +54,9 @@ public sealed class EmulationHandlerAppItem : ObservableObject
 {
     private readonly EmulationSectionItem _section;
     private RetroArchCoreItem? _selectedRetroArchCoreItem;
+    private FlatpakApplicationItem? _selectedFlatpakApplication;
+    private bool _isSyncingFlatpakSelection;
+    private int _flatpakListRefreshDepth;
     private bool _isDownloading;
     private double _downloadProgress;
     private string? _downloadStatusMessage;
@@ -59,9 +68,14 @@ public sealed class EmulationHandlerAppItem : ObservableObject
         Handler.PropertyChanged += Handler_PropertyChanged;
         _section.PropertyChanged += OnSectionPropertyChanged;
         SetDefaultHandlerCommand = new RelayCommand(() => _section.SelectedHandlerId = Handler.HandlerId);
+        RefreshFlatpakApplicationsCommand = new RelayCommand(() => RefreshFlatpakApplications(forceRefresh: true));
         if (downloadOrUpdateFunc != null)
             HandlerDownloadOrUpdateCommand = new AsyncRelayCommand(() => downloadOrUpdateFunc(this));
+
+        RefreshFlatpakApplications();
     }
+
+    public Action? PersistSettings { get; set; }
 
     private void OnSectionPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -82,6 +96,51 @@ public sealed class EmulationHandlerAppItem : ObservableObject
     public string LauncherDisplayPath => Handler.LauncherDisplayPath;
 
     public bool HasLauncherPath => Handler.HasLauncherPath;
+
+    public bool IsFlatpakSelectionVisible => OperatingSystem.IsLinux() && FlatpakLaunchHelper.IsFlatpakAvailable();
+
+    public AvaloniaList<FlatpakApplicationItem> FlatpakApplications { get; } = [];
+
+    public FlatpakApplicationItem? SelectedFlatpakApplication
+    {
+        get => _selectedFlatpakApplication ??= ResolveSelectedFlatpakApplication();
+        set
+        {
+            // ComboBox list rebuilds push null through TwoWay binding; ignore those resets.
+            if (value == null && !string.IsNullOrWhiteSpace(Handler.FlatpakAppId))
+                return;
+
+            if (_flatpakListRefreshDepth > 0 || _isSyncingFlatpakSelection)
+            {
+                _selectedFlatpakApplication = value ?? FlatpakApplicationItem.Empty;
+                OnPropertyChanged();
+                return;
+            }
+
+            var normalized = value ?? FlatpakApplicationItem.Empty;
+            if (!normalized.IsEmpty)
+            {
+                normalized = FlatpakApplications.FirstOrDefault(app =>
+                                 string.Equals(app.ApplicationId, normalized.ApplicationId, StringComparison.OrdinalIgnoreCase))
+                             ?? normalized;
+            }
+
+            var appId = normalized.IsEmpty ? null : normalized.ApplicationId;
+            if (string.Equals(Handler.FlatpakAppId, appId, StringComparison.Ordinal) &&
+                _selectedFlatpakApplication is not null &&
+                Equals(_selectedFlatpakApplication, normalized))
+            {
+                return;
+            }
+
+            _selectedFlatpakApplication = normalized;
+            Handler.FlatpakAppId = appId;
+            OnPropertyChanged();
+            PersistSettings?.Invoke();
+        }
+    }
+
+    public ICommand RefreshFlatpakApplicationsCommand { get; }
 
     public ICommand? BrowseLauncherCommand => Handler.BrowseLauncherCommand;
 
@@ -175,6 +234,96 @@ public sealed class EmulationHandlerAppItem : ObservableObject
         OnPropertyChanged(nameof(SelectedRetroArchCoreItem));
     }
 
+    public void RefreshFlatpakApplications(bool forceRefresh = false)
+    {
+        _flatpakListRefreshDepth++;
+        try
+        {
+            _isSyncingFlatpakSelection = true;
+
+            if (forceRefresh)
+                LinuxFlatpakApplicationService.InvalidateCache();
+
+            FlatpakApplications.Clear();
+            if (!IsFlatpakSelectionVisible)
+            {
+                ApplyFlatpakSelection();
+                OnPropertyChanged(nameof(FlatpakApplications));
+                OnPropertyChanged(nameof(IsFlatpakSelectionVisible));
+                return;
+            }
+
+            foreach (var app in LinuxFlatpakApplicationService.GetApplicationsForHandler(Handler.HandlerId, forceRefresh))
+                FlatpakApplications.Add(app);
+
+            OnPropertyChanged(nameof(FlatpakApplications));
+            OnPropertyChanged(nameof(IsFlatpakSelectionVisible));
+            ApplyFlatpakSelection();
+            _ = PopulateFlatpakIconsAfterRefreshAsync();
+        }
+        finally
+        {
+            _isSyncingFlatpakSelection = false;
+            _flatpakListRefreshDepth--;
+            Dispatcher.UIThread.Post(ReleaseFlatpakSelectionGuards, DispatcherPriority.Loaded);
+        }
+    }
+
+    private async Task PopulateFlatpakIconsAfterRefreshAsync()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        await LinuxFlatpakApplicationService.PopulateIconsAsync(FlatpakApplications).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            OnPropertyChanged(nameof(FlatpakApplications));
+            ApplyFlatpakSelection();
+        });
+    }
+
+    private void ApplyFlatpakSelection()
+    {
+        var resolved = ResolveSelectedFlatpakApplication();
+        if (_selectedFlatpakApplication is not null && Equals(_selectedFlatpakApplication, resolved))
+            return;
+
+        try
+        {
+            _isSyncingFlatpakSelection = true;
+            _selectedFlatpakApplication = resolved;
+            OnPropertyChanged(nameof(SelectedFlatpakApplication));
+        }
+        finally
+        {
+            _isSyncingFlatpakSelection = false;
+        }
+    }
+
+    private void ReleaseFlatpakSelectionGuards()
+    {
+        _isSyncingFlatpakSelection = false;
+        if (_flatpakListRefreshDepth < 0)
+            _flatpakListRefreshDepth = 0;
+    }
+
+    private void SyncFlatpakSelection() => ApplyFlatpakSelection();
+
+    private FlatpakApplicationItem ResolveSelectedFlatpakApplication()
+    {
+        if (string.IsNullOrWhiteSpace(Handler.FlatpakAppId))
+            return FlatpakApplicationItem.Empty;
+
+        return FlatpakApplications.FirstOrDefault(app =>
+                   string.Equals(app.ApplicationId, Handler.FlatpakAppId, StringComparison.OrdinalIgnoreCase))
+               ?? new FlatpakApplicationItem(
+                   Handler.FlatpakAppId,
+                   Handler.FlatpakAppId,
+                   OperatingSystem.IsLinux()
+                       ? LinuxFlatpakIconService.TryLoadApplicationIcon(Handler.FlatpakAppId)
+                       : null);
+    }
+
     public void NotifyDefaultSelectionChanged()
     {
         OnPropertyChanged(nameof(IsDefault));
@@ -183,6 +332,7 @@ public sealed class EmulationHandlerAppItem : ObservableObject
     private void Handler_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName != nameof(IEmulatorHandler.LauncherPath) &&
+            e.PropertyName != nameof(IEmulatorHandler.FlatpakAppId) &&
             e.PropertyName != nameof(IEmulatorHandler.LauncherDisplayPath) &&
             e.PropertyName != nameof(IEmulatorHandler.HasLauncherPath) &&
             e.PropertyName != nameof(IEmulatorHandler.BrowseLauncherCommand) &&
@@ -191,8 +341,12 @@ public sealed class EmulationHandlerAppItem : ObservableObject
             return;
         }
 
+        if (string.Equals(e.PropertyName, nameof(IEmulatorHandler.FlatpakAppId), StringComparison.Ordinal))
+            SyncFlatpakSelection();
+
         OnPropertyChanged(nameof(LauncherDisplayPath));
         OnPropertyChanged(nameof(HasLauncherPath));
+        OnPropertyChanged(nameof(SelectedFlatpakApplication));
         OnPropertyChanged(nameof(BrowseLauncherCommand));
         OnPropertyChanged(nameof(ClearLauncherCommand));
     }
@@ -387,6 +541,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private const string EmulationSectionLauncherPathsSettingName = "EmulationSectionLauncherPaths";
     private const string EmulationSectionConfigurationsSettingName = "EmulationSectionConfigurations";
     private const string EmulatorHandlerLauncherPathsSettingName = "EmulatorHandlerLauncherPaths";
+    private const string EmulatorHandlerFlatpakAppIdsSettingName = "EmulatorHandlerFlatpakAppIds";
     private const string SettingsViewModelsSectionName = "ViewModels";
     private const string EmulationViewModelSettingsSectionName = "EmulationViewModel";
     private const string EmulationAlbumOrderSettingName = "AlbumOrder";
@@ -2017,7 +2172,13 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 handlers = handlers.Where(handler => handler.UsesRetroArchCores).ToList();
 
             foreach (var handler in handlers)
-                item.Handlers.Add(new EmulationHandlerAppItem(handler, item, DownloadOrUpdateHandlerAsync));
+            {
+                var handlerItem = new EmulationHandlerAppItem(handler, item, DownloadOrUpdateHandlerAsync)
+                {
+                    PersistSettings = SaveSettings
+                };
+                item.Handlers.Add(handlerItem);
+            }
 
             if (item.Handlers.Count == 1)
                 item.SelectedHandlerId = item.Handlers[0].HandlerId;
@@ -2039,6 +2200,20 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             string.Equals(handler.HandlerId, RetroArchHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
         {
             RefreshRetroArchCores();
+        }
+
+        if (string.Equals(e.PropertyName, nameof(IEmulatorHandler.FlatpakAppId), StringComparison.OrdinalIgnoreCase) &&
+            !_isLoadingSettings)
+        {
+            SaveSettings();
+        }
+
+        if (!_isLoadingSettings &&
+            sender is IEmulatorHandler configuredHandler &&
+            (string.Equals(e.PropertyName, nameof(IEmulatorHandler.FlatpakAppId), StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(e.PropertyName, nameof(IEmulatorHandler.LauncherPath), StringComparison.OrdinalIgnoreCase)))
+        {
+            EmulatorHandlerConfigurationChanged?.Invoke(this, configuredHandler);
         }
     }
 
@@ -3142,6 +3317,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     {
         base.OnShowViewModel();
         ApplyPersistedEmulationSectionOrder();
+
+        var emulation = DiLocator.ResolveViewModel<EmulationViewModel>();
+        if (emulation is { IsEmulatorRunning: true } or { IsGameplayRecording: true })
+            return;
+
+        RefreshHandlerFlatpakApplications(forceRefresh: true);
     }
 
     private void SyncSelectedAppReleaseState()
@@ -3308,14 +3489,22 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var emulatorHandlerLauncherPaths = ReadObjectSetting<Dictionary<string, string>>(section, EmulatorHandlerLauncherPathsSettingName)
             ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var emulatorHandlerFlatpakAppIds = ReadObjectSetting<Dictionary<string, string>>(section, EmulatorHandlerFlatpakAppIdsSettingName)
+            ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var handler in EmulatorHandlerRegistry.GetRegisteredHandlers())
+        {
             handler.LauncherPath = null;
+            handler.FlatpakAppId = null;
+        }
 
         foreach (var handler in EmulatorHandlerRegistry.GetRegisteredHandlers())
         {
             if (emulatorHandlerLauncherPaths.TryGetValue(handler.HandlerId, out var launcherPath))
                 handler.LauncherPath = launcherPath;
+
+            if (emulatorHandlerFlatpakAppIds.TryGetValue(handler.HandlerId, out var flatpakAppId))
+                handler.FlatpakAppId = flatpakAppId;
         }
 
         foreach (var item in EmulationSections)
@@ -3343,6 +3532,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         ApplyPersistedEmulationSectionOrder();
         RefreshRetroArchCores();
+        RefreshHandlerFlatpakApplications(forceRefresh: true);
         CheckForAppUpdatesOnStartup = ReadBoolSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
         PreferAotAppUpdates = ReadBoolSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
         ShowAppPrereleaseBuildsOnly = ReadBoolSetting(section, nameof(ShowAppPrereleaseBuildsOnly), ShowAppPrereleaseBuildsOnly);
@@ -3462,6 +3652,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             EmulatorHandlerRegistry.GetRegisteredHandlers()
                 .Where(handler => !string.IsNullOrWhiteSpace(handler.HandlerId) && !string.IsNullOrWhiteSpace(handler.LauncherPath))
                 .ToDictionary(handler => handler.HandlerId, handler => handler.LauncherPath!, StringComparer.OrdinalIgnoreCase));
+        WriteObjectSetting(
+            section,
+            EmulatorHandlerFlatpakAppIdsSettingName,
+            EmulatorHandlerRegistry.GetRegisteredHandlers()
+                .Where(handler => !string.IsNullOrWhiteSpace(handler.HandlerId) && !string.IsNullOrWhiteSpace(handler.FlatpakAppId))
+                .ToDictionary(handler => handler.HandlerId, handler => handler.FlatpakAppId!, StringComparer.OrdinalIgnoreCase));
         WriteSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
         WriteSetting(section, nameof(PreferAotAppUpdates), PreferAotAppUpdates);
         WriteSetting(section, nameof(ShowAppPrereleaseBuildsOnly), ShowAppPrereleaseBuildsOnly);
@@ -3490,6 +3686,18 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(RestartOnResumeThresholdSeconds), RestartOnResumeThresholdSeconds);
         WriteSetting(section, nameof(PauseWhenVolumeIsZero), PauseWhenVolumeIsZero);
         WriteSetting(section, nameof(SortAlbumsByTrackNameInMiniView), SortAlbumsByTrackNameInMiniView);
+    }
+
+    private void RefreshHandlerFlatpakApplications(bool forceRefresh = false)
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        if (forceRefresh)
+            LinuxFlatpakApplicationService.InvalidateCache();
+
+        foreach (var handlerItem in EmulationSections.SelectMany(section => section.Handlers))
+            handlerItem.RefreshFlatpakApplications(forceRefresh);
     }
 
     private void MigrateLegacySectionLauncherPath(string? sectionTitle, string? launcherPath)

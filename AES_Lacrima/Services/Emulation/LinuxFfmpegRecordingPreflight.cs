@@ -14,6 +14,59 @@ namespace AES_Lacrima.Services.Emulation;
 /// </summary>
 internal static class LinuxFfmpegRecordingPreflight
 {
+    /// <summary>
+    /// Pick an encoder immediately for recording. Avoids subprocess probe timeouts that stall capture
+    /// (~8–11s of duplicate frames while the compositor worker is blocked).
+    /// </summary>
+    public static FfmpegRecordingPreflight.PreflightResult ResolveRecordingEncoder(
+        string ffmpegPath,
+        GameplayRecordingVideoCodec videoCodec,
+        GameplayRecordingEncoderPreference encoderPreference,
+        GameplayRecordingContainer preferredContainer)
+    {
+        var container = preferredContainer;
+
+        if (videoCodec == GameplayRecordingVideoCodec.H264)
+        {
+            if (encoderPreference is GameplayRecordingEncoderPreference.Auto
+                or GameplayRecordingEncoderPreference.Software)
+            {
+                return new FfmpegRecordingPreflight.PreflightResult(
+                    "libx264",
+                    "-preset veryfast -tune zerolatency",
+                    container,
+                    null);
+            }
+
+            var (codec, extra) = GameplayRecordingFormat.ResolveVideoEncoder(
+                videoCodec, encoderPreference, ffmpegPath);
+            return new FfmpegRecordingPreflight.PreflightResult(codec, extra, container, null);
+        }
+
+        if (encoderPreference is GameplayRecordingEncoderPreference.Auto
+            or GameplayRecordingEncoderPreference.Software)
+        {
+            if (container == GameplayRecordingContainer.Mp4)
+                container = GameplayRecordingContainer.Mkv;
+
+            return new FfmpegRecordingPreflight.PreflightResult(
+                "libsvtav1",
+                "-preset 8",
+                container,
+                null);
+        }
+
+        var (av1Codec, av1Extra) = GameplayRecordingFormat.ResolveVideoEncoder(
+            videoCodec, encoderPreference, ffmpegPath);
+        if (container == GameplayRecordingContainer.Mp4 &&
+            string.Equals(av1Codec, "libsvtav1", StringComparison.OrdinalIgnoreCase))
+        {
+            container = GameplayRecordingContainer.Mkv;
+        }
+
+        return new FfmpegRecordingPreflight.PreflightResult(av1Codec, av1Extra, container, null);
+    }
+
     public static async Task<FfmpegRecordingPreflight.PreflightResult?> ProbeBestEncoderAsync(
         string ffmpegPath,
         GameplayRecordingVideoCodec videoCodec,

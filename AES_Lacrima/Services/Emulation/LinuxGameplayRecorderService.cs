@@ -57,6 +57,7 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
     private readonly StringBuilder _ffmpegStderr = new();
     private int _recordingSessionId;
     private Task? _finalizeTask;
+    private int _encoderStartupScheduled;
 
     private const int FinalizeWriterWaitMs = 5_000;
     private const int FinalizeFfmpegWaitMs = 8_000;
@@ -122,6 +123,7 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
         _latestFrame = null;
         _hasWrittenFrame = false;
         _lastWrittenFrame = null;
+        Interlocked.Exchange(ref _encoderStartupScheduled, 0);
 
         _isRecording = true;
         RecordingStateChanged?.Invoke(true);
@@ -133,9 +135,6 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
     private void OnFrameReceived(byte[] pixels, int width, int height)
     {
         if (!_isRecording || pixels.Length == 0)
-            return;
-
-        if (_ffmpegProcess == null && !TryEnsureEncoder(width, height))
             return;
 
         lock (_frameLock)
@@ -152,12 +151,38 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
                 _hasLatestFrame = true;
             }
         }
+
+        if (_ffmpegProcess != null)
+            return;
+
+        if (Interlocked.CompareExchange(ref _encoderStartupScheduled, 1, 0) != 0)
+            return;
+
+        var frameWidth = width;
+        var frameHeight = height;
+        Task.Run(() =>
+        {
+            try
+            {
+                TryEnsureEncoder(frameWidth, frameHeight);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _encoderStartupScheduled, 0);
+            }
+        });
     }
 
     private bool TryEnsureEncoder(int width, int height)
     {
+        if (!_isRecording)
+            return false;
+
         lock (_processLock)
         {
+            if (!_isRecording)
+                return false;
+
             if (_ffmpegProcess != null)
                 return true;
 
@@ -168,7 +193,6 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
             var fps = Math.Clamp(settings.GameplayRecordingFps, 15, 120);
             _targetFps = fps;
             _frameIntervalTicks = Stopwatch.Frequency / fps;
-            _recordingStartTicks = Stopwatch.GetTimestamp();
 
             _frameWidth = Math.Max(64, width & ~1);
             _frameHeight = Math.Max(64, height & ~1);
@@ -213,26 +237,11 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
             try
             {
                 var bitrate = Math.Clamp(settings.GameplayRecordingBitrateKbps, 1000, 100_000);
-                var probeResult = LinuxFfmpegRecordingPreflight.ProbeBestEncoderAsync(
-                        ffmpegPath,
-                        settings.GameplayRecordingVideoCodec,
-                        settings.GameplayRecordingEncoderPreference,
-                        settings.GameplayRecordingContainer,
-                        _frameWidth,
-                        _frameHeight,
-                        fps,
-                        bitrate)
-                    .GetAwaiter()
-                    .GetResult();
-
-                if (probeResult == null)
-                {
-                    FailRecording(
-                        settings.GameplayRecordingVideoCodec == GameplayRecordingVideoCodec.H264
-                            ? "H.264 encoding failed. Try Container: MKV or Encoder: Software."
-                            : "Video encoder failed to start. Try Encoder: Software or a different container.");
-                    return false;
-                }
+                var probeResult = LinuxFfmpegRecordingPreflight.ResolveRecordingEncoder(
+                    ffmpegPath,
+                    settings.GameplayRecordingVideoCodec,
+                    settings.GameplayRecordingEncoderPreference,
+                    settings.GameplayRecordingContainer);
 
                 return StartEncoderProcess(ffmpegPath, settings, fps, bitrate, probeResult, _includeAudio);
             }
@@ -293,6 +302,9 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
             FailRecording("Failed to start FFmpeg.");
             return false;
         }
+
+        _recordingStartTicks = Stopwatch.GetTimestamp();
+        _videoFramesWritten = 0;
 
         _videoStdin = _ffmpegProcess.StandardInput.BaseStream;
         _writerCts = new CancellationTokenSource();
@@ -414,20 +426,11 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
             try
             {
                 var bitrate = Math.Clamp(settings.GameplayRecordingBitrateKbps, 1000, 100_000);
-                var probeResult = LinuxFfmpegRecordingPreflight.ProbeBestEncoderAsync(
-                        ffmpegPath,
-                        settings.GameplayRecordingVideoCodec,
-                        settings.GameplayRecordingEncoderPreference,
-                        settings.GameplayRecordingContainer,
-                        _frameWidth,
-                        _frameHeight,
-                        fps,
-                        bitrate)
-                    .GetAwaiter()
-                    .GetResult();
-
-                if (probeResult == null)
-                    return false;
+                var probeResult = LinuxFfmpegRecordingPreflight.ResolveRecordingEncoder(
+                    ffmpegPath,
+                    settings.GameplayRecordingVideoCodec,
+                    settings.GameplayRecordingEncoderPreference,
+                    settings.GameplayRecordingContainer);
 
                 return StartEncoderProcess(ffmpegPath, settings, fps, bitrate, probeResult, includeAudio: false);
             }
@@ -489,6 +492,7 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
         _hasWrittenFrame = false;
         _videoFramesWritten = 0;
         _recordingStartTicks = Stopwatch.GetTimestamp();
+        Interlocked.Exchange(ref _encoderStartupScheduled, 0);
     }
 
     private string ExtractFfmpegErrorMessage()

@@ -31,6 +31,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     private bool _isActive;
     private bool _isPrepared;
     private string? _launcherPath;
+    private string? _flatpakAppId;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -56,12 +57,44 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         }
     }
 
-    public string LauncherDisplayPath =>
-        string.IsNullOrWhiteSpace(LauncherPath)
-            ? "No executable selected"
-            : LauncherPath;
+    public string? FlatpakAppId
+    {
+        get => _flatpakAppId;
+        set
+        {
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (!SetProperty(ref _flatpakAppId, normalized))
+                return;
 
-    public bool HasLauncherPath => IsLauncherPathValid(LauncherPath);
+            OnPropertyChanged(nameof(LauncherDisplayPath));
+            OnPropertyChanged(nameof(HasLauncherPath));
+        }
+    }
+
+    public string LauncherDisplayPath
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(FlatpakAppId))
+                return $"flatpak run {FlatpakAppId}";
+
+            if (string.IsNullOrWhiteSpace(LauncherPath))
+                return "No executable selected";
+
+            return LauncherPath;
+        }
+    }
+
+    public bool HasLauncherPath =>
+        HasConfiguredFlatpakLauncher() || IsLauncherPathValid(LauncherPath);
+
+    protected virtual bool HasConfiguredFlatpakLauncher()
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(FlatpakAppId))
+            return false;
+
+        return Linux.LinuxFlatpakApplicationService.IsFlatpakAvailable();
+    }
 
     public virtual bool IsLauncherPathValid(string? launcherPath)
     {

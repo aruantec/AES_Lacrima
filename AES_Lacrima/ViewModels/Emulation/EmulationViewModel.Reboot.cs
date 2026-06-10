@@ -11,7 +11,7 @@ public partial class EmulationViewModel
         !IsEmulatorLaunchInProgress &&
         !_isClosingActiveEmulatorForRelaunch &&
         _activeEmulationSessionItem is { FileName: { Length: > 0 } } &&
-        CurrentEmulatorHandler?.IsLauncherPathValid(CurrentEmulatorHandler.LauncherPath) == true;
+        CurrentEmulatorHandler?.HasLauncherPath == true;
 
     [RelayCommand(CanExecute = nameof(CanRebootEmulator))]
     private void RebootEmulator()
@@ -38,7 +38,7 @@ public partial class EmulationViewModel
             ? ResolveEmulatorHandlerForAlbum(album)
             : CurrentEmulatorHandler;
 
-        if (handler == null || !handler.IsLauncherPathValid(handler.LauncherPath))
+        if (handler == null || !handler.HasLauncherPath)
             return null;
 
         var launchSettings = album != null

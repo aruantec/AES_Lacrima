@@ -90,6 +90,7 @@ namespace AES_Lacrima.ViewModels
         private bool _isGameplayPreviewActive;
         private bool _suppressSelectionStopForGameplayPreview;
         private bool _isSyncingCurrentSectionCoreSelection;
+        private bool _isSyncingCurrentSectionFlatpakSelection;
         private bool _isSyncingCurrentSectionRetroArchVersionSelection;
         private bool _isSyncingCurrentSectionRetroArchRepositoryOverride;
         private bool _isCurrentSectionRetroArchRepositoryDirty;
@@ -1132,6 +1133,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 DetachEmulationSectionSubscriptions(_subscribedSettingsViewModel);
                 _subscribedSettingsViewModel.PropertyChanged -= SettingsViewModel_PropertyChanged;
+                _subscribedSettingsViewModel.EmulatorHandlerConfigurationChanged -= OnEmulatorHandlerConfigurationChanged;
                 _subscribedSettingsViewModel.EmulationUseFirstItemCoverChanged -= OnEmulationUseFirstItemCoverChanged;
                 _subscribedSettingsViewModel.EmulationGameplayAutoplayChanged -= OnEmulationGameplayAutoplayChanged;
                 _subscribedSettingsViewModel.EmulationUseBackCoverLetterboxFillChanged -= OnEmulationUseBackCoverLetterboxFillChanged;
@@ -1140,10 +1142,26 @@ private bool _isShadPs4PatchesOverlayOpen;
             _subscribedSettingsViewModel = settings;
             AttachEmulationSectionSubscriptions(_subscribedSettingsViewModel);
             _subscribedSettingsViewModel.PropertyChanged += SettingsViewModel_PropertyChanged;
+            _subscribedSettingsViewModel.EmulatorHandlerConfigurationChanged += OnEmulatorHandlerConfigurationChanged;
             _subscribedSettingsViewModel.EmulationUseFirstItemCoverChanged += OnEmulationUseFirstItemCoverChanged;
             _subscribedSettingsViewModel.EmulationGameplayAutoplayChanged += OnEmulationGameplayAutoplayChanged;
             _subscribedSettingsViewModel.EmulationUseBackCoverLetterboxFillChanged += OnEmulationUseBackCoverLetterboxFillChanged;
             OnPropertyChanged(nameof(UseBackCoverLetterboxFill));
+        }
+
+        private void OnEmulatorHandlerConfigurationChanged(object? sender, IEmulatorHandler handler)
+        {
+            if (IsEmulatorRunning || IsGameplayRecording)
+                return;
+
+            if (CurrentSectionEmulatorHandler == null ||
+                !string.Equals(CurrentSectionEmulatorHandler.HandlerId, handler.HandlerId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            OnPropertyChanged(nameof(CurrentSectionEmulatorHandler));
+            SyncCurrentSectionFlatpakSelection();
         }
 
         private void AttachEmulationSectionSubscriptions(SettingsViewModel settings)
@@ -1509,6 +1527,9 @@ private bool _isShadPs4PatchesOverlayOpen;
                 RefreshAlbumPreviews();
             else if (!IsEmulatorRunning && IsGameplayPreviewAvailable)
                 QueueGameplayPreview(HighlightedItem, immediate: true);
+
+            if (!IsEmulatorRunning && !IsGameplayRecording)
+                SyncCurrentSectionFlatpakSelection();
         }
 
         public override void OnLeaveViewModel()

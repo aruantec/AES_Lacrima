@@ -67,7 +67,10 @@ public sealed class DolphinHandler : EmulatorHandlerBase
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
         startInfo.ArgumentList.Clear();
 
-        var dolphinUserDirectory = ResolvePortableUserDirectory(startInfo.FileName, startInfo.WorkingDirectory);
+        var usingFlatpak = !string.IsNullOrWhiteSpace(FlatpakAppId);
+        var dolphinUserDirectory = usingFlatpak
+            ? null
+            : ResolvePortableUserDirectory(startInfo.FileName, startInfo.WorkingDirectory);
         ApplyDolphinLaunchConfigOverrides(dolphinUserDirectory);
 
         // Dolphin CLI: -b batch, -e executable/content path, -f fullscreen.
@@ -89,6 +92,9 @@ public sealed class DolphinHandler : EmulatorHandlerBase
     public override ProcessStartInfo BuildSetupStartInfo(string? launcherPath, string? preferredEmulatorDirectory = null)
     {
         var startInfo = base.BuildSetupStartInfo(launcherPath, preferredEmulatorDirectory);
+        if (!string.IsNullOrWhiteSpace(FlatpakAppId))
+            return startInfo;
+
         var dolphinUserDirectory = ResolvePortableUserDirectory(startInfo.FileName, startInfo.WorkingDirectory);
         if (!string.IsNullOrWhiteSpace(dolphinUserDirectory))
         {

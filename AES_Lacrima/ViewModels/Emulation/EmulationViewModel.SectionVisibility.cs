@@ -106,14 +106,14 @@ namespace AES_Lacrima.ViewModels
         public bool ShowCurrentSectionPcsx2SetupLaunchButton =>
             CurrentSectionEmulatorHandler != null &&
             string.Equals(CurrentSectionEmulatorHandler.HandlerId, Pcsx2Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
-            CurrentSectionEmulatorHandler.IsLauncherPathValid(CurrentSectionEmulatorHandler.LauncherPath) &&
+            CurrentSectionEmulatorHandler.HasLauncherPath &&
             !IsEmulatorRunning &&
             !IsEmulatorLaunchInProgress;
 
         public bool ShowCurrentSectionDuckStationSetupLaunchButton =>
             CurrentSectionEmulatorHandler != null &&
             string.Equals(CurrentSectionEmulatorHandler.HandlerId, DuckStationHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
-            CurrentSectionEmulatorHandler.IsLauncherPathValid(CurrentSectionEmulatorHandler.LauncherPath) &&
+            CurrentSectionEmulatorHandler.HasLauncherPath &&
             !IsEmulatorRunning &&
             !IsEmulatorLaunchInProgress;
 
@@ -128,7 +128,7 @@ namespace AES_Lacrima.ViewModels
 
         public bool CanLaunchCurrentSectionHandlerSetup =>
             CurrentSectionEmulatorHandler != null &&
-            CurrentSectionEmulatorHandler?.IsLauncherPathValid(CurrentSectionEmulatorHandler.LauncherPath) == true &&
+            CurrentSectionEmulatorHandler?.HasLauncherPath == true &&
             !IsEmulatorRunning &&
             !IsEmulatorLaunchInProgress &&
             !IsCompositionCaptureVisible;

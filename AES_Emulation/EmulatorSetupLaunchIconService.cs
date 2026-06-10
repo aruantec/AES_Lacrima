@@ -32,6 +32,14 @@ public static class EmulatorSetupLaunchIconService
         return null;
     }
 
+    public static Bitmap? TryLoadFlatpakSetupLaunchIcon(string? flatpakAppId)
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(flatpakAppId))
+            return null;
+
+        return LinuxFlatpakIconService.TryLoadApplicationIcon(flatpakAppId);
+    }
+
     [SupportedOSPlatform("windows")]
     private static Bitmap? TryLoadWindowsExecutableIcon(string executablePath)
     {

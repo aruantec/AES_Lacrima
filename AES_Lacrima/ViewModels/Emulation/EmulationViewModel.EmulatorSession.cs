@@ -205,8 +205,11 @@ namespace AES_Lacrima.ViewModels
                         handler.LauncherPath);
                 }
 
-                if (!pcsx2PortableLaunchWrapped)
+                if (!pcsx2PortableLaunchWrapped && string.IsNullOrWhiteSpace(handler.FlatpakAppId))
                     PrepareLinuxAppImageStartInfo(startInfo);
+
+                if (OperatingSystem.IsLinux() && !string.IsNullOrWhiteSpace(handler.FlatpakAppId))
+                    FlatpakLaunchHelper.Apply(startInfo, handler.FlatpakAppId);
 
                 if (OperatingSystem.IsLinux())
                 {
