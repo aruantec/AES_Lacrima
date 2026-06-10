@@ -79,11 +79,134 @@ public static class LinuxCompositorProcessHelper
 
     public static void CollectCompositorTreePids(int compositorRootPid, HashSet<int> targetPids)
     {
-        targetPids.Clear();
         if (compositorRootPid <= 0 || !IsProcessAlive(compositorRootPid))
             return;
 
         AddProcessTreePids(compositorRootPid, targetPids);
+    }
+
+    public static void CollectSessionProcessTrees(IEnumerable<int> seedPids, HashSet<int> targetPids, HashSet<string>? nameHints = null)
+    {
+        foreach (var seedPid in seedPids)
+        {
+            if (seedPid <= 0 || !IsProcessAlive(seedPid))
+                continue;
+
+            CollectCompositorTreePids(seedPid, targetPids);
+
+            var ancestor = FindCompositorAncestor(seedPid);
+            if (ancestor > 0)
+                CollectCompositorTreePids(ancestor, targetPids);
+
+            if (nameHints == null)
+                continue;
+
+            foreach (var pid in targetPids)
+                AddProcessNameHints(pid, nameHints);
+        }
+    }
+
+    public static void CollectProcessIdentityHints(int pid, HashSet<string> hints)
+    {
+        if (pid <= 0)
+            return;
+
+        AddProcessNameHints(pid, hints);
+    }
+
+    private static readonly HashSet<string> IgnoredProcessNameHints = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "gamescope",
+        "gamescopereaper",
+        "gamescope-wl",
+        "xwayland",
+        "Xwayland",
+        "bash",
+        "sh",
+        "env",
+        "sleep",
+        "python",
+        "python3",
+        "dwm",
+        "nohup",
+        "tee",
+        "cat",
+        "squashfuse",
+        "AppRun",
+        "apprun",
+    };
+
+    private static void AddProcessNameHints(int pid, HashSet<string> hints)
+    {
+        if (pid <= 0 || !IsProcessAlive(pid))
+            return;
+
+        var comm = TryReadProcessComm(pid);
+        if (!string.IsNullOrWhiteSpace(comm))
+            AddProcessNameHint(hints, comm);
+
+        var exePath = TryReadProcessExePath(pid);
+        if (!string.IsNullOrWhiteSpace(exePath))
+            AddProcessNameHint(hints, Path.GetFileName(exePath));
+
+        foreach (var token in TryReadProcessCmdlineTokens(pid))
+            AddProcessNameHint(hints, token);
+    }
+
+    private static void AddProcessNameHint(HashSet<string> hints, string? rawValue)
+    {
+        if (string.IsNullOrWhiteSpace(rawValue))
+            return;
+
+        var value = rawValue.Trim().Trim('"');
+        if (value.Length < 2)
+            return;
+
+        var fileName = Path.GetFileName(value);
+        if (string.IsNullOrWhiteSpace(fileName))
+            fileName = value;
+
+        if (IgnoredProcessNameHints.Contains(fileName))
+            return;
+
+        hints.Add(fileName.ToLowerInvariant());
+
+        var withoutExtension = Path.GetFileNameWithoutExtension(fileName);
+        if (!string.IsNullOrWhiteSpace(withoutExtension) &&
+            !IgnoredProcessNameHints.Contains(withoutExtension))
+        {
+            hints.Add(withoutExtension.ToLowerInvariant());
+        }
+    }
+
+    private static string? TryReadProcessExePath(int pid)
+    {
+        try
+        {
+            var linkTarget = new FileInfo($"/proc/{pid}/exe").ResolveLinkTarget(true)?.FullName;
+            return string.IsNullOrWhiteSpace(linkTarget) ? null : linkTarget;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static IEnumerable<string> TryReadProcessCmdlineTokens(int pid)
+    {
+        try
+        {
+            var raw = File.ReadAllBytes($"/proc/{pid}/cmdline");
+            if (raw.Length == 0)
+                return Array.Empty<string>();
+
+            return System.Text.Encoding.UTF8.GetString(raw)
+                .Split('\0', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
     }
 
     public static bool IsDescendantOf(int ancestorPid, int pid)

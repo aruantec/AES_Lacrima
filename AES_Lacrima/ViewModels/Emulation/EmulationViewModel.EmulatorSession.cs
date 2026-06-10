@@ -793,7 +793,7 @@ namespace AES_Lacrima.ViewModels
                 try
                 {
                     var compositorPid = _linuxCompositorPid > 0 ? _linuxCompositorPid : process.Id;
-                    GetOrCreateLinuxEmulatorAudioVolume().Attach(compositorPid, process.Id);
+                    AttachLinuxEmulatorAudioVolume(compositorPid, process, handler);
                     ApplyEmulatorVolumeToProcess(EmulatorVolume);
                 }
                 catch (Exception ex)

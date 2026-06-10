@@ -459,27 +459,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 try
                 {
-                    var compositorPid = LinuxCompositorProcessHelper.ResolveCompositorRootPid(_linuxCompositorPid);
-                    if (compositorPid <= 0)
-                        compositorPid = _linuxCompositorPid;
-
-                    _linuxCompositorPid = compositorPid;
-                    var seeds = new List<int> { compositorPid };
-                    if (_activeEmulatorProcess != null)
-                    {
-                        try
-                        {
-                            _activeEmulatorProcess.Refresh();
-                            if (!_activeEmulatorProcess.HasExited)
-                                seeds.Add(_activeEmulatorProcess.Id);
-                        }
-                        catch (Exception ex)
-                        {
-                            SLog.Debug("Failed to refresh active emulator pid for volume control.", ex);
-                        }
-                    }
-
-                    GetOrCreateLinuxEmulatorAudioVolume().Attach(compositorPid, seeds.ToArray());
+                    AttachLinuxEmulatorAudioVolume(_linuxCompositorPid, _activeEmulatorProcess, CurrentEmulatorHandler);
                 }
                 catch (Exception ex)
                 {
@@ -551,27 +531,73 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 var controller = GetOrCreateLinuxEmulatorAudioVolume();
                 if (!controller.IsAttached && _linuxCompositorPid > 0)
-                {
-                    var emulatorPid = 0;
-                    try
-                    {
-                        if (_activeEmulatorProcess != null)
-                        {
-                            _activeEmulatorProcess.Refresh();
-                            if (!_activeEmulatorProcess.HasExited)
-                                emulatorPid = _activeEmulatorProcess.Id;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        SLog.Debug("Failed to resolve emulator pid for volume attach.", ex);
-                    }
-
-                    controller.Attach(_linuxCompositorPid, emulatorPid);
-                }
+                    AttachLinuxEmulatorAudioVolume(_linuxCompositorPid, _activeEmulatorProcess, CurrentEmulatorHandler);
 
                 controller.Volume = normalized;
             }
+        }
+
+        private void AttachLinuxEmulatorAudioVolume(int compositorPid, Process? process = null, IEmulatorHandler? handler = null)
+        {
+            var compositorRoot = LinuxCompositorProcessHelper.ResolveCompositorRootPid(compositorPid);
+            if (compositorRoot <= 0)
+                compositorRoot = compositorPid;
+
+            _linuxCompositorPid = compositorRoot;
+
+            var seeds = new HashSet<int> { compositorPid, compositorRoot };
+            var primaryEmulatorPid = LinuxCompositorProcessHelper.FindPrimaryEmulatorPid(compositorRoot);
+            if (primaryEmulatorPid > 0)
+                seeds.Add(primaryEmulatorPid);
+
+            if (process != null)
+            {
+                try
+                {
+                    process.Refresh();
+                    if (!process.HasExited)
+                        seeds.Add(process.Id);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Failed to resolve emulator pid for Linux volume attach.", ex);
+                }
+            }
+
+            var audioNameHints = BuildLinuxEmulatorAudioNameHints(handler, process);
+            GetOrCreateLinuxEmulatorAudioVolume().Attach(compositorPid, seeds, audioNameHints);
+        }
+
+        private static IEnumerable<string> BuildLinuxEmulatorAudioNameHints(IEmulatorHandler? handler, Process? process)
+        {
+            var hints = new List<string>();
+            if (handler != null)
+            {
+                hints.Add(handler.DisplayName);
+                hints.Add(handler.HandlerId);
+
+                if (!string.IsNullOrWhiteSpace(handler.LauncherPath))
+                {
+                    hints.Add(Path.GetFileNameWithoutExtension(handler.LauncherPath));
+                    hints.Add(Path.GetFileName(handler.LauncherPath));
+                }
+            }
+
+            if (process != null)
+            {
+                try
+                {
+                    process.Refresh();
+                    if (!process.HasExited)
+                        hints.Add(process.ProcessName);
+                }
+                catch
+                {
+                    // ignored
+                }
+            }
+
+            return hints;
         }
 
 #pragma warning disable CA1416 // Linux-only audio volume controller
