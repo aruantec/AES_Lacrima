@@ -109,10 +109,7 @@
     </ItemGroup>
     <Copy SourceFiles="@(_AudioBridgeDll)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
   </Target>
-  <ItemGroup Condition="'$(PublishAot)' != 'true'">
-    <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(PublishAot)' == 'true'">
+  <ItemGroup>
     <Analyzer Include="..\AES_Di.Generator\obj\$(Configuration)\netstandard2.0\AES_Di.Generator.dll" />
   </ItemGroup>
   <ItemGroup>
@@ -217,7 +214,7 @@
     <Message Importance="high" Text="Creating macOS application bundle for publish output at '$(PublishDir)'" />
     <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Mac/publish-macos.sh&quot; &quot;$(PublishDir)&quot;" EnvironmentVariables="APP_VERSION=$(Version)" />
   </Target>
-  <Target Name="BuildAesDiGeneratorForAot" BeforeTargets="CoreCompile" Condition="'$(PublishAot)' == 'true'">
+  <Target Name="BuildAesDiGenerator" BeforeTargets="CoreCompile">
     <MSBuild Projects="..\AES_Di.Generator\AES_Di.Generator.csproj" Targets="Build" Properties="Configuration=$(Configuration)" RemoveProperties="PublishAot;PublishTrimmed;RuntimeIdentifier;SelfContained" />
   </Target>
 </Project>

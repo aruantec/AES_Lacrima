@@ -89,19 +89,19 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
     }
 
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
-        => BuildRetroArchStartInfo(launcherPath, romPath, startFullscreen, sectionTitle, selectedRetroArchCore);
+        => BuildRetroArchStartInfo(launcherPath, romPath, startFullscreen, sectionTitle, selectedRetroArchCore, FlatpakAppId);
 
-    public static ProcessStartInfo BuildRetroArchStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
-        => BuildRetroArchStartInfoInternal(launcherPath, romPath, startFullscreen, sectionTitle, selectedRetroArchCore);
+    public static ProcessStartInfo BuildRetroArchStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null, string? flatpakAppId = null)
+        => BuildRetroArchStartInfoInternal(launcherPath, romPath, startFullscreen, sectionTitle, selectedRetroArchCore, flatpakAppId);
 
-    private static ProcessStartInfo BuildRetroArchStartInfoInternal(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
+    private static ProcessStartInfo BuildRetroArchStartInfoInternal(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null, string? flatpakAppId = null)
     {
-        EnsureRetroArchFullscreenConfig(launcherPath);
+        EnsureRetroArchFullscreenConfig(launcherPath, flatpakAppId);
 
         var startInfo = CreateBaseStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
         startInfo.CreateNoWindow = true; // This hides the console log window
         startInfo.WindowStyle = ProcessWindowStyle.Hidden; // Additional hint for some versions of Windows/RetroArch
-        var corePath = FindRetroArchCore(launcherPath, romPath, sectionTitle, selectedRetroArchCore);
+        var corePath = FindRetroArchCore(launcherPath, romPath, sectionTitle, selectedRetroArchCore, flatpakAppId);
         var logFilePath = GetRetroArchLogFilePath(launcherPath);
 
         if (!string.IsNullOrWhiteSpace(corePath))
@@ -193,20 +193,28 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         }
     }
 
-    private static void EnsureRetroArchFullscreenConfig(string launcherPath)
+    private static void EnsureRetroArchFullscreenConfig(string launcherPath, string? flatpakAppId = null)
     {
         try
         {
+            var cfgCandidates = new List<string>();
             var workingDirectory = ResolveLauncherWorkingDirectory(launcherPath);
-            if (string.IsNullOrWhiteSpace(workingDirectory))
-                return;
-
-            var cfgPath = new[]
+            if (!string.IsNullOrWhiteSpace(workingDirectory))
             {
-                Path.Combine(workingDirectory, "retroarch.cfg"),
-                Path.Combine(workingDirectory, "RetroArch.cfg"),
-                Path.Combine(workingDirectory, "Retroarch.cfg")
-            }.FirstOrDefault(File.Exists) ?? Path.Combine(workingDirectory, "retroarch.cfg");
+                cfgCandidates.Add(Path.Combine(workingDirectory, "retroarch.cfg"));
+                cfgCandidates.Add(Path.Combine(workingDirectory, "RetroArch.cfg"));
+                cfgCandidates.Add(Path.Combine(workingDirectory, "Retroarch.cfg"));
+            }
+
+            foreach (var configRoot in GetRetroArchConfigRoots(flatpakAppId))
+                cfgCandidates.Add(Path.Combine(configRoot, "retroarch.cfg"));
+
+            var cfgPath = cfgCandidates.FirstOrDefault(File.Exists)
+                ?? cfgCandidates.FirstOrDefault()
+                ?? (string.IsNullOrWhiteSpace(workingDirectory) ? null : Path.Combine(workingDirectory, "retroarch.cfg"));
+
+            if (string.IsNullOrWhiteSpace(cfgPath))
+                return;
 
             var lines = File.Exists(cfgPath)
                 ? File.ReadAllLines(cfgPath).ToList()
@@ -332,38 +340,17 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         return false;
     }
 
-    public static IReadOnlyList<string> GetRetroArchCores(string? launcherPath)
+    public static IReadOnlyList<string> GetRetroArchCores(string? launcherPath, string? flatpakAppId = null)
     {
-        if (string.IsNullOrWhiteSpace(launcherPath))
+        var candidateDirectories = GetRetroArchCoreCandidateDirectories(launcherPath, flatpakAppId);
+        if (candidateDirectories.Count == 0)
             return Array.Empty<string>();
-
-        var baseDir = ResolveLauncherWorkingDirectory(launcherPath);
-        if (string.IsNullOrWhiteSpace(baseDir))
-            return Array.Empty<string>();
-
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-
-        var candidateDirectories = new[]
-        {
-            baseDir,
-            Path.Combine(baseDir, "cores"),
-            Path.Combine(baseDir, "libretro"),
-            Path.Combine(baseDir, "cores", "32bit"),
-            Path.Combine(baseDir, "cores", "64bit"),
-            Path.Combine(baseDir, "..", "cores"),
-            Path.Combine(appData, "RetroArch", "cores"),
-            Path.Combine(commonAppData, "RetroArch", "cores")
-        };
 
         var extensions = GetSupportedRetroArchCoreExtensions();
         var foundCores = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var directory in candidateDirectories)
         {
-            if (!Directory.Exists(directory))
-                continue;
-
             try
             {
                 foreach (var file in Directory.EnumerateFiles(directory, "*libretro*", SearchOption.AllDirectories))
@@ -382,33 +369,100 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         return foundCores.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static string? FindRetroArchCore(string? launcherPath, string? romPath, string? sectionTitle, string? selectedRetroArchCore)
+    public static IReadOnlyList<string> GetRetroArchCoreCandidateDirectories(string? launcherPath, string? flatpakAppId = null)
     {
-        if (string.IsNullOrWhiteSpace(launcherPath))
-            return null;
+        var directories = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+                return;
+
+            var normalized = Path.GetFullPath(path);
+            if (seen.Add(normalized))
+                directories.Add(normalized);
+        }
 
         var baseDir = ResolveLauncherWorkingDirectory(launcherPath);
-        if (string.IsNullOrWhiteSpace(baseDir))
-            return null;
-
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-
-        var candidateDirectories = new[]
+        if (!string.IsNullOrWhiteSpace(baseDir))
         {
-            baseDir,
-            Path.Combine(baseDir, "cores"),
-            Path.Combine(baseDir, "libretro"),
-            Path.Combine(baseDir, "cores", "32bit"),
-            Path.Combine(baseDir, "cores", "64bit"),
-            Path.Combine(baseDir, "..", "cores"),
-            Path.Combine(appData, "RetroArch", "cores"),
-            Path.Combine(commonAppData, "RetroArch", "cores")
-        };
+            Add(baseDir);
+            Add(Path.Combine(baseDir, "cores"));
+            Add(Path.Combine(baseDir, "libretro"));
+            Add(Path.Combine(baseDir, "cores", "32bit"));
+            Add(Path.Combine(baseDir, "cores", "64bit"));
+            Add(Path.GetFullPath(Path.Combine(baseDir, "..", "cores")));
+        }
+
+        foreach (var configRoot in GetRetroArchConfigRoots(flatpakAppId))
+        {
+            Add(Path.Combine(configRoot, "cores"));
+            Add(configRoot);
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            Add(Path.Combine(appData, "RetroArch", "cores"));
+            Add(Path.Combine(commonAppData, "RetroArch", "cores"));
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            Add(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".local",
+                "share",
+                "retroarch",
+                "cores"));
+        }
+
+        return directories;
+    }
+
+    private static IEnumerable<string> GetRetroArchConfigRoots(string? flatpakAppId)
+    {
+        if (OperatingSystem.IsLinux())
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            yield return Path.Combine(home, ".config", "retroarch");
+
+            var xdgConfig = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+            if (!string.IsNullOrWhiteSpace(xdgConfig))
+                yield return Path.Combine(xdgConfig, "retroarch");
+
+            if (!string.IsNullOrWhiteSpace(flatpakAppId))
+                yield return Path.Combine(home, ".var", "app", flatpakAppId, "config", "retroarch");
+
+            yield return Path.Combine(home, ".var", "app", "org.libretro.RetroArch", "config", "retroarch");
+            yield break;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            yield return Path.Combine(appData, "RetroArch");
+            yield break;
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            yield return Path.Combine(home, "Library", "Application Support", "RetroArch");
+        }
+    }
+
+    private static string? FindRetroArchCore(string? launcherPath, string? romPath, string? sectionTitle, string? selectedRetroArchCore, string? flatpakAppId = null)
+    {
+        var candidateDirectories = GetRetroArchCoreCandidateDirectories(launcherPath, flatpakAppId);
+        if (candidateDirectories.Count == 0)
+            return null;
 
         if (!string.IsNullOrWhiteSpace(selectedRetroArchCore))
         {
-            var explicitPath = ResolveRetroArchCorePath(candidateDirectories, selectedRetroArchCore);
+            var explicitPath = ResolveRetroArchCorePath(candidateDirectories.ToArray(), selectedRetroArchCore);
             if (string.IsNullOrWhiteSpace(explicitPath))
             {
                 Log.Warn($"Selected RetroArch core '{selectedRetroArchCore}' could not be resolved for launcher '{launcherPath}' (section='{sectionTitle}', rom='{romPath}').");
@@ -479,29 +533,51 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
     private static bool IsRetroArchCoreUsable(string candidateCorePath, string? launcherPath)
     {
-        if (string.IsNullOrWhiteSpace(candidateCorePath) || string.IsNullOrWhiteSpace(launcherPath))
-            return true;
+        if (string.IsNullOrWhiteSpace(candidateCorePath))
+            return false;
 
         var coreName = Path.GetFileName(candidateCorePath)?.ToLowerInvariant() ?? string.Empty;
+        var installRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var installDir = ResolveLauncherWorkingDirectory(launcherPath);
-        if (string.IsNullOrWhiteSpace(installDir))
-            return true;
+        if (!string.IsNullOrWhiteSpace(installDir))
+            installRoots.Add(installDir);
+
+        foreach (var configRoot in GetRetroArchConfigRoots(null))
+            installRoots.Add(configRoot);
 
         bool directoryExists(string relativePath)
-            => Directory.Exists(Path.Combine(installDir, relativePath));
+        {
+            foreach (var root in installRoots)
+            {
+                if (Directory.Exists(Path.Combine(root, relativePath)))
+                    return true;
+            }
+
+            return false;
+        }
 
         bool fileExists(string relativePath)
-            => File.Exists(Path.Combine(installDir, relativePath));
+        {
+            foreach (var root in installRoots)
+            {
+                if (File.Exists(Path.Combine(root, relativePath)))
+                    return true;
+            }
+
+            return false;
+        }
 
         if (coreName.Contains("dolphin"))
         {
-            var possibleRoots = new[]
+            var possibleRoots = installRoots.ToList();
+            if (!string.IsNullOrWhiteSpace(installDir))
+                possibleRoots.Add(Path.Combine(installDir, ".."));
+
+            if (OperatingSystem.IsWindows())
             {
-                installDir,
-                Path.Combine(installDir, ".."),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RetroArch"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "RetroArch")
-            };
+                possibleRoots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RetroArch"));
+                possibleRoots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "RetroArch"));
+            }
 
             foreach (var root in possibleRoots)
             {

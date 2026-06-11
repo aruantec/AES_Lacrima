@@ -43,13 +43,10 @@
     <ProjectReference Include="..\AES_Core\AES_Core.csproj" />
     <ProjectReference Include="..\AES_Mpv\AES_Mpv.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="'$(PublishAot)' != 'true'">
-    <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(PublishAot)' == 'true'">
+  <ItemGroup>
     <Analyzer Include="..\AES_Di.Generator\obj\$(Configuration)\netstandard2.0\AES_Di.Generator.dll" />
   </ItemGroup>
-  <Target Name="BuildAesDiGeneratorForAot" BeforeTargets="CoreCompile" Condition="'$(PublishAot)' == 'true'">
+  <Target Name="BuildAesDiGenerator" BeforeTargets="CoreCompile">
     <MSBuild Projects="..\AES_Di.Generator\AES_Di.Generator.csproj" Targets="Build" Properties="Configuration=$(Configuration)" RemoveProperties="PublishAot;PublishTrimmed;RuntimeIdentifier;SelfContained" />
   </Target>
 </Project>

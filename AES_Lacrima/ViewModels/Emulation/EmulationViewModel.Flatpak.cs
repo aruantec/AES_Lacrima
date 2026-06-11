@@ -59,6 +59,13 @@ public partial class EmulationViewModel
             _selectedCurrentSectionFlatpakApplication = normalized;
             handler.FlatpakAppId = appId;
             SettingsViewModel?.SaveSettings();
+            if (handler.UsesRetroArchCores)
+            {
+                SettingsViewModel?.RefreshRetroArchCores();
+                OnPropertyChanged(nameof(CurrentSectionRetroArchCores));
+                OnPropertyChanged(nameof(ShowCurrentSectionRetroArchCoreSelection));
+                SyncCurrentSectionRetroArchCoreSelection();
+            }
             OnPropertyChanged();
             OnPropertyChanged(nameof(CurrentSectionEmulatorHandler));
             RefreshCurrentSectionSetupLaunchIcon();

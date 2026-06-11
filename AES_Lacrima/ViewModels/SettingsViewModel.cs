@@ -2198,9 +2198,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (_isLoadingSettings)
             return;
 
-        if (string.Equals(e.PropertyName, nameof(IEmulatorHandler.LauncherPath), StringComparison.OrdinalIgnoreCase) &&
+        if ((string.Equals(e.PropertyName, nameof(IEmulatorHandler.LauncherPath), StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(e.PropertyName, nameof(IEmulatorHandler.FlatpakAppId), StringComparison.OrdinalIgnoreCase)) &&
             sender is IEmulatorHandler handler &&
-            string.Equals(handler.HandlerId, RetroArchHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase))
+            handler.UsesRetroArchCores)
         {
             RefreshRetroArchCores();
         }
@@ -2698,13 +2699,20 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         }
     }
 
-    private void RefreshRetroArchCores()
+    internal void RefreshRetroArchCores()
     {
-        var retroArchHandler = EmulatorHandlerRegistry.GetRegisteredHandlers()
-            .FirstOrDefault(handler => handler.UsesRetroArchCores && !string.IsNullOrWhiteSpace(handler.LauncherPath))
-            ?? EmulatorHandlerRegistry.GetRegisteredHandlers().FirstOrDefault(handler => handler.UsesRetroArchCores);
+        var retroArchHandlers = EmulatorHandlerRegistry.GetRegisteredHandlers()
+            .Where(handler => handler.UsesRetroArchCores)
+            .ToList();
 
-        var availableCores = RetroArchHandler.GetRetroArchCores(retroArchHandler?.LauncherPath);
+        var foundCores = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var handler in retroArchHandlers)
+        {
+            foreach (var core in RetroArchHandler.GetRetroArchCores(handler.LauncherPath, handler.FlatpakAppId))
+                foundCores.Add(core);
+        }
+
+        var availableCores = foundCores.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
 
         var grouped = RetroArchHandler.GetGroupedRetroArchCores(availableCores);
 
