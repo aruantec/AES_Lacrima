@@ -33,6 +33,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -539,6 +540,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             }
         }
 
+        [SupportedOSPlatform("linux")]
         private void AttachLinuxEmulatorAudioVolume(int compositorPid, Process? process = null, IEmulatorHandler? handler = null)
         {
             var compositorRoot = LinuxCompositorProcessHelper.ResolveCompositorRootPid(compositorPid);

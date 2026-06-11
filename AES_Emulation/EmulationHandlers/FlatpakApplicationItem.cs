@@ -10,7 +10,7 @@ public sealed class FlatpakApplicationItem
     public FlatpakApplicationItem(string applicationId, string displayName, Bitmap? icon = null)
     {
         ApplicationId = applicationId ?? string.Empty;
-        DisplayName = string.IsNullOrWhiteSpace(displayName) ? applicationId : displayName;
+        DisplayName = string.IsNullOrWhiteSpace(displayName) ? ApplicationId : displayName;
         Icon = icon;
     }
 

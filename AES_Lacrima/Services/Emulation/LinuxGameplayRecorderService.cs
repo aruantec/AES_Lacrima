@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,6 +22,7 @@ namespace AES_Lacrima.Services.Emulation;
 /// <summary>
 /// Linux gameplay recorder: PipeWire composition frames to FFmpeg with optional PulseAudio input.
 /// </summary>
+[SupportedOSPlatform("linux")]
 [AutoRegister]
 public partial class LinuxGameplayRecorderService : IGameplayRecorder
 {

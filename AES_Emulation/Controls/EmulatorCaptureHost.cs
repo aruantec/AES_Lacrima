@@ -435,15 +435,24 @@ public class EmulatorCaptureHost : ContentControl
         int targetFps,
         AES_Emulation.Services.GameplayRecordingResolutionCap resolutionCap = AES_Emulation.Services.GameplayRecordingResolutionCap.P1080)
     {
-        switch (_backend)
+        if (OperatingSystem.IsWindows() && _backend is CompositionWgcCaptureControl compositionBackend)
         {
-            case CompositionWgcCaptureControl compositionBackend:
-                compositionBackend.ConfigureGameplayRecording(frameHandler, targetFps, resolutionCap);
-                break;
-            case LinuxCompositionCaptureControl linuxCompositionBackend:
-                linuxCompositionBackend.ConfigureGameplayRecording(frameHandler, targetFps, resolutionCap);
-                break;
+            compositionBackend.ConfigureGameplayRecording(frameHandler, targetFps, resolutionCap);
+            return;
         }
+
+        if (OperatingSystem.IsLinux())
+            ConfigureGameplayRecordingLinux(frameHandler, targetFps, resolutionCap);
+    }
+
+    [SupportedOSPlatform("linux")]
+    private void ConfigureGameplayRecordingLinux(
+        Action<byte[], int, int>? frameHandler,
+        int targetFps,
+        AES_Emulation.Services.GameplayRecordingResolutionCap resolutionCap)
+    {
+        if (_backend is LinuxCompositionCaptureControl linuxCompositionBackend)
+            linuxCompositionBackend.ConfigureGameplayRecording(frameHandler, targetFps, resolutionCap);
     }
 
     private (int X, int Y)? MapLocalToTargetClient(Point hostLocal)
@@ -537,6 +546,17 @@ public class EmulatorCaptureHost : ContentControl
 
     private void PropagateStopSession()
     {
+        if (OperatingSystem.IsLinux())
+            PropagateStopSessionLinux();
+        else if (OperatingSystem.IsMacOS())
+            PropagateStopSessionMac();
+        else if (OperatingSystem.IsWindows())
+            PropagateStopSessionWindows();
+    }
+
+    [SupportedOSPlatform("linux")]
+    private void PropagateStopSessionLinux()
+    {
         switch (_backend)
         {
             case LinuxCompositionCaptureControl linuxCompositionBackend:
@@ -545,14 +565,19 @@ public class EmulatorCaptureHost : ContentControl
             case LinuxCaptureHost linuxBackend:
                 linuxBackend.RequestStopSession = true;
                 break;
-            case ScreenCaptureKitCaptureHost macBackend:
-                macBackend.RequestStopSession = true;
-                break;
         }
+    }
 
-        if (!OperatingSystem.IsWindows())
-            return;
+    [SupportedOSPlatform("macos")]
+    private void PropagateStopSessionMac()
+    {
+        if (_backend is ScreenCaptureKitCaptureHost macBackend)
+            macBackend.RequestStopSession = true;
+    }
 
+    [SupportedOSPlatform("windows")]
+    private void PropagateStopSessionWindows()
+    {
         switch (_backend)
         {
             case CompositionWgcCaptureControl compositionBackend:
@@ -852,25 +877,40 @@ public class EmulatorCaptureHost : ContentControl
             }
         }
 
+        if (OperatingSystem.IsMacOS())
+            SyncMacBackendProperties();
+        else if (OperatingSystem.IsLinux())
+            SyncLinuxBackendProperties();
+    }
+
+    [SupportedOSPlatform("macos")]
+    private void SyncMacBackendProperties()
+    {
+        if (_backend is not ScreenCaptureKitCaptureHost macBackend)
+            return;
+
+        macBackend.TargetHwnd = TargetHwnd;
+        macBackend.TargetWindowTitleHint = TargetWindowTitleHint;
+        macBackend.Stretch = Stretch;
+        macBackend.Brightness = Brightness;
+        macBackend.Saturation = Saturation;
+        macBackend.ColorTint = ColorTint;
+        macBackend.DisableVSync = DisableVSync;
+        macBackend.ShaderPath = ShaderPath;
+        macBackend.ClearShaderWhenPathEmpty = ClearShaderWhenPathEmpty;
+        macBackend.ForceUseTargetClientArea = ForceUseTargetClientArea;
+        macBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
+        macBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
+        macBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
+        macBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
+        macBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
+    }
+
+    [SupportedOSPlatform("linux")]
+    private void SyncLinuxBackendProperties()
+    {
         switch (_backend)
         {
-            case ScreenCaptureKitCaptureHost macBackend:
-                macBackend.TargetHwnd = TargetHwnd;
-                macBackend.TargetWindowTitleHint = TargetWindowTitleHint;
-                macBackend.Stretch = Stretch;
-                macBackend.Brightness = Brightness;
-                macBackend.Saturation = Saturation;
-                macBackend.ColorTint = ColorTint;
-                macBackend.DisableVSync = DisableVSync;
-                macBackend.ShaderPath = ShaderPath;
-                macBackend.ClearShaderWhenPathEmpty = ClearShaderWhenPathEmpty;
-                macBackend.ForceUseTargetClientArea = ForceUseTargetClientArea;
-                macBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
-                macBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
-                macBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
-                macBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
-                macBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
-                break;
             case LinuxCaptureHost linuxBackend:
                 linuxBackend.TargetHwnd = TargetHwnd;
                 linuxBackend.CompositorProcessId = TargetProcessId;

@@ -71,6 +71,9 @@ public partial class EmulationViewModel
 
     internal void RefreshCurrentSectionFlatpakApplications(bool forceRefresh = false)
     {
+        if (!OperatingSystem.IsLinux())
+            return;
+
         _currentSectionFlatpakListRefreshDepth++;
         try
         {

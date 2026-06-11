@@ -7,9 +7,21 @@
     <OutputType>Library</OutputType>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <!-- Keep analyzer output in obj/ only. DotRush locks bin/ and breaks incremental builds. -->
+    <OutputPath>$(IntermediateOutputPath)</OutputPath>
+    <CopyBuildOutputToOutputDirectory>false</CopyBuildOutputToOutputDirectory>
+    <CopyBuildOutputToPublishDirectory>false</CopyBuildOutputToPublishDirectory>
+    <!-- Stale bin/ copies may stay locked by DotRush after moving analyzer output to obj/. -->
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3061</MSBuildWarningsAsMessages>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" PrivateAssets="all" />
   </ItemGroup>
+  <!-- DotRush may keep a stale lock on legacy bin/ copies; analyzer output lives in obj/ now. -->
+  <Target Name="ExcludeStaleBinFromClean" BeforeTargets="CoreClean">
+    <ItemGroup>
+      <Clean Remove="$(MSBuildProjectDirectory)\bin\**\*.*" />
+    </ItemGroup>
+  </Target>
 </Project>

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,6 +13,7 @@ namespace AES_Lacrima.Services.Emulation;
 /// Linux encoder preflight: software encoders first because FFmpeg may list AMF/NVENC
 /// encoders that fail at runtime when vendor libraries are missing.
 /// </summary>
+[SupportedOSPlatform("linux")]
 internal static class LinuxFfmpegRecordingPreflight
 {
     /// <summary>

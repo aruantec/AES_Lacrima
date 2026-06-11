@@ -236,6 +236,9 @@ public sealed class EmulationHandlerAppItem : ObservableObject
 
     public void RefreshFlatpakApplications(bool forceRefresh = false)
     {
+        if (!OperatingSystem.IsLinux())
+            return;
+
         _flatpakListRefreshDepth++;
         try
         {

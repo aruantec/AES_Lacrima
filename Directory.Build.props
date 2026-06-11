@@ -2,6 +2,8 @@
   <PropertyGroup>
     <!-- Ensure linker incremental linking is enabled for Debug builds -->
     <LinkIncremental>true</LinkIncremental>
+    <!-- Ignore missing optional machine-local NuGet feeds during restore. -->
+    <RestoreIgnoreFailedSources>true</RestoreIgnoreFailedSources>
   </PropertyGroup>
 
   <ItemDefinitionGroup Condition="'$(Configuration)' == 'Debug'">
