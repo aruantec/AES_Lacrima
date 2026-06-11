@@ -2229,6 +2229,14 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
 
         Position = pos; // Update immediately for UI feedback
 
+        // Mute before the throttled seek dispatch so CompleteSeek cannot finalize
+        // while _seekAudioSuppressed is still false (leaves mpv muted until next seek).
+        if (IsPlaying)
+        {
+            _seekAudioSuppressed = true;
+            PostToMpvThread(() => SetProperty("mute", "yes"));
+        }
+
         _seekDispatchCts?.Cancel();
         _seekDispatchCts?.Dispose();
         _seekDispatchCts = new CancellationTokenSource();
@@ -2253,12 +2261,6 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                     var target = pos.ToString(CultureInfo.InvariantCulture);
                     InvokeOnMpvThread(() =>
                     {
-                        if (IsPlaying)
-                        {
-                            SetProperty("mute", "yes");
-                            _seekAudioSuppressed = true;
-                        }
-
                         // Keyframe seeks avoid hr-seek decode passes that audibly replay
                         // from an earlier keyframe (often near the start of the file).
                         RunCommand("seek", target, "absolute+keyframes");
