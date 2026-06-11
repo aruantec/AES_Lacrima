@@ -26,10 +26,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev libgl1-mesa-dev
+          sudo apt-get install -y libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev libgl1-mesa-dev libpipewire-0.3-dev libdbus-1-dev
 
       - name: Ensure scripts are executable
-        run: chmod +x ./build.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh
+        run: chmod +x ./build.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh ./AES_Lacrima/Linux/build-capture-bridge.sh
 
       - name: Restore local tools
         run: dotnet tool restore
@@ -128,7 +128,7 @@ jobs:
 
       - name: Ensure scripts are executable
         if: runner.os != 'Windows'
-        run: chmod +x ./build.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh
+        run: chmod +x ./build.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh ./AES_Lacrima/Linux/build-capture-bridge.sh
 
       - name: Install dependencies
         if: runner.os == 'Linux'
