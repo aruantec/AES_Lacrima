@@ -134,7 +134,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev libgl1-mesa-dev libpipewire-0.3-dev libdbus-1-dev gamescope || true
+          sudo apt-get install -y \
+            libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev libgl1-mesa-dev \
+            libpipewire-0.3-dev libdbus-1-dev
+          sudo apt-get install -y gamescope || true
 
       - name: Restore projects
         shell: bash
@@ -288,6 +291,28 @@ jobs:
         run: |
           mkdir -p artifacts
           ditto -c -k --sequesterRsrc --keepParent "output/publish/Release/${{ matrix.publish_dir_name }}/AES - Lacrima.app" "artifacts/${{ matrix.asset_name }}"
+
+      - name: Verify Linux publish payload
+        if: matrix.package_type == 'appimage'
+        run: |
+          set -euo pipefail
+          PUB="output/publish/Release/${{ matrix.publish_dir_name }}"
+          test -f "$PUB/AES_Lacrima"
+          test -f "$PUB/libAesLinuxCaptureBridge.so"
+          ldd "$PUB/libAesLinuxCaptureBridge.so" | grep -q libpipewire
+
+      - name: Bundle gamescope for AppImage
+        if: matrix.package_type == 'appimage'
+        run: |
+          set -euo pipefail
+          PUB="output/publish/Release/${{ matrix.publish_dir_name }}"
+          GS="$(command -v gamescope || true)"
+          if [[ -z "$GS" ]]; then
+            echo "::warning::gamescope not found on CI runner; AppImage will rely on a system install."
+            exit 0
+          fi
+          cp "$GS" "$PUB/gamescope"
+          chmod +x "$PUB/gamescope"
 
       - name: Download appimagetool
         if: matrix.package_type == 'appimage'

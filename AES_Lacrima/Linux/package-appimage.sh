@@ -35,6 +35,12 @@ if [[ ! -f "$PUBLISH_DIR/$EXECUTABLE_NAME" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$PUBLISH_DIR/libAesLinuxCaptureBridge.so" ]]; then
+  echo "Linux capture bridge not found: $PUBLISH_DIR/libAesLinuxCaptureBridge.so" >&2
+  echo "Emulator capture requires this native library. Install libpipewire-0.3-dev and libdbus-1-dev before publish." >&2
+  exit 1
+fi
+
 if [[ ! -f "$DESKTOP_TEMPLATE" ]]; then
   echo "desktop template not found: $DESKTOP_TEMPLATE" >&2
   exit 1

@@ -44,6 +44,7 @@ public partial class GamescopeManager : ObservableObject
 
         var candidates = new[]
         {
+            Path.Combine(AppContext.BaseDirectory, "gamescope"),
             ApplicationPaths.GetToolFile("gamescope"),
             "/usr/bin/gamescope",
             "/usr/local/bin/gamescope",
