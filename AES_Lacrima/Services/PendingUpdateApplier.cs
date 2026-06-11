@@ -179,6 +179,17 @@ internal static class PendingUpdateApplier
         if (!ValidateManifest(manifest))
             return false;
 
+        if (OperatingSystem.IsWindows()
+            && manifest.TargetKind == PendingUpdateTargetKind.DirectoryContents
+            && WindowsPendingUpdateHelper.TryScheduleApply(manifest, Environment.ProcessId))
+        {
+            WriteDiagnosticLog(
+                "Exiting so the Windows external update helper can replace locked files.",
+                $"ProcessId={Environment.ProcessId}");
+            Environment.Exit(0);
+            return true;
+        }
+
         WaitForProcessExit(manifest.PreviousProcessId, TimeSpan.FromMinutes(2));
 
         try
