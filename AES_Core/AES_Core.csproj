@@ -29,8 +29,9 @@
         <PackageReference Include="log4net" Version="3.3.0" />
     </ItemGroup>
 
-    <!-- Restore-only link: generator is built via BuildAesDiGenerator, not as a compile reference. -->
-    <ItemGroup>
+    <!-- Restore-only link: generator is built via BuildAesDiGenerator, not as a compile reference.
+         Omit during AOT publish/restore — netstandard2.0 cannot participate in Native AOT. -->
+    <ItemGroup Condition="'$(PublishAot)' != 'true'">
       <ProjectReference Include="..\AES_Di.Generator\AES_Di.Generator.csproj">
         <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
         <BuildReference>false</BuildReference>

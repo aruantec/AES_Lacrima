@@ -141,8 +141,10 @@ jobs:
         run: |
           sudo apt-get install -y clang zlib1g-dev
 
-      - name: Restore generator
-        run: dotnet restore AES_Di.Generator/AES_Di.Generator.csproj
+      - name: Restore projects
+        run: |
+          dotnet restore AES_Di.Generator/AES_Di.Generator.csproj -m:1
+          dotnet restore AES_Lacrima/AES_Lacrima.csproj -r ${{ matrix.runtime }} -m:1
 
       - name: Build WgcBridge (Windows)
         if: matrix.package_type == 'windows'
@@ -194,6 +196,7 @@ jobs:
           if ('${{ matrix.publish_aot }}' -eq 'true') {
             $arguments += '-p:PublishAot=true'
           }
+          $arguments += '--no-restore'
           dotnet @arguments
 
       - name: Copy WgcBridge.dll to publish output (Windows)
@@ -250,6 +253,7 @@ jobs:
           if [[ "${{ matrix.publish_aot }}" == "true" ]]; then
             args+=(-p:PublishAot=true)
           fi
+          args+=(--no-restore)
           dotnet "${args[@]}"
 
       - name: Package Windows archive
