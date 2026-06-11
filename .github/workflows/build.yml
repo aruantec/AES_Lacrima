@@ -136,15 +136,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev libgl1-mesa-dev libpipewire-0.3-dev libdbus-1-dev gamescope || true
 
+      - name: Restore projects
+        shell: bash
+        run: |
+          set -euo pipefail
+          restore_once() {
+            if [[ "${{ matrix.publish_aot }}" == "true" ]]; then
+              # AOT: restore generator via Core (no AOT/RID), then app with ILC packages.
+              dotnet restore AES_Core/AES_Core.csproj -m:1 &&
+              dotnet restore AES_Lacrima/AES_Lacrima.csproj -r ${{ matrix.runtime }} -p:PublishAot=true -m:1
+            else
+              dotnet restore AES_Lacrima/AES_Lacrima.csproj -r ${{ matrix.runtime }} -m:1
+            fi
+          }
+          for attempt in 1 2 3; do
+            if restore_once; then
+              exit 0
+            fi
+            echo "Restore attempt ${attempt} failed; retrying in 10s..." >&2
+            sleep 10
+          done
+          exit 1
+
       - name: Install Linux Native AOT prerequisites
         if: runner.os == 'Linux' && matrix.publish_aot
         run: |
+          sudo apt-get update
           sudo apt-get install -y clang zlib1g-dev
-
-      - name: Restore projects
-        run: |
-          dotnet restore AES_Di.Generator/AES_Di.Generator.csproj -m:1
-          dotnet restore AES_Lacrima/AES_Lacrima.csproj -r ${{ matrix.runtime }} ${{ matrix.publish_aot && '-p:PublishAot=true' || '' }} -m:1
 
       - name: Build WgcBridge (Windows)
         if: matrix.package_type == 'windows'
@@ -241,7 +259,9 @@ jobs:
 
       - name: Publish app on Unix
         if: matrix.package_type != 'windows'
+        shell: bash
         run: |
+          set -euo pipefail
           args=(
             publish
             AES_Lacrima/AES_Lacrima.csproj
@@ -249,11 +269,11 @@ jobs:
             -r "${{ matrix.runtime }}"
             -o "output/publish/Release/${{ matrix.publish_dir_name }}"
             -p:Version=0.0.0-local
+            --no-restore
           )
           if [[ "${{ matrix.publish_aot }}" == "true" ]]; then
             args+=(-p:PublishAot=true)
           fi
-          args+=(--no-restore)
           dotnet "${args[@]}"
 
       - name: Package Windows archive

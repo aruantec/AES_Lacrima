@@ -1,5 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- Source generators cannot be Native AOT targets; block RID/AOT props from parent restores. -->
+    <PublishAot>false</PublishAot>
+    <PublishTrimmed>false</PublishTrimmed>
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>13.0</LangVersion>
     <Nullable>enable</Nullable>

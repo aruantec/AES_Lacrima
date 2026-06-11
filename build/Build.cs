@@ -28,6 +28,7 @@ sealed class Build : NukeBuild
     AbsolutePath CoverageReportDirectory => TestResultsDirectory / "coverage-report";
     AbsolutePath PublishDirectory => ArtifactsDirectory / "publish" / Configuration;
     AbsolutePath TestsProjectFile => RootDirectory / "AES_Tests" / "AES_Tests.csproj";
+    AbsolutePath CoreProjectFile => RootDirectory / "AES_Core" / "AES_Core.csproj";
     AbsolutePath GeneratorProjectFile => RootDirectory / "AES_Di.Generator" / "AES_Di.Generator.csproj";
 
     string? SanitizedAppVersion =>
@@ -48,9 +49,8 @@ sealed class Build : NukeBuild
         .DependsOn(Clean)
         .Executes(() =>
         {
-            // Work around intermittent MSBuild restore graph failures on .NET 10 CI runners.
-            // AES_Di.Generator is built via MSBuild targets (not ProjectReference), so it must be restored explicitly.
-            DotNet($"restore \"{GeneratorProjectFile}\" -m:1", RootDirectory);
+            // AES_Di.Generator is restored transitively via AES_Core (restore-only ProjectReference).
+            DotNet($"restore \"{CoreProjectFile}\" -m:1", RootDirectory);
             DotNet($"restore \"{AppProjectFile}\" -m:1", RootDirectory);
             DotNet($"restore \"{TestsProjectFile}\" -m:1", RootDirectory);
         });
