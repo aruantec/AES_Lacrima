@@ -144,11 +144,7 @@ jobs:
       - name: Restore projects
         run: |
           dotnet restore AES_Di.Generator/AES_Di.Generator.csproj -m:1
-          if [[ "${{ matrix.publish_aot }}" == "true" ]]; then
-            dotnet restore AES_Lacrima/AES_Lacrima.csproj -r ${{ matrix.runtime }} -p:PublishAot=true -m:1
-          else
-            dotnet restore AES_Lacrima/AES_Lacrima.csproj -r ${{ matrix.runtime }} -m:1
-          fi
+          dotnet restore AES_Lacrima/AES_Lacrima.csproj -r ${{ matrix.runtime }} ${{ matrix.publish_aot && '-p:PublishAot=true' || '' }} -m:1
 
       - name: Build WgcBridge (Windows)
         if: matrix.package_type == 'windows'
