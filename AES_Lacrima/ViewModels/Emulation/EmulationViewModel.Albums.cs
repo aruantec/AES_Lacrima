@@ -1308,7 +1308,8 @@ namespace AES_Lacrima.ViewModels
                 FileName = filePath,
                 Title = title,
                 Album = album.Title,
-                CoverBitmap = album.CoverBitmap
+                CoverBitmap = album.CoverBitmap,
+                LocalCoverPath = HasLocalCoverInMetadata(filePath) ? GetLocalMetadataCachePath(filePath) : null
             };
 
             if (IsRomCoverAlreadyScanned(filePath))

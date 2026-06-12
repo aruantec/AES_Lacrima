@@ -26,23 +26,24 @@
     <Grid RowDefinitions="*,Auto,Auto,Auto" ClipToBounds="False">
         <Border Background="#0F0F0F" Grid.RowSpan="2"/>
 
-        <!-- Carousel -->
-        <composition:CompositionCarouselControl ItemsSource="{Binding CoverItems}"
-                                                ImageBitmapProperty="CoverBitmap"
-                                                SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
-                                                PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
-                                                ShowCoverFoundOverlay="False"
-                                                ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
-                                                ItemSpacing="{Binding SettingsViewModel.CarouselSpacing}"
-                                                ItemScale="{Binding SettingsViewModel.CarouselScale}"
-                                                VerticalOffset="{Binding SettingsViewModel.CarouselVerticalOffset}"
-                                                SliderVerticalOffset="{Binding SettingsViewModel.CarouselSliderVerticalOffset}"
-                                                SliderTrackHeight="{Binding SettingsViewModel.CarouselSliderTrackHeight}"
-                                                SideTranslation="{Binding SettingsViewModel.CarouselSideTranslation}"
-                                                StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"
-                                                UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
-                                                GlobalOpacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
-                                                ClipToBounds="False">
+        <Panel>
+            <composition:CompositionCarouselControl ItemsSource="{Binding CoverItems}"
+                                                    ImageBitmapProperty="CoverBitmap"
+                                                    SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                                                    PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
+                                                    ShowCoverFoundOverlay="False"
+                                                    ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
+                                                    ItemSpacing="{Binding SettingsViewModel.CarouselSpacing}"
+                                                    ItemScale="{Binding SettingsViewModel.CarouselScale}"
+                                                    VerticalOffset="{Binding SettingsViewModel.CarouselVerticalOffset}"
+                                                    SliderVerticalOffset="{Binding SettingsViewModel.CarouselSliderVerticalOffset}"
+                                                    SliderTrackHeight="{Binding SettingsViewModel.CarouselSliderTrackHeight}"
+                                                    SideTranslation="{Binding SettingsViewModel.CarouselSideTranslation}"
+                                                    StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"
+                                                    UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
+                                                    IsVisible="{Binding !SettingsViewModel.UseCardGridView}"
+                                                    GlobalOpacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
+                                                    ClipToBounds="False">
         <composition:CompositionCarouselControl.ContextMenu>
             <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
                 <!-- Add Files -->
@@ -147,13 +148,34 @@
                 </MenuItem>
             </ContextMenu>
         </composition:CompositionCarouselControl.ContextMenu>
-        </composition:CompositionCarouselControl>
+            </composition:CompositionCarouselControl>
+
+            <composition:CompositionCardGridControl ItemsSource="{Binding CoverItems}"
+                                                    ImageBitmapProperty="CoverBitmap"
+                                                    TitleProperty="Title"
+                                                    SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                                                    PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
+                                                    ShowCoverFoundOverlay="False"
+                                                    ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
+                                                    CardScale="{Binding SettingsViewModel.CarouselScale}"
+                                                    CardSpacing="{Binding SettingsViewModel.CardGridSpacing}"
+                                                    IsVisible="{Binding SettingsViewModel.UseCardGridView}"
+                                                    ClipToBounds="True">
+                <composition:CompositionCardGridControl.Opacity>
+                    <MultiBinding Converter="{StaticResource MultiplyDoubleConverter}">
+                        <Binding Path="IsActive" Converter="{StaticResource BoolToOpacityConverter}"/>
+                        <Binding Path="SettingsViewModel.CardGridOpacity"/>
+                    </MultiBinding>
+                </composition:CompositionCardGridControl.Opacity>
+            </composition:CompositionCardGridControl>
+        </Panel>
 
         <!-- Highlighted Item Metadata (Carousel center) -->
         <StackPanel HorizontalAlignment="Center" 
                     VerticalAlignment="Center" 
                     Margin="0,380,0,0"
                     Spacing="2"
+                    IsVisible="{Binding !SettingsViewModel.UseCardGridView}"
                     IsHitTestVisible="False">
             <StackPanel.Transitions>
                 <Transitions>

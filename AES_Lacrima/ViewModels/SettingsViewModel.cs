@@ -1727,6 +1727,15 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private bool _carouselUseFullCoverSize = false;
 
+    [ObservableProperty]
+    private bool _useCardGridView = false;
+
+    [ObservableProperty]
+    private double _cardGridSpacing = 16.0;
+
+    [ObservableProperty]
+    private double _cardGridOpacity = 1.0;
+
     /// <summary>
     /// Handles property change notifications to synchronize individual color properties
     /// with the internal collection and refresh the visual gradient.
@@ -3574,6 +3583,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         CarouselSideTranslation = ReadDoubleSetting(section, nameof(CarouselSideTranslation), CarouselSideTranslation);
         CarouselStackSpacing = ReadDoubleSetting(section, nameof(CarouselStackSpacing), CarouselStackSpacing);
         CarouselUseFullCoverSize = ReadBoolSetting(section, nameof(CarouselUseFullCoverSize), CarouselUseFullCoverSize);
+        UseCardGridView = ReadBoolSetting(section, nameof(UseCardGridView), UseCardGridView);
+        CardGridSpacing = ReadDoubleSetting(section, nameof(CardGridSpacing), CardGridSpacing);
+        CardGridOpacity = ReadDoubleSetting(section, nameof(CardGridOpacity), CardGridOpacity);
 
         // ReplayGain settings
         ReplayGainEnabled = ReadBoolSetting(section, nameof(ReplayGainEnabled), ReplayGainEnabled);
@@ -3682,6 +3694,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(CarouselSideTranslation), CarouselSideTranslation);
         WriteSetting(section, nameof(CarouselStackSpacing), CarouselStackSpacing);
         WriteSetting(section, nameof(CarouselUseFullCoverSize), CarouselUseFullCoverSize);
+        WriteSetting(section, nameof(UseCardGridView), UseCardGridView);
+        WriteSetting(section, nameof(CardGridSpacing), CardGridSpacing);
+        WriteSetting(section, nameof(CardGridOpacity), CardGridOpacity);
         // ReplayGain settings
         WriteSetting(section, nameof(ReplayGainEnabled), ReplayGainEnabled);
         WriteSetting(section, nameof(SmoothVolumeChange), SmoothVolumeChange);

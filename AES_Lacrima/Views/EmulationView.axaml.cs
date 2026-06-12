@@ -233,6 +233,7 @@ public partial class EmulationView : UserControl
     public EmulationView()
     {
         InitializeComponent();
+        RomCardGrid.ContextMenu = RomCarousel.ContextMenu;
         var captureHost = this.FindControl<Border>("EmulatorCaptureHost");
         captureHost?.AddHandler(InputElement.PointerPressedEvent, OnCaptureHostPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
         var captureContextMenuLayer = this.FindControl<Border>("CaptureContextMenuLayer");

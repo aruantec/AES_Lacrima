@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
@@ -125,6 +126,10 @@ public static class BinaryMetadataHelper
 {
     private const int IoRetryCount = 3;
     private const int IoRetryDelayMs = 15;
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new(StringComparer.OrdinalIgnoreCase);
+
+    private static SemaphoreSlim GetFileLock(string cachePath) =>
+        FileLocks.GetOrAdd(cachePath, _ => new SemaphoreSlim(1, 1));
 
     /// <summary>
     /// Serializes the provided metadata to a file at the specified path.
@@ -133,6 +138,8 @@ public static class BinaryMetadataHelper
     /// <param name="metadata">The metadata object to serialize.</param>
     public static void SaveMetadata(string cachePath, CustomMetadata metadata)
     {
+        var fileLock = GetFileLock(cachePath);
+        fileLock.Wait();
         try
         {
             var directory = Path.GetDirectoryName(cachePath);
@@ -147,7 +154,7 @@ public static class BinaryMetadataHelper
             }
 
             if (File.Exists(cachePath))
-                File.Copy(tempPath, cachePath, overwrite: true);
+                File.Replace(tempPath, cachePath, destinationBackupFileName: null);
             else
                 File.Move(tempPath, cachePath);
 
@@ -156,6 +163,10 @@ public static class BinaryMetadataHelper
         catch (Exception ex)
         {
             Debug.WriteLine($"Save Error: {ex.Message}");
+        }
+        finally
+        {
+            fileLock.Release();
         }
     }
 
@@ -168,28 +179,42 @@ public static class BinaryMetadataHelper
     {
         if (!File.Exists(cachePath)) return null;
 
-        for (int attempt = 0; attempt < IoRetryCount; attempt++)
+        var fileLock = GetFileLock(cachePath);
+        fileLock.Wait();
+        try
         {
-            try
+            for (int attempt = 0; attempt < IoRetryCount; attempt++)
             {
-                using var fs = new FileStream(cachePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                return JsonSerializer.Deserialize(fs, BinaryMetadataJsonContext.Default.CustomMetadata);
+                try
+                {
+                    using var fs = new FileStream(cachePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    return JsonSerializer.Deserialize(fs, BinaryMetadataJsonContext.Default.CustomMetadata);
+                }
+                catch (JsonException ex) when (attempt < IoRetryCount - 1)
+                {
+                    Debug.WriteLine($"JSON Parsing Error (retry {attempt + 1}) for '{cachePath}': {ex.Message}");
+                    Thread.Sleep(IoRetryDelayMs);
+                }
+                catch (JsonException ex)
+                {
+                    Debug.WriteLine($"JSON Parsing Error: {ex.Message}");
+                    return null;
+                }
+                catch (IOException ex) when (attempt < IoRetryCount - 1)
+                {
+                    Debug.WriteLine($"Metadata cache read retry {attempt + 1} for '{cachePath}': {ex.Message}");
+                    Thread.Sleep(IoRetryDelayMs);
+                }
+                catch (IOException ex)
+                {
+                    Debug.WriteLine($"Metadata cache read failed for '{cachePath}': {ex.Message}");
+                    return null;
+                }
             }
-            catch (JsonException ex)
-            {
-                Debug.WriteLine($"JSON Parsing Error: {ex.Message}");
-                return null;
-            }
-            catch (IOException ex) when (attempt < IoRetryCount - 1)
-            {
-                Debug.WriteLine($"Metadata cache read retry {attempt + 1} for '{cachePath}': {ex.Message}");
-                Thread.Sleep(IoRetryDelayMs);
-            }
-            catch (IOException ex)
-            {
-                Debug.WriteLine($"Metadata cache read failed for '{cachePath}': {ex.Message}");
-                return null;
-            }
+        }
+        finally
+        {
+            fileLock.Release();
         }
 
         return null;

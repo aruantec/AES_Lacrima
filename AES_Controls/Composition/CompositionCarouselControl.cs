@@ -9,6 +9,8 @@ using System.Text;
 using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -67,6 +69,8 @@ namespace AES_Controls.Composition
         private int _maxImageCacheEntries = 160;
 
         private int _lastVirtualizationIndex = -1;
+        private bool _initialImageLoadScheduled;
+        private Bitmap? _sectionPlaceholderBitmap;
         private const double DragHoldJitterThreshold = 24.0;
 
         private Point _startPoint;
@@ -555,20 +559,27 @@ namespace AES_Controls.Composition
             if (item is not MediaItem mediaItem)
                 return null;
 
-            if (!string.IsNullOrWhiteSpace(mediaItem.LocalCoverPath) &&
-                File.Exists(mediaItem.LocalCoverPath))
+            if (!string.IsNullOrWhiteSpace(mediaItem.LocalCoverPath) && File.Exists(mediaItem.LocalCoverPath))
             {
-                return mediaItem.LocalCoverPath;
+                if (CompositionMetadataCoverHelper.IsMetadataCachePath(mediaItem.LocalCoverPath))
+                {
+                    if (CompositionMetadataCoverHelper.MetadataCacheHasCoverImage(mediaItem.LocalCoverPath))
+                        return mediaItem.LocalCoverPath;
+                }
+                else if (CompositionCoverImageHelper.IsLikelyImageFile(mediaItem.LocalCoverPath))
+                {
+                    return mediaItem.LocalCoverPath;
+                }
             }
 
             var configuredPath = GetFileNameValue(mediaItem, configuredFileProp);
-            if (IsLikelyImageFile(configuredPath) && File.Exists(configuredPath))
+            if (CompositionCoverImageHelper.IsLikelyImageFile(configuredPath) && File.Exists(configuredPath))
                 return configuredPath;
 
-            if (IsLikelyImageFile(mediaItem.FileName) && File.Exists(mediaItem.FileName))
+            if (CompositionCoverImageHelper.IsLikelyImageFile(mediaItem.FileName) && File.Exists(mediaItem.FileName))
                 return mediaItem.FileName;
 
-            return null;
+            return CompositionMetadataCoverHelper.GetMetadataCachePath(mediaItem.FileName);
         }
 
         private bool TryGetItemBool(object? item, string propertyName, out bool value)
@@ -784,6 +795,53 @@ namespace AES_Controls.Composition
             if (_sharedPlaceholder == null || _sharedPlaceholder.Width == 0)
                 _sharedPlaceholder = GeneratePlaceholder(); 
             return _sharedPlaceholder!;
+        }
+
+        private void SyncVisualImageSlots()
+        {
+            if (_visual == null)
+                return;
+
+            int count = _images.Count;
+            if (count == 0)
+            {
+                _visual.SendHandlerMessage(Array.Empty<SKImage>());
+                return;
+            }
+
+            _visual.SendHandlerMessage(Enumerable.Repeat<SKImage?>(null, count).ToArray());
+            for (int i = 0; i < count; i++)
+            {
+                if (_images[i] != null)
+                    _visual.SendHandlerMessage(new UpdateImageMessage(i, _images[i]));
+            }
+        }
+
+        protected override bool NeedsContainerOverride(object? item, int index, out object? recycleKey)
+        {
+            recycleKey = null;
+            return true;
+        }
+
+        protected override Control CreateContainerForItemOverride(object? item, int index, object? recycleKey) =>
+            new Panel
+            {
+                Width = 0,
+                Height = 0,
+                IsVisible = false,
+                IsHitTestVisible = false,
+                Focusable = false
+            };
+
+        protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
+        {
+            base.OnApplyTemplate(e);
+            if (e.NameScope.Find<ItemsPresenter>("PART_ItemsPresenter") is { } presenter)
+            {
+                presenter.IsVisible = false;
+                presenter.IsHitTestVisible = false;
+                presenter.Opacity = 0;
+            }
         }
 
         // Ensure projection cache is populated for the relevant visible range around currentIndex
@@ -1219,6 +1277,7 @@ namespace AES_Controls.Composition
             _sharedImageCache.Clear();
             _itemImageSourceKeys.Clear();
             _sharedPlaceholder = null;
+            _sectionPlaceholderBitmap = null;
             _images.Clear();
             _itemsSnapshot = Array.Empty<object?>();
             _itemIndices.Clear();
@@ -1248,10 +1307,29 @@ namespace AES_Controls.Composition
             ClearProjectionCache();
             SelectedItemBounds = default;
         }
+        private void ScheduleInitialImageLoad()
+        {
+            if (_initialImageLoadScheduled)
+                return;
+
+            _initialImageLoadScheduled = true;
+            Dispatcher.UIThread.Post(ExecuteInitialImageLoad, DispatcherPriority.Loaded);
+        }
+
+        private void ExecuteInitialImageLoad()
+        {
+            _initialImageLoadScheduled = false;
+            if (_itemsSnapshot.Length == 0 || !IsVisible)
+                return;
+
+            _lastVirtualizationIndex = -1;
+            int centerIdx = (int)Math.Clamp(Math.Round(SelectedIndex), 0, _itemsSnapshot.Length - 1);
+            _ = VirtualizeAsync(centerIdx, CancellationToken.None);
+        }
+
         private void UpdateVirtualization()
         {
             int centerIdx = (int)Math.Round(SelectedIndex);
-            if (centerIdx == _lastVirtualizationIndex) return;
             _lastVirtualizationIndex = centerIdx;
 
             if (_virtualizeDebounceTimer == null)
@@ -1341,6 +1419,11 @@ namespace AES_Controls.Composition
                      change.Property == ImageFileNamePropertyProperty || 
                      change.Property == ImageBitmapPropertyProperty)
                 UpdateItems();
+            else if (change.Property == IsVisibleProperty)
+            {
+                if (change.GetNewValue<bool>() && _itemsSnapshot.Length > 0)
+                    ScheduleInitialImageLoad();
+            }
 
             UpdateSelectedItemBounds();
         }
@@ -1375,7 +1458,8 @@ namespace AES_Controls.Composition
             UpdateItemsSnapshot(items);
             string? bitmapProp = ImageBitmapProperty;
             string? fileProp = ImageFileNameProperty;
-            
+            _sectionPlaceholderBitmap = CompositionCoverImageHelper.DetectSectionPlaceholder(items, bitmapProp, GetBitmapValue);
+
             // Re-sync _images list and reuse cached images if available
             _images.Clear();
             var placeholder = GetPlaceholder();
@@ -1384,7 +1468,17 @@ namespace AES_Controls.Composition
                 var item = items[i];
                 if (item != null && _imageCache.TryGetValue(item, out var cached))
                 {
-                    var currentSourceKey = GetImageSourceKey(GetBitmapValue(item, bitmapProp), ResolveCoverImagePath(item, fileProp));
+                    CompositionCoverImageHelper.ReadCoverSources(
+                        item,
+                        bitmapProp,
+                        fileProp,
+                        GetBitmapValue,
+                        ResolveCoverImagePath,
+                        _sectionPlaceholderBitmap,
+                        out var cachedBitmap,
+                        out var cachedFile);
+                    var currentSourceKey = CompositionCoverImageHelper.ResolveImageSourceKey(
+                        item as MediaItem, cachedBitmap, cachedFile, _sectionPlaceholderBitmap);
                     bool hasMatchingSource = _itemImageSourceKeys.TryGetValue(item, out var cachedSourceKey) && Equals(cachedSourceKey, currentSourceKey);
 
                     if (hasMatchingSource)
@@ -1409,19 +1503,15 @@ namespace AES_Controls.Composition
                 }
             }
 
-            _visual?.SendHandlerMessage(_images.ToArray());
+            SyncVisualImageSlots();
 
             // Initial CoverFound sync
             _visual?.SendHandlerMessage(new ResetCoverFoundMessage(BuildCoverFoundSet(items)));
 
             if (items.Length > 0)
-            {
-                int initialCenterIndex = (int)Math.Clamp(Math.Round(SelectedIndex), 0, items.Length - 1);
-                _ = VirtualizeAsync(initialCenterIndex, CancellationToken.None);
-            }
+                ScheduleInitialImageLoad();
 
             ClearProjectionCache();
-            UpdateVirtualization();
             UpdateSelectedItemBounds();
         }
 
@@ -1539,28 +1629,48 @@ namespace AES_Controls.Composition
             if (item == null)
                 return false;
 
-            Bitmap? bitmapValue = null;
-            string? fileName = null;
-            try
-            {
-                bitmapValue = GetBitmapValue(item, bitmapProp);
-                if (bitmapValue == null)
-                    fileName = ResolveCoverImagePath(item, fileProp);
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Failed to read image properties for item at index {index}", ex);
-            }
+            CompositionCoverImageHelper.ReadCoverSources(
+                item,
+                bitmapProp,
+                fileProp,
+                GetBitmapValue,
+                ResolveCoverImagePath,
+                _sectionPlaceholderBitmap,
+                out var bitmapValue,
+                out var fileName);
 
-            object? sourceKey = GetImageSourceKey(bitmapValue, fileName);
-            if (_imageCache.TryGetValue(item, out _))
+            object? sourceKey = CompositionCoverImageHelper.ResolveImageSourceKey(
+                item as MediaItem, bitmapValue, fileName, _sectionPlaceholderBitmap);
+            if (_imageCache.TryGetValue(item, out var cachedImage))
             {
                 bool hasMatchingSource = _itemImageSourceKeys.TryGetValue(item, out var existingSourceKey) &&
                                          Equals(existingSourceKey, sourceKey);
                 if (hasMatchingSource)
-                    return false;
+                {
+                    if (CompositionCoverImageHelper.ShouldReloadCachedCover(
+                            item as MediaItem, bitmapValue, fileName, _sectionPlaceholderBitmap))
+                    {
+                        ReleaseItemImage(item);
+                    }
+                    else
+                    {
+                        TouchCacheItem(item);
+                        if (index < _images.Count && !ReferenceEquals(_images[index], cachedImage))
+                        {
+                            await Dispatcher.UIThread.InvokeAsync(() =>
+                            {
+                                if (IsCurrentSnapshotItem(item, index))
+                                    AssignItemImage(item, index, cachedImage, sourceKey);
+                            });
+                        }
 
-                ReleaseItemImage(item);
+                        return false;
+                    }
+                }
+                else
+                {
+                    ReleaseItemImage(item);
+                }
             }
 
             SetLoading(index, true);
@@ -1703,20 +1813,18 @@ namespace AES_Controls.Composition
                 if (idx < 0 || idx >= _itemsSnapshot.Length || !ReferenceEquals(_itemsSnapshot[idx], sender))
                     continue;
 
-                Bitmap? bitmapValue = null;
-                string? fileName = null;
-                try
-                {
-                    bitmapValue = GetBitmapValue(sender, bitmapProp);
-                    fileName = ResolveCoverImagePath(sender, fileProp);
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn("Failed to read image properties in batched cover reload", ex);
-                    continue;
-                }
+                CompositionCoverImageHelper.ReadCoverSources(
+                    sender,
+                    bitmapProp,
+                    fileProp,
+                    GetBitmapValue,
+                    ResolveCoverImagePath,
+                    _sectionPlaceholderBitmap,
+                    out var bitmapValue,
+                    out var fileName);
 
-                object? sourceKey = GetImageSourceKey(bitmapValue, fileName);
+                object? sourceKey = CompositionCoverImageHelper.ResolveImageSourceKey(
+                    sender as MediaItem, bitmapValue, fileName, _sectionPlaceholderBitmap);
                 if (_itemImageSourceKeys.TryGetValue(sender, out var existingSourceKey) && Equals(existingSourceKey, sourceKey))
                 {
                     TouchCacheItem(sender);
@@ -1848,9 +1956,17 @@ namespace AES_Controls.Composition
         {
             if (ct.IsCancellationRequested) return null;
 
+            if (CompositionCoverImageHelper.ShouldPreferFileOverBitmap(owner, bitmapValue, fileName, _sectionPlaceholderBitmap))
+            {
+                var fromFile = await Task.Run(() => LoadAndResize(fileName!, owner), ct);
+                if (fromFile != null)
+                    return fromFile;
+            }
+
             // Prefer the in-memory bitmap when present. After metadata edits the item bitmap is
             // updated immediately while the on-disk cache path may still be stale or locked.
-            if (bitmapValue != null)
+            if (bitmapValue != null &&
+                !CompositionCoverImageHelper.IsSectionPlaceholderBitmap(bitmapValue, _sectionPlaceholderBitmap))
             {
                 var fromBitmap = await ToSkImageAsync(bitmapValue, owner, fileName);
                 if (fromBitmap != null)
@@ -1992,6 +2108,18 @@ namespace AES_Controls.Composition
         {
             try
             {
+                if (CompositionMetadataCoverHelper.IsMetadataCachePath(file))
+                {
+                    var bytes = CompositionMetadataCoverHelper.TryReadCoverBytes(file);
+                    if (bytes == null)
+                        return null;
+
+                    return CompositionMetadataCoverHelper.LoadCoverFromBytes(
+                        bytes,
+                        CachedCarouselImageSize,
+                        bmp => CreateCarouselImage(bmp, file, owner?.FileName, owner));
+                }
+
                 EnsureDiskCacheDirectory();
                 var cachedFile = GetCachedImagePath(file);
                 if (File.Exists(cachedFile))
@@ -2057,7 +2185,7 @@ namespace AES_Controls.Composition
                 ElementComposition.SetElementChildVisual(this, _visual);
                 _visual.SendHandlerMessage(new CarouselAttachSyncMessage(_animationSync));
                 UpdateCompositionVisualSize(Bounds.Size);
-                if (_images.Any()) _visual.SendHandlerMessage(_images);
+                if (_images.Count > 0) SyncVisualImageSlots();
                 _visual.SendHandlerMessage(SelectedIndex);
                 _visual.SendHandlerMessage(new SpacingMessage(ItemSpacing));
                 _visual.SendHandlerMessage(new ScaleMessage(ItemScale));
