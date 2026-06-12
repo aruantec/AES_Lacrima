@@ -30,6 +30,9 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private const float CardCornerRadius = 12f;
     private const float TitleAreaRatio = 0.24f;
     private const float MaxFullCoverAspectRatio = 1.35f;
+    private const float EdgeFadeHeightRatio = 0.2f;
+    private const float EdgeFadeMinHeight = 56f;
+    private const float EdgeFadeMaxHeight = 160f;
 
     private Vector2 _visualSize;
     private float _cardScale = 1f;
@@ -363,6 +366,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             }
         }
 
+        DrawEdgeFades(canvas, g);
         DrawScrollbar(canvas, metrics, 1f);
         canvas.Restore();
         canvas.Restore();
@@ -569,6 +573,37 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         _spinnerPaint.Color = SKColors.White.WithAlpha((byte)(200 * globalOpacity));
         var oval = new SKRect(cx - 14, cy - 14, cx + 14, cy + 14);
         canvas.DrawArc(oval, _spinnerRotation, 270, false, _spinnerPaint);
+    }
+
+    private void DrawEdgeFades(SKCanvas canvas, float globalOpacity)
+    {
+        if (_visualSize.Y <= 0f || globalOpacity <= 0f)
+            return;
+
+        float fadeH = Math.Clamp(_visualSize.Y * EdgeFadeHeightRatio, EdgeFadeMinHeight, EdgeFadeMaxHeight);
+        float width = _visualSize.X;
+        byte solidAlpha = (byte)Math.Clamp((int)(255f * globalOpacity), 0, 255);
+        var solid = BackgroundColor.WithAlpha(solidAlpha);
+        var transparent = BackgroundColor.WithAlpha(0);
+
+        _overlayPaint.Style = SKPaintStyle.Fill;
+        _overlayPaint.Shader = SKShader.CreateLinearGradient(
+            new SKPoint(0, 0),
+            new SKPoint(0, fadeH),
+            new[] { solid, transparent },
+            null,
+            SKShaderTileMode.Clamp);
+        canvas.DrawRect(0, 0, width, fadeH, _overlayPaint);
+
+        float bottomTop = _visualSize.Y - fadeH;
+        _overlayPaint.Shader = SKShader.CreateLinearGradient(
+            new SKPoint(0, bottomTop),
+            new SKPoint(0, _visualSize.Y),
+            new[] { transparent, solid },
+            null,
+            SKShaderTileMode.Clamp);
+        canvas.DrawRect(0, bottomTop, width, fadeH, _overlayPaint);
+        _overlayPaint.Shader = null;
     }
 
     private void DrawScrollbar(SKCanvas canvas, GridMetrics metrics, float globalOpacity)
