@@ -83,6 +83,7 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
     private double _velocityY;
     private bool _isPressed;
     private bool _isScrollbarPressed;
+    private bool _isScrollbarHovered;
     private bool _isPointerScrolling;
     private bool _suppressSelectedIndexSideEffects;
     private double _targetScrollY;
@@ -609,12 +610,49 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(true));
     }
 
+    protected override void OnPointerEntered(PointerEventArgs e)
+    {
+        base.OnPointerEntered(e);
+        UpdateHoverState(e.GetPosition(this));
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        SetScrollbarHovered(false);
+    }
+
     private void UpdateHoverState(Point pos)
     {
         int hit = HitTestIndex(pos);
         if (hit != PointedItemIndex)
             PointedItemIndex = hit;
         _visual?.SendHandlerMessage(new CardGridHoveredIndexMessage(hit));
+        SetScrollbarHovered(IsPointerOverScrollbarArea(pos));
+    }
+
+    private void SetScrollbarHovered(bool hovered)
+    {
+        if (_isScrollbarHovered == hovered)
+            return;
+
+        _isScrollbarHovered = hovered;
+        _visual?.SendHandlerMessage(new CardGridScrollbarHoverMessage(hovered));
+    }
+
+    private bool IsPointerOverScrollbarArea(Point pos)
+    {
+        if (Bounds.Width <= 0 || Bounds.Height <= 0 || GetMaxScrollY() <= 1)
+            return false;
+
+        float hitRight = (float)Bounds.Width - CardGridLayoutHelper.ScrollbarRightInset;
+        float hoverLeft = hitRight - CardGridLayoutHelper.ScrollbarHitWidth - 12f;
+        var hoverRect = new Rect(
+            hoverLeft,
+            ScrollbarMargin,
+            (float)Bounds.Width - hoverLeft,
+            Bounds.Height - ScrollbarMargin * 2);
+        return hoverRect.Contains(pos);
     }
 
     private int HitTestIndex(Point pos)
@@ -800,6 +838,7 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
 
         SyncVisualImageSlots();
         SendTitles();
+        _visual?.SendHandlerMessage(new CardGridResetScrollbarMessage());
         _visual?.SendHandlerMessage(new CardGridSelectedIndexMessage((int)Math.Clamp(Math.Round(SelectedIndex), 0, Math.Max(0, items.Length - 1))));
 
         if (items.Length > 0)

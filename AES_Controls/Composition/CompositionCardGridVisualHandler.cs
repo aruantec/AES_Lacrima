@@ -17,6 +17,8 @@ internal record CardGridTitlesMessage(string[] Titles);
 internal record CardGridSelectedIndexMessage(int Index);
 internal record CardGridHoveredIndexMessage(int Index);
 internal record CardGridScrollbarPressedMessage(bool IsPressed);
+internal record CardGridScrollbarHoverMessage(bool IsHovered);
+internal record CardGridResetScrollbarMessage();
 internal record CardGridAttachSyncMessage(CardGridAnimationSyncState State);
 
 public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
@@ -30,9 +32,10 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private const float CardCornerRadius = 12f;
     private const float TitleAreaRatio = 0.24f;
     private const float MaxFullCoverAspectRatio = 1.35f;
-    private const float EdgeFadeHeightRatio = 0.2f;
-    private const float EdgeFadeMinHeight = 56f;
-    private const float EdgeFadeMaxHeight = 160f;
+    private const float ViewportFadeHeightRatio = 0.14f;
+    private const float ViewportFadeMinHeight = 48f;
+    private const float ViewportFadeMaxHeight = 120f;
+    private const float ViewportFadeMinOpacity = 0.35f;
 
     private Vector2 _visualSize;
     private float _cardScale = 1f;
@@ -45,6 +48,8 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private bool _directScrollFollow;
     private long _lastTicks;
     private bool _isScrollbarPressed;
+    private bool _isScrollbarHovered;
+    private long _scrollbarVisibleUntilTicks;
     private float _scrollbarOpacity;
     private float _scrollbarOpacityVelocity;
     private int _selectedIndex = -1;
@@ -148,11 +153,13 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 break;
             case CardGridScrollVelocityMessage velocity:
                 _scrollVelocity = velocity.VelocityY;
+                ExtendScrollbarVisibility(1.25);
                 if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
                 RegisterForNextAnimationFrameUpdate();
                 break;
             case CardGridDirectScrollFollowMessage direct:
                 _directScrollFollow = direct.Enabled;
+                ExtendScrollbarVisibility(direct.Enabled ? 0.0 : 0.9);
                 if (direct.Enabled && _lastTicks == 0)
                     _lastTicks = Stopwatch.GetTimestamp();
                 RegisterForNextAnimationFrameUpdate();
@@ -185,7 +192,22 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 break;
             case CardGridScrollbarPressedMessage scrollbar:
                 _isScrollbarPressed = scrollbar.IsPressed;
-                Invalidate();
+                if (scrollbar.IsPressed)
+                    ExtendScrollbarVisibility(2.0);
+                RequestScrollbarAnimationFrame();
+                break;
+            case CardGridScrollbarHoverMessage hover:
+                _isScrollbarHovered = hover.IsHovered;
+                RequestScrollbarAnimationFrame();
+                break;
+            case CardGridResetScrollbarMessage:
+                _scrollbarVisibleUntilTicks = 0;
+                if (!_isScrollbarHovered && !_isScrollbarPressed && !_directScrollFollow)
+                {
+                    _scrollbarOpacity = 0f;
+                    _scrollbarOpacityVelocity = 0f;
+                }
+                RequestScrollbarAnimationFrame();
                 break;
             case GlobalOpacityMessage opacity:
                 _targetGlobalOpacity = (float)Math.Clamp(opacity.Value, 0.0, 1.0);
@@ -267,11 +289,12 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             _spinnerRotation = (_spinnerRotation + 8f) % 360f;
 
         bool needsScrollbar = maxScroll > 1;
-        float desiredScrollbarOpacity = needsScrollbar && (_directScrollFollow || _isScrollbarPressed || Math.Abs(_scrollVelocity) > 20 || Math.Abs(_scrollSpringVelocity) > 20)
+        bool scrollActive = _directScrollFollow ||
+                            Math.Abs(_scrollVelocity) > 2 ||
+                            Stopwatch.GetTimestamp() < _scrollbarVisibleUntilTicks;
+        float desiredScrollbarOpacity = needsScrollbar && (_isScrollbarPressed || _isScrollbarHovered || scrollActive)
             ? 1f
-            : needsScrollbar ? 0.55f : 0f;
-        if (_isScrollbarPressed)
-            desiredScrollbarOpacity = 1f;
+            : 0f;
 
         if (Math.Abs(_scrollbarOpacity - desiredScrollbarOpacity) > 0.001f || Math.Abs(_scrollbarOpacityVelocity) > 0.001f)
         {
@@ -342,9 +365,9 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
         canvas.Save();
         canvas.ClipRect(new SKRect(0, 0, _visualSize.X, _visualSize.Y));
-        canvas.SaveLayer(new SKPaint { Color = SKColors.White.WithAlpha((byte)(g * 255)) });
 
-        canvas.Clear(BackgroundColor);
+        // Cards on a transparent layer so the viewport alpha mask reveals the background beneath.
+        canvas.SaveLayer(new SKPaint { Color = SKColors.White.WithAlpha((byte)(g * 255)) });
 
         int firstRow = Math.Max(0, (int)Math.Floor((_currentScrollY - metrics.PaddingTop) / (metrics.CardHeight + metrics.Spacing)) - 1);
         int lastRow = Math.Min(metrics.RowCount - 1, (int)Math.Ceiling((_currentScrollY + _visualSize.Y) / (metrics.CardHeight + metrics.Spacing)) + 1);
@@ -366,7 +389,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             }
         }
 
-        DrawEdgeFades(canvas, g);
+        ApplyViewportFadeMask(canvas);
         DrawScrollbar(canvas, metrics, 1f);
         canvas.Restore();
         canvas.Restore();
@@ -461,6 +484,34 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
         if (isLoading)
             DrawSpinner(canvas, rect.MidX, rect.Top + coverH * 0.5f, globalOpacity);
+    }
+
+    /// <summary>
+    /// Subtle slot-machine style viewport fade: pixel rows near the top/bottom lose a little alpha.
+    /// Uses DstIn so covers fade by screen position, not per-card opacity multiplication.
+    /// </summary>
+    private void ApplyViewportFadeMask(SKCanvas canvas)
+    {
+        float height = _visualSize.Y;
+        if (height <= 0f)
+            return;
+
+        float fadeH = Math.Clamp(height * ViewportFadeHeightRatio, ViewportFadeMinHeight, ViewportFadeMaxHeight);
+        float fadeStop = Math.Clamp(fadeH / height, 0.04f, 0.28f);
+        byte edgeAlpha = (byte)Math.Clamp((int)(255f * ViewportFadeMinOpacity), 0, 255);
+        var edge = SKColors.White.WithAlpha(edgeAlpha);
+
+        canvas.SaveLayer(new SKPaint { BlendMode = SKBlendMode.DstIn });
+        _overlayPaint.Style = SKPaintStyle.Fill;
+        _overlayPaint.Shader = SKShader.CreateLinearGradient(
+            new SKPoint(0, 0),
+            new SKPoint(0, height),
+            new[] { edge, SKColors.White, SKColors.White, edge },
+            new[] { 0f, fadeStop, 1f - fadeStop, 1f },
+            SKShaderTileMode.Clamp);
+        canvas.DrawRect(0, 0, _visualSize.X, height, _overlayPaint);
+        _overlayPaint.Shader = null;
+        canvas.Restore();
     }
 
     private void DrawCoverImage(SKCanvas canvas, SKImage img, float x, float y, float w, float h)
@@ -575,35 +626,22 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         canvas.DrawArc(oval, _spinnerRotation, 270, false, _spinnerPaint);
     }
 
-    private void DrawEdgeFades(SKCanvas canvas, float globalOpacity)
+    private void ExtendScrollbarVisibility(double extraSeconds)
     {
-        if (_visualSize.Y <= 0f || globalOpacity <= 0f)
+        if (extraSeconds <= 0)
             return;
 
-        float fadeH = Math.Clamp(_visualSize.Y * EdgeFadeHeightRatio, EdgeFadeMinHeight, EdgeFadeMaxHeight);
-        float width = _visualSize.X;
-        byte solidAlpha = (byte)Math.Clamp((int)(255f * globalOpacity), 0, 255);
-        var solid = BackgroundColor.WithAlpha(solidAlpha);
-        var transparent = BackgroundColor.WithAlpha(0);
+        long until = Stopwatch.GetTimestamp() + (long)(extraSeconds * Stopwatch.Frequency);
+        if (until > _scrollbarVisibleUntilTicks)
+            _scrollbarVisibleUntilTicks = until;
+    }
 
-        _overlayPaint.Style = SKPaintStyle.Fill;
-        _overlayPaint.Shader = SKShader.CreateLinearGradient(
-            new SKPoint(0, 0),
-            new SKPoint(0, fadeH),
-            new[] { solid, transparent },
-            null,
-            SKShaderTileMode.Clamp);
-        canvas.DrawRect(0, 0, width, fadeH, _overlayPaint);
-
-        float bottomTop = _visualSize.Y - fadeH;
-        _overlayPaint.Shader = SKShader.CreateLinearGradient(
-            new SKPoint(0, bottomTop),
-            new SKPoint(0, _visualSize.Y),
-            new[] { transparent, solid },
-            null,
-            SKShaderTileMode.Clamp);
-        canvas.DrawRect(0, bottomTop, width, fadeH, _overlayPaint);
-        _overlayPaint.Shader = null;
+    private void RequestScrollbarAnimationFrame()
+    {
+        if (_lastTicks == 0)
+            _lastTicks = Stopwatch.GetTimestamp();
+        RegisterForNextAnimationFrameUpdate();
+        Invalidate();
     }
 
     private void DrawScrollbar(SKCanvas canvas, GridMetrics metrics, float globalOpacity)
