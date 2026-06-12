@@ -45,6 +45,9 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
     private const int ParallelImageLoadCount = 12;
     private const double WheelScrollPixels = 165.0;
     private const float ScrollbarMargin = 10f;
+    private const double DragStartThreshold = 4.0;
+    private const int DragAutoScrollMs = 16;
+    private const int DragCommitMs = 200;
 
     private CompositionCustomVisual? _visual;
     private List<SKImage?> _images = new();
@@ -76,6 +79,24 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
     private DispatcherTimer? _uiSyncTimer;
     private DispatcherTimer? _wheelScrollSettleTimer;
     private bool _isWheelScrolling;
+    private bool _isInternalMove;
+    private bool _isDragging;
+    private int _pressedItemIndex = -1;
+    private int _draggingIndex = -1;
+    private int _dragStartIndex = -1;
+    private int _currentDragTargetIndex = -1;
+    private int _lastSentDropTargetIndex = -1;
+    private int _cachedDragTargetIndex = -1;
+    private Point _cachedDragTargetPoint;
+    private long _lastDragTargetCalcTicks;
+    private Avalonia.Vector _dragPointerOffset;
+    private bool _hasDragMoved;
+    private bool _visualDragActive;
+    private double _savedScrollYOnDragFinish;
+    private int _pendingReorderFrom = -1;
+    private int _pendingReorderTo = -1;
+    private DispatcherTimer? _autoScrollTimer;
+    private DispatcherTimer? _dragCommitTimer;
 
     private Point _startPoint;
     private Point _prevPoint;
@@ -279,6 +300,11 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         });
 
         LayoutUpdated += OnLayoutUpdated;
+
+        _autoScrollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DragAutoScrollMs) };
+        _autoScrollTimer.Tick += AutoScrollTimer_Tick;
+        _dragCommitTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DragCommitMs) };
+        _dragCommitTimer.Tick += DragCommitTimer_Tick;
     }
 
     private void OnLayoutUpdated(object? sender, EventArgs e)
@@ -339,6 +365,8 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         LayoutUpdated -= OnLayoutUpdated;
         try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch (Exception ex) { Log.Warn("Error canceling load during detach", ex); }
         _uiSyncTimer?.Stop();
+        _autoScrollTimer?.Stop();
+        _dragCommitTimer?.Stop();
         ClearResources();
         SelectedItemBounds = default;
     }
@@ -438,14 +466,25 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         }
 
         _isPressed = true;
-        _isPointerScrolling = true;
+        _isPointerScrolling = false;
         _scrollAtDragStart = _knownScrollY;
         _startPoint = pos;
         _prevPoint = pos;
         _prevTime = e.Timestamp;
         _velocityY = 0;
+        _pressedItemIndex = hitIndex;
         e.Pointer.Capture(this);
-        _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(true));
+
+        if (hitIndex >= 0)
+        {
+            BeginItemDrag(hitIndex);
+        }
+        else
+        {
+            _isPointerScrolling = true;
+            _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(true));
+        }
+
         UpdateHoverState(pos);
         e.Handled = true;
     }
@@ -464,10 +503,40 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             return;
         }
 
+        if (_isDragging)
+        {
+            if (!_hasDragMoved)
+            {
+                double moved = Point.Distance(_startPoint, pos);
+                if (moved > DragStartThreshold)
+                {
+                    _hasDragMoved = true;
+                    ActivateVisualDrag();
+                }
+                else
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            UpdateDragInteraction(pos);
+            if (_autoScrollTimer != null && !_autoScrollTimer.IsEnabled)
+                _autoScrollTimer.Start();
+            e.Handled = true;
+            return;
+        }
+
         if (!_isPressed)
         {
             UpdateHoverState(pos);
             return;
+        }
+
+        if (!_isPointerScrolling)
+        {
+            _isPointerScrolling = true;
+            _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(true));
         }
 
         double dy = pos.Y - _startPoint.Y;
@@ -490,6 +559,8 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         base.OnPointerReleased(e);
         var pos = e.GetPosition(this);
 
+        _autoScrollTimer?.Stop();
+
         if (_isScrollbarPressed)
         {
             _isScrollbarPressed = false;
@@ -500,13 +571,24 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             return;
         }
 
+        if (_isDragging)
+        {
+            int targetIndex = GetDragTargetIndex(pos);
+            FinishDrag(targetIndex, cancel: false, e.Pointer);
+            e.Handled = true;
+            return;
+        }
+
         if (!_isPressed)
             return;
 
         _isPressed = false;
+        _pressedItemIndex = -1;
+        bool wasScrolling = _isPointerScrolling;
         _isPointerScrolling = false;
         e.Pointer.Capture(null);
-        _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(false));
+        if (wasScrolling)
+            _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(false));
 
         int hit = HitTestIndex(pos);
         bool isClick = Math.Abs(pos.X - _startPoint.X) < 8 && Math.Abs(pos.Y - _startPoint.Y) < 8;
@@ -515,7 +597,7 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             PublishSelectedIndex(hit, force: true);
             ItemSelectedCommand?.Execute(hit);
         }
-        else
+        else if (wasScrolling)
         {
             _targetScrollY = Math.Clamp(_knownScrollY, 0, GetMaxScrollY());
             SyncKnownScrollY(_targetScrollY);
@@ -584,11 +666,301 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
 
     private void _settlePointerState()
     {
+        _autoScrollTimer?.Stop();
+        _dragCommitTimer?.Stop();
+        if (_isDragging)
+            FinishDrag(_dragStartIndex, cancel: true);
+
         _isPressed = false;
+        _pressedItemIndex = -1;
         _isScrollbarPressed = false;
         _isPointerScrolling = false;
         _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(false));
         _visual?.SendHandlerMessage(new CardGridScrollbarPressedMessage(false));
+    }
+
+    private void AutoScrollTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!_visualDragActive)
+        {
+            _autoScrollTimer?.Stop();
+            return;
+        }
+
+        UpdateDragInteraction(_prevPoint);
+        UpdateDragAutoScroll(_prevPoint);
+    }
+
+    private Point GetDragVisualPoint(Point pointerPoint) =>
+        new(pointerPoint.X + _dragPointerOffset.X, pointerPoint.Y + _dragPointerOffset.Y);
+
+    private void BeginItemDrag(int hit)
+    {
+        _isDragging = true;
+        _hasDragMoved = false;
+        _visualDragActive = false;
+        _draggingIndex = hit;
+        _dragStartIndex = hit;
+        _currentDragTargetIndex = hit;
+        _lastSentDropTargetIndex = -1;
+        _cachedDragTargetIndex = -1;
+        _isPointerScrolling = false;
+
+        var bounds = CardGridLayoutHelper.GetCardBounds(
+            hit,
+            _knownScrollY,
+            (float)Bounds.Width,
+            (float)Bounds.Height,
+            (float)CardScale,
+            (float)CardSpacing,
+            (float)TopPadding);
+        var dragCenter = new Point(bounds.X + bounds.Width * 0.5, bounds.Y + bounds.Height * 0.5);
+        _dragPointerOffset = dragCenter - _prevPoint;
+    }
+
+    private void ActivateVisualDrag()
+    {
+        if (_visualDragActive || _draggingIndex < 0)
+            return;
+
+        _visualDragActive = true;
+        _visual?.SendHandlerMessage(new CardGridDragStateMessage(_draggingIndex, true));
+        _visual?.SendHandlerMessage(new CardGridDropTargetMessage(_draggingIndex));
+        _lastSentDropTargetIndex = _draggingIndex;
+        UpdateDragInteraction(_prevPoint);
+        _autoScrollTimer?.Start();
+    }
+
+    private void UpdateDragInteraction(Point pointerPoint)
+    {
+        var dragPoint = GetDragVisualPoint(pointerPoint);
+        _visual?.SendHandlerMessage(new CardGridDragPositionMessage(new Vector2((float)dragPoint.X, (float)dragPoint.Y)));
+
+        int targetIndex = _hasDragMoved ? GetDragTargetIndexThrottled(pointerPoint) : _dragStartIndex;
+        _currentDragTargetIndex = targetIndex;
+        if (targetIndex != _lastSentDropTargetIndex)
+        {
+            _lastSentDropTargetIndex = targetIndex;
+            _visual?.SendHandlerMessage(new CardGridDropTargetMessage(targetIndex));
+        }
+    }
+
+    private void UpdateDragAutoScroll(Point pointerPoint)
+    {
+        if (!_visualDragActive || _images.Count <= 1 || Bounds.Height <= 0)
+            return;
+
+        var dragPoint = GetDragVisualPoint(pointerPoint);
+        double h = Bounds.Height;
+        double maxScroll = GetMaxScrollY();
+        if (maxScroll <= 1)
+            return;
+
+        double zone = Math.Clamp(h * 0.14, 48, 120);
+        double scrollDelta = 0;
+        if (dragPoint.Y < zone)
+            scrollDelta = -Math.Pow((zone - dragPoint.Y) / zone, 2);
+        else if (dragPoint.Y > h - zone)
+            scrollDelta = Math.Pow((dragPoint.Y - (h - zone)) / zone, 2);
+
+        if (Math.Abs(scrollDelta) < 0.02)
+            return;
+
+        const double scrollSpeed = 420.0;
+        double nextScroll = Math.Clamp(_knownScrollY + scrollDelta * scrollSpeed * (DragAutoScrollMs / 1000.0), 0, maxScroll);
+        if (Math.Abs(nextScroll - _knownScrollY) < 0.25)
+            return;
+
+        _targetScrollY = nextScroll;
+        _knownScrollY = nextScroll;
+        _visual?.SendHandlerMessage(new CardGridScrollMessage(nextScroll));
+        UpdateVirtualization();
+    }
+
+    private int GetDragTargetIndexThrottled(Point pointerPoint)
+    {
+        long now = Stopwatch.GetTimestamp();
+        double elapsedMs = _lastDragTargetCalcTicks == 0
+            ? double.MaxValue
+            : (now - _lastDragTargetCalcTicks) * 1000.0 / Stopwatch.Frequency;
+
+        if (_cachedDragTargetIndex >= 0 &&
+            elapsedMs < 24 &&
+            Point.Distance(pointerPoint, _cachedDragTargetPoint) < 10.0)
+        {
+            return _cachedDragTargetIndex;
+        }
+
+        _cachedDragTargetIndex = GetDragTargetIndex(pointerPoint);
+        _cachedDragTargetPoint = pointerPoint;
+        _lastDragTargetCalcTicks = now;
+        return _cachedDragTargetIndex;
+    }
+
+    private int GetDragTargetIndex(Point pointerPoint)
+    {
+        if (_images.Count == 0)
+            return -1;
+
+        var dragCenter = GetDragVisualPoint(pointerPoint);
+        return CardGridLayoutHelper.FindNearestDropTargetIndex(
+            dragCenter,
+            _knownScrollY,
+            _images.Count,
+            (float)Bounds.Width,
+            (float)Bounds.Height,
+            (float)CardScale,
+            (float)CardSpacing,
+            (float)TopPadding);
+    }
+
+    private void MoveItem(int from, int to)
+    {
+        if (ItemsSource is IList list && from >= 0 && to >= 0 && from < list.Count && to < list.Count)
+        {
+            var item = list[from];
+            list.RemoveAt(from);
+            list.Insert(to, item);
+        }
+    }
+
+    private void MoveSnapshotItem(int from, int to)
+    {
+        if (from == to || from < 0 || to < 0 || from >= _itemsSnapshot.Length || to >= _itemsSnapshot.Length)
+            return;
+
+        var updatedItems = _itemsSnapshot.ToList();
+        var item = updatedItems[from];
+        updatedItems.RemoveAt(from);
+        updatedItems.Insert(to, item);
+        UpdateItemsSnapshot(updatedItems);
+    }
+
+    private void FinishDrag(int targetIndex, bool cancel, IPointer? pointer = null)
+    {
+        _autoScrollTimer?.Stop();
+
+        if (cancel || !_hasDragMoved)
+        {
+            int clickIndex = _dragStartIndex;
+            EndVisualDrag();
+            ClearDragState(pointer);
+
+            if (!cancel && !_hasDragMoved && clickIndex >= 0)
+            {
+                bool changed = Math.Abs(clickIndex - SelectedIndex) >= 0.001;
+                PublishSelectedIndex(clickIndex, force: changed);
+                ItemSelectedCommand?.Execute(clickIndex);
+            }
+
+            return;
+        }
+
+        targetIndex = Math.Clamp(targetIndex, 0, Math.Max(0, _images.Count - 1));
+        _savedScrollYOnDragFinish = _knownScrollY;
+        _visual?.SendHandlerMessage(new CardGridDropTargetMessage(targetIndex));
+        _visual?.SendHandlerMessage(new CardGridDragCommitMessage(targetIndex));
+
+        if (targetIndex == _draggingIndex)
+        {
+            _visual?.SendHandlerMessage(new CardGridDragFinalizeMessage());
+            _visualDragActive = false;
+            ClearDragState(pointer);
+            PublishSelectedIndexWithoutScroll(targetIndex);
+            return;
+        }
+
+        _pendingReorderFrom = _draggingIndex;
+        _pendingReorderTo = targetIndex;
+        _isDragging = false;
+        _isPressed = false;
+        pointer?.Capture(null);
+        _dragCommitTimer?.Stop();
+        _dragCommitTimer?.Start();
+    }
+
+    private void DragCommitTimer_Tick(object? sender, EventArgs e)
+    {
+        _dragCommitTimer?.Stop();
+        if (_pendingReorderFrom >= 0)
+        {
+            int from = _pendingReorderFrom;
+            int to = _pendingReorderTo;
+            _pendingReorderFrom = -1;
+            _pendingReorderTo = -1;
+            CompleteDragReorder(from, to);
+        }
+
+        _visual?.SendHandlerMessage(new CardGridDragFinalizeMessage());
+        _visualDragActive = false;
+        ClearDragState(null);
+    }
+
+    private void EndVisualDrag()
+    {
+        if (!_visualDragActive)
+            return;
+
+        _visual?.SendHandlerMessage(new CardGridDragCancelMessage());
+        _visual?.SendHandlerMessage(new CardGridDragStateMessage(-1, false));
+        _visualDragActive = false;
+    }
+
+    private void CompleteDragReorder(int from, int to)
+    {
+        if (from < 0 || to < 0 || from >= _images.Count || to >= _images.Count || from == to)
+            return;
+
+        _isInternalMove = true;
+        try
+        {
+            var img = _images[from];
+            _images.RemoveAt(from);
+            _images.Insert(to, img);
+            MoveSnapshotItem(from, to);
+            MoveItem(from, to);
+            _visual?.SendHandlerMessage(_images);
+            SendTitles();
+
+            SyncKnownScrollY(_savedScrollYOnDragFinish);
+            _visual?.SendHandlerMessage(new CardGridSnapScrollMessage(_savedScrollYOnDragFinish));
+            PublishSelectedIndexWithoutScroll(to);
+        }
+        finally
+        {
+            _isInternalMove = false;
+        }
+    }
+
+    private void ClearDragState(IPointer? pointer)
+    {
+        _isDragging = false;
+        _hasDragMoved = false;
+        _visualDragActive = false;
+        _draggingIndex = -1;
+        _dragStartIndex = -1;
+        _pressedItemIndex = -1;
+        _currentDragTargetIndex = -1;
+        _lastSentDropTargetIndex = -1;
+        _cachedDragTargetIndex = -1;
+        _pendingReorderFrom = -1;
+        _pendingReorderTo = -1;
+        _dragPointerOffset = default;
+        _isPressed = false;
+        _isPointerScrolling = false;
+        _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(false));
+        UpdateSelectedItemBounds();
+        pointer?.Capture(null);
+    }
+
+    private void PublishSelectedIndexWithoutScroll(double index)
+    {
+        index = Math.Clamp(index, 0, Math.Max(0, _images.Count - 1));
+        _suppressSelectedIndexSideEffects = true;
+        SelectedIndex = index;
+        _suppressSelectedIndexSideEffects = false;
+        _visual?.SendHandlerMessage(new CardGridSelectedIndexMessage((int)Math.Round(index)));
+        UpdateSelectedItemBounds();
     }
 
     private bool TryBeginScrollbarDrag(Point pos, IPointer pointer)
@@ -926,8 +1298,33 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         return (int)Math.Clamp(Math.Round(SelectedIndex), 0, _images.Count - 1);
     }
 
-    private void ItemsSource_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
-        Dispatcher.UIThread.Post(UpdateItems);
+    private void ItemsSource_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (_isInternalMove)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_visual == null)
+                return;
+
+            if (e.Action == NotifyCollectionChangedAction.Move &&
+                e.OldStartingIndex != e.NewStartingIndex &&
+                e.OldStartingIndex >= 0 && e.OldStartingIndex < _images.Count &&
+                e.NewStartingIndex >= 0 && e.NewStartingIndex < _images.Count)
+            {
+                var img = _images[e.OldStartingIndex];
+                _images.RemoveAt(e.OldStartingIndex);
+                _images.Insert(e.NewStartingIndex, img);
+                MoveSnapshotItem(e.OldStartingIndex, e.NewStartingIndex);
+                _visual.SendHandlerMessage(_images);
+                SendTitles();
+                return;
+            }
+
+            UpdateItems();
+        });
+    }
 
     private void Item_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {

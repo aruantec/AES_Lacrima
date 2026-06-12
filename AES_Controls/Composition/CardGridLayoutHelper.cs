@@ -181,4 +181,108 @@ internal static class CardGridLayoutHelper
 
         return Math.Clamp(cardBottom - viewportHeight + edgeMargin, 0, metrics.MaxScrollY);
     }
+
+    public static Point GetSlotCenterViewport(
+        int index,
+        double scrollY,
+        float viewportWidth,
+        float viewportHeight,
+        int itemCount,
+        float cardScale,
+        float cardSpacing,
+        float topPadding)
+    {
+        var metrics = Compute(viewportWidth, viewportHeight, Math.Max(itemCount, index + 1), cardScale, cardSpacing, topPadding);
+        int columns = Math.Max(1, metrics.Columns);
+        int row = index / columns;
+        int col = index % columns;
+        float x = metrics.PaddingLeft + col * (metrics.CardWidth + metrics.Spacing) + metrics.CardWidth * 0.5f;
+        float y = metrics.PaddingTop + row * (metrics.CardHeight + metrics.Spacing) + metrics.CardHeight * 0.5f - (float)scrollY;
+        return new Point(x, y);
+    }
+
+    /// <summary>
+    /// Nearest-slot targeting used by the albums list drag behavior.
+    /// </summary>
+    public static int FindNearestDropTargetIndex(
+        Point dragCenterViewport,
+        double scrollY,
+        int itemCount,
+        float viewportWidth,
+        float viewportHeight,
+        float cardScale,
+        float cardSpacing,
+        float topPadding)
+    {
+        if (itemCount <= 0)
+            return -1;
+
+        int best = 0;
+        double minDistanceSq = double.MaxValue;
+        for (int i = 0; i < itemCount; i++)
+        {
+            var center = GetSlotCenterViewport(i, scrollY, viewportWidth, viewportHeight, itemCount, cardScale, cardSpacing, topPadding);
+            double dx = dragCenterViewport.X - center.X;
+            double dy = dragCenterViewport.Y - center.Y;
+            double distSq = dx * dx + dy * dy;
+            if (distSq < minDistanceSq)
+            {
+                minDistanceSq = distSq;
+                best = i;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// Visual slot for an item while another item is being dragged to <paramref name="dropTarget"/>.
+    /// </summary>
+    public static int ComputeDisplaySlot(int index, int dragIndex, int dropTarget, int itemCount)
+    {
+        if (index == dragIndex)
+            return dropTarget;
+
+        const int draggedCount = 1;
+        int targetStart = Math.Clamp(dropTarget, 0, Math.Max(0, itemCount - draggedCount));
+        int movedBefore = index < dragIndex ? 0 : 1;
+        int rankAmongNonDragged = index - movedBefore;
+        return rankAmongNonDragged < targetStart ? rankAmongNonDragged : rankAmongNonDragged + draggedCount;
+    }
+
+    public static Point GetSwapOffset(
+        int index,
+        int dragIndex,
+        int dropTarget,
+        int itemCount,
+        double scrollY,
+        float viewportWidth,
+        float viewportHeight,
+        float cardScale,
+        float cardSpacing,
+        float topPadding)
+    {
+        if (index == dragIndex || itemCount <= 0)
+            return default;
+
+        int displaySlot = ComputeDisplaySlot(index, dragIndex, dropTarget, itemCount);
+        if (displaySlot == index)
+            return default;
+
+        var metrics = Compute(viewportWidth, viewportHeight, itemCount, cardScale, cardSpacing, topPadding);
+        int columns = Math.Max(1, metrics.Columns);
+
+        static Point SlotTopLeft(int slot, CardGridLayoutMetrics m, int cols, double scroll)
+        {
+            int row = slot / cols;
+            int col = slot % cols;
+            return new Point(
+                m.PaddingLeft + col * (m.CardWidth + m.Spacing),
+                m.PaddingTop + row * (m.CardHeight + m.Spacing) - scroll);
+        }
+
+        var from = SlotTopLeft(index, metrics, columns, scrollY);
+        var to = SlotTopLeft(displaySlot, metrics, columns, scrollY);
+        return new Point(to.X - from.X, to.Y - from.Y);
+    }
 }

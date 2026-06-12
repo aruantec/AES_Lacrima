@@ -22,6 +22,12 @@ internal record CardGridResetScrollbarMessage();
 internal record CardGridBackgroundColorMessage(SKColor Color);
 internal record CardGridTitleMarqueeMessage(bool Enabled);
 internal record CardGridAttachSyncMessage(CardGridAnimationSyncState State);
+internal record CardGridDragStateMessage(int Index, bool IsDragging);
+internal record CardGridDragPositionMessage(Vector2 Position);
+internal record CardGridDropTargetMessage(int Index);
+internal record CardGridDragCancelMessage();
+internal record CardGridDragCommitMessage(int TargetIndex);
+internal record CardGridDragFinalizeMessage();
 
 public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 {
@@ -74,6 +80,15 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private float _marqueeScrollRange;
     private bool _marqueeActive;
     private CardGridAnimationSyncState? _animationSync;
+    private int _draggingIndex = -1;
+    private int _dropTargetIndex = -1;
+    private Vector2 _dragPosition;
+    private bool _isDragCommitting;
+    private float _dragCommitProgress;
+    private const float SwapAnimationSeconds = 0.2f;
+    private const float DragLiftScale = 1.04f;
+    private readonly Dictionary<int, Vector2> _swapOffsets = new();
+    private readonly Dictionary<int, Vector2> _swapOffsetTargets = new();
 
     private List<SKImage?> _images = new();
     private string[] _titles = Array.Empty<string>();
@@ -275,6 +290,53 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             case CardGridAttachSyncMessage attach:
                 _animationSync = attach.State;
                 break;
+            case CardGridDragStateMessage dragState:
+                if (dragState.IsDragging)
+                {
+                    _draggingIndex = dragState.Index;
+                    _dropTargetIndex = dragState.Index;
+                    _isDragCommitting = false;
+                    _dragCommitProgress = 0f;
+                    _swapOffsets.Clear();
+                    _swapOffsetTargets.Clear();
+                }
+                else if (!_isDragCommitting)
+                {
+                    ClearDragVisualState();
+                }
+
+                RequestScrollbarAnimationFrame();
+                break;
+            case CardGridDragPositionMessage dragPosition:
+                _dragPosition = dragPosition.Position;
+                if (_draggingIndex != -1 && !_isDragCommitting)
+                    RequestScrollbarAnimationFrame();
+                else
+                    Invalidate();
+                break;
+            case CardGridDropTargetMessage dropTarget:
+                if (dropTarget.Index != _dropTargetIndex)
+                {
+                    _dropTargetIndex = dropTarget.Index;
+                    UpdateSwapOffsetTargets();
+                    RequestScrollbarAnimationFrame();
+                }
+                break;
+            case CardGridDragCancelMessage:
+                ClearDragVisualState();
+                RequestScrollbarAnimationFrame();
+                break;
+            case CardGridDragCommitMessage commit:
+                _dropTargetIndex = commit.TargetIndex;
+                UpdateSwapOffsetTargets();
+                _isDragCommitting = true;
+                _dragCommitProgress = 0f;
+                RequestScrollbarAnimationFrame();
+                break;
+            case CardGridDragFinalizeMessage:
+                ClearDragVisualState();
+                Invalidate();
+                break;
         }
     }
 
@@ -387,6 +449,15 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
         bool marqueeAnimating = UpdateMarquee((float)dt);
 
+        bool dragAnimating = AnimateSwapOffsets((float)dt);
+        if (_isDragCommitting && _dragCommitProgress < 1f)
+        {
+            _dragCommitProgress += (float)(dt / SwapAnimationSeconds);
+            if (_dragCommitProgress > 1f)
+                _dragCommitProgress = 1f;
+            dragAnimating = true;
+        }
+
         bool hoverAnimating = false;
         if (_hoverLift.Count > 0)
         {
@@ -426,7 +497,8 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                            selectionFading ||
                            selectionPulsing ||
                            marqueeAnimating ||
-                           hoverAnimating;
+                           hoverAnimating ||
+                           dragAnimating;
         bool animateSpinners = !_pauseLoadingSpinnerAnimation && _loadingIndices.Count > 0;
 
         if (isAnimating || animateSpinners)
@@ -471,20 +543,23 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         // Cards on a transparent layer so the viewport alpha mask reveals the background beneath.
         canvas.SaveLayer(new SKPaint { Color = SKColors.White.WithAlpha((byte)(g * 255)) });
 
-        int firstRow = Math.Max(0, (int)Math.Floor((_currentScrollY - metrics.PaddingTop) / (metrics.CardHeight + metrics.Spacing)) - 1);
-        int lastRow = Math.Min(metrics.RowCount - 1, (int)Math.Ceiling((_currentScrollY + _visualSize.Y) / (metrics.CardHeight + metrics.Spacing)) + 1);
+        bool isDragging = _draggingIndex != -1;
 
-        for (int row = firstRow; row <= lastRow; row++)
+        if (isDragging)
         {
-            for (int col = 0; col < metrics.Columns; col++)
+            if (_draggingIndex >= 0 &&
+                TryGetCardPosition(_draggingIndex, metrics, out float holeX, out float holeY) &&
+                IsCardVisible(holeY, metrics.CardHeight))
             {
-                int index = row * metrics.Columns + col;
-                if (index >= _images.Count)
-                    break;
-                if (index == _selectedIndex)
+                DrawPlaceholder(canvas, holeX, holeY, metrics.CardWidth, metrics.CardHeight);
+            }
+
+            for (int index = 0; index < _images.Count; index++)
+            {
+                if (index == _selectedIndex || index == _draggingIndex)
                     continue;
 
-                if (!TryGetCardPosition(index, metrics, out float x, out float y))
+                if (!TryGetCardDrawPosition(index, metrics, out float x, out float y))
                     continue;
                 if (!IsCardVisible(y, metrics.CardHeight))
                     continue;
@@ -492,14 +567,42 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 DrawCard(canvas, index, x, y, metrics, 1f);
             }
         }
+        else
+        {
+            int firstRow = Math.Max(0, (int)Math.Floor((_currentScrollY - metrics.PaddingTop) / (metrics.CardHeight + metrics.Spacing)) - 1);
+            int lastRow = Math.Min(metrics.RowCount - 1, (int)Math.Ceiling((_currentScrollY + _visualSize.Y) / (metrics.CardHeight + metrics.Spacing)) + 1);
+
+            for (int row = firstRow; row <= lastRow; row++)
+            {
+                for (int col = 0; col < metrics.Columns; col++)
+                {
+                    int index = row * metrics.Columns + col;
+                    if (index >= _images.Count)
+                        break;
+                    if (index == _selectedIndex)
+                        continue;
+
+                    if (!TryGetCardPosition(index, metrics, out float x, out float y))
+                        continue;
+                    if (!IsCardVisible(y, metrics.CardHeight))
+                        continue;
+
+                    DrawCard(canvas, index, x, y, metrics, 1f);
+                }
+            }
+        }
 
         if (_selectedIndex >= 0 &&
             _selectedIndex < _images.Count &&
-            TryGetCardPosition(_selectedIndex, metrics, out float selX, out float selY) &&
+            _selectedIndex != _draggingIndex &&
+            TryGetCardDrawPosition(_selectedIndex, metrics, out float selX, out float selY) &&
             IsCardVisible(selY, metrics.CardHeight))
         {
             DrawCard(canvas, _selectedIndex, selX, selY, metrics, 1f);
         }
+
+        if (isDragging && _draggingIndex >= 0 && _draggingIndex < _images.Count)
+            DrawDraggedCard(canvas, _draggingIndex, metrics, 1f);
 
         ApplyViewportFadeMask(canvas);
         DrawScrollbar(canvas, metrics, 1f);
@@ -564,6 +667,128 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         x = metrics.PaddingLeft + col * (metrics.CardWidth + metrics.Spacing);
         y = metrics.PaddingTop + row * (metrics.CardHeight + metrics.Spacing) - (float)_currentScrollY;
         return true;
+    }
+
+    private void ClearDragVisualState()
+    {
+        _draggingIndex = -1;
+        _dropTargetIndex = -1;
+        _isDragCommitting = false;
+        _dragCommitProgress = 0f;
+        _swapOffsets.Clear();
+        _swapOffsetTargets.Clear();
+    }
+
+    private void UpdateSwapOffsetTargets()
+    {
+        if (_draggingIndex < 0 || _images.Count == 0)
+            return;
+
+        _swapOffsetTargets.Clear();
+        for (int i = 0; i < _images.Count; i++)
+        {
+            if (i == _draggingIndex)
+                continue;
+
+            var offset = CardGridLayoutHelper.GetSwapOffset(
+                i,
+                _draggingIndex,
+                _dropTargetIndex,
+                _images.Count,
+                _currentScrollY,
+                _visualSize.X,
+                _visualSize.Y,
+                _cardScale,
+                _cardSpacing,
+                _topPadding);
+            _swapOffsetTargets[i] = new Vector2((float)offset.X, (float)offset.Y);
+            if (!_swapOffsets.ContainsKey(i))
+                _swapOffsets[i] = Vector2.Zero;
+        }
+    }
+
+    private bool AnimateSwapOffsets(float dt)
+    {
+        if (_draggingIndex < 0)
+            return false;
+
+        bool animating = _isDragCommitting;
+        float step = 1f - MathF.Exp(-dt / Math.Max(0.001f, SwapAnimationSeconds * 0.45f));
+
+        foreach (var (index, target) in _swapOffsetTargets)
+        {
+            _swapOffsets.TryGetValue(index, out var current);
+            var next = current + (target - current) * step;
+            _swapOffsets[index] = next;
+            if (Vector2.DistanceSquared(next, target) > 0.25f)
+                animating = true;
+        }
+
+        foreach (var index in _swapOffsets.Keys.ToArray())
+        {
+            if (_swapOffsetTargets.ContainsKey(index))
+                continue;
+
+            var current = _swapOffsets[index];
+            var next = current + (Vector2.Zero - current) * step;
+            _swapOffsets[index] = next;
+            if (Vector2.DistanceSquared(next, Vector2.Zero) > 0.25f)
+                animating = true;
+            else
+                _swapOffsets.Remove(index);
+        }
+
+        return animating;
+    }
+
+    private bool TryGetCardDrawPosition(int index, GridMetrics metrics, out float x, out float y)
+    {
+        if (!TryGetCardPosition(index, metrics, out x, out y))
+            return false;
+
+        if (_draggingIndex < 0 || index == _draggingIndex)
+            return true;
+
+        if (_swapOffsets.TryGetValue(index, out var offset))
+        {
+            x += offset.X;
+            y += offset.Y;
+        }
+
+        return true;
+    }
+
+    private void DrawDraggedCard(SKCanvas canvas, int index, GridMetrics metrics, float globalOpacity)
+    {
+        float w = metrics.CardWidth;
+        float h = metrics.CardHeight;
+        float cx = _dragPosition.X;
+        float cy = _dragPosition.Y;
+        float scale = DragLiftScale;
+
+        if (_isDragCommitting && TryGetCardPosition(_dropTargetIndex, metrics, out float targetX, out float targetY))
+        {
+            float eased = MathF.Sin(_dragCommitProgress * MathF.PI * 0.5f);
+            float targetCx = targetX + w * 0.5f;
+            float targetCy = targetY + h * 0.5f;
+            cx = _dragPosition.X + (targetCx - _dragPosition.X) * eased;
+            cy = _dragPosition.Y + (targetCy - _dragPosition.Y) * eased;
+            scale = DragLiftScale + (1f - DragLiftScale) * eased;
+        }
+
+        float x = cx - w * 0.5f;
+        float y = cy - h * 0.5f;
+
+        canvas.Save();
+        if (Math.Abs(scale - 1f) > 0.001f)
+        {
+            canvas.Translate(cx, cy);
+            canvas.Scale(scale, scale);
+            canvas.Translate(-cx, -cy);
+        }
+
+        DrawCard(canvas, index, x, y, metrics, globalOpacity);
+        canvas.Restore();
     }
 
     private bool IsCardVisible(float y, float cardHeight) =>
