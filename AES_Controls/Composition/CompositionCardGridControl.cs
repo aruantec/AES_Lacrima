@@ -440,7 +440,7 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         var props = e.GetCurrentPoint(this).Properties;
         if (props.IsRightButtonPressed)
         {
-            PointedItemIndex = HitTestIndex(pos);
+            OpenItemContextMenu(HitTestIndex(pos));
             e.Handled = true;
             return;
         }
@@ -1107,6 +1107,19 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         _animationSync.CurrentScrollY = scrollY;
         _animationSync.TargetScrollY = scrollY;
         _animationSync.VelocityY = 0;
+    }
+
+    private void OpenItemContextMenu(int pointedIndex)
+    {
+        PointedItemIndex = pointedIndex;
+        if (pointedIndex >= 0)
+        {
+            bool changed = Math.Abs(pointedIndex - SelectedIndex) >= 0.001;
+            PublishSelectedIndex(pointedIndex, force: changed);
+        }
+
+        if (ContextMenu is { } menu)
+            menu.Open(this);
     }
 
     private void PublishSelectedIndex(double index, bool force = false)

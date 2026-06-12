@@ -40,6 +40,7 @@ public partial class VideoView : UserControl
     public VideoView()
     {
         InitializeComponent();
+        CoverCardGrid.ContextMenu = CoverCarousel.ContextMenu;
         DataContextChanged += OnDataContextChanged;
         AddHandler(InputElement.KeyDownEvent, OnVideoViewKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(InputElement.PointerMovedEvent, OnFullscreenCursorPointerActivity, RoutingStrategies.Tunnel, handledEventsToo: true);

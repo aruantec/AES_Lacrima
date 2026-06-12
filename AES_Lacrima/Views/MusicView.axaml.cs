@@ -31,6 +31,7 @@ public partial class MusicView : UserControl
     public MusicView()
     {
         InitializeComponent();
+        CoverCardGrid.ContextMenu = CoverCarousel.ContextMenu;
         DataContextChanged += OnDataContextChanged;
     }
 

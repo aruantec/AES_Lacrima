@@ -996,6 +996,19 @@ namespace AES_Controls.Composition
             }
         }
 
+        private void OpenItemContextMenu(int pointedIndex)
+        {
+            PointedItemIndex = pointedIndex;
+            if (pointedIndex >= 0)
+            {
+                bool changed = Math.Abs(pointedIndex - SelectedIndex) >= 0.001;
+                PublishSelectedIndex(pointedIndex, force: changed);
+            }
+
+            if (ContextMenu is { } menu)
+                menu.Open(this);
+        }
+
         private void PublishSelectedIndex(double index, bool force = false)
         {
             double clamped = Math.Clamp(index, 0, Math.Max(0, _images.Count - 1));
@@ -2342,7 +2355,7 @@ namespace AES_Controls.Composition
             if (pointerProps.IsRightButtonPressed)
             {
                 var size = new Vector2((float)Bounds.Width, (float)Bounds.Height);
-                PointedItemIndex = HitTest(pos, size, IndexForInteraction);
+                OpenItemContextMenu(HitTest(pos, size, IndexForInteraction));
                 e.Handled = true;
                 return;
             }

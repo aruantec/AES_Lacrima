@@ -27,7 +27,8 @@
         <Border Background="#0F0F0F" Grid.RowSpan="2"/>
 
         <Panel>
-            <composition:CompositionCarouselControl ItemsSource="{Binding CoverItems}"
+            <composition:CompositionCarouselControl x:Name="CoverCarousel"
+                                                    ItemsSource="{Binding CoverItems}"
                                                     ImageBitmapProperty="CoverBitmap"
                                                     SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
                                                     PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
@@ -150,7 +151,8 @@
         </composition:CompositionCarouselControl.ContextMenu>
             </composition:CompositionCarouselControl>
 
-            <composition:CompositionCardGridControl ItemsSource="{Binding CoverItems}"
+            <composition:CompositionCardGridControl x:Name="CoverCardGrid"
+                                                    ItemsSource="{Binding CoverItems}"
                                                     ImageBitmapProperty="CoverBitmap"
                                                     TitleProperty="Title"
                                                     SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
