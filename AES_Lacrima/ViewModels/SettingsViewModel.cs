@@ -896,6 +896,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private bool _isWaveformSymmetric = true;
 
+    /// <summary>
+    /// When enabled, the music progress bar uses digital capsule bars with spectrum cover colors.
+    /// </summary>
+    [ObservableProperty]
+    private bool _useDigitalProgressBar;
+
     // Spectrum visualiser settings
 
     /// <summary>
@@ -1772,6 +1778,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         nameof(ShowEdgeBorder),
         nameof(ShowSecondCircleAnimation),
         nameof(WaveformPlayedColor),
+        nameof(UseDigitalProgressBar),
         nameof(SelectedShadertoy),
         nameof(MiniSelectedShadertoy),
         nameof(SpectrumHeight),
@@ -3785,6 +3792,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (ReadStringSetting(section, nameof(SpectrumColor3)) is { } c3) SpectrumColor3 = Color.Parse(c3);
         if (ReadStringSetting(section, nameof(SpectrumColor4)) is { } c4) SpectrumColor4 = Color.Parse(c4);
         WaveformPlayedColor = Color.Parse(ReadStringSetting(section, nameof(WaveformPlayedColor), "RoyalBlue")!);
+        UseDigitalProgressBar = ReadBoolSetting(section, nameof(UseDigitalProgressBar), UseDigitalProgressBar);
 
         // Carousel settings
         CarouselSpacing = ReadDoubleSetting(section, nameof(CarouselSpacing), CarouselSpacing);
@@ -3839,6 +3847,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(ShowEdgeBorder), ShowEdgeBorder);
         WriteSetting(section, nameof(ShowSecondCircleAnimation), ShowSecondCircleAnimation);
         WriteSetting(section, nameof(WaveformPlayedColor), WaveformPlayedColor.ToString());
+        WriteSetting(section, nameof(UseDigitalProgressBar), UseDigitalProgressBar);
         WriteSetting(section, nameof(SelectedShadertoy), SelectedShadertoy?.Name ?? string.Empty);
         WriteSetting(section, nameof(MiniSelectedShadertoy), MiniSelectedShadertoy?.Name ?? string.Empty);
         // Spectrum settings

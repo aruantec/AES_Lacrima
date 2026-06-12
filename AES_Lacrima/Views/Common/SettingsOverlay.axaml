@@ -584,6 +584,12 @@
                             <ColorPicker Width="80" Height="40" Margin="0,0,10,10" Color="{Binding SpectrumColor4, Mode=TwoWay}"/>
                         </WrapPanel>
 
+                        <TextBlock Margin="0,18,0,10" Text="Progress Bar" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="30"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8" Spacing="16">
+                            <RadioButton Content="Waveform" GroupName="ProgressBarStyle" IsChecked="{Binding !UseDigitalProgressBar, Mode=TwoWay}" Foreground="WhiteSmoke" FontSize="16"/>
+                            <RadioButton Content="Digital" GroupName="ProgressBarStyle" IsChecked="{Binding UseDigitalProgressBar, Mode=TwoWay}" Foreground="WhiteSmoke" FontSize="16"/>
+                        </StackPanel>
+
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,8,0,8" Spacing="10">
                             <TextBlock Text="Silence advance delay (ms):" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="16"/>
                             <TextBox Width="80" Text="{Binding SilenceAdvanceDelayMs, Mode=TwoWay}">

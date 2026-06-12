@@ -520,10 +520,32 @@ namespace AES_Lacrima.ViewModels
         private void SettingsViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName is nameof(SettingsViewModel.UseMusicSpectrumCoverColors)
-                or nameof(SettingsViewModel.SpectrumGradient))
+                or nameof(SettingsViewModel.SpectrumGradient)
+                or nameof(SettingsViewModel.UseDigitalProgressBar)
+                or nameof(SettingsViewModel.UseWaveformGradient))
             {
                 RefreshSpectrumGradient();
+                OnPropertyChanged(nameof(ProgressBarGradientBrush));
             }
+        }
+
+        public LinearGradientBrush? ProgressBarGradientBrush
+        {
+            get
+            {
+                if (SettingsViewModel?.UseDigitalProgressBar == true)
+                    return SpectrumGradientBrush;
+
+                if (SettingsViewModel?.UseWaveformGradient == true)
+                    return CloneGradientBrush(SettingsViewModel.SpectrumGradient);
+
+                return null;
+            }
+        }
+
+        partial void OnSpectrumGradientBrushChanged(LinearGradientBrush? value)
+        {
+            OnPropertyChanged(nameof(ProgressBarGradientBrush));
         }
 
         [AutoResolve]

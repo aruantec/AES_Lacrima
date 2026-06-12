@@ -788,12 +788,12 @@
                                                     HorizontalAlignment="Right"
                                                     Margin="0,0,70,0"/>
             </StackPanel>
-            <Separator Margin="0" VerticalAlignment="Bottom"/>
+            <Separator Margin="0" VerticalAlignment="Bottom" ZIndex="10"/>
         </Grid>
 
         <!-- Progressbar -->
-        <Grid Grid.Row="2" Background="#FF000000">
-			<player:WaveformProgressBar Margin="1,5,1,10"
+        <Grid Grid.Row="2" Background="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}">
+			<composition:CompositionWaveformProgressBar Margin="1,5,1,10"
                                         IndicatorColor="Gray"
                                         Waveform="{Binding AudioPlayer.Waveform}"
                                         Value="{Binding AudioPlayer.Position, Mode=TwoWay}"
@@ -805,23 +805,22 @@
                                         BlockHeight="{Binding SettingsViewModel.WaveformBlockHeight}"
                                         VerticalGap="{Binding SettingsViewModel.WaveformVerticalGap}"
                                         VisualBarCount="{Binding SettingsViewModel.WaveformVisualBars}"
-                                        BarGradient="{Binding SettingsViewModel.UseWaveformGradient, Converter={StaticResource BoolToValueConverter}, ConverterParameter={StaticResource DigitalWaveformGradient}}"
+                                        IsDigitalMode="{Binding SettingsViewModel.UseDigitalProgressBar}"
+                                        BarGradient="{Binding ProgressBarGradientBrush}"
                                         IsSymmetric="{Binding SettingsViewModel.IsWaveformSymmetric}"
                                         Height="60"
-                                        BorderBrush="Gray"
-                                        Background="Transparent"
-                                        BorderThickness="1"
+                                        Background="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
                                         DragCompletedCommand="{Binding SetPositionCommand}"
                                         TextForegroundColor="LightGray"
                                         TextSize="16"
                                         TriangleOffset="-14"
                                         Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}">
-                <player:WaveformProgressBar.Transitions>
+                <composition:CompositionWaveformProgressBar.Transitions>
                     <Transitions>
                         <DoubleTransition Property="Opacity" Duration="0:0:0.500" Easing="SineEaseInOut"/>
                     </Transitions>
-                </player:WaveformProgressBar.Transitions>
-            </player:WaveformProgressBar>
+                </composition:CompositionWaveformProgressBar.Transitions>
+            </composition:CompositionWaveformProgressBar>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
 
