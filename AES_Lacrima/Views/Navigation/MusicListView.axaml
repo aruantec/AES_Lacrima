@@ -1,8 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
-			 xmlns:behaviors="using:AES_Controls.Behaviors"
-			 xmlns:localBehaviors="using:AES_Lacrima.Behaviors"
 			 xmlns:composition="using:AES_Controls.Composition"
 			 xmlns:controls="using:AES_Controls"
+			 xmlns:localBehaviors="using:AES_Lacrima.Behaviors"
 			 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 			 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
 			 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -23,305 +22,135 @@
     </Design.DataContext>
 	<!-- Music navigation content -->
 	<Grid Background="Black" ClipToBounds="False">
-		<!-- Album list -->
-		<ListBox x:Name="AlbumList"
-				 ItemsSource="{Binding FilteredAlbumList}" 
-				 Background="Transparent" 
-				 ClipToBounds="False"
-				 SelectionMode="Single"
-				 SelectedIndex="{Binding SelectedAlbumIndex, Mode=TwoWay}"
-				 ScrollViewer.HorizontalScrollBarVisibility="Auto"
-				 ScrollViewer.VerticalScrollBarVisibility="Disabled"
-				 Margin="0,8,0,10">
-			<ListBox.KeyBindings>
-					<KeyBinding Gesture="F2" Command="{Binding RenameFolderCommand}" CommandParameter="{Binding SelectedAlbum}"/>
-				</ListBox.KeyBindings>
-				<ListBox.Styles>
-					<Style Selector="ListBoxItem">
-						<Setter Property="ClipToBounds" Value="False"/>
-						<Setter Property="Background" Value="Transparent"/>
-						<Setter Property="BorderThickness" Value="0"/>
-						<Setter Property="BorderBrush" Value="Transparent"/>
-						<Setter Property="ContextMenu">
-							<ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0" x:DataType="vm:MusicViewModel">
-								<MenuItem  Header="Open Folder" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).OpenFolderCommand}">
-									<MenuItem.Icon>
-										<Viewbox Width="32" Height="32" Stretch="Uniform">
-											<Canvas Width="100" Height="100">
-												<Rectangle Canvas.Left="2" Canvas.Top="2" Width="96" Height="96" RadiusX="22" RadiusY="22" Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" />
-												<Rectangle Canvas.Left="46" Canvas.Top="32" Width="8" Height="36" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
-												<Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
-											</Canvas>
-										</Viewbox>
-									</MenuItem.Icon>
-								</MenuItem>
-								<MenuItem Header="Create Album" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).CreateAlbumCommand}">
-									<MenuItem.Icon>
-										<Viewbox Width="32" Height="32" Stretch="Uniform">
-											<Canvas Width="100" Height="100">
-												<Path Data="M 8,12 V 88 H 50 V 12 H 8 M 16,20 V 80 H 42 V 20 H 16 M 48,25 A 32,32 0 1 1 48,75 A 32,32 0 0 1 48,25 Z M 61,46 A 4,4 0 1 0 61,54 A 4,4 0 0 0 61,46" Fill="#CCFFFFFF" />
-												<Path Data="M 63,30 A 25,25 0 0 1 88,55 M 63,40 A 15,15 0 0 1 78,55" Stroke="#000000" StrokeThickness="3" StrokeLineCap="Round" />
-											</Canvas>
-										</Viewbox>
-								</MenuItem.Icon>
-							</MenuItem>
-							<Separator/>
-                                                        <MenuItem Header="Sort Albums A to Z" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).SortAlbumsAscendingCommand}">
-                                                                <MenuItem.IsVisible>
-                                                                        <Binding Path="$parent[ListBox].((vm:MusicViewModel)DataContext).CanSortAlbums"/>
-                                                                </MenuItem.IsVisible>
-                                                                <MenuItem.Icon>
-                                                                        <Viewbox Width="32" Height="32" Stretch="Uniform">
-										<Canvas Width="100" Height="100">
-											<TextBlock Canvas.Left="14" Canvas.Top="10" Text="A" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
-											<TextBlock Canvas.Left="15" Canvas.Top="58" Text="Z" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
-											<Line StartPoint="66,18" EndPoint="66,68" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round"/>
-											<Path Data="M 52,56 L 66,78 L 80,56 Z" Fill="#CCFFFFFF"/>
-										</Canvas>
-									</Viewbox>
-								</MenuItem.Icon>
-                                                        </MenuItem>
-                                                        <MenuItem Header="Sort Albums Z to A" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).SortAlbumsDescendingCommand}">
-                                                                <MenuItem.IsVisible>
-                                                                        <Binding Path="$parent[ListBox].((vm:MusicViewModel)DataContext).CanSortAlbums"/>
-                                                                </MenuItem.IsVisible>
-                                                                <MenuItem.Icon>
-                                                                        <Viewbox Width="32" Height="32" Stretch="Uniform">
-										<Canvas Width="100" Height="100">
-											<TextBlock Canvas.Left="14" Canvas.Top="10" Text="Z" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
-											<TextBlock Canvas.Left="15" Canvas.Top="58" Text="A" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
-											<Line StartPoint="66,30" EndPoint="66,80" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round"/>
-											<Path Data="M 52,42 L 66,20 L 80,42 Z" Fill="#CCFFFFFF"/>
-										</Canvas>
-									</Viewbox>
-								</MenuItem.Icon>
-							</MenuItem>
-                                                        <Separator IsVisible="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).CanSortAlbums}"/>
-                                                        <MenuItem Header="Rename Album" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).RenameFolderCommand}" CommandParameter="{Binding}">
-								<MenuItem.Icon>
-									<Path Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"
-											  Fill="#CCFFFFFF"
-											  Width="32"
-											  Height="32"
-											  Stretch="Uniform"/>
-									</MenuItem.Icon>
-								</MenuItem>
-								<MenuItem Header="Delete Album" CornerRadius="8" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).DeleteFolderCommand}" CommandParameter="{Binding}">
-									<MenuItem.Icon>
-										<Path Data="M6,19A2,2 0 0,0 8,21h8a2,2 0 0,0 2-2V7H6v12zM19,4h-3.5l-1-1h-5l-1,1H5v2h14V4z"
-												Fill="#CCFFFFFF"
-												Width="32"
-												Height="32"
-												Stretch="Uniform"/>
-									</MenuItem.Icon>
-								</MenuItem>
-							</ContextMenu>
-						</Setter>
-						<Style Selector="^ /template/ ContentPresenter">
-						<Setter Property="ClipToBounds" Value="False"/>
-					</Style>
-					<Style Selector="^ /template/ Border#LayoutRoot">
-						<Setter Property="ClipToBounds" Value="False"/>
-						<Setter Property="Background" Value="Transparent"/>
-						<Setter Property="BorderBrush" Value="Transparent"/>
-						<Setter Property="BorderThickness" Value="0"/>
-					</Style>
-					<Style Selector="^ /template/ Border">
-						<Setter Property="Background" Value="Transparent"/>
-						<Setter Property="BorderBrush" Value="Transparent"/>
-						<Setter Property="BorderThickness" Value="0"/>
-					</Style>
-					<Style Selector="^ /template/ ContentPresenter">
-						<Setter Property="Background" Value="Transparent"/>
-						<Setter Property="BorderBrush" Value="Transparent"/>
-						<Setter Property="BorderThickness" Value="0"/>
-					</Style>
-					</Style>
-					<Style Selector="ListBoxItem:pointerover">
-						<Setter Property="Background" Value="Transparent"/>
-						<Setter Property="BorderBrush" Value="Transparent"/>
-						<Setter Property="BorderThickness" Value="0"/>
-					</Style>
-					<Style Selector="ListBoxItem:selected">
-						<Setter Property="Background" Value="Transparent"/>
-						<Setter Property="BorderBrush" Value="Transparent"/>
-						<Setter Property="BorderThickness" Value="0"/>
-					</Style>
-					<Style Selector="ListBoxItem:selected:pointerover">
-						<Setter Property="Background" Value="Transparent"/>
-						<Setter Property="BorderBrush" Value="Transparent"/>
-						<Setter Property="BorderThickness" Value="0"/>
-					</Style>
-					<Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-						<Setter Property="Background" Value="Transparent"/>
-					</Style>
-					<Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
-						<Setter Property="Background" Value="Transparent"/>
-					</Style>
-					<Style Selector="ListBoxItem:selected /template/ ContentPresenter Border#SelectionOverlay">
-						<Setter Property="Opacity" Value="0"/>
-					</Style>
-					<Style Selector="Border.SelectionHighlight">
-						<Setter Property="Opacity" Value="0"/>
-					</Style>
-					<Style Selector="ListBoxItem:selected Border.SelectionHighlight">
-						<Setter Property="Opacity" Value="1"/>
-					</Style>
-					<Style Selector="ListBoxItem:pointerover Border.SelectionHighlight">
-						<Setter Property="Opacity" Value="0.6"/>
-					</Style>
-					<Style Selector="ListBoxItem:selected:pointerover Border.SelectionHighlight">
-						<Setter Property="Opacity" Value="1"/>
-					</Style>
-					<Style Selector="ListBox /template/ ScrollContentPresenter">
-						<Setter Property="ClipToBounds" Value="False"/>
-					</Style>
-					<Style Selector="ListBox /template/ ItemsPresenter">
-						<Setter Property="ClipToBounds" Value="False"/>
-					</Style>
-					<Style Selector="ListBox /template/ ScrollViewer">
-						<Setter Property="ClipToBounds" Value="False"/>
-					</Style>
-					<Style Selector="ListBox /template/ Border">
-						<Setter Property="ClipToBounds" Value="False"/>
-					</Style>
-				</ListBox.Styles>
-				<!-- Items template -->
-				<ListBox.ItemTemplate>
-					<DataTemplate>
-						<Border CornerRadius="12" Margin="0" ClipToBounds="False" Background="Transparent">
-							<Grid Width="240" Height="220">
-								<Border CornerRadius="12"
-										Background="#111111"
-										BorderBrush="#1A1A1A"
-										BorderThickness="2"
-										IsHitTestVisible="False"/>
+		<composition:CompositionAlbumRowControl x:Name="AlbumList"
+												ItemsSource="{Binding FilteredAlbumList}"
+												SelectedIndex="{Binding SelectedAlbumIndex, Mode=TwoWay}"
+												ItemDoubleClickedCommand="{Binding OpenSelectedFolderCommand}"
+												DropCommand="{Binding DropCommand}"
+												Background="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
+												ClipToBounds="True"
+												Margin="0,8,0,10">
+			<composition:CompositionAlbumRowControl.Opacity>
+				<Binding Path="SettingsViewModel.CardGridOpacity"/>
+			</composition:CompositionAlbumRowControl.Opacity>
+			<composition:CompositionAlbumRowControl.KeyBindings>
+				<KeyBinding Gesture="F2" Command="{Binding RenameFolderCommand}" CommandParameter="{Binding SelectedAlbum}"/>
+			</composition:CompositionAlbumRowControl.KeyBindings>
+			<composition:CompositionAlbumRowControl.ContextMenu>
+				<ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0" x:DataType="vm:MusicViewModel">
+					<MenuItem Header="Open Folder" CornerRadius="8" Command="{Binding OpenFolderCommand}">
+						<MenuItem.Icon>
+							<Viewbox Width="32" Height="32" Stretch="Uniform">
+								<Canvas Width="100" Height="100">
+									<Rectangle Canvas.Left="2" Canvas.Top="2" Width="96" Height="96" RadiusX="22" RadiusY="22" Stroke="#CCFFFFFF" StrokeThickness="8" Fill="Transparent" />
+									<Rectangle Canvas.Left="46" Canvas.Top="32" Width="8" Height="36" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+									<Rectangle Canvas.Left="32" Canvas.Top="46" Width="36" Height="8" RadiusX="4" RadiusY="4" Fill="#CCFFFFFF" />
+								</Canvas>
+							</Viewbox>
+						</MenuItem.Icon>
+					</MenuItem>
+					<MenuItem Header="Create Album" CornerRadius="8" Command="{Binding CreateAlbumCommand}">
+						<MenuItem.Icon>
+							<Viewbox Width="32" Height="32" Stretch="Uniform">
+								<Canvas Width="100" Height="100">
+									<Path Data="M 8,12 V 88 H 50 V 12 H 8 M 16,20 V 80 H 42 V 20 H 16 M 48,25 A 32,32 0 1 1 48,75 A 32,32 0 0 1 48,25 Z M 61,46 A 4,4 0 1 0 61,54 A 4,4 0 0 0 61,46" Fill="#CCFFFFFF" />
+									<Path Data="M 63,30 A 25,25 0 0 1 88,55 M 63,40 A 15,15 0 0 1 78,55" Stroke="#000000" StrokeThickness="3" StrokeLineCap="Round" />
+								</Canvas>
+							</Viewbox>
+						</MenuItem.Icon>
+					</MenuItem>
+					<Separator/>
+					<MenuItem Header="Sort Albums A to Z" CornerRadius="8" Command="{Binding SortAlbumsAscendingCommand}" IsVisible="{Binding CanSortAlbums}">
+						<MenuItem.Icon>
+							<Viewbox Width="32" Height="32" Stretch="Uniform">
+								<Canvas Width="100" Height="100">
+									<TextBlock Canvas.Left="14" Canvas.Top="10" Text="A" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
+									<TextBlock Canvas.Left="15" Canvas.Top="58" Text="Z" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
+									<Line StartPoint="66,18" EndPoint="66,68" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round"/>
+									<Path Data="M 52,56 L 66,78 L 80,56 Z" Fill="#CCFFFFFF"/>
+								</Canvas>
+							</Viewbox>
+						</MenuItem.Icon>
+					</MenuItem>
+					<MenuItem Header="Sort Albums Z to A" CornerRadius="8" Command="{Binding SortAlbumsDescendingCommand}" IsVisible="{Binding CanSortAlbums}">
+						<MenuItem.Icon>
+							<Viewbox Width="32" Height="32" Stretch="Uniform">
+								<Canvas Width="100" Height="100">
+									<TextBlock Canvas.Left="14" Canvas.Top="10" Text="Z" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
+									<TextBlock Canvas.Left="15" Canvas.Top="58" Text="A" FontSize="28" FontWeight="Bold" Foreground="#CCFFFFFF"/>
+									<Line StartPoint="66,30" EndPoint="66,80" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round"/>
+									<Path Data="M 52,42 L 66,20 L 80,42 Z" Fill="#CCFFFFFF"/>
+								</Canvas>
+							</Viewbox>
+						</MenuItem.Icon>
+					</MenuItem>
+					<Separator IsVisible="{Binding CanSortAlbums}"/>
+					<MenuItem Header="Rename Album" CornerRadius="8" Command="{Binding RenameFolderCommand}" CommandParameter="{Binding SelectedAlbum}">
+						<MenuItem.Icon>
+							<Path Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"
+								  Fill="#CCFFFFFF"
+								  Width="32"
+								  Height="32"
+								  Stretch="Uniform"/>
+						</MenuItem.Icon>
+					</MenuItem>
+					<MenuItem Header="Delete Album" CornerRadius="8" Command="{Binding DeleteFolderCommand}" CommandParameter="{Binding SelectedAlbum}">
+						<MenuItem.Icon>
+							<Path Data="M6,19A2,2 0 0,0 8,21h8a2,2 0 0,0 2-2V7H6v12zM19,4h-3.5l-1-1h-5l-1,1H5v2h14V4z"
+								  Fill="#CCFFFFFF"
+								  Width="32"
+								  Height="32"
+								  Stretch="Uniform"/>
+						</MenuItem.Icon>
+					</MenuItem>
+				</ContextMenu>
+			</composition:CompositionAlbumRowControl.ContextMenu>
+		</composition:CompositionAlbumRowControl>
 
-								<Border HorizontalAlignment="Stretch"
-										VerticalAlignment="Stretch"
-										Margin="0"
-										CornerRadius="12"
-										ClipToBounds="True"
-										Background="Transparent">
-									<composition:FolderCompositionTileControl Items="{Binding PreviewItems}"
-																			  FolderCoverItem="{Binding}"
-																			  DefaultCover="{Binding CoverBitmap}"
-																			  ForceStaticPreview="{Binding IsAlbumListScrolling, ElementName=Root}"
-																			  ClipToBounds="True"
-																			  MaxVisibleCovers="3"
-																			  CoverStretch="UniformToFill"/>
-								</Border>
-
-								<Border VerticalAlignment="Bottom"
-										Height="50"
-										Background="#CC000000"
-										ClipToBounds="True"
-										CornerRadius="0,0,12,12">
-									<Grid Margin="8,4">
-										<TextBlock Text="{Binding Title}"
-												   IsVisible="{Binding !IsRenaming}"
-												   HorizontalAlignment="Center"
-												   VerticalAlignment="Center"
-												   TextAlignment="Center"
-												   TextWrapping="Wrap"
-												   Foreground="White"
-												   FontSize="18"
-												   MaxLines="2"
-												   TextTrimming="CharacterEllipsis"/>
-										<TextBox Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-												 IsVisible="{Binding IsRenaming}"
-												 HorizontalAlignment="Stretch"
-												 VerticalAlignment="Center"
-												 Padding="4"
-												 Background="#44000000"
-												 Classes.invalid="{Binding IsNameInvalid}"
-												 Foreground="White"
-												 FontSize="18"
-												 TextAlignment="Center"
-												 CaretBrush="White"
-												 ToolTip.Tip="{Binding NameInvalidMessage}"
-												 ToolTip.IsOpen="{Binding IsNameInvalid}">
-											<TextBox.Styles>
-												<Style Selector="TextBox.invalid /template/ Border#PART_BorderElement">
-													<Setter Property="BorderThickness" Value="2"/>
-													<Setter Property="BorderBrush" Value="Red"/>
-												</Style>
-											</TextBox.Styles>
-											<TextBox.KeyBindings>
-												<KeyBinding Gesture="Enter" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).EndRenameCommand}" CommandParameter="{Binding}" />
-												<KeyBinding Gesture="Escape" Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).CancelRenameCommand}" CommandParameter="{Binding}" />
-											</TextBox.KeyBindings>
-											<Interaction.Behaviors>
-												<localBehaviors:FocusOnVisibleBehavior />
-												<localBehaviors:ExecuteCommandOnLostFocusBehavior Command="{Binding $parent[ListBox].((vm:MusicViewModel)DataContext).EndRenameCommand}"
-																								 CommandParameter="{Binding}" />
-											</Interaction.Behaviors>
-										</TextBox>
-									</Grid>
-								</Border>
-
-								<Border Classes="SelectionHighlight"
-										Background="#440078D7"
-										BorderBrush="#880078D7"
-										BorderThickness="2"
-										IsHitTestVisible="False"
-										CornerRadius="12">
-									<Border.Transitions>
-										<Transitions>
-											<DoubleTransition Property="Opacity" Duration="0:0:0.15" Easing="CubicEaseOut"/>
-										</Transitions>
-									</Border.Transitions>
-								</Border>
-
-								<Border VerticalAlignment="Top"
-										HorizontalAlignment="Right"
-										Margin="12"
-										Padding="6,2"
-										MinWidth="24"
-										MinHeight="24"
-										CornerRadius="12"
-										Background="#222222"
-										IsHitTestVisible="False"
-										BoxShadow="0 2 5 0 #41000000"
-										Opacity="0.7">
-									<TextBlock Text="{Binding Children.Count}"
-											   Foreground="White"
-											   FontSize="20"
-											   HorizontalAlignment="Center"
-											   VerticalAlignment="Center"
-											   Margin="4"/>
-								</Border>
-
-								<Panel IsVisible="{Binding IsLoadingCover}"
-									   IsHitTestVisible="False"
-									   Background="#66000000">
-									<controls:LoadingControl Width="48"
-															 Height="48"
-															 Foreground="DeepSkyBlue"
-															 HorizontalAlignment="Center"
-															 VerticalAlignment="Center"
-															 IsHitTestVisible="False"/>
-								</Panel>
-							</Grid>
-						</Border>
-					</DataTemplate>
-				</ListBox.ItemTemplate>
-
-				<!-- Behaviors -->
-				<Interaction.Behaviors>
-					<ExecuteCommandOnDoubleTappedBehavior Command="{Binding OpenSelectedFolderCommand}"
-														  CommandParameter="{Binding SelectedAlbum}"/>
-
-					<behaviors:ListboxItemDragBehavior DropCommand="{Binding DropCommand}"/>
-				</Interaction.Behaviors>
-
-				<!-- Items panel -->
-				<ListBox.ItemsPanel>
-					<ItemsPanelTemplate>
-						<StackPanel Orientation="Horizontal" Margin="0" ClipToBounds="False"/>
-					</ItemsPanelTemplate>
-				</ListBox.ItemsPanel>
-                        </ListBox>
+		<TextBox x:Name="RenameTextBox"
+				 IsVisible="False"
+				 IsHitTestVisible="False"
+				 Text="{Binding SelectedAlbum.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+				 HorizontalAlignment="Left"
+				 VerticalAlignment="Top"
+				 HorizontalContentAlignment="Center"
+				 VerticalContentAlignment="Center"
+				 Padding="8,0,8,0"
+				 MinHeight="0"
+				 Background="#CC000000"
+				 BorderThickness="0"
+				 Classes="AlbumRename"
+				 Classes.invalid="{Binding SelectedAlbum.IsNameInvalid}"
+				 Foreground="White"
+				 FontSize="18"
+				 TextAlignment="Center"
+				 CaretBrush="White"
+				 ZIndex="200"
+				 ToolTip.Tip="{Binding SelectedAlbum.NameInvalidMessage}"
+				 ToolTip.IsOpen="{Binding SelectedAlbum.IsNameInvalid}">
+			<TextBox.Styles>
+				<Style Selector="TextBox.AlbumRename">
+					<Setter Property="VerticalContentAlignment" Value="Center"/>
+					<Setter Property="MinHeight" Value="0"/>
+				</Style>
+				<Style Selector="TextBox.AlbumRename /template/ TextBlock#PART_TextBlock">
+					<Setter Property="VerticalAlignment" Value="Center"/>
+				</Style>
+				<Style Selector="TextBox.invalid /template/ Border#PART_BorderElement">
+					<Setter Property="BorderThickness" Value="2"/>
+					<Setter Property="BorderBrush" Value="Red"/>
+				</Style>
+			</TextBox.Styles>
+			<TextBox.KeyBindings>
+				<KeyBinding Gesture="Enter" Command="{Binding EndRenameCommand}" CommandParameter="{Binding SelectedAlbum}" />
+				<KeyBinding Gesture="Escape" Command="{Binding CancelRenameCommand}" CommandParameter="{Binding SelectedAlbum}" />
+			</TextBox.KeyBindings>
+			<Interaction.Behaviors>
+				<localBehaviors:FocusOnVisibleBehavior />
+				<localBehaviors:ExecuteCommandOnLostFocusBehavior Command="{Binding EndRenameCommand}"
+																 CommandParameter="{Binding SelectedAlbum}" />
+			</Interaction.Behaviors>
+		</TextBox>
 
                 <TextBlock Text="{Binding EmptyAlbumListMessage}"
                            HorizontalAlignment="Center"

@@ -1,162 +1,121 @@
 using System;
-using System.Linq;
+using System.ComponentModel;
 using AES_Controls.Composition;
+using AES_Controls.Player.Models;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
-using Avalonia.Input;
-using Avalonia.Interactivity;
-using Avalonia.Threading;
-using Avalonia.VisualTree;
 
 namespace AES_Lacrima.Views.Navigation;
 
 public partial class MusicListView : UserControl
 {
-    private const int ScrollIdleMs = 180;
-
-    public static readonly DirectProperty<MusicListView, bool> IsAlbumListScrollingProperty =
-        AvaloniaProperty.RegisterDirect<MusicListView, bool>(
-            nameof(IsAlbumListScrolling),
-            o => o.IsAlbumListScrolling);
-
-    private bool _isAlbumListScrolling;
-    private ScrollViewer? _scrollViewer;
-    private ListBox? _albumList;
-    private DispatcherTimer? _scrollIdleTimer;
-
-    public bool IsAlbumListScrolling
-    {
-        get => _isAlbumListScrolling;
-        private set
-        {
-            if (_isAlbumListScrolling == value)
-                return;
-
-            FolderCompositionTileControl.SetAlbumListScrollFrozen(value);
-            SetAndRaise(IsAlbumListScrollingProperty, ref _isAlbumListScrolling, value);
-        }
-    }
+    private CompositionAlbumRowControl? _albumList;
+    private TextBox? _renameTextBox;
+    private ViewModels.MusicViewModel? _viewModel;
+    private FolderMediaItem? _renamingAlbum;
 
     public MusicListView()
     {
         InitializeComponent();
     }
 
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+        UnsubscribeViewModel();
+        _viewModel = DataContext as ViewModels.MusicViewModel;
+        if (_viewModel != null)
+            _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        SubscribeRenamingAlbum(_viewModel?.SelectedAlbum);
+        UpdateRenameOverlay();
+    }
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
+        _albumList = this.FindControl<CompositionAlbumRowControl>("AlbumList");
+        _renameTextBox = this.FindControl<TextBox>("RenameTextBox");
 
-        if (this.FindControl<ListBox>("AlbumList") is not { } list)
-            return;
-
-        _albumList = list;
-        list.AttachedToVisualTree += OnAlbumListAttachedToVisualTree;
-        list.AddHandler(InputElement.PointerWheelChangedEvent, OnAlbumListPointerWheel, RoutingStrategies.Tunnel | RoutingStrategies.Bubble);
-        TryHookScrollViewer(list);
+        if (_albumList != null)
+            _albumList.LayoutUpdated += OnAlbumListLayoutUpdated;
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
+        UnsubscribeViewModel();
+        if (_albumList != null)
+            _albumList.LayoutUpdated -= OnAlbumListLayoutUpdated;
+        SubscribeRenamingAlbum(null);
+        _albumList = null;
+        _renameTextBox = null;
+    }
+
+    private void UnsubscribeViewModel()
+    {
+        if (_viewModel == null)
+            return;
+
+        _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        _viewModel = null;
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ViewModels.MusicViewModel.SelectedAlbum)
+            or nameof(ViewModels.MusicViewModel.SelectedAlbumIndex))
+        {
+            SubscribeRenamingAlbum(_viewModel?.SelectedAlbum);
+            UpdateRenameOverlay();
+        }
+    }
+
+    private void SubscribeRenamingAlbum(FolderMediaItem? album)
+    {
+        if (ReferenceEquals(_renamingAlbum, album))
+            return;
+
+        if (_renamingAlbum != null)
+            _renamingAlbum.PropertyChanged -= OnRenamingAlbumPropertyChanged;
+
+        _renamingAlbum = album;
+
+        if (_renamingAlbum != null)
+            _renamingAlbum.PropertyChanged += OnRenamingAlbumPropertyChanged;
+    }
+
+    private void OnRenamingAlbumPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(FolderMediaItem.IsRenaming))
+            UpdateRenameOverlay();
+    }
+
+    private void OnAlbumListLayoutUpdated(object? sender, EventArgs e) => UpdateRenameOverlay();
+
+    private void UpdateRenameOverlay()
+    {
+        if (_renameTextBox == null)
+            return;
+
+        bool renaming = _viewModel?.SelectedAlbum?.IsRenaming == true && _viewModel.SelectedAlbumIndex >= 0;
+        _renameTextBox.IsVisible = renaming;
+        _renameTextBox.IsHitTestVisible = renaming;
 
         if (_albumList != null)
-        {
-            _albumList.AttachedToVisualTree -= OnAlbumListAttachedToVisualTree;
-            _albumList.RemoveHandler(InputElement.PointerWheelChangedEvent, OnAlbumListPointerWheel);
-        }
+            _albumList.RenamingIndex = renaming ? _viewModel!.SelectedAlbumIndex : -1;
 
-        if (_scrollViewer != null)
-        {
-            _scrollViewer.ScrollChanged -= OnAlbumListScrollChanged;
-            _scrollViewer.PointerPressed -= OnAlbumListScrollViewerPointerPressed;
-        }
-
-        _albumList = null;
-        _scrollViewer = null;
-        _scrollIdleTimer?.Stop();
-        _scrollIdleTimer = null;
-        IsAlbumListScrolling = false;
-    }
-
-    private void OnAlbumListAttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
-    {
-        if (sender is ListBox list)
-            TryHookScrollViewer(list);
-    }
-
-    private void TryHookScrollViewer(ListBox list)
-    {
-        if (_scrollViewer != null)
+        if (!renaming || _albumList == null || _viewModel == null)
             return;
 
-        _scrollViewer = list.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
-        if (_scrollViewer == null)
+        var titleBar = _albumList.GetTileTitleBarBounds(_viewModel.SelectedAlbumIndex);
+        const double inputHeight = 34;
+        double inputTop = titleBar.Y + Math.Max(0, (titleBar.Height - inputHeight) * 0.5);
+        var topLeft = _albumList.TranslatePoint(new Point(titleBar.X, inputTop), this);
+        if (topLeft == null)
             return;
 
-        _scrollViewer.ScrollChanged += OnAlbumListScrollChanged;
-        _scrollViewer.PointerPressed += OnAlbumListScrollViewerPointerPressed;
-    }
-
-    private void OnAlbumListPointerWheel(object? sender, PointerWheelEventArgs e)
-    {
-        if (e.Delta == default)
-            return;
-
-        BeginScrollInteraction();
-    }
-
-    private void OnAlbumListScrollViewerPointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (_scrollViewer == null)
-            return;
-
-        var hit = _scrollViewer.GetVisualAt(e.GetPosition(_scrollViewer));
-        if (IsInsideScrollBar(hit))
-            BeginScrollInteraction();
-    }
-
-    private static bool IsInsideScrollBar(Visual? visual)
-    {
-        while (visual != null)
-        {
-            if (visual is ScrollBar)
-                return true;
-
-            visual = visual.GetVisualParent();
-        }
-
-        return false;
-    }
-
-    private void BeginScrollInteraction()
-    {
-        if (!IsAlbumListScrolling)
-            IsAlbumListScrolling = true;
-
-        RestartScrollIdleTimer();
-    }
-
-    private void OnAlbumListScrollChanged(object? sender, ScrollChangedEventArgs e)
-    {
-        if (e.OffsetDelta == default)
-            return;
-
-        BeginScrollInteraction();
-    }
-
-    private void RestartScrollIdleTimer()
-    {
-        _scrollIdleTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ScrollIdleMs) };
-        _scrollIdleTimer.Stop();
-        _scrollIdleTimer.Tick -= OnAlbumListScrollIdle;
-        _scrollIdleTimer.Tick += OnAlbumListScrollIdle;
-        _scrollIdleTimer.Start();
-    }
-
-    private void OnAlbumListScrollIdle(object? sender, EventArgs e)
-    {
-        _scrollIdleTimer?.Stop();
-        IsAlbumListScrolling = false;
+        _renameTextBox.Margin = new Thickness(topLeft.Value.X, topLeft.Value.Y, 0, 0);
+        _renameTextBox.Width = titleBar.Width;
+        _renameTextBox.Height = Math.Min(inputHeight, titleBar.Height);
     }
 }
