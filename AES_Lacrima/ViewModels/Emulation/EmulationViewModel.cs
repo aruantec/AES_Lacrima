@@ -355,6 +355,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(OpenMetadataCommand))]
         [NotifyPropertyChangedFor(nameof(HasActiveAlbumItems))]
+        [NotifyPropertyChangedFor(nameof(CarouselIndexMaximum))]
+        [NotifyPropertyChangedFor(nameof(IsCarouselPositionSliderVisible))]
         private AvaloniaList<MediaItem> _coverItems = [];
 
         [ObservableProperty]
@@ -389,6 +391,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         private int _pointedIndex = -1;
 
         public bool IsItemPointed => PointedIndex != -1 && PointedIndex < CoverItems.Count;
+        public double CarouselIndexMaximum => Math.Max(0, CoverItems.Count - 1);
+        public bool IsCarouselPositionSliderVisible => CoverItems.Count > 1;
         public bool HasActiveAlbumItems =>
             CoverItems.Count > 0 ||
             LoadedAlbum?.Children.Count > 0 ||
@@ -1085,10 +1089,29 @@ private bool _isShadPs4PatchesOverlayOpen;
         public EmulationViewModel()
         {
             AlbumList.CollectionChanged += AlbumList_CollectionChanged;
+            CoverItems.CollectionChanged += OnCoverItemsCollectionChanged;
             PropertyChanged += EmulationViewModel_PropertyChanged;
             _selectedShaderFileItem = ShaderFileItems.FirstOrDefault() ?? new(string.Empty, string.Empty);
             _selectedShaderPath = _selectedShaderFileItem.FilePath;
             _clearShaderWhenPathEmpty = string.IsNullOrWhiteSpace(_selectedShaderFileItem.FilePath);
+        }
+
+        partial void OnCoverItemsChanged(AvaloniaList<MediaItem> oldValue, AvaloniaList<MediaItem> newValue)
+        {
+            if (oldValue != null)
+                oldValue.CollectionChanged -= OnCoverItemsCollectionChanged;
+            if (newValue != null)
+                newValue.CollectionChanged += OnCoverItemsCollectionChanged;
+            NotifyCarouselSliderProperties();
+        }
+
+        private void OnCoverItemsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+            => NotifyCarouselSliderProperties();
+
+        private void NotifyCarouselSliderProperties()
+        {
+            OnPropertyChanged(nameof(CarouselIndexMaximum));
+            OnPropertyChanged(nameof(IsCarouselPositionSliderVisible));
         }
 
         partial void OnSelectedShaderFileItemChanged(ShaderFileItem value)

@@ -105,6 +105,8 @@ namespace AES_Lacrima.ViewModels
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(AddItemsCommand))]
+        [NotifyPropertyChangedFor(nameof(CarouselIndexMaximum))]
+        [NotifyPropertyChangedFor(nameof(IsCarouselPositionSliderVisible))]
         private AvaloniaList<MediaItem> _coverItems = new AvaloniaList<MediaItem>();
 
         [ObservableProperty]
@@ -541,6 +543,28 @@ namespace AES_Lacrima.ViewModels
 
                 return null;
             }
+        }
+
+        public double CarouselIndexMaximum => Math.Max(0, CoverItems.Count - 1);
+
+        public bool IsCarouselPositionSliderVisible => CoverItems.Count > 1;
+
+        partial void OnCoverItemsChanged(AvaloniaList<MediaItem> oldValue, AvaloniaList<MediaItem> newValue)
+        {
+            if (oldValue != null)
+                oldValue.CollectionChanged -= OnCoverItemsCollectionChanged;
+            if (newValue != null)
+                newValue.CollectionChanged += OnCoverItemsCollectionChanged;
+            NotifyCarouselSliderProperties();
+        }
+
+        private void OnCoverItemsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+            => NotifyCarouselSliderProperties();
+
+        private void NotifyCarouselSliderProperties()
+        {
+            OnPropertyChanged(nameof(CarouselIndexMaximum));
+            OnPropertyChanged(nameof(IsCarouselPositionSliderVisible));
         }
 
         partial void OnSpectrumGradientBrushChanged(LinearGradientBrush? value)

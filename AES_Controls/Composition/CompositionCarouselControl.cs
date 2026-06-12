@@ -100,7 +100,6 @@ namespace AES_Controls.Composition
 
         private DispatcherTimer? _longPressTimer;
         private bool _isDragging;
-        private bool _isSliderPressed;
         private int _lastHoveredItem = -1, _lastHoveredButton = 0;
         private int _lastPressedItem = -1, _lastPressedButton = 0;
         private int _draggingIndex = -1;
@@ -138,12 +137,6 @@ namespace AES_Controls.Composition
 
         public static readonly StyledProperty<double> VerticalOffsetProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(VerticalOffset), -95.0);
-
-        public static readonly StyledProperty<double> SliderVerticalOffsetProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(SliderVerticalOffset), 134.0);
-
-        public static readonly StyledProperty<double> SliderTrackHeightProperty =
-            AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(SliderTrackHeight), 17.0);
 
         public static readonly StyledProperty<double> SideTranslationProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(SideTranslation), 73.0);
@@ -237,24 +230,6 @@ namespace AES_Controls.Composition
         {
             get => GetValue(VerticalOffsetProperty);
             set => SetValue(VerticalOffsetProperty, value);
-        }
-
-        /// <summary>
-        /// Vertical offset for the slider control rendered below the carousel.
-        /// </summary>
-        public double SliderVerticalOffset
-        {
-            get => GetValue(SliderVerticalOffsetProperty);
-            set => SetValue(SliderVerticalOffsetProperty, value);
-        }
-
-        /// <summary>
-        /// Height of the slider track in device independent pixels.
-        /// </summary>
-        public double SliderTrackHeight
-        {
-            get => GetValue(SliderTrackHeightProperty);
-            set => SetValue(SliderTrackHeightProperty, value);
         }
 
         /// <summary>
@@ -368,17 +343,6 @@ namespace AES_Controls.Composition
         private static float ClampFullCoverAspectRatio(float aspect)
             => Math.Clamp(aspect, 0.01f, MaxFullCoverAspectRatio);
 
-        private Rect SliderBounds
-        {
-            get
-            {
-                double w = Bounds.Width;
-                double h = Bounds.Height;
-                double sliderW = Math.Min(600, w * 0.8);
-                return new Rect((w - sliderW) / 2, h - SliderVerticalOffset, sliderW, 80);
-            }
-        }
-
         #endregion
 
         #region Commands
@@ -448,7 +412,7 @@ namespace AES_Controls.Composition
                     _uiVelocity = _animationSync.Velocity;
                 }
 
-                bool settling = _isPressed || _isPointerScrolling || _isDragging || _isSliderPressed || _animationSync.IsAnimating;
+                bool settling = _isPressed || _isPointerScrolling || _isDragging || _animationSync.IsAnimating;
                 if (!settling)
                 {
                     _uiSyncTimer?.Stop();
@@ -1062,10 +1026,10 @@ namespace AES_Controls.Composition
         private void EndPointerScrollInteraction(bool forcePublishSelectedIndex)
         {
             _isPointerScrolling = false;
-            SetVisualDirectIndexFollow(_isSliderPressed);
+            SetVisualDirectIndexFollow(false);
             if (forcePublishSelectedIndex)
                 PublishSelectedIndex(SelectedIndex, force: true);
-            else if (!_isSliderPressed && _uiSyncTimer != null && !_uiSyncTimer.IsEnabled)
+            else if (_uiSyncTimer != null && !_uiSyncTimer.IsEnabled)
                 _uiSyncTimer.Start();
 
             UpdateVirtualization();
@@ -1366,7 +1330,7 @@ namespace AES_Controls.Composition
 
         private bool IsSelectionInMotion()
         {
-            if (_isPressed || _isPointerScrolling || _isDragging || _isSliderPressed)
+            if (_isPressed || _isPointerScrolling || _isDragging)
                 return true;
 
             if (_animationSync.IsAnimating)
@@ -1400,10 +1364,6 @@ namespace AES_Controls.Composition
                 _visual?.SendHandlerMessage(new ItemHeightMessage(change.GetNewValue<double>()));
             else if (change.Property == VerticalOffsetProperty)
                 _visual?.SendHandlerMessage(new VerticalOffsetMessage(change.GetNewValue<double>()));
-            else if (change.Property == SliderVerticalOffsetProperty)
-                _visual?.SendHandlerMessage(new SliderVerticalOffsetMessage(change.GetNewValue<double>()));
-            else if (change.Property == SliderTrackHeightProperty)
-                _visual?.SendHandlerMessage(new SliderTrackHeightMessage(change.GetNewValue<double>()));
             else if (change.Property == SideTranslationProperty)
                 _visual?.SendHandlerMessage(new SideTranslationMessage(change.GetNewValue<double>()));
             else if (change.Property == StackSpacingProperty)
@@ -2205,8 +2165,6 @@ namespace AES_Controls.Composition
                 _visual.SendHandlerMessage(new ItemWidthMessage(ItemWidth));
                 _visual.SendHandlerMessage(new ItemHeightMessage(ItemHeight));
                 _visual.SendHandlerMessage(new VerticalOffsetMessage(VerticalOffset));
-                _visual.SendHandlerMessage(new SliderVerticalOffsetMessage(SliderVerticalOffset));
-                _visual.SendHandlerMessage(new SliderTrackHeightMessage(SliderTrackHeight));
                 _visual.SendHandlerMessage(new SideTranslationMessage(SideTranslation));
                 _visual.SendHandlerMessage(new StackSpacingMessage(StackSpacing));
                 _visual.SendHandlerMessage(new BackgroundMessage(GetSkColor(Background)));
@@ -2236,13 +2194,12 @@ namespace AES_Controls.Composition
                     return;
                 }
 
-                if (_isPressed || _isSliderPressed)
+                if (_isPressed)
                 {
                     _longPressTimer?.Stop();
                     _autoScrollTimer?.Stop();
                     _isPressed = false;
                     _isPointerScrolling = false;
-                    _isSliderPressed = false;
                     _pressedItemIndex = -1;
                     _currentDragTargetIndex = -1;
                     _dragPointerOffset = default;
@@ -2330,12 +2287,6 @@ namespace AES_Controls.Composition
                 return;
             }
 
-            if (_isSliderPressed)
-            {
-                _isSliderPressed = false;
-                _visual?.SendHandlerMessage(new SliderPressedMessage(false));
-            }
-
             _isPressed = false;
             _velocity = 0;
             _pressedItemIndex = -1;
@@ -2392,14 +2343,6 @@ namespace AES_Controls.Composition
             _pressedItemIndex = -1;
             e.Pointer.Capture(this);
 
-            if (SliderBounds.Inflate(new Thickness(40, 30)).Contains(pos))
-            {
-                _isSliderPressed = true;
-                _visual?.SendHandlerMessage(new SliderPressedMessage(true));
-                UpdateSliderPosition(pos.X);
-                return;
-            }
-            
             _longPressTimer?.Start();
 
             _pressedItemIndex = hitIndex;
@@ -2419,25 +2362,12 @@ namespace AES_Controls.Composition
             }
         }
 
-        private void UpdateSliderPosition(double x)
-        {
-            var bounds = SliderBounds;
-            const double thumbW = 45.0;
-            double clickableWidth = Math.Max(1.0, bounds.Width - thumbW);
-            double pct = Math.Clamp((x - bounds.Left - thumbW / 2) / clickableWidth, 0, 1);
-            PublishSelectedIndex(Math.Clamp(pct * Math.Max(0, _images.Count - 1), 0, Math.Max(0, _images.Count - 1)), force: true);
-        }
-
         protected override void OnPointerMoved(PointerEventArgs e)
         {
             base.OnPointerMoved(e);
             var point = e.GetPosition(this);
-            
-            if (_isSliderPressed)
-            {
-                UpdateSliderPosition(point.X);
-            }
-            else if (_isDragging)
+
+            if (_isDragging)
             {
                 UpdateDragInteraction(point);
 
@@ -2474,7 +2404,7 @@ namespace AES_Controls.Composition
             _prevPoint = point;
             _prevTime = e.Timestamp;
 
-            if (!_isDragging && !_isSliderPressed && !_isPointerScrolling)
+            if (!_isDragging && !_isPointerScrolling)
             {
                 int hIdx = IndexAtPoint(point);
                 int hBtn = 0;
@@ -2545,7 +2475,6 @@ namespace AES_Controls.Composition
             _dragSlotFloat = double.NaN;
             _dragPointerOffset = default;
             _isPressed = false;
-            _isSliderPressed = false;
             SetVisualDirectIndexFollow(UsesDirectIndexFollow);
             if (!_visualDirectIndexFollow && _uiSyncTimer != null && !_uiSyncTimer.IsEnabled)
                 _uiSyncTimer.Start();
@@ -2570,14 +2499,6 @@ namespace AES_Controls.Composition
             {
                 _visual?.SendHandlerMessage(new UpdateOverlayPressedMessage(-1, 0));
                 _lastPressedItem = -1; _lastPressedButton = 0;
-            }
-
-            if (_isSliderPressed)
-            {
-                _isSliderPressed = false;
-                _visual?.SendHandlerMessage(new SliderPressedMessage(false));
-                EndPointerScrollInteraction(forcePublishSelectedIndex: true);
-                QueueSettleCommit();
             }
 
             if (_isDragging)

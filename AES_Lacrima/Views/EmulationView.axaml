@@ -69,8 +69,6 @@
                                                     ItemSpacing="{Binding SettingsViewModel.CarouselSpacing}"
                                                     ItemScale="{Binding SettingsViewModel.CarouselScale}"
                                                     VerticalOffset="{Binding SettingsViewModel.CarouselVerticalOffset}"
-                                                    SliderVerticalOffset="{Binding SettingsViewModel.CarouselSliderVerticalOffset}"
-                                                    SliderTrackHeight="{Binding SettingsViewModel.CarouselSliderTrackHeight}"
                                                     SideTranslation="{Binding SettingsViewModel.CarouselSideTranslation}"
                                                     StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"
                                                     UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
@@ -2188,7 +2186,7 @@
                     VerticalAlignment="Center"
                     Margin="0,360,0,0"
                     Spacing="2"
-                    IsHitTestVisible="False">
+                    IsVisible="{Binding IsCarouselTitleOverlayVisible}">
             <StackPanel.Transitions>
                 <Transitions>
                     <DoubleTransition Property="Opacity" Duration="0:0:0.3"/>
@@ -2196,7 +2194,6 @@
             </StackPanel.Transitions>
 
             <TextBlock Text="{Binding HighlightedItem.Title, FallbackValue=''}"
-                       IsVisible="{Binding IsCarouselTitleOverlayVisible}"
                        FontSize="28"
                        FontWeight="SemiBold"
                        Foreground="White"
@@ -2204,7 +2201,20 @@
                        TextAlignment="Center"
                        Margin="0,8,0,0"
                        MaxWidth="1000"
-                       TextTrimming="CharacterEllipsis"/>
+                       TextTrimming="CharacterEllipsis"
+                       IsHitTestVisible="False"/>
+            <composition:PillProgressSlider Height="28"
+                                            TrackHeight="16"
+                                            ExecuteDuringDrag="True"
+                                            TrackBorderBrush="#CCCCCC"
+                                            FillBrush="#99F5F5F5"
+                                            Width="520"
+                                            HorizontalAlignment="Center"
+                                            Minimum="0"
+                                            Maximum="{Binding CarouselIndexMaximum}"
+                                            Value="{Binding SelectedIndex, Mode=TwoWay}"
+                                            Margin="0,12,0,0"
+                                            IsVisible="{Binding IsCarouselPositionSliderVisible}"/>
         </StackPanel>
 
         <!-- Message -->

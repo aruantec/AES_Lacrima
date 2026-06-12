@@ -1727,12 +1727,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private double _carouselVerticalOffset = -95.0;
 
     [ObservableProperty]
-    private double _carouselSliderVerticalOffset = 119.0;
-
-    [ObservableProperty]
-    private double _carouselSliderTrackHeight = 17.0;
-
-    [ObservableProperty]
     private double _carouselSideTranslation = 73.0;
 
     [ObservableProperty]
@@ -1812,8 +1806,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         nameof(CarouselSpacing),
         nameof(CarouselScale),
         nameof(CarouselVerticalOffset),
-        nameof(CarouselSliderVerticalOffset),
-        nameof(CarouselSliderTrackHeight),
         nameof(CarouselSideTranslation),
         nameof(CarouselStackSpacing),
         nameof(CarouselUseFullCoverSize),
@@ -3798,8 +3790,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         CarouselSpacing = ReadDoubleSetting(section, nameof(CarouselSpacing), CarouselSpacing);
         CarouselScale = ReadDoubleSetting(section, nameof(CarouselScale), CarouselScale);
         CarouselVerticalOffset = ReadDoubleSetting(section, nameof(CarouselVerticalOffset), CarouselVerticalOffset);
-        CarouselSliderVerticalOffset = ReadDoubleSetting(section, nameof(CarouselSliderVerticalOffset), CarouselSliderVerticalOffset);
-        CarouselSliderTrackHeight = ReadDoubleSetting(section, nameof(CarouselSliderTrackHeight), CarouselSliderTrackHeight);
         CarouselSideTranslation = ReadDoubleSetting(section, nameof(CarouselSideTranslation), CarouselSideTranslation);
         CarouselStackSpacing = ReadDoubleSetting(section, nameof(CarouselStackSpacing), CarouselStackSpacing);
         CarouselUseFullCoverSize = ReadBoolSetting(section, nameof(CarouselUseFullCoverSize), CarouselUseFullCoverSize);
@@ -3913,8 +3903,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(CarouselSpacing), CarouselSpacing);
         WriteSetting(section, nameof(CarouselScale), CarouselScale);
         WriteSetting(section, nameof(CarouselVerticalOffset), CarouselVerticalOffset);
-        WriteSetting(section, nameof(CarouselSliderVerticalOffset), CarouselSliderVerticalOffset);
-        WriteSetting(section, nameof(CarouselSliderTrackHeight), CarouselSliderTrackHeight);
         WriteSetting(section, nameof(CarouselSideTranslation), CarouselSideTranslation);
         WriteSetting(section, nameof(CarouselStackSpacing), CarouselStackSpacing);
         WriteSetting(section, nameof(CarouselUseFullCoverSize), CarouselUseFullCoverSize);

@@ -8,6 +8,10 @@ using System.Numerics;
 
 namespace AES_Controls.Composition
 {
+    internal record SliderVerticalOffsetMessage(double Value);
+    internal record SliderTrackHeightMessage(double Value);
+    internal record SliderPressedMessage(bool IsPressed);
+
     // A compact visual handler that draws a slider sized to the visual bounds.
     // This is intentionally separate from CompositionCarouselVisualHandler
     // so the carousel visual can remain untouched.

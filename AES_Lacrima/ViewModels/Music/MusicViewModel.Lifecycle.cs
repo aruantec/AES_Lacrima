@@ -43,6 +43,7 @@ namespace AES_Lacrima.ViewModels
         {
             // Ensure the initial AlbumList is registered for changes (CollectionChanged and PropertyChanged on items)
             OnAlbumListChanged(null, AlbumList);
+            CoverItems.CollectionChanged += OnCoverItemsCollectionChanged;
 
             // Initialize selected/highlighted media items to avoid null reference bindings in the view
             SelectedMediaItem = new MediaItem

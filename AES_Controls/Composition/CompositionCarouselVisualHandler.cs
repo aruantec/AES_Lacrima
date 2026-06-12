@@ -17,8 +17,6 @@ namespace AES_Controls.Composition
     internal record SpacingMessage(double Value);
     internal record ScaleMessage(double Value);
     internal record VerticalOffsetMessage(double Value);
-    internal record SliderVerticalOffsetMessage(double Value);
-    internal record SliderTrackHeightMessage(double Value);
     internal record SideTranslationMessage(double Value);
     internal record StackSpacingMessage(double Value);
     internal record BackgroundMessage(SKColor Color);
@@ -33,7 +31,6 @@ namespace AES_Controls.Composition
     internal record DragStateMessage(int Index, bool IsDragging);
     internal record DragPositionMessage(Vector2 Position);
     internal record DropTargetMessage(int Index);
-    internal record SliderPressedMessage(bool IsPressed);
     internal record DirectIndexFollowMessage(bool Enabled);
     internal record SnapIndexMessage(double Index);
     internal record PauseLoadingSpinnerAnimationMessage(bool IsPaused);
@@ -55,8 +52,6 @@ namespace AES_Controls.Composition
         private float _itemWidth = 240.0f;
         private float _itemHeight = 200.0f;
         private float _verticalOffset;
-        private float _sliderVerticalOffset = 60.0f;
-        private float _sliderTrackHeight = 4.0f;
         private float _sideTranslation = 320.0f;
         private float _stackSpacing = 160.0f;
         private HashSet<int> _coverFoundIndices = new();
@@ -83,7 +78,6 @@ namespace AES_Controls.Composition
         private float _currentGlobalOpacity = 1.0f;
         private float _targetGlobalOpacity = 1.0f;
         private float _currentGlobalOpacityVelocity;
-        private bool _isSliderPressed;
         private bool _directIndexFollow;
         private bool _useFullCoverSize;
         private bool _pauseLoadingSpinnerAnimation;
@@ -99,14 +93,11 @@ namespace AES_Controls.Composition
         // Projection / depth tuning to reduce perspective distortion on side items
         private readonly float _projectionDistance = 2500f; // larger => weaker perspective
         private readonly SKPaint _spinnerPaint = new() { IsAntialias = true, StrokeCap = SKStrokeCap.Round, StrokeWidth = 4, Style = SKPaintStyle.Stroke };
-        private readonly SKPaint _sliderPaint = new() { IsAntialias = true };
         private readonly SKPaint _overlayBgPaint = new() { IsAntialias = true, Color = SKColors.Black.WithAlpha(180) };
         private readonly SKPaint _overlayTextPaint = new() { IsAntialias = true, Color = SKColors.White, TextSize = 24, TextAlign = SKTextAlign.Center };
         private readonly SKPaint _okButtonPaint = new() { IsAntialias = true, Color = SKColor.Parse("#4CAF50") };
         private readonly SKPaint _cancelButtonPaint = new() { IsAntialias = true, Color = SKColor.Parse("#F44336") };
         private readonly SKPaint _buttonTextPaint = new() { IsAntialias = true, Color = SKColors.White, TextSize = 20, TextAlign = SKTextAlign.Center, FakeBoldText = true };
-        private readonly SKMaskFilter _blurFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 5);
-        private readonly SKMaskFilter _sliderBlurFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 2);
         private readonly Dictionary<SKImage, (int Width, int Height)> _dimCache = new();
         private SKPoint[] _meshVBuffer = Array.Empty<SKPoint>();
         private SKPoint[] _meshTBuffer = Array.Empty<SKPoint>();
@@ -114,13 +105,6 @@ namespace AES_Controls.Composition
         private readonly SKPoint[] _overlayRectBuffer = new SKPoint[4];
         private readonly List<int> _renderOrderBuffer = new();
 
-        private SKShader? _trackShader;
-        private SKShader? _thumbShader;
-
-        private readonly SKColor _trackColor1 = SKColor.Parse("#444444").WithAlpha(240);
-        private readonly SKColor _trackColor2 = SKColor.Parse("#777777").WithAlpha(240);
-        private readonly SKColor _thumbColor1 = SKColors.White;
-        private readonly SKColor _thumbColor2 = SKColor.Parse("#F0F0F0");
         private readonly SKColor _okButtonColor = SKColor.Parse("#4CAF50");
         private readonly SKColor _okButtonHoverColor = SKColor.Parse("#66BB6A");
         private readonly SKColor _okButtonPressedColor = SKColor.Parse("#388E3C");
@@ -270,8 +254,6 @@ namespace AES_Controls.Composition
             else if (message is ItemWidthMessage iwm) { _itemWidth = (float)iwm.Value; _visibleRangeDirty = true; Invalidate(); }
             else if (message is ItemHeightMessage ihm) { _itemHeight = (float)ihm.Value; _visibleRangeDirty = true; Invalidate(); }
             else if (message is VerticalOffsetMessage vom) { _verticalOffset = (float)vom.Value; Invalidate(); }
-            else if (message is SliderVerticalOffsetMessage svim) { _sliderVerticalOffset = (float)svim.Value; ClearSliderShaders(); Invalidate(); }
-            else if (message is SliderTrackHeightMessage sthm) { _sliderTrackHeight = (float)sthm.Value; ClearSliderShaders(); Invalidate(); }
             else if (message is SideTranslationMessage stm) { _sideTranslation = (float)stm.Value; _visibleRangeDirty = true; Invalidate(); }
             else if (message is StackSpacingMessage ssm) { _stackSpacing = (float)ssm.Value; _visibleRangeDirty = true; Invalidate(); }
             else if (message is BackgroundMessage bg) { _backgroundColor = bg.Color; Invalidate(); }
@@ -281,7 +263,6 @@ namespace AES_Controls.Composition
                 if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
                 RegisterForNextAnimationFrameUpdate();
             }
-            else if (message is SliderPressedMessage spm) { _isSliderPressed = spm.IsPressed; Invalidate(); }
             else if (message is DirectIndexFollowMessage dif) { _directIndexFollow = dif.Enabled; Invalidate(); }
             else if (message is SnapIndexMessage snap)
             {
@@ -324,12 +305,6 @@ namespace AES_Controls.Composition
             else if (message is UpdateOverlayPressedMessage opress) { _pressedItemIndex = opress.Index; _pressedButtonId = opress.ButtonId; Invalidate(); }
         }
 
-        private void ClearSliderShaders()
-        {
-            _trackShader?.Dispose(); _trackShader = null;
-            _thumbShader?.Dispose(); _thumbShader = null;
-        }
-
         public override void OnAnimationFrameUpdate()
         {
             long currentTicks = Stopwatch.GetTimestamp();
@@ -355,7 +330,7 @@ namespace AES_Controls.Composition
             if (!_directIndexFollow)
                 _spinnerRotation = (_spinnerRotation + 8f) % 360f;
 
-            if (!_isSliderPressed && _draggingIndex == -1 && !_isDropping)
+            if (_draggingIndex == -1 && !_isDropping)
             {
                 double nearestIndex = Math.Round(_targetIndex);
                 bool targetIsFractional = Math.Abs(_targetIndex - nearestIndex) > 0.0001;
@@ -521,32 +496,6 @@ namespace AES_Controls.Composition
                 RenderItem(canvas, _draggingIndex, center, baseW, baseH);
 
             canvas.Restore();
-            DrawSlider(canvas);
-        }
-
-        private void DrawSlider(SKCanvas canvas)
-        {
-            if (_images.Count <= 1) return;
-            float margin = _sliderVerticalOffset;
-            float sliderW = Math.Min(600, _visualSize.X * 0.8f);
-            SKRect bounds = new SKRect((_visualSize.X - sliderW) / 2, _visualSize.Y - margin, (_visualSize.X + sliderW) / 2, _visualSize.Y - margin + 80);
-            float trackY = bounds.MidY; SKRect trackRect = new SKRect(bounds.Left, trackY - _sliderTrackHeight / 2, bounds.Right, trackY + _sliderTrackHeight / 2);
-            if (_trackShader == null) _trackShader = SKShader.CreateLinearGradient(new SKPoint(0, trackRect.Top), new SKPoint(0, trackRect.Bottom), new[] { _trackColor1, _trackColor2 }, null, SKShaderTileMode.Clamp);
-            // Apply global composition opacity to slider visuals; make track slightly transparent by default
-            float g = Math.Max(0f, Math.Min(1f, _currentGlobalOpacity));
-            float baseTrackAlpha = 170f; // slightly transparent base (0-255)
-            float baseTrackStrokeAlpha = 60f;
-            _sliderPaint.Style = SKPaintStyle.Fill; _sliderPaint.Shader = _trackShader; _sliderPaint.Color = SKColors.White.WithAlpha((byte)(baseTrackAlpha * g));
-            canvas.DrawRoundRect(trackRect, _sliderTrackHeight/2, _sliderTrackHeight/2, _sliderPaint); _sliderPaint.Shader = null;
-            _sliderPaint.Style = SKPaintStyle.Stroke; _sliderPaint.StrokeWidth = 1; _sliderPaint.Color = SKColors.White.WithAlpha((byte)(baseTrackStrokeAlpha * g)); canvas.DrawRoundRect(trackRect, _sliderTrackHeight/2, _sliderTrackHeight/2, _sliderPaint);
-            float thumbW = 45; float thumbH = 16; float pct = (float)(_currentIndex / Math.Max(1, _images.Count - 1)); float thumbX = bounds.Left + (thumbW / 2) + pct * (bounds.Width - thumbW);
-
-            SKRect thumbRect = new SKRect(thumbX - thumbW / 2, trackY - thumbH / 2, thumbX + thumbW / 2, trackY + thumbH / 2);
-            if (_thumbShader == null) _thumbShader = SKShader.CreateLinearGradient(new SKPoint(0, thumbRect.Top), new SKPoint(0, thumbRect.Bottom), new[] { _thumbColor1, _thumbColor2 }, null, SKShaderTileMode.Clamp);
-            if (_isSliderPressed) { _sliderPaint.Style = SKPaintStyle.Fill; _sliderPaint.Color = SKColors.White.WithAlpha((byte)(120 * g)); _sliderPaint.MaskFilter = _blurFilter; var glow = thumbRect; glow.Inflate(4,4); canvas.DrawRoundRect(glow, 10, 10, _sliderPaint); _sliderPaint.MaskFilter = null; }
-            _sliderPaint.Style = SKPaintStyle.Fill; _sliderPaint.Color = SKColors.Black.WithAlpha((byte)(100 * g)); _sliderPaint.MaskFilter = _sliderBlurFilter; canvas.DrawRoundRect(new SKRect(thumbRect.Left, thumbRect.Top + 1, thumbRect.Right, thumbRect.Bottom + 1), 8, 8, _sliderPaint); _sliderPaint.MaskFilter = null;
-            _sliderPaint.Shader = _thumbShader; _sliderPaint.Color = SKColors.White.WithAlpha((byte)(255 * g)); canvas.DrawRoundRect(thumbRect, 8, 8, _sliderPaint); _sliderPaint.Shader = null;
-            _sliderPaint.Style = SKPaintStyle.Stroke; _sliderPaint.StrokeWidth = 1.0f; _sliderPaint.Color = SKColors.Black.WithAlpha((byte)(50 * g)); canvas.DrawRoundRect(thumbRect, 8, 8, _sliderPaint);
         }
 
         private void ProjectTextPoint(Matrix4x4 matrix, Vector2 center, float x, float y, float scaleMultiplier = 1.0f, float midX = 0, float midY = 0)
