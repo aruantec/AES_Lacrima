@@ -95,6 +95,9 @@ namespace AES_Lacrima.ViewModels
         private MediaItem? _selectedMediaItem;
 
         [ObservableProperty]
+        private LinearGradientBrush? _spectrumGradientBrush;
+
+        [ObservableProperty]
         private MediaItem? _highlightedItem;
 
         [ObservableProperty]
@@ -171,6 +174,8 @@ namespace AES_Lacrima.ViewModels
         [NotifyPropertyChangedFor(nameof(IsVideoViewportVisible))]
         private AudioPlayer? _audioPlayer;
         private AudioPlayer? _subscribedAudioPlayer;
+        private SettingsViewModel? _subscribedSettingsViewModel;
+        private MediaItem? _spectrumCoverSourceSubscribed;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsVideoViewportVisible))]
@@ -278,6 +283,8 @@ namespace AES_Lacrima.ViewModels
                         SettingsViewModel.ReplayGainTagSource);
                 }
 
+                UpdateSpectrumCoverSubscription();
+
                 // Initialize taskbar progress
                 if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
                 {
@@ -318,6 +325,7 @@ namespace AES_Lacrima.ViewModels
 
                 UpdateTrackLoadPendingState();
                 EnsureCurrentMediaCoverIsLoaded();
+                UpdateSpectrumCoverSubscription();
                 OnPropertyChanged(nameof(IsVideoViewportVisible));
                 OnPropertyChanged(nameof(HasCurrentMediaLoaded));
             }
@@ -488,6 +496,35 @@ namespace AES_Lacrima.ViewModels
         [AutoResolve]
         [ObservableProperty]
         private SettingsViewModel? _settingsViewModel;
+
+        partial void OnSettingsViewModelChanged(SettingsViewModel? value)
+        {
+            EnsureSettingsViewModelSubscription();
+            RefreshSpectrumGradient();
+        }
+
+        private void EnsureSettingsViewModelSubscription()
+        {
+            if (ReferenceEquals(_subscribedSettingsViewModel, SettingsViewModel))
+                return;
+
+            if (_subscribedSettingsViewModel is INotifyPropertyChanged oldNotifier)
+                oldNotifier.PropertyChanged -= SettingsViewModel_PropertyChanged;
+
+            _subscribedSettingsViewModel = SettingsViewModel;
+
+            if (_subscribedSettingsViewModel is INotifyPropertyChanged newNotifier)
+                newNotifier.PropertyChanged += SettingsViewModel_PropertyChanged;
+        }
+
+        private void SettingsViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(SettingsViewModel.UseMusicSpectrumCoverColors)
+                or nameof(SettingsViewModel.SpectrumGradient))
+            {
+                RefreshSpectrumGradient();
+            }
+        }
 
         [AutoResolve]
         private MainWindowViewModel? _mainWindowViewModel;

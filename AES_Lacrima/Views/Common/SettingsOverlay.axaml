@@ -570,6 +570,11 @@
                             <ToggleSwitch IsChecked="{Binding ShowMusicSpectrum, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
 
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,8" VerticalAlignment="Center">
+                            <TextBlock Text="Use Cover Colors" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
+                            <ToggleSwitch IsChecked="{Binding UseMusicSpectrumCoverColors, Mode=TwoWay}" Margin="8,0"/>
+                        </StackPanel>
+
                         <TextBlock Margin="0,8,0,8" Text="Spectrum Gradient" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18"/>
                         <WrapPanel Orientation="Horizontal" Margin="0,8,0,8">
                             <ColorPicker Width="80" Height="40" Margin="0,0,10,10" Color="{Binding SpectrumColor0, Mode=TwoWay}"/>

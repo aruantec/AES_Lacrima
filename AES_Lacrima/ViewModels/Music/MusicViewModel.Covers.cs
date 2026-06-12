@@ -10,6 +10,7 @@ using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Avalonia.Media;
@@ -203,6 +204,71 @@ namespace AES_Lacrima.ViewModels
         private void EnsureCurrentMediaCoverIsLoaded()
         {
             EnsureMediaItemCoverIsLoaded(AudioPlayer?.CurrentMediaItem);
+        }
+
+        private void UpdateSpectrumCoverSubscription()
+        {
+            var item = AudioPlayer?.CurrentMediaItem ?? SelectedMediaItem;
+            if (ReferenceEquals(_spectrumCoverSourceSubscribed, item))
+            {
+                RefreshSpectrumGradient();
+                return;
+            }
+
+            if (_spectrumCoverSourceSubscribed is INotifyPropertyChanged oldNotifier)
+                oldNotifier.PropertyChanged -= SpectrumCoverSource_PropertyChanged;
+
+            _spectrumCoverSourceSubscribed = item;
+
+            if (item is INotifyPropertyChanged newNotifier)
+                newNotifier.PropertyChanged += SpectrumCoverSource_PropertyChanged;
+
+            RefreshSpectrumGradient();
+        }
+
+        private void SpectrumCoverSource_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(MediaItem.CoverBitmap))
+                RefreshSpectrumGradient();
+        }
+
+        private static LinearGradientBrush? CloneGradientBrush(LinearGradientBrush? source)
+        {
+            if (source?.GradientStops is not { Count: > 0 } stops)
+                return source;
+
+            var clone = new LinearGradientBrush
+            {
+                StartPoint = source.StartPoint,
+                EndPoint = source.EndPoint,
+                SpreadMethod = source.SpreadMethod
+            };
+
+            foreach (var stop in stops)
+                clone.GradientStops.Add(new GradientStop(stop.Color, stop.Offset));
+
+            return clone;
+        }
+
+        private void RefreshSpectrumGradient()
+        {
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                Dispatcher.UIThread.Post(RefreshSpectrumGradient, DispatcherPriority.Normal);
+                return;
+            }
+
+            if (SettingsViewModel?.UseMusicSpectrumCoverColors == false)
+            {
+                SpectrumGradientBrush = CloneGradientBrush(SettingsViewModel.SpectrumGradient);
+                return;
+            }
+
+            var item = AudioPlayer?.CurrentMediaItem ?? SelectedMediaItem;
+            var coverBitmap = item?.CoverBitmap;
+            DefaultFolderCover ??= GenerateDefaultFolderCover();
+            var hasCustomCover = coverBitmap != null && coverBitmap != DefaultFolderCover;
+            SpectrumGradientBrush = BitmapColorHelper.GetDominantColorGradient(hasCustomCover ? coverBitmap : null, 3);
         }
 
         private void EnsureMediaItemCoverIsLoaded(MediaItem? item)

@@ -39,6 +39,9 @@ namespace AES_Lacrima.ViewModels
     {
         partial void OnSelectedMediaItemChanged(MediaItem? value)
         {
+            if (AudioPlayer?.CurrentMediaItem == null)
+                UpdateSpectrumCoverSubscription();
+
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
                 _mprisService?.NotifyStateChanged(nameof(SelectedMediaItem));

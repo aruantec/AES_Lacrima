@@ -928,6 +928,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private bool _showMusicSpectrum = true;
 
     /// <summary>
+    /// When enabled, the music view spectrum uses colors extracted from the current cover art.
+    /// </summary>
+    [ObservableProperty]
+    private bool _useMusicSpectrumCoverColors = true;
+
+    /// <summary>
     /// Gets or sets the gradient brush used for the spectrum visualizer.
     /// </summary>
     [ObservableProperty]
@@ -3448,6 +3454,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         BarSpacing = ReadDoubleSetting(section, nameof(BarSpacing), BarSpacing);
         ShowSpectrum = ReadBoolSetting(section, nameof(ShowSpectrum), ShowSpectrum);
         ShowMusicSpectrum = ReadBoolSetting(section, nameof(ShowMusicSpectrum), ShowMusicSpectrum);
+        UseMusicSpectrumCoverColors = ReadBoolSetting(section, nameof(UseMusicSpectrumCoverColors), UseMusicSpectrumCoverColors);
 
         // application mode (window type)
         AppMode = ReadIntSetting(section, nameof(AppMode), AppMode);
@@ -3641,6 +3648,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(BarSpacing), BarSpacing);
         WriteSetting(section, nameof(ShowSpectrum), ShowSpectrum);
         WriteSetting(section, nameof(ShowMusicSpectrum), ShowMusicSpectrum);
+        WriteSetting(section, nameof(UseMusicSpectrumCoverColors), UseMusicSpectrumCoverColors);
 
         // Persist individual spectrum colors
         WriteSetting(section, nameof(SpectrumColor0), SpectrumColor0.ToString());

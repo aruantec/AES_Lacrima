@@ -250,7 +250,7 @@
                                         BlockHeight="5"
                                         UseDeltaTime="True"
                                         IsHitTestVisible="False"
-                                        BarGradient="{Binding SettingsViewModel.SpectrumGradient}"
+                                        BarGradient="{Binding SpectrumGradientBrush}"
                                         IsVisible="{Binding SettingsViewModel.ShowMusicSpectrum}">
                 <spectrum:GlSpectrumControl.Transitions>
                     <Transitions>

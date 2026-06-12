@@ -69,6 +69,7 @@ namespace AES_Lacrima.ViewModels
             // (e.g. VideoViewModel). The DI generator only walks directly-declared members on
             // the activated type, so inherited fields/properties can remain null.
             SettingsViewModel ??= DiLocator.ResolveViewModel<SettingsViewModel>();
+            EnsureSettingsViewModelSubscription();
             _mainWindowViewModel ??= DiLocator.ResolveViewModel<MainWindowViewModel>();
             EqualizerService ??= DiLocator.ResolveViewModel<EqualizerService>();
             MetadataService ??= DiLocator.ResolveViewModel<MetadataService>();
@@ -100,6 +101,7 @@ namespace AES_Lacrima.ViewModels
                         $"Albums={AlbumList.Count}, Items={GetAlbumItemCount()}, LoadedAlbum='{LoadedAlbum?.Title ?? "<none>"}'.");
 
                     _mainWindowViewModel?.Spectrum = AudioPlayer?.Spectrum;
+                    UpdateSpectrumCoverSubscription();
                     MetadataService?.PropertyChanged += MetadataService_PropertyChanged;
 
                     ReduceCoverResidency(LoadedAlbum);
