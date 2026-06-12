@@ -19,6 +19,8 @@ internal record CardGridHoveredIndexMessage(int Index);
 internal record CardGridScrollbarPressedMessage(bool IsPressed);
 internal record CardGridScrollbarHoverMessage(bool IsHovered);
 internal record CardGridResetScrollbarMessage();
+internal record CardGridBackgroundColorMessage(SKColor Color);
+internal record CardGridTitleMarqueeMessage(bool Enabled);
 internal record CardGridAttachSyncMessage(CardGridAnimationSyncState State);
 
 public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
@@ -28,9 +30,12 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private const float GridPaddingX = 28f;
     private const float GridPaddingTop = 20f;
     private const float ScrollbarMargin = 10f;
-    private static readonly SKColor BackgroundColor = SKColor.Parse("#101010");
+    private static readonly SKColor DefaultBackgroundColor = SKColor.Parse("#101010");
     private const float CardCornerRadius = 12f;
     private const float TitleAreaRatio = 0.24f;
+    private const float TitleTextSizeRatio = 0.09f;
+    private const float TitleTextSizeMin = 17f;
+    private const float TitleTextSizeMax = 22f;
     private const float MaxFullCoverAspectRatio = 1.35f;
     private const float ViewportFadeHeightRatio = 0.14f;
     private const float ViewportFadeMinHeight = 48f;
@@ -54,10 +59,20 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private float _scrollbarOpacityVelocity;
     private int _selectedIndex = -1;
     private int _hoveredIndex = -1;
+    private float _selectionBorderFade;
+    private float _selectionPulsePhase;
+    private SKColor _backgroundColor = DefaultBackgroundColor;
+    private const float SelectionFadeInRate = 18f;
+    private const float SelectionFadeOutRate = 22f;
     private float _currentGlobalOpacity = 1f;
     private float _targetGlobalOpacity = 1f;
     private float _currentGlobalOpacityVelocity;
     private bool _pauseLoadingSpinnerAnimation;
+    private bool _titleMarqueeEnabled = true;
+    private float _marqueeOffset;
+    private float _marqueeTime;
+    private float _marqueeScrollRange;
+    private bool _marqueeActive;
     private CardGridAnimationSyncState? _animationSync;
 
     private List<SKImage?> _images = new();
@@ -72,7 +87,14 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private readonly SKPaint _scrollbarPaint = new() { IsAntialias = true };
     private readonly SKPaint _spinnerPaint = new() { IsAntialias = true, StrokeCap = SKStrokeCap.Round, StrokeWidth = 3, Style = SKPaintStyle.Stroke };
     private readonly SKMaskFilter _scrollbarBlur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 3);
+    private readonly SKMaskFilter _selectionGlowBlur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 5);
     private readonly Dictionary<SKImage, (int Width, int Height)> _dimCache = new();
+    private readonly Dictionary<SKImage, SKImage> _blurBackdropCache = new();
+    private readonly Dictionary<int, (float Strength, float Velocity)> _hoverLift = new();
+    private const float HoverLiftScale = 0.034f;
+    private const float SelectionLiftScale = 0.072f;
+    private const int BlurBackdropCacheWidth = 128;
+    private const int BlurBackdropCacheHeight = 172;
     private SKShader? _trackShader;
     private SKShader? _thumbShader;
 
@@ -111,7 +133,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 foreach (var img in previous)
                 {
                     if (img != null && !_images.Contains(img))
-                        _dimCache.Remove(img);
+                        RemoveImageCaches(img);
                 }
 
                 foreach (var img in _images)
@@ -142,7 +164,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                     }
 
                     if (oldImg != null && !ReferenceEquals(oldImg, update.Image))
-                        _dimCache.Remove(oldImg);
+                        RemoveImageCaches(oldImg);
                     Invalidate();
                 }
                 break;
@@ -180,15 +202,32 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 break;
             case CardGridTitlesMessage titles:
                 _titles = titles.Titles;
+                _marqueeTime = 0f;
+                _marqueeOffset = 0f;
                 Invalidate();
                 break;
             case CardGridSelectedIndexMessage selected:
+                if (selected.Index != _selectedIndex)
+                {
+                    _marqueeTime = 0f;
+                    _marqueeOffset = 0f;
+                    _marqueeScrollRange = 0f;
+                    _marqueeActive = false;
+                }
+
                 _selectedIndex = selected.Index;
-                Invalidate();
+                if (_selectedIndex < 0)
+                    _selectionPulsePhase = 0f;
+                RequestScrollbarAnimationFrame();
                 break;
             case CardGridHoveredIndexMessage hovered:
-                _hoveredIndex = hovered.Index;
-                Invalidate();
+                if (hovered.Index != _hoveredIndex)
+                {
+                    _hoveredIndex = hovered.Index;
+                    if (_hoveredIndex >= 0 && !_hoverLift.ContainsKey(_hoveredIndex))
+                        _hoverLift[_hoveredIndex] = (0f, 0f);
+                    RequestScrollbarAnimationFrame();
+                }
                 break;
             case CardGridScrollbarPressedMessage scrollbar:
                 _isScrollbarPressed = scrollbar.IsPressed;
@@ -222,6 +261,16 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                     if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
                     RegisterForNextAnimationFrameUpdate();
                 }
+                break;
+            case CardGridBackgroundColorMessage background:
+                _backgroundColor = background.Color;
+                Invalidate();
+                break;
+            case CardGridTitleMarqueeMessage marquee:
+                _titleMarqueeEnabled = marquee.Enabled;
+                _marqueeTime = 0f;
+                _marqueeOffset = 0f;
+                Invalidate();
                 break;
             case CardGridAttachSyncMessage attach:
                 _animationSync = attach.State;
@@ -319,12 +368,65 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             _currentGlobalOpacity = Math.Clamp(_currentGlobalOpacity, 0f, 1f);
         }
 
+        float fadeTarget = _selectedIndex >= 0 ? 1f : 0f;
+        bool selectionFading = Math.Abs(_selectionBorderFade - fadeTarget) > 0.001f;
+        if (selectionFading)
+        {
+            float rate = fadeTarget > _selectionBorderFade ? SelectionFadeInRate : SelectionFadeOutRate;
+            _selectionBorderFade += (fadeTarget - _selectionBorderFade) * Math.Min(1f, (float)dt * rate);
+            _selectionBorderFade = Math.Clamp(_selectionBorderFade, 0f, 1f);
+        }
+        else
+        {
+            _selectionBorderFade = fadeTarget;
+        }
+
+        bool selectionPulsing = _selectedIndex >= 0 && _selectionBorderFade > 0.2f;
+        if (selectionPulsing)
+            _selectionPulsePhase += (float)dt * 3.1f;
+
+        bool marqueeAnimating = UpdateMarquee((float)dt);
+
+        bool hoverAnimating = false;
+        if (_hoverLift.Count > 0)
+        {
+            var finished = new List<int>();
+            foreach (var index in _hoverLift.Keys.ToArray())
+            {
+                float target = index == _hoveredIndex ? 1f : 0f;
+                var (strength, velocity) = _hoverLift[index];
+                if (Math.Abs(strength - target) > 0.001f || Math.Abs(velocity) > 0.001f)
+                {
+                    double hoverStiffness = 260.0;
+                    double hoverDamping = 2.0 * Math.Sqrt(hoverStiffness) * 0.88;
+                    velocity += (float)((target - strength) * hoverStiffness - velocity * hoverDamping) * (float)dt;
+                    strength += velocity * (float)dt;
+                    strength = Math.Clamp(strength, 0f, 1f);
+                    _hoverLift[index] = (strength, velocity);
+                    hoverAnimating = true;
+                }
+                else
+                {
+                    _hoverLift[index] = (target, 0f);
+                    if (target <= 0f)
+                        finished.Add(index);
+                }
+            }
+
+            foreach (var index in finished)
+                _hoverLift.Remove(index);
+        }
+
         bool isAnimating = _directScrollFollow ||
                            Math.Abs(_targetScrollY - _currentScrollY) > 0.01 ||
                            Math.Abs(_scrollVelocity) > 0.5 ||
                            Math.Abs(_scrollSpringVelocity) > 0.01 ||
                            Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.001f ||
-                           Math.Abs(_scrollbarOpacity - desiredScrollbarOpacity) > 0.01;
+                           Math.Abs(_scrollbarOpacity - desiredScrollbarOpacity) > 0.01 ||
+                           selectionFading ||
+                           selectionPulsing ||
+                           marqueeAnimating ||
+                           hoverAnimating;
         bool animateSpinners = !_pauseLoadingSpinnerAnimation && _loadingIndices.Count > 0;
 
         if (isAnimating || animateSpinners)
@@ -353,7 +455,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
         using var lease = leaseFeature.Lease();
         var canvas = lease.SkCanvas;
-        canvas.Clear(BackgroundColor);
+        canvas.Clear(_backgroundColor);
 
         if (_images.Count == 0 || _visualSize.X <= 0 || _visualSize.Y <= 0)
             return;
@@ -379,14 +481,24 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 int index = row * metrics.Columns + col;
                 if (index >= _images.Count)
                     break;
+                if (index == _selectedIndex)
+                    continue;
 
-                float x = metrics.PaddingLeft + col * (metrics.CardWidth + metrics.Spacing);
-                float y = metrics.PaddingTop + row * (metrics.CardHeight + metrics.Spacing) - (float)_currentScrollY;
-                if (y + metrics.CardHeight < 0 || y > _visualSize.Y)
+                if (!TryGetCardPosition(index, metrics, out float x, out float y))
+                    continue;
+                if (!IsCardVisible(y, metrics.CardHeight))
                     continue;
 
                 DrawCard(canvas, index, x, y, metrics, 1f);
             }
+        }
+
+        if (_selectedIndex >= 0 &&
+            _selectedIndex < _images.Count &&
+            TryGetCardPosition(_selectedIndex, metrics, out float selX, out float selY) &&
+            IsCardVisible(selY, metrics.CardHeight))
+        {
+            DrawCard(canvas, _selectedIndex, selX, selY, metrics, 1f);
         }
 
         ApplyViewportFadeMask(canvas);
@@ -438,12 +550,35 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         };
     }
 
+    private bool TryGetCardPosition(int index, GridMetrics metrics, out float x, out float y)
+    {
+        if (index < 0 || index >= _images.Count)
+        {
+            x = 0;
+            y = 0;
+            return false;
+        }
+
+        int row = index / metrics.Columns;
+        int col = index % metrics.Columns;
+        x = metrics.PaddingLeft + col * (metrics.CardWidth + metrics.Spacing);
+        y = metrics.PaddingTop + row * (metrics.CardHeight + metrics.Spacing) - (float)_currentScrollY;
+        return true;
+    }
+
+    private bool IsCardVisible(float y, float cardHeight) =>
+        y + cardHeight >= 0 && y <= _visualSize.Y;
+
     private void DrawCard(SKCanvas canvas, int index, float x, float y, GridMetrics metrics, float globalOpacity)
     {
         var rect = new SKRect(x, y, x + metrics.CardWidth, y + metrics.CardHeight);
         bool isSelected = index == _selectedIndex;
-        bool isHovered = index == _hoveredIndex;
-        float scale = isSelected ? 1.03f : isHovered ? 1.015f : 1f;
+        float borderFade = isSelected ? _selectionBorderFade : 0f;
+        float hoverLift = _hoverLift.TryGetValue(index, out var hoverState) ? hoverState.Strength : 0f;
+        float easedHover = EaseOutCubic(hoverLift);
+        float scale = isSelected
+            ? 1f + SelectionLiftScale * borderFade
+            : 1f + HoverLiftScale * easedHover;
 
         using var clipPath = new SKPath();
         clipPath.AddRoundRect(rect, CardCornerRadius, CardCornerRadius);
@@ -470,20 +605,54 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         else
             DrawPlaceholder(canvas, rect.Left, rect.Top, metrics.CardWidth, coverH);
 
-        DrawTitleBar(canvas, img, rect, metrics.CardWidth, coverH, titleH, index, globalOpacity);
+        DrawTitleBar(canvas, img, rect, metrics.CardWidth, coverH, titleH, index, isSelected, globalOpacity);
+
         canvas.Restore();
 
-        if (isSelected)
+        if (isSelected && borderFade > 0.001f)
         {
-            _cardPaint.Style = SKPaintStyle.Stroke;
-            _cardPaint.StrokeWidth = 2f;
-            _cardPaint.Color = SKColors.White.WithAlpha((byte)(180 * globalOpacity));
-            _cardPaint.Shader = null;
-            canvas.DrawRoundRect(rect, CardCornerRadius, CardCornerRadius, _cardPaint);
+            float pulse = 0.72f + 0.28f * (0.5f + 0.5f * MathF.Sin(_selectionPulsePhase));
+            canvas.Save();
+            if (Math.Abs(scale - 1f) > 0.001f)
+            {
+                float cx = rect.MidX;
+                float cy = rect.MidY;
+                canvas.Translate(cx, cy);
+                canvas.Scale(scale, scale);
+                canvas.Translate(-cx, -cy);
+            }
+
+            DrawSelectionGlowBorder(canvas, rect, borderFade, pulse, globalOpacity);
+            canvas.Restore();
         }
 
         if (isLoading)
             DrawSpinner(canvas, rect.MidX, rect.Top + coverH * 0.5f, globalOpacity);
+    }
+
+    private static float EaseOutCubic(float t) => 1f - MathF.Pow(1f - Math.Clamp(t, 0f, 1f), 3f);
+
+    private void DrawSelectionGlowBorder(SKCanvas canvas, SKRect rect, float strength, float pulse, float globalOpacity)
+    {
+        float baseA = strength * globalOpacity;
+        if (baseA <= 0.001f)
+            return;
+
+        float glowA = baseA * (0.65f + 0.35f * pulse);
+        var glowRect = rect;
+        glowRect.Inflate(4f, 4f);
+
+        _overlayPaint.Style = SKPaintStyle.Stroke;
+        _overlayPaint.Shader = null;
+        _overlayPaint.MaskFilter = _selectionGlowBlur;
+        _overlayPaint.StrokeWidth = 10f;
+        _overlayPaint.Color = SKColor.Parse("#7EC8F2").WithAlpha((byte)(110 * glowA));
+        canvas.DrawRoundRect(glowRect, CardCornerRadius + 4f, CardCornerRadius + 4f, _overlayPaint);
+
+        _overlayPaint.MaskFilter = null;
+        _overlayPaint.StrokeWidth = 3.5f;
+        _overlayPaint.Color = SKColors.White.WithAlpha((byte)(230 * baseA));
+        canvas.DrawRoundRect(rect, CardCornerRadius, CardCornerRadius, _overlayPaint);
     }
 
     /// <summary>
@@ -516,40 +685,24 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
     private void DrawCoverImage(SKCanvas canvas, SKImage img, float x, float y, float w, float h)
     {
+        var dst = new SKRect(x, y, x + w, y + h);
         if (!TryGetImageDimensions(img, out var dims) || dims.Width <= 0 || dims.Height <= 0)
         {
             _cardPaint.Style = SKPaintStyle.Fill;
             _cardPaint.Shader = null;
             _cardPaint.Color = SKColor.Parse("#1A1A1A");
-            canvas.DrawRect(x, y, w, h, _cardPaint);
+            canvas.DrawRect(dst, _cardPaint);
             return;
         }
 
-        float srcAspect = (float)dims.Width / dims.Height;
-        float dstAspect = w / h;
-        float srcW = dims.Width;
-        float srcH = dims.Height;
-        if (srcAspect > dstAspect)
-        {
-            srcW = dims.Height * dstAspect;
-            srcH = dims.Height;
-        }
-        else
-        {
-            srcW = dims.Width;
-            srcH = dims.Width / dstAspect;
-        }
-
-        float srcX = (dims.Width - srcW) * 0.5f;
-        float srcY = (dims.Height - srcH) * 0.5f;
-        var src = new SKRect(srcX, srcY, srcX + srcW, srcY + srcH);
-        var dst = new SKRect(x, y, x + w, y + h);
+        var fillSrc = UniformToFillSrc(dims.Width, dims.Height, dst);
         _cardPaint.Style = SKPaintStyle.Fill;
         _cardPaint.Shader = null;
+        _cardPaint.ImageFilter = null;
         _cardPaint.Color = SKColors.White;
         _cardPaint.IsAntialias = true;
         _cardPaint.FilterQuality = SKFilterQuality.Medium;
-        canvas.DrawImage(img, src, dst, _cardPaint);
+        canvas.DrawImage(img, fillSrc, dst, _cardPaint);
     }
 
     private void DrawPlaceholder(SKCanvas canvas, float x, float y, float w, float h)
@@ -560,7 +713,28 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         canvas.DrawRect(x, y, w, h, _cardPaint);
     }
 
-    private void DrawTitleBar(SKCanvas canvas, SKImage? img, SKRect cardRect, float cardW, float coverH, float titleH, int index, float globalOpacity)
+    private bool UpdateMarquee(float dt)
+    {
+        if (!_titleMarqueeEnabled || !_marqueeActive || _marqueeScrollRange <= 0.5f)
+            return false;
+
+        const float pauseSeconds = 0.85f;
+        float scrollSeconds = Math.Clamp(_marqueeScrollRange / 42f, 1.8f, 8f);
+        float cycle = pauseSeconds + scrollSeconds + pauseSeconds;
+        _marqueeTime += dt;
+        float phase = _marqueeTime % cycle;
+
+        if (phase < pauseSeconds)
+            _marqueeOffset = 0f;
+        else if (phase < pauseSeconds + scrollSeconds)
+            _marqueeOffset = (phase - pauseSeconds) / scrollSeconds * _marqueeScrollRange;
+        else
+            _marqueeOffset = _marqueeScrollRange;
+
+        return true;
+    }
+
+    private void DrawTitleBar(SKCanvas canvas, SKImage? img, SKRect cardRect, float cardW, float coverH, float titleH, int index, bool isSelected, float globalOpacity)
     {
         float titleTop = cardRect.Top + coverH;
         var titleRect = new SKRect(cardRect.Left, titleTop, cardRect.Right, cardRect.Bottom);
@@ -568,22 +742,31 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         canvas.Save();
         canvas.ClipRect(titleRect);
 
-        if (img != null && TryGetImageDimensions(img, out var blurDims) && blurDims.Height > 0)
+        if (img != null)
         {
-            float bleed = 18f;
-            float srcH = Math.Min(blurDims.Height * 0.4f, blurDims.Height);
-            var src = new SKRect(0, blurDims.Height - srcH, blurDims.Width, blurDims.Height);
-            var blurDst = new SKRect(cardRect.Left, titleTop - bleed, cardRect.Right, cardRect.Bottom);
-            _cardPaint.Style = SKPaintStyle.Fill;
-            _cardPaint.FilterQuality = SKFilterQuality.Low;
-            _cardPaint.Color = SKColors.White.WithAlpha((byte)(90 * globalOpacity));
-            canvas.DrawImage(img, src, blurDst, _cardPaint);
+            var backdrop = GetOrCreateBlurBackdrop(img);
+            if (backdrop != null)
+            {
+                var coverRect = new SKRect(cardRect.Left, cardRect.Top, cardRect.Right, titleTop);
+                _cardPaint.Style = SKPaintStyle.Fill;
+                _cardPaint.Shader = null;
+                _cardPaint.ImageFilter = null;
+                _cardPaint.FilterQuality = SKFilterQuality.Low;
+                _cardPaint.Color = SKColors.White.WithAlpha((byte)(255 * globalOpacity));
+
+                canvas.Save();
+                canvas.Translate(0, titleTop);
+                canvas.Scale(1, -1);
+                canvas.Translate(0, -titleTop);
+                canvas.DrawImage(backdrop, coverRect);
+                canvas.Restore();
+            }
         }
 
         _overlayPaint.Shader = SKShader.CreateLinearGradient(
             new SKPoint(titleRect.Left, titleTop),
             new SKPoint(titleRect.Left, titleRect.Bottom),
-            new[] { SKColors.Black.WithAlpha(20), SKColors.Black.WithAlpha(210) },
+            new[] { SKColors.Black.WithAlpha(10), SKColors.Black.WithAlpha(175) },
             null,
             SKShaderTileMode.Clamp);
         _overlayPaint.Style = SKPaintStyle.Fill;
@@ -593,13 +776,59 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         string title = index < _titles.Length ? _titles[index] : string.Empty;
         if (!string.IsNullOrWhiteSpace(title))
         {
+            float textSize = Math.Clamp(cardW * TitleTextSizeRatio, TitleTextSizeMin, TitleTextSizeMax);
+            _titlePaint.TextSize = textSize;
+            _titleShadowPaint.TextSize = textSize;
             float textX = cardRect.Left + 12f;
-            float textY = titleRect.MidY + 5f;
-            title = CompositionSkiaTextHelper.TruncateText(title, cardW - 24f, _titlePaint);
-            _titleShadowPaint.TextSize = _titlePaint.TextSize;
-            CompositionSkiaTextHelper.DrawText(canvas, title, textX, textY + 1f, _titleShadowPaint);
-            _titlePaint.Color = SKColors.White.WithAlpha((byte)(245 * globalOpacity));
-            CompositionSkiaTextHelper.DrawText(canvas, title, textX, textY, _titlePaint);
+            float maxTextWidth = cardW - 24f;
+            float lineHeight = textSize * 1.18f;
+            var textClip = new SKRect(textX, titleTop, cardRect.Right - 12f, titleRect.Bottom);
+            bool drewMarquee = false;
+
+            if (isSelected && _titleMarqueeEnabled)
+            {
+                float textWidth = CompositionSkiaTextHelper.MeasureText(title, _titlePaint);
+                if (textWidth > maxTextWidth)
+                {
+                    _marqueeScrollRange = textWidth - maxTextWidth;
+                    _marqueeActive = true;
+                    float textY = titleRect.MidY + textSize * 0.12f;
+
+                    canvas.Save();
+                    canvas.ClipRect(textClip);
+                    CompositionSkiaTextHelper.DrawText(canvas, title, textX - _marqueeOffset, textY + 1f, _titleShadowPaint);
+                    _titlePaint.Color = SKColors.White.WithAlpha((byte)(245 * globalOpacity));
+                    CompositionSkiaTextHelper.DrawText(canvas, title, textX - _marqueeOffset, textY, _titlePaint);
+                    canvas.Restore();
+                    drewMarquee = true;
+                }
+                else
+                {
+                    _marqueeActive = false;
+                }
+            }
+            else if (isSelected)
+            {
+                _marqueeActive = false;
+            }
+
+            if (!drewMarquee)
+            {
+                int maxLines = Math.Clamp((int)Math.Floor(titleH / lineHeight), 1, 2);
+                IReadOnlyList<string> lines = _titleMarqueeEnabled && !isSelected
+                    ? new[] { CompositionSkiaTextHelper.TruncateText(title, maxTextWidth, _titlePaint) }
+                    : CompositionSkiaTextHelper.WrapTextLines(title, maxTextWidth, _titlePaint, maxLines);
+
+                float totalHeight = lines.Count * lineHeight;
+                float firstBaselineY = titleRect.MidY - totalHeight * 0.5f + textSize * 0.82f;
+
+                canvas.Save();
+                canvas.ClipRect(textClip);
+                CompositionSkiaTextHelper.DrawTextLines(canvas, lines, textX, firstBaselineY + 1f, lineHeight, _titleShadowPaint);
+                _titlePaint.Color = SKColors.White.WithAlpha((byte)(245 * globalOpacity));
+                CompositionSkiaTextHelper.DrawTextLines(canvas, lines, textX, firstBaselineY, lineHeight, _titlePaint);
+                canvas.Restore();
+            }
         }
 
         canvas.Restore();
@@ -611,7 +840,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         {
             IsAntialias = true,
             Color = color,
-            TextSize = 15,
+            TextSize = 18,
             IsLinearText = true,
             SubpixelText = true
         };
@@ -717,6 +946,80 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     }
 
     private void CacheImageDimensions(SKImage image) => TryGetImageDimensions(image, out _);
+
+    private void RemoveImageCaches(SKImage img)
+    {
+        _dimCache.Remove(img);
+        if (_blurBackdropCache.Remove(img, out var backdrop))
+            backdrop.Dispose();
+    }
+
+    private SKImage? GetOrCreateBlurBackdrop(SKImage img)
+    {
+        if (_blurBackdropCache.TryGetValue(img, out var cached))
+            return cached;
+
+        if (!TryGetImageDimensions(img, out var dims) || dims.Width <= 0 || dims.Height <= 0)
+            return null;
+
+        try
+        {
+            var cacheDst = new SKRect(0, 0, BlurBackdropCacheWidth, BlurBackdropCacheHeight);
+            var fillSrc = UniformToFillSrc(dims.Width, dims.Height, cacheDst);
+
+            using var surface = SKSurface.Create(new SKImageInfo(BlurBackdropCacheWidth, BlurBackdropCacheHeight));
+            var canvas = surface.Canvas;
+            canvas.Clear(SKColors.Transparent);
+
+            using var blurFilter = SKImageFilter.CreateBlur(8f, 8f);
+            using var blurPaint = new SKPaint
+            {
+                IsAntialias = true,
+                FilterQuality = SKFilterQuality.Low,
+                ImageFilter = blurFilter
+            };
+
+            canvas.SaveLayer(blurPaint);
+            _cardPaint.Style = SKPaintStyle.Fill;
+            _cardPaint.Shader = null;
+            _cardPaint.ImageFilter = null;
+            _cardPaint.Color = SKColors.White;
+            _cardPaint.FilterQuality = SKFilterQuality.Low;
+            canvas.DrawImage(img, fillSrc, cacheDst, _cardPaint);
+            canvas.Restore();
+
+            var snapshot = surface.Snapshot();
+            _blurBackdropCache[img] = snapshot;
+            return snapshot;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static SKRect UniformToFillSrc(float srcW, float srcH, SKRect dest)
+    {
+        float srcAspect = srcW / srcH;
+        float destAspect = dest.Width / dest.Height;
+        float cropW = srcW;
+        float cropH = srcH;
+        float cropX = 0;
+        float cropY = 0;
+
+        if (srcAspect > destAspect)
+        {
+            cropW = srcH * destAspect;
+            cropX = (srcW - cropW) * 0.5f;
+        }
+        else
+        {
+            cropH = srcW / destAspect;
+            cropY = (srcH - cropH) * 0.5f;
+        }
+
+        return new SKRect(cropX, cropY, cropX + cropW, cropY + cropH);
+    }
 
     public int HitTestCard(Point point, int itemCount)
     {

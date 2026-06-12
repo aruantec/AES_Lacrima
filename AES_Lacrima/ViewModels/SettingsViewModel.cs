@@ -1736,6 +1736,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private double _cardGridOpacity = 1.0;
 
+    [ObservableProperty]
+    private Color _cardGridBackgroundColor = Color.Parse("#101010");
+
+    [ObservableProperty]
+    private bool _cardGridTitleMarquee = true;
+
     /// <summary>
     /// Handles property change notifications to synchronize individual color properties
     /// with the internal collection and refresh the visual gradient.
@@ -3586,6 +3592,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         UseCardGridView = ReadBoolSetting(section, nameof(UseCardGridView), UseCardGridView);
         CardGridSpacing = ReadDoubleSetting(section, nameof(CardGridSpacing), CardGridSpacing);
         CardGridOpacity = ReadDoubleSetting(section, nameof(CardGridOpacity), CardGridOpacity);
+        CardGridBackgroundColor = Color.Parse(ReadStringSetting(section, nameof(CardGridBackgroundColor), "#101010")!);
+        CardGridTitleMarquee = ReadBoolSetting(section, nameof(CardGridTitleMarquee), CardGridTitleMarquee);
 
         // ReplayGain settings
         ReplayGainEnabled = ReadBoolSetting(section, nameof(ReplayGainEnabled), ReplayGainEnabled);
@@ -3697,6 +3705,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(UseCardGridView), UseCardGridView);
         WriteSetting(section, nameof(CardGridSpacing), CardGridSpacing);
         WriteSetting(section, nameof(CardGridOpacity), CardGridOpacity);
+        WriteSetting(section, nameof(CardGridBackgroundColor), CardGridBackgroundColor.ToString());
+        WriteSetting(section, nameof(CardGridTitleMarquee), CardGridTitleMarquee);
         // ReplayGain settings
         WriteSetting(section, nameof(ReplayGainEnabled), ReplayGainEnabled);
         WriteSetting(section, nameof(SmoothVolumeChange), SmoothVolumeChange);

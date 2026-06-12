@@ -159,6 +159,8 @@
                                                     ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
                                                     CardScale="{Binding SettingsViewModel.CarouselScale}"
                                                     CardSpacing="{Binding SettingsViewModel.CardGridSpacing}"
+                                                    Background="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
+                                                    TitleMarqueeEnabled="{Binding SettingsViewModel.CardGridTitleMarquee}"
                                                     IsVisible="{Binding SettingsViewModel.UseCardGridView}"
                                                     ClipToBounds="True">
                 <composition:CompositionCardGridControl.Opacity>

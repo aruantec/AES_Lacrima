@@ -57,6 +57,60 @@ internal static class CompositionSkiaTextHelper
         }
     }
 
+    public static IReadOnlyList<string> WrapTextLines(string text, float maxWidth, SKPaint paint, int maxLines)
+    {
+        if (string.IsNullOrEmpty(text) || maxLines <= 0)
+            return Array.Empty<string>();
+
+        if (MeasureText(text, paint) <= maxWidth)
+            return new[] { text };
+
+        var runes = text.EnumerateRunes().ToArray();
+        var lines = new List<string>(Math.Min(maxLines, 4));
+        int index = 0;
+        while (index < runes.Length && lines.Count < maxLines)
+        {
+            var line = new StringBuilder();
+            while (index < runes.Length)
+            {
+                string candidate = line.ToString() + runes[index].ToString();
+                if (line.Length > 0 && MeasureText(candidate, paint) > maxWidth)
+                    break;
+
+                if (line.Length == 0 && MeasureText(candidate, paint) > maxWidth)
+                {
+                    line.Append(runes[index]);
+                    index++;
+                    break;
+                }
+
+                line.Append(runes[index]);
+                index++;
+            }
+
+            bool isLastAllowedLine = lines.Count == maxLines - 1;
+            if (isLastAllowedLine && index < runes.Length)
+            {
+                var remainder = new StringBuilder();
+                for (int i = index; i < runes.Length; i++)
+                    remainder.Append(runes[i]);
+                lines.Add(TruncateText(line.ToString() + remainder, maxWidth, paint));
+                return lines;
+            }
+
+            if (line.Length > 0)
+                lines.Add(line.ToString());
+        }
+
+        return lines;
+    }
+
+    public static void DrawTextLines(SKCanvas canvas, IReadOnlyList<string> lines, float x, float startBaselineY, float lineHeight, SKPaint paint)
+    {
+        for (int i = 0; i < lines.Count; i++)
+            DrawText(canvas, lines[i], x, startBaselineY + i * lineHeight, paint);
+    }
+
     public static string TruncateText(string text, float maxWidth, SKPaint paint)
     {
         if (string.IsNullOrEmpty(text))

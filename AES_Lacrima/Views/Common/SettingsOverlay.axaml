@@ -660,7 +660,7 @@
             <TabItem Header="Carousel" FontSize="30">
                 <StackPanel Margin="15,20,0,0">
                     <TextBlock Text="Setup" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,0,0,10"/>
-                    <Grid ColumnDefinitions="Auto, 320, Auto, *" RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto" Margin="0,0,0,8" HorizontalAlignment="Stretch" ClipToBounds="False">
+                    <Grid ColumnDefinitions="Auto, 320, Auto, *" RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto, Auto" Margin="0,0,0,8" HorizontalAlignment="Stretch" ClipToBounds="False">
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="View Mode" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6"/>
                         <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="16" Margin="30,0,0,0">
                             <RadioButton Content="Carousel" GroupName="CoverViewMode" IsChecked="{Binding !UseCardGridView, Mode=TwoWay}" Foreground="WhiteSmoke" FontSize="16"/>
@@ -675,36 +675,42 @@
                         <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="2" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="1" Value="{Binding CardGridOpacity, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding UseCardGridView}" />
                         <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding CardGridOpacity, StringFormat='{}{0:0%}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding UseCardGridView}"/>
 
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Item Spacing" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
-                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="3" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0.2" Maximum="3.0" Value="{Binding CarouselSpacing, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
-                        <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding CarouselSpacing, StringFormat='{}{0:0.00}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Grid Background" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding UseCardGridView}"/>
+                        <ColorPicker Grid.Row="3" Grid.Column="1" Width="80" Height="40" HorizontalAlignment="Left" Margin="30,0,0,0" Color="{Binding CardGridBackgroundColor, Mode=TwoWay}" IsVisible="{Binding UseCardGridView}"/>
 
-                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Item Scale" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
-                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="4" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0.5" Maximum="2.0" Value="{Binding CarouselScale, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
-                        <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding CarouselScale, StringFormat='{}{0:0.00}X'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Title Marquee" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding UseCardGridView}"/>
+                        <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding CardGridTitleMarquee, Mode=TwoWay}" HorizontalAlignment="Left" Margin="30,0,0,0" IsVisible="{Binding UseCardGridView}"/>
 
-                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Vertical Offset" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
-                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="5" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="-400" Maximum="400" Value="{Binding CarouselVerticalOffset, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
-                        <TextBlock Grid.Row="5" Grid.Column="2" Text="{Binding CarouselVerticalOffset, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Item Spacing" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="5" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0.2" Maximum="3.0" Value="{Binding CarouselSpacing, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
+                        <TextBlock Grid.Row="5" Grid.Column="2" Text="{Binding CarouselSpacing, StringFormat='{}{0:0.00}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
 
-                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Slider Vertical Offset" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
-                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="6" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="1080" Value="{Binding CarouselSliderVerticalOffset, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
-                        <TextBlock Grid.Row="6" Grid.Column="2" Text="{Binding CarouselSliderVerticalOffset, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Item Scale" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="6" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0.5" Maximum="2.0" Value="{Binding CarouselScale, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
+                        <TextBlock Grid.Row="6" Grid.Column="2" Text="{Binding CarouselScale, StringFormat='{}{0:0.00}X'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
 
-                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Slider Track Height" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
-                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="7" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="1" Maximum="40" Value="{Binding CarouselSliderTrackHeight, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
-                        <TextBlock Grid.Row="7" Grid.Column="2" Text="{Binding CarouselSliderTrackHeight, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Vertical Offset" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="7" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="-400" Maximum="400" Value="{Binding CarouselVerticalOffset, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
+                        <TextBlock Grid.Row="7" Grid.Column="2" Text="{Binding CarouselVerticalOffset, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
 
-                        <TextBlock Grid.Row="8" Grid.Column="0" Text="Side Translation" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
-                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="8" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="1000" Value="{Binding CarouselSideTranslation, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
-                        <TextBlock Grid.Row="8" Grid.Column="2" Text="{Binding CarouselSideTranslation, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
+                        <TextBlock Grid.Row="8" Grid.Column="0" Text="Slider Vertical Offset" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="8" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="1080" Value="{Binding CarouselSliderVerticalOffset, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
+                        <TextBlock Grid.Row="8" Grid.Column="2" Text="{Binding CarouselSliderVerticalOffset, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
 
-                        <TextBlock Grid.Row="9" Grid.Column="0" Text="Stack Spacing" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
-                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="9" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="400" Value="{Binding CarouselStackSpacing, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
-                        <TextBlock Grid.Row="9" Grid.Column="2" Text="{Binding CarouselStackSpacing, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
+                        <TextBlock Grid.Row="9" Grid.Column="0" Text="Slider Track Height" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="9" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="1" Maximum="40" Value="{Binding CarouselSliderTrackHeight, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
+                        <TextBlock Grid.Row="9" Grid.Column="2" Text="{Binding CarouselSliderTrackHeight, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
 
-                        <TextBlock Grid.Row="10" Grid.Column="0" Text="Full Cover Size" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
-                        <ToggleSwitch Grid.Row="10" Grid.Column="1" IsChecked="{Binding CarouselUseFullCoverSize, Mode=TwoWay}" HorizontalAlignment="Left" Margin="30,0,0,0" IsVisible="{Binding !UseCardGridView}"/>
+                        <TextBlock Grid.Row="10" Grid.Column="0" Text="Side Translation" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="10" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="1000" Value="{Binding CarouselSideTranslation, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
+                        <TextBlock Grid.Row="10" Grid.Column="2" Text="{Binding CarouselSideTranslation, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
+
+                        <TextBlock Grid.Row="11" Grid.Column="0" Text="Stack Spacing" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
+                        <composition:PillProgressSlider Height="28" TrackHeight="16" ExecuteDuringDrag="True" TrackBorderBrush="#CCCCCC" FillBrush="#99F5F5F5" Grid.Row="11" Grid.Column="1" Width="260" HorizontalAlignment="Center" Minimum="0" Maximum="400" Value="{Binding CarouselStackSpacing, Mode=TwoWay}" Margin="0,0" IsVisible="{Binding !UseCardGridView}" />
+                        <TextBlock Grid.Row="11" Grid.Column="2" Text="{Binding CarouselStackSpacing, StringFormat='{}{0:0}'}" VerticalAlignment="Center" Foreground="WhiteSmoke" Margin="10,0" IsVisible="{Binding !UseCardGridView}"/>
+
+                        <TextBlock Grid.Row="12" Grid.Column="0" Text="Full Cover Size" VerticalAlignment="Center" Foreground="WhiteSmoke" FontSize="18" Margin="0,6" IsVisible="{Binding !UseCardGridView}"/>
+                        <ToggleSwitch Grid.Row="12" Grid.Column="1" IsChecked="{Binding CarouselUseFullCoverSize, Mode=TwoWay}" HorizontalAlignment="Left" Margin="30,0,0,0" IsVisible="{Binding !UseCardGridView}"/>
                     </Grid>
                 </StackPanel>
             </TabItem>

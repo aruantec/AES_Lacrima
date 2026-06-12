@@ -135,6 +135,9 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
     public static readonly StyledProperty<bool> PauseLoadingSpinnerAnimationProperty =
         AvaloniaProperty.Register<CompositionCardGridControl, bool>(nameof(PauseLoadingSpinnerAnimation), false);
 
+    public static readonly StyledProperty<bool> TitleMarqueeEnabledProperty =
+        AvaloniaProperty.Register<CompositionCardGridControl, bool>(nameof(TitleMarqueeEnabled), true);
+
     public static readonly DirectProperty<CompositionCardGridControl, Rect> SelectedItemBoundsProperty =
         AvaloniaProperty.RegisterDirect<CompositionCardGridControl, Rect>(
             nameof(SelectedItemBounds),
@@ -216,6 +219,12 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
     {
         get => GetValue(PauseLoadingSpinnerAnimationProperty);
         set => SetValue(PauseLoadingSpinnerAnimationProperty, value);
+    }
+
+    public bool TitleMarqueeEnabled
+    {
+        get => GetValue(TitleMarqueeEnabledProperty);
+        set => SetValue(TitleMarqueeEnabledProperty, value);
     }
 
     public ICommand? ItemSelectedCommand
@@ -314,6 +323,8 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             SyncVisualImageSlots();
         SendTitles();
         _visual.SendHandlerMessage(new CardGridSelectedIndexMessage((int)Math.Round(SelectedIndex)));
+        _visual.SendHandlerMessage(new CardGridBackgroundColorMessage(GetSkColor(Background)));
+        _visual.SendHandlerMessage(new CardGridTitleMarqueeMessage(TitleMarqueeEnabled));
         _visual.SendHandlerMessage(new GlobalOpacityMessage(Opacity));
         _visual.SendHandlerMessage(new PauseLoadingSpinnerAnimationMessage(PauseLoadingSpinnerAnimation));
         if (ItemsSource != null)
@@ -358,7 +369,7 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             _visual?.SendHandlerMessage(new CardGridSelectedIndexMessage(idx));
             if (!_suppressSelectedIndexSideEffects)
             {
-                ScrollToIndex(idx, animate: true);
+                EnsureIndexVisible(idx, animate: true);
                 UpdateVirtualization();
             }
 
@@ -369,6 +380,10 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             SendLayoutMessages();
             UpdateSelectedItemBounds();
         }
+        else if (change.Property == BackgroundProperty)
+            _visual?.SendHandlerMessage(new CardGridBackgroundColorMessage(GetSkColor(change.GetNewValue<IBrush?>())));
+        else if (change.Property == TitleMarqueeEnabledProperty)
+            _visual?.SendHandlerMessage(new CardGridTitleMarqueeMessage(change.GetNewValue<bool>()));
         else if (change.Property == OpacityProperty)
             _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
         else if (change.Property == GlobalOpacityProperty)
@@ -679,7 +694,9 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
 
     private double GetMaxScrollY() => GetLayoutMetrics().MaxScrollY;
 
-    private void ScrollToIndex(int index, bool animate)
+    private void ScrollToIndex(int index, bool animate) => EnsureIndexVisible(index, animate);
+
+    private void EnsureIndexVisible(int index, bool animate)
     {
         if (index < 0 || _images.Count == 0)
             return;
@@ -690,8 +707,9 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             return;
         }
 
-        double offset = CardGridLayoutHelper.ScrollOffsetForIndex(
+        double offset = CardGridLayoutHelper.ScrollOffsetToRevealIndex(
             index,
+            _knownScrollY,
             (float)Bounds.Width,
             (float)Bounds.Height,
             _images.Count,
@@ -700,6 +718,9 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             (float)TopPadding);
 
         _pendingScrollToIndex = -1;
+        if (Math.Abs(offset - _knownScrollY) < 0.5)
+            return;
+
         SyncKnownScrollY(offset);
         if (animate)
             _visual?.SendHandlerMessage(new CardGridScrollMessage(offset));
@@ -726,6 +747,7 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         SelectedIndex = index;
         _suppressSelectedIndexSideEffects = false;
         _visual?.SendHandlerMessage(new CardGridSelectedIndexMessage((int)Math.Round(index)));
+        EnsureIndexVisible((int)Math.Round(index), animate: true);
         UpdateSelectedItemBounds();
     }
 
@@ -1745,5 +1767,12 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
 
             ReleaseItemImage(key);
         }
+    }
+
+    private static SKColor GetSkColor(IBrush? brush)
+    {
+        if (brush is ISolidColorBrush solid)
+            return new SKColor(solid.Color.R, solid.Color.G, solid.Color.B, solid.Color.A);
+        return SKColor.Parse("#101010");
     }
 }

@@ -146,4 +146,39 @@ internal static class CardGridLayoutHelper
         float centered = cardTop - (viewportHeight - metrics.CardHeight) * 0.5f;
         return Math.Clamp(centered, 0, metrics.MaxScrollY);
     }
+
+    /// <summary>
+    /// Returns a scroll offset that keeps the card visible, using the current offset when already in view.
+    /// </summary>
+    public static double ScrollOffsetToRevealIndex(
+        int index,
+        double currentScrollY,
+        float viewportWidth,
+        float viewportHeight,
+        int itemCount,
+        float cardScale,
+        float cardSpacing,
+        float topPadding,
+        float edgeMargin = 14f)
+    {
+        if (index < 0 || itemCount <= 0)
+            return 0;
+
+        var metrics = Compute(viewportWidth, viewportHeight, itemCount, cardScale, cardSpacing, topPadding);
+        int columns = Math.Max(1, metrics.Columns);
+        int row = index / columns;
+        float cardTop = metrics.PaddingTop + row * (metrics.CardHeight + metrics.Spacing);
+        float cardBottom = cardTop + metrics.CardHeight;
+
+        float viewTop = (float)currentScrollY;
+        float viewBottom = viewTop + viewportHeight;
+
+        if (cardTop >= viewTop + edgeMargin && cardBottom <= viewBottom - edgeMargin)
+            return currentScrollY;
+
+        if (cardTop < viewTop + edgeMargin)
+            return Math.Clamp(cardTop - edgeMargin, 0, metrics.MaxScrollY);
+
+        return Math.Clamp(cardBottom - viewportHeight + edgeMargin, 0, metrics.MaxScrollY);
+    }
 }
