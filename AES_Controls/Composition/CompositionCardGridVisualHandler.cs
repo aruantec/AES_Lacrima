@@ -99,7 +99,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             {
                 var imgs = enumerable.ToArray();
                 var previous = _images.ToArray();
-                _images = imgs.ToList();
+                _images = [.. imgs];
                 foreach (var img in previous)
                 {
                     if (img != null && !_images.Contains(img))
