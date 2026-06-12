@@ -31,7 +31,10 @@
 												ClipToBounds="True"
 												Margin="0,8,0,10">
 			<composition:CompositionAlbumRowControl.Opacity>
-				<Binding Path="SettingsViewModel.CardGridOpacity"/>
+				<MultiBinding Converter="{StaticResource MultiplyDoubleConverter}">
+					<Binding Path="IsActive" Converter="{StaticResource BoolToOpacityConverter}"/>
+					<Binding Path="SettingsViewModel.CardGridOpacity"/>
+				</MultiBinding>
 			</composition:CompositionAlbumRowControl.Opacity>
 			<composition:CompositionAlbumRowControl.KeyBindings>
 				<KeyBinding Gesture="F2" Command="{Binding RenameFolderCommand}" CommandParameter="{Binding SelectedAlbum}"/>

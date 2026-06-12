@@ -1,6 +1,7 @@
 using AES_Core.DI;
 using AES_Core.Interfaces;
 using AES_Lacrima.Services;
+using AES_Lacrima.Settings;
 using AES_Core.Services;
 using AES_Lacrima.ViewModels.Prompts;
 using AES_Controls.Helpers;
@@ -341,6 +342,7 @@ namespace AES_Lacrima.ViewModels
 
             //Save all settings
             settingsService.SaveSettings();
+            SettingsBase.FlushPendingSaves();
             //Shutdown application
             AppLifetime.Shutdown();
         }
@@ -395,12 +397,14 @@ namespace AES_Lacrima.ViewModels
                 try { vm.SaveSettings(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
             DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
+            SettingsBase.FlushPendingSaves();
 
             // update persistent setting
             if (SettingsViewModel != null)
             {
                 SettingsViewModel.AppMode = 1;
                 SettingsViewModel.SaveSettings();
+                SettingsBase.FlushPendingSaves();
             }
 
             // construct new window and make it the lifetime's main window
@@ -409,6 +413,7 @@ namespace AES_Lacrima.ViewModels
             {
                 // Save everything and clean up DI if the app is really shutting down.
                 DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
+                SettingsBase.FlushPendingSaves();
                 if (!App.IsSwitchingMode)
                 {
                     try { DiLocator.Dispose(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }

@@ -38,7 +38,10 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
     private readonly AlbumRowAnimationSyncState _animationSync = new();
     private readonly HashSet<INotifyPropertyChanged> _subscribedItems = new();
     private readonly HashSet<MediaItem> _subscribedPreviewItems = new();
+    private readonly HashSet<MediaItem> _subscribedChildItems = new();
+    private readonly HashSet<int> _coversLoadedIndices = new();
     private object?[] _itemsSnapshot = [];
+    private double _lastCoverLoadScrollX = double.NaN;
     private IEnumerable? _subscribedItemsSource;
     private double _knownScrollX;
     private double _targetScrollX;
@@ -165,6 +168,13 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
 
         _uiSyncTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(AnimationHeartbeatMs), DispatcherPriority.Render, (_, _) =>
         {
+            double syncScrollX = _animationSync.CurrentScrollX;
+            if (Math.Abs(syncScrollX - _knownScrollX) > 0.5)
+            {
+                _knownScrollX = syncScrollX;
+                EnsureVisibleTileCoversLoadedIfNeeded();
+            }
+
             if (_isWheelScrolling)
                 return;
 
@@ -172,10 +182,6 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
                             (_animationSync.IsAnimating && Math.Abs(_animationSync.VelocityX) > 0.01);
             if (!tracking)
                 return;
-
-            double syncScrollX = _animationSync.CurrentScrollX;
-            if (Math.Abs(syncScrollX - _knownScrollX) > 0.5)
-                _knownScrollX = syncScrollX;
         });
 
         _autoScrollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DragAutoScrollMs) };
@@ -265,6 +271,8 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
     {
         base.OnSizeChanged(e);
         UpdateCompositionVisualSize(e.NewSize);
+        _lastCoverLoadScrollX = double.NaN;
+        EnsureVisibleTileCoversLoaded();
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -281,7 +289,9 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         else if (change.Property == TileScaleProperty || change.Property == TileSpacingProperty)
         {
             SendLayoutMessage();
-            PushAllTileCovers();
+            _coversLoadedIndices.Clear();
+            _lastCoverLoadScrollX = double.NaN;
+            EnsureVisibleTileCoversLoaded();
         }
         else if (change.Property == ItemsSourceProperty)
         {
@@ -486,6 +496,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         double newVelocity = Math.Clamp(_animationSync.VelocityX + impulse, -5500, 5500);
         _visual?.SendHandlerMessage(new AlbumRowScrollMessage(_targetScrollX));
         _visual?.SendHandlerMessage(new AlbumRowScrollVelocityMessage(newVelocity));
+        EnsureVisibleTileCoversLoadedIfNeeded();
 
         _isWheelScrolling = true;
         _wheelScrollSettleTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ScrollIdleMs) };
@@ -672,6 +683,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         _animationSync.CurrentScrollX = scrollX;
         _animationSync.TargetScrollX = scrollX;
         _animationSync.VelocityX = 0;
+        EnsureVisibleTileCoversLoadedIfNeeded();
     }
 
     private void UpdateHoverState(Point point)
@@ -900,8 +912,10 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         {
             MoveItem(from, to);
             MoveSnapshotItem(from, to);
-            PushAllTileCovers();
             SendTitles();
+            _coversLoadedIndices.Clear();
+            _lastCoverLoadScrollX = double.NaN;
+            EnsureVisibleTileCoversLoaded();
 
             SyncKnownScrollX(_savedScrollXOnDragFinish);
             _visual?.SendHandlerMessage(new AlbumRowSnapScrollMessage(_savedScrollXOnDragFinish));
@@ -989,9 +1003,11 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         }
 
         _itemsSnapshot = ItemsSource?.Cast<object?>().ToArray() ?? [];
+        _coversLoadedIndices.Clear();
+        _lastCoverLoadScrollX = double.NaN;
         SendTitles();
-        PushAllTileCovers();
         SubscribeAllItems();
+        EnsureVisibleTileCoversLoaded();
 
         int initialIndex = (int)Math.Clamp(Math.Round(SelectedIndex), 0, Math.Max(0, _itemsSnapshot.Length - 1));
         _visual?.SendHandlerMessage(new AlbumRowSelectedIndexMessage(initialIndex));
@@ -1012,8 +1028,22 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
                 e.NewStartingIndex >= 0 && e.NewStartingIndex < _itemsSnapshot.Length)
             {
                 MoveSnapshotItem(e.OldStartingIndex, e.NewStartingIndex);
-                PushAllTileCovers();
                 SendTitles();
+                _coversLoadedIndices.Clear();
+                _lastCoverLoadScrollX = double.NaN;
+                EnsureVisibleTileCoversLoaded();
+                return;
+            }
+
+            if (e.Action == NotifyCollectionChangedAction.Add &&
+                e.NewStartingIndex >= 0 &&
+                e.NewItems is { Count: > 0 })
+            {
+                _itemsSnapshot = ItemsSource?.Cast<object?>().ToArray() ?? [];
+                SendTitles();
+                for (int i = 0; i < e.NewItems.Count; i++)
+                    SubscribeItemAt(e.NewStartingIndex + i);
+                EnsureVisibleTileCoversLoaded();
                 return;
             }
 
@@ -1038,6 +1068,10 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         foreach (var child in _subscribedPreviewItems)
             child.PropertyChanged -= PreviewItem_PropertyChanged;
         _subscribedPreviewItems.Clear();
+        foreach (var child in _subscribedChildItems)
+            child.PropertyChanged -= ChildItem_PropertyChanged;
+        _subscribedChildItems.Clear();
+        _coversLoadedIndices.Clear();
     }
 
     private void SubscribeAllItems()
@@ -1053,7 +1087,26 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
                 folder.PreviewItems.CollectionChanged += PreviewItems_CollectionChanged;
                 folder.Children.CollectionChanged += Children_CollectionChanged;
                 SubscribePreviewItems(folder);
+                SubscribeChildItems(folder);
             }
+        }
+    }
+
+    private void SubscribeItemAt(int index)
+    {
+        if (index < 0 || index >= _itemsSnapshot.Length)
+            return;
+
+        if (_itemsSnapshot[index] is not INotifyPropertyChanged inpc || !_subscribedItems.Add(inpc))
+            return;
+
+        inpc.PropertyChanged += Item_PropertyChanged;
+        if (_itemsSnapshot[index] is FolderMediaItem folder)
+        {
+            folder.PreviewItems.CollectionChanged += PreviewItems_CollectionChanged;
+            folder.Children.CollectionChanged += Children_CollectionChanged;
+            SubscribePreviewItems(folder);
+            SubscribeChildItems(folder);
         }
     }
 
@@ -1066,7 +1119,30 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         }
     }
 
-    private void Children_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => SendTitles();
+    private void SubscribeChildItems(FolderMediaItem folder)
+    {
+        foreach (var child in folder.GetPresentationCoverChildren())
+        {
+            if (_subscribedChildItems.Add(child))
+                child.PropertyChanged += ChildItem_PropertyChanged;
+        }
+    }
+
+    private void Children_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        SendTitles();
+        if (sender is not AvaloniaList<MediaItem> list)
+            return;
+
+        var folder = _itemsSnapshot.OfType<FolderMediaItem>().FirstOrDefault(f => ReferenceEquals(f.Children, list));
+        if (folder == null)
+            return;
+
+        SubscribeChildItems(folder);
+        int index = Array.IndexOf(_itemsSnapshot, folder);
+        if (index >= 0)
+            PushTileCovers(index);
+    }
 
     private void PreviewItems_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
@@ -1099,15 +1175,42 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         }
     }
 
+    private void ChildItem_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(MediaItem.CoverBitmap))
+            return;
+
+        if (sender is not MediaItem mediaItem)
+            return;
+
+        for (int i = 0; i < _itemsSnapshot.Length; i++)
+        {
+            if (_itemsSnapshot[i] is FolderMediaItem folder && folder.Children.Contains(mediaItem))
+            {
+                PushTileCovers(i);
+                return;
+            }
+        }
+    }
+
     private void Item_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         int index = Array.IndexOf(_itemsSnapshot, sender);
         if (index < 0)
             return;
 
-        if (e.PropertyName is nameof(MediaItem.Title) or nameof(FolderMediaItem.Children) or nameof(MediaItem.IsLoadingCover))
+        if (e.PropertyName is nameof(MediaItem.Title) or nameof(FolderMediaItem.Children) or nameof(FolderMediaItem.TotalChildCount) or nameof(MediaItem.IsLoadingCover))
         {
             SendTitles();
+            return;
+        }
+
+        if (e.PropertyName == nameof(FolderMediaItem.PreviewItems) && sender is FolderMediaItem folder)
+        {
+            folder.PreviewItems.CollectionChanged -= PreviewItems_CollectionChanged;
+            folder.PreviewItems.CollectionChanged += PreviewItems_CollectionChanged;
+            SubscribePreviewItems(folder);
+            PushTileCovers(index);
             return;
         }
 
@@ -1125,7 +1228,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
             if (_itemsSnapshot[i] is FolderMediaItem folder)
             {
                 titles[i] = folder.Title ?? string.Empty;
-                counts[i] = folder.Children.Count;
+                counts[i] = folder.TotalChildCount > 0 ? folder.TotalChildCount : folder.Children.Count;
                 loading[i] = folder.IsLoadingCover;
             }
         }
@@ -1133,10 +1236,45 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         _visual?.SendHandlerMessage(new AlbumRowTitlesMessage(titles, counts, loading));
     }
 
-    private void PushAllTileCovers()
+    private void EnsureVisibleTileCoversLoadedIfNeeded()
     {
-        for (int i = 0; i < _itemsSnapshot.Length; i++)
+        if (_itemsSnapshot.Length == 0)
+            return;
+
+        float stride = (float)(AlbumRowLayoutHelper.BaseTileWidth * TileScale + TileSpacing);
+        if (double.IsNaN(_lastCoverLoadScrollX) || Math.Abs(_knownScrollX - _lastCoverLoadScrollX) >= stride * 0.5)
+            EnsureVisibleTileCoversLoaded();
+    }
+
+    private void EnsureVisibleTileCoversLoaded(int buffer = 2)
+    {
+        if (_visual == null || _itemsSnapshot.Length == 0 || Bounds.Width <= 0 || Bounds.Height <= 0)
+            return;
+
+        var (start, end) = AlbumRowLayoutHelper.GetVisibleIndexRange(
+            _knownScrollX,
+            (float)Bounds.Width,
+            (float)Bounds.Height,
+            _itemsSnapshot.Length,
+            (float)TileScale,
+            (float)TileSpacing,
+            buffer);
+
+        if (start < 0 || end < start)
+            return;
+
+        int selected = (int)Math.Clamp(Math.Round(SelectedIndex), 0, _itemsSnapshot.Length - 1);
+        start = Math.Min(start, selected);
+        end = Math.Max(end, selected);
+        _lastCoverLoadScrollX = _knownScrollX;
+
+        for (int i = start; i <= end; i++)
+        {
+            if (!_coversLoadedIndices.Add(i))
+                continue;
+
             PushTileCovers(i);
+        }
     }
 
     private void PushTileCovers(int index)
@@ -1149,6 +1287,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
 
         var snapshots = BuildSnapshots(folder);
         var defaultSk = CompositionBitmapHelper.ToSkImage(folder.CoverBitmap, CompositionBitmapHelper.FolderCoverMaxEdge);
+        _coversLoadedIndices.Add(index);
         _visual?.SendHandlerMessage(new AlbumRowTileCoversMessage(index, snapshots, defaultSk));
     }
 
@@ -1163,7 +1302,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         }
 
         int count = items.Count;
-        int startIndex = Math.Max(0, count - 3);
+        int startIndex = Math.Max(0, count - FolderMediaItem.AlbumTilePresentationCoverCount);
         for (int i = startIndex; i < count; i++)
         {
             var item = items[i];

@@ -122,6 +122,12 @@ public partial class EmulationView : UserControl
             o => o.CarouselOpacity,
             (o, v) => o.CarouselOpacity = v);
 
+    public static readonly DirectProperty<EmulationView, double> AlbumRowOpacityProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, double>(
+            nameof(AlbumRowOpacity),
+            o => o.AlbumRowOpacity,
+            (o, v) => o.AlbumRowOpacity = v);
+
     public static readonly DirectProperty<EmulationView, bool> IsCaptureChromeVisibleProperty =
         AvaloniaProperty.RegisterDirect<EmulationView, bool>(
             nameof(IsCaptureChromeVisible),
@@ -177,6 +183,7 @@ public partial class EmulationView : UserControl
     private const int CaptureTransitionMs = 300;
     private bool _isAlbumListInteractive = true;
     private double _carouselOpacity = 1;
+    private double _albumRowOpacity = 1;
     private readonly Queue<double> _portalFrameSamples = new();
     private const int PortalFrameSampleCount = 180;
     private readonly Transitions _albumListTransitions =
@@ -252,6 +259,7 @@ public partial class EmulationView : UserControl
         PortalGpuVendor = "Unknown";
         IsAlbumListInteractive = true;
         CarouselOpacity = 1;
+        AlbumRowOpacity = 1;
         CapturePresentationOpacity = 0;
         SetCaptureChromeVisible(false);
     }
@@ -570,6 +578,12 @@ public partial class EmulationView : UserControl
         set => SetAndRaise(CarouselOpacityProperty, ref _carouselOpacity, value);
     }
 
+    public double AlbumRowOpacity
+    {
+        get => _albumRowOpacity;
+        set => SetAndRaise(AlbumRowOpacityProperty, ref _albumRowOpacity, value);
+    }
+
     public double CapturePresentationOpacity
     {
         get => _capturePresentationOpacity;
@@ -758,6 +772,7 @@ public partial class EmulationView : UserControl
             _compositionCaptureWasVisible = false;
             _wasViewActive = false;
             CarouselOpacity = 0;
+            AlbumRowOpacity = 0;
             CapturePresentationOpacity = 0;
         }
     }
@@ -1018,6 +1033,7 @@ public partial class EmulationView : UserControl
 
         CapturePresentationOpacity = 0;
         CarouselOpacity = 0;
+        AlbumRowOpacity = 0;
 
         try
         {
@@ -1052,6 +1068,7 @@ public partial class EmulationView : UserControl
             UpdateInlineCaptureHostVisibility(vm);
 
         CarouselOpacity = 0;
+        AlbumRowOpacity = 0;
         try
         {
             await Task.Delay(16, cancellationToken);
@@ -1065,6 +1082,7 @@ public partial class EmulationView : UserControl
             return;
 
         CarouselOpacity = 1;
+        AlbumRowOpacity = 1;
     }
 
     private async Task EnterWithCaptureAsync(CancellationToken cancellationToken)

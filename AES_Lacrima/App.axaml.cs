@@ -5,6 +5,7 @@ using AES_Core.Services;
 using AES_Emulation.Linux;
 using AES_Lacrima.Mini.Views;
 using AES_Lacrima.Mini.ViewModels;
+using AES_Lacrima.Settings;
 using AES_Lacrima.ViewModels;
 using AES_Lacrima.Views;
 using AES_Lacrima.Views.Mobile;
@@ -430,8 +431,10 @@ namespace AES_Lacrima
 
             try
             {
+                SettingsBase.FlushPendingSaves();
                 // Try to resolve the settings service and save settings if present.
                 DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
+                SettingsBase.FlushPendingSaves();
                 Logger.Info("Settings saved successfully during shutdown");
 
                 DiLocator.ResolveViewModel<EmulationViewModel>()?.ShutdownForApplicationExit();

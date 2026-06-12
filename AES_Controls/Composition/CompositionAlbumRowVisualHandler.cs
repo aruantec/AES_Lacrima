@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using AES_Controls.Player.Models;
 using System.Numerics;
 using Avalonia;
 using Avalonia.Media;
@@ -35,7 +36,7 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
 {
     private const float TileCornerRadius = 12f;
     private const float CoverCornerRadius = 12f;
-    private const int MaxVisibleCovers = 3;
+    private const int MaxVisibleCovers = FolderMediaItem.AlbumTilePresentationCoverCount;
     private const float SwapAnimationSeconds = 0.2f;
     private const float DragCommitSeconds = 0.3f;
     private const float DragLiftScale = 1.04f;
@@ -403,9 +404,9 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
                 return;
             case GlobalOpacityMessage opacity:
                 _targetGlobalOpacity = (float)Math.Clamp(opacity.Value, 0.0, 1.0);
-                _currentGlobalOpacity = _targetGlobalOpacity;
-                _currentGlobalOpacityVelocity = 0;
-                Invalidate();
+                if (_lastTicks == 0)
+                    _lastTicks = Stopwatch.GetTimestamp();
+                EnsureAnimationLoop();
                 return;
             case AlbumRowScrollFrozenMessage frozen:
                 _scrollFrozen = frozen.Frozen;

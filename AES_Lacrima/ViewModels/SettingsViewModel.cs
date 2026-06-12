@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
@@ -1084,6 +1085,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         // Update gradient initially and when any spectrum color changes
         PropertyChanged += OnSettingsPropertyChanged;
         UpdateSpectrumGradient();
+        RegisterFlushCallback(FlushDebouncedSave);
     }
 
     /// <summary>
@@ -1755,6 +1757,142 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     // flag used to suppress event handling during initial settings load
     private bool _isLoadingSettings;
 
+    private static readonly HashSet<string> PersistedSettingPropertyNames = new(StringComparer.Ordinal)
+    {
+        nameof(ScaleFactor),
+        nameof(MiniScaleFactor),
+        nameof(ParticleCount),
+        nameof(ShowShaderToy),
+        nameof(MiniShowShaderToy),
+        nameof(ShowBackground),
+        nameof(BackgroundImagePath),
+        nameof(BackgroundOpacity),
+        nameof(ShowParticles),
+        nameof(AnimateLogo),
+        nameof(ShowEdgeBorder),
+        nameof(ShowSecondCircleAnimation),
+        nameof(WaveformPlayedColor),
+        nameof(SelectedShadertoy),
+        nameof(MiniSelectedShadertoy),
+        nameof(SpectrumHeight),
+        nameof(BarWidth),
+        nameof(BarSpacing),
+        nameof(ShowSpectrum),
+        nameof(ShowMusicSpectrum),
+        nameof(UseMusicSpectrumCoverColors),
+        nameof(SpectrumColor0),
+        nameof(SpectrumColor1),
+        nameof(SpectrumColor2),
+        nameof(SpectrumColor3),
+        nameof(SpectrumColor4),
+        nameof(AppMode),
+        nameof(EmulationUseFirstItemCover),
+        nameof(EmulationGameplayAutoplay),
+        nameof(EmulationUseBackCoverLetterboxFill),
+        nameof(GameplayRecordingOutputDirectory),
+        nameof(GameplayRecordingContainer),
+        nameof(GameplayRecordingVideoCodec),
+        nameof(GameplayRecordingEncoderPreference),
+        nameof(GameplayRecordingResolutionCap),
+        nameof(GameplayRecordingFps),
+        nameof(GameplayRecordingBitrateKbps),
+        nameof(GameplayRecordingAudioSource),
+        nameof(GameplayRecordingAudioDeviceId),
+        nameof(GameplayRecordingAudioProcessId),
+        nameof(CheckForAppUpdatesOnStartup),
+        nameof(PreferAotAppUpdates),
+        nameof(ShowAppPrereleaseBuildsOnly),
+        nameof(CarouselSpacing),
+        nameof(CarouselScale),
+        nameof(CarouselVerticalOffset),
+        nameof(CarouselSliderVerticalOffset),
+        nameof(CarouselSliderTrackHeight),
+        nameof(CarouselSideTranslation),
+        nameof(CarouselStackSpacing),
+        nameof(CarouselUseFullCoverSize),
+        nameof(UseCardGridView),
+        nameof(CardGridSpacing),
+        nameof(CardGridOpacity),
+        nameof(CardGridBackgroundColor),
+        nameof(CardGridTitleMarquee),
+        nameof(ReplayGainEnabled),
+        nameof(SmoothVolumeChange),
+        nameof(LogarithmicVolumeControl),
+        nameof(LoudnessCompensatedVolume),
+        nameof(ReplayGainAnalyzeOnTheFly),
+        nameof(ReplayGainUseTags),
+        nameof(ReplayGainPreampDb),
+        nameof(ReplayGainTagsPreampDb),
+        nameof(ReplayGainTagSource),
+        nameof(SilenceAdvanceDelayMs),
+        nameof(RestartOnResumeEnabled),
+        nameof(RestartOnResumeThresholdSeconds),
+        nameof(PauseWhenVolumeIsZero),
+        nameof(SortAlbumsByTrackNameInMiniView),
+    };
+
+    private CancellationTokenSource? _debouncedSaveCts;
+    private readonly object _debouncedSaveGate = new();
+
+    private void RequestDebouncedSave()
+    {
+        if (_isLoadingSettings)
+            return;
+
+        lock (_debouncedSaveGate)
+        {
+            _debouncedSaveCts?.Cancel();
+            _debouncedSaveCts?.Dispose();
+            _debouncedSaveCts = new CancellationTokenSource();
+            var token = _debouncedSaveCts.Token;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(400, token).ConfigureAwait(false);
+                    if (_isLoadingSettings)
+                        return;
+
+                    SaveSettings();
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("RequestDebouncedSave failed.", ex);
+                }
+            }, token);
+        }
+    }
+
+    private void FlushDebouncedSave()
+    {
+        lock (_debouncedSaveGate)
+        {
+            _debouncedSaveCts?.Cancel();
+            _debouncedSaveCts?.Dispose();
+            _debouncedSaveCts = null;
+        }
+
+        SaveSettings();
+    }
+
+    private void RequestDebouncedSettingChange(string? propertyName)
+    {
+        if (string.IsNullOrEmpty(propertyName) || _isLoadingSettings)
+            return;
+
+        if (propertyName is nameof(SelectedShadertoy) or nameof(MiniSelectedShadertoy))
+            return;
+
+        if (!PersistedSettingPropertyNames.Contains(propertyName))
+            return;
+
+        RequestDebouncedSave();
+    }
+
     private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (string.IsNullOrEmpty(e.PropertyName)) return;
@@ -1904,6 +2042,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             ShowShaderToy = false;
         }
+
+        RequestDebouncedSettingChange(e.PropertyName);
     }
 
     /// <summary>
@@ -2002,6 +2142,22 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     {
         // Ensure we always have a selected shader after the list is populated.
         EnsureDefaultSelectedShaderToy();
+    }
+
+    partial void OnSelectedShadertoyChanged(ShaderItem? value)
+    {
+        if (_isLoadingSettings)
+            return;
+
+        SaveSettings();
+    }
+
+    partial void OnMiniSelectedShadertoyChanged(ShaderItem? value)
+    {
+        if (_isLoadingSettings)
+            return;
+
+        SaveSettings();
     }
 
     partial void OnAppUpdateServiceChanged(AppUpdateService? oldValue, AppUpdateService? newValue)
@@ -2238,8 +2394,45 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             (string.Equals(e.PropertyName, nameof(IEmulatorHandler.FlatpakAppId), StringComparison.OrdinalIgnoreCase) ||
              string.Equals(e.PropertyName, nameof(IEmulatorHandler.LauncherPath), StringComparison.OrdinalIgnoreCase)))
         {
+            if (string.Equals(e.PropertyName, nameof(IEmulatorHandler.LauncherPath), StringComparison.OrdinalIgnoreCase))
+                PromoteHandlerSelectionIfNeeded(configuredHandler);
+
             EmulatorHandlerConfigurationChanged?.Invoke(this, configuredHandler);
         }
+    }
+
+    private void PromoteHandlerSelectionIfNeeded(IEmulatorHandler handler)
+    {
+        if (!handler.HasLauncherPath)
+            return;
+
+        var section = EmulationSections.FirstOrDefault(item =>
+            item.Handlers.Any(handlerItem =>
+                ReferenceEquals(handlerItem.Handler, handler) ||
+                string.Equals(handlerItem.HandlerId, handler.HandlerId, StringComparison.OrdinalIgnoreCase)));
+
+        if (section == null)
+            return;
+
+        if (!string.IsNullOrWhiteSpace(section.SelectedHandlerId))
+        {
+            var selectedHandler = section.Handlers
+                .FirstOrDefault(handlerItem =>
+                    string.Equals(handlerItem.HandlerId, section.SelectedHandlerId, StringComparison.OrdinalIgnoreCase))
+                ?.Handler;
+
+            if (selectedHandler is { HasLauncherPath: true } &&
+                !string.Equals(selectedHandler.HandlerId, handler.HandlerId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        if (string.Equals(section.SelectedHandlerId, handler.HandlerId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        section.SelectedHandlerId = handler.HandlerId;
+        SaveSettings();
     }
 
     private async Task DownloadOrUpdateHandlerAsync(EmulationHandlerAppItem handlerItem)
@@ -3198,14 +3391,15 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (match.Handlers.Count == 0)
             return null;
 
+        IEmulatorHandler? selectedHandler = null;
         if (!string.IsNullOrWhiteSpace(match.SelectedHandlerId))
         {
-            var selectedHandler = match.Handlers
+            selectedHandler = match.Handlers
                 .FirstOrDefault(handlerItem =>
                     string.Equals(handlerItem.HandlerId, match.SelectedHandlerId, StringComparison.OrdinalIgnoreCase))
                 ?.Handler;
 
-            if (selectedHandler != null)
+            if (selectedHandler is { HasLauncherPath: true })
                 return selectedHandler;
         }
 
@@ -3215,6 +3409,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         if (configuredHandler != null)
             return configuredHandler;
+
+        if (selectedHandler != null)
+            return selectedHandler;
 
         if (match.Handlers.Count == 1)
             return match.Handlers[0].Handler;
@@ -3292,12 +3489,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                      $"YtDlp={(YtDlp != null)}, GamescopeManager={(GamescopeManager != null)}, AppUpdateService={(AppUpdateService != null)}");
         }
 
-        // Load shader items from the local shaders directory (Linux-safe path resolution).
-        Program.EnsureBundledShaderResources();
-        _shaderToysDirectory = ResolveShaderToysDirectory();
-        ShaderToys = [.. GetLocalShaders(_shaderToysDirectory, "*.frag")];
-        EnsureDefaultSelectedShaderToy();
-
         // Disable our property‑changed handler while we populate values from disk.
         // the constructor already wired the handler for gradient updates but we don't
         // want to react to the initial load (avoids container deadlocks and needless
@@ -3305,8 +3496,14 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         PropertyChanged -= OnSettingsPropertyChanged;
         _isLoadingSettings = true;
 
+        // Load shader items from the local shaders directory (Linux-safe path resolution).
+        Program.EnsureBundledShaderResources();
+        _shaderToysDirectory = ResolveShaderToysDirectory();
+        ShaderToys = [.. GetLocalShaders(_shaderToysDirectory, "*.frag")];
+
         // Load settings (this will set many observable properties)
         LoadSettings();
+        EnsureDefaultSelectedShaderToy();
 
         // finished loading
         _isLoadingSettings = false;
@@ -3448,6 +3645,17 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         AnimateLogo = ReadBoolSetting(section, nameof(AnimateLogo), false);
         ShowEdgeBorder = ReadBoolSetting(section, nameof(ShowEdgeBorder), false);
         ShowSecondCircleAnimation = ReadBoolSetting(section, nameof(ShowSecondCircleAnimation), ShowSecondCircleAnimation);
+
+        // Load shader selection early so any incidental saves during the rest of load
+        // persist the user's choice instead of a transient default.
+        string? selectedshadertoy = ReadStringSetting(section, nameof(SelectedShadertoy));
+        SelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == (selectedshadertoy ?? "AnimatedBackground"))
+                            ?? ShaderToys?.FirstOrDefault();
+        MiniShowShaderToy = ReadBoolSetting(section, nameof(MiniShowShaderToy), MiniShowShaderToy);
+        string? miniSelectedShadertoy = ReadStringSetting(section, nameof(MiniSelectedShadertoy));
+        MiniSelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == (miniSelectedShadertoy ?? "AnimatedBackground"))
+                               ?? ShaderToys?.FirstOrDefault();
+
         // Spectrum settings
         SpectrumHeight = ReadDoubleSetting(section, nameof(SpectrumHeight), SpectrumHeight);
         BarWidth = ReadDoubleSetting(section, nameof(BarWidth), BarWidth);
@@ -3577,15 +3785,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (ReadStringSetting(section, nameof(SpectrumColor3)) is { } c3) SpectrumColor3 = Color.Parse(c3);
         if (ReadStringSetting(section, nameof(SpectrumColor4)) is { } c4) SpectrumColor4 = Color.Parse(c4);
         WaveformPlayedColor = Color.Parse(ReadStringSetting(section, nameof(WaveformPlayedColor), "RoyalBlue")!);
-        
-        // Set the selected shadertoy if it exists, otherwise default to "AnimatedBackground"
-        string? selectedshadertoy = ReadStringSetting(section, nameof(SelectedShadertoy));
-        SelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == (selectedshadertoy ?? "AnimatedBackground")) 
-                            ?? ShaderToys?.FirstOrDefault();
-        MiniShowShaderToy = ReadBoolSetting(section, nameof(MiniShowShaderToy), MiniShowShaderToy);
-        string? miniSelectedShadertoy = ReadStringSetting(section, nameof(MiniSelectedShadertoy));
-        MiniSelectedShadertoy = ShaderToys?.FirstOrDefault(s => s.Name == (miniSelectedShadertoy ?? "AnimatedBackground"))
-                               ?? ShaderToys?.FirstOrDefault();
 
         // Carousel settings
         CarouselSpacing = ReadDoubleSetting(section, nameof(CarouselSpacing), CarouselSpacing);
@@ -3824,11 +4023,15 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     partial void OnScaleFactorChanged(double value)
     {
         _hasPersistedScaleFactor = true;
+        if (!_isLoadingSettings)
+            RequestDebouncedSave();
     }
 
     partial void OnMiniScaleFactorChanged(double value)
     {
         _hasPersistedMiniScaleFactor = true;
+        if (!_isLoadingSettings)
+            RequestDebouncedSave();
     }
 
     /// <summary>

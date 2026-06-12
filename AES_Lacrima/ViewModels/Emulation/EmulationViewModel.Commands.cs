@@ -53,9 +53,9 @@ namespace AES_Lacrima.ViewModels
 
         /// <summary>
         /// Album used for section-scoped UI (render options handler tab, per-section settings).
-        /// Prefers the album list selection over a previously double-opened loaded album.
+        /// Only an opened album drives handler context; row selection alone does not.
         /// </summary>
-        private FolderMediaItem? GetActiveEmulationSectionAlbum() => SelectedAlbum ?? LoadedAlbum;
+        private FolderMediaItem? GetActiveEmulationSectionAlbum() => LoadedAlbum;
 
         private EmulationSectionItem? TryResolveEmulationSection(FolderMediaItem? album)
         {

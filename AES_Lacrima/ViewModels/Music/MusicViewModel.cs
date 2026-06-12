@@ -46,7 +46,7 @@ namespace AES_Lacrima.ViewModels
         private static readonly HttpClient FastThumbnailClient = new() { Timeout = TimeSpan.FromSeconds(10) };
         private static readonly SemaphoreSlim FastThumbnailThrottle = new(OperatingSystem.IsMacOS() ? 2 : 4);
         private const int FastThumbnailDecodeWidth = 512;
-        private const int FolderPreviewCoverCount = 3;
+        private const int FolderPreviewCoverCount = FolderMediaItem.AlbumTilePresentationCoverCount;
         private const int MetadataScrapperCacheEntries = 80;
         private const int MetadataStaggerDelayMs = 120;
         private const int PlaylistUiAddBatchSize = 12;

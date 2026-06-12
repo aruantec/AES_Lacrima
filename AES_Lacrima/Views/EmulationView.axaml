@@ -2745,6 +2745,7 @@
             <Separator Margin="0" VerticalAlignment="Top"/>
             <navigation:EmulationListView x:Name="AlbumListView"
                                           Opacity="{Binding !IsAlbumListCollapsed, Converter={StaticResource BoolToOpacityConverter}}"
+                                          PresentationOpacity="{Binding ElementName=RootView, Path=AlbumRowOpacity}"
                                           IsHitTestVisible="{Binding ElementName=RootView, Path=IsAlbumListInteractive}">
                 <Interaction.Behaviors>
                     <behaviors:MaxHeightToggleBehavior IsOpen="{Binding IsAlbumListCollapsed}" />

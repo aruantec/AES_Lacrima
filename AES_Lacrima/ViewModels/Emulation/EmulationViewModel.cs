@@ -51,6 +51,8 @@ namespace AES_Lacrima.ViewModels
     {
         private static readonly ILog SLog = AES_Core.Logging.LogHelper.For<EmulationViewModel>();
         private static AvaloniaList<FolderMediaItem>? _sharedAlbumCache;
+        private static readonly Dictionary<string, List<MediaItem>> _deferredAlbumRomsByKey =
+            new(StringComparer.OrdinalIgnoreCase);
 
         private static readonly Regex RomBracketTokenRegex = new(@"[\(\[\{][^\)\]\}]*[\)\]\}]", RegexOptions.Compiled);
         private static readonly Regex RomMediaLabelRegex = new(
@@ -78,8 +80,9 @@ namespace AES_Lacrima.ViewModels
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumTilePreviewCtsMap = [];
         private readonly HashSet<FolderMediaItem> _activeAlbumPreviewCoverLoads = [];
         private readonly object _albumPreviewCoverLoadGate = new();
+        private readonly SemaphoreSlim _albumPreviewCoverConcurrency = new(2, 2);
 
-        private const int FolderPreviewCoverCount = 3;
+        private const int FolderPreviewCoverCount = FolderMediaItem.AlbumTilePresentationCoverCount;
         private const int RomRestoreUiBatchSize = 200;
         private readonly HashSet<FolderMediaItem> _albumsWithMetadataScanned = [];
         private AvaloniaList<string> _pendingAlbumOrder = [];
@@ -1166,15 +1169,24 @@ private bool _isShadPs4PatchesOverlayOpen;
             if (IsEmulatorRunning || IsGameplayRecording)
                 return;
 
-            if (CurrentSectionEmulatorHandler == null ||
-                !string.Equals(CurrentSectionEmulatorHandler.HandlerId, handler.HandlerId, StringComparison.OrdinalIgnoreCase))
-            {
+            if (!IsHandlerRelevantToActiveEmulationSection(handler))
                 return;
-            }
 
-            OnPropertyChanged(nameof(CurrentSectionEmulatorHandler));
-            SyncCurrentSectionFlatpakSelection();
+            SyncCurrentSectionEmulatorContext();
         }
+
+        private bool IsHandlerRelevantToActiveEmulationSection(IEmulatorHandler handler)
+        {
+            var section = ResolveActiveEmulationSectionForHandlerSync();
+            if (section == null)
+                return false;
+
+            return section.Handlers.Any(item =>
+                string.Equals(item.HandlerId, handler.HandlerId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private EmulationSectionItem? ResolveActiveEmulationSectionForHandlerSync()
+            => TryResolveEmulationSection(LoadedAlbum) ?? TryResolveEmulationSection(SelectedAlbum);
 
         private void AttachEmulationSectionSubscriptions(SettingsViewModel settings)
         {
@@ -1320,7 +1332,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         private void OnEmulationUseFirstItemCoverChanged(bool useFirstItem)
         {
-            RefreshAlbumPreviews();
+            RefreshAlbumPreviews(useFirstItem);
         }
 
         private void OnEmulationGameplayAutoplayChanged(bool enabled)
@@ -1409,13 +1421,15 @@ private bool _isShadPs4PatchesOverlayOpen;
             RefreshCurrentSectionLaunchOptionsState();
         }
 
-        private void RefreshAlbumPreviews()
+        private void RefreshAlbumPreviews(bool? useFirstItemCoverOverride = null)
         {
+            bool useFirstItemCover = useFirstItemCoverOverride ?? SettingsViewModel?.EmulationUseFirstItemCover == true;
+
             foreach (var album in AlbumList.OfType<EmulationAlbumItem>())
             {
-                UpdatePreviewItems(album);
+                UpdatePreviewItems(album, useFirstItemCover: useFirstItemCover, rebuildStructure: true);
                 if (album.Children.Count > 0)
-                    QueueAlbumPreviewCoverLoad(album);
+                    QueueAlbumPreviewCoverLoad(album, forceRestart: true);
             }
 
             // Force update of album list for view refresh.
@@ -1527,6 +1541,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                             IsPrepared = true;
                             _isPreparing = false;
                             RefreshActiveAlbumState();
+                            QueueAllAlbumPresentationCoverLoads();
                             return;
                         }
 
@@ -1550,8 +1565,12 @@ private bool _isShadPs4PatchesOverlayOpen;
             EnsureMetadataServiceSubscription();
             if (!IsPrepared)
                 RefreshAlbumPreviews();
-            else if (!IsEmulatorRunning && IsGameplayPreviewAvailable)
-                QueueGameplayPreview(HighlightedItem, immediate: true);
+            else
+            {
+                QueueAllAlbumPresentationCoverLoads();
+                if (!IsEmulatorRunning && IsGameplayPreviewAvailable)
+                    QueueGameplayPreview(HighlightedItem, immediate: true);
+            }
 
             if (!IsEmulatorRunning && !IsGameplayRecording)
                 SyncCurrentSectionFlatpakSelection();
@@ -1628,7 +1647,6 @@ private bool _isShadPs4PatchesOverlayOpen;
                 IsEmulatorViewportDismissed = true;
 
             SyncSelectedAlbumIndexFromAlbum(value);
-            SyncCurrentSectionEmulatorContext();
             OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));
 
             if (value is EmulationAlbumItem album)
@@ -1650,11 +1668,24 @@ private bool _isShadPs4PatchesOverlayOpen;
                 _emulatorUpdateNoticeSuppressedAlbumTitle = null;
             }
 
+            if (value is EmulationAlbumItem emulationAlbum)
+                _ = OnLoadedAlbumChangedAsync(emulationAlbum);
+            else
+                FinishLoadedAlbumChanged(value);
+        }
+
+        private async Task OnLoadedAlbumChangedAsync(EmulationAlbumItem album)
+        {
+            await EnsureAlbumChildrenHydratedAsync(album).ConfigureAwait(true);
+            FinishLoadedAlbumChanged(album);
+        }
+
+        private void FinishLoadedAlbumChanged(FolderMediaItem? value)
+        {
             ApplyFilter();
             QueueSelectedAlbumCoverScan(value);
             RefreshActiveAlbumState();
             SyncCurrentSectionEmulatorContext();
-
             OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));
         }
 

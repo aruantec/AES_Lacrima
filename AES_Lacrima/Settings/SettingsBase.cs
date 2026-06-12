@@ -12,7 +12,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Lacrima.Settings
@@ -46,35 +46,64 @@ namespace AES_Lacrima.Settings
         /// </summary>
         private static readonly SemaphoreSlim FileLock = new(1, 1);
 
+        private static readonly List<Action> FlushCallbacks = [];
+        private static readonly object FlushCallbacksGate = new();
+
+        /// <summary>
+        /// True while <see cref="OnLoadSettings"/> is running for this instance.
+        /// Suppresses saves triggered by property setters during load.
+        /// </summary>
+        private bool _isApplyingSettings;
+
+        /// <summary>
+        /// Waits for any deferred settings writes to finish. Call during shutdown.
+        /// </summary>
+        public static void FlushPendingSaves()
+        {
+            Action[] callbacks;
+            lock (FlushCallbacksGate)
+            {
+                callbacks = [.. FlushCallbacks];
+            }
+
+            foreach (var callback in callbacks)
+            {
+                try
+                {
+                    callback();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("FlushPendingSaves callback failed.", ex);
+                }
+            }
+        }
+
+        protected static void RegisterFlushCallback(Action callback)
+        {
+            lock (FlushCallbacksGate)
+            {
+                FlushCallbacks.Add(callback);
+            }
+        }
+
         /// <summary>
         /// Save this object's settings into the flat ViewModels section.
         /// Derived classes implement OnSaveSettings to populate the provided JsonObject.
         /// </summary>
         public void SaveSettings()
         {
-            // Try to acquire the file lock immediately. If it is not available
-            // we schedule the save to run on a background thread so the UI is
-            // not blocked waiting for the lock (avoids deadlocks at startup).
-            if (!FileLock.Wait(0))
-            {
-                Task.Run(() =>
-                {
-                    FileLock.Wait();
-                    try
-                    {
-                        DoSaveSettings();
-                    }
-                    finally
-                    {
-                        FileLock.Release();
-                    }
-                });
+            if (_isApplyingSettings)
                 return;
-            }
 
+            FileLock.Wait();
             try
             {
                 DoSaveSettings();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn($"Failed to save settings to '{SettingsFilePath}'.", ex);
             }
             finally
             {
@@ -101,7 +130,11 @@ namespace AES_Lacrima.Settings
                 try { Directory.CreateDirectory(ApplicationPaths.DataRootDirectory); } catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
             }
 
-            var root = ReadSettingsRoot();
+            if (!TryReadSettingsRoot(out var root))
+            {
+                Log.Error($"Skipped saving {GetType().Name} settings because '{SettingsFilePath}' could not be read safely.");
+                return;
+            }
 
             if (!root.ContainsKey(ViewModelsSectionName))
             {
@@ -148,8 +181,8 @@ namespace AES_Lacrima.Settings
                 if (!File.Exists(SettingsFilePath))
                     return null;
 
-                var content = await File.ReadAllTextAsync(SettingsFilePath);
-                var root = DeserializeSettingsRoot(content);
+                if (!TryReadSettingsRoot(out var root))
+                    return null;
 
                 if (root.TryGetPropertyValue(ViewModelsSectionName, out var vmsNode) && vmsNode is JsonObject vmsElement)
                 {
@@ -182,14 +215,7 @@ namespace AES_Lacrima.Settings
 
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                try
-                {
-                    OnLoadSettings(section);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"OnLoadSettings failed for {GetType().Name}: {ex.Message}");
-                }
+                ApplyLoadedSettings(section);
             });
         }
 
@@ -199,27 +225,51 @@ namespace AES_Lacrima.Settings
         /// </summary>
         public void LoadSettings()
         {
+            JsonObject? section = TryReadCurrentSection();
+            if (section == null)
+                return;
+
+            ApplyLoadedSettings(section);
+        }
+
+        private void ApplyLoadedSettings(JsonObject section)
+        {
+            _isApplyingSettings = true;
+            try
+            {
+                OnLoadSettings(section);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Settings fail for {GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                _isApplyingSettings = false;
+            }
+        }
+
+        private JsonObject? TryReadCurrentSection()
+        {
             FileLock.Wait();
             try
             {
-                if (!File.Exists(SettingsFilePath)) return;
+                if (!File.Exists(SettingsFilePath))
+                    return null;
 
-                var root = ReadSettingsRoot();
+                if (!TryReadSettingsRoot(out var root))
+                {
+                    Log.Error($"Failed to load {GetType().Name} settings because '{SettingsFilePath}' could not be read safely.");
+                    return null;
+                }
 
                 if (!root.TryGetPropertyValue(ViewModelsSectionName, out var vmsNode) || vmsNode is not JsonObject vmsElement)
-                    return;
+                    return null;
 
                 if (!vmsElement.TryGetPropertyValue(GetType().Name, out var sectionNode) || sectionNode is not JsonObject section)
-                    return;
+                    return null;
 
-                try
-                {
-                    OnLoadSettings(section);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Settings fail for {GetType().Name}: {ex.Message}");
-                }
+                return section;
             }
             finally
             {
@@ -237,7 +287,11 @@ namespace AES_Lacrima.Settings
             {
                 if (!File.Exists(SettingsFilePath)) return;
 
-                var root = ReadSettingsRoot();
+                if (!TryReadSettingsRoot(out var root))
+                {
+                    Log.Error($"Skipped removing {GetType().Name} settings because '{SettingsFilePath}' could not be read safely.");
+                    return;
+                }
 
                 if (root.TryGetPropertyValue(ViewModelsSectionName, out var vmsNode) && vmsNode is JsonObject vmsElement)
                 {
@@ -256,22 +310,53 @@ namespace AES_Lacrima.Settings
             }
         }
 
-        private JsonObject ReadSettingsRoot()
+        private bool TryReadSettingsRoot(out JsonObject root)
         {
+            root = new JsonObject();
+
             if (!File.Exists(SettingsFilePath))
+                return true;
+
+            const int maxAttempts = 5;
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
             {
-                return new JsonObject();
+                try
+                {
+                    string content;
+                    using (var stream = new FileStream(
+                               SettingsFilePath,
+                               FileMode.Open,
+                               FileAccess.Read,
+                               FileShare.ReadWrite))
+                    using (var reader = new StreamReader(stream))
+                    {
+                        content = reader.ReadToEnd();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(content))
+                    {
+                        Log.Warn($"Settings file '{SettingsFilePath}' is empty on read attempt {attempt + 1}.");
+                    }
+                    else
+                    {
+                        root = DeserializeSettingsRoot(content);
+                        return true;
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    Log.Warn($"Failed to deserialize settings from '{SettingsFilePath}' on attempt {attempt + 1}.", ex);
+                }
+                catch (IOException ex) when (attempt < maxAttempts - 1)
+                {
+                    Log.Warn($"IO error reading settings from '{SettingsFilePath}' on attempt {attempt + 1}.", ex);
+                }
+
+                if (attempt < maxAttempts - 1)
+                    Thread.Sleep(40 * (attempt + 1));
             }
 
-            try
-            {
-                var content = File.ReadAllText(SettingsFilePath);
-                return DeserializeSettingsRoot(content);
-            }
-            catch
-            {
-                return new JsonObject();
-            }
+            return false;
         }
 
         private static JsonObject DeserializeSettingsRoot(string content)
@@ -281,7 +366,53 @@ namespace AES_Lacrima.Settings
 
         private void WriteSettingsRoot(JsonObject root)
         {
-            File.WriteAllText(SettingsFilePath, JsonSerializer.Serialize(root, SettingsJsonContext.Default.JsonObject));
+            var path = Path.GetFullPath(SettingsFilePath);
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
+            var json = JsonSerializer.Serialize(root, SettingsJsonContext.Default.JsonObject);
+            var tempPath = path + ".tmp";
+            const int maxAttempts = 5;
+            Exception? lastError = null;
+
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                try
+                {
+                    File.WriteAllText(tempPath, json);
+                    if (File.Exists(path))
+                        File.Replace(tempPath, path, null);
+                    else
+                        File.Move(tempPath, path);
+
+                    return;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    lastError = ex;
+                    Log.Warn($"Failed to write settings to '{path}' on attempt {attempt + 1}.", ex);
+                    TryDeleteFile(tempPath);
+
+                    if (attempt < maxAttempts - 1)
+                        Thread.Sleep(40 * (attempt + 1));
+                }
+            }
+
+            throw new IOException($"Failed to write settings to '{path}'.", lastError);
+        }
+
+        private static void TryDeleteFile(string path)
+        {
+            try
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Failed to delete temporary settings file '{path}'.", ex);
+            }
         }
 
         /// <summary>

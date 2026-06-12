@@ -428,8 +428,7 @@ namespace AES_Lacrima.ViewModels
 
         private List<MediaItem> GetAlbumPreviewCoverBatch(FolderMediaItem folder)
         {
-            return folder.Children
-                .Take(FolderPreviewCoverCount)
+            return folder.GetPresentationCoverChildren()
                 .Where(NeedsCoverLoad)
                 .ToList();
         }
