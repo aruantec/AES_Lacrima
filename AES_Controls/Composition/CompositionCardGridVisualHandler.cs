@@ -21,6 +21,7 @@ internal record CardGridScrollbarHoverMessage(bool IsHovered);
 internal record CardGridResetScrollbarMessage();
 internal record CardGridBackgroundColorMessage(SKColor Color);
 internal record CardGridTitleMarqueeMessage(bool Enabled);
+internal record CardGridHorizontalScrollMessage(bool Enabled);
 internal record CardGridAttachSyncMessage(CardGridAnimationSyncState State);
 internal record CardGridDragStateMessage(int Index, bool IsDragging);
 internal record CardGridDragPositionMessage(Vector2 Position);
@@ -75,6 +76,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private float _currentGlobalOpacityVelocity;
     private bool _pauseLoadingSpinnerAnimation;
     private bool _titleMarqueeEnabled = true;
+    private bool _horizontalScrollEnabled;
     private float _marqueeOffset;
     private float _marqueeTime;
     private float _marqueeScrollRange;
@@ -130,6 +132,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         public float ContentHeight { get; init; }
         public float MaxScrollY { get; init; }
         public int RowCount { get; init; }
+        public float ColumnPitch { get; init; }
     }
 
     public override void OnMessage(object message)
@@ -285,6 +288,10 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 _titleMarqueeEnabled = marquee.Enabled;
                 _marqueeTime = 0f;
                 _marqueeOffset = 0f;
+                Invalidate();
+                break;
+            case CardGridHorizontalScrollMessage horizontal:
+                _horizontalScrollEnabled = horizontal.Enabled;
                 Invalidate();
                 break;
             case CardGridAttachSyncMessage attach:
@@ -532,16 +539,15 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         if (_images.Count == 0 || _visualSize.X <= 0 || _visualSize.Y <= 0)
             return;
 
-        var metrics = ComputeMetrics(_images.Count);
         float g = Math.Clamp(_currentGlobalOpacity, 0f, 1f);
         if (g <= 0f)
             return;
 
         canvas.Save();
         canvas.ClipRect(new SKRect(0, 0, _visualSize.X, _visualSize.Y));
-
-        // Cards on a transparent layer so the viewport alpha mask reveals the background beneath.
         canvas.SaveLayer(new SKPaint { Color = SKColors.White.WithAlpha((byte)(g * 255)) });
+
+        var metrics = ComputeMetrics(_images.Count);
 
         bool isDragging = _draggingIndex != -1;
 
@@ -549,7 +555,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         {
             if (_draggingIndex >= 0 &&
                 TryGetCardPosition(_draggingIndex, metrics, out float holeX, out float holeY) &&
-                IsCardVisible(holeY, metrics.CardHeight))
+                IsCardVisible(holeX, holeY, metrics.CardWidth, metrics.CardHeight))
             {
                 DrawPlaceholder(canvas, holeX, holeY, metrics.CardWidth, metrics.CardHeight);
             }
@@ -561,7 +567,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
                 if (!TryGetCardDrawPosition(index, metrics, out float x, out float y))
                     continue;
-                if (!IsCardVisible(y, metrics.CardHeight))
+                if (!IsCardVisible(x, y, metrics.CardWidth, metrics.CardHeight))
                     continue;
 
                 DrawCard(canvas, index, x, y, metrics, 1f);
@@ -569,25 +575,54 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         }
         else
         {
-            int firstRow = Math.Max(0, (int)Math.Floor((_currentScrollY - metrics.PaddingTop) / (metrics.CardHeight + metrics.Spacing)) - 1);
-            int lastRow = Math.Min(metrics.RowCount - 1, (int)Math.Ceiling((_currentScrollY + _visualSize.Y) / (metrics.CardHeight + metrics.Spacing)) + 1);
-
-            for (int row = firstRow; row <= lastRow; row++)
+            if (_horizontalScrollEnabled)
             {
-                for (int col = 0; col < metrics.Columns; col++)
+                int firstCol = Math.Max(0, (int)Math.Floor((_currentScrollY - metrics.PaddingLeft) / metrics.ColumnPitch) - 1);
+                int lastCol = Math.Min(
+                    metrics.Columns - 1,
+                    (int)Math.Ceiling((_currentScrollY + _visualSize.X - metrics.PaddingLeft) / metrics.ColumnPitch) + 1);
+
+                for (int row = 0; row < metrics.RowCount; row++)
                 {
-                    int index = row * metrics.Columns + col;
-                    if (index >= _images.Count)
-                        break;
-                    if (index == _selectedIndex)
-                        continue;
+                    for (int col = firstCol; col <= lastCol; col++)
+                    {
+                        int index = row * metrics.Columns + col;
+                        if (index >= _images.Count)
+                            continue;
+                        if (index == _selectedIndex)
+                            continue;
 
-                    if (!TryGetCardPosition(index, metrics, out float x, out float y))
-                        continue;
-                    if (!IsCardVisible(y, metrics.CardHeight))
-                        continue;
+                        if (!TryGetCardPosition(index, metrics, out float x, out float y))
+                            continue;
+                        if (!IsCardVisible(x, y, metrics.CardWidth, metrics.CardHeight))
+                            continue;
 
-                    DrawCard(canvas, index, x, y, metrics, 1f);
+                        DrawCard(canvas, index, x, y, metrics, 1f);
+                    }
+                }
+            }
+            else
+            {
+                int firstRow = Math.Max(0, (int)Math.Floor((_currentScrollY - metrics.PaddingTop) / (metrics.CardHeight + metrics.Spacing)) - 1);
+                int lastRow = Math.Min(metrics.RowCount - 1, (int)Math.Ceiling((_currentScrollY + _visualSize.Y) / (metrics.CardHeight + metrics.Spacing)) + 1);
+
+                for (int row = firstRow; row <= lastRow; row++)
+                {
+                    for (int col = 0; col < metrics.Columns; col++)
+                    {
+                        int index = row * metrics.Columns + col;
+                        if (index >= _images.Count)
+                            break;
+                        if (index == _selectedIndex)
+                            continue;
+
+                        if (!TryGetCardPosition(index, metrics, out float x, out float y))
+                            continue;
+                        if (!IsCardVisible(x, y, metrics.CardWidth, metrics.CardHeight))
+                            continue;
+
+                        DrawCard(canvas, index, x, y, metrics, 1f);
+                    }
                 }
             }
         }
@@ -596,7 +631,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             _selectedIndex < _images.Count &&
             _selectedIndex != _draggingIndex &&
             TryGetCardDrawPosition(_selectedIndex, metrics, out float selX, out float selY) &&
-            IsCardVisible(selY, metrics.CardHeight))
+            IsCardVisible(selX, selY, metrics.CardWidth, metrics.CardHeight))
         {
             DrawCard(canvas, _selectedIndex, selX, selY, metrics, 1f);
         }
@@ -625,7 +660,37 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 ContentWidth = _visualSize.X,
                 ContentHeight = 0,
                 MaxScrollY = 0,
-                RowCount = 0
+                RowCount = 0,
+                ColumnPitch = BaseCardWidth * _cardScale
+            };
+        }
+
+        if (_horizontalScrollEnabled)
+        {
+            var horizontal = CardGridHorizontalLayout.ComputeMetrics(
+                itemCount,
+                _visualSize.X,
+                _visualSize.Y,
+                _cardScale,
+                _cardSpacing,
+                _topPadding);
+
+            float horizontalContentHeight = _topPadding + horizontal.Rows * horizontal.CardHeight +
+                                            Math.Max(0, horizontal.Rows - 1) * horizontal.Spacing;
+
+            return new GridMetrics
+            {
+                Columns = horizontal.Columns,
+                CardWidth = horizontal.CardWidth,
+                CardHeight = horizontal.CardHeight,
+                Spacing = horizontal.Spacing,
+                PaddingLeft = horizontal.PaddingLeft,
+                PaddingTop = horizontal.PaddingTop,
+                ContentWidth = horizontal.ContentWidth,
+                ContentHeight = horizontalContentHeight,
+                MaxScrollY = horizontal.MaxScrollX,
+                RowCount = horizontal.Rows,
+                ColumnPitch = horizontal.ColumnPitch
             };
         }
 
@@ -649,7 +714,8 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             ContentWidth = availW,
             ContentHeight = contentHeight,
             MaxScrollY = maxScroll,
-            RowCount = rowCount
+            RowCount = rowCount,
+            ColumnPitch = cardW + _cardSpacing
         };
     }
 
@@ -662,10 +728,20 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             return false;
         }
 
-        int row = index / metrics.Columns;
-        int col = index % metrics.Columns;
-        x = metrics.PaddingLeft + col * (metrics.CardWidth + metrics.Spacing);
-        y = metrics.PaddingTop + row * (metrics.CardHeight + metrics.Spacing) - (float)_currentScrollY;
+        if (_horizontalScrollEnabled)
+        {
+            int columns = Math.Max(1, metrics.Columns);
+            int col = index % columns;
+            int row = index / columns;
+            x = metrics.PaddingLeft + col * metrics.ColumnPitch - (float)_currentScrollY;
+            y = metrics.PaddingTop + row * (metrics.CardHeight + metrics.Spacing);
+            return true;
+        }
+
+        int vRow = index / metrics.Columns;
+        int vCol = index % metrics.Columns;
+        x = metrics.PaddingLeft + vCol * (metrics.CardWidth + metrics.Spacing);
+        y = metrics.PaddingTop + vRow * (metrics.CardHeight + metrics.Spacing) - (float)_currentScrollY;
         return true;
     }
 
@@ -700,7 +776,8 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 _visualSize.Y,
                 _cardScale,
                 _cardSpacing,
-                _topPadding);
+                _topPadding,
+                _horizontalScrollEnabled);
             _swapOffsetTargets[i] = new Vector2((float)offset.X, (float)offset.Y);
             if (!_swapOffsets.ContainsKey(i))
                 _swapOffsets[i] = Vector2.Zero;
@@ -791,10 +868,15 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         canvas.Restore();
     }
 
-    private bool IsCardVisible(float y, float cardHeight) =>
-        y + cardHeight >= 0 && y <= _visualSize.Y;
+    private bool IsCardVisible(float x, float y, float cardWidth, float cardHeight) =>
+        _horizontalScrollEnabled
+            ? x + cardWidth >= 0 && x <= _visualSize.X && y + cardHeight >= 0 && y <= _visualSize.Y
+            : y + cardHeight >= 0 && y <= _visualSize.Y;
 
-    private void DrawCard(SKCanvas canvas, int index, float x, float y, GridMetrics metrics, float globalOpacity)
+    private void DrawCard(SKCanvas canvas, int index, float x, float y, GridMetrics metrics, float globalOpacity) =>
+        DrawCardCore(canvas, index, x, y, metrics, globalOpacity);
+
+    private void DrawCardCore(SKCanvas canvas, int index, float x, float y, GridMetrics metrics, float globalOpacity)
     {
         var rect = new SKRect(x, y, x + metrics.CardWidth, y + metrics.CardHeight);
         bool isSelected = index == _selectedIndex;
@@ -1103,6 +1185,12 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         if (metrics.MaxScrollY <= 1 || _scrollbarOpacity <= 0.01f)
             return;
 
+        if (_horizontalScrollEnabled)
+        {
+            DrawHorizontalScrollbar(canvas, metrics, globalOpacity);
+            return;
+        }
+
         float trackTop = ScrollbarMargin;
         float trackBottom = _visualSize.Y - ScrollbarMargin;
         float trackHeight = trackBottom - trackTop;
@@ -1158,6 +1246,29 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         _scrollbarPaint.Color = SKColors.White.WithAlpha(alpha);
         canvas.DrawRoundRect(thumbRect, 4f, 4f, _scrollbarPaint);
         _scrollbarPaint.Shader = null;
+    }
+
+    private void DrawHorizontalScrollbar(SKCanvas canvas, GridMetrics metrics, float globalOpacity)
+    {
+        float trackLeft = ScrollbarMargin + 24f;
+        float trackRight = _visualSize.X - ScrollbarMargin - 24f;
+        float trackWidth = trackRight - trackLeft;
+        float trackY = _visualSize.Y - ScrollbarMargin - 8f;
+        var trackRect = new SKRect(trackLeft, trackY - 4f, trackRight, trackY + 4f);
+
+        byte alpha = (byte)(255 * globalOpacity * _scrollbarOpacity);
+        _scrollbarPaint.Style = SKPaintStyle.Fill;
+        _scrollbarPaint.Shader = null;
+        _scrollbarPaint.Color = SKColors.White.WithAlpha((byte)(alpha * 0.45f));
+        canvas.DrawRoundRect(trackRect, 4f, 4f, _scrollbarPaint);
+
+        float viewportRatio = Math.Clamp(_visualSize.X / Math.Max(1f, metrics.ContentWidth), 0.08f, 1f);
+        float thumbW = Math.Max(48f, trackWidth * viewportRatio);
+        float scrollPct = metrics.MaxScrollY <= 0 ? 0 : (float)(_currentScrollY / metrics.MaxScrollY);
+        float thumbX = trackLeft + (trackWidth - thumbW) * scrollPct;
+        var thumbRect = new SKRect(thumbX, trackY - 5f, thumbX + thumbW, trackY + 5f);
+        _scrollbarPaint.Color = SKColors.White.WithAlpha(alpha);
+        canvas.DrawRoundRect(thumbRect, 5f, 5f, _scrollbarPaint);
     }
 
     private bool TryGetImageDimensions(SKImage image, out (int Width, int Height) dims)

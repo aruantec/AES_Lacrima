@@ -161,6 +161,7 @@
                                                     CardSpacing="{Binding SettingsViewModel.CardGridSpacing}"
                                                     Background="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
                                                     TitleMarqueeEnabled="{Binding SettingsViewModel.CardGridTitleMarquee}"
+                                                    HorizontalScrollEnabled="{Binding SettingsViewModel.CardGridHorizontalScroll}"
                                                     IsVisible="{Binding SettingsViewModel.UseCardGridView}"
                                                     ClipToBounds="True">
                 <composition:CompositionCardGridControl.Opacity>
@@ -263,7 +264,7 @@
                                         UseDeltaTime="True"
                                         IsHitTestVisible="False"
                                         BarGradient="{Binding SpectrumGradientBrush}"
-                                        IsVisible="{Binding SettingsViewModel.ShowMusicSpectrum}">
+                                        IsVisible="{Binding SettingsViewModel.IsMusicSpectrumVisible}">
                 <spectrum:GlSpectrumControl.Transitions>
                     <Transitions>
                         <DoubleTransition Property="Opacity" Duration="0:0:0.500" Easing="SineEaseInOut"/>

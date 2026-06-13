@@ -159,6 +159,9 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
     public static readonly StyledProperty<bool> TitleMarqueeEnabledProperty =
         AvaloniaProperty.Register<CompositionCardGridControl, bool>(nameof(TitleMarqueeEnabled), true);
 
+    public static readonly StyledProperty<bool> HorizontalScrollEnabledProperty =
+        AvaloniaProperty.Register<CompositionCardGridControl, bool>(nameof(HorizontalScrollEnabled), true);
+
     public static readonly DirectProperty<CompositionCardGridControl, Rect> SelectedItemBoundsProperty =
         AvaloniaProperty.RegisterDirect<CompositionCardGridControl, Rect>(
             nameof(SelectedItemBounds),
@@ -246,6 +249,12 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
     {
         get => GetValue(TitleMarqueeEnabledProperty);
         set => SetValue(TitleMarqueeEnabledProperty, value);
+    }
+
+    public bool HorizontalScrollEnabled
+    {
+        get => GetValue(HorizontalScrollEnabledProperty);
+        set => SetValue(HorizontalScrollEnabledProperty, value);
     }
 
     public ICommand? ItemSelectedCommand
@@ -351,6 +360,7 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         _visual.SendHandlerMessage(new CardGridSelectedIndexMessage((int)Math.Round(SelectedIndex)));
         _visual.SendHandlerMessage(new CardGridBackgroundColorMessage(GetSkColor(Background)));
         _visual.SendHandlerMessage(new CardGridTitleMarqueeMessage(TitleMarqueeEnabled));
+        _visual.SendHandlerMessage(new CardGridHorizontalScrollMessage(HorizontalScrollEnabled));
         _visual.SendHandlerMessage(new GlobalOpacityMessage(Opacity));
         _visual.SendHandlerMessage(new PauseLoadingSpinnerAnimationMessage(PauseLoadingSpinnerAnimation));
         if (ItemsSource != null)
@@ -412,6 +422,14 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             _visual?.SendHandlerMessage(new CardGridBackgroundColorMessage(GetSkColor(change.GetNewValue<IBrush?>())));
         else if (change.Property == TitleMarqueeEnabledProperty)
             _visual?.SendHandlerMessage(new CardGridTitleMarqueeMessage(change.GetNewValue<bool>()));
+        else if (change.Property == HorizontalScrollEnabledProperty)
+        {
+            _visual?.SendHandlerMessage(new CardGridHorizontalScrollMessage(change.GetNewValue<bool>()));
+            SyncKnownScrollY(0);
+            _visual?.SendHandlerMessage(new CardGridSnapScrollMessage(0));
+            EnsureIndexVisible((int)Math.Round(SelectedIndex), animate: false);
+            UpdateSelectedItemBounds();
+        }
         else if (change.Property == OpacityProperty)
             _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
         else if (change.Property == GlobalOpacityProperty)
@@ -497,7 +515,7 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
 
         if (_isScrollbarPressed)
         {
-            ApplyScrollbarPosition(pos.Y);
+            ApplyScrollbarPosition(pos);
             UpdateVirtualization();
             e.Handled = true;
             return;
@@ -539,14 +557,17 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(true));
         }
 
-        double dy = pos.Y - _startPoint.Y;
-        _targetScrollY = Math.Clamp(_scrollAtDragStart - dy, -80, GetMaxScrollY() + 80);
+        double scrollDelta = HorizontalScrollEnabled ? pos.X - _startPoint.X : pos.Y - _startPoint.Y;
+        _targetScrollY = Math.Clamp(_scrollAtDragStart - scrollDelta, -80, GetMaxScrollY() + 80);
         _knownScrollY = _targetScrollY;
         _visual?.SendHandlerMessage(new CardGridScrollMessage(_targetScrollY));
 
         ulong dt = e.Timestamp - _prevTime;
         if (dt > 0)
-            _velocityY = -(pos.Y - _prevPoint.Y) / (dt / 1000.0);
+        {
+            double pointerDelta = HorizontalScrollEnabled ? pos.X - _prevPoint.X : pos.Y - _prevPoint.Y;
+            _velocityY = -pointerDelta / (dt / 1000.0);
+        }
 
         _prevTime = e.Timestamp;
         UpdateHoverState(pos);
@@ -645,15 +666,29 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             return;
 
         int columns = GetLayoutMetrics().Columns;
+        int horizontalColumns = GetHorizontalColumnCount();
         int current = (int)Math.Clamp(Math.Round(SelectedIndex), 0, _images.Count - 1);
         int next = current;
-        if (e.Key == Key.Left) next = current - 1;
-        else if (e.Key == Key.Right) next = current + 1;
-        else if (e.Key == Key.Up) next = current - columns;
-        else if (e.Key == Key.Down) next = current + columns;
-        else if (e.Key == Key.Home) next = 0;
-        else if (e.Key == Key.End) next = _images.Count - 1;
-        else return;
+        if (HorizontalScrollEnabled)
+        {
+            if (e.Key == Key.Left) next = current - 1;
+            else if (e.Key == Key.Right) next = current + 1;
+            else if (e.Key == Key.Up) next = current - horizontalColumns;
+            else if (e.Key == Key.Down) next = current + horizontalColumns;
+            else if (e.Key == Key.Home) next = 0;
+            else if (e.Key == Key.End) next = _images.Count - 1;
+            else return;
+        }
+        else
+        {
+            if (e.Key == Key.Left) next = current - 1;
+            else if (e.Key == Key.Right) next = current + 1;
+            else if (e.Key == Key.Up) next = current - columns;
+            else if (e.Key == Key.Down) next = current + columns;
+            else if (e.Key == Key.Home) next = 0;
+            else if (e.Key == Key.End) next = _images.Count - 1;
+            else return;
+        }
 
         next = Math.Clamp(next, 0, _images.Count - 1);
         if (next != current || e.Key is Key.Home or Key.End)
@@ -713,7 +748,9 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             (float)Bounds.Height,
             (float)CardScale,
             (float)CardSpacing,
-            (float)TopPadding);
+            (float)TopPadding,
+            HorizontalScrollEnabled,
+            _images.Count);
         var dragCenter = new Point(bounds.X + bounds.Width * 0.5, bounds.Y + bounds.Height * 0.5);
         _dragPointerOffset = dragCenter - _prevPoint;
     }
@@ -747,21 +784,40 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
 
     private void UpdateDragAutoScroll(Point pointerPoint)
     {
-        if (!_visualDragActive || _images.Count <= 1 || Bounds.Height <= 0)
+        if (!_visualDragActive || _images.Count <= 1)
             return;
 
         var dragPoint = GetDragVisualPoint(pointerPoint);
-        double h = Bounds.Height;
         double maxScroll = GetMaxScrollY();
         if (maxScroll <= 1)
             return;
 
-        double zone = Math.Clamp(h * 0.14, 48, 120);
+        double zone;
         double scrollDelta = 0;
-        if (dragPoint.Y < zone)
-            scrollDelta = -Math.Pow((zone - dragPoint.Y) / zone, 2);
-        else if (dragPoint.Y > h - zone)
-            scrollDelta = Math.Pow((dragPoint.Y - (h - zone)) / zone, 2);
+        if (HorizontalScrollEnabled)
+        {
+            if (Bounds.Width <= 0)
+                return;
+
+            double w = Bounds.Width;
+            zone = Math.Clamp(w * 0.14, 48, 120);
+            if (dragPoint.X < zone)
+                scrollDelta = -Math.Pow((zone - dragPoint.X) / zone, 2);
+            else if (dragPoint.X > w - zone)
+                scrollDelta = Math.Pow((dragPoint.X - (w - zone)) / zone, 2);
+        }
+        else
+        {
+            if (Bounds.Height <= 0)
+                return;
+
+            double h = Bounds.Height;
+            zone = Math.Clamp(h * 0.14, 48, 120);
+            if (dragPoint.Y < zone)
+                scrollDelta = -Math.Pow((zone - dragPoint.Y) / zone, 2);
+            else if (dragPoint.Y > h - zone)
+                scrollDelta = Math.Pow((dragPoint.Y - (h - zone)) / zone, 2);
+        }
 
         if (Math.Abs(scrollDelta) < 0.02)
             return;
@@ -811,7 +867,8 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             (float)Bounds.Height,
             (float)CardScale,
             (float)CardSpacing,
-            (float)TopPadding);
+            (float)TopPadding,
+            HorizontalScrollEnabled);
     }
 
     private void MoveItem(int from, int to)
@@ -965,33 +1022,55 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
 
     private bool TryBeginScrollbarDrag(Point pos, IPointer pointer)
     {
-        var metrics = GetLayoutMetrics();
-        if (metrics.MaxScrollY <= 1)
+        if (GetMaxScrollY() <= 1)
             return false;
 
-        float hitRight = (float)Bounds.Width - CardGridLayoutHelper.ScrollbarRightInset;
-        var trackRect = new Rect(
-            hitRight - CardGridLayoutHelper.ScrollbarHitWidth,
-            ScrollbarMargin,
-            CardGridLayoutHelper.ScrollbarHitWidth,
-            Bounds.Height - ScrollbarMargin * 2);
+        Rect trackRect;
+        if (HorizontalScrollEnabled)
+        {
+            float trackLeft = ScrollbarMargin + 24f;
+            float trackRight = (float)Bounds.Width - ScrollbarMargin - 24f;
+            float trackY = (float)Bounds.Height - ScrollbarMargin - 8f;
+            trackRect = new Rect(trackLeft, trackY - 14f, trackRight - trackLeft, 28f);
+        }
+        else
+        {
+            float hitRight = (float)Bounds.Width - CardGridLayoutHelper.ScrollbarRightInset;
+            trackRect = new Rect(
+                hitRight - CardGridLayoutHelper.ScrollbarHitWidth,
+                ScrollbarMargin,
+                CardGridLayoutHelper.ScrollbarHitWidth,
+                Bounds.Height - ScrollbarMargin * 2);
+        }
+
         if (!trackRect.Contains(pos))
             return false;
 
         _isScrollbarPressed = true;
         _visual?.SendHandlerMessage(new CardGridScrollbarPressedMessage(true));
         pointer.Capture(this);
-        ApplyScrollbarPosition(pos.Y);
+        ApplyScrollbarPosition(pos);
         return true;
     }
 
-    private void ApplyScrollbarPosition(double pointerY)
+    private void ApplyScrollbarPosition(Point pointer)
     {
-        var metrics = GetLayoutMetrics();
-        double trackTop = ScrollbarMargin;
-        double trackHeight = Math.Max(1, Bounds.Height - ScrollbarMargin * 2);
-        double ratio = Math.Clamp((pointerY - trackTop) / trackHeight, 0, 1);
-        _targetScrollY = ratio * metrics.MaxScrollY;
+        double ratio;
+        if (HorizontalScrollEnabled)
+        {
+            float trackLeft = ScrollbarMargin + 24f;
+            float trackRight = (float)Bounds.Width - ScrollbarMargin - 24f;
+            double trackWidth = Math.Max(1, trackRight - trackLeft);
+            ratio = Math.Clamp((pointer.X - trackLeft) / trackWidth, 0, 1);
+        }
+        else
+        {
+            double trackTop = ScrollbarMargin;
+            double trackHeight = Math.Max(1, Bounds.Height - ScrollbarMargin * 2);
+            ratio = Math.Clamp((pointer.Y - trackTop) / trackHeight, 0, 1);
+        }
+
+        _targetScrollY = ratio * GetMaxScrollY();
         SyncKnownScrollY(_targetScrollY);
         _visual?.SendHandlerMessage(new CardGridScrollMessage(_targetScrollY));
         _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(true));
@@ -1032,14 +1111,23 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         if (Bounds.Width <= 0 || Bounds.Height <= 0 || GetMaxScrollY() <= 1)
             return false;
 
+        if (HorizontalScrollEnabled)
+        {
+            float trackLeft = ScrollbarMargin + 24f;
+            float trackRight = (float)Bounds.Width - ScrollbarMargin - 24f;
+            float trackY = (float)Bounds.Height - ScrollbarMargin - 8f;
+            var hoverRect = new Rect(trackLeft - 8f, trackY - 16f, trackRight - trackLeft + 16f, 32f);
+            return hoverRect.Contains(pos);
+        }
+
         float hitRight = (float)Bounds.Width - CardGridLayoutHelper.ScrollbarRightInset;
         float hoverLeft = hitRight - CardGridLayoutHelper.ScrollbarHitWidth - 12f;
-        var hoverRect = new Rect(
+        var verticalHoverRect = new Rect(
             hoverLeft,
             ScrollbarMargin,
             (float)Bounds.Width - hoverLeft,
             Bounds.Height - ScrollbarMargin * 2);
-        return hoverRect.Contains(pos);
+        return verticalHoverRect.Contains(pos);
     }
 
     private int HitTestIndex(Point pos)
@@ -1052,7 +1140,8 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             (float)Bounds.Height,
             (float)CardScale,
             (float)CardSpacing,
-            (float)TopPadding);
+            (float)TopPadding,
+            HorizontalScrollEnabled);
     }
 
     private CardGridLayoutMetrics GetLayoutMetrics() =>
@@ -1064,7 +1153,29 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             (float)CardSpacing,
             (float)TopPadding);
 
-    private double GetMaxScrollY() => GetLayoutMetrics().MaxScrollY;
+    private double GetMaxScrollY() =>
+        CardGridLayoutHelper.GetMaxScroll(
+            (float)Bounds.Width,
+            (float)Bounds.Height,
+            _images.Count,
+            (float)CardScale,
+            (float)CardSpacing,
+            (float)TopPadding,
+            HorizontalScrollEnabled);
+
+    private int GetHorizontalColumnCount()
+    {
+        if (!HorizontalScrollEnabled || Bounds.Width <= 0 || _images.Count == 0)
+            return 1;
+
+        return CardGridHorizontalLayout.ComputeMetrics(
+            _images.Count,
+            (float)Bounds.Width,
+            (float)Bounds.Height,
+            (float)CardScale,
+            (float)CardSpacing,
+            (float)TopPadding).Columns;
+    }
 
     private void ScrollToIndex(int index, bool animate) => EnsureIndexVisible(index, animate);
 
@@ -1087,7 +1198,8 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             _images.Count,
             (float)CardScale,
             (float)CardSpacing,
-            (float)TopPadding);
+            (float)TopPadding,
+            HorizontalScrollEnabled);
 
         _pendingScrollToIndex = -1;
         if (Math.Abs(offset - _knownScrollY) < 0.5)
@@ -1152,7 +1264,9 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             (float)Bounds.Height,
             (float)CardScale,
             (float)CardSpacing,
-            (float)TopPadding);
+            (float)TopPadding,
+            HorizontalScrollEnabled,
+            _images.Count);
     }
 
     private void SendLayoutMessages() =>
@@ -1303,7 +1417,8 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             (float)Bounds.Width,
             (float)CardScale,
             (float)CardSpacing,
-            (float)TopPadding);
+            (float)TopPadding,
+            HorizontalScrollEnabled);
 
         if (visibleStart >= 0 && visibleEnd >= visibleStart)
             return (visibleStart + visibleEnd) / 2;
@@ -1473,7 +1588,8 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             (float)Bounds.Width,
             (float)CardScale,
             (float)CardSpacing,
-            (float)TopPadding);
+            (float)TopPadding,
+            HorizontalScrollEnabled);
 
         int centerIdx = visibleStart >= 0 && visibleEnd >= visibleStart
             ? (visibleStart + visibleEnd) / 2
@@ -1561,7 +1677,8 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             (float)Bounds.Width,
             (float)CardScale,
             (float)CardSpacing,
-            (float)TopPadding);
+            (float)TopPadding,
+            HorizontalScrollEnabled);
 
         int loadStart = Math.Max(0, visibleStart - loadBuffer);
         int loadEnd = Math.Min(totalCount - 1, Math.Max(visibleEnd, centerIdx) + loadBuffer);

@@ -329,6 +329,7 @@
                                                     CardSpacing="{Binding SettingsViewModel.CardGridSpacing}"
                                                     Background="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
                                                     TitleMarqueeEnabled="{Binding SettingsViewModel.CardGridTitleMarquee}"
+                                                    HorizontalScrollEnabled="{Binding SettingsViewModel.CardGridHorizontalScroll}"
                                                     IsVisible="{Binding SettingsViewModel.UseCardGridView}"
                                                     ClipToBounds="True">
                 <composition:CompositionCardGridControl.Opacity>

@@ -66,10 +66,23 @@ internal static class CardGridLayoutHelper
         };
     }
 
-    public static int HitTestCard(Point point, double scrollY, int itemCount, float viewportWidth, float viewportHeight, float cardScale, float cardSpacing, float topPadding)
+    public static int HitTestCard(Point point, double scrollY, int itemCount, float viewportWidth, float viewportHeight, float cardScale, float cardSpacing, float topPadding, bool horizontalScrollEnabled = false)
     {
         if (itemCount <= 0)
             return -1;
+
+        if (horizontalScrollEnabled)
+        {
+            return CardGridHorizontalLayout.HitTestIndex(
+                point,
+                scrollY,
+                itemCount,
+                viewportWidth,
+                viewportHeight,
+                cardScale,
+                cardSpacing,
+                topPadding);
+        }
 
         var metrics = Compute(viewportWidth, viewportHeight, itemCount, cardScale, cardSpacing, topPadding);
         float localY = (float)point.Y + (float)scrollY;
@@ -100,14 +113,43 @@ internal static class CardGridLayoutHelper
         return index < itemCount ? index : -1;
     }
 
-    public static Rect GetCardBounds(int index, double scrollY, float viewportWidth, float viewportHeight, float cardScale, float cardSpacing, float topPadding)
+    public static Rect GetCardBounds(int index, double scrollY, float viewportWidth, float viewportHeight, float cardScale, float cardSpacing, float topPadding, bool horizontalScrollEnabled = false, int itemCount = 0)
     {
-        var metrics = Compute(viewportWidth, viewportHeight, Math.Max(index + 1, 1), cardScale, cardSpacing, topPadding);
-        int row = index / Math.Max(1, metrics.Columns);
-        int col = index % Math.Max(1, metrics.Columns);
-        float x = metrics.PaddingLeft + col * (metrics.CardWidth + metrics.Spacing);
-        float y = metrics.PaddingTop + row * (metrics.CardHeight + metrics.Spacing) - (float)scrollY;
+        int count = itemCount > 0 ? itemCount : Math.Max(index + 1, 1);
+        if (horizontalScrollEnabled)
+        {
+            return CardGridHorizontalLayout.GetCardBounds(
+                index,
+                scrollY,
+                viewportWidth,
+                viewportHeight,
+                count,
+                cardScale,
+                cardSpacing,
+                topPadding);
+        }
+
+        var metrics = Compute(viewportWidth, viewportHeight, count, cardScale, cardSpacing, topPadding);
+        if (!TryGetFlatCardPosition(index, scrollY, metrics, out float x, out float y))
+            return default;
+
         return new Rect(x, y, metrics.CardWidth, metrics.CardHeight);
+    }
+
+    private static bool TryGetFlatCardPosition(int index, double scrollY, CardGridLayoutMetrics metrics, out float x, out float y)
+    {
+        if (index < 0 || metrics.Columns <= 0)
+        {
+            x = 0;
+            y = 0;
+            return false;
+        }
+
+        int row = index / metrics.Columns;
+        int col = index % metrics.Columns;
+        x = metrics.PaddingLeft + col * (metrics.CardWidth + metrics.Spacing);
+        y = metrics.PaddingTop + row * (metrics.CardHeight + metrics.Spacing) - (float)scrollY;
+        return true;
     }
 
     public static (int StartIndex, int EndIndex) GetVisibleIndexRange(
@@ -118,10 +160,24 @@ internal static class CardGridLayoutHelper
         float cardScale,
         float cardSpacing,
         float topPadding,
+        bool horizontalScrollEnabled = false,
         int rowBuffer = 2)
     {
         if (itemCount <= 0)
             return (0, -1);
+
+        if (horizontalScrollEnabled)
+        {
+            return CardGridHorizontalLayout.GetVisibleIndexRange(
+                scrollY,
+                viewportWidth,
+                viewportHeight,
+                itemCount,
+                cardScale,
+                cardSpacing,
+                topPadding,
+                columnBuffer: rowBuffer);
+        }
 
         var metrics = Compute(viewportWidth, viewportHeight, itemCount, cardScale, cardSpacing, topPadding);
         int columns = Math.Max(1, metrics.Columns);
@@ -159,10 +215,25 @@ internal static class CardGridLayoutHelper
         float cardScale,
         float cardSpacing,
         float topPadding,
+        bool horizontalScrollEnabled = false,
         float edgeMargin = 14f)
     {
         if (index < 0 || itemCount <= 0)
             return 0;
+
+        if (horizontalScrollEnabled)
+        {
+            return CardGridHorizontalLayout.ScrollOffsetToRevealIndex(
+                index,
+                currentScrollY,
+                viewportWidth,
+                viewportHeight,
+                itemCount,
+                cardScale,
+                cardSpacing,
+                topPadding,
+                edgeMargin);
+        }
 
         var metrics = Compute(viewportWidth, viewportHeight, itemCount, cardScale, cardSpacing, topPadding);
         int columns = Math.Max(1, metrics.Columns);
@@ -190,15 +261,27 @@ internal static class CardGridLayoutHelper
         int itemCount,
         float cardScale,
         float cardSpacing,
-        float topPadding)
+        float topPadding,
+        bool horizontalScrollEnabled = false)
     {
+        if (horizontalScrollEnabled)
+        {
+            return CardGridHorizontalLayout.GetCardCenter(
+                index,
+                scrollY,
+                viewportWidth,
+                viewportHeight,
+                itemCount,
+                cardScale,
+                cardSpacing,
+                topPadding);
+        }
+
         var metrics = Compute(viewportWidth, viewportHeight, Math.Max(itemCount, index + 1), cardScale, cardSpacing, topPadding);
-        int columns = Math.Max(1, metrics.Columns);
-        int row = index / columns;
-        int col = index % columns;
-        float x = metrics.PaddingLeft + col * (metrics.CardWidth + metrics.Spacing) + metrics.CardWidth * 0.5f;
-        float y = metrics.PaddingTop + row * (metrics.CardHeight + metrics.Spacing) + metrics.CardHeight * 0.5f - (float)scrollY;
-        return new Point(x, y);
+        if (!TryGetFlatCardPosition(index, scrollY, metrics, out float x, out float y))
+            return default;
+
+        return new Point(x + metrics.CardWidth * 0.5f, y + metrics.CardHeight * 0.5f);
     }
 
     /// <summary>
@@ -212,7 +295,8 @@ internal static class CardGridLayoutHelper
         float viewportHeight,
         float cardScale,
         float cardSpacing,
-        float topPadding)
+        float topPadding,
+        bool horizontalScrollEnabled = false)
     {
         if (itemCount <= 0)
             return -1;
@@ -221,7 +305,7 @@ internal static class CardGridLayoutHelper
         double minDistanceSq = double.MaxValue;
         for (int i = 0; i < itemCount; i++)
         {
-            var center = GetSlotCenterViewport(i, scrollY, viewportWidth, viewportHeight, itemCount, cardScale, cardSpacing, topPadding);
+            var center = GetSlotCenterViewport(i, scrollY, viewportWidth, viewportHeight, itemCount, cardScale, cardSpacing, topPadding, horizontalScrollEnabled);
             double dx = dragCenterViewport.X - center.X;
             double dy = dragCenterViewport.Y - center.Y;
             double distSq = dx * dx + dy * dy;
@@ -260,7 +344,8 @@ internal static class CardGridLayoutHelper
         float viewportHeight,
         float cardScale,
         float cardSpacing,
-        float topPadding)
+        float topPadding,
+        bool horizontalScrollEnabled = false)
     {
         if (index == dragIndex || itemCount <= 0)
             return default;
@@ -268,6 +353,34 @@ internal static class CardGridLayoutHelper
         int displaySlot = ComputeDisplaySlot(index, dragIndex, dropTarget, itemCount);
         if (displaySlot == index)
             return default;
+
+        if (horizontalScrollEnabled)
+        {
+            var horizontalMetrics = CardGridHorizontalLayout.ComputeMetrics(
+                itemCount,
+                viewportWidth,
+                viewportHeight,
+                cardScale,
+                cardSpacing,
+                topPadding);
+
+            if (horizontalMetrics.Rows <= 0)
+                return default;
+
+            static Point HorizontalSlotTopLeft(int slot, HorizontalGridMetrics m, double scroll)
+            {
+                int columns = Math.Max(1, m.Columns);
+                int col = slot % columns;
+                int row = slot / columns;
+                return new Point(
+                    m.PaddingLeft + col * m.ColumnPitch - scroll,
+                    m.PaddingTop + row * (m.CardHeight + m.Spacing));
+            }
+
+            var horizontalFrom = HorizontalSlotTopLeft(index, horizontalMetrics, scrollY);
+            var horizontalTo = HorizontalSlotTopLeft(displaySlot, horizontalMetrics, scrollY);
+            return new Point(horizontalTo.X - horizontalFrom.X, horizontalTo.Y - horizontalFrom.Y);
+        }
 
         var metrics = Compute(viewportWidth, viewportHeight, itemCount, cardScale, cardSpacing, topPadding);
         int columns = Math.Max(1, metrics.Columns);
@@ -284,5 +397,31 @@ internal static class CardGridLayoutHelper
         var from = SlotTopLeft(index, metrics, columns, scrollY);
         var to = SlotTopLeft(displaySlot, metrics, columns, scrollY);
         return new Point(to.X - from.X, to.Y - from.Y);
+    }
+
+    public static double GetMaxScroll(
+        float viewportWidth,
+        float viewportHeight,
+        int itemCount,
+        float cardScale,
+        float cardSpacing,
+        float topPadding,
+        bool horizontalScrollEnabled = false)
+    {
+        if (itemCount <= 0)
+            return 0;
+
+        if (horizontalScrollEnabled)
+        {
+            return CardGridHorizontalLayout.ComputeMetrics(
+                itemCount,
+                viewportWidth,
+                viewportHeight,
+                cardScale,
+                cardSpacing,
+                topPadding).MaxScrollX;
+        }
+
+        return Compute(viewportWidth, viewportHeight, itemCount, cardScale, cardSpacing, topPadding).MaxScrollY;
     }
 }

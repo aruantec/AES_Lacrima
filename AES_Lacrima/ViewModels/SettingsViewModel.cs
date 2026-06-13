@@ -932,6 +932,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// Gets or sets a value indicating whether spectrum bars are shown in the music view.
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsMusicSpectrumVisible))]
     private bool _showMusicSpectrum = true;
 
     /// <summary>
@@ -1750,6 +1751,30 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private bool _cardGridTitleMarquee = true;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsMusicSpectrumAvailable))]
+    [NotifyPropertyChangedFor(nameof(IsMusicSpectrumVisible))]
+    private bool _cardGridHorizontalScroll = true;
+
+    /// <summary>
+    /// Music spectrum is unavailable while horizontal card scrolling uses the bottom viewport area.
+    /// </summary>
+    public bool IsMusicSpectrumAvailable => !CardGridHorizontalScroll;
+
+    public bool IsMusicSpectrumVisible => ShowMusicSpectrum && !CardGridHorizontalScroll;
+
+    partial void OnCardGridHorizontalScrollChanged(bool value)
+    {
+        if (!_isLoadingSettings)
+            ApplyHorizontalScrollSpectrumPolicy();
+    }
+
+    private void ApplyHorizontalScrollSpectrumPolicy()
+    {
+        if (CardGridHorizontalScroll && ShowMusicSpectrum)
+            ShowMusicSpectrum = false;
+    }
+
     /// <summary>
     /// Handles property change notifications to synchronize individual color properties
     /// with the internal collection and refresh the visual gradient.
@@ -1814,6 +1839,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         nameof(CardGridOpacity),
         nameof(CardGridBackgroundColor),
         nameof(CardGridTitleMarquee),
+        nameof(CardGridHorizontalScroll),
         nameof(ReplayGainEnabled),
         nameof(SmoothVolumeChange),
         nameof(LogarithmicVolumeControl),
@@ -3504,6 +3530,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         LoadSettings();
         EnsureDefaultSelectedShaderToy();
 
+        ApplyHorizontalScrollSpectrumPolicy();
+
         // finished loading
         _isLoadingSettings = false;
 
@@ -3798,6 +3826,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         CardGridOpacity = ReadDoubleSetting(section, nameof(CardGridOpacity), CardGridOpacity);
         CardGridBackgroundColor = Color.Parse(ReadStringSetting(section, nameof(CardGridBackgroundColor), "#101010")!);
         CardGridTitleMarquee = ReadBoolSetting(section, nameof(CardGridTitleMarquee), CardGridTitleMarquee);
+        CardGridHorizontalScroll = ReadBoolSetting(section, nameof(CardGridHorizontalScroll), CardGridHorizontalScroll);
 
         // ReplayGain settings
         ReplayGainEnabled = ReadBoolSetting(section, nameof(ReplayGainEnabled), ReplayGainEnabled);
@@ -3814,6 +3843,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         RestartOnResumeThresholdSeconds = ReadDoubleSetting(section, nameof(RestartOnResumeThresholdSeconds), RestartOnResumeThresholdSeconds);
         PauseWhenVolumeIsZero = ReadBoolSetting(section, nameof(PauseWhenVolumeIsZero), PauseWhenVolumeIsZero);
         SortAlbumsByTrackNameInMiniView = ReadBoolSetting(section, nameof(SortAlbumsByTrackNameInMiniView), SortAlbumsByTrackNameInMiniView);
+
+        ApplyHorizontalScrollSpectrumPolicy();
     }
 
     /// <summary>
@@ -3911,6 +3942,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(CardGridOpacity), CardGridOpacity);
         WriteSetting(section, nameof(CardGridBackgroundColor), CardGridBackgroundColor.ToString());
         WriteSetting(section, nameof(CardGridTitleMarquee), CardGridTitleMarquee);
+        WriteSetting(section, nameof(CardGridHorizontalScroll), CardGridHorizontalScroll);
         // ReplayGain settings
         WriteSetting(section, nameof(ReplayGainEnabled), ReplayGainEnabled);
         WriteSetting(section, nameof(SmoothVolumeChange), SmoothVolumeChange);
