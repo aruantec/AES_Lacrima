@@ -35,6 +35,7 @@ namespace AES_Controls.Composition
     internal record SnapIndexMessage(double Index);
     internal record PauseLoadingSpinnerAnimationMessage(bool IsPaused);
     internal record CarouselAttachSyncMessage(CarouselAnimationSyncState State);
+    internal record CarouselIndexVelocityImpulseMessage(double Impulse);
 
     public class CompositionCarouselVisualHandler : CompositionCustomVisualHandler
     {
@@ -286,6 +287,13 @@ namespace AES_Controls.Composition
             else if (message is CarouselAttachSyncMessage attach)
             {
                 _animationSync = attach.State;
+            }
+            else if (message is CarouselIndexVelocityImpulseMessage impulse)
+            {
+                _currentVelocity = Math.Clamp(_currentVelocity + impulse.Impulse, -14.0, 14.0);
+                if (_lastTicks == 0)
+                    _lastTicks = Stopwatch.GetTimestamp();
+                RegisterForNextAnimationFrameUpdate();
             }
             else if (message is UseFullCoverSizeMessage ufcs) 
             { 
