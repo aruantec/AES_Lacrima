@@ -121,8 +121,8 @@ namespace AES_Controls.Composition
             StrokeCap = SKStrokeCap.Round
         };
         private readonly SKPath _selectionBorderPath = new();
-        private readonly SKMaskFilter _selectionGlowBlur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 8f);
-        private readonly SKMaskFilter _selectionOuterGlowBlur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 14f);
+        private readonly SKMaskFilter _selectionGlowBlur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 4.8f);
+        private readonly SKMaskFilter _selectionOuterGlowBlur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 8.4f);
         private float _selectionPulsePhase;
         private int _playingItemIndex = -1;
 
@@ -953,17 +953,17 @@ namespace AES_Controls.Composition
             float glowStrength = strength * (0.62f + 0.38f * pulse);
 
             _selectionBorderPaint.MaskFilter = _selectionOuterGlowBlur;
-            _selectionBorderPaint.StrokeWidth = 16f + 8f * pulse;
+            _selectionBorderPaint.StrokeWidth = 9.6f + 4.8f * pulse;
             _selectionBorderPaint.Color = SKColor.Parse("#7EC8F2").WithAlpha((byte)(95 * glowStrength));
             canvas.DrawPath(_selectionBorderPath, _selectionBorderPaint);
 
             _selectionBorderPaint.MaskFilter = _selectionGlowBlur;
-            _selectionBorderPaint.StrokeWidth = 11f + 5f * pulse;
+            _selectionBorderPaint.StrokeWidth = 6.6f + 3f * pulse;
             _selectionBorderPaint.Color = SKColor.Parse("#7EC8F2").WithAlpha((byte)(150 * glowStrength));
             canvas.DrawPath(_selectionBorderPath, _selectionBorderPaint);
 
             _selectionBorderPaint.MaskFilter = null;
-            _selectionBorderPaint.StrokeWidth = 3.5f + 1.2f * pulse;
+            _selectionBorderPaint.StrokeWidth = 2.1f + 0.72f * pulse;
             _selectionBorderPaint.Color = SKColors.White.WithAlpha((byte)(210 + 45 * pulse * strength));
             canvas.DrawPath(_selectionBorderPath, _selectionBorderPaint);
         }

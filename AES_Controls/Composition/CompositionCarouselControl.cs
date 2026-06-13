@@ -32,13 +32,38 @@ namespace AES_Controls.Composition
     /// </summary>
     public class CompositionCarouselControl : ItemsControl, IScaleExclusionRenderTarget
     {
-        private sealed class SharedImageEntry
+        internal void BindSharedCoverCache(CompositionSharedCoverCache cache) => _parentSharedCoverCache = cache;
+
+        internal void SetCoverLoadingActive(bool active)
         {
-            public SharedImageEntry(SKImage image) => Image = image;
+            if (_coverLoadingActive == active)
+                return;
 
-            public SKImage Image { get; }
+            _coverLoadingActive = active;
+            if (!active)
+                SuspendCoverLoading();
+        }
 
-            public int RefCount { get; set; } = 1;
+        private bool _coverLoadingActive = true;
+
+        private void SuspendCoverLoading()
+        {
+            _initialImageLoadScheduled = false;
+            _pendingVisibleLoad = false;
+            _lastVirtualizationIndex = -1;
+
+            try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch (Exception ex) { Log.Warn("Error canceling carousel cover load", ex); }
+            _loadCts = null;
+            _virtualizeDebounceTimer?.Stop();
+            _coverReloadDebounceTimer?.Stop();
+            _pendingCoverImageReloads.Clear();
+
+            if (_subscribedItemsSource is INotifyCollectionChanged incc)
+                incc.CollectionChanged -= ItemsSource_CollectionChanged;
+
+            foreach (var item in _subscribedItems)
+                item.PropertyChanged -= Item_PropertyChanged;
+            _subscribedItems.Clear();
         }
 
         #region Private Fields
@@ -48,7 +73,9 @@ namespace AES_Controls.Composition
         private const int AnimationHeartbeatMs = 16;
         private const int ActiveScrollVirtualizationDebounceMs = 180;
         private const int IdleVirtualizationDebounceMs = 32;
-        private const int CoverImageReloadDebounceMs = 120;
+        private const int CoverImageReloadDebounceMs = 220;
+        private const int ScrollDeferCoverRadius = 5;
+        private static readonly SemaphoreSlim CoverDecodeConcurrency = CompositionCoverDecodeConcurrency.Gate;
         private const double SelectedIndexCoalesceDelta = 0.035;
         private const double SelectedItemBoundsEpsilon = 0.75;
         private const float MaxFullCoverAspectRatio = 1.35f;
@@ -62,7 +89,10 @@ namespace AES_Controls.Composition
         private readonly Dictionary<object, LinkedListNode<object>> _imageCacheNodes = new();
         private readonly Dictionary<object, int> _itemIndices = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<object, object> _itemImageSourceKeys = new(ReferenceEqualityComparer.Instance);
-        private readonly Dictionary<object, SharedImageEntry> _sharedImageCache = new();
+        private CompositionSharedCoverCache? _parentSharedCoverCache;
+        private readonly CompositionSharedCoverCache _fallbackSharedCoverCache = new();
+        private CompositionSharedCoverCache SharedCoverCache => _parentSharedCoverCache ?? _fallbackSharedCoverCache;
+        internal event Action<object, SKImage, object?>? CoverImageAssigned;
         private object?[] _itemsSnapshot = Array.Empty<object?>();
         private readonly Cursor _handCursor = new(StandardCursorType.Hand);
         private readonly string _diskCachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"ImageCache_{CachedCarouselImageSize}");
@@ -92,6 +122,9 @@ namespace AES_Controls.Composition
         private DispatcherTimer? _coverReloadDebounceTimer;
         private DispatcherTimer? _updateItemsDebounceTimer;
         private readonly Dictionary<object, int> _pendingCoverImageReloads = new(ReferenceEqualityComparer.Instance);
+        private readonly HashSet<int> _deferredCoverLoadIndices = new();
+        private readonly HashSet<int> _coverLoadInFlight = new();
+        private readonly object _deferredCoverLoadLock = new();
         private bool _viewportMotionTracked;
         private DispatcherTimer? _uiSyncTimer;
         private DispatcherTimer? _settleCommitTimer;
@@ -482,17 +515,115 @@ namespace AES_Controls.Composition
         /// </summary>
         public void ReloadCoverImages()
         {
-            _initialImageLoadScheduled = false;
-            _pendingVisibleLoad = true;
-            _lastVirtualizationIndex = -1;
+            RefreshMissingCoverSlots(forceFullRescan: true);
+        }
+
+        internal void RefreshMissingCoverSlots(bool forceFullRescan = false)
+        {
+            if (forceFullRescan)
+            {
+                _initialImageLoadScheduled = false;
+                _pendingVisibleLoad = true;
+                _lastVirtualizationIndex = -1;
+            }
 
             if (ItemsSource == null || _itemsSnapshot.Length == 0)
                 return;
 
             SyncVisualImageSlots();
-            ScheduleInitialImageLoad();
-            ScheduleVisibleCoverImages();
-            ScheduleAllMissingCoverImages();
+            if (!IsVisible)
+                return;
+
+            if (forceFullRescan)
+                ScheduleInitialImageLoad();
+        }
+
+        internal void SyncItemsSourceLightweight(IEnumerable? source)
+        {
+            if (ReferenceEquals(_subscribedItemsSource, source) && _itemsSnapshot.Length > 0)
+                return;
+
+            if (_subscribedItemsSource != source)
+            {
+                if (_subscribedItemsSource is INotifyCollectionChanged oldIncc)
+                    oldIncc.CollectionChanged -= ItemsSource_CollectionChanged;
+
+                foreach (var item in _subscribedItems)
+                    item.PropertyChanged -= Item_PropertyChanged;
+                _subscribedItems.Clear();
+                _subscribedItemsSource = source;
+            }
+
+            if (source == null)
+            {
+                ClearResources();
+                _visual?.SendHandlerMessage(new List<SKImage>());
+                return;
+            }
+
+            var items = source.Cast<object?>().ToArray();
+            UpdateItemsSnapshot(items);
+            string? bitmapProp = ImageBitmapProperty;
+            string? fileProp = ImageFileNameProperty;
+            _sectionPlaceholderBitmap = CompositionCoverImageHelper.DetectSectionPlaceholder(items, bitmapProp, GetBitmapValue);
+
+            _images.Clear();
+            for (int i = 0; i < items.Length; i++)
+            {
+                var item = items[i];
+                SKImage? restoredImage = null;
+                if (item != null && _imageCache.TryGetValue(item, out var cached))
+                {
+                    CompositionCoverImageHelper.ReadCoverSources(
+                        item,
+                        bitmapProp,
+                        fileProp,
+                        GetBitmapValue,
+                        ResolveCoverImagePath,
+                        _sectionPlaceholderBitmap,
+                        out var cachedBitmap,
+                        out var cachedFile);
+                    var currentSourceKey = CompositionCoverImageHelper.ResolveImageSourceKey(
+                        item as MediaItem, cachedBitmap, cachedFile, _sectionPlaceholderBitmap);
+                    bool hasMatchingSource = _itemImageSourceKeys.TryGetValue(item, out var cachedSourceKey) &&
+                                             Equals(cachedSourceKey, currentSourceKey) &&
+                                             !IsPlaceholderSourceKey(currentSourceKey);
+
+                    if (hasMatchingSource && !IsPlaceholderImage(cached))
+                    {
+                        restoredImage = cached;
+                        TouchCacheItem(item);
+                    }
+                }
+
+                _images.Add(restoredImage ?? GetPlaceholder());
+            }
+
+            SyncVisualImageSlots();
+            if (_coverLoadingActive)
+                _visual?.SendHandlerMessage(new ResetCoverFoundMessage(BuildCoverFoundSet(items)));
+        }
+
+        internal void TryAssignCachedCover(object item, SKImage image, object? sourceKey)
+        {
+            if (!_itemIndices.TryGetValue(item, out var index))
+                return;
+
+            if (index < _images.Count &&
+                _images[index] != null &&
+                !IsPlaceholderImage(_images[index]))
+                return;
+
+            SKImage adopted = image;
+            if (sourceKey != null && !IsPlaceholderSourceKey(sourceKey))
+            {
+                if (SharedCoverCache.TryAcquire(sourceKey, out var shared))
+                    adopted = shared;
+                else
+                    adopted = SharedCoverCache.Register(sourceKey, image);
+            }
+
+            AssignItemImage(item, index, adopted, sourceKey);
         }
 
         #endregion
@@ -521,8 +652,9 @@ namespace AES_Controls.Composition
             if (index >= 0 && index < _images.Count)
             {
                 _images[index] = image;
-                _visual?.SendHandlerMessage(new UpdateImageMessage(index, image));
-                ClearProjectionCache();
+                SendVisualMessage(new UpdateImageMessage(index, image));
+                if (!IsSelectionInMotion())
+                    ClearProjectionCache();
             }
         }
 
@@ -534,7 +666,13 @@ namespace AES_Controls.Composition
         /// <param name="isLoading">True to display loading spinner.</param>
         public void SetLoading(int index, bool isLoading)
         {
-            _visual?.SendHandlerMessage(new UpdateImageMessage(index, null, isLoading));
+            if (ShouldDeferCoverLoad(index) && isLoading)
+                return;
+
+            if (Dispatcher.UIThread.CheckAccess())
+                _visual?.SendHandlerMessage(new UpdateImageMessage(index, null, isLoading));
+            else
+                PostToUi(() => _visual?.SendHandlerMessage(new UpdateImageMessage(index, null, isLoading)), DispatcherPriority.Background);
         }
 
         public override void Render(DrawingContext context)
@@ -661,6 +799,33 @@ namespace AES_Controls.Composition
             UpdateItemsSnapshot(updatedItems);
         }
 
+        private void InsertItemsAt(int startIndex, object?[] newItems)
+        {
+            if (newItems.Length == 0 || startIndex < 0)
+                return;
+
+            var merged = _itemsSnapshot.ToList();
+            startIndex = Math.Clamp(startIndex, 0, merged.Count);
+            merged.InsertRange(startIndex, newItems);
+            UpdateItemsSnapshot(merged);
+            _sectionPlaceholderBitmap = CompositionCoverImageHelper.DetectSectionPlaceholder(
+                _itemsSnapshot, ImageBitmapProperty, GetBitmapValue);
+
+            for (int i = 0; i < newItems.Length; i++)
+                _images.Insert(startIndex + i, GetPlaceholder());
+
+            foreach (var item in newItems)
+            {
+                if (item is INotifyPropertyChanged inpc && _subscribedItems.Add(inpc))
+                    inpc.PropertyChanged += Item_PropertyChanged;
+            }
+
+            _visual?.SendHandlerMessage(_images);
+            _visual?.SendHandlerMessage(new ResetCoverFoundMessage(BuildCoverFoundSet(_itemsSnapshot)));
+
+            UpdateVirtualization();
+        }
+
         private HashSet<int> BuildCoverFoundSet(IReadOnlyList<object?> items)
         {
             var coverFoundSet = new HashSet<int>();
@@ -735,19 +900,10 @@ namespace AES_Controls.Composition
                 return;
             }
 
-            if (_itemImageSourceKeys.Remove(item, out var sourceKey) && _sharedImageCache.TryGetValue(sourceKey, out var entry))
-            {
-                entry.RefCount--;
-                if (entry.RefCount <= 0)
-                {
-                    _sharedImageCache.Remove(sourceKey);
-                    QueueImageDisposal(image, disposalQueue);
-                }
-            }
+            if (_itemImageSourceKeys.Remove(item, out var sourceKey) && sourceKey != null)
+                SharedCoverCache.Release(sourceKey, img => QueueImageDisposal(img, disposalQueue));
             else
-            {
                 QueueImageDisposal(image, disposalQueue);
-            }
         }
 
         private bool TryAcquireSharedImage(object? sourceKey, out SKImage? image)
@@ -758,10 +914,9 @@ namespace AES_Controls.Composition
                 return false;
             }
 
-            if (sourceKey != null && _sharedImageCache.TryGetValue(sourceKey, out var entry))
+            if (sourceKey != null && SharedCoverCache.TryAcquire(sourceKey, out var acquired))
             {
-                entry.RefCount++;
-                image = entry.Image;
+                image = acquired;
                 return true;
             }
 
@@ -774,15 +929,14 @@ namespace AES_Controls.Composition
             if (sourceKey == null || IsPlaceholderSourceKey(sourceKey))
                 return image;
 
-            if (_sharedImageCache.TryGetValue(sourceKey, out var existing))
+            if (SharedCoverCache.TryGetEntry(sourceKey, out var existing, out _))
             {
-                existing.RefCount++;
+                SharedCoverCache.TryAcquire(sourceKey, out _);
                 QueueImageDisposal(image);
-                return existing.Image;
+                return existing;
             }
 
-            _sharedImageCache[sourceKey] = new SharedImageEntry(image);
-            return image;
+            return SharedCoverCache.Register(sourceKey, image);
         }
 
         private void StoreItemImage(object item, SKImage image, object? sourceKey)
@@ -828,6 +982,14 @@ namespace AES_Controls.Composition
             SetImage(index, image);
         }
 
+        private void PostToUi(Action action) => PostToUi(action, DispatcherPriority.Normal);
+
+        private void PostToUi(Action action, DispatcherPriority priority) =>
+            Dispatcher.UIThread.Post(action, priority);
+
+        private void SendVisualMessage(object message) =>
+            PostToUi(() => _visual?.SendHandlerMessage(message), DispatcherPriority.Background);
+
         private SKImage GetPlaceholder()
         {
             if (_sharedPlaceholder == null || _sharedPlaceholder.Width == 0)
@@ -844,7 +1006,7 @@ namespace AES_Controls.Composition
 
         private void SyncVisualImageSlots()
         {
-            if (_visual == null)
+            if (_visual == null || !_coverLoadingActive)
                 return;
 
             int count = _images.Count;
@@ -1422,7 +1584,6 @@ namespace AES_Controls.Composition
             _imageCache.Clear();
             _imageCacheNodes.Clear();
             _imageCacheLru.Clear();
-            _sharedImageCache.Clear();
             _itemImageSourceKeys.Clear();
             _sharedPlaceholder = null;
             _sectionPlaceholderBitmap = null;
@@ -1458,6 +1619,9 @@ namespace AES_Controls.Composition
         }
         private void ScheduleInitialImageLoad()
         {
+            if (!_coverLoadingActive)
+                return;
+
             if (_initialImageLoadScheduled)
                 return;
 
@@ -1468,7 +1632,7 @@ namespace AES_Controls.Composition
         private void ExecuteInitialImageLoad()
         {
             _initialImageLoadScheduled = false;
-            if (_itemsSnapshot.Length == 0 || !IsVisible)
+            if (!_coverLoadingActive || _itemsSnapshot.Length == 0 || !IsVisible)
             {
                 _pendingVisibleLoad = _itemsSnapshot.Length > 0;
                 return;
@@ -1484,7 +1648,6 @@ namespace AES_Controls.Composition
             _lastVirtualizationIndex = -1;
             int centerIdx = (int)Math.Clamp(Math.Round(SelectedIndex), 0, _itemsSnapshot.Length - 1);
             ScheduleVirtualization(centerIdx, CancellationToken.None);
-            ScheduleVisibleCoverImages();
         }
 
         private void ScheduleVirtualization(int centerIdx, CancellationToken ct)
@@ -1507,8 +1670,14 @@ namespace AES_Controls.Composition
 
         private void UpdateVirtualization()
         {
+            if (!_coverLoadingActive)
+                return;
+
             SyncCarouselViewportMotionState();
             int centerIdx = (int)Math.Round(SelectedIndex);
+            if (centerIdx == _lastVirtualizationIndex)
+                return;
+
             CompositionViewportState.VisibleCenterIndex = centerIdx;
             _lastVirtualizationIndex = centerIdx;
 
@@ -1517,13 +1686,13 @@ namespace AES_Controls.Composition
                 _virtualizeDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(IdleVirtualizationDebounceMs) };
                 _virtualizeDebounceTimer.Tick += (s, e) =>
                 {
+                    _virtualizeDebounceTimer.Stop();
                     if (IsSelectionInMotion())
                     {
-                        _virtualizeDebounceTimer?.Start();
+                        _virtualizeDebounceTimer.Start();
                         return;
                     }
 
-                    _virtualizeDebounceTimer.Stop();
                     try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch (Exception ex) { Log.Warn("Error canceling load during virtualization debounce", ex); }
                     _loadCts = new CancellationTokenSource();
                     ScheduleVirtualization(_lastVirtualizationIndex, _loadCts.Token);
@@ -1545,9 +1714,76 @@ namespace AES_Controls.Composition
 
             _viewportMotionTracked = inMotion;
             if (inMotion)
+            {
                 CompositionViewportState.EnterMotion();
-            else
-                CompositionViewportState.ExitMotion();
+                try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch (Exception ex) { Log.Warn("Error canceling load on scroll start", ex); }
+                _loadCts = null;
+                return;
+            }
+
+            CompositionViewportState.ExitMotion();
+            ClearProjectionCache();
+            FlushDeferredCoverLoads();
+            ProcessPendingCoverImageReloads();
+        }
+
+        private bool IsIndexNearViewport(int index)
+        {
+            if (index < 0 || _itemsSnapshot.Length == 0)
+                return true;
+
+            int center = (int)Math.Clamp(Math.Round(SelectedIndex), 0, _itemsSnapshot.Length - 1);
+            return Math.Abs(index - center) <= ScrollDeferCoverRadius;
+        }
+
+        private bool ShouldDeferCoverLoad(int index) =>
+            IsSelectionInMotion() && !IsIndexNearViewport(index);
+
+        private void DeferCoverLoad(int index)
+        {
+            if (index < 0)
+                return;
+
+            lock (_deferredCoverLoadLock)
+                _deferredCoverLoadIndices.Add(index);
+        }
+
+        private void FlushDeferredCoverLoads()
+        {
+            if (IsSelectionInMotion())
+                return;
+
+            lock (_deferredCoverLoadLock)
+            {
+                if (_deferredCoverLoadIndices.Count == 0)
+                    return;
+
+                _deferredCoverLoadIndices.Clear();
+            }
+
+            _lastVirtualizationIndex = -1;
+            UpdateVirtualization();
+        }
+
+        private DispatcherPriority GetCoverAssignPriority() =>
+            IsSelectionInMotion() ? DispatcherPriority.Background : DispatcherPriority.Loaded;
+
+        private bool TryMarkCoverLoadInFlight(int index)
+        {
+            lock (_deferredCoverLoadLock)
+            {
+                if (_coverLoadInFlight.Contains(index))
+                    return false;
+
+                _coverLoadInFlight.Add(index);
+                return true;
+            }
+        }
+
+        private void ClearCoverLoadInFlight(int index)
+        {
+            lock (_deferredCoverLoadLock)
+                _coverLoadInFlight.Remove(index);
         }
 
         private bool IsSelectionInMotion()
@@ -1707,14 +1943,8 @@ namespace AES_Controls.Composition
             if (items.Length > 0)
                 ScheduleInitialImageLoad();
 
-            SyncItemLoadingStates();
             ClearProjectionCache();
             UpdateSelectedItemBounds();
-            if (IsVisible)
-            {
-                ScheduleVisibleCoverImages();
-                ScheduleAllMissingCoverImages();
-            }
         }
 
         internal void ImportCoverImagesFrom(CompositionCardGridControl? source)
@@ -1722,12 +1952,12 @@ namespace AES_Controls.Composition
             if (source == null)
                 return;
 
-            foreach (var (item, _, _) in source.EnumerateDecodedCovers())
+            foreach (var (item, image, sourceKey) in source.EnumerateDecodedCovers())
             {
                 if (!_itemIndices.TryGetValue(item, out var index))
                     continue;
 
-                ScheduleCoverImageAtIndex(index);
+                TryAssignCachedCover(item, image, sourceKey);
             }
         }
 
@@ -1802,6 +2032,12 @@ namespace AES_Controls.Composition
             if (_visual == null || index < 0 || index >= _itemsSnapshot.Length || !IsVisible)
                 return;
 
+            if (ShouldDeferCoverLoad(index))
+            {
+                DeferCoverLoad(index);
+                return;
+            }
+
             if (!TryCreateCoverDecodeRequest(index, out var request))
             {
                 if (_itemsSnapshot[index] is MediaItem { IsLoadingCover: true })
@@ -1821,17 +2057,8 @@ namespace AES_Controls.Composition
                 return;
             }
 
-            if (request.BitmapValue != null &&
-                !CompositionCoverImageHelper.IsSectionPlaceholderBitmap(request.BitmapValue, request.SectionPlaceholder))
-            {
-                var fromBitmap = CompositionBitmapHelper.ToSkImage(request.BitmapValue, CachedCarouselImageSize);
-                if (fromBitmap != null)
-                {
-                    var imageToUse = RegisterSharedImage(request.SourceKey, fromBitmap);
-                    AssignItemImage(request.Item, request.Index, imageToUse, request.SourceKey);
-                    return;
-                }
-            }
+            if (!TryMarkCoverLoadInFlight(index))
+                return;
 
             SetLoading(index, true);
 
@@ -1840,9 +2067,19 @@ namespace AES_Controls.Composition
                 SKImage? skImage = null;
                 try
                 {
-                    skImage = await DecodeCoverRequestAsync(request).ConfigureAwait(false);
+                    await CoverDecodeConcurrency.WaitAsync().ConfigureAwait(false);
+                    try
+                    {
+                        skImage = await DecodeCoverRequestAsync(request).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        CoverDecodeConcurrency.Release();
+                    }
+
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
+                        ClearCoverLoadInFlight(index);
                         if (!IsCurrentSnapshotItem(request.Item, request.Index))
                         {
                             if (skImage != null)
@@ -1858,14 +2095,16 @@ namespace AES_Controls.Composition
 
                         var imageToUse = RegisterSharedImage(request.SourceKey, skImage);
                         AssignItemImage(request.Item, request.Index, imageToUse, request.SourceKey);
-                    }, DispatcherPriority.Render);
+                    }, GetCoverAssignPriority());
                 }
                 catch (Exception ex)
                 {
                     Log.Warn($"Failed to decode carousel cover for index {index}", ex);
-                    await Dispatcher.UIThread.InvokeAsync(
-                        () => SetLoading(index, ShouldShowLoadingSpinner(index)),
-                        DispatcherPriority.Background);
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        ClearCoverLoadInFlight(index);
+                        SetLoading(index, ShouldShowLoadingSpinner(index));
+                    }, DispatcherPriority.Background);
                 }
             });
         }
@@ -2036,6 +2275,9 @@ namespace AES_Controls.Composition
 
             Dispatcher.UIThread.Post(() =>
             {
+                if (!_coverLoadingActive)
+                    return;
+
                 if (_visual == null) return;
 
                 switch (e.Action)
@@ -2054,6 +2296,14 @@ namespace AES_Controls.Composition
                         }
                         break;
                     case NotifyCollectionChangedAction.Add:
+                        if (e.NewItems?.Count > 0 && e.NewStartingIndex >= 0)
+                        {
+                            InsertItemsAt(e.NewStartingIndex, e.NewItems.Cast<object?>().ToArray());
+                            break;
+                        }
+
+                        ScheduleUpdateItemsDebounced();
+                        break;
                     case NotifyCollectionChangedAction.Remove:
                     case NotifyCollectionChangedAction.Replace:
                     case NotifyCollectionChangedAction.Reset:
@@ -2081,7 +2331,10 @@ namespace AES_Controls.Composition
 
         private async Task VirtualizeAsync(int centerIdx, CancellationToken ct)
         {
-            if (ItemsSource == null) return;
+            if (!_coverLoadingActive || ItemsSource == null) return;
+
+            string? bitmapProp = ImageBitmapProperty;
+            string? fileProp = ImageFileNameProperty;
 
             var items = _itemsSnapshot;
             int totalCount = items.Length;
@@ -2103,6 +2356,8 @@ namespace AES_Controls.Composition
             // logic only removed images when their backing item disappeared from the
             // list entirely, which let SKImage/native texture resources accumulate
             // as the user scrolled through more of the carousel.
+            var placeholder = GetPlaceholder();
+            var pruneUpdates = new List<(int Index, SKImage Image)>();
             foreach (var key in _imageCache.Keys.ToList())
             {
                 if (ct.IsCancellationRequested) return;
@@ -2110,13 +2365,25 @@ namespace AES_Controls.Composition
                     Math.Abs(cachedIndex - centerIdx) > retainWindow)
                 {
                     if (cachedIndex >= 0 && cachedIndex < _images.Count && IsCurrentSnapshotItem(key, cachedIndex))
-                    {
-                        _images[cachedIndex] = GetPlaceholder();
-                        _visual?.SendHandlerMessage(new UpdateImageMessage(cachedIndex, _images[cachedIndex]));
-                    }
+                        pruneUpdates.Add((cachedIndex, placeholder));
 
                     ReleaseItemImage(key);
                 }
+            }
+
+            if (pruneUpdates.Count > 0)
+            {
+                PostToUi(() =>
+                {
+                    foreach (var (idx, image) in pruneUpdates)
+                    {
+                        if (idx < _images.Count)
+                        {
+                            _images[idx] = image;
+                            _visual?.SendHandlerMessage(new UpdateImageMessage(idx, image));
+                        }
+                    }
+                }, DispatcherPriority.Background);
             }
 
             EnsureDiskCacheDirectory();
@@ -2129,31 +2396,35 @@ namespace AES_Controls.Composition
                 int left = centerIdx - offset;
                 if (left >= 0)
                 {
-                    int capturedLeft = left;
-                    await Dispatcher.UIThread.InvokeAsync(
-                        () => ScheduleCoverImageAtIndex(capturedLeft),
-                        DispatcherPriority.Background);
+                    if (ShouldDeferCoverLoad(left))
+                        DeferCoverLoad(left);
+                    else
+                        await TryLoadItemAsync(left, items, bitmapProp, fileProp, ct);
                 }
 
                 int right = centerIdx + offset;
                 if (offset == 0 || right >= totalCount)
                     continue;
 
-                int capturedRight = right;
-                await Dispatcher.UIThread.InvokeAsync(
-                    () => ScheduleCoverImageAtIndex(capturedRight),
-                    DispatcherPriority.Background);
+                if (ShouldDeferCoverLoad(right))
+                    DeferCoverLoad(right);
+                else
+                    await TryLoadItemAsync(right, items, bitmapProp, fileProp, ct);
             }
 
-            await Dispatcher.UIThread.InvokeAsync(
-                () => TrimImageCache(itemToIndex),
-                DispatcherPriority.Background);
+            PostToUi(() => TrimImageCache(itemToIndex), DispatcherPriority.SystemIdle);
         }
 
         private async Task<bool> TryLoadItemAsync(int index, object?[] items, string? bitmapProp, string? fileProp, CancellationToken ct)
         {
             if (ct.IsCancellationRequested || index < 0 || index >= items.Length)
                 return false;
+
+            if (ShouldDeferCoverLoad(index))
+            {
+                DeferCoverLoad(index);
+                return false;
+            }
 
             var item = items[index];
             if (item == null)
@@ -2184,16 +2455,6 @@ namespace AES_Controls.Composition
                     }
                     else
                     {
-                        TouchCacheItem(item);
-                        if (index < _images.Count && !ReferenceEquals(_images[index], cachedImage))
-                        {
-                            await Dispatcher.UIThread.InvokeAsync(() =>
-                            {
-                                if (IsCurrentSnapshotItem(item, index))
-                                    AssignItemImage(item, index, cachedImage, sourceKey);
-                            });
-                        }
-
                         return false;
                     }
                 }
@@ -2207,38 +2468,24 @@ namespace AES_Controls.Composition
 
             if (TryAcquireSharedImage(sourceKey, out var sharedImage))
             {
-                await Dispatcher.UIThread.InvokeAsync(() =>
+                PostToUi(() =>
                 {
                     if (ct.IsCancellationRequested)
                     {
-                        if (sourceKey != null && _sharedImageCache.TryGetValue(sourceKey, out var sharedEntry))
-                        {
-                            sharedEntry.RefCount--;
-                            if (sharedEntry.RefCount <= 0)
-                            {
-                                _sharedImageCache.Remove(sourceKey);
-                                DisposeImage(sharedImage!);
-                            }
-                        }
+                        if (sourceKey != null)
+                            SharedCoverCache.Release(sourceKey, DisposeImage);
                         return;
                     }
 
                     if (!IsCurrentSnapshotItem(item, index))
                     {
-                        if (sourceKey != null && _sharedImageCache.TryGetValue(sourceKey, out var sharedEntry))
-                        {
-                            sharedEntry.RefCount--;
-                            if (sharedEntry.RefCount <= 0)
-                            {
-                                _sharedImageCache.Remove(sourceKey);
-                                DisposeImage(sharedImage!);
-                            }
-                        }
+                        if (sourceKey != null)
+                            SharedCoverCache.Release(sourceKey, DisposeImage);
                         return;
                     }
 
                     AssignItemImage(item, index, sharedImage!, sourceKey);
-                });
+                }, GetCoverAssignPriority());
 
                 return true;
             }
@@ -2265,7 +2512,7 @@ namespace AES_Controls.Composition
 
             if (realImage != null && realImage.Width > 0 && !IsPlaceholderImage(realImage))
             {
-                await Dispatcher.UIThread.InvokeAsync(() =>
+                PostToUi(() =>
                 {
                     if (ct.IsCancellationRequested)
                     {
@@ -2281,7 +2528,7 @@ namespace AES_Controls.Composition
 
                     var imageToUse = RegisterSharedImage(sourceKey, realImage);
                     AssignItemImage(item, index, imageToUse, sourceKey);
-                });
+                }, GetCoverAssignPriority());
             }
             else
             {
@@ -2297,14 +2544,13 @@ namespace AES_Controls.Composition
         {
             Dispatcher.UIThread.Post(() =>
             {
+                if (!_coverLoadingActive)
+                    return;
+
                 string? bitmapProp = ImageBitmapProperty;
                 string? fileProp = ImageFileNameProperty;
 
-                if (sender == null || (e.PropertyName != bitmapProp && e.PropertyName != fileProp &&
-                                       e.PropertyName != nameof(MediaItem.CoverBitmap) &&
-                                       e.PropertyName != nameof(MediaItem.LocalCoverPath) &&
-                                       e.PropertyName != "CoverFound" &&
-                                       e.PropertyName != nameof(MediaItem.IsLoadingCover)))
+                if (sender == null || (e.PropertyName != bitmapProp && e.PropertyName != fileProp && e.PropertyName != "CoverFound"))
                     return;
 
                 if (!_itemIndices.TryGetValue(sender, out var idx))
@@ -2316,43 +2562,24 @@ namespace AES_Controls.Composition
                     return;
                 }
 
-                if (e.PropertyName == nameof(MediaItem.IsLoadingCover))
-                {
-                    HandleLoadingCoverStateChanged(sender, idx);
-                    return;
-                }
-
                 if (e.PropertyName == "CoverFound")
                 {
                     if (TryGetItemBool(sender, "CoverFound", out var found))
                         _visual?.SendHandlerMessage(new UpdateCoverFoundMessage(idx, found));
-
-                    if (sender is MediaItem { LocalCoverPath: { Length: > 0 } coverPath } && File.Exists(coverPath))
-                    {
-                        _pendingCoverImageReloads[sender] = idx;
-                        ProcessPendingCoverImageReloads();
-                    }
-
                     return;
                 }
 
                 _pendingCoverImageReloads[sender] = idx;
                 ProcessPendingCoverImageReloads();
-                ScheduleCoverImageAtIndex(idx);
             }, DispatcherPriority.Background);
-        }
-
-        private void HandleLoadingCoverStateChanged(object sender, int index)
-        {
-            var isLoading = sender is MediaItem { IsLoadingCover: true };
-            SetLoading(index, isLoading);
-            if (!isLoading)
-                ScheduleCoverImageAtIndex(index);
         }
 
         private void ProcessPendingCoverImageReloads()
         {
-            if (_pendingCoverImageReloads.Count == 0)
+            if (!_coverLoadingActive || _pendingCoverImageReloads.Count == 0)
+                return;
+
+            if (IsSelectionInMotion())
                 return;
 
             _coverReloadDebounceTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(CoverImageReloadDebounceMs) };
@@ -2365,15 +2592,12 @@ namespace AES_Controls.Composition
         private void CoverReloadDebounceTimer_Tick(object? sender, EventArgs e)
         {
             _coverReloadDebounceTimer?.Stop();
-            if (_pendingCoverImageReloads.Count == 0)
+            if (_pendingCoverImageReloads.Count == 0 || IsSelectionInMotion())
                 return;
 
-            int center = (int)Math.Clamp(Math.Round(SelectedIndex), 0, Math.Max(0, _itemsSnapshot.Length - 1));
-            var pending = _pendingCoverImageReloads
-                .OrderBy(pair => Math.Abs(pair.Value - center))
-                .ToArray();
+            var pending = _pendingCoverImageReloads.ToArray();
             _pendingCoverImageReloads.Clear();
-            _ = Task.Run(() => ReloadCoverImagesBatchAsync(pending));
+            _ = ReloadCoverImagesBatchAsync(pending);
         }
 
         private async Task ReloadCoverImagesBatchAsync(KeyValuePair<object, int>[] pending)
@@ -2407,10 +2631,7 @@ namespace AES_Controls.Composition
 
                 if (TryAcquireSharedImage(sourceKey, out var sharedImage))
                 {
-                    await Dispatcher.UIThread.InvokeAsync(() =>
-                    {
-                        AssignItemImage(sender, idx, sharedImage!, sourceKey);
-                    });
+                    PostToUi(() => AssignItemImage(sender, idx, sharedImage!, sourceKey), GetCoverAssignPriority());
                     visualsChanged = true;
                     continue;
                 }
@@ -2428,21 +2649,18 @@ namespace AES_Controls.Composition
                 if (realImage != null)
                 {
                     var imageToUse = RegisterSharedImage(sourceKey, realImage);
-                    await Dispatcher.UIThread.InvokeAsync(() =>
-                    {
-                        AssignItemImage(sender, idx, imageToUse, sourceKey);
-                    });
+                    PostToUi(() => AssignItemImage(sender, idx, imageToUse, sourceKey), GetCoverAssignPriority());
                     visualsChanged = true;
                 }
             }
 
-            if (visualsChanged)
+            if (visualsChanged && !IsSelectionInMotion())
             {
-                await Dispatcher.UIThread.InvokeAsync(() =>
+                PostToUi(() =>
                 {
                     ClearProjectionCache();
                     UpdateSelectedItemBounds();
-                });
+                }, DispatcherPriority.Background);
             }
         }
 

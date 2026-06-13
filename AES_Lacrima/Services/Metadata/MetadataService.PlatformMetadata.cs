@@ -189,10 +189,16 @@ namespace AES_Lacrima.Services
             return queries;
         }
 
-        private async Task<IReadOnlyList<WebImageSearchResult>> FindImageResultsForAutoCoverAsync(string query, CancellationToken cancellationToken)
+        private Task<IReadOnlyList<WebImageSearchResult>> FindImageResultsForAutoCoverAsync(string query, CancellationToken cancellationToken)
+            => FindImageResultsForAutoCoverAsync(query, cancellationToken, AutoCoverLookupOptions.Default);
+
+        private async Task<IReadOnlyList<WebImageSearchResult>> FindImageResultsForAutoCoverAsync(
+            string query,
+            CancellationToken cancellationToken,
+            AutoCoverLookupOptions options)
         {
             using var searchTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            searchTimeout.CancelAfter(TimeSpan.FromSeconds(AutoCoverSearchTimeoutSeconds));
+            searchTimeout.CancelAfter(TimeSpan.FromSeconds(options.SearchTimeoutSeconds));
 
             try
             {
@@ -201,7 +207,7 @@ namespace AES_Lacrima.Services
                     .ConfigureAwait(false);
 
                 return results
-                    .Take(MaxAutoCoverCandidatesPerQuery)
+                    .Take(options.MaxCandidatesPerQuery)
                     .ToList();
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -1272,7 +1278,13 @@ namespace AES_Lacrima.Services
             }
         }
 
-        private async Task<(byte[]? Bytes, string? MimeType)> TryDownloadImageBytesAsync(string url, CancellationToken cancellationToken)
+        private Task<(byte[]? Bytes, string? MimeType)> TryDownloadImageBytesAsync(string url, CancellationToken cancellationToken)
+            => TryDownloadImageBytesAsync(url, cancellationToken, AutoCoverLookupOptions.Default);
+
+        private async Task<(byte[]? Bytes, string? MimeType)> TryDownloadImageBytesAsync(
+            string url,
+            CancellationToken cancellationToken,
+            AutoCoverLookupOptions options)
         {
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
                 || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
@@ -1287,7 +1299,7 @@ namespace AES_Lacrima.Services
             }
 
             using var downloadTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            downloadTimeout.CancelAfter(TimeSpan.FromSeconds(AutoCoverDownloadTimeoutSeconds));
+            downloadTimeout.CancelAfter(TimeSpan.FromSeconds(options.DownloadTimeoutSeconds));
 
             try
             {

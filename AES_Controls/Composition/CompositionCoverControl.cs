@@ -19,6 +19,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
 
     private readonly CompositionCarouselControl _carousel;
     private readonly CompositionCardGridControl _cardGrid;
+    private readonly CompositionSharedCoverCache _sharedCoverCache = new();
     private CancellationTokenSource? _transitionCts;
     private CoverLayoutMode _appliedLayoutMode = CoverLayoutMode.Carousel;
     private Rect _selectedItemBounds;
@@ -212,6 +213,8 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
 
         _carousel.PropertyChanged += OnCarouselPropertyChanged;
         _cardGrid.PropertyChanged += OnCardGridPropertyChanged;
+        _carousel.BindSharedCoverCache(_sharedCoverCache);
+        _cardGrid.BindSharedCoverCache(_sharedCoverCache);
 
         Children.Add(_carousel);
         Children.Add(_cardGrid);
@@ -410,24 +413,16 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
 
     protected override Size MeasureOverride(Size availableSize)
     {
-        var max = new Size(0, 0);
-        foreach (var child in Children)
-        {
-            child.Measure(availableSize);
-            max = new Size(
-                Math.Max(max.Width, child.DesiredSize.Width),
-                Math.Max(max.Height, child.DesiredSize.Height));
-        }
-
-        return max;
+        Control active = _appliedLayoutMode == CoverLayoutMode.Carousel ? _carousel : _cardGrid;
+        active.Measure(availableSize);
+        return active.DesiredSize;
     }
 
     protected override Size ArrangeOverride(Size finalSize)
     {
         var bounds = new Rect(finalSize);
-        foreach (var child in Children)
-            child.Arrange(bounds);
-
+        Control active = _appliedLayoutMode == CoverLayoutMode.Carousel ? _carousel : _cardGrid;
+        active.Arrange(bounds);
         return finalSize;
     }
 
@@ -462,31 +457,26 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         var source = ItemsSource;
 
         _transitionCts?.Cancel();
-        _carousel.IsVisible = useCarousel;
-        _carousel.Opacity = 1;
-        _carousel.IsHitTestVisible = useCarousel;
-        _carousel.ClipToBounds = false;
-
-        _cardGrid.IsVisible = !useCarousel;
-        _cardGrid.Opacity = 1;
-        _cardGrid.IsHitTestVisible = !useCarousel;
-        _cardGrid.ClipToBounds = true;
-        _cardGrid.HorizontalScrollEnabled = mode == CoverLayoutMode.HorizontalGrid;
-
+        ApplyVisibilityForLayoutMode(mode);
         SyncSharedProperties();
-
-        _carousel.ItemsSource = source;
-        _cardGrid.ItemsSource = source;
 
         if (useCarousel)
         {
+            _cardGrid.SetCoverLoadingActive(false);
+            _carousel.SetCoverLoadingActive(true);
+            _carousel.ItemsSource = source;
+            _cardGrid.SyncItemsSourceLightweight(source);
             _carousel.ImportCoverImagesFrom(_cardGrid);
-            _carousel.ReloadCoverImages();
+            _carousel.RefreshMissingCoverSlots();
         }
         else
         {
+            _carousel.SetCoverLoadingActive(false);
+            _cardGrid.SetCoverLoadingActive(true);
+            _cardGrid.ItemsSource = source;
+            _carousel.SyncItemsSourceLightweight(source);
             _cardGrid.ImportCoverImagesFrom(_carousel);
-            _cardGrid.ReloadCoverImages();
+            _cardGrid.RefreshMissingCoverSlots();
         }
 
         ApplyPublishSelectedItemBounds();
@@ -499,8 +489,35 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         SyncSharedProperties();
 
         var source = ItemsSource;
-        _carousel.ItemsSource = source;
-        _cardGrid.ItemsSource = source;
+        if (_appliedLayoutMode == CoverLayoutMode.Carousel)
+        {
+            _carousel.SetCoverLoadingActive(true);
+            _cardGrid.SetCoverLoadingActive(false);
+            _carousel.ItemsSource = source;
+            _cardGrid.SyncItemsSourceLightweight(source);
+        }
+        else
+        {
+            _cardGrid.SetCoverLoadingActive(true);
+            _carousel.SetCoverLoadingActive(false);
+            _cardGrid.ItemsSource = source;
+            _carousel.SyncItemsSourceLightweight(source);
+        }
+    }
+
+    private void ApplyVisibilityForLayoutMode(CoverLayoutMode mode)
+    {
+        var useCarousel = mode == CoverLayoutMode.Carousel;
+        _carousel.IsVisible = useCarousel;
+        _carousel.Opacity = 1;
+        _carousel.IsHitTestVisible = useCarousel;
+        _carousel.ClipToBounds = false;
+
+        _cardGrid.IsVisible = !useCarousel;
+        _cardGrid.Opacity = 1;
+        _cardGrid.IsHitTestVisible = !useCarousel;
+        _cardGrid.ClipToBounds = true;
+        _cardGrid.HorizontalScrollEnabled = mode == CoverLayoutMode.HorizontalGrid;
     }
 
     private async void StartLayoutTransition(CoverLayoutMode targetMode)
@@ -513,6 +530,11 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         var toCarousel = targetMode == CoverLayoutMode.Carousel;
         Control outgoing = toCarousel ? _cardGrid : _carousel;
         Control incoming = toCarousel ? _carousel : _cardGrid;
+
+        if (outgoing == _carousel)
+            _carousel.SetCoverLoadingActive(false);
+        else
+            _cardGrid.SetCoverLoadingActive(false);
 
         _appliedLayoutMode = targetMode;
         incoming.IsVisible = true;
@@ -546,7 +568,23 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
 
             ApplyPublishSelectedItemBounds();
             RefreshSelectedItemBoundsFromActiveChild();
-            ApplyLayoutModeImmediate(_appliedLayoutMode);
+
+            if (toCarousel)
+            {
+                _carousel.SetCoverLoadingActive(true);
+                _cardGrid.SetCoverLoadingActive(false);
+                _cardGrid.SyncItemsSourceLightweight(ItemsSource);
+                _carousel.ImportCoverImagesFrom(_cardGrid);
+                _carousel.RefreshMissingCoverSlots();
+            }
+            else
+            {
+                _cardGrid.SetCoverLoadingActive(true);
+                _carousel.SetCoverLoadingActive(false);
+                _carousel.SyncItemsSourceLightweight(ItemsSource);
+                _cardGrid.ImportCoverImagesFrom(_carousel);
+                _cardGrid.RefreshMissingCoverSlots();
+            }
         }
         catch (OperationCanceledException)
         {
@@ -565,7 +603,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         SyncLayoutScaleProperties();
         SyncGridOpacity();
         ApplyPublishSelectedItemBounds();
-        ApplyLayoutModeImmediate(LayoutMode);
+        ApplyVisibilityForLayoutMode(_appliedLayoutMode);
     }
 
     private void SyncSharedProperties()

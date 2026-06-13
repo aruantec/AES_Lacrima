@@ -529,7 +529,8 @@ namespace AES_Lacrima.ViewModels
             var candidates = album.Children
                 .Select((item, index) => (item, index))
                 .Where(pair => NeedsCoverLookup(pair.item, album))
-                .OrderBy(pair => Math.Abs(pair.index - center))
+                .OrderBy(pair => !string.IsNullOrWhiteSpace(pair.item.FileName) && _deferredCoverLookupPaths.Contains(pair.item.FileName) ? 1 : 0)
+                .ThenBy(pair => Math.Abs(pair.index - center))
                 .ToList();
 
             if (candidates.Count == 0)
@@ -555,6 +556,35 @@ namespace AES_Lacrima.ViewModels
             return inRadius;
         }
 
+        private async Task<bool> TryPopulateRomCoverAsync(
+            MediaItem item,
+            string? albumTitle,
+            CancellationToken cancellationToken)
+        {
+            if (MetadataService == null)
+                return false;
+
+            if (HasLocalCoverInMetadata(item.FileName))
+            {
+                return await MetadataService.TryHydrateCoverFromLocalMetadataAsync(item, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            bool found = await MetadataService.TryPopulateCoverFromLocalMetadataOrGoogleAsync(
+                    item,
+                    albumTitle,
+                    cancellationToken,
+                    AutoCoverLookupOptions.FastSkip)
+                .ConfigureAwait(false);
+
+            if (!found && !string.IsNullOrWhiteSpace(item.FileName) && !IsOnlineCoverLookupExhausted(item.FileName))
+                _deferredCoverLookupPaths.Add(item.FileName);
+            else if (!string.IsNullOrWhiteSpace(item.FileName))
+                _deferredCoverLookupPaths.Remove(item.FileName);
+
+            return found;
+        }
+
         private async Task LoadSingleAlbumCoverAsync(
             FolderMediaItem album,
             MediaItem item,
@@ -563,8 +593,7 @@ namespace AES_Lacrima.ViewModels
             var wasPreviouslyScanned = IsRomCoverAlreadyScanned(item.FileName);
             try
             {
-                await MetadataService!.TryPopulateCoverFromLocalMetadataOrGoogleAsync(item, album.Title, cancellationToken)
-                    .ConfigureAwait(false);
+                await TryPopulateRomCoverAsync(item, album.Title, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -582,7 +611,7 @@ namespace AES_Lacrima.ViewModels
                     {
                         await Dispatcher.UIThread.InvokeAsync(
                             () => MarkRomItemCoverLoadComplete(item, album),
-                            DispatcherPriority.SystemIdle);
+                            DispatcherPriority.Background);
                     }
                     catch (Exception ex)
                     {
@@ -595,7 +624,7 @@ namespace AES_Lacrima.ViewModels
             {
                 try
                 {
-                    await Task.Delay(48, cancellationToken).ConfigureAwait(false);
+                    await Task.Delay(24, cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -1169,12 +1198,15 @@ namespace AES_Lacrima.ViewModels
             if (MetadataService == null)
                 return;
 
+            bool skipOnlineLookup = false;
             List<MediaItem> itemsToLoad;
             try
             {
-                itemsToLoad = await Dispatcher.UIThread.InvokeAsync(
-                    () => GetAlbumPreviewCoverBatch(album, prioritizeFirstChild),
-                    DispatcherPriority.Background);
+                itemsToLoad = await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    skipOnlineLookup = ReferenceEquals(LoadedAlbum, album);
+                    return GetAlbumPreviewCoverBatch(album, prioritizeFirstChild);
+                }, DispatcherPriority.Background);
             }
             catch (Exception ex)
             {
@@ -1199,12 +1231,10 @@ namespace AES_Lacrima.ViewModels
                     album.IsLoadingCover = itemsToLoad.Count > 0;
                 }, DispatcherPriority.Background);
 
-                const int coverLookupDelayMs = 80;
                 foreach (var item in itemsToLoad)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var wasPreviouslyScanned = IsRomCoverAlreadyScanned(item.FileName);
                     try
                     {
                         if (HasLocalCoverInMetadata(item.FileName))
@@ -1212,13 +1242,9 @@ namespace AES_Lacrima.ViewModels
                             await MetadataService.TryHydrateCoverFromLocalMetadataAsync(item, cancellationToken)
                                 .ConfigureAwait(false);
                         }
-                        else
+                        else if (!skipOnlineLookup)
                         {
-                            await MetadataService.TryPopulateCoverFromLocalMetadataOrGoogleAsync(
-                                    item,
-                                    album.Title,
-                                    cancellationToken)
-                                .ConfigureAwait(false);
+                            await TryPopulateRomCoverAsync(item, album.Title, cancellationToken).ConfigureAwait(false);
                         }
                     }
                     catch (OperationCanceledException)
@@ -1233,27 +1259,13 @@ namespace AES_Lacrima.ViewModels
                     {
                         try
                         {
-                            await Dispatcher.UIThread.InvokeAsync(() =>
-                            {
-                                MarkRomItemCoverLoadComplete(item, album);
-                                UpdatePreviewItems(album, rebuildStructure: false);
-                            }, DispatcherPriority.Background);
+                            await Dispatcher.UIThread.InvokeAsync(
+                                () => MarkRomItemCoverLoadComplete(item, album),
+                                DispatcherPriority.Background);
                         }
                         catch (Exception ex)
                         {
                             SLog.Warn($"Failed to clear preview cover loading state for '{item.Title}'.", ex);
-                        }
-                    }
-
-                    if (!wasPreviouslyScanned)
-                    {
-                        try
-                        {
-                            await Task.Delay(coverLookupDelayMs, cancellationToken).ConfigureAwait(false);
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            break;
                         }
                     }
                 }
@@ -1579,6 +1591,49 @@ namespace AES_Lacrima.ViewModels
             if (album == null || album.Children.Count == 0)
                 return;
 
+            try
+            {
+                if (_albumCoverScanDebounceMap.TryGetValue(album, out var existingDebounce))
+                {
+                    existingDebounce.Cancel();
+                    existingDebounce.Dispose();
+                    _albumCoverScanDebounceMap.Remove(album);
+                }
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to cancel previous emulation cover scan debounce for '{album.Title}'.", ex);
+            }
+
+            var debounceCts = new CancellationTokenSource();
+            _albumCoverScanDebounceMap[album] = debounceCts;
+            var debounceToken = debounceCts.Token;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(AlbumCoverScanDebounceMs, debounceToken).ConfigureAwait(false);
+                    StartAlbumCoverScan(album);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                finally
+                {
+                    if (_albumCoverScanDebounceMap.TryGetValue(album, out var current) && ReferenceEquals(current, debounceCts))
+                        _albumCoverScanDebounceMap.Remove(album);
+
+                    debounceCts.Dispose();
+                }
+            }, debounceToken);
+        }
+
+        private void StartAlbumCoverScan(FolderMediaItem album)
+        {
+            if (album.Children.Count == 0)
+                return;
+
             CancelAllAlbumCoverScans(exceptAlbum: album);
 
             try
@@ -1594,6 +1649,8 @@ namespace AES_Lacrima.ViewModels
             {
                 SLog.Warn($"Failed to cancel previous emulation album cover scan for '{album.Title}'.", ex);
             }
+
+            _deferredCoverLookupPaths.Clear();
 
             SLog.Debug($"Queueing emulation metadata and cover scan for album '{album.Title}' with {album.Children.Count} items.");
 
@@ -1702,37 +1759,44 @@ namespace AES_Lacrima.ViewModels
                         if (batch.Count == 0)
                             break;
 
-                        foreach (var (item, _) in batch)
+                        await Parallel.ForEachAsync(
+                            batch,
+                            new ParallelOptions
+                            {
+                                MaxDegreeOfParallelism = AlbumCoverLoadParallelism,
+                                CancellationToken = cancellationToken
+                            },
+                            async (pair, ct) =>
+                            {
+                                ct.ThrowIfCancellationRequested();
+                                if (!ReferenceEquals(LoadedAlbum, album))
+                                    return;
+
+                                while (CompositionViewportState.IsInMotion && !ct.IsCancellationRequested)
+                                {
+                                    try
+                                    {
+                                        await Task.Delay(uiYieldMs, ct).ConfigureAwait(false);
+                                    }
+                                    catch (OperationCanceledException)
+                                    {
+                                        throw;
+                                    }
+                                }
+
+                                await LoadSingleAlbumCoverAsync(album, pair.Item, ct).ConfigureAwait(false);
+                            }).ConfigureAwait(false);
+
+                        if (!ReferenceEquals(LoadedAlbum, album))
+                            break;
+
+                        try
                         {
-                            cancellationToken.ThrowIfCancellationRequested();
-                            if (!ReferenceEquals(LoadedAlbum, album))
-                                break;
-
-                            while (CompositionViewportState.IsInMotion && !cancellationToken.IsCancellationRequested)
-                            {
-                                try
-                                {
-                                    await Task.Delay(uiYieldMs, cancellationToken).ConfigureAwait(false);
-                                }
-                                catch (OperationCanceledException)
-                                {
-                                    throw;
-                                }
-                            }
-
-                            await LoadSingleAlbumCoverAsync(album, item, cancellationToken).ConfigureAwait(false);
-
-                            if (!ReferenceEquals(LoadedAlbum, album))
-                                break;
-
-                            try
-                            {
-                                await Task.Delay(uiYieldMs, cancellationToken).ConfigureAwait(false);
-                            }
-                            catch (OperationCanceledException)
-                            {
-                                throw;
-                            }
+                            await Task.Delay(uiYieldMs, cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
                         }
 
                         await Task.Yield();

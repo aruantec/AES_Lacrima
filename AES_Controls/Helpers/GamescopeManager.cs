@@ -19,6 +19,7 @@ public partial class GamescopeManager : ObservableObject
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<GamescopeManager>();
     private static string? _resolvedPathCache;
     private int _lastExitCode;
+    private string? _lastCommandError;
 
     [ObservableProperty]
     private string _status = "Idle";
@@ -126,7 +127,7 @@ public partial class GamescopeManager : ObservableObject
 
         Status = success
             ? "gamescope installation successful."
-            : $"gamescope installation failed (Exit code: {(_lastExitCode == 0 ? "Unknown" : _lastExitCode)}).";
+            : BuildFailureStatus("gamescope installation failed");
         IsBusy = false;
 
         InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(success, Status));
@@ -149,7 +150,7 @@ public partial class GamescopeManager : ObservableObject
 
         Status = success
             ? "gamescope upgrade completed."
-            : $"gamescope upgrade failed (Exit code: {(_lastExitCode == 0 ? "Unknown" : _lastExitCode)}).";
+            : BuildFailureStatus("gamescope upgrade failed");
         IsBusy = false;
 
         InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(success, Status));
@@ -172,7 +173,7 @@ public partial class GamescopeManager : ObservableObject
 
         Status = success
             ? "gamescope uninstalled."
-            : $"gamescope uninstall failed (Exit code: {(_lastExitCode == 0 ? "Unknown" : _lastExitCode)}).";
+            : BuildFailureStatus("gamescope uninstall failed");
         IsBusy = false;
 
         InstallationCompleted?.Invoke(this, new InstallationCompletedEventArgs(success, Status));
@@ -211,51 +212,77 @@ public partial class GamescopeManager : ObservableObject
     private async Task<bool> RunLinuxInstallerAsync()
     {
         if (CommandExists("pacman"))
-            return await ExecuteCommandAsync("sudo", "pacman -S --needed --noconfirm gamescope").ConfigureAwait(false);
+            return await RunPrivilegedPackageCommandAsync("pacman -S --needed --noconfirm gamescope").ConfigureAwait(false);
 
         if (CommandExists("apt-get"))
-            return await ExecuteCommandAsync("sudo", "apt-get install -y gamescope").ConfigureAwait(false);
+            return await RunPrivilegedPackageCommandAsync("apt-get install -y gamescope").ConfigureAwait(false);
 
         if (CommandExists("dnf"))
-            return await ExecuteCommandAsync("sudo", "dnf install -y gamescope").ConfigureAwait(false);
+            return await RunPrivilegedPackageCommandAsync("dnf install -y gamescope").ConfigureAwait(false);
 
         if (CommandExists("zypper"))
-            return await ExecuteCommandAsync("sudo", "zypper install -y gamescope").ConfigureAwait(false);
+            return await RunPrivilegedPackageCommandAsync("zypper install -y gamescope").ConfigureAwait(false);
 
         Log.Warn("No supported Linux package manager found for gamescope installation.");
+        Status = "No supported Linux package manager found for gamescope installation.";
         return false;
     }
 
     private async Task<bool> RunLinuxUpgradeAsync()
     {
         if (CommandExists("pacman"))
-            return await ExecuteCommandAsync("sudo", "pacman -S --needed --noconfirm gamescope").ConfigureAwait(false);
+            return await RunPrivilegedPackageCommandAsync("pacman -S --needed --noconfirm gamescope").ConfigureAwait(false);
 
         if (CommandExists("apt-get"))
-            return await ExecuteCommandAsync("sudo", "apt-get install -y gamescope").ConfigureAwait(false);
+            return await RunPrivilegedPackageCommandAsync("apt-get install -y gamescope").ConfigureAwait(false);
 
         if (CommandExists("dnf"))
-            return await ExecuteCommandAsync("sudo", "dnf upgrade -y gamescope").ConfigureAwait(false);
+            return await RunPrivilegedPackageCommandAsync("dnf upgrade -y gamescope").ConfigureAwait(false);
 
         if (CommandExists("zypper"))
-            return await ExecuteCommandAsync("sudo", "zypper update -y gamescope").ConfigureAwait(false);
+            return await RunPrivilegedPackageCommandAsync("zypper update -y gamescope").ConfigureAwait(false);
 
+        Status = "No supported Linux package manager found for gamescope upgrade.";
         return false;
     }
 
     private async Task<bool> RunLinuxUninstallAsync()
     {
         if (CommandExists("pacman"))
-            return await ExecuteCommandAsync("sudo", "pacman -R --noconfirm gamescope").ConfigureAwait(false);
+            return await RunPrivilegedPackageCommandAsync("pacman -R --noconfirm gamescope").ConfigureAwait(false);
 
         if (CommandExists("apt-get"))
-            return await ExecuteCommandAsync("sudo", "apt-get remove -y gamescope").ConfigureAwait(false);
+            return await RunPrivilegedPackageCommandAsync("apt-get remove -y gamescope").ConfigureAwait(false);
 
         if (CommandExists("dnf"))
-            return await ExecuteCommandAsync("sudo", "dnf remove -y gamescope").ConfigureAwait(false);
+            return await RunPrivilegedPackageCommandAsync("dnf remove -y gamescope").ConfigureAwait(false);
 
         if (CommandExists("zypper"))
-            return await ExecuteCommandAsync("sudo", "zypper remove -y gamescope").ConfigureAwait(false);
+            return await RunPrivilegedPackageCommandAsync("zypper remove -y gamescope").ConfigureAwait(false);
+
+        Status = "No supported Linux package manager found for gamescope uninstall.";
+        return false;
+    }
+
+    private async Task<bool> RunPrivilegedPackageCommandAsync(string arguments)
+    {
+        var attempts = new (string Command, string Label)[]
+        {
+            ("pkexec", "pkexec"),
+            ("sudo", "sudo"),
+        };
+
+        foreach (var (command, label) in attempts)
+        {
+            if (!CommandExists(command))
+                continue;
+
+            Status = $"Running gamescope package command via {label}...";
+            Log.Info($"Trying gamescope package command via {label}: {arguments}");
+
+            if (await ExecuteCommandAsync(command, arguments).ConfigureAwait(false))
+                return true;
+        }
 
         return false;
     }
@@ -302,21 +329,89 @@ public partial class GamescopeManager : ObservableObject
                 CreateNoWindow = true,
             };
 
+            CopyPolkitEnvironment(startInfo);
+
+            var usePkexec = string.Equals(fileName, "pkexec", StringComparison.Ordinal);
+            if (usePkexec)
+            {
+                startInfo.RedirectStandardOutput = false;
+                startInfo.RedirectStandardError = false;
+            }
+
             using var process = new Process { StartInfo = startInfo };
             if (!process.Start())
                 return false;
 
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-            await Task.WhenAll(outputTask, errorTask, process.WaitForExitAsync()).ConfigureAwait(false);
+            Task<string> outputTask = Task.FromResult(string.Empty);
+            Task<string> errorTask = Task.FromResult(string.Empty);
+            if (!usePkexec)
+            {
+                outputTask = process.StandardOutput.ReadToEndAsync();
+                errorTask = process.StandardError.ReadToEndAsync();
+            }
+
+            var exitedTask = process.WaitForExitAsync();
+            var timeoutTask = Task.Delay(TimeSpan.FromMinutes(5));
+            var completedTask = await Task.WhenAny(exitedTask, timeoutTask).ConfigureAwait(false);
+
+            if (completedTask != exitedTask)
+            {
+                try
+                {
+                    process.Kill(true);
+                }
+                catch (Exception killEx)
+                {
+                    Log.Debug("Failed to kill timed-out gamescope package command.", killEx);
+                }
+
+                _lastExitCode = -1;
+                _lastCommandError = "Installation timed out after 5 minutes.";
+                Log.Warn($"External command timed out: {fileName} {args}");
+                return false;
+            }
+
+            if (!usePkexec)
+                await Task.WhenAll(outputTask, errorTask).ConfigureAwait(false);
+
             _lastExitCode = process.ExitCode;
+            _lastCommandError = usePkexec
+                ? (_lastExitCode == 0 ? null : "Authentication was cancelled or denied.")
+                : errorTask.Result.Trim();
+            if (_lastExitCode != 0)
+            {
+                Log.Warn(
+                    $"External command failed: {fileName} {args} ExitCode={_lastExitCode} StdErr={_lastCommandError} StdOut={outputTask.Result.Trim()}");
+            }
+
             return _lastExitCode == 0;
         }
         catch (Exception ex)
         {
+            _lastCommandError = ex.Message;
             Log.Error($"External command failed: {fileName} {args}", ex);
             return false;
         }
+    }
+
+    private static void CopyPolkitEnvironment(ProcessStartInfo startInfo)
+    {
+        foreach (var key in new[] { "DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "DESKTOP_SESSION" })
+        {
+            var value = Environment.GetEnvironmentVariable(key);
+            if (!string.IsNullOrWhiteSpace(value))
+                startInfo.Environment[key] = value;
+        }
+    }
+
+    private string BuildFailureStatus(string prefix)
+    {
+        var exitCode = _lastExitCode == 0 ? "Unknown" : _lastExitCode.ToString();
+        if (string.IsNullOrWhiteSpace(_lastCommandError))
+            return $"{prefix} (exit code: {exitCode}).";
+
+        var detail = _lastCommandError.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return $"{prefix} (exit code: {exitCode}): {detail}";
     }
 
     private static async Task<string?> ExecuteCommandCaptureAsync(string fileName, string args)

@@ -101,6 +101,7 @@ namespace AES_Lacrima.ViewModels
         private LinearGradientBrush? _spectrumGradientBrush;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(CarouselOverlayItem))]
         private MediaItem? _highlightedItem;
 
         [ObservableProperty]
@@ -533,6 +534,12 @@ namespace AES_Lacrima.ViewModels
                 RefreshSpectrumGradient();
                 OnPropertyChanged(nameof(ProgressBarGradientBrush));
             }
+
+            if (e.PropertyName is nameof(SettingsViewModel.IsCoverCarouselMode)
+                or nameof(SettingsViewModel.CoverLayoutMode))
+            {
+                OnPropertyChanged(nameof(IsCarouselTitleOverlayVisible));
+            }
         }
 
         public LinearGradientBrush? ProgressBarGradientBrush
@@ -553,6 +560,9 @@ namespace AES_Lacrima.ViewModels
 
         public bool IsCarouselPositionSliderVisible => CoverItems.Count > 1;
 
+        public bool IsCarouselTitleOverlayVisible =>
+            SettingsViewModel?.IsCoverCarouselMode == true && CoverItems.Count > 0;
+
         /// <summary>
         /// Item driving carousel title overlay labels; follows live scroll preview when set.
         /// </summary>
@@ -560,6 +570,9 @@ namespace AES_Lacrima.ViewModels
         {
             get
             {
+                if (CoverItems.Count == 0)
+                    return null;
+
                 double index = CarouselSliderPreview ?? SelectedIndex;
                 int roundedIndex = GetRoundedSelectedIndex(index);
                 if (roundedIndex >= 0 && roundedIndex < CoverItems.Count)
@@ -604,6 +617,7 @@ namespace AES_Lacrima.ViewModels
         {
             OnPropertyChanged(nameof(CarouselIndexMaximum));
             OnPropertyChanged(nameof(IsCarouselPositionSliderVisible));
+            OnPropertyChanged(nameof(IsCarouselTitleOverlayVisible));
             NotifyCarouselOverlayItemChanged();
             NotifyPlayingItemIndexChanged();
         }

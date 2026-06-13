@@ -162,7 +162,7 @@
                     VerticalAlignment="Center" 
                     Margin="0,380,0,0"
                     Spacing="2"
-                    IsVisible="{Binding SettingsViewModel.IsCoverCarouselMode}">
+                    IsVisible="{Binding IsCarouselTitleOverlayVisible}">
             <StackPanel.Transitions>
                 <Transitions>
                     <DoubleTransition Property="Opacity" Duration="0:0:0.3"/>

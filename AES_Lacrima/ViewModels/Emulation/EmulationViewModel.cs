@@ -77,6 +77,8 @@ namespace AES_Lacrima.ViewModels
         ];
 
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumScanCtsMap = [];
+        private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumCoverScanDebounceMap = [];
+        private readonly HashSet<string> _deferredCoverLookupPaths = new(StringComparer.OrdinalIgnoreCase);
         private int _activeAlbumCoverScans;
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumTilePreviewCtsMap = [];
         private readonly HashSet<FolderMediaItem> _activeAlbumPreviewCoverLoads = [];
@@ -88,6 +90,8 @@ namespace AES_Lacrima.ViewModels
         private const int AlbumOpenHydrateBatchSize = 64;
         private const int InitialCoverLoadingRadius = 12;
         private const int AlbumCoverLoadBatchSize = 4;
+        private const int AlbumCoverLoadParallelism = 2;
+        private const int AlbumCoverScanDebounceMs = 350;
         private const int VisibleCoverPriorityRadius = 18;
         private readonly HashSet<FolderMediaItem> _albumsWithMetadataScanned = [];
         private AvaloniaList<string> _pendingAlbumOrder = [];

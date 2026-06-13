@@ -42,35 +42,54 @@ namespace AES_Lacrima.Services
         public Task<bool> TryHydrateCoverFromLocalMetadataAsync(MediaItem item, CancellationToken cancellationToken = default)
             => TryApplyCoverFromLocalMetadataAsync(item, cancellationToken);
 
-        public async Task<bool> TryPopulateCoverFromLocalMetadataOrGoogleAsync(MediaItem item, string? albumName, CancellationToken cancellationToken = default)
+        public Task<bool> TryPopulateCoverFromLocalMetadataOrGoogleAsync(
+            MediaItem item,
+            string? albumName,
+            CancellationToken cancellationToken = default)
+            => TryPopulateCoverFromLocalMetadataOrGoogleAsync(item, albumName, cancellationToken, AutoCoverLookupOptions.Default);
+
+        public async Task<bool> TryPopulateCoverFromLocalMetadataOrGoogleAsync(
+            MediaItem item,
+            string? albumName,
+            CancellationToken cancellationToken,
+            AutoCoverLookupOptions options)
         {
             if (item == null || string.IsNullOrWhiteSpace(item.FileName))
                 return false;
 
             var acquired = false;
+            using var budgetCts = options.TotalBudgetSeconds > 0
+                ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+                : null;
+            if (budgetCts != null)
+                budgetCts.CancelAfter(TimeSpan.FromSeconds(options.TotalBudgetSeconds));
+
+            var effectiveToken = budgetCts?.Token ?? cancellationToken;
+
             try
             {
                 await AutoCoverLookupThrottle.WaitAsync(cancellationToken);
                 acquired = true;
 
-                if (await TryApplyCoverFromLocalMetadataAsync(item, cancellationToken).ConfigureAwait(false))
+                if (await TryApplyCoverFromLocalMetadataAsync(item, effectiveToken).ConfigureAwait(false))
                 {
                     await MarkCoverLookupCompleteAsync(item, coverFound: true).ConfigureAwait(false);
                     return true;
                 }
 
-                if (await IsCoverLookupAlreadyScannedAsync(item.FileName, cancellationToken).ConfigureAwait(false))
+                if (await IsCoverLookupAlreadyScannedAsync(item.FileName, effectiveToken).ConfigureAwait(false))
                 {
-                    await MarkCoverLookupCompleteAsync(item, coverFound: false).ConfigureAwait(false);
+                    if (options.MarkExhaustedOnFailure)
+                        await MarkCoverLookupCompleteAsync(item, coverFound: false).ConfigureAwait(false);
                     return false;
                 }
 
-                await TryApplyTitleFromPs3InstalledGameAsync(item, cancellationToken).ConfigureAwait(false);
+                await TryApplyTitleFromPs3InstalledGameAsync(item, effectiveToken).ConfigureAwait(false);
 
-                if (await TryApplyCoverFromPs3InstalledGameAsync(item, cancellationToken).ConfigureAwait(false))
+                if (await TryApplyCoverFromPs3InstalledGameAsync(item, effectiveToken).ConfigureAwait(false))
                     return true;
 
-                if (await TryApplyCoverFromPs4InstalledGameAsync(item, cancellationToken).ConfigureAwait(false))
+                if (await TryApplyCoverFromPs4InstalledGameAsync(item, effectiveToken).ConfigureAwait(false))
                     return true;
 
                 var searchQueries = BuildAutoCoverQueries(item, albumName)
@@ -83,10 +102,10 @@ namespace AES_Lacrima.Services
 
                 foreach (var searchQuery in searchQueries)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    effectiveToken.ThrowIfCancellationRequested();
 
                     var candidates = AutoCoverImageHeuristics.RankCandidates(
-                        await FindImageResultsForAutoCoverAsync(searchQuery, cancellationToken).ConfigureAwait(false));
+                        await FindImageResultsForAutoCoverAsync(searchQuery, effectiveToken, options).ConfigureAwait(false));
                     if (candidates.Count == 0)
                     {
                         SLog.Debug($"Auto cover lookup returned no candidates for query '{searchQuery}'.");
@@ -95,7 +114,7 @@ namespace AES_Lacrima.Services
 
                     SLog.Debug($"Auto cover lookup returned {candidates.Count} ranked candidates for query '{searchQuery}'.");
 
-                    var download = await TryDownloadFirstViableAutoCoverAsync(candidates, cancellationToken)
+                    var download = await TryDownloadFirstViableAutoCoverAsync(candidates, effectiveToken, options)
                         .ConfigureAwait(false);
                     if (download == null)
                     {
@@ -104,14 +123,22 @@ namespace AES_Lacrima.Services
                     }
 
                     await SaveCoverToMetadataCacheAsync(item, download.Value.Bytes, download.Value.MimeType).ConfigureAwait(false);
-                    await ApplyCoverBytesToItemAsync(item, download.Value.Bytes, download.Value.MimeType, cancellationToken).ConfigureAwait(false);
+                    await ApplyCoverBytesToItemAsync(item, download.Value.Bytes, download.Value.MimeType, effectiveToken).ConfigureAwait(false);
                     await MarkCoverLookupCompleteAsync(item, coverFound: true).ConfigureAwait(false);
                     SLog.Info($"Auto cover applied for '{item.Title}' using query '{searchQuery}'.");
                     return true;
                 }
 
                 SLog.Warn($"Auto cover lookup found no usable Bing candidates for '{item.FileName}'.");
-                await MarkCoverLookupCompleteAsync(item, coverFound: false).ConfigureAwait(false);
+                if (options.MarkExhaustedOnFailure)
+                    await MarkCoverLookupCompleteAsync(item, coverFound: false).ConfigureAwait(false);
+                return false;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                SLog.Debug($"Auto cover lookup timed out for '{item.FileName}'.");
+                if (options.MarkExhaustedOnTimeout)
+                    await MarkCoverLookupCompleteAsync(item, coverFound: false).ConfigureAwait(false);
                 return false;
             }
             catch (OperationCanceledException)
@@ -157,15 +184,21 @@ namespace AES_Lacrima.Services
             }
         }
 
-        private async Task<(byte[] Bytes, string MimeType)?> TryDownloadFirstViableAutoCoverAsync(
+        private Task<(byte[] Bytes, string MimeType)?> TryDownloadFirstViableAutoCoverAsync(
             IReadOnlyList<WebImageSearchResult> candidates,
             CancellationToken cancellationToken)
+            => TryDownloadFirstViableAutoCoverAsync(candidates, cancellationToken, AutoCoverLookupOptions.Default);
+
+        private async Task<(byte[] Bytes, string MimeType)?> TryDownloadFirstViableAutoCoverAsync(
+            IReadOnlyList<WebImageSearchResult> candidates,
+            CancellationToken cancellationToken,
+            AutoCoverLookupOptions options)
         {
             if (candidates.Count == 0)
                 return null;
 
             var ranked = AutoCoverImageHeuristics.RankCandidates(candidates)
-                .Take(MaxAutoCoverCandidatesPerQuery)
+                .Take(options.MaxCandidatesPerQuery)
                 .ToList();
             if (ranked.Count == 0)
                 return null;
@@ -176,7 +209,7 @@ namespace AES_Lacrima.Services
                 var batch = ranked.Skip(offset).Take(MaxAutoCoverParallelDownloads).ToList();
                 using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var tasks = batch
-                    .Select(candidate => TryDownloadImageBytesAsync(candidate.FullImageUrl, attemptCts.Token))
+                    .Select(candidate => TryDownloadImageBytesAsync(candidate.FullImageUrl, attemptCts.Token, options))
                     .ToList();
 
                 while (tasks.Count > 0)

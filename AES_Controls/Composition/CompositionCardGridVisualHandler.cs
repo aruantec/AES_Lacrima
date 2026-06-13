@@ -106,7 +106,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private readonly SKPaint _scrollbarPaint = new() { IsAntialias = true };
     private readonly SKPaint _spinnerPaint = new() { IsAntialias = true, StrokeCap = SKStrokeCap.Round, StrokeWidth = 3, Style = SKPaintStyle.Stroke };
     private readonly SKMaskFilter _scrollbarBlur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 3);
-    private readonly SKMaskFilter _selectionGlowBlur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 5);
+    private readonly SKMaskFilter _selectionGlowBlur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 3f);
     private readonly Dictionary<SKImage, (int Width, int Height)> _dimCache = new();
     private readonly Dictionary<SKImage, SKImage> _blurBackdropCache = new();
     private readonly Dictionary<int, (float Strength, float Velocity)> _hoverLift = new();
@@ -970,17 +970,17 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
         float glowA = baseA * (0.65f + 0.35f * pulse);
         var glowRect = rect;
-        glowRect.Inflate(4f, 4f);
+        glowRect.Inflate(2.4f, 2.4f);
 
         _overlayPaint.Style = SKPaintStyle.Stroke;
         _overlayPaint.Shader = null;
         _overlayPaint.MaskFilter = _selectionGlowBlur;
-        _overlayPaint.StrokeWidth = 10f;
+        _overlayPaint.StrokeWidth = 6f;
         _overlayPaint.Color = SKColor.Parse("#7EC8F2").WithAlpha((byte)(110 * glowA));
-        canvas.DrawRoundRect(glowRect, CardCornerRadius + 4f, CardCornerRadius + 4f, _overlayPaint);
+        canvas.DrawRoundRect(glowRect, CardCornerRadius + 2.4f, CardCornerRadius + 2.4f, _overlayPaint);
 
         _overlayPaint.MaskFilter = null;
-        _overlayPaint.StrokeWidth = 3.5f;
+        _overlayPaint.StrokeWidth = 2.1f;
         _overlayPaint.Color = SKColors.White.WithAlpha((byte)(230 * baseA));
         canvas.DrawRoundRect(rect, CardCornerRadius, CardCornerRadius, _overlayPaint);
     }

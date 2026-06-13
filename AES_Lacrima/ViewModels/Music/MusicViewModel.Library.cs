@@ -381,6 +381,7 @@ namespace AES_Lacrima.ViewModels
                 CoverItems = new AvaloniaList<MediaItem>();
                 SelectedIndex = -1;
                 PointedIndex = -1;
+                CarouselSliderPreview = null;
                 HighlightedItem = new MediaItem { Title = string.Empty, Artist = string.Empty, Album = string.Empty };
                 IsNoAlbumLoadedVisible = true;
                 RefreshLoadedAlbumState();
@@ -412,6 +413,7 @@ namespace AES_Lacrima.ViewModels
             {
                 SelectedIndex = -1;
                 PointedIndex = -1;
+                CarouselSliderPreview = null;
                 HighlightedItem = new MediaItem { Title = string.Empty, Artist = string.Empty, Album = string.Empty };
                 IsNoAlbumLoadedVisible = true;
                 RefreshLoadedAlbumState();
@@ -436,6 +438,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(HasLoadedAlbumItems));
             OnPropertyChanged(nameof(ShowEmptyLoadedAlbumHint));
             OnPropertyChanged(nameof(EmptyLoadedAlbumMessage));
+            OnPropertyChanged(nameof(IsCarouselTitleOverlayVisible));
             ClearAlbumCommand.NotifyCanExecuteChanged();
         }
 
