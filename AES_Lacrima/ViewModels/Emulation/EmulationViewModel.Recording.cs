@@ -49,20 +49,7 @@ public partial class EmulationViewModel
         OnPropertyChanged(nameof(CanToggleGameplayRecording));
     }
 
-    public double CaptureChromeRightInset
-    {
-        get
-        {
-            if (!IsRenderOptionsOpen || !IsCompositionCaptureVisible)
-                return 0;
-
-            // Linux in-tree composition draws render options over the capture viewport.
-            if (OperatingSystem.IsLinux() && SelectedCaptureMode == EmulatorCaptureMode.DirectComposition)
-                return 0;
-
-            return 660;
-        }
-    }
+    public double CaptureChromeRightInset => 0;
 
     public Thickness CaptureChromeRightMargin =>
         CaptureChromeRightInset > 0 ? new Thickness(0, 0, CaptureChromeRightInset, 0) : default;

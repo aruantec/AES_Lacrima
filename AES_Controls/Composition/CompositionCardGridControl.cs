@@ -16,6 +16,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using log4net;
 using SkiaSharp;
 using AES_Controls.Helpers;
@@ -1293,8 +1294,10 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             PublishSelectedIndex(pointedIndex, force: changed);
         }
 
-        if (ContextMenu is { } menu)
-            menu.Open(this);
+        Control? menuHost = this.FindAncestorOfType<CompositionCoverControl>();
+        menuHost ??= this;
+        if (menuHost.ContextMenu is { } menu)
+            menu.Open(menuHost);
     }
 
     private void PublishSelectedIndex(double index, bool force = false)
@@ -1591,17 +1594,46 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
 
             object? sourceKey = CompositionCoverImageHelper.ResolveImageSourceKey(
                 sender as MediaItem, bitmapValue, fileName, _sectionPlaceholderBitmap);
+            bool forceReload = false;
             if (_itemImageSourceKeys.TryGetValue(sender, out var existingSourceKey) && Equals(existingSourceKey, sourceKey))
             {
-                if (idx < _images.Count && _images[idx] == null && _imageCache.TryGetValue(sender, out var cachedImage))
-                    AssignItemImage(sender, idx, cachedImage, sourceKey);
+                var skipReload = await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (CompositionCoverImageHelper.ShouldReloadCachedCover(
+                            sender as MediaItem, bitmapValue, fileName, _sectionPlaceholderBitmap))
+                    {
+                        ReleaseItemImage(sender);
+                        return false;
+                    }
 
-                continue;
+                    if (idx < _images.Count && _images[idx] == null && _imageCache.TryGetValue(sender, out var cachedImage))
+                    {
+                        AssignItemImage(sender, idx, cachedImage, sourceKey);
+                        return true;
+                    }
+
+                    if (idx < _images.Count && _images[idx] != null)
+                    {
+                        ReleaseItemImage(sender);
+                        return false;
+                    }
+
+                    TouchCacheItem(sender);
+                    return true;
+                });
+
+                if (skipReload)
+                    continue;
+
+                forceReload = true;
             }
 
-            if (TryAcquireSharedImage(sourceKey, out var sharedImage))
+            if (!forceReload && TryAcquireSharedImage(sourceKey, out var sharedImage))
             {
-                AssignItemImage(sender, idx, sharedImage!, sourceKey);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    AssignItemImage(sender, idx, sharedImage!, sourceKey);
+                });
                 continue;
             }
 
@@ -1617,8 +1649,13 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
 
             if (realImage != null)
             {
-                var imageToUse = RegisterSharedImage(sourceKey, realImage);
-                AssignItemImage(sender, idx, imageToUse, sourceKey);
+                var imageToUse = forceReload
+                    ? RegisterReloadedSharedImage(sourceKey, realImage)
+                    : RegisterSharedImage(sourceKey, realImage);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    AssignItemImage(sender, idx, imageToUse, sourceKey);
+                });
             }
             else if (idx >= 0 && idx < _images.Count)
             {
@@ -2274,6 +2311,29 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
             existing.RefCount++;
             DisposeImage(image);
             return existing.Image;
+        }
+
+        _sharedImageCache[sourceKey] = new SharedImageEntry(image);
+        return image;
+    }
+
+    private SKImage RegisterReloadedSharedImage(object? sourceKey, SKImage image)
+    {
+        if (sourceKey == null)
+            return image;
+
+        if (_sharedImageCache.TryGetValue(sourceKey, out var existing))
+        {
+            existing.RefCount--;
+            if (existing.RefCount <= 0)
+            {
+                _sharedImageCache.Remove(sourceKey);
+                DisposeImage(existing.Image);
+            }
+            else
+            {
+                return image;
+            }
         }
 
         _sharedImageCache[sourceKey] = new SharedImageEntry(image);

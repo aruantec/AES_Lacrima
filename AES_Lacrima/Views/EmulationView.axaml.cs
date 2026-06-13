@@ -611,13 +611,15 @@ public partial class EmulationView : UserControl
         {
             IsCaptureChromeVisible =
                 _capturePresentationOpacity > 0.001 ||
-                vm.IsCompositionCaptureVisible ||
+                _captureHostPresentationVisible ||
                 vm.IsEmulatorLaunchInProgress ||
                 IsPortalCaptureInitializing;
         }
         else
         {
-            IsCaptureChromeVisible = _capturePresentationOpacity > 0.001;
+            IsCaptureChromeVisible =
+                _capturePresentationOpacity > 0.001 ||
+                _captureHostPresentationVisible;
         }
     }
 
@@ -853,7 +855,7 @@ public partial class EmulationView : UserControl
             if (vm.IsEmulatorLaunchInProgress && vm.IsActive && UseInlineCaptureHost)
             {
                 _captureHostPresentationVisible = true;
-                SetCaptureChromeVisible(true);
+                UpdateCaptureChromeVisibilityFromOpacity();
                 UpdateInlineCaptureHostVisibility(vm);
 
                 if (!vm.IsCompositionCaptureVisible && CarouselOpacity > 0.05)
@@ -1138,7 +1140,8 @@ public partial class EmulationView : UserControl
 
             _inlinePortalPresentationActive = true;
             _captureHostPresentationVisible = true;
-            SetCaptureChromeVisible(true);
+            CapturePresentationOpacity = 0;
+            UpdateCaptureChromeVisibilityFromOpacity();
             if (DataContext is EmulationViewModel vm)
                 UpdateInlineCaptureHostVisibility(vm);
 
@@ -1166,7 +1169,6 @@ public partial class EmulationView : UserControl
                 return;
 
             CapturePresentationOpacity = 1;
-            SetCaptureChromeVisible(true);
             ResetPortalCaptureBrightness();
             StartPortalBrightnessFade();
             return;
@@ -1181,7 +1183,7 @@ public partial class EmulationView : UserControl
         {
             _inlinePortalPresentationActive = false;
             _captureHostPresentationVisible = true;
-            SetCaptureChromeVisible(true);
+            UpdateCaptureChromeVisibilityFromOpacity();
             if (DataContext is EmulationViewModel vm)
                 UpdateInlineCaptureHostVisibility(vm);
 

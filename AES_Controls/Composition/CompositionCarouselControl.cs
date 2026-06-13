@@ -16,6 +16,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using log4net;
 using SkiaSharp;
 using AES_Controls.Helpers;
@@ -991,8 +992,10 @@ namespace AES_Controls.Composition
                 PublishSelectedIndex(pointedIndex, force: changed);
             }
 
-            if (ContextMenu is { } menu)
-                menu.Open(this);
+            Control? menuHost = this.FindAncestorOfType<CompositionCoverControl>();
+            menuHost ??= this;
+            if (menuHost.ContextMenu is { } menu)
+                menu.Open(menuHost);
         }
 
         private void ApplyVisualTargetIndex(double clamped)

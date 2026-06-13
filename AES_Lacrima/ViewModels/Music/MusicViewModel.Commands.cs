@@ -343,6 +343,9 @@ namespace AES_Lacrima.ViewModels
                     return CoverItems[roundedIndex];
             }
 
+            if (PointedIndex >= 0 && PointedIndex < CoverItems.Count)
+                return CoverItems[PointedIndex];
+
             var centeredIndex = GetRoundedSelectedIndex(SelectedIndex);
             if (centeredIndex >= 0 && centeredIndex < CoverItems.Count)
                 return CoverItems[centeredIndex];

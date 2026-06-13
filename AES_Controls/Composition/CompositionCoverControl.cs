@@ -642,6 +642,13 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             return;
         }
 
+        if (e.Property == CompositionCarouselControl.PointedItemIndexProperty)
+        {
+            if (PointedItemIndex != _carousel.PointedItemIndex)
+                PointedItemIndex = _carousel.PointedItemIndex;
+            return;
+        }
+
         if (e.Property == CompositionCarouselControl.SelectedItemBoundsProperty)
             SelectedItemBounds = _carousel.SelectedItemBounds;
     }
@@ -650,6 +657,20 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     {
         if (_appliedLayoutMode == CoverLayoutMode.Carousel)
             return;
+
+        if (e.Property == CompositionCardGridControl.SelectedIndexProperty)
+        {
+            if (Math.Abs(SelectedIndex - _cardGrid.SelectedIndex) > 0.0001)
+                SelectedIndex = _cardGrid.SelectedIndex;
+            return;
+        }
+
+        if (e.Property == CompositionCardGridControl.PointedItemIndexProperty)
+        {
+            if (PointedItemIndex != _cardGrid.PointedItemIndex)
+                PointedItemIndex = _cardGrid.PointedItemIndex;
+            return;
+        }
 
         if (e.Property == CompositionCardGridControl.SelectedItemBoundsProperty)
             SelectedItemBounds = _cardGrid.SelectedItemBounds;

@@ -1659,9 +1659,6 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         partial void OnSelectedAlbumChanged(FolderMediaItem? value)
         {
-            if (IsEmulatorRunning && !IsEmulatorViewportDismissed)
-                IsEmulatorViewportDismissed = true;
-
             SyncSelectedAlbumIndexFromAlbum(value);
             OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));
 
