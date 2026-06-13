@@ -333,6 +333,7 @@ namespace AES_Lacrima.ViewModels
                 UpdateSpectrumCoverSubscription();
                 OnPropertyChanged(nameof(IsVideoViewportVisible));
                 OnPropertyChanged(nameof(HasCurrentMediaLoaded));
+                NotifyPlayingItemIndexChanged();
             }
             else if (e.PropertyName == nameof(AudioPlayer.IsLoadingMedia) ||
                      e.PropertyName == nameof(AudioPlayer.IsBuffering) ||
@@ -571,6 +572,22 @@ namespace AES_Lacrima.ViewModels
         protected void NotifyCarouselOverlayItemChanged()
             => OnPropertyChanged(nameof(CarouselOverlayItem));
 
+        public int PlayingItemIndex
+        {
+            get
+            {
+                var item = AudioPlayer?.CurrentMediaItem ?? SelectedMediaItem;
+                if (item == null)
+                    return -1;
+
+                int index = CoverItems.IndexOf(item);
+                return index >= 0 ? index : -1;
+            }
+        }
+
+        protected void NotifyPlayingItemIndexChanged()
+            => OnPropertyChanged(nameof(PlayingItemIndex));
+
         partial void OnCoverItemsChanged(AvaloniaList<MediaItem>? oldValue, AvaloniaList<MediaItem> newValue)
         {
             if (oldValue != null)
@@ -588,6 +605,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(CarouselIndexMaximum));
             OnPropertyChanged(nameof(IsCarouselPositionSliderVisible));
             NotifyCarouselOverlayItemChanged();
+            NotifyPlayingItemIndexChanged();
         }
 
         partial void OnSpectrumGradientBrushChanged(LinearGradientBrush? value)

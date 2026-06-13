@@ -46,6 +46,8 @@ namespace AES_Lacrima.ViewModels
             {
                 _mprisService?.NotifyStateChanged(nameof(SelectedMediaItem));
             }
+
+            NotifyPlayingItemIndexChanged();
         }
 
         partial void OnAlbumListChanged(AvaloniaList<FolderMediaItem>? oldValue, AvaloniaList<FolderMediaItem> newValue)

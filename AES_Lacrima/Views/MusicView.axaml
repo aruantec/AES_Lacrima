@@ -33,6 +33,7 @@
                                                     ImageBitmapProperty="CoverBitmap"
                                                     TitleProperty="Title"
                                                     SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                                                    PlayingItemIndex="{Binding PlayingItemIndex, Mode=OneWay}"
                                                     ViewportPreviewIndex="{Binding CarouselSliderPreview, Mode=OneWayToSource}"
                                                     PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
                                                     ShowCoverFoundOverlay="True"

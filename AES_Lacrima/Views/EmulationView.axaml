@@ -65,6 +65,7 @@
                                                     PublishSelectedItemBounds="{Binding IsRomCarouselSelectedItemBoundsActive}"
                                                     PauseLoadingSpinnerAnimation="{Binding !IsAlbumListCollapsed}"
                                                     SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                                                    PlayingItemIndex="{Binding PlayingItemIndex, Mode=OneWay}"
                                                     ViewportPreviewIndex="{Binding CarouselSliderPreview, Mode=OneWayToSource}"
                                                     PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
                                                     ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"

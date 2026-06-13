@@ -36,6 +36,7 @@ namespace AES_Controls.Composition
     internal record PauseLoadingSpinnerAnimationMessage(bool IsPaused);
     internal record CarouselAttachSyncMessage(CarouselAnimationSyncState State);
     internal record CarouselIndexVelocityImpulseMessage(double Impulse);
+    internal record CarouselPlayingItemIndexMessage(int Index);
 
     public class CompositionCarouselVisualHandler : CompositionCustomVisualHandler
     {
@@ -112,6 +113,18 @@ namespace AES_Controls.Composition
         private readonly SKColor _cancelButtonColor = SKColor.Parse("#F44336");
         private readonly SKColor _cancelButtonHoverColor = SKColor.Parse("#EF5350");
         private readonly SKColor _cancelButtonPressedColor = SKColor.Parse("#D32F2F");
+        private readonly SKPaint _selectionBorderPaint = new()
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeJoin = SKStrokeJoin.Round,
+            StrokeCap = SKStrokeCap.Round
+        };
+        private readonly SKPath _selectionBorderPath = new();
+        private readonly SKMaskFilter _selectionGlowBlur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 8f);
+        private readonly SKMaskFilter _selectionOuterGlowBlur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 14f);
+        private float _selectionPulsePhase;
+        private int _playingItemIndex = -1;
 
         private bool UseReducedMotionQuality =>
             _draggingIndex != -1 ||
@@ -313,6 +326,15 @@ namespace AES_Controls.Composition
             else if (message is ResetCoverFoundMessage rcf) { _coverFoundIndices = rcf.Indices; Invalidate(); }
             else if (message is UpdateOverlayHoverMessage ohover) { _hoveredItemIndex = ohover.Index; _hoveredButtonId = ohover.ButtonId; Invalidate(); }
             else if (message is UpdateOverlayPressedMessage opress) { _pressedItemIndex = opress.Index; _pressedButtonId = opress.ButtonId; Invalidate(); }
+            else if (message is CarouselPlayingItemIndexMessage playing)
+            {
+                _playingItemIndex = playing.Index;
+                if (_playingItemIndex >= 0 && _lastTicks == 0)
+                    _lastTicks = Stopwatch.GetTimestamp();
+                if (_playingItemIndex >= 0)
+                    RegisterForNextAnimationFrameUpdate();
+                Invalidate();
+            }
         }
 
         public override void OnAnimationFrameUpdate()
@@ -339,6 +361,9 @@ namespace AES_Controls.Composition
 
             if (!_directIndexFollow)
                 _spinnerRotation = (_spinnerRotation + 8f) % 360f;
+
+            if (_playingItemIndex >= 0)
+                _selectionPulsePhase += (float)(dt * 3.1f);
 
             if (_draggingIndex == -1 && !_isDropping)
             {
@@ -427,7 +452,8 @@ namespace AES_Controls.Composition
                 Math.Abs(_fullCoverSizeFactor - targetFactor) > 0.001f ||
                 _isDropping;
             bool animateLoadingSpinners = !_pauseLoadingSpinnerAnimation && _loadingIndices.Count > 0;
-            if (isAnimating || animateLoadingSpinners)
+            bool animatePlayingBorder = _playingItemIndex >= 0;
+            if (isAnimating || animateLoadingSpinners || animatePlayingBorder)
             {
                 RegisterForNextAnimationFrameUpdate();
                 Invalidate();
@@ -442,7 +468,7 @@ namespace AES_Controls.Composition
                 _animationSync.CurrentIndex = _currentIndex;
                 _animationSync.TargetIndex = _targetIndex;
                 _animationSync.Velocity = _currentVelocity;
-                _animationSync.IsAnimating = isAnimating || animateLoadingSpinners;
+                _animationSync.IsAnimating = isAnimating || animateLoadingSpinners || animatePlayingBorder;
             }
         }
 
@@ -673,6 +699,9 @@ namespace AES_Controls.Composition
 
             if (isLoading) DrawSpinner(canvas, center, matrix);
 
+            if (_draggingIndex == -1 && _playingItemIndex >= 0 && i == _playingItemIndex)
+                DrawProjectedSelectionBorder(canvas, itemW, itemH, matrix, center, baseOpacity);
+
             if (_draggingIndex == -1)
                 DrawItemReflection(canvas, itemW, itemH, matrix, img, baseOpacity, center, absDiff);
         }
@@ -874,6 +903,69 @@ namespace AES_Controls.Composition
             canvas.Save(); canvas.Translate(center.X + vt.X * s, center.Y + vt.Y * s); canvas.RotateDegrees(_spinnerRotation);
             for (int i = 0; i < 10; i++) { _spinnerPaint.Color = SKColors.White.WithAlpha((byte)(255 * i / 10)); canvas.DrawLine(0, -10, 0, -20, _spinnerPaint); canvas.RotateDegrees(36f); }
             canvas.Restore();
+        }
+
+        private bool TryGetProjectedQuadCorners(float w, float h, Matrix4x4 model, Vector2 center, SKPoint[] corners)
+        {
+            if (corners.Length < 4)
+                return false;
+
+            ReadOnlySpan<float> xs = stackalloc float[] { -w / 2f, w / 2f, w / 2f, -w / 2f };
+            ReadOnlySpan<float> ys = stackalloc float[] { -h / 2f, -h / 2f, h / 2f, h / 2f };
+
+            for (int i = 0; i < 4; i++)
+            {
+                float x = xs[i];
+                float y = ys[i];
+                float vx = x * model.M11 + y * model.M21 + model.M41;
+                float vy = x * model.M12 + y * model.M22 + model.M42;
+                float vz = x * model.M13 + y * model.M23 + model.M43;
+                float denom = _projectionDistance - vz;
+                if (Math.Abs(denom) < 1e-3f)
+                    denom = denom < 0 ? -1e-3f : 1e-3f;
+
+                float scale = _projectionDistance / denom;
+                corners[i] = new SKPoint(center.X + vx * scale, center.Y + vy * scale);
+            }
+
+            return true;
+        }
+
+        private void DrawProjectedSelectionBorder(
+            SKCanvas canvas,
+            float w,
+            float h,
+            Matrix4x4 model,
+            Vector2 center,
+            float strength)
+        {
+            if (strength <= 0.001f || !TryGetProjectedQuadCorners(w, h, model, center, _overlayRectBuffer))
+                return;
+
+            _selectionBorderPath.Reset();
+            _selectionBorderPath.MoveTo(_overlayRectBuffer[0]);
+            _selectionBorderPath.LineTo(_overlayRectBuffer[1]);
+            _selectionBorderPath.LineTo(_overlayRectBuffer[2]);
+            _selectionBorderPath.LineTo(_overlayRectBuffer[3]);
+            _selectionBorderPath.Close();
+
+            float pulse = 0.5f + 0.5f * MathF.Sin(_selectionPulsePhase);
+            float glowStrength = strength * (0.62f + 0.38f * pulse);
+
+            _selectionBorderPaint.MaskFilter = _selectionOuterGlowBlur;
+            _selectionBorderPaint.StrokeWidth = 16f + 8f * pulse;
+            _selectionBorderPaint.Color = SKColor.Parse("#7EC8F2").WithAlpha((byte)(95 * glowStrength));
+            canvas.DrawPath(_selectionBorderPath, _selectionBorderPaint);
+
+            _selectionBorderPaint.MaskFilter = _selectionGlowBlur;
+            _selectionBorderPaint.StrokeWidth = 11f + 5f * pulse;
+            _selectionBorderPaint.Color = SKColor.Parse("#7EC8F2").WithAlpha((byte)(150 * glowStrength));
+            canvas.DrawPath(_selectionBorderPath, _selectionBorderPaint);
+
+            _selectionBorderPaint.MaskFilter = null;
+            _selectionBorderPaint.StrokeWidth = 3.5f + 1.2f * pulse;
+            _selectionBorderPaint.Color = SKColors.White.WithAlpha((byte)(210 + 45 * pulse * strength));
+            canvas.DrawPath(_selectionBorderPath, _selectionBorderPaint);
         }
     }
 }

@@ -421,6 +421,22 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         private void NotifyCarouselOverlayItemChanged()
             => OnPropertyChanged(nameof(CarouselOverlayItem));
+
+        public int PlayingItemIndex
+        {
+            get
+            {
+                if (!IsEmulatorRunning || _activeEmulationSessionItem == null)
+                    return -1;
+
+                int index = CoverItems.IndexOf(_activeEmulationSessionItem);
+                return index >= 0 ? index : -1;
+            }
+        }
+
+        private void NotifyPlayingItemIndexChanged()
+            => OnPropertyChanged(nameof(PlayingItemIndex));
+
         public bool HasActiveAlbumItems =>
             CoverItems.Count > 0 ||
             LoadedAlbum?.Children.Count > 0 ||
@@ -1136,6 +1152,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(CarouselIndexMaximum));
             OnPropertyChanged(nameof(IsCarouselPositionSliderVisible));
             NotifyCarouselOverlayItemChanged();
+            NotifyPlayingItemIndexChanged();
         }
 
         partial void OnSelectedShaderFileItemChanged(ShaderFileItem value)
@@ -1422,11 +1439,14 @@ private bool _isShadPs4PatchesOverlayOpen;
                 StopGameplayPreview();
                 OpenMetadataCommand.NotifyCanExecuteChanged();
                 RebootEmulatorCommand.NotifyCanExecuteChanged();
+                NotifyPlayingItemIndexChanged();
                 return;
             }
 
             if (_pendingEmulatorLaunchRequest == null)
                 _activeEmulationSessionItem = null;
+
+            NotifyPlayingItemIndexChanged();
 
             IsRenderOptionsOpen = false;
             OpenMetadataCommand.NotifyCanExecuteChanged();

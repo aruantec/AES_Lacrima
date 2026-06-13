@@ -89,6 +89,7 @@ namespace AES_Lacrima.ViewModels
                 launchSettings);
 
             _activeEmulationSessionItem = item;
+            NotifyPlayingItemIndexChanged();
             RequestEmulatorLaunch(launchRequest);
         }
 

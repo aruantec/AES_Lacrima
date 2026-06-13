@@ -49,6 +49,9 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             nameof(PointedItemIndex),
             defaultBindingMode: Avalonia.Data.BindingMode.TwoWay);
 
+    public static readonly StyledProperty<int> PlayingItemIndexProperty =
+        AvaloniaProperty.Register<CompositionCoverControl, int>(nameof(PlayingItemIndex), -1);
+
     public static readonly StyledProperty<string?> ImageBitmapPropertyProperty =
         AvaloniaProperty.Register<CompositionCoverControl, string?>(nameof(ImageBitmapProperty));
 
@@ -126,6 +129,9 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             control.OnSelectedIndexChangedFromBinding());
 
         PointedItemIndexProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
+            control.SyncSharedProperties());
+
+        PlayingItemIndexProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
             control.SyncSharedProperties());
 
         ImageBitmapPropertyProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
@@ -245,6 +251,12 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     {
         get => GetValue(PointedItemIndexProperty);
         set => SetValue(PointedItemIndexProperty, value);
+    }
+
+    public int PlayingItemIndex
+    {
+        get => GetValue(PlayingItemIndexProperty);
+        set => SetValue(PlayingItemIndexProperty, value);
     }
 
     public string? ImageBitmapProperty
@@ -562,6 +574,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         _cardGrid.SelectedIndex = SelectedIndex;
         _carousel.PointedItemIndex = PointedItemIndex;
         _cardGrid.PointedItemIndex = PointedItemIndex;
+        _carousel.PlayingItemIndex = PlayingItemIndex;
         _carousel.ImageBitmapProperty = ImageBitmapProperty;
         _cardGrid.ImageBitmapProperty = ImageBitmapProperty;
         _carousel.ImageFileNameProperty = ImageFileNameProperty;

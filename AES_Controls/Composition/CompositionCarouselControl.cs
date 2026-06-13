@@ -188,6 +188,9 @@ namespace AES_Controls.Composition
         public static readonly StyledProperty<int> PointedItemIndexProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, int>(nameof(PointedItemIndex), -1);
 
+        public static readonly StyledProperty<int> PlayingItemIndexProperty =
+            AvaloniaProperty.Register<CompositionCarouselControl, int>(nameof(PlayingItemIndex), -1);
+
         public static readonly StyledProperty<bool> UseFullCoverSizeProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, bool>(nameof(UseFullCoverSize), false);
 
@@ -355,6 +358,15 @@ namespace AES_Controls.Composition
         {
             get => GetValue(PointedItemIndexProperty);
             set => SetValue(PointedItemIndexProperty, value);
+        }
+
+        /// <summary>
+        /// Index of the item currently being played or run; shows a highlight border when set.
+        /// </summary>
+        public int PlayingItemIndex
+        {
+            get => GetValue(PlayingItemIndexProperty);
+            set => SetValue(PlayingItemIndexProperty, value);
         }
 
         /// <summary>
@@ -1598,6 +1610,8 @@ namespace AES_Controls.Composition
                 _visual?.SendHandlerMessage(new ResetCoverFoundMessage(BuildCoverFoundSet(_itemsSnapshot)));
             else if (change.Property == PauseLoadingSpinnerAnimationProperty)
                 _visual?.SendHandlerMessage(new PauseLoadingSpinnerAnimationMessage(change.GetNewValue<bool>()));
+            else if (change.Property == PlayingItemIndexProperty)
+                _visual?.SendHandlerMessage(new CarouselPlayingItemIndexMessage(change.GetNewValue<int>()));
             else if (change.Property == ItemsSourceProperty || 
                      change.Property == ImageFileNamePropertyProperty || 
                      change.Property == ImageBitmapPropertyProperty)
@@ -2762,6 +2776,7 @@ namespace AES_Controls.Composition
                 _visual.SendHandlerMessage(new GlobalOpacityMessage(GlobalOpacity));
                 _visual.SendHandlerMessage(new UseFullCoverSizeMessage(UseFullCoverSize));
                 _visual.SendHandlerMessage(new PauseLoadingSpinnerAnimationMessage(PauseLoadingSpinnerAnimation));
+                _visual.SendHandlerMessage(new CarouselPlayingItemIndexMessage(PlayingItemIndex));
                 if (ItemsSource != null) UpdateItems();
             }
         }
