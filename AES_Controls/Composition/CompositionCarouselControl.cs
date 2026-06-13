@@ -432,7 +432,7 @@ namespace AES_Controls.Composition
                 }
 
                 if (_isWheelScrolling)
-                    SetViewportPreviewIndex(_animationSync.CurrentIndex);
+                    SyncViewportPreviewFromAnimation();
 
                 bool settling = _isPressed || _isPointerScrolling || _isDragging || _isWheelScrolling || _animationSync.IsAnimating;
                 if (!settling)
@@ -1033,7 +1033,18 @@ namespace AES_Controls.Composition
         {
             double clamped = Math.Clamp(index, 0, Math.Max(0, _images.Count - 1));
             ApplyVisualTargetIndex(clamped);
-            SetViewportPreviewIndex(clamped);
+
+            // During wheel scroll the compositor index trails the target; keep the slider
+            // preview tied to the animated position (updated in _uiSyncTimer) to avoid
+            // a one-frame jump ahead on each wheel notch.
+            if (!_isWheelScrolling)
+                SetViewportPreviewIndex(clamped);
+        }
+
+        private void SyncViewportPreviewFromAnimation()
+        {
+            if (!_visualDirectIndexFollow)
+                SetViewportPreviewIndex(_animationSync.CurrentIndex);
         }
 
         private void PublishSelectedIndex(double index, bool force = false)
@@ -2366,7 +2377,7 @@ namespace AES_Controls.Composition
             _uiTargetIndex = _animationSync.TargetIndex;
             _uiCurrentIndex = _animationSync.CurrentIndex;
             _uiVelocity = _animationSync.Velocity;
-            SetViewportPreviewIndex(_uiTargetIndex);
+            SyncViewportPreviewFromAnimation();
         }
 
         private void CommitSelectionToNearestItem()
@@ -2694,6 +2705,7 @@ namespace AES_Controls.Composition
             {
                 _isWheelScrolling = true;
                 PublishViewportIndex(nextTargetIndex);
+                SyncViewportPreviewFromAnimation();
 
                 double impulse = -wheelDelta * WheelVelocityImpulseScale;
                 _visual?.SendHandlerMessage(new CarouselIndexVelocityImpulseMessage(impulse));
