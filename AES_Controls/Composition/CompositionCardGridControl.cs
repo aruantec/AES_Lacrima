@@ -105,6 +105,7 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
     private bool _isPressed;
     private bool _isScrollbarPressed;
     private bool _isScrollbarHovered;
+    private double _scrollbarGrabOffset;
     private bool _isPointerScrolling;
     private bool _suppressSelectedIndexSideEffects;
     private double _targetScrollY;
@@ -585,6 +586,7 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         if (_isScrollbarPressed)
         {
             _isScrollbarPressed = false;
+            _scrollbarGrabOffset = 0;
             _visual?.SendHandlerMessage(new CardGridScrollbarPressedMessage(false));
             _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(false));
             e.Pointer.Capture(null);
@@ -710,6 +712,7 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         _pressedItemIndex = -1;
         _isScrollbarPressed = false;
         _isPointerScrolling = false;
+        _scrollbarGrabOffset = 0;
         _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(false));
         _visual?.SendHandlerMessage(new CardGridScrollbarPressedMessage(false));
     }
@@ -1020,57 +1023,117 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         UpdateSelectedItemBounds();
     }
 
+    private double GetScrollbarRenderScrollY() =>
+        Math.Clamp(_animationSync.CurrentScrollY, 0, GetMaxScrollY());
+
+    private bool TryGetScrollbarThumbRect(double scrollY, out Rect thumbRect)
+    {
+        thumbRect = default;
+        if (Bounds.Width <= 0 || Bounds.Height <= 0 || GetMaxScrollY() <= 1)
+            return false;
+
+        double maxScroll = GetMaxScrollY();
+        double scrollPct = maxScroll <= 0 ? 0 : scrollY / maxScroll;
+
+        if (HorizontalScrollEnabled)
+        {
+            float trackLeft = ScrollbarMargin + 24f;
+            float trackRight = (float)Bounds.Width - ScrollbarMargin - 24f;
+            float trackWidth = trackRight - trackLeft;
+            float trackY = (float)Bounds.Height - ScrollbarMargin - 8f;
+
+            var horizontalMetrics = CardGridHorizontalLayout.ComputeMetrics(
+                _images.Count,
+                (float)Bounds.Width,
+                (float)Bounds.Height,
+                (float)CardScale,
+                (float)CardSpacing,
+                (float)TopPadding);
+
+            float viewportRatio = Math.Clamp((float)Bounds.Width / Math.Max(1f, horizontalMetrics.ContentWidth), 0.08f, 1f);
+            float thumbW = Math.Max(48f, trackWidth * viewportRatio);
+            float thumbX = trackLeft + (trackWidth - thumbW) * (float)scrollPct;
+            thumbRect = new Rect(thumbX, trackY - 5f, thumbW, 10f);
+            return true;
+        }
+
+        double trackTop = ScrollbarMargin;
+        double trackHeight = Math.Max(1, Bounds.Height - ScrollbarMargin * 2);
+        float hitRight = (float)Bounds.Width - CardGridLayoutHelper.ScrollbarRightInset;
+        float hitLeft = hitRight - CardGridLayoutHelper.ScrollbarHitWidth;
+        float trackX = hitLeft + (CardGridLayoutHelper.ScrollbarHitWidth - CardGridLayoutHelper.ScrollbarWidth) * 0.5f;
+
+        var metrics = GetLayoutMetrics();
+        float verticalViewportRatio = Math.Clamp((float)(Bounds.Height / Math.Max(1, metrics.ContentHeight)), 0.08f, 1f);
+        double thumbH = Math.Max(36, trackHeight * verticalViewportRatio);
+        double thumbY = trackTop + (trackHeight - thumbH) * scrollPct;
+        thumbRect = new Rect(trackX - 1, thumbY, CardGridLayoutHelper.ScrollbarWidth + 2, thumbH);
+        return true;
+    }
+
     private bool TryBeginScrollbarDrag(Point pos, IPointer pointer)
     {
         if (GetMaxScrollY() <= 1)
             return false;
 
-        Rect trackRect;
-        if (HorizontalScrollEnabled)
-        {
-            float trackLeft = ScrollbarMargin + 24f;
-            float trackRight = (float)Bounds.Width - ScrollbarMargin - 24f;
-            float trackY = (float)Bounds.Height - ScrollbarMargin - 8f;
-            trackRect = new Rect(trackLeft, trackY - 14f, trackRight - trackLeft, 28f);
-        }
-        else
-        {
-            float hitRight = (float)Bounds.Width - CardGridLayoutHelper.ScrollbarRightInset;
-            trackRect = new Rect(
-                hitRight - CardGridLayoutHelper.ScrollbarHitWidth,
-                ScrollbarMargin,
-                CardGridLayoutHelper.ScrollbarHitWidth,
-                Bounds.Height - ScrollbarMargin * 2);
-        }
+        if (!TryGetScrollbarThumbRect(GetScrollbarRenderScrollY(), out var thumbRect))
+            return false;
 
-        if (!trackRect.Contains(pos))
+        if (!thumbRect.Inflate(4).Contains(pos))
             return false;
 
         _isScrollbarPressed = true;
+        _scrollbarGrabOffset = HorizontalScrollEnabled
+            ? pos.X - thumbRect.X
+            : pos.Y - thumbRect.Y;
         _visual?.SendHandlerMessage(new CardGridScrollbarPressedMessage(true));
+        _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(true));
         pointer.Capture(this);
-        ApplyScrollbarPosition(pos);
         return true;
     }
 
     private void ApplyScrollbarPosition(Point pointer)
     {
-        double ratio;
+        if (GetMaxScrollY() <= 1)
+            return;
+
+        double maxScroll = GetMaxScrollY();
+
         if (HorizontalScrollEnabled)
         {
             float trackLeft = ScrollbarMargin + 24f;
             float trackRight = (float)Bounds.Width - ScrollbarMargin - 24f;
             double trackWidth = Math.Max(1, trackRight - trackLeft);
-            ratio = Math.Clamp((pointer.X - trackLeft) / trackWidth, 0, 1);
+
+            var horizontalMetrics = CardGridHorizontalLayout.ComputeMetrics(
+                _images.Count,
+                (float)Bounds.Width,
+                (float)Bounds.Height,
+                (float)CardScale,
+                (float)CardSpacing,
+                (float)TopPadding);
+
+            float viewportRatio = Math.Clamp((float)Bounds.Width / Math.Max(1f, horizontalMetrics.ContentWidth), 0.08f, 1f);
+            double thumbW = Math.Max(48, trackWidth * viewportRatio);
+            double usable = Math.Max(1, trackWidth - thumbW);
+            double thumbX = pointer.X - _scrollbarGrabOffset;
+            double scrollPct = Math.Clamp((thumbX - trackLeft) / usable, 0, 1);
+            _targetScrollY = scrollPct * maxScroll;
         }
         else
         {
             double trackTop = ScrollbarMargin;
             double trackHeight = Math.Max(1, Bounds.Height - ScrollbarMargin * 2);
-            ratio = Math.Clamp((pointer.Y - trackTop) / trackHeight, 0, 1);
+
+            var metrics = GetLayoutMetrics();
+            float viewportRatio = Math.Clamp((float)(Bounds.Height / Math.Max(1, metrics.ContentHeight)), 0.08f, 1f);
+            double thumbH = Math.Max(36, trackHeight * viewportRatio);
+            double usable = Math.Max(1, trackHeight - thumbH);
+            double thumbY = pointer.Y - _scrollbarGrabOffset;
+            double scrollPct = Math.Clamp((thumbY - trackTop) / usable, 0, 1);
+            _targetScrollY = scrollPct * maxScroll;
         }
 
-        _targetScrollY = ratio * GetMaxScrollY();
         SyncKnownScrollY(_targetScrollY);
         _visual?.SendHandlerMessage(new CardGridScrollMessage(_targetScrollY));
         _visual?.SendHandlerMessage(new CardGridDirectScrollFollowMessage(true));
