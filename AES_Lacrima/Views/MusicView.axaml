@@ -737,13 +737,59 @@
                 </Button>
             </StackPanel>
             <!-- Right buttons -->
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="50" Margin="0,0,50,0">
+
+                <Button Height="60"
+                        Width="60"
+                        VerticalAlignment="Center"
+                        HorizontalContentAlignment="Center"
+                        VerticalContentAlignment="Center"
+                        Cursor="Hand"
+                        Command="{Binding SettingsViewModel.ToggleCoverLayoutModeCommand}"
+                        ToolTip.Tip="{Binding SettingsViewModel.CoverLayoutModeToolTip}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Panel>
+                        <Viewbox Stretch="Uniform" IsVisible="{Binding SettingsViewModel.IsCoverCarouselMode}">
+                            <Canvas Width="100" Height="100">
+                                <Rectangle Canvas.Left="1" Canvas.Top="25" Width="4" Height="50" RadiusX="2" RadiusY="2" Fill="White"/>
+                                <Rectangle Canvas.Left="6" Canvas.Top="25" Width="4" Height="50" RadiusX="2" RadiusY="2" Fill="White"/>
+                                <Rectangle Canvas.Left="12" Canvas.Top="12" Width="76" Height="76" RadiusX="12" RadiusY="12"
+                                           StrokeThickness="7.5" Stroke="White" Fill="Transparent"/>
+                                <Rectangle Canvas.Left="90" Canvas.Top="25" Width="4" Height="50" RadiusX="2" RadiusY="2" Fill="White"/>
+                                <Rectangle Canvas.Left="95" Canvas.Top="25" Width="4" Height="50" RadiusX="2" RadiusY="2" Fill="White"/>
+                            </Canvas>
+                        </Viewbox>
+                        <Viewbox Stretch="Uniform" Opacity="0.9" Margin="6" IsVisible="{Binding SettingsViewModel.IsCoverVerticalGridMode}">
+                            <Canvas Width="100" Height="100">
+                                <Rectangle Canvas.Left="12" Canvas.Top="12" Width="36" Height="36" RadiusX="5" RadiusY="5" Fill="White"/>
+                                <Rectangle Canvas.Left="52" Canvas.Top="12" Width="36" Height="36" RadiusX="5" RadiusY="5" Fill="White"/>
+                                <Rectangle Canvas.Left="12" Canvas.Top="52" Width="36" Height="36" RadiusX="5" RadiusY="5" Fill="White"/>
+                                <Rectangle Canvas.Left="52" Canvas.Top="52" Width="36" Height="36" RadiusX="5" RadiusY="5" Fill="White"/>
+                            </Canvas>
+                        </Viewbox>
+                        <Viewbox Stretch="Uniform" Opacity="0.9" Margin="6" IsVisible="{Binding SettingsViewModel.IsCoverHorizontalGridMode}">
+                            <Canvas Width="100" Height="100">
+                                <Rectangle Canvas.Left="10" Canvas.Top="12" Width="24" Height="76" RadiusX="5" RadiusY="5" Fill="White"/>
+                                <Rectangle Canvas.Left="38" Canvas.Top="12" Width="24" Height="76" RadiusX="5" RadiusY="5" Fill="White"/>
+                                <Rectangle Canvas.Left="66" Canvas.Top="12" Width="24" Height="76" RadiusX="5" RadiusY="5" Fill="White"/>
+                            </Canvas>
+                        </Viewbox>
+                    </Panel>
+                </Button>
 
                 <!-- Equalizer button -->
                 <Button Height="60"
                         Width="60"
                         VerticalAlignment="Center"
-                        Margin="0,0,80,0"
                         Cursor="Hand"
                         ToolTip.Tip="Equalizer"
                         Command="{Binding ToggleEqualizerCommand}">
@@ -784,8 +830,7 @@
                                                     Minimum="0"
                                                     Maximum="100"
                                                     Value="{Binding AudioPlayer.Volume, Mode=TwoWay}"
-                                                    HorizontalAlignment="Right"
-                                                    Margin="0,0,70,0"/>
+                                                    HorizontalAlignment="Right"/>
             </StackPanel>
             <Separator Margin="0" VerticalAlignment="Bottom" ZIndex="10"/>
         </Grid>

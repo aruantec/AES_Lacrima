@@ -1745,7 +1745,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         nameof(IsCoverHorizontalGridMode),
         nameof(IsCoverGridMode),
         nameof(IsMusicSpectrumAvailable),
-        nameof(IsMusicSpectrumVisible))]
+        nameof(IsMusicSpectrumVisible),
+        nameof(CoverLayoutModeToolTip))]
     private bool _useCardGridView = false;
 
     [ObservableProperty]
@@ -1768,7 +1769,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         nameof(IsCoverCarouselMode),
         nameof(IsCoverVerticalGridMode),
         nameof(IsCoverHorizontalGridMode),
-        nameof(IsCoverGridMode))]
+        nameof(IsCoverGridMode),
+        nameof(CoverLayoutModeToolTip))]
     private bool _cardGridHorizontalScroll = true;
 
     /// <summary>
@@ -1838,6 +1840,26 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     }
 
     public bool IsCoverGridMode => CoverLayoutMode != CoverLayoutMode.Carousel;
+
+    public string CoverLayoutModeToolTip => CoverLayoutMode switch
+    {
+        CoverLayoutMode.Carousel => "Carousel view — switch to vertical grid",
+        CoverLayoutMode.VerticalGrid => "Vertical grid — switch to horizontal grid",
+        CoverLayoutMode.HorizontalGrid => "Horizontal grid — switch to carousel",
+        _ => "Switch cover layout"
+    };
+
+    [RelayCommand]
+    private void ToggleCoverLayoutMode()
+    {
+        CoverLayoutMode = CoverLayoutMode switch
+        {
+            CoverLayoutMode.Carousel => CoverLayoutMode.VerticalGrid,
+            CoverLayoutMode.VerticalGrid => CoverLayoutMode.HorizontalGrid,
+            CoverLayoutMode.HorizontalGrid => CoverLayoutMode.Carousel,
+            _ => CoverLayoutMode.Carousel
+        };
+    }
 
     /// <summary>
     /// Music spectrum is unavailable while horizontal card scrolling uses the bottom viewport area.
