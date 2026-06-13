@@ -15,6 +15,7 @@ using Avalonia.VisualTree;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Lacrima.ViewModels;
+using AES_Controls.Composition;
 using AES_Controls.Helpers;
 using AES_Emulation.Controls;
 using AES_Emulation.Windows.API;
@@ -240,7 +241,6 @@ public partial class EmulationView : UserControl
     public EmulationView()
     {
         InitializeComponent();
-        RomCardGrid.ContextMenu = RomCarousel.ContextMenu;
         var captureHost = this.FindControl<Border>("EmulatorCaptureHost");
         captureHost?.AddHandler(InputElement.PointerPressedEvent, OnCaptureHostPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
         var captureContextMenuLayer = this.FindControl<Border>("CaptureContextMenuLayer");
@@ -665,7 +665,16 @@ public partial class EmulationView : UserControl
             AttachMetadataServiceForCapture(vm);
             UpdatePortalVisibility(vm);
             UpdateCapturePointerRouting(vm);
+            ApplyCoverLayoutMode(vm);
         }
+    }
+
+    private void ApplyCoverLayoutMode(EmulationViewModel vm)
+    {
+        if (vm.SettingsViewModel == null)
+            return;
+
+        RomCover.ApplyLayoutMode(vm.SettingsViewModel.CoverLayoutMode);
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -864,6 +873,7 @@ public partial class EmulationView : UserControl
         else if (e.PropertyName == nameof(EmulationViewModel.LoadedAlbum) ||
                  e.PropertyName == nameof(EmulationViewModel.SelectedAlbum))
         {
+            ApplyCoverLayoutMode(vm);
             EnsureCarouselVisibleWhenIdle(vm, vm.IsCompositionCaptureVisible);
             UpdateCaptureChromeVisibilityFromOpacity();
         }

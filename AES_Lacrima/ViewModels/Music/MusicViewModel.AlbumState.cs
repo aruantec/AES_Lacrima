@@ -311,6 +311,7 @@ namespace AES_Lacrima.ViewModels
         }
         partial void OnSelectedIndexChanged(double value)
         {
+            CarouselSliderPreview = null;
             int roundedIndex = GetRoundedSelectedIndex(value);
             if (roundedIndex >= 0 && roundedIndex < CoverItems.Count && CoverItems[roundedIndex] is { } highlighted)
             {

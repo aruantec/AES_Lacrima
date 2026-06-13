@@ -22,6 +22,9 @@ namespace AES_Controls.Composition
         public static readonly StyledProperty<double> ValueProperty =
             AvaloniaProperty.Register<PillProgressSlider, double>(nameof(Value));
 
+        public static readonly StyledProperty<double?> PreviewValueProperty =
+            AvaloniaProperty.Register<PillProgressSlider, double?>(nameof(PreviewValue));
+
         public static readonly StyledProperty<double> MinimumProperty =
             AvaloniaProperty.Register<PillProgressSlider, double>(nameof(Minimum), 0.0);
 
@@ -76,6 +79,15 @@ namespace AES_Controls.Composition
         {
             get => GetValue(ValueProperty);
             set => SetValue(ValueProperty, value);
+        }
+
+        /// <summary>
+        /// Compositor-only position override (e.g. carousel wheel preview). Does not write back to <see cref="Value"/>.
+        /// </summary>
+        public double? PreviewValue
+        {
+            get => GetValue(PreviewValueProperty);
+            set => SetValue(PreviewValueProperty, value);
         }
 
         public double Minimum
@@ -186,7 +198,7 @@ namespace AES_Controls.Composition
             var logicalSize = new Vector2((float)Bounds.Width, (float)Bounds.Height);
             _visual.Size = logicalSize;
             SendVisualConfiguration();
-            _visual.SendHandlerMessage(new InstantSliderPositionMessage(NormalizeValue(Value)));
+            SendVisualPosition(VisualPositionValue, instant: true);
         }
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -212,12 +224,22 @@ namespace AES_Controls.Composition
             if (_visual == null)
                 return;
 
-            if (change.Property == ValueProperty)
+            if (change.Property == PreviewValueProperty)
             {
                 if (_isPressed || DateTime.UtcNow <= _suppressExternalUpdatesUntil)
                     return;
 
-                _visual.SendHandlerMessage(NormalizeValue(change.GetNewValue<double>()));
+                SendVisualPosition(VisualPositionValue, instant: true);
+            }
+            else if (change.Property == ValueProperty)
+            {
+                if (_isPressed || DateTime.UtcNow <= _suppressExternalUpdatesUntil)
+                    return;
+
+                if (PreviewValue.HasValue)
+                    return;
+
+                SendVisualPosition(change.GetNewValue<double>(), instant: false);
             }
             else if (change.Property == TrackHeightProperty
                      || change.Property == TrackBorderBrushProperty
@@ -342,6 +364,20 @@ namespace AES_Controls.Composition
                 ApplyKeyboardValue(Maximum);
                 e.Handled = true;
             }
+        }
+
+        private double VisualPositionValue => PreviewValue ?? Value;
+
+        private void SendVisualPosition(double value, bool instant)
+        {
+            if (_visual == null)
+                return;
+
+            var normalized = NormalizeValue(value);
+            if (instant)
+                _visual.SendHandlerMessage(new InstantSliderPositionMessage(normalized));
+            else
+                _visual.SendHandlerMessage(normalized);
         }
 
         private void SendVisualConfiguration()

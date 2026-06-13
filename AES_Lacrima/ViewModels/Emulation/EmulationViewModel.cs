@@ -387,6 +387,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         private double _selectedIndex = -1;
 
         [ObservableProperty]
+        private double? _carouselSliderPreview;
+
+        [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsItemPointed))]
         private int _pointedIndex = -1;
 
@@ -967,7 +970,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool IsCarouselVisible => !IsEmulatorViewportVisible;
 
         public bool IsCarouselTitleOverlayVisible =>
-            IsCarouselVisible && SettingsViewModel?.UseCardGridView != true;
+            IsCarouselVisible && SettingsViewModel?.IsCoverCarouselMode == true;
         public bool IsRomCarouselAnimationPaused => IsCompositionCaptureVisible;
 
         /// <summary>
@@ -990,12 +993,6 @@ private bool _isShadPs4PatchesOverlayOpen;
             IsGameplayPreviewPublishBoundsActive;
 
         public bool IsGameplayPreviewViewportVisible => IsGameplayPreviewPublishBoundsActive;
-
-        public bool IsCarouselGameplayPreviewVisible =>
-            IsGameplayPreviewViewportVisible && SettingsViewModel?.UseCardGridView != true;
-
-        public bool IsCardGridGameplayPreviewVisible =>
-            IsGameplayPreviewViewportVisible && SettingsViewModel?.UseCardGridView == true;
 
         public bool IsGameplayVideoSurfaceVisible => IsGameplayVideoVisible && !IsEmulatorViewportVisible;
         public bool ForceUseTargetClientAreaCapture => CurrentEmulatorHandler?.ForceUseTargetClientAreaCapture == true;
@@ -1096,7 +1093,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             _clearShaderWhenPathEmpty = string.IsNullOrWhiteSpace(_selectedShaderFileItem.FilePath);
         }
 
-        partial void OnCoverItemsChanged(AvaloniaList<MediaItem> oldValue, AvaloniaList<MediaItem> newValue)
+        partial void OnCoverItemsChanged(AvaloniaList<MediaItem>? oldValue, AvaloniaList<MediaItem> newValue)
         {
             if (oldValue != null)
                 oldValue.CollectionChanged -= OnCoverItemsCollectionChanged;
@@ -1345,10 +1342,10 @@ private bool _isShadPs4PatchesOverlayOpen;
                     StopGameplayPreview();
             }
 
-            if (e.PropertyName == nameof(SettingsViewModel.UseCardGridView))
+            if (e.PropertyName is nameof(SettingsViewModel.UseCardGridView)
+                or nameof(SettingsViewModel.CoverLayoutMode)
+                or nameof(SettingsViewModel.IsCoverCarouselMode))
             {
-                OnPropertyChanged(nameof(IsCarouselGameplayPreviewVisible));
-                OnPropertyChanged(nameof(IsCardGridGameplayPreviewVisible));
                 OnPropertyChanged(nameof(IsCarouselTitleOverlayVisible));
             }
         }
@@ -1388,8 +1385,6 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(IsSearchOverlayVisible));
             OnPropertyChanged(nameof(IsSearchBoxVisible));
             OnPropertyChanged(nameof(IsGameplayPreviewViewportVisible));
-            OnPropertyChanged(nameof(IsCarouselGameplayPreviewVisible));
-            OnPropertyChanged(nameof(IsCardGridGameplayPreviewVisible));
             OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
             NotifyCaptureChromeMarginChanged();
             RefreshCurrentSectionLaunchOptionsState();
@@ -1437,8 +1432,6 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(IsSearchOverlayVisible));
             OnPropertyChanged(nameof(IsSearchBoxVisible));
             OnPropertyChanged(nameof(IsGameplayPreviewViewportVisible));
-            OnPropertyChanged(nameof(IsCarouselGameplayPreviewVisible));
-            OnPropertyChanged(nameof(IsCardGridGameplayPreviewVisible));
             OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
             NotifyCaptureChromeMarginChanged();
             RefreshCurrentSectionLaunchOptionsState();

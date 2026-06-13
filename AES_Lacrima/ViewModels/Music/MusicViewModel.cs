@@ -79,6 +79,9 @@ namespace AES_Lacrima.ViewModels
         private double _selectedIndex = -1;
 
         [ObservableProperty]
+        private double? _carouselSliderPreview;
+
+        [ObservableProperty]
         private int _selectedAlbumIndex = -1;
 
         [ObservableProperty]
@@ -549,7 +552,7 @@ namespace AES_Lacrima.ViewModels
 
         public bool IsCarouselPositionSliderVisible => CoverItems.Count > 1;
 
-        partial void OnCoverItemsChanged(AvaloniaList<MediaItem> oldValue, AvaloniaList<MediaItem> newValue)
+        partial void OnCoverItemsChanged(AvaloniaList<MediaItem>? oldValue, AvaloniaList<MediaItem> newValue)
         {
             if (oldValue != null)
                 oldValue.CollectionChanged -= OnCoverItemsCollectionChanged;

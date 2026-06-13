@@ -27,10 +27,13 @@
         <Border Background="#0F0F0F" Grid.RowSpan="2"/>
 
         <Panel>
-            <composition:CompositionCarouselControl x:Name="CoverCarousel"
+            <composition:CompositionCoverControl x:Name="CoverControl"
+                                                    LayoutMode="{Binding SettingsViewModel.CoverLayoutMode, Mode=TwoWay}"
                                                     ItemsSource="{Binding CoverItems}"
                                                     ImageBitmapProperty="CoverBitmap"
+                                                    TitleProperty="Title"
                                                     SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                                                    ViewportPreviewIndex="{Binding CarouselSliderPreview, Mode=OneWayToSource}"
                                                     PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
                                                     ShowCoverFoundOverlay="False"
                                                     ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
@@ -40,10 +43,13 @@
                                                     SideTranslation="{Binding SettingsViewModel.CarouselSideTranslation}"
                                                     StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"
                                                     UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
-                                                    IsVisible="{Binding !SettingsViewModel.UseCardGridView}"
+                                                    CardSpacing="{Binding SettingsViewModel.CardGridSpacing}"
+                                                    GridBackground="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
+                                                    TitleMarqueeEnabled="{Binding SettingsViewModel.CardGridTitleMarquee}"
                                                     GlobalOpacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
+                                                    GridOpacityMultiplier="{Binding SettingsViewModel.CardGridOpacity}"
                                                     ClipToBounds="False">
-        <composition:CompositionCarouselControl.ContextMenu>
+        <composition:CompositionCoverControl.ContextMenu>
             <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
                 <!-- Add Files -->
                 <MenuItem Header="Add Files" CornerRadius="8" Command="{Binding AddItemsCommand}">
@@ -146,31 +152,8 @@
                     </MenuItem.Icon>
                 </MenuItem>
             </ContextMenu>
-        </composition:CompositionCarouselControl.ContextMenu>
-            </composition:CompositionCarouselControl>
-
-            <composition:CompositionCardGridControl x:Name="CoverCardGrid"
-                                                    ItemsSource="{Binding CoverItems}"
-                                                    ImageBitmapProperty="CoverBitmap"
-                                                    TitleProperty="Title"
-                                                    SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
-                                                    PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
-                                                    ShowCoverFoundOverlay="False"
-                                                    ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
-                                                    CardScale="{Binding SettingsViewModel.CarouselScale}"
-                                                    CardSpacing="{Binding SettingsViewModel.CardGridSpacing}"
-                                                    Background="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
-                                                    TitleMarqueeEnabled="{Binding SettingsViewModel.CardGridTitleMarquee}"
-                                                    HorizontalScrollEnabled="{Binding SettingsViewModel.CardGridHorizontalScroll}"
-                                                    IsVisible="{Binding SettingsViewModel.UseCardGridView}"
-                                                    ClipToBounds="True">
-                <composition:CompositionCardGridControl.Opacity>
-                    <MultiBinding Converter="{StaticResource MultiplyDoubleConverter}">
-                        <Binding Path="IsActive" Converter="{StaticResource BoolToOpacityConverter}"/>
-                        <Binding Path="SettingsViewModel.CardGridOpacity"/>
-                    </MultiBinding>
-                </composition:CompositionCardGridControl.Opacity>
-            </composition:CompositionCardGridControl>
+        </composition:CompositionCoverControl.ContextMenu>
+            </composition:CompositionCoverControl>
         </Panel>
 
         <!-- Highlighted Item Metadata (Carousel center) -->
@@ -178,7 +161,7 @@
                     VerticalAlignment="Center" 
                     Margin="0,380,0,0"
                     Spacing="2"
-                    IsVisible="{Binding !SettingsViewModel.UseCardGridView}">
+                    IsVisible="{Binding SettingsViewModel.IsCoverCarouselMode}">
             <StackPanel.Transitions>
                 <Transitions>
                     <DoubleTransition Property="Opacity" Duration="0:0:0.3"/>
@@ -208,7 +191,9 @@
                                             HorizontalAlignment="Center"
                                             Minimum="0"
                                             Maximum="{Binding CarouselIndexMaximum}"
-                                            Value="{Binding SelectedIndex, Mode=TwoWay}"
+                                            Value="{Binding SelectedIndex, Mode=OneWay}"
+                                            PreviewValue="{Binding CarouselSliderPreview, Mode=OneWay}"
+                                            SetValueCommand="{Binding SetCarouselIndexCommand}"
                                             Margin="0,12,0,0"
                                             IsVisible="{Binding IsCarouselPositionSliderVisible}"/>
         </StackPanel>

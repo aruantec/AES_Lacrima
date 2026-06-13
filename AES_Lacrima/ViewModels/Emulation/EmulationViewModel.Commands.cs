@@ -142,6 +142,8 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnSelectedIndexChanged(double value)
         {
+            CarouselSliderPreview = null;
+
             if (Math.Abs(value - Math.Round(value)) > 0.001)
                 return;
 
@@ -198,6 +200,13 @@ namespace AES_Lacrima.ViewModels
 
         [RelayCommand]
         private void ToggleAlbumList() => IsAlbumListCollapsed = !IsAlbumListCollapsed;
+
+        [RelayCommand]
+        private void SetCarouselIndex(double index)
+        {
+            CarouselSliderPreview = null;
+            SelectedIndex = index;
+        }
 
         [RelayCommand]
         private void ClearSearch() => SearchText = string.Empty;

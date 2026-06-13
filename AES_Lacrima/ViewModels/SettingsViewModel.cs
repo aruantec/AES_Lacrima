@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using AES_Controls.Composition;
 using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
@@ -1737,6 +1738,14 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private bool _carouselUseFullCoverSize = false;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(
+        nameof(CoverLayoutMode),
+        nameof(IsCoverCarouselMode),
+        nameof(IsCoverVerticalGridMode),
+        nameof(IsCoverHorizontalGridMode),
+        nameof(IsCoverGridMode),
+        nameof(IsMusicSpectrumAvailable),
+        nameof(IsMusicSpectrumVisible))]
     private bool _useCardGridView = false;
 
     [ObservableProperty]
@@ -1752,27 +1761,108 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private bool _cardGridTitleMarquee = true;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsMusicSpectrumAvailable))]
-    [NotifyPropertyChangedFor(nameof(IsMusicSpectrumVisible))]
+    [NotifyPropertyChangedFor(
+        nameof(IsMusicSpectrumAvailable),
+        nameof(IsMusicSpectrumVisible),
+        nameof(CoverLayoutMode),
+        nameof(IsCoverCarouselMode),
+        nameof(IsCoverVerticalGridMode),
+        nameof(IsCoverHorizontalGridMode),
+        nameof(IsCoverGridMode))]
     private bool _cardGridHorizontalScroll = true;
+
+    /// <summary>
+    /// Unified cover layout mode (carousel, vertical grid, horizontal grid).
+    /// Persists via <see cref="UseCardGridView"/> and <see cref="CardGridHorizontalScroll"/>.
+    /// </summary>
+    public CoverLayoutMode CoverLayoutMode
+    {
+        get => !UseCardGridView ? CoverLayoutMode.Carousel
+            : CardGridHorizontalScroll ? CoverLayoutMode.HorizontalGrid
+            : CoverLayoutMode.VerticalGrid;
+        set
+        {
+            switch (value)
+            {
+                case CoverLayoutMode.Carousel:
+                    UseCardGridView = false;
+                    break;
+                case CoverLayoutMode.VerticalGrid:
+                    UseCardGridView = true;
+                    CardGridHorizontalScroll = false;
+                    break;
+                case CoverLayoutMode.HorizontalGrid:
+                    UseCardGridView = true;
+                    CardGridHorizontalScroll = true;
+                    break;
+            }
+        }
+    }
+
+    public bool IsCoverCarouselMode
+    {
+        get => CoverLayoutMode == CoverLayoutMode.Carousel;
+        set
+        {
+            if (!value)
+                return;
+
+            UseCardGridView = false;
+        }
+    }
+
+    public bool IsCoverVerticalGridMode
+    {
+        get => CoverLayoutMode == CoverLayoutMode.VerticalGrid;
+        set
+        {
+            if (!value)
+                return;
+
+            UseCardGridView = true;
+            CardGridHorizontalScroll = false;
+        }
+    }
+
+    public bool IsCoverHorizontalGridMode
+    {
+        get => CoverLayoutMode == CoverLayoutMode.HorizontalGrid;
+        set
+        {
+            if (!value)
+                return;
+
+            UseCardGridView = true;
+            CardGridHorizontalScroll = true;
+        }
+    }
+
+    public bool IsCoverGridMode => CoverLayoutMode != CoverLayoutMode.Carousel;
 
     /// <summary>
     /// Music spectrum is unavailable while horizontal card scrolling uses the bottom viewport area.
     /// </summary>
-    public bool IsMusicSpectrumAvailable => !CardGridHorizontalScroll;
+    public bool IsMusicSpectrumAvailable => CoverLayoutMode != CoverLayoutMode.HorizontalGrid;
 
-    public bool IsMusicSpectrumVisible => ShowMusicSpectrum && !CardGridHorizontalScroll;
+    public bool IsMusicSpectrumVisible => ShowMusicSpectrum && CoverLayoutMode != CoverLayoutMode.HorizontalGrid;
+
+    partial void OnUseCardGridViewChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CoverLayoutMode));
+        OnPropertyChanged(nameof(IsCoverCarouselMode));
+        OnPropertyChanged(nameof(IsCoverVerticalGridMode));
+        OnPropertyChanged(nameof(IsCoverHorizontalGridMode));
+        OnPropertyChanged(nameof(IsCoverGridMode));
+    }
 
     partial void OnCardGridHorizontalScrollChanged(bool value)
     {
-        if (!_isLoadingSettings)
-            ApplyHorizontalScrollSpectrumPolicy();
-    }
+        OnPropertyChanged(nameof(CoverLayoutMode));
+        OnPropertyChanged(nameof(IsCoverCarouselMode));
+        OnPropertyChanged(nameof(IsCoverVerticalGridMode));
+        OnPropertyChanged(nameof(IsCoverHorizontalGridMode));
+        OnPropertyChanged(nameof(IsCoverGridMode));
 
-    private void ApplyHorizontalScrollSpectrumPolicy()
-    {
-        if (CardGridHorizontalScroll && ShowMusicSpectrum)
-            ShowMusicSpectrum = false;
     }
 
     /// <summary>
@@ -3530,8 +3620,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         LoadSettings();
         EnsureDefaultSelectedShaderToy();
 
-        ApplyHorizontalScrollSpectrumPolicy();
-
         // finished loading
         _isLoadingSettings = false;
 
@@ -3843,8 +3931,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         RestartOnResumeThresholdSeconds = ReadDoubleSetting(section, nameof(RestartOnResumeThresholdSeconds), RestartOnResumeThresholdSeconds);
         PauseWhenVolumeIsZero = ReadBoolSetting(section, nameof(PauseWhenVolumeIsZero), PauseWhenVolumeIsZero);
         SortAlbumsByTrackNameInMiniView = ReadBoolSetting(section, nameof(SortAlbumsByTrackNameInMiniView), SortAlbumsByTrackNameInMiniView);
-
-        ApplyHorizontalScrollSpectrumPolicy();
     }
 
     /// <summary>

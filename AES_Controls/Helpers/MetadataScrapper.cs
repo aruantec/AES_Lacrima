@@ -12,7 +12,8 @@ using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using TagLib;
+using TagLib;
+
 using AES_Core.Logging;
 using File = System.IO.File;
 

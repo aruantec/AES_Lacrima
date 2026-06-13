@@ -40,7 +40,6 @@ public partial class VideoView : UserControl
     public VideoView()
     {
         InitializeComponent();
-        CoverCardGrid.ContextMenu = CoverCarousel.ContextMenu;
         DataContextChanged += OnDataContextChanged;
         AddHandler(InputElement.KeyDownEvent, OnVideoViewKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(InputElement.PointerMovedEvent, OnFullscreenCursorPointerActivity, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -88,7 +87,18 @@ public partial class VideoView : UserControl
 
         _viewModel = DataContext as MusicViewModel;
         if (_viewModel != null)
+        {
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            ApplyCoverLayoutMode();
+        }
+    }
+
+    private void ApplyCoverLayoutMode()
+    {
+        if (_viewModel?.SettingsViewModel == null)
+            return;
+
+        CoverControl.ApplyLayoutMode(_viewModel.SettingsViewModel.CoverLayoutMode);
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -98,6 +108,8 @@ public partial class VideoView : UserControl
 
         if (e.PropertyName == nameof(MusicViewModel.IsAlbumlistOpen))
             StartAlbumListTransitionMask();
+        else if (e.PropertyName == nameof(MusicViewModel.LoadedAlbum))
+            ApplyCoverLayoutMode();
         else if (e.PropertyName == nameof(MusicViewModel.IsVideoViewportDismissed) && _viewModel.IsVideoViewportDismissed)
             ExitVideoCaptureFullscreen();
         else if (e.PropertyName == nameof(MusicViewModel.IsActive) && !_viewModel.IsActive)

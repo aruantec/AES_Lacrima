@@ -56,13 +56,16 @@
         <Border Background="#FF000000" Grid.RowSpan="3"/>
 
         <Panel Grid.Row="0" IsHitTestVisible="{Binding !IsEmulatorViewportVisible}">
-            <composition:CompositionCarouselControl x:Name="RomCarousel"
+            <composition:CompositionCoverControl x:Name="RomCover"
+                                                    LayoutMode="{Binding SettingsViewModel.CoverLayoutMode, Mode=TwoWay}"
                                                     ItemsSource="{Binding CoverItems}"
                                                     ImageBitmapProperty="CoverBitmap"
                                                     ImageFileNameProperty="LocalCoverPath"
+                                                    TitleProperty="Title"
                                                     PublishSelectedItemBounds="{Binding IsRomCarouselSelectedItemBoundsActive}"
                                                     PauseLoadingSpinnerAnimation="{Binding !IsAlbumListCollapsed}"
                                                     SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                                                    ViewportPreviewIndex="{Binding CarouselSliderPreview, Mode=OneWayToSource}"
                                                     PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
                                                     ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
                                                     ShowCoverFoundOverlay="False"
@@ -72,16 +75,18 @@
                                                     SideTranslation="{Binding SettingsViewModel.CarouselSideTranslation}"
                                                     StackSpacing="{Binding SettingsViewModel.CarouselStackSpacing}"
                                                     UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
-                                                    IsVisible="{Binding !SettingsViewModel.UseCardGridView}"
-                                                    Opacity="{Binding ElementName=RootView, Path=CarouselOpacity}"
-                                                    GlobalOpacity="1"
+                                                    CardSpacing="{Binding SettingsViewModel.CardGridSpacing}"
+                                                    GridBackground="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
+                                                    TitleMarqueeEnabled="{Binding SettingsViewModel.CardGridTitleMarquee}"
+                                                    GlobalOpacity="{Binding ElementName=RootView, Path=CarouselOpacity}"
+                                                    GridOpacityMultiplier="{Binding SettingsViewModel.CardGridOpacity}"
                                                     ClipToBounds="False">
-            <composition:CompositionCarouselControl.Transitions>
+            <composition:CompositionCoverControl.Transitions>
                 <Transitions>
                     <DoubleTransition Property="Opacity" Duration="0:0:0.30" Easing="CubicEaseInOut" />
                 </Transitions>
-            </composition:CompositionCarouselControl.Transitions>
-            <composition:CompositionCarouselControl.ContextMenu>
+            </composition:CompositionCoverControl.Transitions>
+            <composition:CompositionCoverControl.ContextMenu>
                 <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
                     <MenuItem Header="Add Roms" CornerRadius="8" Command="{Binding AddRomsCommand}" IsVisible="{Binding ShowAlbumRomImportMenuItems}">
                         <MenuItem.Icon>
@@ -311,47 +316,16 @@
                         </MenuItem.Icon>
                     </MenuItem>
                 </ContextMenu>
-            </composition:CompositionCarouselControl.ContextMenu>
-            </composition:CompositionCarouselControl>
-
-            <composition:CompositionCardGridControl x:Name="RomCardGrid"
-                                                    ItemsSource="{Binding CoverItems}"
-                                                    ImageBitmapProperty="CoverBitmap"
-                                                    ImageFileNameProperty="LocalCoverPath"
-                                                    TitleProperty="Title"
-                                                    PublishSelectedItemBounds="{Binding IsRomCarouselSelectedItemBoundsActive}"
-                                                    PauseLoadingSpinnerAnimation="{Binding !IsAlbumListCollapsed}"
-                                                    SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
-                                                    PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
-                                                    ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
-                                                    ShowCoverFoundOverlay="False"
-                                                    CardScale="{Binding SettingsViewModel.CarouselScale}"
-                                                    CardSpacing="{Binding SettingsViewModel.CardGridSpacing}"
-                                                    Background="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
-                                                    TitleMarqueeEnabled="{Binding SettingsViewModel.CardGridTitleMarquee}"
-                                                    HorizontalScrollEnabled="{Binding SettingsViewModel.CardGridHorizontalScroll}"
-                                                    IsVisible="{Binding SettingsViewModel.UseCardGridView}"
-                                                    ClipToBounds="True">
-                <composition:CompositionCardGridControl.Opacity>
-                    <MultiBinding Converter="{StaticResource MultiplyDoubleConverter}">
-                        <Binding ElementName="RootView" Path="CarouselOpacity"/>
-                        <Binding Path="SettingsViewModel.CardGridOpacity"/>
-                    </MultiBinding>
-                </composition:CompositionCardGridControl.Opacity>
-                <composition:CompositionCardGridControl.Transitions>
-                    <Transitions>
-                        <DoubleTransition Property="Opacity" Duration="0:0:0.30" Easing="CubicEaseInOut" />
-                    </Transitions>
-                </composition:CompositionCardGridControl.Transitions>
-            </composition:CompositionCardGridControl>
+            </composition:CompositionCoverControl.ContextMenu>
+            </composition:CompositionCoverControl>
         </Panel>
 
         <Canvas Grid.Row="0" IsHitTestVisible="False">
-            <Border IsVisible="{Binding IsCarouselGameplayPreviewVisible}"
-                    Canvas.Left="{Binding SelectedItemBounds.X, ElementName=RomCarousel}"
-                    Canvas.Top="{Binding SelectedItemBounds.Y, ElementName=RomCarousel}"
-                    Width="{Binding SelectedItemBounds.Width, ElementName=RomCarousel}"
-                    Height="{Binding SelectedItemBounds.Height, ElementName=RomCarousel}"
+            <Border IsVisible="{Binding IsGameplayPreviewViewportVisible}"
+                    Canvas.Left="{Binding SelectedItemBounds.X, ElementName=RomCover}"
+                    Canvas.Top="{Binding SelectedItemBounds.Y, ElementName=RomCover}"
+                    Width="{Binding SelectedItemBounds.Width, ElementName=RomCover}"
+                    Height="{Binding SelectedItemBounds.Height, ElementName=RomCover}"
                     Margin="-8,-6,0,0"
                     ClipToBounds="False"
                     Opacity="{Binding IsGameplayPreviewViewportVisible, Converter={StaticResource BoolToOpacityConverter}}"
@@ -361,7 +335,7 @@
                         <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut" />
                     </Transitions>
                 </Border.Transitions>
-                <Border Height="{Binding SelectedItemBounds.Height, ElementName=RomCarousel}"
+                <Border Height="{Binding SelectedItemBounds.Height, ElementName=RomCover}"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Background="#FF000000"
@@ -369,8 +343,8 @@
                         RenderTransformOrigin="0.5,0">
                     <Border.Width>
                         <MultiBinding Converter="{StaticResource GameplayPreviewWidthConverter}">
-                            <Binding Path="SelectedItemBounds.Width" ElementName="RomCarousel" />
-                            <Binding Path="SelectedItemBounds.Height" ElementName="RomCarousel" />
+                            <Binding Path="SelectedItemBounds.Width" ElementName="RomCover" />
+                            <Binding Path="SelectedItemBounds.Height" ElementName="RomCover" />
                             <Binding Path="GameplayPreviewTargetAspectRatio" />
                         </MultiBinding>
                     </Border.Width>
@@ -385,8 +359,8 @@
                     <player:VideoViewControl x:Name="GameplayVideo"
                                              Player="{Binding AudioPlayer}"
                                              Stretch="Uniform"
-                                             ReferenceViewportWidth="{Binding SelectedItemBounds.Width, ElementName=RomCarousel}"
-                                             ReferenceViewportHeight="{Binding SelectedItemBounds.Height, ElementName=RomCarousel}"
+                                             ReferenceViewportWidth="{Binding SelectedItemBounds.Width, ElementName=RomCover}"
+                                             ReferenceViewportHeight="{Binding SelectedItemBounds.Height, ElementName=RomCover}"
                                              IsRenderingPaused="{Binding !IsGameplayVideoSurfaceVisible}"
                                              Opacity="{Binding IsGameplayVideoSurfaceVisible, Converter={StaticResource BoolToOpacityConverter}}">
                         <player:VideoViewControl.Transitions>
@@ -398,36 +372,6 @@
                 </Border>
             </Border>
 
-            <Border IsVisible="{Binding IsCardGridGameplayPreviewVisible}"
-                    Canvas.Left="{Binding SelectedItemBounds.X, ElementName=RomCardGrid}"
-                    Canvas.Top="{Binding SelectedItemBounds.Y, ElementName=RomCardGrid}"
-                    Width="{Binding SelectedItemBounds.Width, ElementName=RomCardGrid}"
-                    Height="{Binding SelectedItemBounds.Height, ElementName=RomCardGrid}"
-                    Margin="-8,-6,0,0"
-                    ClipToBounds="False"
-                    Opacity="{Binding IsGameplayPreviewViewportVisible, Converter={StaticResource BoolToOpacityConverter}}"
-                    Background="Transparent">
-                <Border Height="{Binding SelectedItemBounds.Height, ElementName=RomCardGrid}"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Background="#FF000000"
-                        ClipToBounds="True"
-                        RenderTransformOrigin="0.5,0">
-                    <Border.Width>
-                        <MultiBinding Converter="{StaticResource GameplayPreviewWidthConverter}">
-                            <Binding Path="SelectedItemBounds.Width" ElementName="RomCardGrid" />
-                            <Binding Path="SelectedItemBounds.Height" ElementName="RomCardGrid" />
-                            <Binding Path="GameplayPreviewTargetAspectRatio" />
-                        </MultiBinding>
-                    </Border.Width>
-                    <player:VideoViewControl Player="{Binding AudioPlayer}"
-                                             Stretch="Uniform"
-                                             ReferenceViewportWidth="{Binding SelectedItemBounds.Width, ElementName=RomCardGrid}"
-                                             ReferenceViewportHeight="{Binding SelectedItemBounds.Height, ElementName=RomCardGrid}"
-                                             IsRenderingPaused="{Binding !IsGameplayVideoSurfaceVisible}"
-                                             Opacity="{Binding IsGameplayVideoSurfaceVisible, Converter={StaticResource BoolToOpacityConverter}}" />
-                </Border>
-            </Border>
         </Canvas>
 
         <Grid x:Name="EmulatorCaptureOverlayHost"
@@ -2213,7 +2157,9 @@
                                             HorizontalAlignment="Center"
                                             Minimum="0"
                                             Maximum="{Binding CarouselIndexMaximum}"
-                                            Value="{Binding SelectedIndex, Mode=TwoWay}"
+                                            Value="{Binding SelectedIndex, Mode=OneWay}"
+                                            PreviewValue="{Binding CarouselSliderPreview, Mode=OneWay}"
+                                            SetValueCommand="{Binding SetCarouselIndexCommand}"
                                             Margin="0,12,0,0"
                                             IsVisible="{Binding IsCarouselPositionSliderVisible}"/>
         </StackPanel>

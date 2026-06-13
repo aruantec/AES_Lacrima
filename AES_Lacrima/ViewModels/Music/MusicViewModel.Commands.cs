@@ -359,6 +359,13 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
+        private void SetCarouselIndex(double index)
+        {
+            CarouselSliderPreview = null;
+            SelectedIndex = index;
+        }
+
+        [RelayCommand]
         private void SetPosition(double position)
         {
             AudioPlayer?.SetPosition(position);

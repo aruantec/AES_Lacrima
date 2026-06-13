@@ -31,7 +31,6 @@ public partial class MusicView : UserControl
     public MusicView()
     {
         InitializeComponent();
-        CoverCardGrid.ContextMenu = CoverCarousel.ContextMenu;
         DataContextChanged += OnDataContextChanged;
     }
 
@@ -42,7 +41,18 @@ public partial class MusicView : UserControl
 
         _viewModel = DataContext as MusicViewModel;
         if (_viewModel != null)
+        {
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            ApplyCoverLayoutMode();
+        }
+    }
+
+    private void ApplyCoverLayoutMode()
+    {
+        if (_viewModel?.SettingsViewModel == null)
+            return;
+
+        CoverControl.ApplyLayoutMode(_viewModel.SettingsViewModel.CoverLayoutMode);
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -52,6 +62,8 @@ public partial class MusicView : UserControl
 
         if (e.PropertyName == nameof(MusicViewModel.IsAlbumlistOpen))
             StartAlbumListTransitionMask();
+        else if (e.PropertyName == nameof(MusicViewModel.LoadedAlbum))
+            ApplyCoverLayoutMode();
         else if (e.PropertyName == nameof(MusicViewModel.IsAddUrlPopupOpen) && _viewModel.IsAddUrlPopupOpen)
             FocusPopupTextBox(AddUrlTextBox);
         else if (e.PropertyName == nameof(MusicViewModel.IsAddPlaylistPopupOpen) && _viewModel.IsAddPlaylistPopupOpen)

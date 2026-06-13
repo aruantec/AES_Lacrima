@@ -92,7 +92,9 @@ namespace AES_Controls.Composition
         private IEnumerable? _subscribedItemsSource;
         private bool _isInternalMove;
         private bool _isPointerScrolling;
+        private bool _isWheelScrolling;
         private bool _visualDirectIndexFollow;
+        private double? _viewportPreviewIndex;
         private bool _suppressSelectedIndexSideEffects;
         private double _lastPublishedSelectedIndex = double.NaN;
         private long _lastProjectionCacheBuildTicks;
@@ -128,6 +130,11 @@ namespace AES_Controls.Composition
 
         public static readonly StyledProperty<double> SelectedIndexProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(SelectedIndex));
+
+        public static readonly DirectProperty<CompositionCarouselControl, double?> ViewportPreviewIndexProperty =
+            AvaloniaProperty.RegisterDirect<CompositionCarouselControl, double?>(
+                nameof(ViewportPreviewIndex),
+                o => o.ViewportPreviewIndex);
 
         public static readonly StyledProperty<double> ItemSpacingProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, double>(nameof(ItemSpacing), 0.93);
@@ -204,6 +211,16 @@ namespace AES_Controls.Composition
             get => GetValue(SelectedIndexProperty);
             set => SetValue(SelectedIndexProperty, value);
         }
+
+        /// <summary>
+        /// Live carousel position during wheel scroll; does not update <see cref="SelectedIndex"/>.
+        /// </summary>
+        public double? ViewportPreviewIndex => _viewportPreviewIndex;
+
+        /// <summary>
+        /// True while the carousel is being scrolled via the mouse wheel.
+        /// </summary>
+        public bool IsWheelScrolling => _isWheelScrolling;
 
         /// <summary>
         /// Multiplier that controls horizontal spacing between items.
@@ -973,9 +990,8 @@ namespace AES_Controls.Composition
                 menu.Open(this);
         }
 
-        private void PublishSelectedIndex(double index, bool force = false)
+        private void ApplyVisualTargetIndex(double clamped)
         {
-            double clamped = Math.Clamp(index, 0, Math.Max(0, _images.Count - 1));
             _uiTargetIndex = clamped;
             _visual?.SendHandlerMessage(clamped);
 
@@ -991,6 +1007,35 @@ namespace AES_Controls.Composition
             {
                 _uiSyncTimer.Start();
             }
+        }
+
+        private void SetViewportPreviewIndex(double? value)
+        {
+            if (_viewportPreviewIndex == value)
+                return;
+
+            var oldValue = _viewportPreviewIndex;
+            _viewportPreviewIndex = value;
+            RaisePropertyChanged(ViewportPreviewIndexProperty, oldValue, value);
+        }
+
+        internal void ClearViewportPreview() => SetViewportPreviewIndex(null);
+
+        /// <summary>
+        /// Updates carousel visuals and slider preview without touching bound <see cref="SelectedIndex"/>.
+        /// </summary>
+        private void PublishViewportIndex(double index)
+        {
+            double clamped = Math.Clamp(index, 0, Math.Max(0, _images.Count - 1));
+            ApplyVisualTargetIndex(clamped);
+            SetViewportPreviewIndex(clamped);
+        }
+
+        private void PublishSelectedIndex(double index, bool force = false)
+        {
+            double clamped = Math.Clamp(index, 0, Math.Max(0, _images.Count - 1));
+            ApplyVisualTargetIndex(clamped);
+            SetViewportPreviewIndex(null);
 
             if (!force && (_isPointerScrolling || _isDragging))
             {
@@ -2263,7 +2308,15 @@ namespace AES_Controls.Composition
             if (_images.Count == 0)
                 return;
 
-            double committedIndex = Math.Clamp(Math.Round(SelectedIndex), 0, Math.Max(0, _images.Count - 1));
+            if (_isWheelScrolling)
+            {
+                double snapped = Math.Clamp(Math.Round(_uiTargetIndex), 0, Math.Max(0, _images.Count - 1));
+                PublishViewportIndex(snapped);
+                _isWheelScrolling = false;
+                return;
+            }
+
+            double committedIndex = Math.Clamp(Math.Round(_uiTargetIndex), 0, Math.Max(0, _images.Count - 1));
             if (Math.Abs(committedIndex - SelectedIndex) > 0.0001)
                 PublishSelectedIndex(committedIndex, force: true);
         }
@@ -2313,6 +2366,7 @@ namespace AES_Controls.Composition
 
             base.OnPointerPressed(e);
             _settleCommitTimer?.Stop();
+            _isWheelScrolling = false;
             Focus();
 
             int hitIndex = IndexAtPoint(pos);
@@ -2570,10 +2624,12 @@ namespace AES_Controls.Composition
             base.OnPointerWheelChanged(e);
 
             double maxIndex = Math.Max(0, _images.Count - 1);
-            double nextTargetIndex = Math.Clamp(SelectedIndex - (e.Delta.Y * WheelScrollSensitivity), 0, maxIndex);
-            if (Math.Abs(nextTargetIndex - SelectedIndex) > 0.0001)
+            double baseIndex = _uiTargetIndex;
+            double nextTargetIndex = Math.Clamp(baseIndex - (e.Delta.Y * WheelScrollSensitivity), 0, maxIndex);
+            if (Math.Abs(nextTargetIndex - baseIndex) > 0.0001)
             {
-                PublishSelectedIndex(nextTargetIndex, force: true);
+                _isWheelScrolling = true;
+                PublishViewportIndex(nextTargetIndex);
                 QueueSettleCommit();
             }
 
