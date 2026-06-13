@@ -138,11 +138,20 @@ namespace AES_Lacrima.ViewModels
 
             if (!ReferenceEquals(SelectedAlbum, nextAlbum))
                 SelectedAlbum = nextAlbum;
+
+            if (nextAlbum is EmulationAlbumItem emulationAlbum && emulationAlbum.Children.Count > 0)
+                QueueAlbumPreviewCoverLoad(emulationAlbum);
+
+            QueueAlbumPresentationCoverLoadsNearIndex(value);
         }
+
+        partial void OnCarouselSliderPreviewChanged(double? value)
+            => NotifyCarouselOverlayItemChanged();
 
         partial void OnSelectedIndexChanged(double value)
         {
             CarouselSliderPreview = null;
+            NotifyCarouselOverlayItemChanged();
 
             if (Math.Abs(value - Math.Round(value)) > 0.001)
                 return;

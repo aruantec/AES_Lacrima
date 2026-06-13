@@ -46,10 +46,12 @@ namespace AES_Lacrima.Services
         private static readonly ILog SLog = AES_Core.Logging.LogHelper.For<MetadataService>();
         private const int MaxImageSearchResults = 24;
         private const int MaxAutoCoverQueries = 8;
-        private const int MaxAutoCoverCandidatesPerQuery = 3;
+        private const int MaxAutoCoverCandidatesPerQuery = 6;
+        private const int MaxAutoCoverParallelDownloads = 4;
         private const int NormalizedCoverMaxDimension = 384;
-        private const int AutoCoverSearchTimeoutSeconds = 12;
-        private const int AutoCoverDownloadTimeoutSeconds = 8;
+        private const int AutoCoverSearchTimeoutSeconds = 10;
+        private const int AutoCoverDownloadTimeoutSeconds = 4;
+        private const int MaxAutoCoverDownloadBytes = 2_500_000;
         private static readonly HttpClient ImageHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
         private static readonly Regex BracketCleanupRegex = new(@"[\(\[\{].*?[\)\]\}]", RegexOptions.Compiled);
         private static readonly Regex MultiSpaceRegex = new(@"\s{2,}", RegexOptions.Compiled);

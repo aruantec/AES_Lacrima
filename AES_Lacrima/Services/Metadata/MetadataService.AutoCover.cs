@@ -95,40 +95,19 @@ namespace AES_Lacrima.Services
 
                     SLog.Debug($"Auto cover lookup returned {candidates.Count} ranked candidates for query '{searchQuery}'.");
 
-                    foreach (var candidate in candidates)
+                    var download = await TryDownloadFirstViableAutoCoverAsync(candidates, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (download == null)
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
-
-                        try
-                        {
-                            var download = await TryDownloadImageBytesAsync(candidate.FullImageUrl, cancellationToken).ConfigureAwait(false);
-                            if (download.Bytes == null || string.IsNullOrWhiteSpace(download.MimeType))
-                            {
-                                SLog.Debug($"Skipping candidate that could not be downloaded as an image: {candidate.FullImageUrl}");
-                                continue;
-                            }
-
-                            if (!TryValidateAutoCoverImageBytes(download.Bytes, out var rejectReason))
-                            {
-                                SLog.Debug($"Skipping low-quality auto cover candidate ({rejectReason}): {candidate.FullImageUrl}");
-                                continue;
-                            }
-
-                            await ApplyCoverBytesToItemAsync(item, download.Bytes, download.MimeType, cancellationToken).ConfigureAwait(false);
-                            await SaveCoverToMetadataCacheAsync(item, download.Bytes, download.MimeType).ConfigureAwait(false);
-                            await MarkCoverLookupCompleteAsync(item, coverFound: true).ConfigureAwait(false);
-                            SLog.Info($"Auto cover applied for '{item.Title}' from '{candidate.FullImageUrl}' using query '{searchQuery}'.");
-                            return true;
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            throw;
-                        }
-                        catch (Exception ex)
-                        {
-                            SLog.Warn($"Failed auto cover candidate for '{item.FileName}' from '{candidate.FullImageUrl}'.", ex);
-                        }
+                        SLog.Debug($"Auto cover lookup found no fast viable download for query '{searchQuery}'.");
+                        continue;
                     }
+
+                    await SaveCoverToMetadataCacheAsync(item, download.Value.Bytes, download.Value.MimeType).ConfigureAwait(false);
+                    await ApplyCoverBytesToItemAsync(item, download.Value.Bytes, download.Value.MimeType, cancellationToken).ConfigureAwait(false);
+                    await MarkCoverLookupCompleteAsync(item, coverFound: true).ConfigureAwait(false);
+                    SLog.Info($"Auto cover applied for '{item.Title}' using query '{searchQuery}'.");
+                    return true;
                 }
 
                 SLog.Warn($"Auto cover lookup found no usable Bing candidates for '{item.FileName}'.");
@@ -176,6 +155,60 @@ namespace AES_Lacrima.Services
                 if (model.Kind == TagImageKind.LiveWallpaper)
                     await LoadImageAsync(model).ConfigureAwait(false);
             }
+        }
+
+        private async Task<(byte[] Bytes, string MimeType)?> TryDownloadFirstViableAutoCoverAsync(
+            IReadOnlyList<WebImageSearchResult> candidates,
+            CancellationToken cancellationToken)
+        {
+            if (candidates.Count == 0)
+                return null;
+
+            var ranked = AutoCoverImageHeuristics.RankCandidates(candidates)
+                .Take(MaxAutoCoverCandidatesPerQuery)
+                .ToList();
+            if (ranked.Count == 0)
+                return null;
+
+            for (int offset = 0; offset < ranked.Count; offset += MaxAutoCoverParallelDownloads)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var batch = ranked.Skip(offset).Take(MaxAutoCoverParallelDownloads).ToList();
+                using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var tasks = batch
+                    .Select(candidate => TryDownloadImageBytesAsync(candidate.FullImageUrl, attemptCts.Token))
+                    .ToList();
+
+                while (tasks.Count > 0)
+                {
+                    var completed = await Task.WhenAny(tasks).ConfigureAwait(false);
+                    tasks.Remove(completed);
+
+                    (byte[]? Bytes, string? MimeType) download;
+                    try
+                    {
+                        download = await completed.ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        continue;
+                    }
+
+                    if (download.Bytes == null || string.IsNullOrWhiteSpace(download.MimeType))
+                        continue;
+
+                    if (!TryValidateAutoCoverImageBytes(download.Bytes, out var rejectReason))
+                    {
+                        SLog.Debug($"Skipping low-quality auto cover candidate ({rejectReason}).");
+                        continue;
+                    }
+
+                    attemptCts.Cancel();
+                    return (download.Bytes, download.MimeType);
+                }
+            }
+
+            return null;
         }
 
         private void Close()

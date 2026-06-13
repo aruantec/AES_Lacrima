@@ -167,17 +167,17 @@
                     <DoubleTransition Property="Opacity" Duration="0:0:0.3"/>
                 </Transitions>
             </StackPanel.Transitions>
-            <TextBlock Text="{Binding HighlightedItem.Title, FallbackValue=''}"
+            <TextBlock Text="{Binding CarouselOverlayItem.Title, FallbackValue=''}"
                        FontSize="28" FontWeight="SemiBold" Foreground="White"
                        HorizontalAlignment="Center" TextAlignment="Center" 
                        MaxWidth="1000" TextTrimming="CharacterEllipsis"
                        IsHitTestVisible="False"/>
-            <TextBlock Text="{Binding HighlightedItem.Artist, FallbackValue=''}"
+            <TextBlock Text="{Binding CarouselOverlayItem.Artist, FallbackValue=''}"
                        FontSize="19" Foreground="#CCFFFFFF"
                        HorizontalAlignment="Center" TextAlignment="Center"
                        MaxWidth="900" TextTrimming="CharacterEllipsis"
                        IsHitTestVisible="False"/>
-            <TextBlock Text="{Binding HighlightedItem.Album, FallbackValue=''}"
+            <TextBlock Text="{Binding CarouselOverlayItem.Album, FallbackValue=''}"
                        FontSize="16" Foreground="#99FFFFFF"
                        HorizontalAlignment="Center" TextAlignment="Center"
                        MaxWidth="800" TextTrimming="CharacterEllipsis"

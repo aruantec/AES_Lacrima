@@ -72,6 +72,7 @@
                                                     TransitionsEnabled="True"
                                                     Duration="0:0:0.500"
                                                     Easing="SineEaseInOut"
+                                                    WarmedViewModels="{Binding WarmedViewModels}"
                                                     CurrentViewModel="{Binding NavigationService.View}"
                                                     TransitionCompletedCommand="{Binding NavigationService.TransitionCompletedCommand}"/>
                         <!-- Settings Overlay -->

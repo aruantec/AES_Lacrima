@@ -61,8 +61,11 @@ internal static class CompositionCoverImageHelper
         if (string.IsNullOrWhiteSpace(fileName) || !File.Exists(fileName))
             return false;
 
+        if (bitmapValue != null && !IsSectionPlaceholderBitmap(bitmapValue, sectionPlaceholder))
+            return false;
+
         if (CompositionMetadataCoverHelper.IsMetadataCachePath(fileName))
-            return CompositionMetadataCoverHelper.MetadataCacheHasCoverImage(fileName);
+            return true;
 
         if (IsLikelyImageFile(fileName))
             return IsSectionPlaceholderBitmap(bitmapValue, sectionPlaceholder) ||
@@ -76,8 +79,9 @@ internal static class CompositionCoverImageHelper
         Bitmap? bitmapValue,
         string? fileName,
         Bitmap? sectionPlaceholder) =>
-        IsSectionPlaceholderBitmap(bitmapValue, sectionPlaceholder) &&
-        ShouldPreferFileOverBitmap(item, bitmapValue, fileName, sectionPlaceholder);
+        (bitmapValue != null && !IsSectionPlaceholderBitmap(bitmapValue, sectionPlaceholder)) ||
+        (IsSectionPlaceholderBitmap(bitmapValue, sectionPlaceholder) &&
+         ShouldPreferFileOverBitmap(item, bitmapValue, fileName, sectionPlaceholder));
 
     public static object? ResolveImageSourceKey(
         MediaItem? item,
@@ -85,22 +89,14 @@ internal static class CompositionCoverImageHelper
         string? fileName,
         Bitmap? sectionPlaceholder)
     {
-        if (ShouldPreferFileOverBitmap(item, bitmapValue, fileName, sectionPlaceholder))
-            return fileName;
-
         if (bitmapValue != null && !IsSectionPlaceholderBitmap(bitmapValue, sectionPlaceholder))
             return bitmapValue;
 
-        if (!string.IsNullOrWhiteSpace(fileName))
-        {
-            if (CompositionMetadataCoverHelper.IsMetadataCachePath(fileName) &&
-                !CompositionMetadataCoverHelper.MetadataCacheHasCoverImage(fileName))
-            {
-                return null;
-            }
-
+        if (ShouldPreferFileOverBitmap(item, bitmapValue, fileName, sectionPlaceholder))
             return fileName;
-        }
+
+        if (!string.IsNullOrWhiteSpace(fileName))
+            return fileName;
 
         return null;
     }

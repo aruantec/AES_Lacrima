@@ -21,7 +21,7 @@ namespace AES_Controls.Composition
     internal record StackSpacingMessage(double Value);
     internal record BackgroundMessage(SKColor Color);
     internal record GlobalOpacityMessage(double Value);
-    internal record UpdateImageMessage(int Index, SKImage? Image, bool IsLoading = false);
+    internal record UpdateImageMessage(int Index, SKImage? Image, bool IsLoading = false, bool ClearImage = false);
     internal record UseFullCoverSizeMessage(bool Value);
     internal record UpdateCoverFoundMessage(int Index, bool Found);
     internal record ResetCoverFoundMessage(HashSet<int> Indices);
@@ -180,11 +180,13 @@ namespace AES_Controls.Composition
                     {
                         _loadingIndices.Add(update.Index);
                     }
-                    else
+                    else if (update.ClearImage)
                     {
                         _images[update.Index] = null!;
                         _loadingIndices.Remove(update.Index);
                     }
+                    else
+                        _loadingIndices.Remove(update.Index);
 
                     if (oldImg != null && !ReferenceEquals(oldImg, newImg) && !IsImageReferencedByCarousel(oldImg))
                     {

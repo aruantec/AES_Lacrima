@@ -2138,7 +2138,7 @@
                 </Transitions>
             </StackPanel.Transitions>
 
-            <TextBlock Text="{Binding HighlightedItem.Title, FallbackValue=''}"
+            <TextBlock Text="{Binding CarouselOverlayItem.Title, FallbackValue=''}"
                        FontSize="28"
                        FontWeight="SemiBold"
                        Foreground="White"

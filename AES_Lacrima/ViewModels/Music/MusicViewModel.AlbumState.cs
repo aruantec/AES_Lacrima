@@ -309,9 +309,14 @@ namespace AES_Lacrima.ViewModels
                 ? YouTubeThumbnail.ExtractVideoId(path)
                 : null;
         }
+        partial void OnCarouselSliderPreviewChanged(double? value)
+            => NotifyCarouselOverlayItemChanged();
+
         partial void OnSelectedIndexChanged(double value)
         {
             CarouselSliderPreview = null;
+            NotifyCarouselOverlayItemChanged();
+
             int roundedIndex = GetRoundedSelectedIndex(value);
             if (roundedIndex >= 0 && roundedIndex < CoverItems.Count && CoverItems[roundedIndex] is { } highlighted)
             {

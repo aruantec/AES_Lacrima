@@ -73,6 +73,9 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     public static readonly StyledProperty<bool> PauseLoadingSpinnerAnimationProperty =
         AvaloniaProperty.Register<CompositionCoverControl, bool>(nameof(PauseLoadingSpinnerAnimation));
 
+    public static readonly StyledProperty<bool> IsContentLoadingProperty =
+        AvaloniaProperty.Register<CompositionCoverControl, bool>(nameof(IsContentLoading));
+
     public static readonly StyledProperty<double> GlobalOpacityProperty =
         AvaloniaProperty.Register<CompositionCoverControl, double>(nameof(GlobalOpacity), 1.0);
 
@@ -117,12 +120,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             control.OnLayoutModeChanged(e));
 
         ItemsSourceProperty.Changed.AddClassHandler<CompositionCoverControl>((control, e) =>
-        {
-            var source = e.NewValue as IEnumerable;
-            control._carousel.ItemsSource = source;
-            control._cardGrid.ItemsSource = source;
-            control.SyncSharedProperties();
-        });
+            control.ApplyItemsSourceToActiveLayout());
 
         SelectedIndexProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
             control.OnSelectedIndexChangedFromBinding());
@@ -152,6 +150,9 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             control.ApplyPublishSelectedItemBounds());
 
         PauseLoadingSpinnerAnimationProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
+            control.SyncSharedProperties());
+
+        IsContentLoadingProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
             control.SyncSharedProperties());
 
         GlobalOpacityProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
@@ -292,6 +293,12 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     {
         get => GetValue(PauseLoadingSpinnerAnimationProperty);
         set => SetValue(PauseLoadingSpinnerAnimationProperty, value);
+    }
+
+    public bool IsContentLoading
+    {
+        get => GetValue(IsContentLoadingProperty);
+        set => SetValue(IsContentLoadingProperty, value);
     }
 
     public double GlobalOpacity
@@ -454,12 +461,34 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         _cardGrid.ClipToBounds = true;
         _cardGrid.HorizontalScrollEnabled = mode == CoverLayoutMode.HorizontalGrid;
 
+        SyncSharedProperties();
+
         _carousel.ItemsSource = source;
         _cardGrid.ItemsSource = source;
+
+        if (useCarousel)
+        {
+            _carousel.ImportCoverImagesFrom(_cardGrid);
+            _carousel.ReloadCoverImages();
+        }
+        else
+        {
+            _cardGrid.ImportCoverImagesFrom(_carousel);
+            _cardGrid.ReloadCoverImages();
+        }
 
         ApplyPublishSelectedItemBounds();
         SyncGridOpacity();
         RefreshSelectedItemBoundsFromActiveChild();
+    }
+
+    private void ApplyItemsSourceToActiveLayout()
+    {
+        SyncSharedProperties();
+
+        var source = ItemsSource;
+        _carousel.ItemsSource = source;
+        _cardGrid.ItemsSource = source;
     }
 
     private async void StartLayoutTransition(CoverLayoutMode targetMode)
@@ -546,6 +575,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         _cardGrid.ShowCoverFoundOverlay = ShowCoverFoundOverlay;
         _carousel.PauseLoadingSpinnerAnimation = PauseLoadingSpinnerAnimation;
         _cardGrid.PauseLoadingSpinnerAnimation = PauseLoadingSpinnerAnimation;
+        _cardGrid.IsContentLoading = IsContentLoading;
         _carousel.GlobalOpacity = GlobalOpacity;
     }
 

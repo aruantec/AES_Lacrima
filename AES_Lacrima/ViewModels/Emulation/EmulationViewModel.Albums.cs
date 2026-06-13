@@ -1,4 +1,5 @@
 using AES_Code.Models;
+using AES_Controls.Composition;
 using AES_Controls.Helpers;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
@@ -308,6 +309,48 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
+        private void EnsureDeferredAlbumChildrenHydrated(FolderMediaItem album)
+        {
+            var albumKey = GetAlbumPersistenceKey(album);
+            if (!_deferredAlbumRomsByKey.TryGetValue(albumKey, out var deferred) || deferred.Count == 0)
+                return;
+
+            _deferredAlbumRomsByKey.Remove(albumKey);
+            foreach (var item in deferred)
+                album.Children.Add(item);
+
+            if (album is EmulationAlbumItem emulationAlbum)
+                emulationAlbum.TotalChildCount = 0;
+        }
+
+        private async Task HydrateAlbumChildrenProgressivelyAsync(EmulationAlbumItem album)
+        {
+            var albumKey = GetAlbumPersistenceKey(album);
+            if (!_deferredAlbumRomsByKey.TryGetValue(albumKey, out var deferred) || deferred.Count == 0)
+                return;
+
+            _deferredAlbumRomsByKey.Remove(albumKey);
+
+            for (int start = 0; start < deferred.Count; start += AlbumOpenHydrateBatchSize)
+            {
+                if (!ReferenceEquals(LoadedAlbum, album))
+                    return;
+
+                var batch = deferred.Skip(start).Take(AlbumOpenHydrateBatchSize).ToList();
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    foreach (var item in batch)
+                        album.Children.Add(item);
+
+                    SyncAlbumTotalChildCount(album);
+                }, DispatcherPriority.Background);
+
+                await Task.Yield();
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() => album.TotalChildCount = 0, DispatcherPriority.Background);
+        }
+
         private async Task EnsureAlbumChildrenHydratedAsync(EmulationAlbumItem album)
         {
             var albumKey = GetAlbumPersistenceKey(album);
@@ -339,11 +382,237 @@ namespace AES_Lacrima.ViewModels
 
         private void QueueAllAlbumPresentationCoverLoads()
         {
-            foreach (var album in AlbumList.OfType<EmulationAlbumItem>())
+            int center = SelectedAlbumIndex >= 0 ? SelectedAlbumIndex : 0;
+            QueueAlbumPresentationCoverLoadsNearIndex(center);
+        }
+
+        private void QueueAlbumPresentationCoverLoadsNearIndex(int centerIndex, int radius = 6)
+        {
+            if (AlbumList.Count == 0)
+                return;
+
+            int start = Math.Max(0, centerIndex - radius);
+            int end = Math.Min(AlbumList.Count - 1, centerIndex + radius);
+            for (int i = start; i <= end; i++)
             {
-                if (album.Children.Count > 0)
+                if (AlbumList[i] is EmulationAlbumItem album && album.Children.Count > 0)
                     QueueAlbumPreviewCoverLoad(album);
             }
+        }
+
+        private void PrepareAlbumItemsForCoverDisplay(FolderMediaItem album)
+        {
+            if (album.Children.Count == 0)
+                return;
+
+            foreach (var item in album.Children)
+                MarkRomItemCoverLoading(item, album);
+
+            QueueLocalAlbumCoverHydration(album);
+        }
+
+        private void QueueLocalAlbumCoverHydration(FolderMediaItem album)
+        {
+            if (MetadataService == null || album.Children.Count == 0)
+                return;
+
+            _ = HydrateLocalAlbumCoversAsync(album);
+        }
+
+        private async Task HydrateLocalAlbumCoversAsync(FolderMediaItem album)
+        {
+            int focusIndex = GetCoverLoadFocusIndex(album);
+            var pending = album.Children
+                .Select((item, index) => (item, index))
+                .Where(pair => HasLocalCoverInMetadata(pair.item.FileName) &&
+                               (pair.item.CoverBitmap == null || ReferenceEquals(pair.item.CoverBitmap, album.CoverBitmap)))
+                .OrderBy(pair => Math.Abs(pair.index - focusIndex))
+                .Select(pair => pair.item)
+                .ToList();
+
+            if (pending.Count == 0)
+                return;
+
+            SLog.Debug($"Hydrating {pending.Count} local covers for album '{album.Title}'.");
+
+            try
+            {
+                await Parallel.ForEachAsync(
+                    pending,
+                    new ParallelOptions { MaxDegreeOfParallelism = 8 },
+                    async (item, ct) =>
+                    {
+                        if (!ReferenceEquals(LoadedAlbum, album))
+                            return;
+
+                        try
+                        {
+                            await MetadataService!.TryHydrateCoverFromLocalMetadataAsync(item, ct).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            SLog.Warn($"Failed to hydrate local cover for '{item.Title}' in album '{album.Title}'.", ex);
+                        }
+                        finally
+                        {
+                            await Dispatcher.UIThread.InvokeAsync(() =>
+                            {
+                                if (ReferenceEquals(LoadedAlbum, album) && item.IsLoadingCover)
+                                    item.IsLoadingCover = false;
+                            }, DispatcherPriority.Background);
+                        }
+                    }).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        private static void MarkRomItemCoverLoading(MediaItem item, FolderMediaItem album)
+        {
+            item.CoverBitmap ??= album.CoverBitmap;
+            if (HasLocalCoverInMetadata(item.FileName))
+                item.LocalCoverPath = GetLocalMetadataCachePath(item.FileName);
+
+            if (item.CoverBitmap != null && !ReferenceEquals(item.CoverBitmap, album.CoverBitmap))
+            {
+                item.IsLoadingCover = false;
+                return;
+            }
+
+            if (!NeedsCoverLookup(item, album) && string.IsNullOrWhiteSpace(item.LocalCoverPath))
+            {
+                item.IsLoadingCover = false;
+                return;
+            }
+
+            item.IsLoadingCover = true;
+        }
+
+        private static void MarkRomItemCoverLoadComplete(MediaItem item, FolderMediaItem album)
+        {
+            item.IsLoadingCover = false;
+            if (!item.CoverFound &&
+                (item.CoverBitmap == null || ReferenceEquals(item.CoverBitmap, album.CoverBitmap)))
+                item.CoverBitmap = album.CoverBitmap;
+        }
+
+        private int GetCoverLoadFocusIndex(FolderMediaItem album)
+        {
+            if (!ReferenceEquals(album, LoadedAlbum) || CoverItems.Count == 0)
+                return 0;
+
+            int center = CompositionViewportState.VisibleCenterIndex;
+            if (center >= 0 && center < album.Children.Count)
+                return center;
+
+            int selected = GetRoundedSelectedIndex(SelectedIndex);
+            if (selected < 0 || selected >= CoverItems.Count)
+                selected = 0;
+
+            if (PointedIndex >= 0 && PointedIndex < CoverItems.Count)
+                selected = PointedIndex;
+
+            var focusItem = CoverItems[selected];
+            int childIndex = album.Children.IndexOf(focusItem);
+            return childIndex >= 0 ? childIndex : selected;
+        }
+
+        private List<(MediaItem Item, int Index)> GetNextCoverLoadBatch(FolderMediaItem album)
+        {
+            int center = GetCoverLoadFocusIndex(album);
+            var candidates = album.Children
+                .Select((item, index) => (item, index))
+                .Where(pair => NeedsCoverLookup(pair.item, album))
+                .OrderBy(pair => Math.Abs(pair.index - center))
+                .ToList();
+
+            if (candidates.Count == 0)
+                return [];
+
+            var inRadius = candidates
+                .Where(pair => Math.Abs(pair.index - center) <= VisibleCoverPriorityRadius)
+                .Take(AlbumCoverLoadBatchSize)
+                .ToList();
+
+            if (inRadius.Count >= AlbumCoverLoadBatchSize)
+                return inRadius;
+
+            var picked = new HashSet<MediaItem>(inRadius.Select(pair => pair.item));
+            foreach (var pair in candidates)
+            {
+                if (inRadius.Count >= AlbumCoverLoadBatchSize)
+                    break;
+                if (picked.Add(pair.item))
+                    inRadius.Add(pair);
+            }
+
+            return inRadius;
+        }
+
+        private async Task LoadSingleAlbumCoverAsync(
+            FolderMediaItem album,
+            MediaItem item,
+            CancellationToken cancellationToken)
+        {
+            var wasPreviouslyScanned = IsRomCoverAlreadyScanned(item.FileName);
+            try
+            {
+                await MetadataService!.TryPopulateCoverFromLocalMetadataOrGoogleAsync(item, album.Title, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to load cover for rom '{item.Title}' in album '{album.Title}'.", ex);
+            }
+            finally
+            {
+                if (item.IsLoadingCover)
+                {
+                    try
+                    {
+                        await Dispatcher.UIThread.InvokeAsync(
+                            () => MarkRomItemCoverLoadComplete(item, album),
+                            DispatcherPriority.SystemIdle);
+                    }
+                    catch (Exception ex)
+                    {
+                        SLog.Warn($"Failed to clear cover loading state for '{item.Title}'.", ex);
+                    }
+                }
+            }
+
+            if (!wasPreviouslyScanned)
+            {
+                try
+                {
+                    await Task.Delay(48, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+            }
+        }
+
+        private void BeginAlbumCoverScan()
+        {
+            if (_activeAlbumCoverScans++ == 0)
+                OnPropertyChanged(nameof(IsEmulationFolderAnimationPaused));
+        }
+
+        private void EndAlbumCoverScan()
+        {
+            if (_activeAlbumCoverScans > 0 && --_activeAlbumCoverScans == 0)
+                OnPropertyChanged(nameof(IsEmulationFolderAnimationPaused));
         }
 
         private async Task<PersistedEmulationState> LoadPersistedEmulationStateAsync()
@@ -795,7 +1064,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             return candidates
-                .Where(item => NeedsCoverLookup(item, album))
+                .Where(item => NeedsPreviewCoverHydration(item, album))
                 .ToList();
         }
 
@@ -922,7 +1191,12 @@ namespace AES_Lacrima.ViewModels
 
             try
             {
-                await Dispatcher.UIThread.InvokeAsync(() => album.IsLoadingCover = true, DispatcherPriority.Background);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    foreach (var item in itemsToLoad)
+                        MarkRomItemCoverLoading(item, album);
+                    album.IsLoadingCover = itemsToLoad.Count > 0;
+                }, DispatcherPriority.Background);
 
                 const int coverLookupDelayMs = 80;
                 foreach (var item in itemsToLoad)
@@ -932,11 +1206,19 @@ namespace AES_Lacrima.ViewModels
                     var wasPreviouslyScanned = IsRomCoverAlreadyScanned(item.FileName);
                     try
                     {
-                        await MetadataService.TryPopulateCoverFromLocalMetadataOrGoogleAsync(
-                                item,
-                                album.Title,
-                                cancellationToken)
-                            .ConfigureAwait(false);
+                        if (HasLocalCoverInMetadata(item.FileName))
+                        {
+                            await MetadataService.TryHydrateCoverFromLocalMetadataAsync(item, cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await MetadataService.TryPopulateCoverFromLocalMetadataOrGoogleAsync(
+                                    item,
+                                    album.Title,
+                                    cancellationToken)
+                                .ConfigureAwait(false);
+                        }
                     }
                     catch (OperationCanceledException)
                     {
@@ -945,6 +1227,21 @@ namespace AES_Lacrima.ViewModels
                     catch (Exception ex)
                     {
                         SLog.Warn($"Failed to load album preview cover for '{item.Title}'.", ex);
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            await Dispatcher.UIThread.InvokeAsync(() =>
+                            {
+                                MarkRomItemCoverLoadComplete(item, album);
+                                UpdatePreviewItems(album, rebuildStructure: false);
+                            }, DispatcherPriority.Background);
+                        }
+                        catch (Exception ex)
+                        {
+                            SLog.Warn($"Failed to clear preview cover loading state for '{item.Title}'.", ex);
+                        }
                     }
 
                     if (!wasPreviouslyScanned)
@@ -1255,10 +1552,33 @@ namespace AES_Lacrima.ViewModels
                    name.StartsWith("._", StringComparison.Ordinal);
         }
 
+        private void CancelAllAlbumCoverScans(FolderMediaItem? exceptAlbum = null)
+        {
+            foreach (var (album, cts) in _albumScanCtsMap.ToList())
+            {
+                if (exceptAlbum != null && ReferenceEquals(album, exceptAlbum))
+                    continue;
+
+                try
+                {
+                    cts.Cancel();
+                    cts.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn($"Failed to cancel emulation album cover scan for '{album.Title}'.", ex);
+                }
+
+                _albumScanCtsMap.Remove(album);
+            }
+        }
+
         private void QueueSelectedAlbumCoverScan(FolderMediaItem? album)
         {
             if (album == null || album.Children.Count == 0)
                 return;
+
+            CancelAllAlbumCoverScans(exceptAlbum: album);
 
             try
             {
@@ -1331,101 +1651,152 @@ namespace AES_Lacrima.ViewModels
 
         private async Task LoadAlbumCoversAsync(FolderMediaItem album, CancellationToken cancellationToken)
         {
-            // Kick off the ROM metadata pass in parallel so cover loading
-            // (which is what the user actually sees) is never blocked by
-            // expensive disc/ROM header inspection. The metadata pass runs
-            // relaxed in the background and updates titles as it goes.
-            var metadataTask = Task.Run(
-                () => ApplyAlbumRomMetadataAsync(album, cancellationToken),
-                cancellationToken);
-
+            BeginAlbumCoverScan();
             try
             {
-                if (MetadataService == null)
+                // Kick off the ROM metadata pass in parallel so cover loading
+                // (which is what the user actually sees) is never blocked by
+                // expensive disc/ROM header inspection. The metadata pass runs
+                // relaxed in the background and updates titles as it goes.
+                var metadataTask = Task.Run(async () =>
                 {
-                    await metadataTask.ConfigureAwait(false);
-                    return;
-                }
-
-                var itemsToLoad = await Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    var candidates = album.Children
-                        .Select((item, index) => (item, index))
-                        .Where(pair => NeedsCoverLookup(pair.item, album))
-                        .ToList();
-
-                    int centerIndex = GetRoundedSelectedIndex(SelectedIndex);
-                    return candidates
-                        .OrderBy(pair => Math.Abs(pair.index - centerIndex))
-                        .Select(pair => pair.item)
-                        .ToList();
-                }, DispatcherPriority.Background);
-                SLog.Debug($"Starting emulation cover scan for album '{album.Title}'. {itemsToLoad.Count} roms need lookup.");
-
-                const int coverLookupDelayMs = 80;
-                foreach (var item in itemsToLoad)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    var wasPreviouslyScanned = IsRomCoverAlreadyScanned(item.FileName);
-                    var populated = await MetadataService.TryPopulateCoverFromLocalMetadataOrGoogleAsync(item, album.Title, cancellationToken);
-                    SLog.Debug(
-                        populated
-                            ? $"Auto cover resolved for rom '{item.Title}' in album '{album.Title}'."
-                            : $"Auto cover not found for rom '{item.Title}' in album '{album.Title}'.");
-
-                    if (!wasPreviouslyScanned && !populated)
+                    try
                     {
-                        try
+                        await Task.Delay(1500, cancellationToken).ConfigureAwait(false);
+                        await ApplyAlbumRomMetadataAsync(album, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                }, cancellationToken);
+
+                try
+                {
+                    if (MetadataService == null)
+                    {
+                        await metadataTask.ConfigureAwait(false);
+                        return;
+                    }
+
+                    int pendingCount = album.Children.Count(item => NeedsCoverLookup(item, album));
+                    SLog.Debug($"Starting emulation cover scan for album '{album.Title}'. {pendingCount} roms need lookup.");
+
+                    const int uiYieldMs = 32;
+                    while (!cancellationToken.IsCancellationRequested && ReferenceEquals(LoadedAlbum, album))
+                    {
+                        while (CompositionViewportState.IsInMotion && !cancellationToken.IsCancellationRequested)
                         {
-                            await Task.Delay(coverLookupDelayMs, cancellationToken);
+                            try
+                            {
+                                await Task.Delay(uiYieldMs, cancellationToken).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                throw;
+                            }
                         }
-                        catch (OperationCanceledException)
-                        {
+
+                        var batch = GetNextCoverLoadBatch(album);
+                        if (batch.Count == 0)
                             break;
+
+                        foreach (var (item, _) in batch)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            if (!ReferenceEquals(LoadedAlbum, album))
+                                break;
+
+                            while (CompositionViewportState.IsInMotion && !cancellationToken.IsCancellationRequested)
+                            {
+                                try
+                                {
+                                    await Task.Delay(uiYieldMs, cancellationToken).ConfigureAwait(false);
+                                }
+                                catch (OperationCanceledException)
+                                {
+                                    throw;
+                                }
+                            }
+
+                            await LoadSingleAlbumCoverAsync(album, item, cancellationToken).ConfigureAwait(false);
+
+                            if (!ReferenceEquals(LoadedAlbum, album))
+                                break;
+
+                            try
+                            {
+                                await Task.Delay(uiYieldMs, cancellationToken).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                throw;
+                            }
                         }
+
+                        await Task.Yield();
+                    }
+
+                    // Update preview tiles once per album scan pass to avoid flickering from incremental updates.
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        UpdatePreviewItems(album as EmulationAlbumItem, rebuildStructure: false);
+                    }, DispatcherPriority.Input);
+                }
+                catch (OperationCanceledException)
+                {
+                    SLog.Debug($"Emulation cover scan canceled for album '{album.Title}'.");
+                    try
+                    {
+                        await Dispatcher.UIThread.InvokeAsync(() =>
+                        {
+                            foreach (var item in album.Children)
+                            {
+                                if (item.IsLoadingCover)
+                                    MarkRomItemCoverLoadComplete(item, album);
+                            }
+                        }, DispatcherPriority.Background);
+                    }
+                    catch (Exception ex)
+                    {
+                        SLog.Warn($"Failed to reset cover loading state after cancel for album '{album.Title}'.", ex);
                     }
                 }
-
-                // Update preview tiles once per album scan pass to avoid flickering from incremental updates.
-                await Dispatcher.UIThread.InvokeAsync(() =>
+                catch (Exception ex)
                 {
-                    UpdatePreviewItems(album as EmulationAlbumItem, rebuildStructure: false);
-                }, DispatcherPriority.Background);
-            }
-            catch (OperationCanceledException)
-            {
-                SLog.Debug($"Emulation cover scan canceled for album '{album.Title}'.");
-            }
-            catch (Exception ex)
-            {
-                SLog.Warn($"Emulation cover scan failed for album '{album.Title}'.", ex);
-            }
+                    SLog.Warn($"Emulation cover scan failed for album '{album.Title}'.", ex);
+                }
 
-            try
-            {
-                await metadataTask.ConfigureAwait(false);
+                try
+                {
+                    await metadataTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException logEx) { SLog.Warn("Non-critical error", logEx); }
+                catch (Exception ex)
+                {
+                    SLog.Warn($"Emulation ROM metadata scan failed for album '{album.Title}'.", ex);
+                }
             }
-            catch (OperationCanceledException logEx) { SLog.Warn("Non-critical error", logEx); }
-            catch (Exception ex)
+            finally
             {
-                SLog.Warn($"Emulation ROM metadata scan failed for album '{album.Title}'.", ex);
+                EndAlbumCoverScan();
             }
         }
 
-        private static MediaItem CreateRomItem(string filePath, FolderMediaItem album)
+        private MediaItem CreateRomItem(string filePath, FolderMediaItem album)
         {
             var title = TryReadCachedMetadataTitle(filePath);
             if (string.IsNullOrWhiteSpace(title))
                 title = SectionHandlers.RomTitleNormalizationUtil.GetNormalizedRomTitle(Path.GetFileNameWithoutExtension(filePath));
 
+            var hasLocalCover = HasLocalCoverInMetadata(filePath);
             var item = new MediaItem
             {
                 FileName = filePath,
                 Title = title,
                 Album = album.Title,
                 CoverBitmap = album.CoverBitmap,
-                LocalCoverPath = HasLocalCoverInMetadata(filePath) ? GetLocalMetadataCachePath(filePath) : null
+                LocalCoverPath = hasLocalCover ? GetLocalMetadataCachePath(filePath) : null
             };
 
             if (IsRomCoverAlreadyScanned(filePath))
@@ -1599,6 +1970,8 @@ namespace AES_Lacrima.ViewModels
                 Genre = source.Genre,
                 Comment = source.Comment,
                 LocalCoverPath = source.LocalCoverPath,
+                CoverFound = source.CoverFound && source.CoverBitmap != null && previewBitmap != null &&
+                             !ReferenceEquals(source.CoverBitmap, previewBitmap),
                 VideoUrl = source.VideoUrl,
                 CoverBitmap = previewBitmap
             };
@@ -1694,22 +2067,20 @@ namespace AES_Lacrima.ViewModels
 
         private static bool NeedsCoverLookup(MediaItem item, FolderMediaItem album)
         {
-            if (item.CoverFound)
-                return false;
-
-            var isPlaceholderCover = item.CoverBitmap == null ||
-                                     ReferenceEquals(item.CoverBitmap, album.CoverBitmap);
-            if (!isPlaceholderCover)
+            if (item.CoverBitmap != null && !ReferenceEquals(item.CoverBitmap, album.CoverBitmap))
                 return false;
 
             if (HasLocalCoverInMetadata(item.FileName))
-                return true;
+                return false;
 
             if (IsOnlineCoverLookupExhausted(item.FileName))
                 return false;
 
             return true;
         }
+
+        private static bool NeedsPreviewCoverHydration(MediaItem item, FolderMediaItem album) =>
+            item.CoverBitmap == null || ReferenceEquals(item.CoverBitmap, album.CoverBitmap);
 
         private static bool IsRomCoverAlreadyScanned(string? filePath)
         {

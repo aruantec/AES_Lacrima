@@ -29,6 +29,7 @@ internal record CardGridDropTargetMessage(int Index);
 internal record CardGridDragCancelMessage();
 internal record CardGridDragCommitMessage(int TargetIndex);
 internal record CardGridDragFinalizeMessage();
+internal record CardGridContentLoadingMessage(bool IsLoading);
 
 public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 {
@@ -96,6 +97,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private string[] _titles = Array.Empty<string>();
     private HashSet<int> _loadingIndices = new();
     private float _spinnerRotation;
+    private bool _isContentLoading;
 
     private readonly SKPaint _cardPaint = new() { IsAntialias = true, FilterQuality = SKFilterQuality.Medium };
     private readonly SKPaint _titlePaint = CreateTitlePaint(SKColors.White);
@@ -175,11 +177,13 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                     }
                     else if (update.IsLoading)
                         _loadingIndices.Add(update.Index);
-                    else
+                    else if (update.ClearImage)
                     {
                         _images[update.Index] = null;
                         _loadingIndices.Remove(update.Index);
                     }
+                    else
+                        _loadingIndices.Remove(update.Index);
 
                     if (oldImg != null && !ReferenceEquals(oldImg, update.Image))
                         RemoveImageCaches(oldImg);
@@ -274,11 +278,20 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 break;
             case PauseLoadingSpinnerAnimationMessage pause:
                 _pauseLoadingSpinnerAnimation = pause.IsPaused;
-                if (!_pauseLoadingSpinnerAnimation && _loadingIndices.Count > 0)
+                if (!_pauseLoadingSpinnerAnimation && (_loadingIndices.Count > 0 || _isContentLoading))
                 {
                     if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
                     RegisterForNextAnimationFrameUpdate();
                 }
+                break;
+            case CardGridContentLoadingMessage contentLoading:
+                _isContentLoading = contentLoading.IsLoading;
+                if (_isContentLoading && !_pauseLoadingSpinnerAnimation)
+                {
+                    if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
+                    RegisterForNextAnimationFrameUpdate();
+                }
+                Invalidate();
                 break;
             case CardGridBackgroundColorMessage background:
                 _backgroundColor = background.Color;
@@ -506,7 +519,8 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                            marqueeAnimating ||
                            hoverAnimating ||
                            dragAnimating;
-        bool animateSpinners = !_pauseLoadingSpinnerAnimation && _loadingIndices.Count > 0;
+        bool animateSpinners = !_pauseLoadingSpinnerAnimation &&
+                               (_loadingIndices.Count > 0 || (_isContentLoading && _images.Count == 0));
 
         if (isAnimating || animateSpinners)
         {
@@ -537,7 +551,16 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         canvas.Clear(_backgroundColor);
 
         if (_images.Count == 0 || _visualSize.X <= 0 || _visualSize.Y <= 0)
+        {
+            if (_isContentLoading && _visualSize.X > 0 && _visualSize.Y > 0)
+            {
+                float loadingOpacity = Math.Clamp(_currentGlobalOpacity, 0f, 1f);
+                if (loadingOpacity > 0f)
+                    DrawSpinner(canvas, _visualSize.X * 0.5f, _visualSize.Y * 0.42f, loadingOpacity);
+            }
+
             return;
+        }
 
         float g = Math.Clamp(_currentGlobalOpacity, 0f, 1f);
         if (g <= 0f)

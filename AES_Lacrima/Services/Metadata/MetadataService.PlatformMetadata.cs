@@ -1280,6 +1280,12 @@ namespace AES_Lacrima.Services
                 return (null, null);
             }
 
+            if (AutoCoverImageHeuristics.ShouldSkipSlowDownloadUrl(url))
+            {
+                SLog.Debug($"Skipping auto cover candidate with slow-download URL pattern: {url}");
+                return (null, null);
+            }
+
             using var downloadTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             downloadTimeout.CancelAfter(TimeSpan.FromSeconds(AutoCoverDownloadTimeoutSeconds));
 
@@ -1295,7 +1301,32 @@ namespace AES_Lacrima.Services
                 if (!response.IsSuccessStatusCode)
                     return (null, null);
 
-                var bytes = await response.Content.ReadAsByteArrayAsync(downloadTimeout.Token).ConfigureAwait(false);
+                if (response.Content.Headers.ContentLength is long contentLength &&
+                    contentLength > MaxAutoCoverDownloadBytes)
+                {
+                    SLog.Debug($"Skipping auto cover candidate larger than {MaxAutoCoverDownloadBytes} bytes: {url}");
+                    return (null, null);
+                }
+
+                await using var stream = await response.Content.ReadAsStreamAsync(downloadTimeout.Token).ConfigureAwait(false);
+                using var buffer = new MemoryStream();
+                var chunk = new byte[8192];
+                while (true)
+                {
+                    int read = await stream.ReadAsync(chunk.AsMemory(0, chunk.Length), downloadTimeout.Token).ConfigureAwait(false);
+                    if (read == 0)
+                        break;
+
+                    if (buffer.Length + read > MaxAutoCoverDownloadBytes)
+                    {
+                        SLog.Debug($"Skipping auto cover candidate that exceeded download budget: {url}");
+                        return (null, null);
+                    }
+
+                    buffer.Write(chunk, 0, read);
+                }
+
+                var bytes = buffer.ToArray();
                 if (bytes.Length == 0)
                     return (null, null);
 
@@ -1431,27 +1462,27 @@ namespace AES_Lacrima.Services
             cancellationToken.ThrowIfCancellationRequested();
 
             bytes = CoverImageBarCropHelper.TryCropBytes(bytes, item.FileName);
+            var resolvedCachePath = cachePath ?? GetMetadataCachePath(item.FileName);
 
-            Bitmap bitmap;
-            using (var stream = new MemoryStream(bytes, writable: false))
+            var bitmap = await Task.Run(() =>
             {
+                using var stream = new MemoryStream(bytes, writable: false);
                 try
                 {
-                    bitmap = Bitmap.DecodeToWidth(stream, NormalizedCoverMaxDimension);
+                    return Bitmap.DecodeToWidth(stream, NormalizedCoverMaxDimension);
                 }
                 catch
                 {
                     stream.Position = 0;
-                    bitmap = new Bitmap(stream);
+                    return new Bitmap(stream);
                 }
-            }
+            }, cancellationToken).ConfigureAwait(false);
 
-            var resolvedCachePath = cachePath ?? GetMetadataCachePath(item.FileName);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                item.CoverBitmap = bitmap;
-                item.CoverFound = true;
                 item.LocalCoverPath = resolvedCachePath;
+                item.CoverFound = true;
+                item.CoverBitmap = bitmap;
                 item.SaveCoverBitmapAction = saveItem =>
                 {
                     _ = SaveCoverToMetadataCacheAsync(saveItem, bytes, mimeType);

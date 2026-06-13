@@ -10,6 +10,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Text.Json.Nodes;
 
@@ -123,6 +124,16 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         private MusicViewModel? _musicViewModel;
 
+        [AutoResolve]
+        [ObservableProperty]
+        private EmulationViewModel? _emulationViewModel;
+
+        /// <summary>
+        /// View-models whose views are pre-measured by <see cref="AES_Controls.Navigation.CachedContentPresenter"/>.
+        /// </summary>
+        [ObservableProperty]
+        private List<IViewModelBase>? _warmedViewModels;
+
         /// <summary>
         /// Gets or sets the collection of spectrum data points.
         /// </summary>
@@ -180,6 +191,18 @@ namespace AES_Lacrima.ViewModels
             {
                 SubscribeToMpvManager(SettingsViewModel.MpvManager);
             }
+
+            WarmedViewModels = BuildWarmedViewModels();
+        }
+
+        private List<IViewModelBase> BuildWarmedViewModels()
+        {
+            var warmed = new List<IViewModelBase>(2);
+            if (MusicViewModel != null)
+                warmed.Add(MusicViewModel);
+            if (EmulationViewModel != null)
+                warmed.Add(EmulationViewModel);
+            return warmed;
         }
 
         private void ApplyDefaultWindowSizeAndScale()

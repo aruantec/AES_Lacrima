@@ -105,6 +105,11 @@ internal static class AutoCoverImageHeuristics
         if (lower.Contains("wallpaper", StringComparison.Ordinal) || lower.Contains("screenshot", StringComparison.Ordinal))
             score -= 20;
 
+        if (lower.Contains("4k", StringComparison.Ordinal) || lower.Contains("uhd", StringComparison.Ordinal) ||
+            lower.Contains("3840", StringComparison.Ordinal) || lower.Contains("2160", StringComparison.Ordinal) ||
+            lower.Contains("raw", StringComparison.Ordinal) || lower.Contains("original/full", StringComparison.Ordinal))
+            score -= 35;
+
         if (lower.EndsWith(".png", StringComparison.Ordinal) || lower.EndsWith(".webp", StringComparison.Ordinal))
             score += 8;
 
@@ -123,5 +128,24 @@ internal static class AutoCoverImageHeuristics
         }
 
         return score;
+    }
+
+    public static bool ShouldSkipSlowDownloadUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return true;
+
+        var lower = url.ToLowerInvariant();
+        if (lower.Contains("4k", StringComparison.Ordinal) || lower.Contains("uhd", StringComparison.Ordinal) ||
+            lower.Contains("3840", StringComparison.Ordinal) || lower.Contains("2160", StringComparison.Ordinal) ||
+            lower.Contains("wallpaper", StringComparison.Ordinal) || lower.Contains("/raw/", StringComparison.Ordinal) ||
+            lower.Contains("original/full", StringComparison.Ordinal))
+            return true;
+
+        if (lower.Contains("width=3840", StringComparison.Ordinal) || lower.Contains("width=2560", StringComparison.Ordinal) ||
+            lower.Contains("w=3840", StringComparison.Ordinal) || lower.Contains("w=2560", StringComparison.Ordinal))
+            return true;
+
+        return false;
     }
 }

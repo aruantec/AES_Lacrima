@@ -552,6 +552,25 @@ namespace AES_Lacrima.ViewModels
 
         public bool IsCarouselPositionSliderVisible => CoverItems.Count > 1;
 
+        /// <summary>
+        /// Item driving carousel title overlay labels; follows live scroll preview when set.
+        /// </summary>
+        public MediaItem? CarouselOverlayItem
+        {
+            get
+            {
+                double index = CarouselSliderPreview ?? SelectedIndex;
+                int roundedIndex = GetRoundedSelectedIndex(index);
+                if (roundedIndex >= 0 && roundedIndex < CoverItems.Count)
+                    return CoverItems[roundedIndex];
+
+                return HighlightedItem;
+            }
+        }
+
+        protected void NotifyCarouselOverlayItemChanged()
+            => OnPropertyChanged(nameof(CarouselOverlayItem));
+
         partial void OnCoverItemsChanged(AvaloniaList<MediaItem>? oldValue, AvaloniaList<MediaItem> newValue)
         {
             if (oldValue != null)
@@ -568,6 +587,7 @@ namespace AES_Lacrima.ViewModels
         {
             OnPropertyChanged(nameof(CarouselIndexMaximum));
             OnPropertyChanged(nameof(IsCarouselPositionSliderVisible));
+            NotifyCarouselOverlayItemChanged();
         }
 
         partial void OnSpectrumGradientBrushChanged(LinearGradientBrush? value)
