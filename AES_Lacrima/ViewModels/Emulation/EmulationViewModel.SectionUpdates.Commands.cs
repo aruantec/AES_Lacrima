@@ -854,12 +854,14 @@ namespace AES_Lacrima.ViewModels
                     CurrentSectionDolphinDownloadProgress = 100;
                     ApplyDolphinUpdateState(state);
 
-                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
-                        !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath))
                     {
-                        handler.LauncherPath = state.ResolvedLauncherPath;
-                        SettingsViewModel?.SaveSettings();
+                        DolphinEmulatorUpdateService.ApplyResolvedLauncher(handler, state.ResolvedLauncherPath);
+                        SyncCurrentSectionFlatpakSelection();
+                        RefreshCurrentSectionFlatpakApplications(forceRefresh: true);
                     }
+
+                    SettingsViewModel?.SaveSettings();
                 });
             }
             finally

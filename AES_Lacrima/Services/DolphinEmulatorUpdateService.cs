@@ -7,6 +7,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -14,6 +15,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Emulation.EmulationHandlers;
+using AES_Emulation.Linux;
 using log4net;
 
 using AES_Core.Logging;
@@ -38,11 +41,19 @@ public partial class DolphinEmulatorUpdateService
     private const string EmulationKingDolphinPageEndpoint = "https://emulationking.com/nintendo/gamecube/emulator/dolphin";
     private const string EmucrDolphinFeedEndpoint = "https://www.emucr.com/feeds/posts/default/-/Dolphin?alt=json&max-results=30";
     private const string ReleasesApiEndpoint = "https://api.github.com/repos/dolphin-emu/dolphin/releases?per_page=100";
-    private const string SelectorBetaEndpoint = "https://updates.dolphin-emu.org/selectors/beta?os=win";
-    private const string SelectorDevEndpoint = "https://updates.dolphin-emu.org/selectors/dev?os=win";
+    private const string SelectorBetaTrack = "beta";
+    private const string SelectorDevTrack = "dev";
     private const string CacheKey = "github:dolphin-emu/dolphin";
     private const string CacheFileName = "dolphin-releases-cache.json";
     private const string InstalledVersionMarkerFileName = "dolphin_version.txt";
+    private const string FlatpakApplicationId = "org.DolphinEmu.dolphin-emu";
+    private const string FlatpakReleasesRemote = "dolphin";
+    private const string FlatpakDevRemote = "dolphin-dev";
+    private const string FlatpakReleasesRepoUrl = "https://flatpak.dolphin-emu.org/releases.flatpakrepo";
+    private const string FlatpakDevRepoUrl = "https://flatpak.dolphin-emu.org/dev.flatpakrepo";
+    private const string FlathubRemote = "flathub";
+    private const string FlathubRepoUrl = "https://dl.flathub.org/repo/flathub.flatpakrepo";
+    private const string FlatpakResolvedLauncherPrefix = "flatpak:";
 
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<DolphinEmulatorUpdateService>();
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(5) };
@@ -68,6 +79,22 @@ public partial class DolphinEmulatorUpdateService
     private sealed record EmucrReleaseStub(string Tag, DateTimeOffset? PublishedAt, string PostUrl);
 
     private sealed record ReleaseAsset(string Name, string DownloadUrl);
+
+    public static void ApplyResolvedLauncher(IEmulatorHandler handler, string? resolvedLauncherPath)
+    {
+        if (handler == null || string.IsNullOrWhiteSpace(resolvedLauncherPath))
+            return;
+
+        if (resolvedLauncherPath.StartsWith(FlatpakResolvedLauncherPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var appId = resolvedLauncherPath[FlatpakResolvedLauncherPrefix.Length..].Trim();
+            if (!string.IsNullOrWhiteSpace(appId))
+                handler.FlatpakAppId = appId;
+            return;
+        }
+
+        handler.LauncherPath = resolvedLauncherPath;
+    }
 
     public async Task<DolphinUpdateState> GetUpdateInfoAsync(
         string sectionKey,
@@ -139,6 +166,16 @@ public partial class DolphinEmulatorUpdateService
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (OperatingSystem.IsLinux())
+            {
+                return await DownloadOrUpdateLinuxFlatpakAsync(
+                    sectionKey,
+                    sectionTitle,
+                    launcherPath,
+                    includePrereleases,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             var (emulatorDirectory, updateDirectory) = EnsureDirectories(sectionKey, sectionTitle);
             var releases = await GetReleasesAsync(includePrereleases, forceRefresh: true, cancellationToken).ConfigureAwait(false);
             if (releases.Count == 0)
@@ -177,6 +214,11 @@ public partial class DolphinEmulatorUpdateService
             {
                 var destinationPath = Path.Combine(emulatorDirectory, Path.GetFileName(downloadedAssetPath));
                 File.Copy(downloadedAssetPath, destinationPath, overwrite: true);
+                if (OperatingSystem.IsLinux() &&
+                    destinationPath.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                {
+                    TrySetUnixExecutable(destinationPath);
+                }
             }
 
             PrepareUpdateDirectory(updateDirectory);
@@ -244,18 +286,39 @@ public partial class DolphinEmulatorUpdateService
 
     private async Task<IReadOnlyList<ReleaseInfo>> GetReleasesAsync(bool includePrereleases, bool forceRefresh, CancellationToken cancellationToken)
     {
-        var emulationKingReleases = await GetEmulationKingReleasesAsync(cancellationToken).ConfigureAwait(false);
-        if (emulationKingReleases.Count > 0)
-            return emulationKingReleases;
+        if (OperatingSystem.IsLinux())
+        {
+            var flatpakReleases = await GetFlatpakReleasesAsync(includePrereleases, cancellationToken).ConfigureAwait(false);
+            if (flatpakReleases.Count > 0)
+                return flatpakReleases;
 
-        var emucrReleases = await GetEmucrReleasesAsync(cancellationToken).ConfigureAwait(false);
-        if (emucrReleases.Count > 0)
-            return emucrReleases;
+            var selectorReleases = await GetSelectorReleasesAsync(includePrereleases, cancellationToken).ConfigureAwait(false);
+            if (selectorReleases.Count > 0)
+                return selectorReleases;
 
-        var selectorReleases = await GetSelectorReleasesAsync(includePrereleases, cancellationToken).ConfigureAwait(false);
-        if (selectorReleases.Count > 0)
-            return selectorReleases;
+            return await GetGitHubReleasesAsync(includePrereleases, forceRefresh, cancellationToken).ConfigureAwait(false);
+        }
 
+        if (OperatingSystem.IsWindows())
+        {
+            var emulationKingReleases = await GetEmulationKingReleasesAsync(cancellationToken).ConfigureAwait(false);
+            if (emulationKingReleases.Count > 0)
+                return emulationKingReleases;
+
+            var emucrReleases = await GetEmucrReleasesAsync(cancellationToken).ConfigureAwait(false);
+            if (emucrReleases.Count > 0)
+                return emucrReleases;
+        }
+
+        var platformSelectorReleases = await GetSelectorReleasesAsync(includePrereleases, cancellationToken).ConfigureAwait(false);
+        if (platformSelectorReleases.Count > 0)
+            return platformSelectorReleases;
+
+        return await GetGitHubReleasesAsync(includePrereleases, forceRefresh, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<IReadOnlyList<ReleaseInfo>> GetGitHubReleasesAsync(bool includePrereleases, bool forceRefresh, CancellationToken cancellationToken)
+    {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
         var cache = LoadCache(cachePath) ?? new ReleaseCache();
         if (!forceRefresh &&
@@ -555,12 +618,12 @@ public partial class DolphinEmulatorUpdateService
         try
         {
             var releases = new List<ReleaseInfo>();
-            var beta = await FetchSelectorReleasesAsync(SelectorBetaEndpoint, isPrerelease: false, cancellationToken).ConfigureAwait(false);
+            var beta = await FetchSelectorReleasesAsync(BuildSelectorEndpoint(SelectorBetaTrack), isPrerelease: false, cancellationToken).ConfigureAwait(false);
             releases.AddRange(beta);
 
             if (includePrereleases)
             {
-                var dev = await FetchSelectorReleasesAsync(SelectorDevEndpoint, isPrerelease: true, cancellationToken).ConfigureAwait(false);
+                var dev = await FetchSelectorReleasesAsync(BuildSelectorEndpoint(SelectorDevTrack), isPrerelease: true, cancellationToken).ConfigureAwait(false);
                 releases.AddRange(dev);
             }
 
@@ -826,17 +889,15 @@ public partial class DolphinEmulatorUpdateService
             return EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
                        assets,
                        static asset => asset.Name,
-                       static asset =>
-                           asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
-                           asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                       static asset => IsDolphinLinuxAssetName(asset.Name) &&
+                                       asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
                    ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
                        assets,
                        static asset => asset.Name,
-                       static asset =>
-                           asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
-                           (asset.Name.EndsWith(".tar.xz", StringComparison.OrdinalIgnoreCase) ||
-                            asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)))
-                   ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+                       static asset => IsDolphinLinuxAssetName(asset.Name) &&
+                                       (asset.Name.EndsWith(".tar.xz", StringComparison.OrdinalIgnoreCase) ||
+                                        asset.Name.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase) ||
+                                        asset.Name.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase)));
         }
 
         if (OperatingSystem.IsMacOS())
@@ -1017,6 +1078,9 @@ public partial class DolphinEmulatorUpdateService
 
     private static string? ResolveLauncherPath(string? launcherPath, string emulatorDirectory)
     {
+        if (OperatingSystem.IsLinux() && IsFlatpakAppInstalled(FlatpakApplicationId))
+            return $"{FlatpakResolvedLauncherPrefix}{FlatpakApplicationId}";
+
         if (OperatingSystem.IsWindows())
         {
             var prioritized = new[] { "Dolphin.exe", "dolphin.exe", "DolphinQt2.exe", "dolphinqt2.exe", "DolphinWx.exe", "dolphinwx.exe", "Dolphin-emu.exe", "dolphin-emu.exe" };
@@ -1060,6 +1124,13 @@ public partial class DolphinEmulatorUpdateService
 
     private static string? GetInstalledVersion(string emulatorDirectory, string? launcherPath)
     {
+        if (OperatingSystem.IsLinux())
+        {
+            var flatpakVersion = TryGetFlatpakInstalledVersion(FlatpakApplicationId);
+            if (!string.IsNullOrWhiteSpace(flatpakVersion))
+                return flatpakVersion;
+        }
+
         var markerPath = Path.Combine(emulatorDirectory, InstalledVersionMarkerFileName);
         var markerVersion = ReadInstalledVersionMarker(markerPath);
         if (!string.IsNullOrWhiteSpace(markerVersion))
@@ -1125,8 +1196,11 @@ public partial class DolphinEmulatorUpdateService
 
     private static bool IsUpdateAvailable(string? currentVersion, string? latestVersion)
     {
-        if (string.IsNullOrWhiteSpace(currentVersion) || string.IsNullOrWhiteSpace(latestVersion))
+        if (string.IsNullOrWhiteSpace(latestVersion))
             return false;
+
+        if (string.IsNullOrWhiteSpace(currentVersion))
+            return true;
 
         var compareResult = CompareVersionNumbers(currentVersion, latestVersion);
         if (compareResult.HasValue)
@@ -1206,6 +1280,385 @@ public partial class DolphinEmulatorUpdateService
             return null;
 
         return value.Trim().TrimStart('v', 'V');
+    }
+
+    private async Task<DolphinUpdateState> DownloadOrUpdateLinuxFlatpakAsync(
+        string sectionKey,
+        string sectionTitle,
+        string? launcherPath,
+        bool includePrereleases,
+        CancellationToken cancellationToken)
+    {
+        var (emulatorDirectory, updateDirectory) = EnsureDirectories(sectionKey, sectionTitle);
+        var flatpakPath = LinuxFlatpakApplicationService.GetFlatpakExecutable();
+        if (flatpakPath == null)
+        {
+            var missingFlatpakLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
+            return new DolphinUpdateState(
+                Repository,
+                GetInstalledVersion(emulatorDirectory, missingFlatpakLauncherPath),
+                null,
+                false,
+                Array.Empty<string>(),
+                "Flatpak is required to install Dolphin on Linux. Install flatpak, then retry.",
+                emulatorDirectory,
+                updateDirectory,
+                missingFlatpakLauncherPath);
+        }
+
+        var remote = includePrereleases ? FlatpakDevRemote : FlatpakReleasesRemote;
+        var repoUrl = includePrereleases ? FlatpakDevRepoUrl : FlatpakReleasesRepoUrl;
+
+        try
+        {
+            await EnsureFlatpakRemoteAsync(flatpakPath, FlathubRemote, FlathubRepoUrl, cancellationToken).ConfigureAwait(false);
+            await EnsureFlatpakRemoteAsync(flatpakPath, remote, repoUrl, cancellationToken).ConfigureAwait(false);
+
+            if (IsFlatpakAppInstalled(FlatpakApplicationId))
+            {
+                await RunFlatpakAsync(
+                    flatpakPath,
+                    ["update", "--user", "-y", "--noninteractive", FlatpakApplicationId],
+                    cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await RunFlatpakAsync(
+                    flatpakPath,
+                    ["install", "--user", "-y", "--noninteractive", remote, FlatpakApplicationId],
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            var installedVersion = TryGetFlatpakInstalledVersion(FlatpakApplicationId);
+            if (!string.IsNullOrWhiteSpace(installedVersion))
+                SaveInstalledVersionMarker(emulatorDirectory, installedVersion);
+
+            LinuxFlatpakApplicationService.InvalidateCache();
+
+            var resolvedLauncherPath = $"{FlatpakResolvedLauncherPrefix}{FlatpakApplicationId}";
+            var releases = await GetFlatpakReleasesAsync(includePrereleases, cancellationToken).ConfigureAwait(false);
+            var versions = releases
+                .Select(static r => r.Tag)
+                .Where(static v => !string.IsNullOrWhiteSpace(v))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(12)
+                .ToList();
+            var latest = versions.FirstOrDefault() ?? installedVersion;
+            var currentVersion = GetInstalledVersion(emulatorDirectory, resolvedLauncherPath);
+            var updateAvailable = IsUpdateAvailable(currentVersion, latest);
+
+            return new DolphinUpdateState(
+                Repository,
+                currentVersion,
+                latest,
+                updateAvailable,
+                versions,
+                string.IsNullOrWhiteSpace(installedVersion)
+                    ? "Dolphin Flatpak install finished, but the installed version could not be detected."
+                    : $"Dolphin {installedVersion} installed via Flatpak ({remote}).",
+                emulatorDirectory,
+                updateDirectory,
+                resolvedLauncherPath);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Dolphin Flatpak install/update failed.", ex);
+            var resolvedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
+            return new DolphinUpdateState(
+                Repository,
+                GetInstalledVersion(emulatorDirectory, resolvedLauncherPath),
+                null,
+                false,
+                Array.Empty<string>(),
+                $"Dolphin Flatpak install/update failed: {ex.Message}",
+                emulatorDirectory,
+                updateDirectory,
+                resolvedLauncherPath);
+        }
+    }
+
+    private async Task<IReadOnlyList<ReleaseInfo>> GetFlatpakReleasesAsync(bool includePrereleases, CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+            return Array.Empty<ReleaseInfo>();
+
+        var flatpakPath = LinuxFlatpakApplicationService.GetFlatpakExecutable();
+        if (flatpakPath == null)
+            return Array.Empty<ReleaseInfo>();
+
+        var releases = new List<ReleaseInfo>();
+
+        try
+        {
+            await EnsureFlatpakRemoteAsync(flatpakPath, FlathubRemote, FlathubRepoUrl, cancellationToken)
+                .ConfigureAwait(false);
+            await EnsureFlatpakRemoteAsync(flatpakPath, FlatpakReleasesRemote, FlatpakReleasesRepoUrl, cancellationToken)
+                .ConfigureAwait(false);
+            var releaseVersion = await GetFlatpakRemoteVersionAsync(flatpakPath, FlatpakReleasesRemote, cancellationToken)
+                .ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(releaseVersion))
+            {
+                releases.Add(new ReleaseInfo(
+                    releaseVersion,
+                    false,
+                    null,
+                    Array.Empty<ReleaseAsset>()));
+            }
+            else
+            {
+                releases.Add(new ReleaseInfo("stable", false, null, Array.Empty<ReleaseAsset>()));
+            }
+
+            if (includePrereleases)
+            {
+                await EnsureFlatpakRemoteAsync(flatpakPath, FlatpakDevRemote, FlatpakDevRepoUrl, cancellationToken)
+                    .ConfigureAwait(false);
+                var devVersion = await GetFlatpakRemoteVersionAsync(flatpakPath, FlatpakDevRemote, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(devVersion))
+                {
+                    releases.Add(new ReleaseInfo(
+                        devVersion,
+                        true,
+                        null,
+                        Array.Empty<ReleaseAsset>()));
+                }
+            }
+
+            var installedVersion = TryGetFlatpakInstalledVersion(FlatpakApplicationId);
+            if (!string.IsNullOrWhiteSpace(installedVersion) &&
+                releases.All(release => !VersionsEquivalent(release.Tag, installedVersion)))
+            {
+                releases.Insert(0, new ReleaseInfo(
+                    installedVersion,
+                    includePrereleases,
+                    null,
+                    Array.Empty<ReleaseAsset>()));
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to query Dolphin Flatpak releases.", ex);
+        }
+
+        return releases
+            .GroupBy(static r => r.Tag, StringComparer.OrdinalIgnoreCase)
+            .Select(static g => g.First())
+            .OrderByDescending(static r => r.IsPrerelease)
+            .ThenByDescending(static r => r.Tag, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static async Task EnsureFlatpakRemoteAsync(
+        string flatpakPath,
+        string remoteName,
+        string repoUrl,
+        CancellationToken cancellationToken)
+    {
+        await RunFlatpakAsync(
+            flatpakPath,
+            ["remote-add", "--if-not-exists", "--user", remoteName, repoUrl],
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static string? TryParseFlatpakInfoVersion(string? infoOutput)
+    {
+        if (string.IsNullOrWhiteSpace(infoOutput))
+            return null;
+
+        foreach (var line in infoOutput.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith("Version:", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var version = trimmed["Version:".Length..].Trim();
+            return string.IsNullOrWhiteSpace(version) ? null : version;
+        }
+
+        return null;
+    }
+
+    internal static string? TryParseFlatpakRemoteVersion(string? remoteInfoOutput)
+    {
+        if (string.IsNullOrWhiteSpace(remoteInfoOutput))
+            return null;
+
+        var version = TryParseFlatpakInfoVersion(remoteInfoOutput);
+        if (!string.IsNullOrWhiteSpace(version))
+            return version;
+
+        foreach (var line in remoteInfoOutput.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("Branch:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("Zweig:", StringComparison.OrdinalIgnoreCase))
+            {
+                var branch = trimmed[(trimmed.IndexOf(':') + 1)..].Trim();
+                if (!string.IsNullOrWhiteSpace(branch))
+                    return branch;
+            }
+        }
+
+        foreach (var line in remoteInfoOutput.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith("Commit:", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var commit = trimmed["Commit:".Length..].Trim();
+            if (commit.Length >= 7)
+                return commit[..7];
+        }
+
+        return null;
+    }
+
+    private static bool FlatpakInfoIndicatesInstalled(string? output, string? error)
+    {
+        var combined = $"{output}\n{error}";
+        return !combined.Contains("not installed", StringComparison.OrdinalIgnoreCase) &&
+               !combined.Contains("nicht installiert", StringComparison.OrdinalIgnoreCase) &&
+               !combined.Contains("No ref specs", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<string?> GetFlatpakRemoteVersionAsync(
+        string flatpakPath,
+        string remoteName,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunFlatpakAsync(
+            flatpakPath,
+            ["remote-info", "--user", remoteName, FlatpakApplicationId],
+            cancellationToken).ConfigureAwait(false);
+
+        return TryParseFlatpakRemoteVersion(result.Output);
+    }
+
+    private static bool IsFlatpakAppInstalled(string applicationId)
+    {
+        var flatpakPath = LinuxFlatpakApplicationService.GetFlatpakExecutable();
+        if (flatpakPath == null)
+            return false;
+
+        try
+        {
+            var result = RunFlatpakAsync(
+                flatpakPath,
+                ["info", "--user", applicationId],
+                CancellationToken.None).GetAwaiter().GetResult();
+            return result.Success && FlatpakInfoIndicatesInstalled(result.Output, result.Error);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? TryGetFlatpakInstalledVersion(string applicationId)
+    {
+        var flatpakPath = LinuxFlatpakApplicationService.GetFlatpakExecutable();
+        if (flatpakPath == null)
+            return null;
+
+        try
+        {
+            var result = RunFlatpakAsync(
+                flatpakPath,
+                ["info", "--user", applicationId],
+                CancellationToken.None).GetAwaiter().GetResult();
+            if (!result.Success || !FlatpakInfoIndicatesInstalled(result.Output, result.Error))
+                return null;
+
+            return TryParseFlatpakInfoVersion(result.Output);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static async Task<(bool Success, string Output, string Error)> RunFlatpakAsync(
+        string flatpakPath,
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = flatpakPath,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        using var process = Process.Start(startInfo);
+        if (process == null)
+            throw new InvalidOperationException("Failed to start flatpak.");
+
+        var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+
+        var output = await outputTask.ConfigureAwait(false);
+        var error = await errorTask.ConfigureAwait(false);
+        if (process.ExitCode != 0)
+        {
+            var details = string.Join(
+                Environment.NewLine,
+                new[] { error.Trim(), output.Trim() }.Where(static value => !string.IsNullOrWhiteSpace(value)));
+            throw new InvalidOperationException(
+                string.IsNullOrWhiteSpace(details) ? "flatpak command failed." : details);
+        }
+
+        return (true, output, error);
+    }
+
+    internal static string BuildSelectorEndpoint(string track)
+        => $"https://updates.dolphin-emu.org/selectors/{track}?os={ResolveSelectorOs()}";
+
+    internal static string ResolveSelectorOs()
+    {
+        if (OperatingSystem.IsLinux())
+            return "lnx";
+        if (OperatingSystem.IsMacOS())
+            return "macos";
+        return "win";
+    }
+
+    internal static bool IsDolphinLinuxAssetName(string assetName)
+    {
+        if (string.IsNullOrWhiteSpace(assetName) ||
+            EmulatorReleaseAssetSelection.IsNonLinuxDesktopReleaseAssetName(assetName))
+        {
+            return false;
+        }
+
+        return assetName.Contains("linux", StringComparison.OrdinalIgnoreCase) ||
+               assetName.Contains("lnx", StringComparison.OrdinalIgnoreCase) ||
+               assetName.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) ||
+               assetName.EndsWith(".tar.xz", StringComparison.OrdinalIgnoreCase) ||
+               assetName.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase) ||
+               assetName.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void TrySetUnixExecutable(string path)
+    {
+        if (!OperatingSystem.IsLinux() || !File.Exists(path))
+            return;
+
+        try
+        {
+            if (OperatingSystem.IsLinux())
+                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"Failed to chmod Dolphin AppImage '{path}'.", ex);
+        }
     }
 
     private static ReleaseCache? LoadCache(string cachePath)

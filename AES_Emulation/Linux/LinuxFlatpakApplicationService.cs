@@ -24,6 +24,17 @@ public static class LinuxFlatpakApplicationService
         return FindFlatpakExecutable() != null;
     }
 
+    public static bool IsApplicationInstalled(string? applicationId)
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(applicationId))
+            return false;
+
+        return GetInstalledApplications()
+            .Any(app => string.Equals(app.ApplicationId, applicationId.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static string? GetFlatpakExecutable() => FindFlatpakExecutable();
+
     public static IReadOnlyList<FlatpakApplicationItem> GetInstalledApplications(bool forceRefresh = false)
     {
         if (!OperatingSystem.IsLinux())

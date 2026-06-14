@@ -2933,7 +2933,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             section.LaunchSettings?.IncludeDolphinPrereleases ?? false, forceRefresh: true).ConfigureAwait(false);
         await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
 
-        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        if (OperatingSystem.IsLinux() || info.IsUpdateAvailable || !handler.HasLauncherPath)
         {
             handlerItem.DownloadStatusMessage = "Downloading...";
             var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
@@ -2943,12 +2943,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             {
                 handlerItem.DownloadProgress = 100;
                 handlerItem.DownloadStatusMessage = state.StatusMessage;
-                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
-                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    handler.LauncherPath = state.ResolvedLauncherPath;
-                    SaveSettings();
-                }
+                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath))
+                    DolphinEmulatorUpdateService.ApplyResolvedLauncher(handler, state.ResolvedLauncherPath);
+                SaveSettings();
             });
         }
         else

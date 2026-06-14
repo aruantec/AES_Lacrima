@@ -209,7 +209,7 @@ namespace AES_Lacrima.ViewModels
                     PrepareLinuxAppImageStartInfo(startInfo);
 
                 if (OperatingSystem.IsLinux() && !string.IsNullOrWhiteSpace(handler.FlatpakAppId))
-                    FlatpakLaunchHelper.Apply(startInfo, handler.FlatpakAppId);
+                    FlatpakLaunchHelper.Apply(startInfo, handler.FlatpakAppId, launchRomPath);
 
                 if (OperatingSystem.IsLinux())
                 {
