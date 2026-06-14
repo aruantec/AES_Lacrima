@@ -102,6 +102,9 @@ namespace AES_Lacrima.Views
         {
             UpdateMainBorderClip();
 
+            if (IsCapturePresentationFullscreen)
+                return;
+
             var currentScale = TopLevel.GetTopLevel(this)?.RenderScaling ?? _lastRenderScale;
             if (double.IsNaN(currentScale) || Math.Abs(currentScale - _lastRenderScale) < 0.01)
                 return;

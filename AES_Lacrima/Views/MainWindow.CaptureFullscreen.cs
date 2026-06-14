@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -15,6 +16,7 @@ public sealed class MainWindowCaptureFullscreenState
 {
     public required PixelPoint Position { get; init; }
     public required Size Size { get; init; }
+    public required WindowState WindowState { get; init; }
     public required CornerRadius MainBorderCornerRadius { get; init; }
     public required Thickness MainBorderBorderThickness { get; init; }
     public required bool MainTopBarVisible { get; init; }
@@ -31,6 +33,8 @@ public partial class MainWindow
     private double _captureRestoreWidth;
     private double _captureRestoreHeight;
 
+    internal const int LinuxCompositorFullscreenTransitionMs = 320;
+
     internal bool IsCapturePresentationFullscreen { get; private set; }
 
     public MainWindowCaptureFullscreenState EnterCaptureFullscreenMode(PixelRect screenBounds)
@@ -46,6 +50,7 @@ public partial class MainWindow
             {
                 Position = Position,
                 Size = new Size(Width, Height),
+                WindowState = WindowState,
                 MainBorderCornerRadius = MainBorder?.CornerRadius ?? default,
                 MainBorderBorderThickness = MainBorder?.BorderThickness ?? default,
                 MainTopBarVisible = mainTopBar?.IsVisible ?? true,
@@ -68,6 +73,7 @@ public partial class MainWindow
         {
             Position = Position,
             Size = new Size(snapshotWidth, snapshotHeight),
+            WindowState = WindowState,
             MainBorderCornerRadius = MainBorder?.CornerRadius ?? default,
             MainBorderBorderThickness = MainBorder?.BorderThickness ?? default,
             MainTopBarVisible = mainTopBar?.IsVisible ?? true,
@@ -83,31 +89,98 @@ public partial class MainWindow
         IsCapturePresentationFullscreen = true;
         _ignoreSizeChange = true;
 
-        ApplyCaptureFullscreenWindowBounds(vm, screenBounds);
+        if (OperatingSystem.IsLinux())
+        {
+            // Mirror exit: let the compositor animate the expand by toggling state first.
+            WindowState = WindowState.FullScreen;
+            ScheduleLinuxCaptureFullscreenChromeCollapse(
+                mainTopBar,
+                particleLayer,
+                shaderToyLayer,
+                backgroundImageLayer,
+                edgeBorderLayer);
+            FSLog.Info(
+                $"[ENTER-LINUX] WindowState=FullScreen, saved position={state.Position}, " +
+                $"size=({snapshotWidth},{snapshotHeight})");
+        }
+        else
+        {
+            CollapseCaptureChrome(
+                mainTopBar,
+                particleLayer,
+                shaderToyLayer,
+                backgroundImageLayer,
+                edgeBorderLayer);
 
-        FSLog.Info($"[ENTER] After ApplyBounds: Width={Width}, Height={Height}, vm.W={vm.WindowWidth}, vm.H={vm.WindowHeight}");
+            ApplyCaptureFullscreenWindowBounds(vm, screenBounds);
+            FSLog.Info($"[ENTER] After ApplyBounds: Width={Width}, Height={Height}, vm.W={vm.WindowWidth}, vm.H={vm.WindowHeight}");
+        }
 
-        if (mainTopBar != null)
-            mainTopBar.IsVisible = false;
-        if (particleLayer != null)
-            particleLayer.IsVisible = false;
-        if (shaderToyLayer != null)
-            shaderToyLayer.IsVisible = false;
-        if (backgroundImageLayer != null)
-            backgroundImageLayer.IsVisible = false;
-        if (edgeBorderLayer != null)
-            edgeBorderLayer.IsVisible = false;
+        return state;
+    }
+
+    private void ScheduleLinuxCaptureFullscreenChromeCollapse(
+        Control? mainTopBar,
+        Control? particleLayer,
+        Control? shaderToyLayer,
+        Control? backgroundImageLayer,
+        Control? edgeBorderLayer)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            CollapseCaptureChrome(
+                mainTopBar,
+                particleLayer,
+                shaderToyLayer,
+                backgroundImageLayer,
+                edgeBorderLayer);
+            FSLog.Info("[ENTER-LINUX] Chrome collapsed after fullscreen request.");
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void CollapseCaptureChrome(
+        Control? mainTopBar,
+        Control? particleLayer,
+        Control? shaderToyLayer,
+        Control? backgroundImageLayer,
+        Control? edgeBorderLayer)
+    {
+        RestoreCaptureChromeVisibility(
+            mainTopBar,
+            particleLayer,
+            shaderToyLayer,
+            backgroundImageLayer,
+            edgeBorderLayer,
+            visible: false);
 
         if (MainBorder != null)
         {
             MainBorder.CornerRadius = default;
             MainBorder.BorderThickness = default;
         }
-
-        return state;
     }
 
-    public void ExitCaptureFullscreenMode(MainWindowCaptureFullscreenState state)
+    private static void RestoreCaptureChromeVisibility(
+        Control? mainTopBar,
+        Control? particleLayer,
+        Control? shaderToyLayer,
+        Control? backgroundImageLayer,
+        Control? edgeBorderLayer,
+        bool visible)
+    {
+        if (mainTopBar != null)
+            mainTopBar.IsVisible = visible;
+        if (particleLayer != null)
+            particleLayer.IsVisible = visible;
+        if (shaderToyLayer != null)
+            shaderToyLayer.IsVisible = visible;
+        if (backgroundImageLayer != null)
+            backgroundImageLayer.IsVisible = visible;
+        if (edgeBorderLayer != null)
+            edgeBorderLayer.IsVisible = visible;
+    }
+
+    private void ApplySavedCaptureChrome(MainWindowCaptureFullscreenState state)
     {
         var mainTopBar = this.FindControl<Control>("MainTopBar");
         var particleLayer = this.FindControl<Control>("ParticleLayer");
@@ -115,9 +188,100 @@ public partial class MainWindow
         var backgroundImageLayer = this.FindControl<Control>("BackgroundImageLayer");
         var edgeBorderLayer = this.FindControl<Control>("EdgeBorderLayer");
 
+        if (mainTopBar != null)
+            mainTopBar.IsVisible = state.MainTopBarVisible;
+        if (particleLayer != null)
+            particleLayer.IsVisible = state.ParticlesVisible;
+        if (shaderToyLayer != null)
+            shaderToyLayer.IsVisible = state.ShaderToyVisible;
+        if (backgroundImageLayer != null)
+            backgroundImageLayer.IsVisible = state.BackgroundImageVisible;
+        if (edgeBorderLayer != null)
+            edgeBorderLayer.IsVisible = state.EdgeBorderVisible;
+
+        if (MainBorder != null)
+        {
+            MainBorder.CornerRadius = state.MainBorderCornerRadius;
+            MainBorder.BorderThickness = state.MainBorderBorderThickness;
+        }
+    }
+
+    private void ExitCaptureFullscreenMode_Linux(MainWindowCaptureFullscreenState state)
+    {
+        var restoreWidth = _captureRestoreWidth > 0 && !double.IsNaN(_captureRestoreWidth)
+            ? _captureRestoreWidth
+            : state.Size.Width;
+        var restoreHeight = _captureRestoreHeight > 0 && !double.IsNaN(_captureRestoreHeight)
+            ? _captureRestoreHeight
+            : state.Size.Height;
+        var restorePosition = state.Position;
+
+        WindowState = WindowState.Normal;
+        ApplySavedCaptureChrome(state);
+
+        if (DataContext is MainWindowViewModel vm)
+        {
+            vm.WindowWidth = restoreWidth;
+            vm.WindowHeight = restoreHeight;
+        }
+
+        Width = restoreWidth;
+        Height = restoreHeight;
+
+        FSLog.Info(
+            $"[EXIT-LINUX] Restoring position={restorePosition}, size=({restoreWidth},{restoreHeight}), " +
+            $"current Position={Position}, Width={Width}, Height={Height}");
+
+        // Wayland often ignores the first programmatic move after leaving fullscreen.
+        // Re-apply bounds once layout has settled.
+        Dispatcher.UIThread.Post(() =>
+        {
+            IsCapturePresentationFullscreen = false;
+            _ignoreSizeChange = true;
+
+            Position = restorePosition;
+            Width = restoreWidth;
+            Height = restoreHeight;
+
+            if (DataContext is MainWindowViewModel vmPost)
+            {
+                vmPost.WindowWidth = restoreWidth;
+                vmPost.WindowHeight = restoreHeight;
+            }
+
+            FSLog.Info($"[EXIT-LINUX-POST] Position={Position}, Width={Width}, Height={Height}");
+
+            _ignoreSizeChange = false;
+            Activate();
+        }, DispatcherPriority.Loaded);
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (Position != restorePosition)
+            {
+                Position = restorePosition;
+                FSLog.Info($"[EXIT-LINUX-RETRY] Re-applied position={restorePosition}, actual={Position}");
+            }
+        }, DispatcherPriority.Render);
+    }
+
+    public void ExitCaptureFullscreenMode(MainWindowCaptureFullscreenState state)
+    {
         _ignoreSizeChange = true;
 
         FSLog.Info($"[EXIT] Start: Width={Width}, Height={Height}, vm.W={(DataContext as MainWindowViewModel)?.WindowWidth}, vm.H={(DataContext as MainWindowViewModel)?.WindowHeight}, RestoreTarget=({_captureRestoreWidth},{_captureRestoreHeight})");
+
+        if (OperatingSystem.IsLinux())
+        {
+            ExitCaptureFullscreenMode_Linux(state);
+            return;
+        }
+
+        var mainTopBar = this.FindControl<Control>("MainTopBar");
+        var particleLayer = this.FindControl<Control>("ParticleLayer");
+        var shaderToyLayer = this.FindControl<Control>("ShaderToyLayer");
+        var backgroundImageLayer = this.FindControl<Control>("BackgroundImageLayer");
+        var edgeBorderLayer = this.FindControl<Control>("EdgeBorderLayer");
 
         // 1. Restore chrome FIRST (while still at fullscreen size). This ensures
         //    that when size is applied in step 2, chrome is already present —

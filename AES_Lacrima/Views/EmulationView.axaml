@@ -2770,7 +2770,10 @@
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>
 
-        <Grid Grid.Row="2" IsVisible="{Binding !IsFullscreen}">
+        <Grid Grid.Row="2"
+              Opacity="{Binding !IsFullscreen, Converter={StaticResource BoolToOpacityConverter}}"
+              IsVisible="{Binding !IsFullscreen}"
+              IsHitTestVisible="{Binding !IsFullscreen}">
             <Separator Margin="0" VerticalAlignment="Top"/>
             <navigation:EmulationListView x:Name="AlbumListView"
                                           Opacity="{Binding !IsAlbumListCollapsed, Converter={StaticResource BoolToOpacityConverter}}"

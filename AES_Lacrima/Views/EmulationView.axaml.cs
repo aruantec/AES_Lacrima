@@ -213,8 +213,8 @@ public partial class EmulationView : UserControl
     private Size _portalWindowFullscreenSize;
     private PortalFullscreenOverlayWindow? _portalFullscreenOverlayWindow;
     private MainWindowCaptureFullscreenState? _savedMainWindowCaptureFullscreenState;
-    private int _savedCaptureOverlayZIndex = 5;
-    private int _savedCaptureOverlayRowSpan = 1;
+    private int _savedCaptureHostZIndex = 5;
+    private int _savedCaptureHostRowSpan = 1;
     private DateTime _lastPortalGraphUpdateUtc = DateTime.MinValue;
     private bool _compositionCaptureWasVisible;
     private bool _inlinePortalPresentationActive;
@@ -1510,6 +1510,8 @@ public partial class EmulationView : UserControl
             ExitPortalCaptureFullscreen();
     }
 
+    private CancellationTokenSource? _enterFullscreenTransitionCancellation;
+
     private void EnterInlineCaptureFullscreen(Window mainWindow)
     {
         EnsureInlineCaptureHost();
@@ -1522,34 +1524,64 @@ public partial class EmulationView : UserControl
                 vm.IsRenderOptionsOpen = false;
         }
 
+        _enterFullscreenTransitionCancellation?.Cancel();
+        _enterFullscreenTransitionCancellation = new CancellationTokenSource();
+        var transitionToken = _enterFullscreenTransitionCancellation.Token;
+
         var bounds = GetScreenBounds(mainWindow);
+
+        // Fade chrome while the compositor runs its expand animation.
+        CarouselOpacity = 0;
+        AlbumRowOpacity = 0;
+        CapturePresentationOpacity = 1;
+
         if (mainWindow is MainWindow chromeWindow)
             _savedMainWindowCaptureFullscreenState = chromeWindow.EnterCaptureFullscreenMode(bounds);
 
         ApplyInlineCaptureOverlayFullscreenLayout(fullscreen: true);
-
-        ShowFullscreenStatsOverlay(mainWindow, bounds);
-        _portalFullscreenOverlayWindow!.Topmost = true;
-        _portalFullscreenOverlayWindow.Show();
-        _portalFullscreenOverlayWindow.Activate();
-
-        CarouselOpacity = 0;
-        CapturePresentationOpacity = 1;
         SetCaptureChromeVisible(true);
         _isCaptureFullscreen = true;
-
         StartFullscreenCursorAutoHide();
 
-        Dispatcher.UIThread.Post(() =>
+        _ = FinishEnterInlineCaptureFullscreenAsync(mainWindow, bounds, transitionToken);
+    }
+
+    private async Task FinishEnterInlineCaptureFullscreenAsync(
+        Window mainWindow,
+        PixelRect bounds,
+        CancellationToken cancellationToken)
+    {
+        try
         {
-            _inlineCaptureHost?.InvalidateArrange();
-            _inlineCaptureHost?.InvalidateVisual();
-            ActiveCaptureHost?.ForwardFocusToTarget();
-        }, DispatcherPriority.Background);
+            if (OperatingSystem.IsLinux())
+            {
+                await Task.Delay(MainWindow.LinuxCompositorFullscreenTransitionMs, cancellationToken)
+                    .ConfigureAwait(true);
+            }
+
+            if (cancellationToken.IsCancellationRequested || !_isCaptureFullscreen)
+                return;
+
+            ShowFullscreenStatsOverlay(mainWindow, bounds);
+            if (_portalFullscreenOverlayWindow != null)
+            {
+                _portalFullscreenOverlayWindow.Topmost = true;
+                _portalFullscreenOverlayWindow.Show();
+                _portalFullscreenOverlayWindow.Activate();
+            }
+
+            RefreshInlineCaptureLayout();
+        }
+        catch (TaskCanceledException)
+        {
+        }
     }
 
     private void ExitInlineCaptureFullscreen()
     {
+        _enterFullscreenTransitionCancellation?.Cancel();
+        _enterFullscreenTransitionCancellation = null;
+
         StopFullscreenCursorAutoHide();
         HideFullscreenStatsOverlay();
 
@@ -1567,6 +1599,7 @@ public partial class EmulationView : UserControl
         {
             UpdateInlineCaptureHostVisibility(vm);
             UpdateCaptureChromeVisibilityFromOpacity();
+            AlbumRowOpacity = 1;
         }
     }
 
@@ -1600,21 +1633,39 @@ public partial class EmulationView : UserControl
 
     private void ApplyInlineCaptureOverlayFullscreenLayout(bool fullscreen)
     {
-        var overlay = this.FindControl<Grid>("EmulatorCaptureOverlay");
-        if (overlay == null)
+        var host = this.FindControl<Grid>("EmulatorCaptureOverlayHost");
+        if (host == null)
             return;
 
         if (fullscreen)
         {
-            _savedCaptureOverlayZIndex = overlay.ZIndex;
-            _savedCaptureOverlayRowSpan = Grid.GetRowSpan(overlay);
-            Grid.SetRowSpan(overlay, 3);
-            overlay.ZIndex = 5000;
+            _savedCaptureHostZIndex = host.ZIndex;
+            _savedCaptureHostRowSpan = Grid.GetRowSpan(host);
+            Grid.SetRow(host, 0);
+            Grid.SetRowSpan(host, 3);
+            host.ZIndex = 5000;
+            RefreshInlineCaptureLayout();
             return;
         }
 
-        Grid.SetRowSpan(overlay, _savedCaptureOverlayRowSpan);
-        overlay.ZIndex = _savedCaptureOverlayZIndex;
+        Grid.SetRowSpan(host, _savedCaptureHostRowSpan);
+        host.ZIndex = _savedCaptureHostZIndex;
+        RefreshInlineCaptureLayout();
+    }
+
+    private void RefreshInlineCaptureLayout()
+    {
+        _inlineCaptureHost?.InvalidateMeasure();
+        _inlineCaptureHost?.InvalidateArrange();
+        _inlineCaptureHost?.InvalidateVisual();
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            _inlineCaptureHost?.InvalidateMeasure();
+            _inlineCaptureHost?.InvalidateArrange();
+            _inlineCaptureHost?.InvalidateVisual();
+            ActiveCaptureHost?.ForwardFocusToTarget();
+        }, DispatcherPriority.Loaded);
     }
 
     private void EnterPortalCaptureFullscreen(Window mainWindow)
@@ -1688,6 +1739,9 @@ public partial class EmulationView : UserControl
 
     private void HideFullscreenStatsOverlay()
     {
+        if (_portalFullscreenOverlayWindow != null && OperatingSystem.IsLinux())
+            _portalFullscreenOverlayWindow.WindowState = WindowState.Normal;
+
         _portalFullscreenOverlayWindow?.Hide();
         if (_portalFullscreenOverlayWindow?.FindControl<PortalCaptureStatsOverlay>("StatsOverlay") is { } statsOverlay)
         {
@@ -1811,6 +1865,19 @@ public partial class EmulationView : UserControl
     {
         if (_portalFullscreenOverlayWindow == null || screenBounds.Width <= 0 || screenBounds.Height <= 0)
             return;
+
+        if (OperatingSystem.IsLinux())
+        {
+            // Defer overlay fullscreen until the main window transition has started.
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_portalFullscreenOverlayWindow == null || !_isCaptureFullscreen)
+                    return;
+
+                _portalFullscreenOverlayWindow.WindowState = WindowState.FullScreen;
+            }, DispatcherPriority.Loaded);
+            return;
+        }
 
         var renderScaling = Math.Max(0.0001, _portalFullscreenOverlayWindow.RenderScaling > 0
             ? _portalFullscreenOverlayWindow.RenderScaling
