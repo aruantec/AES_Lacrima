@@ -1728,10 +1728,6 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             SyncSelectedAlbumIndexFromAlbum(value);
             OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));
-
-            if (value is EmulationAlbumItem album)
-                QueueAlbumPreviewCoverLoad(album);
-
             AutoSave();
         }
 

@@ -18,7 +18,7 @@ using AES_Core.IO;
 using AES_Lacrima.Serialization;
 using AES_Emulation.EmulationHandlers;
 using log4net;
-
+
 using AES_Core.Logging;
 namespace AES_Lacrima.Services;
 
@@ -168,7 +168,7 @@ public partial class FlycastEmulatorUpdateService
 
             var selectedAsset = targetRelease.IsNightly
                 ? targetRelease.Assets.FirstOrDefault()
-                : SelectAssetForWindowsX64(targetRelease.Assets);
+                : SelectAssetForPlatform(targetRelease.Assets);
             if (selectedAsset == null)
             {
                 var missingAssetLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
@@ -178,7 +178,7 @@ public partial class FlycastEmulatorUpdateService
                     releases[0].Tag,
                     false,
                     releases.Select(static r => r.Tag).Take(12).ToList(),
-                    "No compatible Flycast Windows x64 asset found.",
+                    "No compatible Flycast asset found for this OS.",
                     emulatorDirectory,
                     updateDirectory,
                     missingAssetLauncherPath);
@@ -200,6 +200,22 @@ public partial class FlycastEmulatorUpdateService
             {
                 var destinationPath = Path.Combine(emulatorDirectory, Path.GetFileName(downloadedAssetPath));
                 File.Copy(downloadedAssetPath, destinationPath, overwrite: true);
+                if (OperatingSystem.IsLinux() &&
+                    destinationPath.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        File.SetUnixFileMode(
+                            destinationPath,
+                            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                            UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Debug($"Failed to mark Flycast AppImage as executable: '{destinationPath}'.", ex);
+                    }
+                }
             }
 
             PrepareUpdateDirectory(updateDirectory);
@@ -400,14 +416,11 @@ public partial class FlycastEmulatorUpdateService
                     if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(url))
                         continue;
 
-                    if (!IsWindowsX64AssetName(name))
-                        continue;
-
                     assets.Add(new ReleaseAsset(name, url));
                 }
             }
 
-            if (assets.Count == 0)
+            if (assets.Count == 0 || SelectAssetForPlatform(assets) == null)
                 continue;
 
             results.Add(new ReleaseInfo(NormalizeVersionTag(tag)!, false, publishedAt, assets, EmulatorReleaseNotesHelper.ParseGitHubReleaseBody(item)));
@@ -440,12 +453,8 @@ public partial class FlycastEmulatorUpdateService
         foreach (var content in document.Root?.Elements(ns + "Contents") ?? Enumerable.Empty<XElement>())
         {
             var key = content.Element(ns + "Key")?.Value?.Trim();
-            if (string.IsNullOrWhiteSpace(key) ||
-                !key.StartsWith("win/heads/", StringComparison.OrdinalIgnoreCase) ||
-                !key.EndsWith("/flycast.zip", StringComparison.OrdinalIgnoreCase))
-            {
+            if (string.IsNullOrWhiteSpace(key) || !TryMatchNightlyKey(key, out var assetFileName))
                 continue;
-            }
 
             var lastModifiedRaw = content.Element(ns + "LastModified")?.Value;
             DateTimeOffset? publishedAt = null;
@@ -466,7 +475,7 @@ public partial class FlycastEmulatorUpdateService
                 : shortCommit;
 
             var downloadUrl = $"https://flycast-builds.s3.fr-par.scw.cloud/{key}";
-            releases.Add(new ReleaseInfo(tag, true, publishedAt, new[] { new ReleaseAsset(Path.GetFileName(key), downloadUrl) }));
+            releases.Add(new ReleaseInfo(tag, true, publishedAt, new[] { new ReleaseAsset(assetFileName, downloadUrl) }));
         }
 
         return releases
@@ -490,12 +499,69 @@ public partial class FlycastEmulatorUpdateService
             string.Equals(NormalizeVersionTag(release.Tag), NormalizeVersionTag(requestedVersion), StringComparison.OrdinalIgnoreCase));
     }
 
-    private static ReleaseAsset? SelectAssetForWindowsX64(IReadOnlyList<ReleaseAsset> assets)
+    private static ReleaseAsset? SelectAssetForPlatform(IReadOnlyList<ReleaseAsset> assets)
     {
         if (assets.Count == 0)
             return null;
 
+        if (OperatingSystem.IsWindows())
+            return assets.FirstOrDefault(asset => IsWindowsX64AssetName(asset.Name));
+
+        if (OperatingSystem.IsLinux())
+        {
+            return EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset => asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) &&
+                                       asset.Name.Contains("flycast", StringComparison.OrdinalIgnoreCase))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset => asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return assets.FirstOrDefault(asset =>
+                       asset.Name.Contains("macos", StringComparison.OrdinalIgnoreCase) &&
+                       asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                   ?? assets.FirstOrDefault(asset =>
+                       asset.Name.Contains("mac", StringComparison.OrdinalIgnoreCase) &&
+                       asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        }
+
         return assets.FirstOrDefault(asset => IsWindowsX64AssetName(asset.Name));
+    }
+
+    private static bool TryMatchNightlyKey(string key, out string assetFileName)
+    {
+        assetFileName = string.Empty;
+
+        if (OperatingSystem.IsLinux())
+        {
+            if (key.StartsWith("linux/heads/", StringComparison.OrdinalIgnoreCase) &&
+                key.EndsWith("/flycast-x86_64.AppImage", StringComparison.OrdinalIgnoreCase))
+            {
+                assetFileName = "flycast-x86_64.AppImage";
+                return true;
+            }
+
+            return false;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            if (key.StartsWith("win/heads/", StringComparison.OrdinalIgnoreCase) &&
+                key.EndsWith("/flycast.zip", StringComparison.OrdinalIgnoreCase))
+            {
+                assetFileName = "flycast.zip";
+                return true;
+            }
+
+            return false;
+        }
+
+        return false;
     }
 
     private static bool IsWindowsX64AssetName(string assetName)
@@ -698,6 +764,22 @@ public partial class FlycastEmulatorUpdateService
                 if (!string.IsNullOrWhiteSpace(candidate))
                     return candidate;
             }
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            var appImageCandidate = Directory.EnumerateFiles(emulatorDirectory, "*.AppImage", SearchOption.AllDirectories)
+                .FirstOrDefault(path => Path.GetFileName(path).Contains("flycast", StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(appImageCandidate))
+                return appImageCandidate;
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            var appBundleCandidate = Directory.EnumerateDirectories(emulatorDirectory, "*.app", SearchOption.AllDirectories)
+                .FirstOrDefault(path => Path.GetFileName(path).Contains("flycast", StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(appBundleCandidate))
+                return appBundleCandidate;
         }
 
         var candidates = Directory.EnumerateFiles(emulatorDirectory, "*", SearchOption.AllDirectories)

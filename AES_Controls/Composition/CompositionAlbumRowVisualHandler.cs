@@ -153,6 +153,36 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
             RecomputeTargets(snap);
         }
 
+        public bool HasSameSnapshotStructure(IReadOnlyList<FolderItemSnapshot> snapshots)
+        {
+            if (Snapshots.Count != snapshots.Count)
+                return false;
+
+            for (int i = 0; i < snapshots.Count; i++)
+            {
+                if (Snapshots[i].UseFolderCover != snapshots[i].UseFolderCover)
+                    return false;
+            }
+
+            return true;
+        }
+
+        public void UpdateCoverImages(IReadOnlyList<FolderItemSnapshot> snapshots, SKImage? defaultCover)
+        {
+            Snapshots = snapshots.ToList();
+            DefaultCover = defaultCover;
+
+            foreach (var layer in _layers)
+            {
+                if (layer.SnapshotIndex < 0 || layer.SnapshotIndex >= Snapshots.Count)
+                    continue;
+
+                var itemSnap = Snapshots[layer.SnapshotIndex];
+                layer.Cover = itemSnap.UseFolderCover ? null : itemSnap.Cover;
+                layer.UseFolderCover = itemSnap.UseFolderCover;
+            }
+        }
+
         public bool Update(double speed)
         {
             bool any = false;
@@ -342,13 +372,35 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
                 if (covers.Index >= 0 && covers.Index < _tiles.Count)
                 {
                     var tile = _tiles[covers.Index];
-                    ReleaseTileImages(tile);
-                    tile.DefaultCover = covers.DefaultCover;
-                    tile.Snapshots.Clear();
-                    tile.Snapshots.AddRange(covers.Snapshots);
                     bool keepFolderClosed = _scrollFrozen || _isDragCommitting || _draggingIndex >= 0;
                     bool spread = !keepFolderClosed && covers.Index == _hoveredIndex;
-                    tile.Folder.Rebuild(tile.Snapshots, tile.DefaultCover, spread, snap: keepFolderClosed || !spread);
+
+                    if (tile.Folder.HasSameSnapshotStructure(covers.Snapshots))
+                    {
+                        for (int i = 0; i < tile.Snapshots.Count; i++)
+                        {
+                            var previous = tile.Snapshots[i];
+                            var next = covers.Snapshots[i];
+                            if (!previous.UseFolderCover && previous.Cover != next.Cover)
+                                previous.Cover?.Dispose();
+                        }
+
+                        if (tile.DefaultCover != covers.DefaultCover)
+                            tile.DefaultCover?.Dispose();
+
+                        tile.DefaultCover = covers.DefaultCover;
+                        tile.Snapshots.Clear();
+                        tile.Snapshots.AddRange(covers.Snapshots);
+                        tile.Folder.UpdateCoverImages(covers.Snapshots, covers.DefaultCover);
+                    }
+                    else
+                    {
+                        ReleaseTileImages(tile);
+                        tile.DefaultCover = covers.DefaultCover;
+                        tile.Snapshots.Clear();
+                        tile.Snapshots.AddRange(covers.Snapshots);
+                        tile.Folder.Rebuild(tile.Snapshots, tile.DefaultCover, spread, snap: keepFolderClosed || !spread);
+                    }
                 }
                 Invalidate();
                 return;

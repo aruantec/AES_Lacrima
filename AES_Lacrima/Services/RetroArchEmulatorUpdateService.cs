@@ -13,6 +13,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using AES_Controls.Helpers;
 using AES_Core.DI;
 using AES_Core.IO;
 using AES_Lacrima.Serialization;
@@ -197,7 +198,7 @@ public partial class RetroArchEmulatorUpdateService
                     missingAssetLauncherPath);
             }
 
-            var coreStartProgress = includeCores && OperatingSystem.IsWindows() ? 70d : 100d;
+            var coreStartProgress = includeCores && (OperatingSystem.IsWindows() || OperatingSystem.IsLinux()) ? 70d : 100d;
 
             PrepareUpdateDirectory(updateDirectory);
             var downloadedAssetPath = Path.Combine(updateDirectory, selectedAsset.Name);
@@ -218,16 +219,27 @@ public partial class RetroArchEmulatorUpdateService
                 var sourceDirectory = NormalizeExtractionRoot(extractDirectory);
                 ReportProgress(progress, MapProgress(55, coreStartProgress, 0.65), "Installing RetroArch files...");
                 CopyDirectoryContents(sourceDirectory, emulatorDirectory);
+                if (OperatingSystem.IsLinux())
+                    TryMarkRetroArchLinuxBinaryExecutable(emulatorDirectory);
             }
             else
             {
                 var destinationPath = Path.Combine(emulatorDirectory, Path.GetFileName(downloadedAssetPath));
                 File.Copy(downloadedAssetPath, destinationPath, overwrite: true);
+                if (OperatingSystem.IsLinux())
+                {
+                    if (destinationPath.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                        TryMarkLinuxExecutable(destinationPath);
+                    else
+                        TryMarkRetroArchLinuxBinaryExecutable(emulatorDirectory);
+                }
             }
 
             PrepareUpdateDirectory(updateDirectory);
             SaveInstalledVersionMarker(emulatorDirectory, targetRelease.Tag);
-            ReportProgress(progress, coreStartProgress, includeCores && OperatingSystem.IsWindows() ? "RetroArch updated. Downloading cores..." : "RetroArch updated.");
+            ReportProgress(progress, coreStartProgress, includeCores && (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+                ? "RetroArch updated. Downloading cores..."
+                : "RetroArch updated.");
 
             var resolvedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
             var currentVersion = GetInstalledVersion(emulatorDirectory, resolvedLauncherPath);
@@ -251,6 +263,17 @@ public partial class RetroArchEmulatorUpdateService
                 if (!string.IsNullOrWhiteSpace(coresStatus))
                     Log.Info(coresStatus);
             }
+            else if (includeCores && OperatingSystem.IsLinux())
+            {
+                var emuRoot = ResolveEmulatorRootDirectory(emulatorDirectory, resolvedLauncherPath);
+                var coresStatus = await DownloadAndInstallLinuxNightlyCoresAsync(
+                    emuRoot,
+                    updateDirectory,
+                    cancellationToken,
+                    p => ReportProgress(progress, MapProgress(coreStartProgress, 100, p), "Downloading and installing RetroArch cores...")).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(coresStatus))
+                    Log.Info(coresStatus);
+            }
 
             ReportProgress(progress, 100, "RetroArch update completed.");
 
@@ -260,7 +283,7 @@ public partial class RetroArchEmulatorUpdateService
                 latest,
                 updateAvailable,
                 versions,
-                includeCores && OperatingSystem.IsWindows()
+                includeCores && (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
                     ? $"RetroArch {targetRelease.Tag} downloaded and updated. Cores were refreshed from nightly/latest into cores/."
                     : $"RetroArch {targetRelease.Tag} downloaded and updated.",
                 emulatorDirectory,
@@ -322,7 +345,7 @@ public partial class RetroArchEmulatorUpdateService
             !string.IsNullOrWhiteSpace(cache.ReleasesJson) &&
             (DateTimeOffset.UtcNow - cache.FetchedAtUtc) <= CacheTtl)
         {
-            return ParseGitHubReleases(cache.ReleasesJson!);
+            return await ResolveGitHubReleasesOrNightlyFallbackAsync(cache.ReleasesJson!, forceRefresh, cancellationToken).ConfigureAwait(false);
         }
 
         Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
@@ -365,7 +388,20 @@ public partial class RetroArchEmulatorUpdateService
         if (string.IsNullOrWhiteSpace(json))
             return Array.Empty<ReleaseInfo>();
 
-        return ParseGitHubReleases(json);
+        return await ResolveGitHubReleasesOrNightlyFallbackAsync(json, forceRefresh, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<IReadOnlyList<ReleaseInfo>> ResolveGitHubReleasesOrNightlyFallbackAsync(
+        string json,
+        bool forceRefresh,
+        CancellationToken cancellationToken)
+    {
+        var results = ParseGitHubReleases(json);
+        if (results.Count > 0 && results.Any(release => SelectAssetForPlatform(release.Assets) != null))
+            return results;
+
+        Log.Warn("GitHub RetroArch releases have no compatible binaries for this platform; falling back to libretro buildbot nightly.");
+        return await GetNightlyReleasesAsync(ResolveRepository(null), forceRefresh, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<IReadOnlyList<ReleaseInfo>> GetNightlyReleasesAsync(RepoResolution repository, bool forceRefresh, CancellationToken cancellationToken)
@@ -450,6 +486,9 @@ public partial class RetroArchEmulatorUpdateService
                 }
             }
 
+            if (assets.Count == 0 || SelectAssetForPlatform(assets) == null)
+                continue;
+
             results.Add(new ReleaseInfo(tag, prerelease, publishedAt, assets, EmulatorReleaseNotesHelper.ParseGitHubReleaseBody(item)));
         }
 
@@ -481,7 +520,7 @@ public partial class RetroArchEmulatorUpdateService
             if (!lowerName.Contains("retroarch"))
                 continue;
 
-            if (!(lowerName.EndsWith(".zip") || lowerName.EndsWith(".7z") || lowerName.EndsWith(".exe")))
+            if (!IsRetroArchNightlyArchiveName(name))
                 continue;
 
             var absolute = href.StartsWith("http", StringComparison.OrdinalIgnoreCase)
@@ -489,15 +528,11 @@ public partial class RetroArchEmulatorUpdateService
                 : new Uri(endpointUri, href).ToString();
 
             var asset = new ReleaseAsset(name, absolute);
-            if (name.Equals("RetroArch.7z", StringComparison.OrdinalIgnoreCase) ||
-                name.Equals("RetroArch.zip", StringComparison.OrdinalIgnoreCase) ||
-                name.Equals("RetroArch-Win64-setup.exe", StringComparison.OrdinalIgnoreCase))
-            {
+            if (IsRetroArchNightlyLatestAsset(name))
                 latestAssets.Add(asset);
-            }
 
             var dated = NightlyDatedAssetNameRegex.Match(name);
-            if (!dated.Success)
+            if (!dated.Success || !IsRetroArchMainEmulatorArchive(name))
                 continue;
 
             var dateToken = dated.Groups["date"].Value;
@@ -518,18 +553,27 @@ public partial class RetroArchEmulatorUpdateService
                 kvp.Key,
                 IsPrerelease: true,
                 releaseDates.TryGetValue(kvp.Key, out var published) ? published : null,
-                kvp.Value))
+                kvp.Value.Where(asset => SelectAssetForPlatform([asset]) != null).ToList()))
+            .Where(release => release.Assets.Count > 0)
             .OrderByDescending(static release => release.PublishedAt ?? DateTimeOffset.MinValue)
             .ThenByDescending(static release => release.Tag, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         if (latestAssets.Count > 0)
         {
-            releases.Insert(0, new ReleaseInfo(
-                "nightly-latest",
-                IsPrerelease: true,
-                DateTimeOffset.UtcNow,
-                latestAssets));
+            var latestCompatible = latestAssets
+                .Select(asset => SelectAssetForPlatform([asset]) == null ? null : asset)
+                .Where(asset => asset != null)
+                .Cast<ReleaseAsset>()
+                .ToList();
+            if (latestCompatible.Count > 0)
+            {
+                releases.Insert(0, new ReleaseInfo(
+                    "nightly-latest",
+                    IsPrerelease: true,
+                    DateTimeOffset.UtcNow,
+                    latestCompatible));
+            }
         }
 
         return releases;
@@ -568,19 +612,78 @@ public partial class RetroArchEmulatorUpdateService
                    ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase));
         }
 
-        return EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
-                   assets,
-                   static asset => asset.Name,
-                   static asset =>
-                       asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
-                       (asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
-                        asset.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) ||
-                        asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase)))
-               ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
-                   assets,
-                   static asset => asset.Name,
-                   static asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-               ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase));
+        if (OperatingSystem.IsLinux())
+        {
+            return assets.FirstOrDefault(asset => asset.Name.Equals("RetroArch.7z", StringComparison.OrdinalIgnoreCase))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset => IsRetroArchMainEmulatorArchive(asset.Name))
+                   ?? assets.FirstOrDefault(asset => asset.Name.Equals("RetroArch_Qt.7z", StringComparison.OrdinalIgnoreCase))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset => asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase));
+        }
+
+        return null;
+    }
+
+    private static bool IsRetroArchNightlyArchiveName(string name)
+        => name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+           name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) ||
+           (OperatingSystem.IsWindows() && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsRetroArchNightlyLatestAsset(string name)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return name.Equals("RetroArch.7z", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("RetroArch.zip", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("RetroArch-Win64-setup.exe", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (OperatingSystem.IsLinux())
+            return name.Equals("RetroArch.7z", StringComparison.OrdinalIgnoreCase);
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return name.Contains("osx", StringComparison.OrdinalIgnoreCase) &&
+                   name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
+
+    private static bool IsRetroArchMainEmulatorArchive(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        if (name.Contains("_cores", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("_update", StringComparison.OrdinalIgnoreCase) ||
+            (OperatingSystem.IsLinux() && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) ||
+            (OperatingSystem.IsWindows() && name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        if (name.Equals("RetroArch.7z", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("RetroArch.zip", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (name.EndsWith("_RetroArch.7z", StringComparison.OrdinalIgnoreCase) &&
+            !name.Contains("_Qt", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
+            (name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) ||
+             name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+             name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        return name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) &&
+               name.Contains("retroarch", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task DownloadAssetAsync(
@@ -614,63 +717,8 @@ public partial class RetroArchEmulatorUpdateService
         onProgress?.Invoke(1d);
     }
 
-    private static void ExtractArchive(string archivePath, string extractDirectory)
-    {
-        if (archivePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-        {
-            ZipFile.ExtractToDirectory(archivePath, extractDirectory, overwriteFiles: true);
-            return;
-        }
-
-        if (archivePath.EndsWith(".7z", StringComparison.OrdinalIgnoreCase))
-        {
-            TryExtract7zWithSystemTool(archivePath, extractDirectory);
-            return;
-        }
-
-        throw new InvalidOperationException($"Unsupported archive format: {Path.GetExtension(archivePath)}");
-    }
-
-    private static void TryExtract7zWithSystemTool(string archivePath, string extractDirectory)
-    {
-        Directory.CreateDirectory(extractDirectory);
-
-        // Prefer bsdtar/tar (available on recent Windows), fallback to 7z.exe when installed.
-        var candidates = OperatingSystem.IsWindows()
-            ? new[] { "tar.exe", "7z.exe" }
-            : new[] { "7z", "7zz", "tar" };
-
-        foreach (var tool in candidates)
-        {
-            var args = tool.StartsWith("tar", StringComparison.OrdinalIgnoreCase)
-                ? $"-xf \"{archivePath}\" -C \"{extractDirectory}\""
-                : $"x -y \"{archivePath}\" -o\"{extractDirectory}\"";
-
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = tool,
-                Arguments = args,
-                UseShellExecute = false,
-                RedirectStandardError = true,
-                RedirectStandardOutput = true,
-                CreateNoWindow = true
-            };
-
-            try
-            {
-                using var process = Process.Start(startInfo);
-                if (process == null)
-                    continue;
-
-                process.WaitForExit();
-                if (process.ExitCode == 0)
-                    return;
-            }
-            catch (Exception logEx) { Log.Warn("try next tool", logEx); }
-        }
-
-        throw new InvalidOperationException("Unable to extract .7z archive. Install 7-Zip (7z.exe) or ensure tar supports 7z extraction.");
-    }
+    private static void ExtractArchive(string archivePath, string extractDirectory) =>
+        ArchiveExtractionHelper.ExtractArchive(archivePath, extractDirectory);
 
     private static void PrepareUpdateDirectory(string updateDirectory)
     {
@@ -842,8 +890,31 @@ public partial class RetroArchEmulatorUpdateService
             }
         }
 
+        if (OperatingSystem.IsLinux())
+        {
+            var appImageCandidate = Directory.EnumerateFiles(emulatorDirectory, "*.AppImage", SearchOption.AllDirectories)
+                .FirstOrDefault(path => Path.GetFileName(path).Contains("retroarch", StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(appImageCandidate))
+                return appImageCandidate;
+
+            var binaryCandidate = Directory.EnumerateFiles(emulatorDirectory, "retroarch", SearchOption.AllDirectories)
+                .FirstOrDefault(path => !path.EndsWith(".so", StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(binaryCandidate))
+                return binaryCandidate;
+        }
+
         var executableCandidates = Directory.EnumerateFiles(emulatorDirectory, "*", SearchOption.AllDirectories)
-            .Where(static path => Path.GetFileName(path).Contains("retroarch", StringComparison.OrdinalIgnoreCase))
+            .Where(path =>
+            {
+                var fileName = Path.GetFileName(path);
+                if (!fileName.Contains("retroarch", StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                return !fileName.EndsWith(".so", StringComparison.OrdinalIgnoreCase) &&
+                       !fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) &&
+                       !fileName.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) &&
+                       !fileName.EndsWith(".cfg", StringComparison.OrdinalIgnoreCase);
+            })
             .ToList();
 
         var localCandidate = executableCandidates.FirstOrDefault();
@@ -923,6 +994,128 @@ public partial class RetroArchEmulatorUpdateService
         }
 
         return string.Compare(normalizedLatest, normalizedCurrent, StringComparison.OrdinalIgnoreCase) > 0;
+    }
+
+    private static void TryMarkLinuxExecutable(string path)
+    {
+        try
+        {
+            File.SetUnixFileMode(
+                path,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"Failed to mark Linux file as executable: '{path}'.", ex);
+        }
+    }
+
+    private static void TryMarkRetroArchLinuxBinaryExecutable(string emulatorDirectory)
+    {
+        var candidate = Directory.EnumerateFiles(emulatorDirectory, "retroarch", SearchOption.AllDirectories)
+            .FirstOrDefault(path => !path.EndsWith(".so", StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(candidate))
+            TryMarkLinuxExecutable(candidate);
+    }
+
+    private async Task<string?> DownloadAndInstallLinuxNightlyCoresAsync(
+        string emulatorDirectory,
+        string updateDirectory,
+        CancellationToken cancellationToken,
+        Action<double>? onProgress = null)
+    {
+        var linuxArch = EmulatorReleaseAssetSelection.ResolveLinuxLibretroBuildbotArchDirectory();
+        var coresListingUrl = $"https://buildbot.libretro.com/nightly/linux/{linuxArch}/latest/";
+        var coresFolder = Path.Combine(emulatorDirectory, "cores");
+        Directory.CreateDirectory(coresFolder);
+
+        onProgress?.Invoke(0d);
+
+        Client.DefaultRequestHeaders.UserAgent.Clear();
+        Client.DefaultRequestHeaders.UserAgent.ParseAdd("AES_Lacrima-RetroArchCoresUpdater/1.0");
+
+        using var response = await Client.GetAsync(coresListingUrl, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(html))
+            return "RetroArch cores listing was empty.";
+
+        var endpointUri = new Uri(coresListingUrl, UriKind.Absolute);
+        var coreAssets = new List<ReleaseAsset>();
+        foreach (Match match in NightlyAssetRegex.Matches(html))
+        {
+            var href = WebUtility.HtmlDecode(match.Groups["href"].Value).Trim();
+            var name = WebUtility.HtmlDecode(match.Groups["name"].Value).Trim();
+            if (string.IsNullOrWhiteSpace(href) || string.IsNullOrWhiteSpace(name))
+                continue;
+
+            if (!name.EndsWith("_libretro.so.zip", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var absolute = href.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                ? href
+                : new Uri(endpointUri, href).ToString();
+            coreAssets.Add(new ReleaseAsset(name, absolute));
+        }
+
+        if (coreAssets.Count == 0)
+            return "No RetroArch core packages found in nightly/latest.";
+
+        var tempCoresDir = Path.Combine(updateDirectory, "cores_download");
+        PrepareUpdateDirectory(tempCoresDir);
+
+        try
+        {
+            var installedCount = 0;
+            for (var index = 0; index < coreAssets.Count; index++)
+            {
+                var asset = coreAssets[index];
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var assetStart = (double)index / coreAssets.Count;
+                var assetEnd = (double)(index + 1) / coreAssets.Count;
+
+                var localZip = Path.Combine(tempCoresDir, asset.Name);
+                await DownloadAssetAsync(
+                    asset.DownloadUrl,
+                    localZip,
+                    cancellationToken,
+                    p => onProgress?.Invoke(MapProgress(assetStart, assetEnd, p * 0.75))).ConfigureAwait(false);
+
+                var extractDir = Path.Combine(tempCoresDir, Path.GetFileNameWithoutExtension(asset.Name));
+                Directory.CreateDirectory(extractDir);
+                ZipFile.ExtractToDirectory(localZip, extractDir, overwriteFiles: true);
+
+                var libraries = Directory.EnumerateFiles(extractDir, "*_libretro.so", SearchOption.AllDirectories).ToList();
+                for (var libIndex = 0; libIndex < libraries.Count; libIndex++)
+                {
+                    var library = libraries[libIndex];
+                    var destination = Path.Combine(coresFolder, Path.GetFileName(library));
+                    File.Copy(library, destination, overwrite: true);
+                    TryMarkLinuxExecutable(destination);
+                    installedCount++;
+
+                    var copyProgress = libraries.Count == 0 ? 1d : (double)(libIndex + 1) / libraries.Count;
+                    onProgress?.Invoke(MapProgress(assetStart, assetEnd, 0.75 + (copyProgress * 0.25)));
+                }
+
+                onProgress?.Invoke(assetEnd);
+            }
+
+            onProgress?.Invoke(1d);
+            return $"RetroArch cores updated: {installedCount} core library file(s) into '{coresFolder}'.";
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(tempCoresDir))
+                    Directory.Delete(tempCoresDir, recursive: true);
+            }
+            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+        }
     }
 
     private async Task<string?> DownloadAndInstallWindowsNightlyCoresAsync(

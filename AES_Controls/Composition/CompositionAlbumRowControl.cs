@@ -33,6 +33,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
     private const double DragStartThreshold = 4.0;
     private const int DragAutoScrollMs = 16;
     private const int DragCommitMs = 300;
+    private const int TileCoverReloadDebounceMs = 48;
 
     private CompositionCustomVisual? _visual;
     private readonly AlbumRowAnimationSyncState _animationSync = new();
@@ -40,6 +41,8 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
     private readonly HashSet<MediaItem> _subscribedPreviewItems = new();
     private readonly HashSet<MediaItem> _subscribedChildItems = new();
     private readonly HashSet<int> _coversLoadedIndices = new();
+    private readonly HashSet<int> _pendingTileCoverIndices = new();
+    private DispatcherTimer? _tileCoverReloadDebounceTimer;
     private object?[] _itemsSnapshot = [];
     private double _lastCoverLoadScrollX = double.NaN;
     private IEnumerable? _subscribedItemsSource;
@@ -664,6 +667,9 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
             (float)TileScale,
             (float)TileSpacing);
 
+        if (Math.Abs(offset - _knownScrollX) < 0.5)
+            return;
+
         if (!animate)
         {
             SyncKnownScrollX(offset);
@@ -1233,7 +1239,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
             _coversLoadedIndices.Clear();
             _lastCoverLoadScrollX = double.NaN;
             for (int i = 0; i < _itemsSnapshot.Length; i++)
-                PushTileCovers(i);
+                SchedulePushTileCovers(i);
         });
     }
 
@@ -1249,10 +1255,35 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
 
     private void SchedulePushTileCovers(int index)
     {
+        if (index < 0)
+            return;
+
+        _pendingTileCoverIndices.Add(index);
+        _tileCoverReloadDebounceTimer ??= new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(TileCoverReloadDebounceMs)
+        };
+        _tileCoverReloadDebounceTimer.Tick -= TileCoverReloadDebounceTimer_Tick;
+        _tileCoverReloadDebounceTimer.Tick += TileCoverReloadDebounceTimer_Tick;
+        _tileCoverReloadDebounceTimer.Stop();
+        _tileCoverReloadDebounceTimer.Start();
+    }
+
+    private void TileCoverReloadDebounceTimer_Tick(object? sender, EventArgs e)
+    {
+        _tileCoverReloadDebounceTimer?.Stop();
+        if (_pendingTileCoverIndices.Count == 0)
+            return;
+
+        var indices = _pendingTileCoverIndices.ToArray();
+        _pendingTileCoverIndices.Clear();
         PostToUi(() =>
         {
-            _coversLoadedIndices.Remove(index);
-            PushTileCovers(index);
+            foreach (var index in indices)
+            {
+                _coversLoadedIndices.Remove(index);
+                PushTileCovers(index);
+            }
         });
     }
 
@@ -1339,7 +1370,6 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         var defaultSk = CompositionBitmapHelper.ToSkImage(folder.CoverBitmap, CompositionBitmapHelper.FolderCoverMaxEdge);
         _coversLoadedIndices.Add(index);
         _visual?.SendHandlerMessage(new AlbumRowTileCoversMessage(index, snapshots, defaultSk));
-        ScheduleSendTitles();
     }
 
     private static List<FolderItemSnapshot> BuildSnapshots(FolderMediaItem folder)
