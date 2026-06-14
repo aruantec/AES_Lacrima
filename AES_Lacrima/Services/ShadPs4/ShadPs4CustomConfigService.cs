@@ -115,6 +115,76 @@ public static class ShadPs4CustomConfigService
         File.WriteAllText(path, json);
     }
 
+    public static ShadPs4CustomConfigDocument LoadGlobalOrDefault(string? emulatorDirectory)
+    {
+        var path = GetGlobalConfigPath(emulatorDirectory);
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return CreateDefault();
+
+        try
+        {
+            var json = File.ReadAllText(path);
+            return JsonSerializer.Deserialize(json, ShadPs4JsonContext.Default.ShadPs4CustomConfigDocument) ?? CreateDefault();
+        }
+        catch
+        {
+            return CreateDefault();
+        }
+    }
+
+    public static void SaveGlobal(string? emulatorDirectory, ShadPs4CustomConfigDocument document)
+    {
+        var path = GetGlobalConfigPath(emulatorDirectory);
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+            Directory.CreateDirectory(directory);
+
+        JsonObject root;
+        if (File.Exists(path))
+        {
+            try
+            {
+                root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? new JsonObject();
+            }
+            catch
+            {
+                root = new JsonObject();
+            }
+        }
+        else
+        {
+            root = new JsonObject();
+        }
+
+        var updated = JsonSerializer.SerializeToNode(document, ShadPs4JsonContext.Default.ShadPs4CustomConfigDocument) as JsonObject;
+        if (updated != null)
+            MergeConfigSections(root, updated);
+
+        File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static void MergeConfigSections(JsonObject target, JsonObject source)
+    {
+        foreach (var section in source)
+        {
+            if (section.Value is not JsonObject sourceSection)
+                continue;
+
+            if (target[section.Key] is JsonObject targetSection)
+            {
+                foreach (var property in sourceSection)
+                    targetSection[property.Key] = property.Value?.DeepClone();
+            }
+            else
+            {
+                target[section.Key] = sourceSection.DeepClone();
+            }
+        }
+    }
+
     public static string FormatResolution(int width, int height) => $"{width} x {height}";
 
     public static bool TryParseResolution(string? preset, out int width, out int height)

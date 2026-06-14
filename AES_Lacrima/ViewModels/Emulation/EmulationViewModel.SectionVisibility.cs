@@ -142,6 +142,9 @@ namespace AES_Lacrima.ViewModels
         public bool ShowCurrentSectionShadPs4CustomConfigMenuItem =>
             ShowCurrentSectionShadPs4UpdateControls && HasActiveAlbumItems;
 
+        public bool ShowCurrentSectionShadPs4GlobalConfigMenuItem =>
+            ShowCurrentSectionShadPs4UpdateControls && HasActiveAlbumItems;
+
         public bool ShowCurrentSectionShadPs4CheatsMenuItem =>
             ShowCurrentSectionShadPs4UpdateControls && HasActiveAlbumItems;
 
@@ -316,6 +319,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4UpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4PatchesMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4CustomConfigMenuItem));
+            OnPropertyChanged(nameof(ShowCurrentSectionShadPs4GlobalConfigMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4CheatsMenuItem));
             OnPropertyChanged(nameof(ShowCurrentSectionXeniaUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionXemuUpdateControls));

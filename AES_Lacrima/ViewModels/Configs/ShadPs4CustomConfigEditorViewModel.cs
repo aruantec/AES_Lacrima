@@ -15,6 +15,7 @@ public partial class ShadPs4CustomConfigEditorViewModel : ObservableObject
     private string? _titleId;
     private string? _gameTitle;
     private string? _configFilePath;
+    private bool _isGlobalConfig;
     private bool _isOpen;
     private bool _isBusy;
     private bool _isDirty;
@@ -137,8 +138,33 @@ public partial class ShadPs4CustomConfigEditorViewModel : ObservableObject
         }
     }
 
-    public string OverlayHeader =>
-        string.IsNullOrWhiteSpace(GameTitle) ? "shadPS4 Custom Config" : $"{GameTitle} — Custom Config";
+    public bool IsGlobalConfig
+    {
+        get => _isGlobalConfig;
+        private set
+        {
+            if (SetProperty(ref _isGlobalConfig, value))
+            {
+                OnPropertyChanged(nameof(OverlayHeader));
+                OnPropertyChanged(nameof(ConfigScopeLabel));
+            }
+        }
+    }
+
+    public string ConfigScopeLabel => IsGlobalConfig ? "Global settings" : "Title ID";
+
+    public string OverlayHeader
+    {
+        get
+        {
+            if (IsGlobalConfig)
+                return "shadPS4 Global Config";
+
+            return string.IsNullOrWhiteSpace(GameTitle)
+                ? "shadPS4 Custom Config"
+                : $"{GameTitle} — Custom Config";
+        }
+    }
 
     public string? ConfigFilePath
     {
@@ -270,11 +296,53 @@ public partial class ShadPs4CustomConfigEditorViewModel : ObservableObject
         set => TrophyNotificationSide = ShadPs4CustomConfigService.TrophySideValueForLabel(value);
     }
 
+    public async Task LoadGlobalAsync(string? emulatorDirectory)
+    {
+        IsOpen = true;
+        IsBusy = true;
+        IsDirty = false;
+        IsGlobalConfig = true;
+        _emulatorDirectory = emulatorDirectory;
+        GameTitle = null;
+        TitleId = null;
+        ConfigFilePath = null;
+        Status = "Loading global shadPS4 config...";
+
+        try
+        {
+            var audioDevices = await Task.Run(() => ShadPs4CustomConfigService.GetAudioDeviceNames(emulatorDirectory)).ConfigureAwait(true);
+            AudioDevices = audioDevices;
+            OnPropertyChanged(nameof(AudioDevices));
+
+            GpuOptions = await Task.Run(ShadPs4CustomConfigService.GetGpuOptions).ConfigureAwait(true);
+            OnPropertyChanged(nameof(GpuOptions));
+            OnPropertyChanged(nameof(GpuAdapterLabels));
+            OnPropertyChanged(nameof(SelectedGpuAdapterIndex));
+
+            var document = await Task.Run(() => ShadPs4CustomConfigService.LoadGlobalOrDefault(emulatorDirectory)).ConfigureAwait(true);
+            ApplyDocument(document);
+            SelectedTabIndex = 0;
+            SelectedConfigSection = ConfigSections[0];
+            NotifyConfigSectionVisibility();
+
+            ConfigFilePath = ShadPs4CustomConfigService.GetGlobalConfigPath(emulatorDirectory);
+            Status = File.Exists(ConfigFilePath)
+                ? "Loaded global shadPS4 config."
+                : "No global config found. Defaults are shown.";
+            IsDirty = false;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     public async Task LoadAsync(string? emulatorDirectory, string gamePath, string? gameTitle)
     {
         IsOpen = true;
         IsBusy = true;
         IsDirty = false;
+        IsGlobalConfig = false;
         _emulatorDirectory = emulatorDirectory;
         GameTitle = gameTitle;
         TitleId = null;
@@ -400,7 +468,7 @@ public partial class ShadPs4CustomConfigEditorViewModel : ObservableObject
     [RelayCommand]
     private async Task SaveAsync()
     {
-        if (string.IsNullOrWhiteSpace(TitleId))
+        if (!IsGlobalConfig && string.IsNullOrWhiteSpace(TitleId))
         {
             Status = "Cannot save without a detected Title ID.";
             return;
@@ -410,9 +478,19 @@ public partial class ShadPs4CustomConfigEditorViewModel : ObservableObject
         try
         {
             var document = BuildDocument();
-            await Task.Run(() => ShadPs4CustomConfigService.Save(_emulatorDirectory, TitleId, document)).ConfigureAwait(true);
-            ConfigFilePath = ShadPs4CustomConfigService.GetConfigFilePath(_emulatorDirectory, TitleId);
-            Status = $"Saved custom config for {TitleId}.";
+            if (IsGlobalConfig)
+            {
+                await Task.Run(() => ShadPs4CustomConfigService.SaveGlobal(_emulatorDirectory, document)).ConfigureAwait(true);
+                ConfigFilePath = ShadPs4CustomConfigService.GetGlobalConfigPath(_emulatorDirectory);
+                Status = "Saved global shadPS4 config.";
+            }
+            else
+            {
+                await Task.Run(() => ShadPs4CustomConfigService.Save(_emulatorDirectory, TitleId!, document)).ConfigureAwait(true);
+                ConfigFilePath = ShadPs4CustomConfigService.GetConfigFilePath(_emulatorDirectory, TitleId!);
+                Status = $"Saved custom config for {TitleId}.";
+            }
+
             IsDirty = false;
             IsOpen = false;
         }
@@ -437,6 +515,7 @@ public partial class ShadPs4CustomConfigEditorViewModel : ObservableObject
         IsOpen = false;
         IsBusy = false;
         IsDirty = false;
+        IsGlobalConfig = false;
         TitleId = null;
         GameTitle = null;
         ConfigFilePath = null;

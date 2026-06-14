@@ -331,6 +331,16 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
+        private async Task OpenCurrentSectionShadPs4GlobalConfig()
+        {
+            if (!ShowCurrentSectionShadPs4GlobalConfigMenuItem)
+                return;
+
+            await ShadPs4CustomConfigEditor.LoadGlobalAsync(CurrentSectionShadPs4EmulatorPath)
+                .ConfigureAwait(true);
+        }
+
+        [RelayCommand]
         private async Task OpenCurrentSectionShadPs4Cheats(object? parameter)
         {
             if (!ShowCurrentSectionShadPs4CheatsMenuItem)

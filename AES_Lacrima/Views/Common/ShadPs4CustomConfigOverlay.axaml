@@ -39,10 +39,11 @@
                            FontWeight="SemiBold"
                            Foreground="White" />
                 <StackPanel Orientation="Horizontal" Spacing="16">
-                    <TextBlock Text="Title ID" Foreground="#D8D8D8" FontSize="20" />
-                    <TextBlock Text="{Binding TitleId, FallbackValue=Unknown, TargetNullValue=Unknown}"
+                    <TextBlock Text="{Binding ConfigScopeLabel}" Foreground="#D8D8D8" FontSize="20" />
+                    <TextBlock Text="{Binding TitleId, FallbackValue=—, TargetNullValue=—}"
                                Foreground="White"
-                               FontSize="20" />
+                               FontSize="20"
+                               IsVisible="{Binding !IsGlobalConfig}" />
                     <TextBlock Text="{Binding ConfigFilePath}"
                                Foreground="#A8A8A8"
                                FontSize="14"

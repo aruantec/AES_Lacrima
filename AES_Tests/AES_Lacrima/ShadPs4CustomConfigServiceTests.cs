@@ -1,7 +1,8 @@
 using System.Runtime.InteropServices;
+using System.Text.Json.Nodes;
 using AES_Lacrima.Services.Emulation;
 using AES_Lacrima.Services.ShadPs4;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Tests.AES_Lacrima;
@@ -32,6 +33,52 @@ public sealed class ShadPs4CustomConfigServiceTests
         Assert.Equal(1920, loaded.Gpu.WindowWidth);
         Assert.Equal(1080, loaded.Gpu.WindowHeight);
         Assert.Equal(0, loaded.Vulkan.GpuId);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+        }
+    }
+
+    [Fact]
+    public void SaveGlobal_MergesKnownFieldsAndPreservesExtraKeys()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "AES_Lacrima_Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var emulatorDir = Path.Combine(tempRoot, "shadPS4");
+            var userDir = Path.Combine(emulatorDir, "user");
+            Directory.CreateDirectory(userDir);
+
+            var globalPath = Path.Combine(userDir, "config.json");
+            File.WriteAllText(globalPath,
+                """
+                {
+                  "General": {
+                    "install_dirs": [{ "enabled": true, "path": "/games" }],
+                    "volume_slider": 50
+                  },
+                  "Debug": {
+                    "config_version": "abc123"
+                  }
+                }
+                """);
+
+            var document = ShadPs4CustomConfigService.CreateDefault();
+            document.General.VolumeSlider = 90;
+            document.Gpu.WindowWidth = 1920;
+            document.Gpu.WindowHeight = 1080;
+
+            ShadPs4CustomConfigService.SaveGlobal(emulatorDir, document);
+
+            var root = JsonNode.Parse(File.ReadAllText(globalPath)) as JsonObject;
+            Assert.NotNull(root);
+            Assert.Equal(90, root["General"]?["volume_slider"]?.GetValue<int>());
+            Assert.Equal("/games", root["General"]?["install_dirs"]?[0]?["path"]?.GetValue<string>());
+            Assert.Equal("abc123", root["Debug"]?["config_version"]?.GetValue<string>());
+            Assert.Equal(1920, root["GPU"]?["window_width"]?.GetValue<int>());
+            Assert.Equal(1080, root["GPU"]?["window_height"]?.GetValue<int>());
         }
         finally
         {
