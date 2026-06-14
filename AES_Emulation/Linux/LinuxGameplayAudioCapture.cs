@@ -16,18 +16,6 @@ namespace AES_Emulation.Linux;
 public sealed class LinuxGameplayAudioCapture : IDisposable
 {
     private static readonly ILog Log = LogHelper.For<LinuxGameplayAudioCapture>();
-    private static readonly string[] AudioEnvironmentKeys =
-    [
-        "PATH",
-        "XDG_RUNTIME_DIR",
-        "PULSE_RUNTIME_PATH",
-        "PULSE_SERVER",
-        "DBUS_SESSION_BUS_ADDRESS",
-        "WAYLAND_DISPLAY",
-        "DISPLAY",
-        "HOME",
-        "USER",
-    ];
 
     private Process? _captureProcess;
     private Stream? _stdout;
@@ -55,7 +43,7 @@ public sealed class LinuxGameplayAudioCapture : IDisposable
         return "@DEFAULT_MONITOR@";
     }
 
-    public static void ApplyAudioEnvironment(ProcessStartInfo startInfo) => CopyAudioEnvironment(startInfo);
+    public static void ApplyAudioEnvironment(ProcessStartInfo startInfo) => LinuxAudioEnvironmentHelper.Apply(startInfo);
 
     public static bool CanCapturePulse()
     {
@@ -77,7 +65,7 @@ public sealed class LinuxGameplayAudioCapture : IDisposable
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
-            CopyAudioEnvironment(startInfo);
+            LinuxAudioEnvironmentHelper.Apply(startInfo);
 
             using var process = Process.Start(startInfo);
             if (process == null)
@@ -203,7 +191,7 @@ public sealed class LinuxGameplayAudioCapture : IDisposable
         startInfo.ArgumentList.Add("--format=s16le");
         startInfo.ArgumentList.Add("--rate=48000");
         startInfo.ArgumentList.Add("--channels=2");
-        CopyAudioEnvironment(startInfo);
+        LinuxAudioEnvironmentHelper.Apply(startInfo);
         return startInfo;
     }
 
@@ -229,7 +217,7 @@ public sealed class LinuxGameplayAudioCapture : IDisposable
         startInfo.ArgumentList.Add("--rate=48000");
         startInfo.ArgumentList.Add("--channels=2");
         startInfo.ArgumentList.Add("-");
-        CopyAudioEnvironment(startInfo);
+        LinuxAudioEnvironmentHelper.Apply(startInfo);
         return startInfo;
     }
 
@@ -250,7 +238,7 @@ public sealed class LinuxGameplayAudioCapture : IDisposable
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
-            CopyAudioEnvironment(startInfo);
+            LinuxAudioEnvironmentHelper.Apply(startInfo);
 
             using var process = Process.Start(startInfo);
             if (process == null)
@@ -317,7 +305,7 @@ public sealed class LinuxGameplayAudioCapture : IDisposable
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
-            CopyAudioEnvironment(startInfo);
+            LinuxAudioEnvironmentHelper.Apply(startInfo);
 
             using var process = Process.Start(startInfo);
             if (process == null)
@@ -376,7 +364,7 @@ public sealed class LinuxGameplayAudioCapture : IDisposable
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
-            CopyAudioEnvironment(startInfo);
+            LinuxAudioEnvironmentHelper.Apply(startInfo);
 
             using var process = Process.Start(startInfo);
             if (process == null)
@@ -455,13 +443,4 @@ public sealed class LinuxGameplayAudioCapture : IDisposable
         return false;
     }
 
-    private static void CopyAudioEnvironment(ProcessStartInfo startInfo)
-    {
-        foreach (var key in AudioEnvironmentKeys)
-        {
-            var value = Environment.GetEnvironmentVariable(key);
-            if (!string.IsNullOrWhiteSpace(value))
-                startInfo.Environment[key] = value;
-        }
-    }
 }

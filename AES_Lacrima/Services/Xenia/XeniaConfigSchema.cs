@@ -5,7 +5,7 @@ namespace AES_Lacrima.Services.Xenia;
 
 public static class XeniaConfigSchema
 {
-    private static readonly string[] ApuBackends = ["any", "nop", "sdl", "xaudio2"];
+    private static readonly string[] ApuBackends = ["sdl", "alsa", "any", "nop", "xaudio2"];
     private static readonly string[] XmaDecoders = ["fake", "master", "old", "new"];
     private static readonly string[] GpuBackends = ["any", "d3d12", "vulkan", "null"];
     private static readonly string[] ReadbackResolveModes = ["none", "fast", "full"];

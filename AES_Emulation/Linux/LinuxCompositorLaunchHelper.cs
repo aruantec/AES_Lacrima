@@ -225,6 +225,8 @@ public static class LinuxCompositorLaunchHelper
         if (!OperatingSystem.IsLinux())
             return;
 
+        LinuxAudioEnvironmentHelper.Apply(startInfo);
+
         startInfo.Environment["SDL_VIDEODRIVER"] = "x11";
         startInfo.Environment["GDK_BACKEND"] = "x11";
         startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";

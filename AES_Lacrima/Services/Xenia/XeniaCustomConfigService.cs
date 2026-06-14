@@ -130,6 +130,8 @@ public static class XeniaCustomConfigService
                     continue;
 
                 await File.WriteAllTextAsync(templatePath, content, cancellationToken).ConfigureAwait(false);
+                if (OperatingSystem.IsLinux())
+                    PatchLinuxAudioInTomlFile(templatePath);
                 Log.Info($"Downloaded Xenia default config template from '{url}'.");
                 return;
             }
@@ -141,6 +143,8 @@ public static class XeniaCustomConfigService
 
         var minimal = CreateMinimalDefaultToml();
         await File.WriteAllTextAsync(templatePath, minimal, cancellationToken).ConfigureAwait(false);
+        if (OperatingSystem.IsLinux())
+            PatchLinuxAudioInTomlFile(templatePath);
         Log.Warn("Created minimal built-in Xenia default config template.");
     }
 
@@ -229,7 +233,10 @@ public static class XeniaCustomConfigService
             ApplyOverrides(emulatorDirectory, overrides);
 
             if (OperatingSystem.IsLinux())
+            {
                 EnsureGamescopeLaunchSettings(emulatorDirectory);
+                EnsureLinuxAudioSettings(emulatorDirectory, overrides);
+            }
         }
         catch (Exception ex)
         {
@@ -262,6 +269,46 @@ public static class XeniaCustomConfigService
         {
             Log.Warn($"Failed to patch Xenia gamescope launch settings in '{activePath}'.", ex);
         }
+    }
+
+    /// <summary>
+    /// Xenia's default "any" APU backend does not produce audio on Linux. SDL routes through PulseAudio/PipeWire.
+    /// </summary>
+    internal static void EnsureLinuxAudioSettings(string? emulatorDirectory, XeniaCustomConfigDocument? overrides = null)
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(emulatorDirectory))
+            return;
+
+        if (overrides != null &&
+            TryGetOverride(overrides, "APU", "apu", out var overrideApu) &&
+            !string.IsNullOrWhiteSpace(overrideApu) &&
+            !string.Equals(overrideApu, "any", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(overrideApu, "xaudio2", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var activePath = GetActiveConfigPath(emulatorDirectory);
+        if (!File.Exists(activePath))
+            return;
+
+        try
+        {
+            PatchLinuxAudioInTomlFile(activePath);
+            Log.Info($"Patched Xenia Linux audio backend (apu=sdl) in '{activePath}'.");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Failed to patch Xenia Linux audio settings in '{activePath}'.", ex);
+        }
+    }
+
+    internal static void PatchLinuxAudioInTomlFile(string tomlPath)
+    {
+        var root = Toml.Parse(File.ReadAllText(tomlPath)).ToModel();
+        SetTomlString(root, "APU", "apu", "sdl");
+        SetTomlBool(root, "APU", "mute", false);
+        File.WriteAllText(tomlPath, Toml.FromModel(root));
     }
 
     internal static void ApplyGamescopeLaunchValues(TomlTable root, int width, int height)
@@ -498,20 +545,41 @@ public static class XeniaCustomConfigService
     }
 
     private static string CreateMinimalDefaultToml() =>
-        """
-        [GPU]
-        gpu = "any"
-        vsync = true
-        framerate_limit = 0
+        OperatingSystem.IsLinux()
+            ? """
+              [APU]
+              apu = "sdl"
+              mute = false
 
-        [Display]
-        fullscreen = false
+              [GPU]
+              gpu = "vulkan"
+              vsync = true
+              framerate_limit = 0
 
-        [General]
-        apply_patches = true
+              [Display]
+              fullscreen = false
 
-        [UI]
-        window_size_x = 1280
-        window_size_y = 720
-        """;
+              [General]
+              apply_patches = true
+
+              [UI]
+              window_size_x = 1280
+              window_size_y = 720
+              """
+            : """
+              [GPU]
+              gpu = "any"
+              vsync = true
+              framerate_limit = 0
+
+              [Display]
+              fullscreen = false
+
+              [General]
+              apply_patches = true
+
+              [UI]
+              window_size_x = 1280
+              window_size_y = 720
+              """;
 }

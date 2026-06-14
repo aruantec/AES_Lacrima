@@ -621,7 +621,7 @@ public sealed class LinuxEmulatorAudioVolumeController : IDisposable
                 CreateNoWindow = true,
             };
 
-            CopyAudioEnvironment(startInfo);
+            LinuxAudioEnvironmentHelper.Apply(startInfo);
 
             using var process = Process.Start(startInfo);
             if (process == null)
@@ -647,14 +647,7 @@ public sealed class LinuxEmulatorAudioVolumeController : IDisposable
     }
 
     private static void CopyAudioEnvironment(ProcessStartInfo startInfo)
-    {
-        foreach (var key in AudioEnvironmentKeys)
-        {
-            var value = Environment.GetEnvironmentVariable(key);
-            if (!string.IsNullOrWhiteSpace(value))
-                startInfo.Environment[key] = value;
-        }
-    }
+        => LinuxAudioEnvironmentHelper.Apply(startInfo);
 
     public void Dispose()
     {

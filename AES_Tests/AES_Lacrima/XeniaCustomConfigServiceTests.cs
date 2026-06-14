@@ -193,4 +193,66 @@ public sealed class XeniaCustomConfigServiceTests
         Assert.Equal("vulkan", Assert.IsType<string>(gpu["gpu"]));
         Assert.Equal("fbo", Assert.IsType<string>(gpu["render_target_path_vulkan"]));
     }
+
+    [Fact]
+    public void EnsureLinuxAudioSettings_ForcesSdlBackendOnLinux()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), "AES_Lacrima_Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var activePath = XeniaCustomConfigService.GetActiveConfigPath(tempRoot);
+            File.WriteAllText(activePath,
+                """
+                [APU]
+                apu = "any"
+                mute = false
+                """);
+
+            XeniaCustomConfigService.EnsureLinuxAudioSettings(tempRoot);
+
+            var model = Toml.Parse(File.ReadAllText(activePath)).ToModel();
+            var apu = Assert.IsType<TomlTable>(model["APU"]);
+            Assert.Equal("sdl", Assert.IsType<string>(apu["apu"]));
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+        }
+    }
+
+    [Fact]
+    public void EnsureLinuxAudioSettings_RespectsExplicitUserApuOverride()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), "AES_Lacrima_Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var activePath = XeniaCustomConfigService.GetActiveConfigPath(tempRoot);
+            File.WriteAllText(activePath,
+                """
+                [APU]
+                apu = "any"
+                """);
+
+            var overrides = new XeniaCustomConfigDocument();
+            overrides.Overrides["APU"] = new Dictionary<string, string?> { ["apu"] = "alsa" };
+
+            XeniaCustomConfigService.EnsureLinuxAudioSettings(tempRoot, overrides);
+
+            var model = Toml.Parse(File.ReadAllText(activePath)).ToModel();
+            var apu = Assert.IsType<TomlTable>(model["APU"]);
+            Assert.Equal("any", Assert.IsType<string>(apu["apu"]));
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, true); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+        }
+    }
 }

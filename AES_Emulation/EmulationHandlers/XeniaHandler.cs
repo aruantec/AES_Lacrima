@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
+using AES_Emulation.Linux;
 using AES_Emulation.Windows.API;
 
 namespace AES_Emulation.EmulationHandlers;
@@ -46,13 +47,29 @@ public sealed class XeniaHandler : EmulatorHandlerBase
         var startInfo = base.BuildStartInfo(launcherPath, romPath, startFullscreen, sectionTitle);
 
         if (OperatingSystem.IsLinux())
+        {
             startInfo.ArgumentList.Insert(0, "--fullscreen=true");
+            ApplyLinuxAudioEnvironment(startInfo);
+        }
         else if (startFullscreen)
         {
             startInfo.ArgumentList.Insert(0, "--fullscreen");
         }
 
         return startInfo;
+    }
+
+    public override ProcessStartInfo BuildSetupStartInfo(string? launcherPath, string? preferredEmulatorDirectory = null)
+    {
+        var startInfo = base.BuildSetupStartInfo(launcherPath, preferredEmulatorDirectory);
+        if (OperatingSystem.IsLinux())
+            ApplyLinuxAudioEnvironment(startInfo);
+        return startInfo;
+    }
+
+    private static void ApplyLinuxAudioEnvironment(ProcessStartInfo startInfo)
+    {
+        LinuxGameplayAudioCapture.ApplyAudioEnvironment(startInfo);
     }
 
     [SupportedOSPlatform("windows")]
