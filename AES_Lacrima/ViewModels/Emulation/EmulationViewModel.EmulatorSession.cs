@@ -148,9 +148,9 @@ namespace AES_Lacrima.ViewModels
                 if (!string.IsNullOrWhiteSpace(rpcs3TitleId))
                 {
                     SLog.Info($"EmulationViewModel resolved RPCS3 title id '{rpcs3TitleId}' for '{request.RomPath}'.");
-                    var rpcs3Directory = !string.IsNullOrWhiteSpace(CurrentSectionRpcs3EmulatorPath)
-                        ? CurrentSectionRpcs3EmulatorPath
-                        : Rpcs3CustomConfigService.ResolveEmulatorDirectory(handler.LauncherPath);
+                    var rpcs3Directory = Rpcs3PathsService.ResolveEmulatorDirectory(
+                        CurrentSectionRpcs3EmulatorPath,
+                        handler.LauncherPath);
                     await Task.Run(() => Rpcs3CustomConfigService.PrepareConfigForLaunch(rpcs3Directory, rpcs3TitleId))
                         .ConfigureAwait(false);
                     _activeRpcs3SessionTitleId = Rpcs3CustomConfigService.NormalizeTitleId(rpcs3TitleId);
@@ -208,10 +208,22 @@ namespace AES_Lacrima.ViewModels
                         handler.LauncherPath);
                 }
 
-                if (!pcsx2PortableLaunchWrapped && string.IsNullOrWhiteSpace(handler.FlatpakAppId))
+                var rpcs3LinuxLaunchPrepared = false;
+                if (OperatingSystem.IsLinux() &&
+                    string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase))
+                {
+                    Rpcs3LinuxLaunchHelper.PrepareLaunch(
+                        startInfo,
+                        _activeRpcs3SessionEmulatorDirectory,
+                        handler.FlatpakAppId,
+                        launchRomPath);
+                    rpcs3LinuxLaunchPrepared = true;
+                }
+
+                if (!pcsx2PortableLaunchWrapped && !rpcs3LinuxLaunchPrepared && string.IsNullOrWhiteSpace(handler.FlatpakAppId))
                     PrepareLinuxAppImageStartInfo(startInfo);
 
-                if (OperatingSystem.IsLinux() && !string.IsNullOrWhiteSpace(handler.FlatpakAppId))
+                if (OperatingSystem.IsLinux() && !rpcs3LinuxLaunchPrepared && !string.IsNullOrWhiteSpace(handler.FlatpakAppId))
                     FlatpakLaunchHelper.Apply(startInfo, handler.FlatpakAppId, launchRomPath);
 
                 if (OperatingSystem.IsLinux())

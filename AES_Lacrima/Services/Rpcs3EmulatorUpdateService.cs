@@ -288,6 +288,8 @@ public partial class Rpcs3EmulatorUpdateService
             {
                 var destinationPath = Path.Combine(emulatorDirectory, Path.GetFileName(downloadedAssetPath));
                 File.Copy(downloadedAssetPath, destinationPath, overwrite: true);
+                if (destinationPath.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                    TrySetUnixExecutable(destinationPath);
             }
 
             PrepareUpdateDirectory(updateDirectory);
@@ -421,20 +423,12 @@ public partial class Rpcs3EmulatorUpdateService
             text = WebUtility.HtmlDecode(text);
             text = Regex.Replace(text, "\\s+", " ").Trim();
 
-            if (!text.Contains("RPCS3", StringComparison.OrdinalIgnoreCase) ||
-                !text.Contains("for Windows", StringComparison.OrdinalIgnoreCase))
-            {
+            if (!IsRpcs3EmulationKingPlatformLink(text))
                 continue;
-            }
 
             var fileName = Path.GetFileName(downloadUri.AbsolutePath);
-            if (string.IsNullOrWhiteSpace(fileName) ||
-                (!fileName.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) &&
-                 !fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) &&
-                 !fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
-            {
+            if (string.IsNullOrWhiteSpace(fileName) || !IsRpcs3EmulationKingAssetName(fileName))
                 continue;
-            }
 
             if (fileName.Contains("arm64", StringComparison.OrdinalIgnoreCase) ||
                 fileName.Contains("aarch64", StringComparison.OrdinalIgnoreCase) ||
@@ -473,9 +467,7 @@ public partial class Rpcs3EmulatorUpdateService
             releases.Add(new ReleaseInfo(tag, false, publishedAt, new[] { new ReleaseAsset(fileName, downloadUri.ToString()) }));
         }
 
-        return releases
-            .GroupBy(static r => r.Tag, StringComparer.OrdinalIgnoreCase)
-            .Select(static g => g.First())
+        return MergeEmulationKingReleasesByTag(releases)
             .OrderByDescending(static r => r.PublishedAt ?? DateTimeOffset.MinValue)
             .ThenByDescending(static r =>
             {
@@ -485,6 +477,78 @@ public partial class Rpcs3EmulatorUpdateService
             .ThenByDescending(static r => r.Tag, StringComparer.OrdinalIgnoreCase)
             .Take(10)
             .ToList();
+    }
+
+    public static bool IsRpcs3EmulationKingPlatformLink(string linkText)
+    {
+        if (string.IsNullOrWhiteSpace(linkText) ||
+            !linkText.Contains("RPCS3", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return linkText.Contains("for Windows", StringComparison.OrdinalIgnoreCase) ||
+               linkText.Contains("for Linux", StringComparison.OrdinalIgnoreCase) ||
+               linkText.Contains("for Mac", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsRpcs3EmulationKingAssetName(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return false;
+
+        return fileName.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) ||
+               fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+               fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+               fileName.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static IReadOnlyList<(string Tag, IReadOnlyList<string> AssetNames)> ParseEmulationKingReleaseSummaries(string html)
+    {
+        return ParseEmulationKingReleases(html)
+            .Select(static release => (release.Tag, (IReadOnlyList<string>)release.Assets.Select(static asset => asset.Name).ToList()))
+            .ToList();
+    }
+
+    private static IReadOnlyList<ReleaseInfo> MergeEmulationKingReleasesByTag(IEnumerable<ReleaseInfo> releases)
+    {
+        return releases
+            .GroupBy(static release => release.Tag, StringComparer.OrdinalIgnoreCase)
+            .Select(static group =>
+            {
+                var preferred = group
+                    .OrderByDescending(static release => release.PublishedAt ?? DateTimeOffset.MinValue)
+                    .First();
+
+                var assets = group
+                    .SelectMany(static release => release.Assets)
+                    .GroupBy(static asset => asset.DownloadUrl, StringComparer.OrdinalIgnoreCase)
+                    .Select(static assetGroup => assetGroup.First())
+                    .ToList();
+
+                return new ReleaseInfo(
+                    preferred.Tag,
+                    preferred.IsPrerelease,
+                    preferred.PublishedAt,
+                    assets,
+                    preferred.ReleaseNotes);
+            })
+            .ToList();
+    }
+
+    private static void TrySetUnixExecutable(string path)
+    {
+        if (!OperatingSystem.IsLinux() || !File.Exists(path))
+            return;
+
+        try
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"Failed to chmod RPCS3 AppImage '{path}'.", ex);
+        }
     }
 
     private async Task<IReadOnlyList<ReleaseInfo>> GetStableReleasesAsync(bool forceRefresh, CancellationToken cancellationToken)

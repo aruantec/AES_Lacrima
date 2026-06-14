@@ -104,54 +104,8 @@ public static class Rpcs3PatchesService
     /// Resolves the RPCS3 root directory that contains <c>patches/patch.yml</c>.
     /// Prefers the AES-managed folder when patches exist there, even if the launcher lives elsewhere.
     /// </summary>
-    public static string ResolveEmulatorDirectory(string? preferredDirectory, string? launcherPath)
-    {
-        var candidates = new List<string>();
-
-        void AddCandidate(string? path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-                return;
-
-            var trimmed = path.Trim();
-            if (!candidates.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
-                candidates.Add(trimmed);
-        }
-
-        AddCandidate(preferredDirectory);
-        AddCandidate(Rpcs3CustomConfigService.GetDefaultEmulatorDirectory());
-
-        if (!string.IsNullOrWhiteSpace(launcherPath))
-        {
-            try
-            {
-                var current = Path.GetDirectoryName(Path.GetFullPath(launcherPath.Trim()));
-                while (!string.IsNullOrWhiteSpace(current))
-                {
-                    AddCandidate(current);
-
-                    var parent = Path.GetDirectoryName(current);
-                    if (string.IsNullOrWhiteSpace(parent) ||
-                        string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
-                        break;
-
-                    current = parent;
-                }
-            }
-            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
-        }
-
-        foreach (var candidate in candidates)
-        {
-            if (PatchFileExists(candidate))
-                return candidate;
-        }
-
-        if (!string.IsNullOrWhiteSpace(preferredDirectory))
-            return preferredDirectory.Trim();
-
-        return Rpcs3CustomConfigService.ResolveEmulatorDirectory(launcherPath);
-    }
+    public static string ResolveEmulatorDirectory(string? preferredDirectory, string? launcherPath) =>
+        Rpcs3PathsService.ResolveEmulatorDirectory(preferredDirectory, launcherPath);
 
     public static string? TryReadLocalPatchEngineVersion(string? emulatorDirectory)
     {

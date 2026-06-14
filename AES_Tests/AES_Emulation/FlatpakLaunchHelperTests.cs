@@ -71,4 +71,24 @@ public sealed class FlatpakLaunchHelperTests
 
         Assert.Empty(grants);
     }
+
+    [Fact]
+    public void CollectFilesystemGrants_IncludesAdditionalGrantPaths()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("aes-flatpak-extra-grant-test");
+        try
+        {
+            var configDirectory = Path.Combine(tempDirectory.FullName, "rpcs3-config");
+            Directory.CreateDirectory(configDirectory);
+
+            var grants = FlatpakLaunchHelper.CollectFilesystemGrants([], null, null, configDirectory).ToList();
+
+            Assert.Single(grants);
+            Assert.Equal($"--filesystem={configDirectory}", grants[0]);
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
 }

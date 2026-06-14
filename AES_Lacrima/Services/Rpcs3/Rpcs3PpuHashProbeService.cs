@@ -103,6 +103,7 @@ public static class Rpcs3PpuHashProbeService
         string? appVersion,
         string? launcherPath,
         string? gamePath,
+        string? flatpakAppId = null,
         Action<string>? statusCallback = null,
         CancellationToken cancellationToken = default)
     {
@@ -132,6 +133,7 @@ public static class Rpcs3PpuHashProbeService
                 emulatorDirectory,
                 normalizedTitleId,
                 gamePath,
+                flatpakAppId,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -147,6 +149,7 @@ public static class Rpcs3PpuHashProbeService
         string? emulatorDirectory,
         string titleId,
         string? gamePath,
+        string? flatpakAppId = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(launcherPath))
@@ -176,6 +179,7 @@ public static class Rpcs3PpuHashProbeService
 
             var startInfo = Rpcs3Handler.Instance.BuildStartInfo(resolvedLauncher, bootTarget, startFullscreen: false);
             Rpcs3CustomConfigService.ApplyConfigDirectoryEnvironment(startInfo, emulatorDirectory);
+            Rpcs3LinuxLaunchHelper.PrepareLaunch(startInfo, emulatorDirectory, flatpakAppId, bootTarget);
 
             process = Process.Start(startInfo);
             if (process == null)
@@ -283,7 +287,7 @@ public static class Rpcs3PpuHashProbeService
             if (process.HasExited)
                 return;
 
-            if (process.CloseMainWindow())
+            if (!OperatingSystem.IsLinux() && process.CloseMainWindow())
             {
                 if (await WaitForExitAsync(process, 4000).ConfigureAwait(false))
                     return;

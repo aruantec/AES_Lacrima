@@ -600,31 +600,42 @@ public sealed class Rpcs3Handler : EmulatorHandlerBase
             if (string.IsNullOrWhiteSpace(baseDirectory) || !Directory.Exists(baseDirectory))
                 return;
 
-            var configPath = Path.Combine(baseDirectory, "config.yml");
-            if (!File.Exists(configPath))
-                return;
-
-            var lines = File.ReadAllLines(configPath);
-            var modified = false;
-
-            for (var i = 0; i < lines.Length; i++)
+            foreach (var configPath in new[]
+                     {
+                         Path.Combine(baseDirectory, "config", "config.yml"),
+                         Path.Combine(baseDirectory, "config.yml"),
+                     })
             {
-                if (lines[i].Contains("Pause emulation on RPCS3 focus loss", StringComparison.OrdinalIgnoreCase) &&
-                    lines[i].Contains(':'))
-                {
-                    var newLine = "  Pause emulation on RPCS3 focus loss: false";
-                    if (!string.Equals(lines[i], newLine, StringComparison.Ordinal))
-                    {
-                        lines[i] = newLine;
-                        modified = true;
-                    }
-                }
+                PatchPauseOnFocusLossSetting(configPath);
             }
-
-            if (modified)
-                File.WriteAllLines(configPath, lines);
         }
         catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+    }
+
+    private static void PatchPauseOnFocusLossSetting(string configPath)
+    {
+        if (!File.Exists(configPath))
+            return;
+
+        var lines = File.ReadAllLines(configPath);
+        var modified = false;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (lines[i].Contains("Pause emulation on RPCS3 focus loss", StringComparison.OrdinalIgnoreCase) &&
+                lines[i].Contains(':'))
+            {
+                var newLine = "  Pause emulation on RPCS3 focus loss: false";
+                if (!string.Equals(lines[i], newLine, StringComparison.Ordinal))
+                {
+                    lines[i] = newLine;
+                    modified = true;
+                }
+            }
+        }
+
+        if (modified)
+            File.WriteAllLines(configPath, lines);
     }
 
     [DllImport("user32.dll")]

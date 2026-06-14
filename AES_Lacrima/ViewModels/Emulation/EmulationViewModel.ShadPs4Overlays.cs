@@ -391,9 +391,9 @@ namespace AES_Lacrima.ViewModels
             if (target == null || string.IsNullOrWhiteSpace(target.FileName))
                 return;
 
-            var emulatorDirectory = !string.IsNullOrWhiteSpace(CurrentSectionRpcs3EmulatorPath)
-                ? CurrentSectionRpcs3EmulatorPath
-                : Rpcs3CustomConfigService.ResolveEmulatorDirectory(CurrentEmulatorHandler?.LauncherPath);
+            var emulatorDirectory = Rpcs3PathsService.ResolveEmulatorDirectory(
+                CurrentSectionRpcs3EmulatorPath,
+                CurrentSectionEmulatorHandler?.LauncherPath);
 
             await Rpcs3CustomConfigEditor.LoadAsync(
                 emulatorDirectory,

@@ -65,6 +65,7 @@ public static class Rpcs3ArtemisCheatImportService
         string rawArtemisText,
         string? launcherPath = null,
         string? gamePath = null,
+        string? flatpakAppId = null,
         string? ppuHash = null,
         Action<string>? statusCallback = null,
         CancellationToken cancellationToken = default)
@@ -99,6 +100,7 @@ public static class Rpcs3ArtemisCheatImportService
                             appVersion,
                             launcherPath,
                             gamePath,
+                            flatpakAppId,
                             statusCallback,
                             cancellationToken).ConfigureAwait(false),
                     cancellationToken)

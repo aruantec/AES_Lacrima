@@ -58,23 +58,8 @@ public static class Rpcs3CustomConfigService
         Log.Info($"RPCS3 launch will use RPCS3_CONFIG_DIR='{configRoot}'.");
     }
 
-    public static string ResolveEmulatorDirectory(string? launcherPath)
-    {
-        if (!string.IsNullOrWhiteSpace(launcherPath))
-        {
-            try
-            {
-                var launcherDirectory = Path.GetDirectoryName(Path.GetFullPath(launcherPath.Trim()));
-                if (!string.IsNullOrWhiteSpace(launcherDirectory) && Directory.Exists(launcherDirectory))
-                    return launcherDirectory;
-            }
-            catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
-        }
-
-        var managedDirectory = GetDefaultEmulatorDirectory();
-        Directory.CreateDirectory(managedDirectory);
-        return managedDirectory;
-    }
+    public static string ResolveEmulatorDirectory(string? launcherPath) =>
+        Rpcs3PathsService.ResolveEmulatorDirectory(preferredDirectory: null, launcherPath);
 
     public static string GetCustomConfigsDirectory(string? emulatorDirectory)
     {

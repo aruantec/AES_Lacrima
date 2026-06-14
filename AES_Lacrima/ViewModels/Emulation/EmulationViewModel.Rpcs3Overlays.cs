@@ -92,7 +92,7 @@ namespace AES_Lacrima.ViewModels
 
             try
             {
-            var emulatorDirectory = Rpcs3PatchesService.ResolveEmulatorDirectory(
+            var emulatorDirectory = Rpcs3PathsService.ResolveEmulatorDirectory(
                 CurrentSectionRpcs3EmulatorPath,
                 CurrentSectionEmulatorHandler?.LauncherPath);
 
@@ -152,7 +152,7 @@ namespace AES_Lacrima.ViewModels
             if (IsRpcs3PatchesBusy)
                 return;
 
-            var emulatorDirectory = Rpcs3PatchesService.ResolveEmulatorDirectory(
+            var emulatorDirectory = Rpcs3PathsService.ResolveEmulatorDirectory(
                 CurrentSectionRpcs3EmulatorPath,
                 CurrentSectionEmulatorHandler?.LauncherPath);
 
@@ -244,7 +244,7 @@ namespace AES_Lacrima.ViewModels
                 return false;
             }
 
-            var emulatorDirectory = Rpcs3PatchesService.ResolveEmulatorDirectory(
+            var emulatorDirectory = Rpcs3PathsService.ResolveEmulatorDirectory(
                 CurrentSectionRpcs3EmulatorPath,
                 CurrentSectionEmulatorHandler?.LauncherPath);
 
@@ -369,7 +369,7 @@ namespace AES_Lacrima.ViewModels
                 return;
             }
 
-            var emulatorDirectory = Rpcs3PatchesService.ResolveEmulatorDirectory(
+            var emulatorDirectory = Rpcs3PathsService.ResolveEmulatorDirectory(
                 CurrentSectionRpcs3EmulatorPath,
                 CurrentSectionEmulatorHandler?.LauncherPath);
 
@@ -386,6 +386,7 @@ namespace AES_Lacrima.ViewModels
                     Rpcs3ArtemisImportText,
                     launcherPath: CurrentSectionEmulatorHandler?.LauncherPath,
                     gamePath: Rpcs3SelectedGamePath,
+                    flatpakAppId: CurrentSectionEmulatorHandler?.FlatpakAppId,
                     statusCallback: status => Dispatcher.UIThread.Post(() => Rpcs3ArtemisImportStatus = status)).ConfigureAwait(true);
 
                 Rpcs3ArtemisImportStatus = result.Message;

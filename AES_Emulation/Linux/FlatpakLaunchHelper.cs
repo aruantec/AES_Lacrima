@@ -27,7 +27,7 @@ public static class FlatpakLaunchHelper
 
     public static bool IsFlatpakAvailable() => LinuxFlatpakApplicationService.IsFlatpakAvailable();
 
-    public static void Apply(ProcessStartInfo startInfo, string flatpakAppId, string? contentPath = null)
+    public static void Apply(ProcessStartInfo startInfo, string flatpakAppId, string? contentPath = null, params string?[] additionalGrantPaths)
     {
         var flatpakPath = LinuxFlatpakApplicationService.FindFlatpakExecutable();
         if (flatpakPath == null || string.IsNullOrWhiteSpace(flatpakAppId))
@@ -42,7 +42,7 @@ public static class FlatpakLaunchHelper
         startInfo.UseShellExecute = false;
         startInfo.ArgumentList.Add("run");
 
-        foreach (var grant in CollectFilesystemGrants(forwardedArgs, contentPath, startInfo.WorkingDirectory))
+        foreach (var grant in CollectFilesystemGrants(forwardedArgs, contentPath, startInfo.WorkingDirectory, additionalGrantPaths))
             startInfo.ArgumentList.Add(grant);
 
         startInfo.ArgumentList.Add(flatpakAppId);
@@ -56,7 +56,8 @@ public static class FlatpakLaunchHelper
     public static IEnumerable<string> CollectFilesystemGrants(
         IReadOnlyList<string> forwardedArgs,
         string? contentPath,
-        string? workingDirectory)
+        string? workingDirectory,
+        params string?[] additionalGrantPaths)
     {
         var grants = new HashSet<string>(StringComparer.Ordinal);
         AddFilesystemGrant(grants, contentPath, readOnly: true);
@@ -80,6 +81,13 @@ public static class FlatpakLaunchHelper
         }
 
         AddFilesystemGrant(grants, workingDirectory, readOnly: false);
+
+        if (additionalGrantPaths != null)
+        {
+            foreach (var grantPath in additionalGrantPaths)
+                AddFilesystemGrant(grants, grantPath, readOnly: false);
+        }
+
         return grants;
     }
 
