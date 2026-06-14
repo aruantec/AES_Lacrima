@@ -54,8 +54,15 @@ public static class DolphinGameIniService
         return string.IsNullOrWhiteSpace(directory) ? null : directory;
     }
 
-    public static string? ResolvePortableUserDirectory(string? emulatorDirectory, string? launcherPath)
+    public static string? ResolvePortableUserDirectory(string? emulatorDirectory, string? launcherPath, string? flatpakAppId = null)
     {
+        var flatpakUserDirectory = DolphinFlatpakPathsHelper.ResolveUserDirectory(flatpakAppId);
+        if (!string.IsNullOrWhiteSpace(flatpakUserDirectory))
+        {
+            Directory.CreateDirectory(flatpakUserDirectory);
+            return flatpakUserDirectory;
+        }
+
         var executablePath = EmulatorHandlerBase.ResolveLauncherExecutablePath(launcherPath);
         if (!string.IsNullOrWhiteSpace(executablePath))
         {
@@ -74,7 +81,25 @@ public static class DolphinGameIniService
         return GetDefaultUserDirectory();
     }
 
-    public static string? GetSysGameSettingsDirectory(string? emulatorDirectory)
+    public static string? GetSysGameSettingsDirectory(string? emulatorDirectory) =>
+        GetSysGameSettingsDirectoryInternal(emulatorDirectory);
+
+    public static async Task<string?> GetSysGameSettingsDirectoryAsync(
+        string? emulatorDirectory,
+        string? flatpakAppId,
+        CancellationToken cancellationToken = default)
+    {
+        var sysPath = GetSysGameSettingsDirectoryInternal(emulatorDirectory);
+        if (!string.IsNullOrWhiteSpace(sysPath))
+            return sysPath;
+
+        return await DolphinFlatpakPathsHelper.EnsureSysGameSettingsDirectoryAsync(
+            emulatorDirectory,
+            flatpakAppId,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string? GetSysGameSettingsDirectoryInternal(string? emulatorDirectory)
     {
         if (string.IsNullOrWhiteSpace(emulatorDirectory))
             return null;
@@ -97,6 +122,25 @@ public static class DolphinGameIniService
             return null;
 
         return Regex.IsMatch(normalized, "^[A-Z0-9]{6}$") ? normalized : null;
+    }
+
+    public static string? ResolveGameId(string romPath, string? albumTitle = null)
+    {
+        if (string.IsNullOrWhiteSpace(romPath))
+            return null;
+
+        try
+        {
+            var discGameId = NormalizeGameId(DolphinDiscMetadataReader.TryRead(romPath).GameId);
+            if (!string.IsNullOrWhiteSpace(discGameId))
+                return discGameId;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to resolve Dolphin game id from disc metadata.", ex);
+        }
+
+        return ResolveGameIdFromMetadata(romPath, albumTitle);
     }
 
     public static string? ResolveGameIdFromMetadata(string romPath, string? albumTitle = null)
@@ -203,9 +247,9 @@ public static class DolphinGameIniService
         localIni.Save(localPath);
     }
 
-    public static void EnsureCheatsEnabled(string? portableUserDirectory, string? launcherPath)
+    public static void EnsureCheatsEnabled(string? portableUserDirectory, string? launcherPath, string? flatpakAppId = null)
     {
-        foreach (var userDirectory in EnumerateUserDirectories(portableUserDirectory, launcherPath))
+        foreach (var userDirectory in EnumerateUserDirectories(portableUserDirectory, launcherPath, flatpakAppId))
             TrySetIniValue(userDirectory, "Core", "EnableCheats", "True");
     }
 
@@ -221,16 +265,51 @@ public static class DolphinGameIniService
 
         try
         {
-            var endpoint = GeckoCodesBaseUrl + Uri.EscapeDataString(normalizedId);
-            using var response = await GeckoCodesHttp.GetAsync(endpoint, cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-                return (false, $"Gecko code download failed (HTTP {(int)response.StatusCode}).", 0);
+            string? content = null;
+            string? resolvedDownloadId = null;
+            int? failureStatusCode = null;
+            var attemptedIds = new List<string>();
 
-            var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var candidateId in BuildGeckoDownloadCandidateIds(normalizedId))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                attemptedIds.Add(candidateId);
+
+                var endpoint = GeckoCodesBaseUrl + Uri.EscapeDataString(candidateId);
+                using var response = await GeckoCodesHttp.GetAsync(endpoint, cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    failureStatusCode = (int)response.StatusCode;
+                    continue;
+                }
+
+                var candidateContent = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                if (ParseGeckoTxtDownload(candidateContent).Count == 0)
+                    continue;
+
+                content = candidateContent;
+                resolvedDownloadId = candidateId;
+                break;
+            }
+
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                var attempted = string.Join(", ", attemptedIds.Distinct(StringComparer.OrdinalIgnoreCase));
+                if (failureStatusCode == 404)
+                {
+                    return (false,
+                        $"No Gecko codes were found for {normalizedId} on codes.rc24.xyz (tried: {attempted}).",
+                        0);
+                }
+
+                return (false,
+                    failureStatusCode.HasValue
+                        ? $"Gecko code download failed (HTTP {failureStatusCode.Value}) for {normalizedId} (tried: {attempted})."
+                        : $"No Gecko codes were found for {normalizedId} on codes.rc24.xyz (tried: {attempted}).",
+                    0);
+            }
+
             var downloaded = ParseGeckoTxtDownload(content);
-            if (downloaded.Count == 0)
-                return (false, $"No Gecko codes were found for {normalizedId} on codes.rc24.xyz.", 0);
-
             Directory.CreateDirectory(GetUserGameSettingsDirectory(userDirectory));
             var localPath = Path.Combine(GetUserGameSettingsDirectory(userDirectory), normalizedId + ".ini");
             var localIni = File.Exists(localPath) ? DolphinIniFile.Load(localPath) : new DolphinIniFile();
@@ -256,9 +335,13 @@ public static class DolphinGameIniService
             localIni.SetLines("Gecko", bodyLines);
             localIni.Save(localPath);
 
+            var sourceSuffix = string.Equals(resolvedDownloadId, normalizedId, StringComparison.OrdinalIgnoreCase)
+                ? string.Empty
+                : $" (from {resolvedDownloadId})";
+
             return added == 0
-                ? (true, "Gecko codes are already up to date.", 0)
-                : (true, $"Downloaded and added {added} Gecko code(s) to User/GameSettings/{normalizedId}.ini.", added);
+                ? (true, $"Gecko codes are already up to date{sourceSuffix}.", 0)
+                : (true, $"Downloaded and added {added} Gecko code(s) to User/GameSettings/{normalizedId}.ini{sourceSuffix}.", added);
         }
         catch (Exception ex)
         {
@@ -266,6 +349,36 @@ public static class DolphinGameIniService
             return (false, $"Failed to download Gecko codes: {ex.Message}", 0);
         }
     }
+
+    internal static IEnumerable<string> BuildGeckoDownloadCandidateIds(string normalizedGameId)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedGameId))
+            yield break;
+
+        var normalized = normalizedGameId.Trim().ToUpperInvariant();
+        if (normalized.Length != 6)
+        {
+            yield return normalized;
+            yield break;
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (seen.Add(normalized))
+            yield return normalized;
+
+        var prefix = normalized[..3];
+        foreach (var region in GeckoRegionSuffixes)
+        {
+            var candidate = prefix + region;
+            if (seen.Add(candidate))
+                yield return candidate;
+        }
+    }
+
+    private static readonly string[] GeckoRegionSuffixes =
+    [
+        "E01", "P01", "J01", "E02", "P02", "J02", "K01", "U01"
+    ];
 
     private static HashSet<string> CollectExistingGeckoNames(
         string gameId,
@@ -291,11 +404,18 @@ public static class DolphinGameIniService
         return names;
     }
 
-    private static IEnumerable<string> EnumerateUserDirectories(string? portableUserDirectory, string? launcherPath)
+    private static IEnumerable<string> EnumerateUserDirectories(
+        string? portableUserDirectory,
+        string? launcherPath,
+        string? flatpakAppId = null)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var portable = ResolvePortableUserDirectory(null, launcherPath);
+        var flatpakUser = DolphinFlatpakPathsHelper.ResolveUserDirectory(flatpakAppId);
+        if (!string.IsNullOrWhiteSpace(flatpakUser) && seen.Add(flatpakUser))
+            yield return flatpakUser;
+
+        var portable = ResolvePortableUserDirectory(null, launcherPath, flatpakAppId);
         if (!string.IsNullOrWhiteSpace(portable) && seen.Add(portable))
             yield return portable;
 

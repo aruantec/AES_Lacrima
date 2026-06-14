@@ -19,6 +19,7 @@ namespace AES_Lacrima.ViewModels
             await DolphinCheatsEditor.LoadAsync(
                 CurrentSectionDolphinEmulatorPath,
                 CurrentSectionEmulatorHandler?.LauncherPath,
+                CurrentSectionEmulatorHandler?.FlatpakAppId,
                 target.FileName,
                 target.Title,
                 LoadedAlbum?.Title).ConfigureAwait(true);

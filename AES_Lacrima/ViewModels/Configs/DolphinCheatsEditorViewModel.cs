@@ -44,6 +44,7 @@ public partial class DolphinCheatsEditorViewModel : ObservableObject
 {
     private string? _emulatorDirectory;
     private string? _launcherPath;
+    private string? _flatpakAppId;
     private string? _userDirectory;
     private string? _gameId;
     private DolphinGameSettingsDocument? _document;
@@ -113,15 +114,23 @@ public partial class DolphinCheatsEditorViewModel : ObservableObject
             _ => CheatEntries
         };
 
-    public async Task LoadAsync(string? emulatorDirectory, string? launcherPath, string romPath, string? gameTitle, string? albumTitle)
+    public async Task LoadAsync(
+        string? emulatorDirectory,
+        string? launcherPath,
+        string? flatpakAppId,
+        string romPath,
+        string? gameTitle,
+        string? albumTitle)
     {
         IsOpen = true;
-        await LoadGameSettingsAsync(emulatorDirectory, launcherPath, romPath, gameTitle, albumTitle).ConfigureAwait(true);
+        await LoadGameSettingsAsync(emulatorDirectory, launcherPath, flatpakAppId, romPath, gameTitle, albumTitle)
+            .ConfigureAwait(true);
     }
 
     private async Task LoadGameSettingsAsync(
         string? emulatorDirectory,
         string? launcherPath,
+        string? flatpakAppId,
         string romPath,
         string? gameTitle,
         string? albumTitle)
@@ -139,7 +148,7 @@ public partial class DolphinCheatsEditorViewModel : ObservableObject
         try
         {
             var gameId = await Task.Run(() =>
-                DolphinGameIniService.ResolveGameIdFromMetadata(romPath, albumTitle)).ConfigureAwait(true);
+                DolphinGameIniService.ResolveGameId(romPath, albumTitle)).ConfigureAwait(true);
 
             GameIdDisplay = gameId;
             _gameId = gameId;
@@ -152,7 +161,11 @@ public partial class DolphinCheatsEditorViewModel : ObservableObject
 
             _emulatorDirectory = DolphinGameIniService.ResolveEmulatorDirectory(emulatorDirectory, launcherPath);
             _launcherPath = launcherPath;
-            _userDirectory = DolphinGameIniService.ResolvePortableUserDirectory(_emulatorDirectory, launcherPath);
+            _flatpakAppId = flatpakAppId;
+            _userDirectory = DolphinGameIniService.ResolvePortableUserDirectory(
+                _emulatorDirectory,
+                launcherPath,
+                flatpakAppId);
 
             if (string.IsNullOrWhiteSpace(_userDirectory))
             {
@@ -160,7 +173,9 @@ public partial class DolphinCheatsEditorViewModel : ObservableObject
                 return;
             }
 
-            var sysDir = DolphinGameIniService.GetSysGameSettingsDirectory(_emulatorDirectory);
+            var sysDir = await DolphinGameIniService
+                .GetSysGameSettingsDirectoryAsync(_emulatorDirectory, flatpakAppId)
+                .ConfigureAwait(true);
             var userGameSettingsDir = DolphinGameIniService.GetUserGameSettingsDirectory(_userDirectory);
 
             var document = await Task.Run(() =>
@@ -198,7 +213,9 @@ public partial class DolphinCheatsEditorViewModel : ObservableObject
         Status = $"Downloading Gecko codes for {_gameId} from codes.rc24.xyz...";
         try
         {
-            var sysDir = DolphinGameIniService.GetSysGameSettingsDirectory(_emulatorDirectory);
+            var sysDir = await DolphinGameIniService
+                .GetSysGameSettingsDirectoryAsync(_emulatorDirectory, _flatpakAppId)
+                .ConfigureAwait(true);
             var result = await DolphinGameIniService
                 .DownloadGeckoCodesAsync(_userDirectory!, _gameId!, sysDir)
                 .ConfigureAwait(true);
@@ -248,7 +265,9 @@ public partial class DolphinCheatsEditorViewModel : ObservableObject
         if (_document == null || string.IsNullOrWhiteSpace(_userDirectory) || string.IsNullOrWhiteSpace(_gameId))
             return;
 
-        var sysDir = DolphinGameIniService.GetSysGameSettingsDirectory(_emulatorDirectory);
+        var sysDir = await DolphinGameIniService
+            .GetSysGameSettingsDirectoryAsync(_emulatorDirectory, _flatpakAppId)
+            .ConfigureAwait(true);
         var userGameSettingsDir = DolphinGameIniService.GetUserGameSettingsDirectory(_userDirectory);
 
         var document = await Task.Run(() =>
@@ -285,7 +304,7 @@ public partial class DolphinCheatsEditorViewModel : ObservableObject
         try
         {
             DolphinGameIniService.SaveEnabledState(_userDirectory, _document);
-            DolphinGameIniService.EnsureCheatsEnabled(_userDirectory, null);
+            DolphinGameIniService.EnsureCheatsEnabled(_userDirectory, _launcherPath, _flatpakAppId);
 
             var enabledCount = CheatEntries.Count(static e => e.IsEnabled);
             Status = enabledCount == 0
@@ -309,6 +328,7 @@ public partial class DolphinCheatsEditorViewModel : ObservableObject
         IsOpen = false;
         _emulatorDirectory = null;
         _launcherPath = null;
+        _flatpakAppId = null;
         _userDirectory = null;
         _gameId = null;
         _document = null;

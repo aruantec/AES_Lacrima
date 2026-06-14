@@ -123,8 +123,11 @@ namespace AES_Lacrima.ViewModels
                         var emulatorDir = DolphinGameIniService.ResolveEmulatorDirectory(
                             null,
                             handler.LauncherPath);
-                        var userDir = DolphinGameIniService.ResolvePortableUserDirectory(emulatorDir, handler.LauncherPath);
-                        DolphinGameIniService.EnsureCheatsEnabled(userDir, handler.LauncherPath);
+                        var userDir = DolphinGameIniService.ResolvePortableUserDirectory(
+                            emulatorDir,
+                            handler.LauncherPath,
+                            handler.FlatpakAppId);
+                        DolphinGameIniService.EnsureCheatsEnabled(userDir, handler.LauncherPath, handler.FlatpakAppId);
                     }).ConfigureAwait(false);
                 }
 
