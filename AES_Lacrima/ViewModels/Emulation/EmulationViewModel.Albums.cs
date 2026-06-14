@@ -684,7 +684,7 @@ namespace AES_Lacrima.ViewModels
             {
                 await MetadataService.LoadMetadataForItemAsync(
                     target,
-                    LoadedAlbum?.Title ?? SelectedAlbum?.Title).ConfigureAwait(true);
+                    LoadedAlbum?.Title ?? SelectedAlbum?.Title).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -692,8 +692,7 @@ namespace AES_Lacrima.ViewModels
             }
             finally
             {
-                RefreshActiveAlbumState();
-                OpenMetadataCommand.NotifyCanExecuteChanged();
+                await Dispatcher.UIThread.InvokeAsync(RefreshActiveAlbumState);
             }
         }
 
@@ -1263,22 +1262,7 @@ namespace AES_Lacrima.ViewModels
         }
 
         private static bool IsWiiUPackageFolder(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-                return false;
-
-            try
-            {
-                return Directory.Exists(Path.Combine(path, "code")) &&
-                       Directory.Exists(Path.Combine(path, "content")) &&
-                       Directory.Exists(Path.Combine(path, "meta"));
-            }
-            catch (Exception ex)
-            {
-                SLog.Debug($"Failed to inspect Wii U package folder '{path}'.", ex);
-                return false;
-            }
-        }
+            => WiiUInstalledGameHelper.IsInstalledGameFolder(path);
 
         private static IReadOnlyList<string> ScanFolderForRomPaths(string rootPath, IReadOnlyList<string> patterns)
             => ScanFolderForRomPaths(rootPath, null, patterns);

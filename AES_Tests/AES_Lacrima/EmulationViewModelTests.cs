@@ -24,6 +24,14 @@ public sealed class EmulationViewModelTests
         Directory.CreateDirectory(Path.Combine(wiiuDir, "code"));
         Directory.CreateDirectory(Path.Combine(wiiuDir, "content"));
         Directory.CreateDirectory(Path.Combine(wiiuDir, "meta"));
+        File.WriteAllText(
+            Path.Combine(wiiuDir, "meta", "meta.xml"),
+            """
+            <menu>
+              <title_id>0005000010113100</title_id>
+              <longname_en>Super Mario 3D World</longname_en>
+            </menu>
+            """);
 
         var method = typeof(EmulationViewModel)
             .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)

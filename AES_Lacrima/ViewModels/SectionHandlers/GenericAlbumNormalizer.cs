@@ -304,9 +304,9 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
 
             _inspectionAttempted[filePath] = 1;
 
-            var romInfo = RomInspector.Inspect(filePath, DiscSection.WiiU);
-            var titleId = romInfo?.GameId ?? WiiUInstalledGameHelper.GetTitleId(filePath);
-            var extractedTitle = romInfo?.InternalTitle ?? WiiUInstalledGameHelper.GetTitleName(filePath);
+            var resolved = WiiUInstalledGameHelper.ResolveMetadata(filePath);
+            var titleId = resolved.TitleId;
+            var extractedTitle = resolved.TitleName;
 
             metadata ??= new CustomMetadata();
             if (!string.IsNullOrWhiteSpace(titleId))

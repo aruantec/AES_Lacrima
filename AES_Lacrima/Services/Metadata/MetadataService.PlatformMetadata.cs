@@ -667,11 +667,15 @@ namespace AES_Lacrima.Services
 
         private async Task LoadWiiUMetadataAsync(MediaItem item)
         {
-            var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName!, DiscSection.WiiU)).ConfigureAwait(false);
-            var titleId = romInfo?.GameId ?? WiiUInstalledGameHelper.GetTitleId(item.FileName);
-            var extractedTitle = romInfo?.InternalTitle ?? WiiUInstalledGameHelper.GetTitleName(item.FileName);
+            var resolved = await Task.Run(() => WiiUInstalledGameHelper.ResolveMetadata(item.FileName))
+                .ConfigureAwait(false);
+            var titleId = resolved.TitleId;
+            var extractedTitle = resolved.TitleName;
 
-            WiiUTitleId = titleId;
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                WiiUTitleId = titleId;
+            }, DispatcherPriority.Background);
 
             if (!string.IsNullOrWhiteSpace(titleId))
             {
@@ -682,7 +686,12 @@ namespace AES_Lacrima.Services
                 var cachePath = GetMetadataCachePath(item.FileName);
                 var refreshed = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath)).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(WiiUTitleId))
-                    WiiUTitleId = refreshed?.WiiUTitleId;
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        WiiUTitleId = refreshed?.WiiUTitleId;
+                    }, DispatcherPriority.Background);
+                }
 
                 extractedTitle = refreshed?.Title;
                 if (ShouldUpdateExtractedTitle(item.Title, extractedTitle))

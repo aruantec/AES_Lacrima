@@ -106,6 +106,19 @@ namespace AES_Lacrima.Services.Emulation
 
             var ext = Path.GetExtension(path).ToLowerInvariant();
 
+            if ((section == DiscSection.WiiU || section == DiscSection.Auto) &&
+                WiiUInstalledGameHelper.IsWiiUFileExtension(ext))
+            {
+                var wiiUMetadata = WiiUInstalledGameHelper.ResolveMetadata(path);
+                return new RomInfo
+                {
+                    FilePath = path,
+                    Format = RomFormat.Unknown,
+                    GameId = wiiUMetadata.TitleId,
+                    InternalTitle = wiiUMetadata.TitleName
+                };
+            }
+
             if (IsSwitchExtension(ext) || section == DiscSection.Switch)
             {
                 var switchMeta = Switch.SwitchRomMetadataReader.TryRead(path);
@@ -496,6 +509,9 @@ namespace AES_Lacrima.Services.Emulation
 
             // Heuristic disc inspection for common disc extensions or large files (covers MODE2 2048 BINs)
             var ext = Path.GetExtension(displayPath).ToLowerInvariant();
+            if (WiiUInstalledGameHelper.IsWiiUFileExtension(ext))
+                return info;
+
             var discExts = new[] { ".bin", ".iso", ".img", ".cdi", ".gdi" };
             if (discExts.Contains(ext) || fs.Length >= 0x8000)
             {
@@ -2086,10 +2102,17 @@ namespace AES_Lacrima.Services.Emulation
             => NintendoDiscExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
 
         private static bool IsNintendoDiscContext(string extension, DiscSection section)
-            => section == DiscSection.GameCube ||
-               section == DiscSection.Wii ||
-               section == DiscSection.WiiU ||
-               IsNintendoDiscExtension(extension);
+        {
+            if (WiiUInstalledGameHelper.IsWiiUFileExtension(extension))
+                return false;
+
+            if (section == DiscSection.WiiU)
+                return IsNintendoDiscExtension(extension);
+
+            return section == DiscSection.GameCube ||
+                   section == DiscSection.Wii ||
+                   IsNintendoDiscExtension(extension);
+        }
 
         private static bool Is3dsExtension(string extension)
             => Nintendo3dsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
