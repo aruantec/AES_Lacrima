@@ -41,20 +41,7 @@ namespace AES_Lacrima.Services
 {
     public partial class MetadataService : ViewModelBase, IMetadataService 
     {
-        private static readonly HashSet<string> AudioMetadataExtensions = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".wav", ".wma",
-            ".ape", ".wv", ".mpc", ".aiff", ".aif", ".alac"
-        };
-
-        private static bool IsAudioMetadataFile(string? path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-                return false;
-
-            var extension = Path.GetExtension(path);
-            return !string.IsNullOrEmpty(extension) && AudioMetadataExtensions.Contains(extension);
-        }
+        private static bool IsAudioMetadataFile(string? path) => MediaCoverPaths.IsAudioMediaFile(path);
 
         private static IEnumerable<MetadataImageEntry> ToMetadataImageEntries(IEnumerable<TagImageModel> images) =>
             images
@@ -217,22 +204,33 @@ namespace AES_Lacrima.Services
             }
         }
 
-        private static bool HasPersistedCoverImage(CustomMetadata? metadata) =>
+        private static bool HasPersistedCoverImageInMetadata(CustomMetadata? metadata) =>
             metadata?.Images?.Any(image => image.Kind == TagImageKind.Cover && image.Data.Length > 0) == true;
 
-        private static void SanitizeStaleCoverScannedFlags(CustomMetadata? metadata, string cachePath)
+        private static bool HasPersistedCoverImage(CustomMetadata? metadata, string? filePath = null)
+        {
+            if (HasPersistedCoverImageInMetadata(metadata))
+                return true;
+
+            if (string.IsNullOrWhiteSpace(filePath) || IsAudioMetadataFile(filePath))
+                return false;
+
+            return EmulationCoverCacheHelper.HasCover(filePath);
+        }
+
+        private static void SanitizeStaleCoverScannedFlags(CustomMetadata? metadata, string cachePath, string? filePath = null)
         {
             if (metadata == null)
                 return;
 
             var changed = false;
-            if (metadata.CoverScanned && !HasPersistedCoverImage(metadata))
+            if (metadata.CoverScanned && !HasPersistedCoverImage(metadata, filePath))
             {
                 metadata.CoverScanned = false;
                 changed = true;
             }
 
-            if (metadata.CoverLookupExhausted && HasPersistedCoverImage(metadata))
+            if (metadata.CoverLookupExhausted && HasPersistedCoverImage(metadata, filePath))
             {
                 metadata.CoverLookupExhausted = false;
                 changed = true;
@@ -282,25 +280,98 @@ namespace AES_Lacrima.Services
             {
                 var loaded = BinaryMetadataHelper.LoadMetadata(cachePath);
                 if (loaded != null)
-                    SanitizeStaleCoverScannedFlags(loaded, cachePath);
+                    SanitizeStaleCoverScannedFlags(loaded, cachePath, item.FileName);
                 return BinaryMetadataHelper.LoadMetadata(cachePath);
             }, cancellationToken).ConfigureAwait(false);
 
             await TryApplyLocalMetadataTitlesAsync(item, metadata, cancellationToken).ConfigureAwait(false);
 
+            if (IsAudioMetadataFile(item.FileName))
+                return await TryApplyAudioCoverFromMetadataAsync(item, metadata, cachePath, cancellationToken).ConfigureAwait(false);
+
+            if (EmulationCoverCacheHelper.TryEnsureCoverSidecar(item.FileName))
+                return await EmulationCoverLoaderService.ApplyLocalCoverToItemAsync(item, cancellationToken).ConfigureAwait(false);
+
             var cover = metadata?.Images?.FirstOrDefault(image => image.Kind == TagImageKind.Cover && image.Data.Length > 0);
             if (cover == null)
                 return false;
+
+            if (EmulationCoverCacheHelper.WriteCoverFromBytes(item.FileName, cover.Data))
+            {
+                metadata!.Images = metadata.Images.Where(image => image.Kind != TagImageKind.Cover).ToList();
+                metadata.CoverScanned = true;
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+                return await EmulationCoverLoaderService.ApplyLocalCoverToItemAsync(item, cancellationToken).ConfigureAwait(false);
+            }
 
             await ApplyCoverBytesToItemAsync(
                     item,
                     cover.Data,
                     cover.MimeType ?? GuessMimeTypeFromBytes(cover.Data),
                     cancellationToken,
-                    cachePath)
+                    EmulationCoverCacheHelper.GetCoverCachePath(item.FileName))
                 .ConfigureAwait(false);
 
             return true;
+        }
+
+        private async Task<bool> TryApplyAudioCoverFromMetadataAsync(
+            MediaItem item,
+            CustomMetadata? metadata,
+            string cachePath,
+            CancellationToken cancellationToken)
+        {
+            var cover = metadata?.Images?.FirstOrDefault(image => image.Kind == TagImageKind.Cover && image.Data.Length > 0);
+            if (cover != null)
+            {
+                await ApplyCoverBytesToItemAsync(
+                        item,
+                        cover.Data,
+                        cover.MimeType ?? GuessMimeTypeFromBytes(cover.Data),
+                        cancellationToken,
+                        cachePath)
+                    .ConfigureAwait(false);
+                return true;
+            }
+
+            if (!EmulationCoverCacheHelper.HasCover(item.FileName))
+                return false;
+
+            var sidecarBytes = EmulationCoverCacheHelper.TryReadCoverBytes(item.FileName);
+            if (sidecarBytes is not { Length: > 0 })
+                return false;
+
+            await Task.Run(
+                    () => RestoreAudioCoverToMetadataCache(cachePath, item.FileName!, sidecarBytes),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            await ApplyCoverBytesToItemAsync(
+                    item,
+                    sidecarBytes,
+                    GuessMimeTypeFromBytes(sidecarBytes),
+                    cancellationToken,
+                    cachePath)
+                .ConfigureAwait(false);
+            return true;
+        }
+
+        private static void RestoreAudioCoverToMetadataCache(string cachePath, string filePath, byte[] coverBytes)
+        {
+            var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+            var preserved = BinaryMetadataHelper.ReadMetadataImages(metadata)
+                .Where(entry => entry.Kind != TagImageKind.Cover)
+                .ToList();
+            preserved.Insert(0, new MetadataImageEntry(
+                TagImageKind.Cover,
+                coverBytes.ToArray(),
+                GuessMimeTypeFromBytes(coverBytes)));
+
+            metadata.CoverScanned = true;
+            metadata.CoverLookupExhausted = false;
+            BinaryMetadataHelper.WriteMetadataImages(metadata, preserved);
+            BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            EmulationCoverCacheHelper.TryDeleteCoverSidecar(filePath);
         }
 
         private async Task PersistPs3MetadataToMetadataCacheAsync(string? filePath, string? ps3TitleId, string? ps3Version)
@@ -1176,6 +1247,10 @@ namespace AES_Lacrima.Services
                         var cachePath = GetMetadataCachePath(item.FileName);
                         if (File.Exists(cachePath))
                             File.Delete(cachePath);
+
+                        var coverPath = EmulationCoverCacheHelper.GetCoverCachePath(item.FileName);
+                        if (File.Exists(coverPath))
+                            File.Delete(coverPath);
                     }
                     catch (Exception logEx) { SLog.Warn("Non-critical error", logEx); }
                 }
@@ -1394,21 +1469,31 @@ namespace AES_Lacrima.Services
                     .Where(entry => entry.Kind is not TagImageKind.Cover and not TagImageKind.BackCover)
                     .ToList();
 
-                preserved.Insert(0, new MetadataImageEntry(TagImageKind.Cover, bytes.ToArray(), mimeType));
-
                 if (backCoverBytes is { Length: > 0 })
                 {
-                    preserved.Insert(1, new MetadataImageEntry(
+                    preserved.Insert(0, new MetadataImageEntry(
                         TagImageKind.BackCover,
                         backCoverBytes.ToArray(),
                         backCoverMimeType ?? GuessMimeTypeFromBytes(backCoverBytes)));
                 }
                 else if (existingBackCover.Data is { Length: > 0 })
                 {
-                    preserved.Insert(1, new MetadataImageEntry(
+                    preserved.Insert(0, new MetadataImageEntry(
                         TagImageKind.BackCover,
                         existingBackCover.Data.ToArray(),
                         existingBackCover.MimeType));
+                }
+
+                if (IsAudioMetadataFile(item.FileName))
+                {
+                    preserved.Insert(0, new MetadataImageEntry(
+                        TagImageKind.Cover,
+                        bytes.ToArray(),
+                        mimeType));
+                }
+                else
+                {
+                    EmulationCoverCacheHelper.WriteCoverFromBytes(item.FileName, bytes);
                 }
 
                 metadata.CoverScanned = true;
@@ -1426,13 +1511,16 @@ namespace AES_Lacrima.Services
             return Task.Run(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (!IsAudioMetadataFile(filePath) && EmulationCoverCacheHelper.HasCover(filePath))
+                    return true;
+
                 var cachePath = GetMetadataCachePath(filePath);
                 var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
                 if (metadata != null)
-                    SanitizeStaleCoverScannedFlags(metadata, cachePath);
+                    SanitizeStaleCoverScannedFlags(metadata, cachePath, filePath);
 
                 metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
-                return metadata?.CoverLookupExhausted == true || HasPersistedCoverImage(metadata);
+                return metadata?.CoverLookupExhausted == true || HasPersistedCoverImage(metadata, filePath);
             }, cancellationToken);
         }
 
@@ -1447,7 +1535,7 @@ namespace AES_Lacrima.Services
                 var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
                 if (coverFound)
                 {
-                    metadata.CoverScanned = HasPersistedCoverImage(metadata);
+                    metadata.CoverScanned = HasPersistedCoverImage(metadata, item.FileName);
                     metadata.CoverLookupExhausted = false;
                 }
                 else
@@ -1473,15 +1561,40 @@ namespace AES_Lacrima.Services
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            bytes = CoverImageBarCropHelper.TryCropBytes(bytes, item.FileName);
-            var resolvedCachePath = cachePath ?? GetMetadataCachePath(item.FileName);
+            var isAudio = IsAudioMetadataFile(item.FileName);
+            byte[] decodeBytes;
+            string resolvedCachePath;
+            int maxDimension;
+
+            if (isAudio)
+            {
+                decodeBytes = bytes;
+                resolvedCachePath = cachePath ?? GetMetadataCachePath(item.FileName);
+                maxDimension = NormalizedCoverMaxDimension;
+            }
+            else
+            {
+                if (!string.IsNullOrWhiteSpace(item.FileName))
+                    EmulationCoverCacheHelper.WriteCoverFromBytes(item.FileName, bytes);
+
+                var sidecarBytes = !string.IsNullOrWhiteSpace(item.FileName)
+                    ? EmulationCoverCacheHelper.TryReadCoverBytes(item.FileName)
+                    : null;
+                decodeBytes = sidecarBytes is { Length: > 0 }
+                    ? sidecarBytes
+                    : CoverImageBarCropHelper.TryCropBytes(bytes, item.FileName);
+                resolvedCachePath = !string.IsNullOrWhiteSpace(item.FileName)
+                    ? EmulationCoverCacheHelper.GetCoverCachePath(item.FileName)
+                    : cachePath ?? GetMetadataCachePath(item.FileName);
+                maxDimension = EmulationCoverCacheHelper.MaxCoverDimension;
+            }
 
             var bitmap = await Task.Run(() =>
             {
-                using var stream = new MemoryStream(bytes, writable: false);
+                using var stream = new MemoryStream(decodeBytes, writable: false);
                 try
                 {
-                    return Bitmap.DecodeToWidth(stream, NormalizedCoverMaxDimension);
+                    return Bitmap.DecodeToWidth(stream, maxDimension);
                 }
                 catch
                 {
@@ -1493,11 +1606,12 @@ namespace AES_Lacrima.Services
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 item.LocalCoverPath = resolvedCachePath;
-                item.CoverFound = true;
+                item.CoverFound = !isAudio;
                 item.CoverBitmap = bitmap;
                 item.SaveCoverBitmapAction = saveItem =>
                 {
-                    _ = SaveCoverToMetadataCacheAsync(saveItem, bytes, mimeType);
+                    if (!string.IsNullOrWhiteSpace(saveItem.FileName))
+                        _ = SaveCoverToMetadataCacheAsync(saveItem, decodeBytes, mimeType);
                 };
             }, DispatcherPriority.Background);
         }

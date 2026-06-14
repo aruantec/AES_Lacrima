@@ -36,6 +36,7 @@
                                                 ItemsSource="{Binding AlbumList}"
                                                 SelectedIndex="{Binding SelectedAlbumIndex, Mode=TwoWay}"
                                                 ItemDoubleClickedCommand="{Binding OpenSelectedAlbumCommand}"
+                                                IsVisible="{Binding !IsAlbumListLoading}"
                                                 Background="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
                                                 ClipToBounds="True"
                                                 Margin="0,8,0,10">

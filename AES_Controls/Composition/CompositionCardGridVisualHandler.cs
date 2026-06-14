@@ -930,7 +930,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         float titleH = metrics.CardHeight * TitleAreaRatio;
         float coverH = metrics.CardHeight - titleH;
 
-        if (img != null && !isLoading)
+        if (img != null)
             DrawCoverImage(canvas, img, rect.Left, rect.Top, metrics.CardWidth, coverH);
         else
             DrawPlaceholder(canvas, rect.Left, rect.Top, metrics.CardWidth, coverH);
@@ -957,7 +957,15 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         }
 
         if (isLoading)
+        {
+            var coverRect = new SKRect(rect.Left, rect.Top, rect.Right, rect.Top + coverH);
+            using var loadPaint = new SKPaint { IsAntialias = true, Color = SKColor.Parse("#88000000") };
+            canvas.Save();
+            canvas.ClipRoundRect(new SKRoundRect(coverRect, CardCornerRadius, CardCornerRadius), SKClipOperation.Intersect, true);
+            canvas.DrawRoundRect(coverRect, CardCornerRadius, CardCornerRadius, loadPaint);
+            canvas.Restore();
             DrawSpinner(canvas, rect.MidX, rect.Top + coverH * 0.5f, globalOpacity);
+        }
     }
 
     private static float EaseOutCubic(float t) => 1f - MathF.Pow(1f - Math.Clamp(t, 0f, 1f), 3f);

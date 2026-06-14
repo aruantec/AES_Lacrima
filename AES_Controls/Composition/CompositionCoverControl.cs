@@ -21,6 +21,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     private readonly CompositionCardGridControl _cardGrid;
     private readonly CompositionSharedCoverCache _sharedCoverCache = new();
     private CancellationTokenSource? _transitionCts;
+    private DispatcherTimer? _coverVisualSyncTimer;
     private CoverLayoutMode _appliedLayoutMode = CoverLayoutMode.Carousel;
     private Rect _selectedItemBounds;
     private bool _suppressLayoutTransition;
@@ -215,6 +216,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         _cardGrid.PropertyChanged += OnCardGridPropertyChanged;
         _carousel.BindSharedCoverCache(_sharedCoverCache);
         _cardGrid.BindSharedCoverCache(_sharedCoverCache);
+        _carousel.CoverVisualSyncRequested = ScheduleSiblingCoverHydrate;
 
         Children.Add(_carousel);
         Children.Add(_cardGrid);
@@ -464,19 +466,19 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         {
             _cardGrid.SetCoverLoadingActive(false);
             _carousel.SetCoverLoadingActive(true);
-            _carousel.ItemsSource = source;
+            if (!ReferenceEquals(_carousel.ItemsSource, source))
+                _carousel.ItemsSource = source;
             _cardGrid.SyncItemsSourceLightweight(source);
-            _carousel.ImportCoverImagesFrom(_cardGrid);
-            _carousel.RefreshMissingCoverSlots();
+            _carousel.HydrateCoverImagesFrom(_cardGrid);
         }
         else
         {
             _carousel.SetCoverLoadingActive(false);
             _cardGrid.SetCoverLoadingActive(true);
-            _cardGrid.ItemsSource = source;
+            if (!ReferenceEquals(_cardGrid.ItemsSource, source))
+                _cardGrid.ItemsSource = source;
             _carousel.SyncItemsSourceLightweight(source);
-            _cardGrid.ImportCoverImagesFrom(_carousel);
-            _cardGrid.RefreshMissingCoverSlots();
+            _cardGrid.HydrateCoverImagesFrom(_carousel);
         }
 
         ApplyPublishSelectedItemBounds();
@@ -493,16 +495,23 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         {
             _carousel.SetCoverLoadingActive(true);
             _cardGrid.SetCoverLoadingActive(false);
-            _carousel.ItemsSource = source;
+            if (!ReferenceEquals(_carousel.ItemsSource, source))
+                _carousel.ItemsSource = source;
             _cardGrid.SyncItemsSourceLightweight(source);
+            _carousel.HydrateCoverImagesFrom(_cardGrid);
         }
         else
         {
             _cardGrid.SetCoverLoadingActive(true);
             _carousel.SetCoverLoadingActive(false);
-            _cardGrid.ItemsSource = source;
+            if (!ReferenceEquals(_cardGrid.ItemsSource, source))
+                _cardGrid.ItemsSource = source;
             _carousel.SyncItemsSourceLightweight(source);
+            _cardGrid.HydrateCoverImagesFrom(_carousel);
         }
+
+        _carousel.SnapToSelectedIndex();
+        _cardGrid.SnapToSelectedIndex();
     }
 
     private void ApplyVisibilityForLayoutMode(CoverLayoutMode mode)
@@ -573,17 +582,19 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             {
                 _carousel.SetCoverLoadingActive(true);
                 _cardGrid.SetCoverLoadingActive(false);
+                if (!ReferenceEquals(_carousel.ItemsSource, ItemsSource))
+                    _carousel.ItemsSource = ItemsSource;
                 _cardGrid.SyncItemsSourceLightweight(ItemsSource);
-                _carousel.ImportCoverImagesFrom(_cardGrid);
-                _carousel.RefreshMissingCoverSlots();
+                _carousel.HydrateCoverImagesFrom(_cardGrid);
             }
             else
             {
                 _cardGrid.SetCoverLoadingActive(true);
                 _carousel.SetCoverLoadingActive(false);
+                if (!ReferenceEquals(_cardGrid.ItemsSource, ItemsSource))
+                    _cardGrid.ItemsSource = ItemsSource;
                 _carousel.SyncItemsSourceLightweight(ItemsSource);
-                _cardGrid.ImportCoverImagesFrom(_carousel);
-                _cardGrid.RefreshMissingCoverSlots();
+                _cardGrid.HydrateCoverImagesFrom(_carousel);
             }
         }
         catch (OperationCanceledException)
@@ -593,6 +604,28 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
 
             throw;
         }
+    }
+
+    private void ScheduleSiblingCoverHydrate()
+    {
+        if (_appliedLayoutMode != CoverLayoutMode.Carousel)
+            return;
+
+        _coverVisualSyncTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(48) };
+        _coverVisualSyncTimer.Stop();
+        _coverVisualSyncTimer.Tick -= CoverVisualSyncTimer_Tick;
+        _coverVisualSyncTimer.Tick += CoverVisualSyncTimer_Tick;
+        _coverVisualSyncTimer.Start();
+    }
+
+    private void CoverVisualSyncTimer_Tick(object? sender, EventArgs e)
+    {
+        _coverVisualSyncTimer?.Stop();
+        if (_appliedLayoutMode != CoverLayoutMode.Carousel)
+            return;
+
+        _cardGrid.RefreshMissingCoverSlots(forceFullRescan: false);
+        _carousel.HydrateCoverImagesFrom(_cardGrid);
     }
 
     private void SyncAllProperties()
@@ -655,6 +688,30 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     private void SyncGridOpacity()
     {
         _cardGrid.Opacity = GlobalOpacity * GridOpacityMultiplier;
+    }
+
+    /// <summary>
+    /// Forces the active layout child to re-read cover bitmaps from bound items.
+    /// Call after background cover hydration completes.
+    /// </summary>
+    public void ReloadCoverImages()
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(ReloadCoverImages, DispatcherPriority.Normal);
+            return;
+        }
+
+        var useCarousel = _appliedLayoutMode == CoverLayoutMode.Carousel;
+
+        _carousel.SetCoverLoadingActive(true);
+        _cardGrid.SetCoverLoadingActive(true);
+
+        _carousel.RefreshMissingCoverSlots(forceFullRescan: true);
+        _cardGrid.RefreshMissingCoverSlots(forceFullRescan: true);
+
+        _carousel.SetCoverLoadingActive(useCarousel);
+        _cardGrid.SetCoverLoadingActive(!useCarousel);
     }
 
     private void ApplyPublishSelectedItemBounds()

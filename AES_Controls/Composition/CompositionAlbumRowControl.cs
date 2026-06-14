@@ -1154,7 +1154,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
             return;
 
         SubscribePreviewItems(folder);
-        PushTileCovers(Array.IndexOf(_itemsSnapshot, folder));
+        SchedulePushTileCovers(Array.IndexOf(_itemsSnapshot, folder));
     }
 
     private void PreviewItem_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -1169,7 +1169,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         {
             if (_itemsSnapshot[i] is FolderMediaItem folder && folder.PreviewItems.Contains(mediaItem))
             {
-                PushTileCovers(i);
+                SchedulePushTileCovers(i);
                 return;
             }
         }
@@ -1187,7 +1187,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         {
             if (_itemsSnapshot[i] is FolderMediaItem folder && folder.Children.Contains(mediaItem))
             {
-                PushTileCovers(i);
+                SchedulePushTileCovers(i);
                 return;
             }
         }
@@ -1201,7 +1201,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
 
         if (e.PropertyName is nameof(MediaItem.Title) or nameof(FolderMediaItem.Children) or nameof(FolderMediaItem.TotalChildCount) or nameof(MediaItem.IsLoadingCover))
         {
-            SendTitles();
+            ScheduleSendTitles();
             return;
         }
 
@@ -1210,13 +1210,48 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
             folder.PreviewItems.CollectionChanged -= PreviewItems_CollectionChanged;
             folder.PreviewItems.CollectionChanged += PreviewItems_CollectionChanged;
             SubscribePreviewItems(folder);
-            PushTileCovers(index);
+            SchedulePushTileCovers(index);
             return;
         }
 
         if (e.PropertyName is nameof(MediaItem.CoverBitmap) or nameof(FolderMediaItem.PreviewItems))
-            PushTileCovers(index);
+            SchedulePushTileCovers(index);
     }
+
+    /// <summary>
+    /// Rebuilds all album-row tile cover visuals from the current item bindings.
+    /// </summary>
+    public void RefreshAllTileCovers()
+    {
+        PostToUi(() =>
+        {
+            _coversLoadedIndices.Clear();
+            _lastCoverLoadScrollX = double.NaN;
+            for (int i = 0; i < _itemsSnapshot.Length; i++)
+                PushTileCovers(i);
+        });
+    }
+
+    private void PostToUi(Action action) => PostToUi(action, DispatcherPriority.Background);
+
+    private void PostToUi(Action action, DispatcherPriority priority)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+            action();
+        else
+            Dispatcher.UIThread.Post(action, priority);
+    }
+
+    private void SchedulePushTileCovers(int index)
+    {
+        PostToUi(() =>
+        {
+            _coversLoadedIndices.Remove(index);
+            PushTileCovers(index);
+        });
+    }
+
+    private void ScheduleSendTitles() => PostToUi(SendTitles);
 
     private void SendTitles()
     {
@@ -1229,11 +1264,20 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
             {
                 titles[i] = folder.Title ?? string.Empty;
                 counts[i] = folder.TotalChildCount > 0 ? folder.TotalChildCount : folder.Children.Count;
-                loading[i] = folder.IsLoadingCover;
+                loading[i] = folder.IsLoadingCover && !HasVisibleAlbumPreview(folder);
             }
         }
 
         _visual?.SendHandlerMessage(new AlbumRowTitlesMessage(titles, counts, loading));
+    }
+
+    private static bool HasVisibleAlbumPreview(FolderMediaItem folder)
+    {
+        var preview = folder.PreviewItems;
+        if (preview == null || preview.Count == 0)
+            return folder.CoverBitmap != null;
+
+        return preview.Any(item => item.CoverBitmap != null);
     }
 
     private void EnsureVisibleTileCoversLoadedIfNeeded()
@@ -1289,6 +1333,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         var defaultSk = CompositionBitmapHelper.ToSkImage(folder.CoverBitmap, CompositionBitmapHelper.FolderCoverMaxEdge);
         _coversLoadedIndices.Add(index);
         _visual?.SendHandlerMessage(new AlbumRowTileCoversMessage(index, snapshots, defaultSk));
+        ScheduleSendTitles();
     }
 
     private static List<FolderItemSnapshot> BuildSnapshots(FolderMediaItem folder)

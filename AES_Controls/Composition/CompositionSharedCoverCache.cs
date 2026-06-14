@@ -1,6 +1,7 @@
 using SkiaSharp;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace AES_Controls.Composition;
 
@@ -17,66 +18,89 @@ internal sealed class CompositionSharedCoverCache
         public int RefCount { get; set; } = 1;
     }
 
+    private readonly object _sync = new();
     private readonly Dictionary<object, Entry> _entries = new();
 
     public SKImage Register(object sourceKey, SKImage image)
     {
-        if (_entries.TryGetValue(sourceKey, out var entry))
+        lock (_sync)
         {
-            entry.RefCount++;
-            return entry.Image;
-        }
+            if (_entries.TryGetValue(sourceKey, out var entry))
+            {
+                entry.RefCount++;
+                return entry.Image;
+            }
 
-        _entries[sourceKey] = new Entry(image);
-        return image;
+            _entries[sourceKey] = new Entry(image);
+            return image;
+        }
     }
 
     public bool TryAcquire(object sourceKey, out SKImage image)
     {
-        if (_entries.TryGetValue(sourceKey, out var entry))
+        lock (_sync)
         {
-            entry.RefCount++;
-            image = entry.Image;
-            return true;
-        }
+            if (_entries.TryGetValue(sourceKey, out var entry))
+            {
+                entry.RefCount++;
+                image = entry.Image;
+                return true;
+            }
 
-        image = null!;
-        return false;
+            image = null!;
+            return false;
+        }
     }
 
     public bool TryGetEntry(object sourceKey, out SKImage image, out int refCount)
     {
-        if (_entries.TryGetValue(sourceKey, out var entry))
+        lock (_sync)
         {
-            image = entry.Image;
-            refCount = entry.RefCount;
-            return true;
-        }
+            if (_entries.TryGetValue(sourceKey, out var entry))
+            {
+                image = entry.Image;
+                refCount = entry.RefCount;
+                return true;
+            }
 
-        image = null!;
-        refCount = 0;
-        return false;
+            image = null!;
+            refCount = 0;
+            return false;
+        }
     }
 
     public void Release(object sourceKey, Action<SKImage> dispose)
     {
-        if (!_entries.TryGetValue(sourceKey, out var entry))
-            return;
+        lock (_sync)
+        {
+            if (!_entries.TryGetValue(sourceKey, out var entry))
+                return;
 
-        entry.RefCount--;
-        if (entry.RefCount > 0)
-            return;
+            entry.RefCount--;
+            if (entry.RefCount > 0)
+                return;
 
-        _entries.Remove(sourceKey);
-        dispose(entry.Image);
+            _entries.Remove(sourceKey);
+            dispose(entry.Image);
+        }
     }
 
     public void Clear(Action<SKImage> dispose)
     {
-        foreach (var entry in _entries.Values)
-            dispose(entry.Image);
-        _entries.Clear();
+        lock (_sync)
+        {
+            foreach (var entry in _entries.Values)
+                dispose(entry.Image);
+            _entries.Clear();
+        }
     }
 
-    public IEnumerable<object> Keys => _entries.Keys;
+    public IEnumerable<object> Keys
+    {
+        get
+        {
+            lock (_sync)
+                return _entries.Keys.ToArray();
+        }
+    }
 }

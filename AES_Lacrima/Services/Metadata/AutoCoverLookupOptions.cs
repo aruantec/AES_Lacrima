@@ -15,7 +15,22 @@ public sealed class AutoCoverLookupOptions
         SearchTimeoutSeconds = 5,
         DownloadTimeoutSeconds = 2.5,
         TotalBudgetSeconds = 9,
-        MaxCandidatesPerQuery = 4,
+        MaxCandidatesPerQuery = 6,
+        PreferSequentialDownloads = true,
+        MarkExhaustedOnFailure = true,
+        MarkExhaustedOnTimeout = false
+    };
+
+    /// <summary>
+    /// Background album carousel scan: enough time per title without blocking the UI forever.
+    /// </summary>
+    public static AutoCoverLookupOptions EmulationAlbumScan { get; } = new()
+    {
+        SearchTimeoutSeconds = 10,
+        DownloadTimeoutSeconds = 5,
+        TotalBudgetSeconds = 18,
+        MaxCandidatesPerQuery = 8,
+        PreferSequentialDownloads = true,
         MarkExhaustedOnFailure = true,
         MarkExhaustedOnTimeout = false
     };
@@ -24,6 +39,7 @@ public sealed class AutoCoverLookupOptions
     public double DownloadTimeoutSeconds { get; init; } = 4;
     public int TotalBudgetSeconds { get; init; }
     public int MaxCandidatesPerQuery { get; init; } = 6;
+    public bool PreferSequentialDownloads { get; init; }
     public bool MarkExhaustedOnFailure { get; init; } = true;
     public bool MarkExhaustedOnTimeout { get; init; } = true;
 }

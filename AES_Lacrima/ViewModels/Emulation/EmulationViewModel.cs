@@ -51,8 +51,6 @@ namespace AES_Lacrima.ViewModels
     {
         private static readonly ILog SLog = AES_Core.Logging.LogHelper.For<EmulationViewModel>();
         private static AvaloniaList<FolderMediaItem>? _sharedAlbumCache;
-        private static readonly Dictionary<string, List<MediaItem>> _deferredAlbumRomsByKey =
-            new(StringComparer.OrdinalIgnoreCase);
 
         private static readonly Regex RomBracketTokenRegex = new(@"[\(\[\{][^\)\]\}]*[\)\]\}]", RegexOptions.Compiled);
         private static readonly Regex RomMediaLabelRegex = new(
@@ -76,6 +74,10 @@ namespace AES_Lacrima.ViewModels
             ".webp"
         ];
 
+        private EmulationCoverLoaderService? _coverLoaderService;
+        private EmulationCoverLoaderService CoverLoader =>
+            _coverLoaderService ??= DiLocator.ResolveViewModel<EmulationCoverLoaderService>()!;
+
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumScanCtsMap = [];
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumCoverScanDebounceMap = [];
         private readonly HashSet<string> _deferredCoverLookupPaths = new(StringComparer.OrdinalIgnoreCase);
@@ -86,16 +88,16 @@ namespace AES_Lacrima.ViewModels
         private readonly SemaphoreSlim _albumPreviewCoverConcurrency = new(2, 2);
 
         private const int FolderPreviewCoverCount = FolderMediaItem.AlbumTilePresentationCoverCount;
-        private const int RomRestoreUiBatchSize = 200;
-        private const int AlbumOpenHydrateBatchSize = 64;
         private const int InitialCoverLoadingRadius = 12;
-        private const int AlbumCoverLoadBatchSize = 4;
-        private const int AlbumCoverLoadParallelism = 2;
+        private const int AlbumCoverLoadBatchSize = 8;
+        private const int AlbumCoverLoadParallelism = 3;
         private const int AlbumCoverScanDebounceMs = 350;
         private const int VisibleCoverPriorityRadius = 18;
         private readonly HashSet<FolderMediaItem> _albumsWithMetadataScanned = [];
         private AvaloniaList<string> _pendingAlbumOrder = [];
         private Dictionary<string, List<MediaItem>> _pendingAlbumRoms = new(StringComparer.OrdinalIgnoreCase);
+        private int _albumCoverDisplayRevision;
+        public int AlbumCoverDisplayRevision => _albumCoverDisplayRevision;
         private bool _isPreparing;
         private bool _isSyncingAlbumSelection;
         private CancellationTokenSource? _albumCoverScanCts;
@@ -414,14 +416,20 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             get
             {
+                if (!HasCarouselTitleOverlayItem)
+                    return null;
+
                 double index = CarouselSliderPreview ?? SelectedIndex;
                 int roundedIndex = GetRoundedSelectedIndex(index);
                 if (roundedIndex >= 0 && roundedIndex < CoverItems.Count)
                     return CoverItems[roundedIndex];
 
-                return HighlightedItem;
+                return null;
             }
         }
+
+        private bool HasCarouselTitleOverlayItem =>
+            CoverItems.Any(item => !string.IsNullOrWhiteSpace(item.FileName));
 
         private void NotifyCarouselOverlayItemChanged()
             => OnPropertyChanged(nameof(CarouselOverlayItem));
@@ -442,9 +450,8 @@ private bool _isShadPs4PatchesOverlayOpen;
             => OnPropertyChanged(nameof(PlayingItemIndex));
 
         public bool HasActiveAlbumItems =>
-            CoverItems.Count > 0 ||
-            LoadedAlbum?.Children.Count > 0 ||
-            !string.IsNullOrWhiteSpace(HighlightedItem?.FileName);
+            (LoadedAlbum?.Children.Count ?? 0) > 0 ||
+            CoverItems.Any(item => !string.IsNullOrWhiteSpace(item.FileName));
         public bool ShowEmptyActiveAlbumHint => LoadedAlbum != null && !HasActiveAlbumItems;
         public string EmptyLoadedAlbumMessage =>
             LoadedAlbum != null
@@ -1015,7 +1022,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool IsCarouselVisible => !IsEmulatorViewportVisible;
 
         public bool IsCarouselTitleOverlayVisible =>
-            IsCarouselVisible && SettingsViewModel?.IsCoverCarouselMode == true;
+            IsCarouselVisible &&
+            SettingsViewModel?.IsCoverCarouselMode == true &&
+            HasCarouselTitleOverlayItem;
         public bool IsRomCarouselAnimationPaused => IsCompositionCaptureVisible;
 
         /// <summary>
@@ -1155,6 +1164,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             OnPropertyChanged(nameof(CarouselIndexMaximum));
             OnPropertyChanged(nameof(IsCarouselPositionSliderVisible));
+            OnPropertyChanged(nameof(IsCarouselTitleOverlayVisible));
             NotifyCarouselOverlayItemChanged();
             NotifyPlayingItemIndexChanged();
         }
@@ -1748,11 +1758,9 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         private async Task OnLoadedAlbumChangedAsync(EmulationAlbumItem album)
         {
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                EnsureDeferredAlbumChildrenHydrated(album);
-                FinishLoadedAlbumChanged(album);
-            }, DispatcherPriority.Normal);
+            await Dispatcher.UIThread.InvokeAsync(
+                () => FinishLoadedAlbumChanged(album),
+                DispatcherPriority.Normal);
         }
 
         private void FinishLoadedAlbumChanged(FolderMediaItem? value)

@@ -113,6 +113,19 @@ internal static class AutoCoverImageHeuristics
         if (lower.EndsWith(".png", StringComparison.Ordinal) || lower.EndsWith(".webp", StringComparison.Ordinal))
             score += 8;
 
+        if (lower.EndsWith(".jpg", StringComparison.Ordinal) || lower.EndsWith(".jpeg", StringComparison.Ordinal))
+            score += 12;
+
+        if (!string.IsNullOrWhiteSpace(candidate.ThumbnailUrl))
+        {
+            var thumb = candidate.ThumbnailUrl.ToLowerInvariant();
+            if (thumb.Contains("=s128", StringComparison.Ordinal) || thumb.Contains("=s256", StringComparison.Ordinal) ||
+                thumb.Contains("w=200", StringComparison.Ordinal) || thumb.Contains("w=300", StringComparison.Ordinal))
+                score += 18;
+        }
+
+        score += AutoCoverImageHeuristics.ScoreDownloadSpeed(url);
+
         if (lower.Contains("=s", StringComparison.Ordinal) || lower.Contains("w=", StringComparison.Ordinal) || lower.Contains("width=", StringComparison.Ordinal))
         {
             if (lower.Contains("w=75", StringComparison.Ordinal) || lower.Contains("w=100", StringComparison.Ordinal) ||
@@ -147,5 +160,34 @@ internal static class AutoCoverImageHeuristics
             return true;
 
         return false;
+    }
+
+    public static int ScoreDownloadSpeed(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return 0;
+
+        var lower = url.ToLowerInvariant();
+        var score = 0;
+
+        if (lower.Contains("thumb", StringComparison.Ordinal) ||
+            lower.Contains("thumbnail", StringComparison.Ordinal) ||
+            lower.Contains("/small/", StringComparison.Ordinal) ||
+            lower.Contains("/medium/", StringComparison.Ordinal))
+            score += 20;
+
+        if (lower.Contains("w=200", StringComparison.Ordinal) || lower.Contains("w=300", StringComparison.Ordinal) ||
+            lower.Contains("w=400", StringComparison.Ordinal) || lower.Contains("=s256", StringComparison.Ordinal) ||
+            lower.Contains("=s512", StringComparison.Ordinal))
+            score += 15;
+
+        if (lower.Contains("cdn.", StringComparison.Ordinal) || lower.Contains("static.", StringComparison.Ordinal))
+            score += 8;
+
+        if (lower.Contains("4k", StringComparison.Ordinal) || lower.Contains("3840", StringComparison.Ordinal) ||
+            lower.Contains("original", StringComparison.Ordinal) || lower.Contains("/raw/", StringComparison.Ordinal))
+            score -= 25;
+
+        return score;
     }
 }

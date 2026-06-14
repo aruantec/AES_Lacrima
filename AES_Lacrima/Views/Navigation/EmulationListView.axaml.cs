@@ -1,3 +1,4 @@
+using AES_Controls.Composition;
 using Avalonia;
 using Avalonia.Controls;
 
@@ -18,4 +19,7 @@ public partial class EmulationListView : UserControl
     {
         InitializeComponent();
     }
+
+    public void RefreshAlbumTileCovers() =>
+        this.FindControl<CompositionAlbumRowControl>("AlbumList")?.RefreshAllTileCovers();
 }

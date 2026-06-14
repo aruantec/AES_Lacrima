@@ -15,6 +15,7 @@ using Avalonia.VisualTree;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Lacrima.ViewModels;
+using AES_Lacrima.Views.Navigation;
 using AES_Controls.Composition;
 using AES_Controls.Helpers;
 using AES_Emulation.Controls;
@@ -875,9 +876,15 @@ public partial class EmulationView : UserControl
         else if (e.PropertyName == nameof(EmulationViewModel.LoadedAlbum) ||
                  e.PropertyName == nameof(EmulationViewModel.SelectedAlbum))
         {
+            IsAlbumListInteractive = true;
             ApplyCoverLayoutMode(vm);
             EnsureCarouselVisibleWhenIdle(vm, vm.IsCompositionCaptureVisible);
             UpdateCaptureChromeVisibilityFromOpacity();
+        }
+        else if (e.PropertyName == nameof(EmulationViewModel.AlbumCoverDisplayRevision))
+        {
+            RomCover.ReloadCoverImages();
+            this.FindControl<EmulationListView>("AlbumListView")?.RefreshAlbumTileCovers();
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsFullscreen))
         {
@@ -977,6 +984,8 @@ public partial class EmulationView : UserControl
             _viewportTransitionCancellation = cancellation;
             if (captureVisible)
                 _ = EnterWithCaptureAsync(cancellation.Token);
+            else if (IsPresentationAlreadyVisible())
+                EnterPresentationWithoutTransition(vm);
             else
                 _ = EnterWithCarouselAsync(cancellation.Token);
 
@@ -1020,11 +1029,26 @@ public partial class EmulationView : UserControl
         if (CarouselOpacity < 0.05)
             CarouselOpacity = 1;
 
+        if (AlbumRowOpacity < 0.05)
+            AlbumRowOpacity = 1;
+
         if (CapturePresentationOpacity > 0.001)
             CapturePresentationOpacity = 0;
 
         _inlinePortalPresentationActive = false;
         _captureHostPresentationVisible = false;
+    }
+
+    private bool IsPresentationAlreadyVisible()
+        => CarouselOpacity > 0.95 && AlbumRowOpacity > 0.95;
+
+    private void EnterPresentationWithoutTransition(EmulationViewModel vm)
+    {
+        _inlinePortalPresentationActive = false;
+        _captureHostPresentationVisible = false;
+        CapturePresentationOpacity = 0;
+        UpdateInlineCaptureHostVisibility(vm);
+        EnsureCarouselVisibleWhenIdle(vm, captureVisible: false);
     }
 
     private void CancelPresentationTransitions()
@@ -1080,7 +1104,6 @@ public partial class EmulationView : UserControl
             UpdateInlineCaptureHostVisibility(vm);
 
         CarouselOpacity = 0;
-        AlbumRowOpacity = 0;
         try
         {
             await Task.Delay(16, cancellationToken);
@@ -1094,7 +1117,8 @@ public partial class EmulationView : UserControl
             return;
 
         CarouselOpacity = 1;
-        AlbumRowOpacity = 1;
+        if (AlbumRowOpacity < 0.95)
+            AlbumRowOpacity = 1;
     }
 
     private async Task EnterWithCaptureAsync(CancellationToken cancellationToken)

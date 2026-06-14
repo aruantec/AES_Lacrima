@@ -203,6 +203,28 @@ namespace AES_Lacrima.Services
             if (ranked.Count == 0)
                 return null;
 
+            if (options.PreferSequentialDownloads)
+            {
+                foreach (var candidate in ranked)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var download = await TryDownloadImageBytesAsync(candidate.FullImageUrl, cancellationToken, options)
+                        .ConfigureAwait(false);
+                    if (download.Bytes == null || string.IsNullOrWhiteSpace(download.MimeType))
+                        continue;
+
+                    if (!TryValidateAutoCoverImageBytes(download.Bytes, out var rejectReason))
+                    {
+                        SLog.Debug($"Skipping low-quality auto cover candidate ({rejectReason}).");
+                        continue;
+                    }
+
+                    return (download.Bytes, download.MimeType);
+                }
+
+                return null;
+            }
+
             for (int offset = 0; offset < ranked.Count; offset += MaxAutoCoverParallelDownloads)
             {
                 cancellationToken.ThrowIfCancellationRequested();

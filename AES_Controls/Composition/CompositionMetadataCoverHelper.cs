@@ -11,32 +11,38 @@ internal static class CompositionMetadataCoverHelper
         !string.IsNullOrWhiteSpace(path) &&
         path.EndsWith(".meta", StringComparison.OrdinalIgnoreCase);
 
-    public static string? GetMetadataCachePath(string? romPath)
+    public static bool IsCoverSidecarPath(string? path) =>
+        EmulationCoverCacheHelper.IsCoverCachePath(path);
+
+    public static string? GetMetadataCachePath(string? mediaPath)
     {
-        if (string.IsNullOrWhiteSpace(romPath))
+        if (string.IsNullOrWhiteSpace(mediaPath))
             return null;
 
-        var normalized = NormalizeRomPath(romPath);
-        var cachePath = ApplicationPaths.GetCacheFile(BinaryMetadataHelper.GetCacheId(normalized) + ".meta");
+        var cachePath = EmulationCoverCacheHelper.GetMetadataCachePath(mediaPath);
         return File.Exists(cachePath) ? cachePath : null;
     }
 
-    private static string NormalizeRomPath(string romPath)
+    public static string? GetCoverCachePath(string? mediaPath)
     {
-        try
-        {
-            return Path.GetFullPath(romPath.Trim());
-        }
-        catch
-        {
-            return romPath.Trim();
-        }
+        if (string.IsNullOrWhiteSpace(mediaPath) || MediaCoverPaths.IsAudioMediaFile(mediaPath))
+            return null;
+
+        if (EmulationCoverCacheHelper.TryEnsureCoverSidecar(mediaPath))
+            return EmulationCoverCacheHelper.GetCoverCachePath(mediaPath);
+
+        return EmulationCoverCacheHelper.HasCover(mediaPath)
+            ? EmulationCoverCacheHelper.GetCoverCachePath(mediaPath)
+            : null;
     }
 
     public static bool MetadataCacheHasCoverImage(string metaPath)
     {
         try
         {
+            if (IsCoverSidecarPath(metaPath))
+                return File.Exists(metaPath);
+
             var metadata = BinaryMetadataHelper.LoadMetadata(metaPath);
             if (metadata == null)
                 return false;
@@ -54,6 +60,9 @@ internal static class CompositionMetadataCoverHelper
     {
         try
         {
+            if (IsCoverSidecarPath(path))
+                return EmulationCoverCacheHelper.TryReadCoverBytesFromPath(path);
+
             if (IsMetadataCachePath(path))
             {
                 var metadata = BinaryMetadataHelper.LoadMetadata(path);

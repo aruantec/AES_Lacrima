@@ -40,7 +40,8 @@ internal static class CompositionCoverImageHelper
             bitmapValue = null;
 
         if (string.IsNullOrWhiteSpace(fileName) && item != null)
-            fileName = CompositionMetadataCoverHelper.GetMetadataCachePath(item.FileName);
+            fileName = CompositionMetadataCoverHelper.GetCoverCachePath(item.FileName)
+                       ?? CompositionMetadataCoverHelper.GetMetadataCachePath(item.FileName);
     }
 
     public static bool IsSectionPlaceholderBitmap(Bitmap? bitmapValue, Bitmap? sectionPlaceholder) =>
@@ -64,7 +65,8 @@ internal static class CompositionCoverImageHelper
         if (bitmapValue != null && !IsSectionPlaceholderBitmap(bitmapValue, sectionPlaceholder))
             return false;
 
-        if (CompositionMetadataCoverHelper.IsMetadataCachePath(fileName))
+        if (CompositionMetadataCoverHelper.IsMetadataCachePath(fileName) ||
+            CompositionMetadataCoverHelper.IsCoverSidecarPath(fileName))
             return true;
 
         if (IsLikelyImageFile(fileName))

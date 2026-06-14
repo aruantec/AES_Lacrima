@@ -697,7 +697,12 @@ namespace AES_Controls.Composition
             if (showCoverFound)
                 DrawCoverFoundOverlay(canvas, i, matrix, center, itemW, itemH);
 
-            if (isLoading) DrawSpinner(canvas, center, matrix);
+            if (isLoading)
+            {
+                _overlayBgPaint.Color = SKColor.Parse("#88000000");
+                FillProjectedRect(canvas, matrix, center, -itemW / 2, -itemH / 2, itemW / 2, itemH / 2, _overlayBgPaint);
+                DrawSpinner(canvas, center, matrix);
+            }
 
             if (_draggingIndex == -1 && _playingItemIndex >= 0 && i == _playingItemIndex)
                 DrawProjectedSelectionBorder(canvas, itemW, itemH, matrix, center, baseOpacity);
@@ -786,6 +791,11 @@ namespace AES_Controls.Composition
                 _dimCache.Remove(image);
                 return false;
             }
+            catch (ExecutionEngineException)
+            {
+                _dimCache.Remove(image);
+                return false;
+            }
             catch (Exception ex)
             {
                 Log.Warn("Failed to read SKImage dimensions", ex);
@@ -815,6 +825,13 @@ namespace AES_Controls.Composition
                 return shader != null;
             }
             catch (ObjectDisposedException)
+            {
+                _dimCache.Remove(image);
+                _shaderCache.Remove(image, out var staleShader);
+                staleShader?.Dispose();
+                return false;
+            }
+            catch (ExecutionEngineException)
             {
                 _dimCache.Remove(image);
                 _shaderCache.Remove(image, out var staleShader);

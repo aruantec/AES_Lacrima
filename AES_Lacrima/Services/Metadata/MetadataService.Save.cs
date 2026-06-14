@@ -116,11 +116,14 @@ namespace AES_Lacrima.Services
                         tlFile.Save();
                     }
 
-                    UpdateInfo();
-                    SetMediaItemCoverFromTags(
-                        coverImage,
-                        wallpaperImage,
-                        ApplicationPaths.GetCacheFile(BinaryMetadataHelper.GetCacheId(path ?? string.Empty) + ".meta"));
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        UpdateInfo();
+                        SetMediaItemCoverFromTags(
+                            coverImage,
+                            wallpaperImage,
+                            ApplicationPaths.GetCacheFile(BinaryMetadataHelper.GetCacheId(path ?? string.Empty) + ".meta"));
+                    });
                     return;
                 }
                 catch (Exception ex)
@@ -204,7 +207,14 @@ namespace AES_Lacrima.Services
                     customMetadata.CoverLookupExhausted = false;
                 }
 
-                BinaryMetadataHelper.WriteMetadataImages(customMetadata, ToMetadataImageEntries(Images));
+                var coverImage = Images.FirstOrDefault(img => img.Kind == TagImageKind.Cover);
+                if (coverImage?.Data is { Length: > 0 } && !IsAudioMetadataFile(path))
+                    EmulationCoverCacheHelper.WriteCoverFromBytes(path, coverImage.Data);
+
+                var metadataImages = IsAudioMetadataFile(path)
+                    ? ToMetadataImageEntries(Images)
+                    : ToMetadataImageEntries(Images.Where(img => img.Kind != TagImageKind.Cover));
+                BinaryMetadataHelper.WriteMetadataImages(customMetadata, metadataImages);
                 BinaryMetadataHelper.SaveMetadata(metaDataPath, customMetadata);
                 MetadataCacheSaved?.Invoke(path);
             }
@@ -213,11 +223,14 @@ namespace AES_Lacrima.Services
                 SLog.Error("Failed to save metadata cache", e);
             }
 
-            UpdateInfo();
-            SetMediaItemCoverFromTags(
-                Images.FirstOrDefault(img => img.Kind == TagImageKind.Cover),
-                Images.FirstOrDefault(img => img.Kind == TagImageKind.Wallpaper),
-                metaDataPath);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                UpdateInfo();
+                SetMediaItemCoverFromTags(
+                    Images.FirstOrDefault(img => img.Kind == TagImageKind.Cover),
+                    Images.FirstOrDefault(img => img.Kind == TagImageKind.Wallpaper),
+                    IsAudioMetadataFile(path) ? metaDataPath : EmulationCoverCacheHelper.GetCoverCachePath(path));
+            });
         }
 
         private void SetMediaItemCoverFromTags(TagImageModel? coverImage, TagImageModel? wallpaperImage, string? metadataCachePath = null)

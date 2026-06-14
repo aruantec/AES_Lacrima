@@ -63,7 +63,7 @@
                                                     ImageFileNameProperty="LocalCoverPath"
                                                     TitleProperty="Title"
                                                     PublishSelectedItemBounds="{Binding IsRomCarouselSelectedItemBoundsActive}"
-                                                    PauseLoadingSpinnerAnimation="{Binding !IsAlbumListCollapsed}"
+                                                    PauseLoadingSpinnerAnimation="{Binding IsCompositionCaptureVisible}"
                                                     SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
                                                     PlayingItemIndex="{Binding PlayingItemIndex, Mode=OneWay}"
                                                     ViewportPreviewIndex="{Binding CarouselSliderPreview, Mode=OneWayToSource}"
