@@ -110,4 +110,51 @@ public static class EmulatorReleaseAssetSelection
             Architecture.Arm64 => "aarch64",
             _ => "x86_64",
         };
+
+    public static bool IsNonLinuxDesktopReleaseAssetName(string assetName)
+    {
+        if (string.IsNullOrWhiteSpace(assetName))
+            return true;
+
+        return assetName.Contains("windows", StringComparison.OrdinalIgnoreCase) ||
+               assetName.Contains("macos", StringComparison.OrdinalIgnoreCase) ||
+               assetName.Contains("android", StringComparison.OrdinalIgnoreCase) ||
+               assetName.EndsWith(".dmg", StringComparison.OrdinalIgnoreCase) ||
+               assetName.EndsWith(".apk", StringComparison.OrdinalIgnoreCase) ||
+               assetName.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsEdenLinuxAppImageAssetName(string assetName)
+    {
+        if (string.IsNullOrWhiteSpace(assetName) || IsNonLinuxDesktopReleaseAssetName(assetName))
+            return false;
+
+        return assetName.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
+               assetName.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) &&
+               !assetName.EndsWith(".AppImage.zsync", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static T? SelectEdenLinuxAsset<T>(
+        IEnumerable<T> assets,
+        Func<T, string> getName) where T : class
+    {
+        var candidates = assets
+            .Where(asset => IsEdenLinuxAppImageAssetName(getName(asset)))
+            .ToList();
+        if (candidates.Count == 0)
+            return null;
+
+        return SelectFirstLinuxAsset(
+                   candidates,
+                   getName,
+                   asset => getName(asset).Contains("gcc-standard", StringComparison.OrdinalIgnoreCase))
+               ?? SelectFirstLinuxAsset(
+                   candidates,
+                   getName,
+                   asset => getName(asset).Contains("clang-pgo", StringComparison.OrdinalIgnoreCase))
+               ?? SelectFirstLinuxAsset(
+                   candidates,
+                   getName,
+                   _ => true);
+    }
 }

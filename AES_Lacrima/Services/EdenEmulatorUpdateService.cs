@@ -165,6 +165,19 @@ public partial class EdenEmulatorUpdateService
             {
                 var destinationPath = Path.Combine(emulatorDirectory, Path.GetFileName(downloadedAssetPath));
                 File.Copy(downloadedAssetPath, destinationPath, overwrite: true);
+                if (OperatingSystem.IsLinux() &&
+                    destinationPath.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        File.SetUnixFileMode(
+                            destinationPath,
+                            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                            UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+                    }
+                    catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+                }
             }
 
             // Keep Emu_Update as a pure temp staging area.
@@ -330,7 +343,7 @@ public partial class EdenEmulatorUpdateService
         }
 
         return results
-            .Where(r => includePrereleases ? r.IsPrerelease : !r.IsPrerelease)
+            .Where(r => !r.IsPrerelease || includePrereleases)
             .OrderByDescending(static r => r.PublishedAt ?? DateTimeOffset.MinValue)
             .ThenByDescending(static r => r.Tag, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -377,7 +390,7 @@ public partial class EdenEmulatorUpdateService
         }
 
         return results
-            .Where(r => includePrereleases ? r.IsPrerelease : !r.IsPrerelease)
+            .Where(r => !r.IsPrerelease || includePrereleases)
             .OrderByDescending(static r => r.PublishedAt ?? DateTimeOffset.MinValue)
             .ThenByDescending(static r => r.Tag, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -421,18 +434,10 @@ public partial class EdenEmulatorUpdateService
                    ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
         }
 
-        return EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
-                   assets,
-                   static asset => asset.Name,
-                   static asset =>
-                       asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
-                       (asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) ||
-                        asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)))
-               ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
-                   assets,
-                   static asset => asset.Name,
-                   static asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-               ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        if (OperatingSystem.IsLinux())
+            return EmulatorReleaseAssetSelection.SelectEdenLinuxAsset(assets, static asset => asset.Name);
+
+        return null;
     }
 
     private static async Task DownloadAssetAsync(string url, string destinationPath, CancellationToken cancellationToken)
@@ -569,6 +574,24 @@ public partial class EdenEmulatorUpdateService
             var gui = Directory.EnumerateFiles(emulatorDirectory, "eden.exe", SearchOption.AllDirectories).FirstOrDefault();
             if (!string.IsNullOrWhiteSpace(gui))
                 return gui;
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            var appImage = Directory.EnumerateFiles(emulatorDirectory, "*.AppImage", SearchOption.AllDirectories)
+                .Where(static path => Path.GetFileName(path).Contains("eden", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(static path => path.Contains("gcc-standard", StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(static path => path.Contains("amd64", StringComparison.OrdinalIgnoreCase) || path.Contains("x86_64", StringComparison.OrdinalIgnoreCase))
+                .FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(appImage))
+                return appImage;
+
+            foreach (var cliName in new[] { "eden-cli.AppImage", "eden-cli" })
+            {
+                var cliCandidate = Directory.EnumerateFiles(emulatorDirectory, cliName, SearchOption.AllDirectories).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(cliCandidate))
+                    return cliCandidate;
+            }
         }
 
         var executableCandidates = Directory.EnumerateFiles(emulatorDirectory, "*", SearchOption.AllDirectories)
