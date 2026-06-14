@@ -8,6 +8,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -996,6 +997,7 @@ public partial class RetroArchEmulatorUpdateService
         return string.Compare(normalizedLatest, normalizedCurrent, StringComparison.OrdinalIgnoreCase) > 0;
     }
 
+    [SupportedOSPlatform("linux")]
     private static void TryMarkLinuxExecutable(string path)
     {
         try
@@ -1012,6 +1014,7 @@ public partial class RetroArchEmulatorUpdateService
         }
     }
 
+    [SupportedOSPlatform("linux")]
     private static void TryMarkRetroArchLinuxBinaryExecutable(string emulatorDirectory)
     {
         var candidate = Directory.EnumerateFiles(emulatorDirectory, "retroarch", SearchOption.AllDirectories)
@@ -1020,6 +1023,7 @@ public partial class RetroArchEmulatorUpdateService
             TryMarkLinuxExecutable(candidate);
     }
 
+    [SupportedOSPlatform("linux")]
     private async Task<string?> DownloadAndInstallLinuxNightlyCoresAsync(
         string emulatorDirectory,
         string updateDirectory,

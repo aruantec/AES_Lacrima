@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Core.IO;
@@ -73,6 +74,7 @@ internal static class EmulatorInstallDirectoryHelper
         return $"Emulator folder is not writable: {directory}";
     }
 
+    [SupportedOSPlatform("linux")]
     private static async Task<bool> TryRepairLinuxOwnershipAsync(string directory, CancellationToken cancellationToken)
     {
         var pkexec = ResolveSystemExecutable("pkexec");

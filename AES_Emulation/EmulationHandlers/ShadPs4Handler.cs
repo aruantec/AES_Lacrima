@@ -96,6 +96,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         return BuildScriptStartInfo(resolvedExecutablePath, resolvedGamePath, launchTranscriptPath);
     }
 
+    [SupportedOSPlatform("linux")]
     private ProcessStartInfo BuildLinuxStartInfo(string launcherPath, string romPath, bool startFullscreen)
     {
         var resolvedExecutablePath = ResolveShadPs4ExecutablePath(launcherPath);

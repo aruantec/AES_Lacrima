@@ -716,11 +716,28 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         if (!_isAttached || _handler == null || _capture == IntPtr.Zero)
             return;
 
-        if (_handler.TryAdvanceFrame())
-            InvalidateVisual();
+        // Match WGC owner-fallback: advance frames and always repaint. Conditional
+        // invalidation stalls the shader path after fullscreen resize because
+        // grContext.ResetContext() requires a steady owner invalidate loop.
+        _handler.OnOwnerRenderTick();
+        InvalidateVisual();
 
         if (_handler.HasPresentedFrame)
             NotifyCaptureFramesStarted();
+    }
+
+    /// <summary>
+    /// Re-prime the owner-render loop after layout changes (e.g. capture fullscreen).
+    /// </summary>
+    public void RefreshCapturePresentation()
+    {
+        if (!_isAttached || _handler == null || _capture == IntPtr.Zero)
+            return;
+
+        UpdateHandlerSize();
+        _handler.InvalidateGraphicsState();
+        UpdateFallbackRenderLoop();
+        InvalidateVisual();
     }
 
     private void NotifyCaptureFramesStarted()

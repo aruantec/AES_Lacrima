@@ -67,6 +67,7 @@ public sealed class XeniaHandler : EmulatorHandlerBase
         return startInfo;
     }
 
+    [SupportedOSPlatform("linux")]
     private static void ApplyLinuxAudioEnvironment(ProcessStartInfo startInfo)
     {
         LinuxGameplayAudioCapture.ApplyAudioEnvironment(startInfo);

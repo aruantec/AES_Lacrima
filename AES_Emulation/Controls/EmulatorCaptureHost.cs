@@ -414,6 +414,12 @@ public class EmulatorCaptureHost : ContentControl
         private set => SetAndRaise(GpuVendorProperty, ref _gpuVendor, value);
     }
 
+    public void RefreshCapturePresentation()
+    {
+        if (OperatingSystem.IsLinux() && _backend is LinuxCompositionCaptureControl linuxCompositionBackend)
+            linuxCompositionBackend.RefreshCapturePresentation();
+    }
+
     public void ForwardFocusToTarget()
     {
         if (!OperatingSystem.IsWindows())

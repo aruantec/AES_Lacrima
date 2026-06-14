@@ -8,6 +8,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -1293,6 +1294,7 @@ public partial class DolphinEmulatorUpdateService
         return value.Trim().TrimStart('v', 'V');
     }
 
+    [SupportedOSPlatform("linux")]
     private async Task<DolphinUpdateState> DownloadOrUpdateLinuxFlatpakAsync(
         string sectionKey,
         string sectionTitle,
@@ -1693,6 +1695,7 @@ public partial class DolphinEmulatorUpdateService
         return TryParseFlatpakInfoCommit(result.Output);
     }
 
+    [SupportedOSPlatform("linux")]
     private static bool IsFlatpakAppInstalled(string applicationId)
     {
         var flatpakPath = LinuxFlatpakApplicationService.GetFlatpakExecutable();
@@ -1713,6 +1716,7 @@ public partial class DolphinEmulatorUpdateService
         }
     }
 
+    [SupportedOSPlatform("linux")]
     private static string? TryGetFlatpakInstalledCommit(string applicationId)
     {
         var flatpakPath = LinuxFlatpakApplicationService.GetFlatpakExecutable();
@@ -1736,6 +1740,7 @@ public partial class DolphinEmulatorUpdateService
         }
     }
 
+    [SupportedOSPlatform("linux")]
     private static string? TryGetFlatpakInstalledVersion(string applicationId)
     {
         var flatpakPath = LinuxFlatpakApplicationService.GetFlatpakExecutable();

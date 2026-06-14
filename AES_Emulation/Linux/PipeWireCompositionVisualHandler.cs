@@ -132,6 +132,7 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
                 {
                     _visualSize = size;
                     _rectDirty = true;
+                    InvalidateGraphicsState();
                     NotifyCompositor();
                 }
                 break;
@@ -303,6 +304,14 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
             // Shader path falls back to Skia color matrix when GL is unavailable.
         }
 
+        var useShader = !string.IsNullOrWhiteSpace(_shaderPath);
+        if (useShader && platformGl != null)
+        {
+            // ResetContext in the shader path invalidates Skia's cached GL bindings.
+            // Re-bind the active platform lease each frame (especially after fullscreen resize).
+            _gl = platformGl;
+        }
+
         EnsureGl(context, grContext, platformGl);
 
         SKBitmap? frame;
@@ -344,6 +353,21 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
     }
 
     internal bool HasPresentedFrame => _presentedFrame != null;
+
+    internal void OnOwnerRenderTick()
+    {
+        if (_renderSuspended)
+            return;
+
+        TryAdvanceFrame();
+        UpdateUiStatsIfNeeded();
+    }
+
+    internal void InvalidateGraphicsState()
+    {
+        _gl = null;
+        _loggedMissingGl = false;
+    }
 
     internal bool TryAdvanceFrame()
     {

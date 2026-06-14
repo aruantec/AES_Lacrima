@@ -1658,12 +1658,14 @@ public partial class EmulationView : UserControl
         _inlineCaptureHost?.InvalidateMeasure();
         _inlineCaptureHost?.InvalidateArrange();
         _inlineCaptureHost?.InvalidateVisual();
+        _inlineCaptureHost?.RefreshCapturePresentation();
 
         Dispatcher.UIThread.Post(() =>
         {
             _inlineCaptureHost?.InvalidateMeasure();
             _inlineCaptureHost?.InvalidateArrange();
             _inlineCaptureHost?.InvalidateVisual();
+            _inlineCaptureHost?.RefreshCapturePresentation();
             ActiveCaptureHost?.ForwardFocusToTarget();
         }, DispatcherPriority.Loaded);
     }

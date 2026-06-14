@@ -51,6 +51,9 @@ public static class DolphinFlatpakPathsHelper
 
         Directory.CreateDirectory(gameSettingsDirectory);
 
+        if (!OperatingSystem.IsLinux())
+            return null;
+
         var flatpakPath = LinuxFlatpakApplicationService.GetFlatpakExecutable();
         if (flatpakPath == null)
             return null;
