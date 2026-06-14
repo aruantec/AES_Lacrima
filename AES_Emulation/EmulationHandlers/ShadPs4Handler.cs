@@ -111,6 +111,13 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath, ResolveShadPs4EmulatorDirectory(resolvedExecutablePath));
         LinuxAudioEnvironmentHelper.Apply(startInfo);
 
+        if (OperatingSystem.IsLinux())
+        {
+            var emulatorDirectory = ResolveShadPs4EmulatorDirectory(resolvedExecutablePath);
+            var userDirectory = ShadPs4UserDirectoryHelper.ResolveUserDirectory(emulatorDirectory);
+            ShadPs4LinuxLaunchHelper.EnsureLinuxAudioSettings(userDirectory, emulatorDirectory);
+        }
+
         startInfo.ArgumentList.Add("-g");
         startInfo.ArgumentList.Add(resolvedGamePath);
         startInfo.ArgumentList.Add("-f");
