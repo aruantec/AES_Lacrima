@@ -1042,8 +1042,13 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
                 _itemsSnapshot = ItemsSource?.Cast<object?>().ToArray() ?? [];
                 SendTitles();
                 for (int i = 0; i < e.NewItems.Count; i++)
-                    SubscribeItemAt(e.NewStartingIndex + i);
-                EnsureVisibleTileCoversLoaded();
+                {
+                    int index = e.NewStartingIndex + i;
+                    SubscribeItemAt(index);
+                    _coversLoadedIndices.Remove(index);
+                    PushTileCovers(index);
+                }
+
                 return;
             }
 
@@ -1141,7 +1146,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         SubscribeChildItems(folder);
         int index = Array.IndexOf(_itemsSnapshot, folder);
         if (index >= 0)
-            PushTileCovers(index);
+            SchedulePushTileCovers(index);
     }
 
     private void PreviewItems_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -1329,6 +1334,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         if (_itemsSnapshot[index] is not FolderMediaItem folder)
             return;
 
+        folder.SyncAlbumTileTopCoverFromChildren();
         var snapshots = BuildSnapshots(folder);
         var defaultSk = CompositionBitmapHelper.ToSkImage(folder.CoverBitmap, CompositionBitmapHelper.FolderCoverMaxEdge);
         _coversLoadedIndices.Add(index);

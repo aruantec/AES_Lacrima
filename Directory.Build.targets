@@ -14,4 +14,7 @@
     </ItemGroup>
   </Target>
 
+  <!-- Avalonia build telemetry can fail when ~/.local/share/AvaloniaUI is not writable. -->
+  <Target Name="AvaloniaStats" />
+
 </Project>

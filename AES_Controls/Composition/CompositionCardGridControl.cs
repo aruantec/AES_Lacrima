@@ -535,6 +535,14 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         }
     }
 
+    internal void RefreshItemsFromCurrentSource()
+    {
+        if (!_coverLoadingActive)
+            return;
+
+        UpdateItems();
+    }
+
     internal void ResumeCoverLoading()
     {
         if (!_coverLoadingActive)
@@ -1311,7 +1319,12 @@ public class CompositionCardGridControl : ItemsControl, IScaleExclusionRenderTar
         _visual?.SendHandlerMessage(_images.ToArray());
         SendTitles();
 
-        UpdateVirtualization();
+        _lastVirtualizationIndex = -1;
+        _lastVirtualizationScrollY = double.NaN;
+        if (_itemsSnapshot.Length > 0)
+            ScheduleInitialImageLoad();
+        else
+            UpdateVirtualization();
     }
 
     private void RemoveItemsAt(int startIndex, int count)

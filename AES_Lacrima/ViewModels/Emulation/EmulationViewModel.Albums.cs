@@ -1129,9 +1129,14 @@ namespace AES_Lacrima.ViewModels
             {
                 if (itemsToLoad.Count == 0)
                 {
-                    await Dispatcher.UIThread.InvokeAsync(
-                        () => UpdatePreviewItems(album, rebuildStructure: false),
-                        DispatcherPriority.Background);
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        bool rebuildStructure = album.Children.Count > 0 &&
+                                                (album.PreviewItems.Count <= 1 ||
+                                                 album.PreviewItems.All(item => ReferenceEquals(item.CoverBitmap, album.CoverBitmap)));
+                        UpdatePreviewItems(album, rebuildStructure: rebuildStructure);
+                        NotifyAlbumCoverDisplayChanged(album);
+                    }, DispatcherPriority.Background);
                     return;
                 }
 
@@ -1186,9 +1191,11 @@ namespace AES_Lacrima.ViewModels
                     }
                 }
 
-                await Dispatcher.UIThread.InvokeAsync(
-                    () => UpdatePreviewItems(album, rebuildStructure: false),
-                    DispatcherPriority.Background);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    UpdatePreviewItems(album, rebuildStructure: false);
+                    NotifyAlbumCoverDisplayChanged(album);
+                }, DispatcherPriority.Background);
             }
             finally
             {
@@ -1654,9 +1661,16 @@ namespace AES_Lacrima.ViewModels
                     {
                         SLog.Warn($"MetadataService unavailable for album '{album.Title}'; online cover lookup skipped.");
                         await HydrateLocalAlbumCoversAsync(album, cancellationToken).ConfigureAwait(false);
-                        if (ReferenceEquals(LoadedAlbum, album))
-                            NotifyAlbumCoverDisplayChanged(album);
                         await metadataTask.ConfigureAwait(false);
+                        if (ReferenceEquals(LoadedAlbum, album))
+                        {
+                            await Dispatcher.UIThread.InvokeAsync(() =>
+                            {
+                                UpdatePreviewItems(album as EmulationAlbumItem, rebuildStructure: true);
+                                NotifyAlbumCoverDisplayChanged(album);
+                            }, DispatcherPriority.Input);
+                        }
+
                         return;
                     }
 
@@ -1693,12 +1707,20 @@ namespace AES_Lacrima.ViewModels
                     await FinishAlbumCoverLoadingStateAsync(album).ConfigureAwait(false);
 
                     if (ReferenceEquals(LoadedAlbum, album))
-                        NotifyAlbumCoverDisplayChanged(album);
-
-                    await Dispatcher.UIThread.InvokeAsync(() =>
                     {
-                        UpdatePreviewItems(album as EmulationAlbumItem, rebuildStructure: false);
-                    }, DispatcherPriority.Input);
+                        await Dispatcher.UIThread.InvokeAsync(() =>
+                        {
+                            UpdatePreviewItems(album as EmulationAlbumItem, rebuildStructure: true);
+                            NotifyAlbumCoverDisplayChanged(album);
+                        }, DispatcherPriority.Input);
+                    }
+                    else
+                    {
+                        await Dispatcher.UIThread.InvokeAsync(() =>
+                        {
+                            UpdatePreviewItems(album as EmulationAlbumItem, rebuildStructure: false);
+                        }, DispatcherPriority.Input);
+                    }
                 }
                 catch (OperationCanceledException)
                 {

@@ -497,6 +497,8 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             _cardGrid.SetCoverLoadingActive(false);
             if (!ReferenceEquals(_carousel.ItemsSource, source))
                 _carousel.ItemsSource = source;
+            else if (source != null)
+                _carousel.RefreshItemsFromCurrentSource();
             _cardGrid.SyncItemsSourceLightweight(source);
             _carousel.HydrateCoverImagesFrom(_cardGrid);
         }
@@ -506,6 +508,8 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             _carousel.SetCoverLoadingActive(false);
             if (!ReferenceEquals(_cardGrid.ItemsSource, source))
                 _cardGrid.ItemsSource = source;
+            else if (source != null)
+                _cardGrid.RefreshItemsFromCurrentSource();
             _carousel.SyncItemsSourceLightweight(source);
             _cardGrid.HydrateCoverImagesFrom(_carousel);
         }

@@ -40,21 +40,72 @@ namespace AES_Controls.Player.Models
         [ObservableProperty]
         private int _totalChildCount;
 
+        /// <summary>
+        /// Keeps the synthetic album-tile top cover in sync with loaded child covers.
+        /// </summary>
+        public void SyncAlbumTileTopCoverFromChildren()
+        {
+            if (PreviewItems.Count == 0)
+                return;
+
+            var topItem = PreviewItems[^1];
+            if (Children.Contains(topItem))
+                return;
+
+            topItem.CoverBitmap = ResolveAlbumTileTopCover(useFirstItemCover: false);
+        }
+
+        private Bitmap? ResolveAlbumTileTopCover(bool useFirstItemCover)
+        {
+            var firstChild = Children.FirstOrDefault();
+            if (useFirstItemCover && firstChild != null)
+                return firstChild.CoverBitmap ?? CoverBitmap;
+
+            foreach (var child in Children)
+            {
+                if (child.CoverBitmap != null && !ReferenceEquals(child.CoverBitmap, CoverBitmap))
+                    return child.CoverBitmap;
+            }
+
+            return CoverBitmap;
+        }
+
         public void RebuildPreviewItems(bool useFirstItemCover = false, bool rebuildStructure = true)
         {
-            Bitmap? topCover = CoverBitmap;
+            Bitmap? topCover = ResolveAlbumTileTopCover(useFirstItemCover);
             var firstChild = Children.FirstOrDefault();
-
-            if (useFirstItemCover && firstChild != null)
-                topCover = firstChild.CoverBitmap ?? CoverBitmap;
 
             if (!rebuildStructure && PreviewItems.Count > 0)
             {
-                var topItem = PreviewItems[^1];
-                if (!Children.Contains(topItem))
-                    topItem.CoverBitmap = topCover;
+                int expectedFanCount = Math.Min(
+                    useFirstItemCover && firstChild != null
+                        ? Math.Max(0, Children.Count - 1)
+                        : Children.Count,
+                    AlbumTilePresentationCoverCount - 1);
 
-                return;
+                bool structureStale = Math.Max(0, PreviewItems.Count - 1) != expectedFanCount;
+                if (!structureStale && PreviewItems.Count > 1)
+                {
+                    for (int i = 0; i < PreviewItems.Count - 1; i++)
+                    {
+                        if (!Children.Contains(PreviewItems[i]))
+                        {
+                            structureStale = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!structureStale)
+                {
+                    var topItem = PreviewItems[^1];
+                    if (!Children.Contains(topItem))
+                        topItem.CoverBitmap = topCover;
+                    else if (useFirstItemCover)
+                        topItem.CoverBitmap = topCover;
+
+                    return;
+                }
             }
 
             var fanSource = useFirstItemCover && firstChild != null

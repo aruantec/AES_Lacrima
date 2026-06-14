@@ -679,6 +679,14 @@ namespace AES_Controls.Composition
                 SnapToSelectedIndex();
         }
 
+        internal void RefreshItemsFromCurrentSource()
+        {
+            if (!_coverLoadingActive)
+                return;
+
+            UpdateItems();
+        }
+
         internal void ResumeCoverLoading()
         {
             if (!_coverLoadingActive)
@@ -943,7 +951,11 @@ namespace AES_Controls.Composition
             _lastSyncedVisualSlotCount = _images.Count;
             _visual?.SendHandlerMessage(new ResetCoverFoundMessage(BuildCoverFoundSet(_itemsSnapshot)));
 
-            UpdateVirtualization();
+            _lastVirtualizationIndex = -1;
+            if (_itemsSnapshot.Length > 0)
+                ScheduleInitialImageLoad();
+            else
+                UpdateVirtualization();
         }
 
         private HashSet<int> BuildCoverFoundSet(IReadOnlyList<object?> items)
@@ -2062,8 +2074,10 @@ namespace AES_Controls.Composition
                 return;
 
             SyncCarouselViewportMotionState();
-            int centerIdx = (int)Math.Round(SelectedIndex);
-            if (centerIdx == _lastVirtualizationIndex)
+            int centerIdx = _itemsSnapshot.Length == 0
+                ? -1
+                : (int)Math.Clamp(Math.Round(SelectedIndex), 0, _itemsSnapshot.Length - 1);
+            if (centerIdx >= 0 && centerIdx == _lastVirtualizationIndex)
                 return;
 
             CompositionViewportState.VisibleCenterIndex = centerIdx;
