@@ -5,6 +5,7 @@ using AES_Core.DI;
 using AES_Core.IO;
 using AES_Emulation.Controls;
 using AES_Emulation.EmulationHandlers;
+using AES_Emulation.Linux;
 using AES_Emulation.Platform;
 using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
@@ -45,6 +46,11 @@ namespace AES_Lacrima.ViewModels
 {
     public partial class EmulationViewModel : ViewModelBase, IEmulationViewModel
     {
+        private string? ResolveShadPs4ContentRootDirectory() =>
+            ShadPs4UserDirectoryHelper.ResolveContentRootDirectory(
+                CurrentSectionEmulatorHandler?.LauncherPath,
+                CurrentSectionShadPs4EmulatorPath);
+
         // --- shadPS4 Patches ---
 
         [RelayCommand]
@@ -73,7 +79,7 @@ namespace AES_Lacrima.ViewModels
 
             try
             {
-                var shadPs4Directory = CurrentSectionShadPs4EmulatorPath;
+                var shadPs4Directory = ResolveShadPs4ContentRootDirectory();
                 var titleId = ShadPs4TitleIdResolver.Resolve(target.FileName);
 
                 var gameTitle = target.Title;
@@ -254,7 +260,7 @@ namespace AES_Lacrima.ViewModels
             if (IsShadPs4PatchesBusy)
                 return;
 
-            var shadPs4Directory = CurrentSectionShadPs4EmulatorPath;
+            var shadPs4Directory = ResolveShadPs4ContentRootDirectory();
             if (string.IsNullOrWhiteSpace(shadPs4Directory))
             {
                 ShadPs4PatchesStatus = "Emulator directory is not configured.";
@@ -290,7 +296,7 @@ namespace AES_Lacrima.ViewModels
 
         private async Task ReloadCurrentSectionShadPs4PatchesAsync()
         {
-            var shadPs4Directory = CurrentSectionShadPs4EmulatorPath;
+            var shadPs4Directory = ResolveShadPs4ContentRootDirectory();
             var titleId = ShadPs4DetectedTitleId;
             if (string.IsNullOrWhiteSpace(shadPs4Directory) || string.IsNullOrWhiteSpace(titleId))
                 return;
@@ -325,7 +331,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             await ShadPs4CustomConfigEditor.LoadAsync(
-                CurrentSectionShadPs4EmulatorPath,
+                ResolveShadPs4ContentRootDirectory(),
                 target.FileName,
                 target.Title).ConfigureAwait(true);
         }
@@ -336,7 +342,7 @@ namespace AES_Lacrima.ViewModels
             if (!ShowCurrentSectionShadPs4GlobalConfigMenuItem)
                 return;
 
-            await ShadPs4CustomConfigEditor.LoadGlobalAsync(CurrentSectionShadPs4EmulatorPath)
+            await ShadPs4CustomConfigEditor.LoadGlobalAsync(ResolveShadPs4ContentRootDirectory())
                 .ConfigureAwait(true);
         }
 
@@ -352,7 +358,7 @@ namespace AES_Lacrima.ViewModels
 
             UpdateShadPs4CheatsIpcState();
             await ShadPs4CheatsEditor.LoadAsync(
-                CurrentSectionShadPs4EmulatorPath,
+                ResolveShadPs4ContentRootDirectory(),
                 target.FileName,
                 target.Title).ConfigureAwait(true);
         }

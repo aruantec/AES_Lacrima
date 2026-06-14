@@ -30,8 +30,35 @@ public sealed class ShadPs4HandlerLinuxTests
             Assert.Contains("-f", startInfo.ArgumentList);
             Assert.Contains("false", startInfo.ArgumentList);
             Assert.True(startInfo.Environment.TryGetValue("SHADPS4_USER_DIR", out var userDir));
-            Assert.Contains("shadPS4", userDir, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(ShadPs4UserDirectoryHelper.ResolveUserDirectory(tempRoot), userDir);
             Assert.Equal("pipewire", startInfo.Environment["SDL_AUDIODRIVER"]);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, true); } catch { /* ignored */ }
+        }
+    }
+
+    [Fact]
+    public void BuildStartInfo_OnLinux_UsesPortableUserDirectoryWhenPresent()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), "AES_Lacrima_Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(tempRoot, "user"));
+        try
+        {
+            var appImagePath = Path.Combine(tempRoot, "Shadps4-sdl.AppImage");
+            File.WriteAllText(appImagePath, string.Empty);
+            var gamePath = Path.Combine(tempRoot, "CUSA01067");
+            Directory.CreateDirectory(Path.Combine(gamePath, "sce_sys"));
+            File.WriteAllText(Path.Combine(gamePath, "sce_sys", "param.sfo"), string.Empty);
+
+            var startInfo = ShadPs4Handler.Instance.BuildStartInfo(appImagePath, gamePath, startFullscreen: false);
+
+            Assert.True(startInfo.Environment.TryGetValue("SHADPS4_USER_DIR", out var userDir));
+            Assert.Equal(Path.Combine(tempRoot, "user"), userDir);
         }
         finally
         {

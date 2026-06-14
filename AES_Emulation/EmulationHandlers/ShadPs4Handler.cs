@@ -108,14 +108,14 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             WorkingDirectory = ResolveShadPs4WorkingDirectory(resolvedExecutablePath),
         };
 
-        ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath, ResolveShadPs4EmulatorDirectory(resolvedExecutablePath));
+        var launchRootDirectory = ResolveShadPs4WorkingDirectory(resolvedExecutablePath);
+        ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath, launchRootDirectory);
         LinuxAudioEnvironmentHelper.Apply(startInfo);
 
         if (OperatingSystem.IsLinux())
         {
-            var emulatorDirectory = ResolveShadPs4EmulatorDirectory(resolvedExecutablePath);
-            var userDirectory = ShadPs4UserDirectoryHelper.ResolveUserDirectory(emulatorDirectory);
-            ShadPs4LinuxLaunchHelper.EnsureLinuxAudioSettings(userDirectory, emulatorDirectory);
+            var userDirectory = ShadPs4UserDirectoryHelper.ResolveUserDirectory(launchRootDirectory);
+            ShadPs4LinuxLaunchHelper.EnsureLinuxAudioSettings(userDirectory, launchRootDirectory);
         }
 
         startInfo.ArgumentList.Add("-g");
@@ -212,7 +212,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             WorkingDirectory = ResolveShadPs4WorkingDirectory(resolvedExecutablePath)
         };
 
-        ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath, ResolveShadPs4EmulatorDirectory(resolvedExecutablePath));
+        ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath, ResolveShadPs4WorkingDirectory(resolvedExecutablePath));
         startInfo.Arguments = $"/d /c call \"{launchScriptPath}\"";
 
         Log.Debug($"shadPS4 start info: FileName='{startInfo.FileName}', WorkingDirectory='{startInfo.WorkingDirectory}', Arguments='{startInfo.Arguments}', UseShellExecute={startInfo.UseShellExecute}, TranscriptPath='{launchTranscriptPath}', ScriptPath='{launchScriptPath}', IpcEnabled=false");
@@ -233,7 +233,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             WorkingDirectory = ResolveShadPs4WorkingDirectory(resolvedExecutablePath)
         };
 
-        ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath, ResolveShadPs4EmulatorDirectory(resolvedExecutablePath));
+        ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath, ResolveShadPs4WorkingDirectory(resolvedExecutablePath));
         startInfo.Environment["SHADPS4_ENABLE_IPC"] = "true";
 
         startInfo.ArgumentList.Add("-g");
@@ -245,10 +245,10 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         return startInfo;
     }
 
-    private static void ApplyShadPs4UserEnvironment(ProcessStartInfo startInfo, string resolvedExecutablePath, string? emulatorDirectory)
+    private static void ApplyShadPs4UserEnvironment(ProcessStartInfo startInfo, string resolvedExecutablePath, string? launchRootDirectory)
     {
         var userDirectory = OperatingSystem.IsLinux()
-            ? ShadPs4UserDirectoryHelper.ResolveUserDirectory(emulatorDirectory)
+            ? ShadPs4UserDirectoryHelper.ResolveUserDirectory(launchRootDirectory)
             : ResolvePortableUserDirectory(resolvedExecutablePath);
 
         if (string.IsNullOrWhiteSpace(userDirectory))
@@ -511,9 +511,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
     }
 
     private static string ResolveShadPs4UserDirectory(string? executablePath)
-        => OperatingSystem.IsLinux()
-            ? ShadPs4UserDirectoryHelper.ResolveUserDirectory(ResolveShadPs4EmulatorDirectory(executablePath))
-            : ResolvePortableUserDirectory(executablePath);
+        => ShadPs4UserDirectoryHelper.ResolveUserDirectory(ResolveShadPs4WorkingDirectory(executablePath));
 
     private static async Task WaitForCoreLinkerOutputAsync(Process process, string? transcriptPath, CancellationToken cancellationToken)
     {

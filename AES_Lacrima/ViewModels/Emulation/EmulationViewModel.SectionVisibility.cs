@@ -146,9 +146,12 @@ namespace AES_Lacrima.ViewModels
             ShowCurrentSectionShadPs4UpdateControls && HasActiveAlbumItems;
 
         public bool ShowCurrentSectionShadPs4CheatsMenuItem =>
-            ShowCurrentSectionShadPs4UpdateControls && HasActiveAlbumItems;
+            !OperatingSystem.IsLinux() &&
+            ShowCurrentSectionShadPs4UpdateControls &&
+            HasActiveAlbumItems;
 
         public bool ShowShadPs4InGameCheatsButton =>
+            !OperatingSystem.IsLinux() &&
             IsEmulatorRunning &&
             string.Equals(CurrentEmulatorHandler?.HandlerId, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase);
 

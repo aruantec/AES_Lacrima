@@ -17,7 +17,7 @@ internal static class ShadPs4LinuxLaunchHelper
 
     /// <summary>
     /// Forces OpenAL on Linux. SDL audio fails inside gamescope headless, and shadPS4 prefers
-    /// cwd/user/config.json over ~/.local/share/shadPS4 when a portable user folder exists.
+    /// cwd/user over XDG when a portable user folder exists beside the AppImage.
     /// </summary>
     public static void EnsureLinuxAudioSettings(string? userDirectory, string? emulatorDirectory = null)
     {

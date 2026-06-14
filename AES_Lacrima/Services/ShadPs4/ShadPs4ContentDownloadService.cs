@@ -28,6 +28,7 @@ public static class ShadPs4ContentDownloadService
         if (string.IsNullOrWhiteSpace(emulatorDirectory))
             return string.Empty;
 
+        ShadPs4UserDirectoryHelper.TryMirrorLinuxPortableSubtreeFromXdg(emulatorDirectory, "patches");
         return ShadPs4UserDirectoryHelper.GetUserSubdirectory(emulatorDirectory, "patches");
     }
 
