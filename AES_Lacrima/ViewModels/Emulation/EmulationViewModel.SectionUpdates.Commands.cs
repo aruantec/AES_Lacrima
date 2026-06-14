@@ -794,6 +794,7 @@ namespace AES_Lacrima.ViewModels
             IsCurrentSectionPcsx2Busy = true;
             IsCurrentSectionPcsx2Downloading = true;
             CurrentSectionPcsx2DownloadProgress = 5;
+            CurrentSectionPcsx2Status = "Starting PCSX2 download...";
             try
             {
                 var state = await updater.DownloadOrUpdateAsync(

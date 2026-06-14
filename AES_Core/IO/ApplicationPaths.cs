@@ -73,6 +73,28 @@ public static class ApplicationPaths
         return _isAppBaseWritable.Value;
     }
 
+    /// <summary>
+    /// Verifies the directory exists and the current process can create files inside it.
+    /// </summary>
+    public static bool IsDirectoryWritable(string path)
+    {
+        try
+        {
+            Directory.CreateDirectory(path);
+            var probePath = Path.Combine(path, $".write-test-{Guid.NewGuid():N}");
+            using (File.Create(probePath))
+            {
+            }
+
+            File.Delete(probePath);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static string GetSharedShadersDirectory()
     {
         var logsParent = Directory.GetParent(LogsDirectory);
@@ -144,22 +166,4 @@ public static class ApplicationPaths
             "Logs");
     }
 
-    private static bool IsDirectoryWritable(string path)
-    {
-        try
-        {
-            Directory.CreateDirectory(path);
-            var probePath = Path.Combine(path, $".write-test-{Guid.NewGuid():N}");
-            using (File.Create(probePath))
-            {
-            }
-
-            File.Delete(probePath);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
 }

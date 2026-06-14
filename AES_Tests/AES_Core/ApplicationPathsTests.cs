@@ -64,6 +64,28 @@ public sealed class ApplicationPathsTests : IDisposable
         Assert.Equal(Path.Combine(ApplicationPaths.DataRootDirectory, "Tools", "foo.exe"), tool);
     }
 
+    [Fact]
+    public void IsDirectoryWritable_returns_true_for_user_writable_directory()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "aes-lacrima-writable-test", Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            Assert.True(ApplicationPaths.IsDirectoryWritable(tempDir));
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, recursive: true);
+            }
+            catch
+            {
+            }
+        }
+    }
+
     private static bool? GetPrivateStaticBool(string fieldName)
     {
         var field = typeof(ApplicationPaths).GetField(fieldName, BindingFlags.Static | BindingFlags.NonPublic);

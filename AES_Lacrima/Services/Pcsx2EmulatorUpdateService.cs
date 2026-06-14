@@ -65,6 +65,7 @@ public partial class Pcsx2EmulatorUpdateService
         var (emulatorDirectory, updateDirectory) = EnsureDirectories(sectionKey, sectionTitle);
         var resolvedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
         var currentVersion = GetInstalledVersion(emulatorDirectory, resolvedLauncherPath);
+        var writableWarning = EmulatorInstallDirectoryHelper.GetWritableDirectoryWarning(emulatorDirectory);
 
         try
         {
@@ -78,11 +79,18 @@ public partial class Pcsx2EmulatorUpdateService
                 .ToList();
             var latest = latestRelease?.Tag ?? versions.FirstOrDefault();
             var updateAvailable = IsUpdateAvailable(currentVersion, latest);
-            var status = updateAvailable
-                ? $"New PCSX2 version available: {latest}"
+            var status = !string.IsNullOrWhiteSpace(writableWarning)
+                ? $"{writableWarning} Download is required before PCSX2 can be installed."
+                : updateAvailable
+                ? string.IsNullOrWhiteSpace(currentVersion)
+                    ? $"PCSX2 is not installed. Latest version: {latest}"
+                    : $"New PCSX2 version available: {latest}"
                 : string.IsNullOrWhiteSpace(currentVersion)
                     ? "PCSX2 is not installed in this section yet."
                     : $"PCSX2 is up to date ({currentVersion}).";
+
+            if (string.IsNullOrWhiteSpace(currentVersion) && !string.IsNullOrWhiteSpace(latest))
+                updateAvailable = true;
 
             return new Pcsx2UpdateState(
                 Repository,
@@ -123,7 +131,27 @@ public partial class Pcsx2EmulatorUpdateService
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            Log.Info("Starting PCSX2 download/update.");
             var (emulatorDirectory, updateDirectory) = EnsureDirectories(sectionKey, sectionTitle);
+            var (writable, writeError) = await EmulatorInstallDirectoryHelper
+                .EnsureWritableAsync(emulatorDirectory, cancellationToken)
+                .ConfigureAwait(false);
+            if (!writable)
+            {
+                Log.Warn($"PCSX2 download blocked because emulator directory is not writable: '{emulatorDirectory}'.");
+                var blockedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
+                return new Pcsx2UpdateState(
+                    Repository,
+                    GetInstalledVersion(emulatorDirectory, blockedLauncherPath),
+                    null,
+                    false,
+                    Array.Empty<string>(),
+                    writeError ?? "PCSX2 emulator directory is not writable.",
+                    emulatorDirectory,
+                    updateDirectory,
+                    blockedLauncherPath);
+            }
+
             var releases = await GetReleasesAsync(includePrereleases, forceRefresh: true, cancellationToken).ConfigureAwait(false);
             if (releases.Count == 0)
             {
@@ -145,6 +173,7 @@ public partial class Pcsx2EmulatorUpdateService
                 return new Pcsx2UpdateState(Repository, GetInstalledVersion(emulatorDirectory, missingAssetLauncherPath), releases[0].Tag, false, releases.Select(static r => r.Tag).Take(12).ToList(), "No compatible PCSX2 asset found for this OS.", emulatorDirectory, updateDirectory, missingAssetLauncherPath);
             }
 
+            Log.Info($"Downloading PCSX2 asset '{selectedAsset.Name}' for release '{targetRelease.Tag}'.");
             PrepareUpdateDirectory(updateDirectory);
             var downloadedAssetPath = Path.Combine(updateDirectory, selectedAsset.Name);
             await DownloadAssetAsync(selectedAsset.DownloadUrl, downloadedAssetPath, cancellationToken).ConfigureAwait(false);
@@ -161,6 +190,7 @@ public partial class Pcsx2EmulatorUpdateService
             {
                 var destinationPath = Path.Combine(emulatorDirectory, Path.GetFileName(downloadedAssetPath));
                 File.Copy(downloadedAssetPath, destinationPath, overwrite: true);
+                TryMarkLinuxExecutable(destinationPath);
             }
 
             PrepareUpdateDirectory(updateDirectory);
@@ -371,6 +401,13 @@ public partial class Pcsx2EmulatorUpdateService
         if (OperatingSystem.IsLinux())
         {
             return EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset =>
+                           asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
+                           asset.Name.Contains("appimage", StringComparison.OrdinalIgnoreCase) &&
+                           asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
                        assets,
                        static asset => asset.Name,
                        static asset =>
@@ -675,14 +712,36 @@ public partial class Pcsx2EmulatorUpdateService
 
     private static bool IsUpdateAvailable(string? currentVersion, string? latestVersion)
     {
-        if (string.IsNullOrWhiteSpace(currentVersion) || string.IsNullOrWhiteSpace(latestVersion))
+        if (string.IsNullOrWhiteSpace(latestVersion))
             return false;
+
+        if (string.IsNullOrWhiteSpace(currentVersion))
+            return true;
 
         var compareResult = CompareVersionNumbers(currentVersion, latestVersion);
         if (compareResult.HasValue)
             return compareResult.Value < 0;
 
         return !VersionsEquivalent(currentVersion, latestVersion);
+    }
+
+    private static void TryMarkLinuxExecutable(string path)
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return;
+
+        try
+        {
+            File.SetUnixFileMode(
+                path,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"Failed to mark PCSX2 Linux file as executable: '{path}'.", ex);
+        }
     }
 
     private static int? CompareVersionNumbers(string left, string right)
