@@ -592,7 +592,7 @@ namespace AES_Lacrima.ViewModels
                     section.SectionKey,
                     section.SectionTitle,
                     handler.LauncherPath,
-                    false,
+                    IncludeCurrentSectionDolphinPrereleases,
                     forceRefresh: false).ConfigureAwait(false);
 
                 await Dispatcher.UIThread.InvokeAsync(() => ApplyDolphinUpdateState(state));
@@ -846,7 +846,7 @@ namespace AES_Lacrima.ViewModels
                     section.SectionKey,
                     section.SectionTitle,
                     handler.LauncherPath,
-                    false,
+                    IncludeCurrentSectionDolphinPrereleases,
                     SelectedCurrentSectionDolphinVersion).ConfigureAwait(false);
 
                 await Dispatcher.UIThread.InvokeAsync(() =>

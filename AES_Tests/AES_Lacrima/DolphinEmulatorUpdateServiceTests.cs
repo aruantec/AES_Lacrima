@@ -64,6 +64,28 @@ public sealed class DolphinEmulatorUpdateServiceTests
     }
 
     [Fact]
+    public void TryParseFlatpakInfoCommit_ParsesInstalledCommit()
+    {
+        const string sample = """
+                 Version: 2603a
+                 Commit: 06ead480437bd5b9e648c14ea485296c1cbef7f9a4083f6a3a107d376733c…
+            """;
+
+        Assert.Equal(
+            "06ead480437bd5b9e648c14ea485296c1cbef7f9a4083f6a3a107d376733c",
+            DolphinEmulatorUpdateService.TryParseFlatpakInfoCommit(sample));
+    }
+
+    [Fact]
+    public void CommitsEquivalent_MatchesTruncatedInstalledCommit()
+    {
+        const string installed = "06ead480437bd5b9e648c14ea485296c1cbef7f9a4083f6a3a107d376733c…";
+        const string remote = "06ead480437bd5b9e648c14ea485296c1cbef7f9a4083f6a3a3a107d376733ca9b";
+
+        Assert.True(DolphinEmulatorUpdateService.CommitsEquivalent(installed, remote));
+    }
+
+    [Fact]
     public void ApplyResolvedLauncher_FlatpakPrefix_SetsFlatpakAppId()
     {
         var handler = DolphinHandler.Instance;

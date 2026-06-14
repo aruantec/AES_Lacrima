@@ -120,7 +120,18 @@ public partial class DolphinEmulatorUpdateService
                 .ToList();
 
             var latest = latestRelease?.Tag ?? versions.FirstOrDefault();
-            var updateAvailable = IsUpdateAvailable(currentVersion, latest);
+            var updateAvailable = OperatingSystem.IsLinux() && IsFlatpakAppInstalled(FlatpakApplicationId)
+                ? await IsLinuxFlatpakUpdateAvailableAsync(includePrereleases, cancellationToken).ConfigureAwait(false)
+                : IsUpdateAvailable(currentVersion, latest);
+
+            if (OperatingSystem.IsLinux() &&
+                IsFlatpakAppInstalled(FlatpakApplicationId) &&
+                !string.IsNullOrWhiteSpace(currentVersion) &&
+                (!updateAvailable || IsFlatpakBranchLabel(latest)))
+            {
+                latest = currentVersion;
+            }
+
             var status = updateAvailable
                 ? $"New Dolphin version available: {latest}"
                 : string.IsNullOrWhiteSpace(currentVersion)
@@ -1345,7 +1356,11 @@ public partial class DolphinEmulatorUpdateService
                 .ToList();
             var latest = versions.FirstOrDefault() ?? installedVersion;
             var currentVersion = GetInstalledVersion(emulatorDirectory, resolvedLauncherPath);
-            var updateAvailable = IsUpdateAvailable(currentVersion, latest);
+            var updateAvailable = await IsLinuxFlatpakUpdateAvailableAsync(includePrereleases, cancellationToken).ConfigureAwait(false);
+            if (!updateAvailable && !string.IsNullOrWhiteSpace(currentVersion))
+                latest = currentVersion;
+            else if (IsFlatpakBranchLabel(latest) && !string.IsNullOrWhiteSpace(currentVersion))
+                latest = currentVersion;
 
             return new DolphinUpdateState(
                 Repository,
@@ -1396,17 +1411,24 @@ public partial class DolphinEmulatorUpdateService
                 .ConfigureAwait(false);
             var releaseVersion = await GetFlatpakRemoteVersionAsync(flatpakPath, FlatpakReleasesRemote, cancellationToken)
                 .ConfigureAwait(false);
+            var releaseCommit = await GetFlatpakRemoteCommitAsync(flatpakPath, FlatpakReleasesRemote, cancellationToken)
+                .ConfigureAwait(false);
+            var installedCommit = TryGetFlatpakInstalledCommit(FlatpakApplicationId);
+            var installedVersion = TryGetFlatpakInstalledVersion(FlatpakApplicationId);
+            if (ShouldUseInstalledFlatpakVersionLabel(releaseVersion, installedCommit, releaseCommit, installedVersion))
+                releaseVersion = installedVersion;
+
             if (!string.IsNullOrWhiteSpace(releaseVersion))
             {
                 releases.Add(new ReleaseInfo(
-                    releaseVersion,
+                    FormatFlatpakChannelReleaseTag(releaseVersion, "stable"),
                     false,
                     null,
                     Array.Empty<ReleaseAsset>()));
             }
             else
             {
-                releases.Add(new ReleaseInfo("stable", false, null, Array.Empty<ReleaseAsset>()));
+                releases.Add(new ReleaseInfo(FormatFlatpakChannelReleaseTag("stable", "stable"), false, null, Array.Empty<ReleaseAsset>()));
             }
 
             if (includePrereleases)
@@ -1415,22 +1437,26 @@ public partial class DolphinEmulatorUpdateService
                     .ConfigureAwait(false);
                 var devVersion = await GetFlatpakRemoteVersionAsync(flatpakPath, FlatpakDevRemote, cancellationToken)
                     .ConfigureAwait(false);
+                var devCommit = await GetFlatpakRemoteCommitAsync(flatpakPath, FlatpakDevRemote, cancellationToken)
+                    .ConfigureAwait(false);
+                if (ShouldUseInstalledFlatpakVersionLabel(devVersion, installedCommit, devCommit, installedVersion))
+                    devVersion = installedVersion;
+
                 if (!string.IsNullOrWhiteSpace(devVersion))
                 {
                     releases.Add(new ReleaseInfo(
-                        devVersion,
+                        FormatFlatpakChannelReleaseTag(devVersion, "dev"),
                         true,
                         null,
                         Array.Empty<ReleaseAsset>()));
                 }
             }
 
-            var installedVersion = TryGetFlatpakInstalledVersion(FlatpakApplicationId);
             if (!string.IsNullOrWhiteSpace(installedVersion) &&
-                releases.All(release => !VersionsEquivalent(release.Tag, installedVersion)))
+                releases.All(release => !FlatpakReleaseTagMatchesVersion(release.Tag, installedVersion)))
             {
                 releases.Insert(0, new ReleaseInfo(
-                    installedVersion,
+                    FormatFlatpakChannelReleaseTag(installedVersion, "installed"),
                     includePrereleases,
                     null,
                     Array.Empty<ReleaseAsset>()));
@@ -1447,6 +1473,90 @@ public partial class DolphinEmulatorUpdateService
             .OrderByDescending(static r => r.IsPrerelease)
             .ThenByDescending(static r => r.Tag, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static bool ShouldUseInstalledFlatpakVersionLabel(
+        string? remoteVersion,
+        string? installedCommit,
+        string? remoteCommit,
+        string? installedVersion)
+    {
+        if (string.IsNullOrWhiteSpace(installedVersion))
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(remoteVersion) && !IsFlatpakBranchLabel(remoteVersion))
+            return false;
+
+        return CommitsEquivalent(installedCommit, remoteCommit);
+    }
+
+    private static bool IsFlatpakBranchLabel(string? value)
+        => string.Equals(value, "stable", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(value, "master", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(value, "beta", StringComparison.OrdinalIgnoreCase);
+
+    private static string FormatFlatpakChannelReleaseTag(string? version, string channel)
+    {
+        var normalizedVersion = string.IsNullOrWhiteSpace(version) ? channel : version.Trim();
+        return $"{normalizedVersion} ({channel})";
+    }
+
+    private static bool FlatpakReleaseTagMatchesVersion(string releaseTag, string version)
+    {
+        if (VersionsEquivalent(releaseTag, version))
+            return true;
+
+        if (releaseTag.StartsWith(version, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var openParen = releaseTag.IndexOf('(');
+        if (openParen > 0)
+        {
+            var prefix = releaseTag[..openParen].Trim();
+            if (VersionsEquivalent(prefix, version))
+                return true;
+        }
+
+        return false;
+    }
+
+    private async Task<bool> IsLinuxFlatpakUpdateAvailableAsync(
+        bool includePrereleases,
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux() || !IsFlatpakAppInstalled(FlatpakApplicationId))
+            return true;
+
+        var flatpakPath = LinuxFlatpakApplicationService.GetFlatpakExecutable();
+        if (flatpakPath == null)
+            return false;
+
+        var remote = includePrereleases ? FlatpakDevRemote : FlatpakReleasesRemote;
+        var repoUrl = includePrereleases ? FlatpakDevRepoUrl : FlatpakReleasesRepoUrl;
+
+        try
+        {
+            await EnsureFlatpakRemoteAsync(flatpakPath, FlathubRemote, FlathubRepoUrl, cancellationToken)
+                .ConfigureAwait(false);
+            await EnsureFlatpakRemoteAsync(flatpakPath, remote, repoUrl, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to prepare Dolphin Flatpak remotes for update check.", ex);
+            return false;
+        }
+
+        var installedCommit = TryGetFlatpakInstalledCommit(FlatpakApplicationId);
+        var remoteCommit = await GetFlatpakRemoteCommitAsync(flatpakPath, remote, cancellationToken)
+            .ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(installedCommit) && !string.IsNullOrWhiteSpace(remoteCommit))
+            return !CommitsEquivalent(installedCommit, remoteCommit);
+
+        var currentVersion = TryGetFlatpakInstalledVersion(FlatpakApplicationId);
+        var latestVersion = await GetFlatpakRemoteVersionAsync(flatpakPath, remote, cancellationToken)
+            .ConfigureAwait(false);
+        return IsUpdateAvailable(currentVersion, latestVersion);
     }
 
     private static async Task EnsureFlatpakRemoteAsync(
@@ -1500,18 +1610,53 @@ public partial class DolphinEmulatorUpdateService
             }
         }
 
-        foreach (var line in remoteInfoOutput.Split('\n'))
+        return null;
+    }
+
+    internal static string? TryParseFlatpakInfoCommit(string? infoOutput)
+    {
+        if (string.IsNullOrWhiteSpace(infoOutput))
+            return null;
+
+        foreach (var line in infoOutput.Split('\n'))
         {
             var trimmed = line.Trim();
             if (!trimmed.StartsWith("Commit:", StringComparison.OrdinalIgnoreCase))
                 continue;
 
             var commit = trimmed["Commit:".Length..].Trim();
-            if (commit.Length >= 7)
-                return commit[..7];
+            return NormalizeFlatpakCommit(commit);
         }
 
         return null;
+    }
+
+    internal static bool CommitsEquivalent(string? left, string? right)
+    {
+        left = NormalizeFlatpakCommit(left);
+        right = NormalizeFlatpakCommit(right);
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+
+        if (string.Equals(left, right, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var compareLength = Math.Min(left.Length, right.Length);
+        if (compareLength < 8)
+            return false;
+
+        return string.Equals(
+            left[..compareLength],
+            right[..compareLength],
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? NormalizeFlatpakCommit(string? commit)
+    {
+        if (string.IsNullOrWhiteSpace(commit))
+            return null;
+
+        return commit.Trim().TrimEnd('…', '.', ' ');
     }
 
     private static bool FlatpakInfoIndicatesInstalled(string? output, string? error)
@@ -1535,6 +1680,19 @@ public partial class DolphinEmulatorUpdateService
         return TryParseFlatpakRemoteVersion(result.Output);
     }
 
+    private static async Task<string?> GetFlatpakRemoteCommitAsync(
+        string flatpakPath,
+        string remoteName,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunFlatpakAsync(
+            flatpakPath,
+            ["remote-info", "--user", remoteName, FlatpakApplicationId],
+            cancellationToken).ConfigureAwait(false);
+
+        return TryParseFlatpakInfoCommit(result.Output);
+    }
+
     private static bool IsFlatpakAppInstalled(string applicationId)
     {
         var flatpakPath = LinuxFlatpakApplicationService.GetFlatpakExecutable();
@@ -1552,6 +1710,29 @@ public partial class DolphinEmulatorUpdateService
         catch
         {
             return false;
+        }
+    }
+
+    private static string? TryGetFlatpakInstalledCommit(string applicationId)
+    {
+        var flatpakPath = LinuxFlatpakApplicationService.GetFlatpakExecutable();
+        if (flatpakPath == null)
+            return null;
+
+        try
+        {
+            var result = RunFlatpakAsync(
+                flatpakPath,
+                ["info", "--user", applicationId],
+                CancellationToken.None).GetAwaiter().GetResult();
+            if (!result.Success || !FlatpakInfoIndicatesInstalled(result.Output, result.Error))
+                return null;
+
+            return TryParseFlatpakInfoCommit(result.Output);
+        }
+        catch
+        {
+            return null;
         }
     }
 
