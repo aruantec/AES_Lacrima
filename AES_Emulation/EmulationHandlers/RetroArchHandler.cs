@@ -121,6 +121,16 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
                 startInfo.ArgumentList.Add(focusConfigPath);
             }
 
+            if (OperatingSystem.IsLinux())
+            {
+                var gamescopeConfigPath = GetRetroArchLinuxGamescopeConfigPath();
+                if (!string.IsNullOrWhiteSpace(gamescopeConfigPath))
+                {
+                    startInfo.ArgumentList.Add("--appendconfig");
+                    startInfo.ArgumentList.Add(gamescopeConfigPath);
+                }
+            }
+
             if (!string.IsNullOrWhiteSpace(logFilePath))
             {
                 startInfo.ArgumentList.Add("--verbose");
@@ -184,6 +194,26 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
                     "input_auto_game_focus = \"0\""
                 });
             }
+
+            return path;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? GetRetroArchLinuxGamescopeConfigPath()
+    {
+        try
+        {
+            var path = Path.Combine(Path.GetTempPath(), "aes-lacrima-retroarch-gamescope.cfg");
+            File.WriteAllLines(path, new[]
+            {
+                "video_context_driver = \"x\"",
+                "video_fullscreen = \"true\"",
+                "video_windowed_fullscreen = \"true\""
+            });
 
             return path;
         }

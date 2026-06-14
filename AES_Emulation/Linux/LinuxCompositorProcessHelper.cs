@@ -17,12 +17,39 @@ public static class LinuxCompositorProcessHelper
 
         var reaperChild = FindDirectChildByComm(launchedPid, "gamescopereaper");
         if (reaperChild > 0)
-            return reaperChild;
+        {
+            var innerCompositor = FindDeepestCompositorDescendant(reaperChild);
+            return innerCompositor > 0 ? innerCompositor : reaperChild;
+        }
 
         if (IsCompositorProcess(launchedPid))
             return launchedPid;
 
         return launchedPid;
+    }
+
+    private static int FindDeepestCompositorDescendant(int rootPid)
+    {
+        var childrenByParent = BuildChildrenByParentMap();
+        var deepest = 0;
+
+        void Visit(int pid, int depth)
+        {
+            if (!IsProcessAlive(pid))
+                return;
+
+            if (IsCompositorProcess(pid) && depth >= 0)
+                deepest = pid;
+
+            if (!childrenByParent.TryGetValue(pid, out var children))
+                return;
+
+            foreach (var child in children)
+                Visit(child, depth + 1);
+        }
+
+        Visit(rootPid, 0);
+        return deepest;
     }
 
     public static int FindCompositorAncestor(int pid)

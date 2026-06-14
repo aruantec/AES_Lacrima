@@ -1632,6 +1632,7 @@ static bool InitEglContext(LinuxCapture*);
 static void CleanupEglContext(LinuxCapture*);
 static bool InitPipeWireBackend(LinuxCapture*);
 static bool InitGamescopeDirectPipeWireBackend(LinuxCapture*);
+static void ActivatePipeWireStream(LinuxCapture* cap, const char* reason);
 static bool ReconnectGamescopeDirectPipeWireStream(LinuxCapture*);
 static bool ConnectGamescopeDirectPipeWireStream(LinuxCapture*, uint32_t node_id, int registry_found);
 static void StopPipeWireBackend(LinuxCapture*);
@@ -2514,6 +2515,10 @@ static void PwOnStateChanged(void* userdata, enum pw_stream_state old_state,
             : "PipeWire capture active");
         pthread_mutex_unlock(&cap->mutex);
     }
+    else if (new_state == PW_STREAM_STATE_PAUSED)
+    {
+        ActivatePipeWireStream(cap, "stream paused");
+    }
     else if (new_state == PW_STREAM_STATE_ERROR ||
              new_state == PW_STREAM_STATE_UNCONNECTED)
     {
@@ -2560,17 +2565,25 @@ static void PwOnParamChanged(void* userdata, uint32_t id,
             SPA_PARAM_BUFFERS_dataType, SPA_POD_CHOICE_FLAGS_Int(
                 (1 << SPA_DATA_DmaBuf) | (1 << SPA_DATA_MemFd) | (1 << SPA_DATA_MemPtr))));
     pw_stream_update_params(cap->pw_stream, params, 1);
+    ActivatePipeWireStream(cap, "format negotiated");
 }
 
 static void PwOnProcess(void* userdata)
 {
     LinuxCapture* cap = static_cast<LinuxCapture*>(userdata);
-    if (!cap || !cap->pw_stream || !cap->pw_active)
+    if (!cap || !cap->pw_stream)
         return;
 
     struct pw_buffer* buf = pw_stream_dequeue_buffer(cap->pw_stream);
     if (!buf)
         return;
+
+    static int s_logged_first_frame = 0;
+    if (!s_logged_first_frame)
+    {
+        s_logged_first_frame = 1;
+        LogNative("PipeWire: first gamescope frame received (headless=%d)", cap->headless);
+    }
 
     pthread_mutex_lock(&cap->pw_frame_mutex);
     if (cap->pw_pending_buf)
@@ -2948,6 +2961,24 @@ static const struct pw_registry_events g_gamescope_registry_events = {
     .global_remove = nullptr,
 };
 
+static void ActivatePipeWireStream(LinuxCapture* cap, const char* reason)
+{
+    if (!cap || !cap->pw_stream)
+        return;
+
+    const int r = pw_stream_set_active(cap->pw_stream, true);
+    if (r < 0)
+    {
+        LogNative("PipeWire: pw_stream_set_active(true) failed (%s): %s",
+                  reason ? reason : "unknown",
+                  spa_strerror(r));
+        return;
+    }
+
+    LogNative("PipeWire: pw_stream_set_active(true) ok (%s)",
+              reason ? reason : "unknown");
+}
+
 static bool ConnectGamescopeDirectPipeWireStream(LinuxCapture* cap, uint32_t node_id, int registry_found)
 {
     if (!cap || !cap->pw_loop || !cap->pw_core)
@@ -2958,7 +2989,7 @@ static bool ConnectGamescopeDirectPipeWireStream(LinuxCapture* cap, uint32_t nod
         PW_KEY_MEDIA_CATEGORY, "Capture",
         PW_KEY_MEDIA_ROLE, "Screen",
         nullptr);
-    if (!registry_found && stream_props)
+    if (stream_props)
         pw_properties_set(stream_props, PW_KEY_TARGET_OBJECT, "gamescope");
 
     cap->pw_stream = pw_stream_new(cap->pw_core, "aes-gamescope-capture", stream_props);
@@ -2996,7 +3027,7 @@ static bool ConnectGamescopeDirectPipeWireStream(LinuxCapture* cap, uint32_t nod
             SPA_FORMAT_VIDEO_framerate,
                 SPA_POD_CHOICE_RANGE_Fraction(&defFps, &minFps, &maxFps)));
 
-    const uint32_t connect_id = registry_found ? node_id : PW_ID_ANY;
+    const uint32_t connect_id = PW_ID_ANY;
     const int r = pw_stream_connect(cap->pw_stream,
         PW_DIRECTION_INPUT,
         connect_id,
@@ -3012,8 +3043,10 @@ static bool ConnectGamescopeDirectPipeWireStream(LinuxCapture* cap, uint32_t nod
         return false;
     }
 
+    ActivatePipeWireStream(cap, "after gamescope connect");
+
     cap->pw_fd = -1;
-    cap->pw_node_id = connect_id;
+    cap->pw_node_id = registry_found ? node_id : connect_id;
     cap->pw_gamescope_direct = 1;
     cap->backend_mode = BackendPipeWire;
     cap->pw_active = 1;

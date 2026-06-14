@@ -228,6 +228,37 @@ public static class LinuxCompositorLaunchHelper
         startInfo.Environment["SDL_VIDEODRIVER"] = "x11";
         startInfo.Environment["GDK_BACKEND"] = "x11";
         startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
+
+        // Prefer gamescope's XWayland display over its private Wayland socket so GL/Vulkan
+        // emulators (RetroArch, etc.) create capturable X11 windows instead of wl_surface-only clients.
+        startInfo.Environment.Remove("WAYLAND_DISPLAY");
+    }
+
+    /// <summary>
+    /// Waits briefly for gamescope to spawn its reaper/inner compositor before capture attaches.
+    /// </summary>
+    public static async Task<int> ResolveCompositorRootPidAsync(
+        int launchedPid,
+        CancellationToken cancellationToken = default,
+        int timeoutMs = 4000)
+    {
+        if (!OperatingSystem.IsLinux() || launchedPid <= 0)
+            return launchedPid;
+
+        var stopwatch = Stopwatch.StartNew();
+        var resolved = LinuxCompositorProcessHelper.ResolveCompositorRootPid(launchedPid);
+        while (stopwatch.ElapsedMilliseconds < timeoutMs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            resolved = LinuxCompositorProcessHelper.ResolveCompositorRootPid(launchedPid);
+            if (resolved != launchedPid)
+                return resolved;
+
+            await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+        }
+
+        return LinuxCompositorProcessHelper.ResolveCompositorRootPid(launchedPid);
     }
 
     private static async Task<bool> WaitForCompositorReadyAsync(

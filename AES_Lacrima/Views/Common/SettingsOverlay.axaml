@@ -806,14 +806,33 @@
                                         <TextBlock Text="{Binding GamescopeVersion, FallbackValue='Not Found'}" FontSize="18" Foreground="WhiteSmoke"/>
                                     </StackPanel>
                                 </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="20">
+                                    <TextBlock Text="Available Versions" VerticalAlignment="Center" FontSize="16" Foreground="WhiteSmoke"/>
+                                    <ComboBox Width="360" ItemsSource="{Binding AvailableGamescopeVersions}" SelectedItem="{Binding SelectedGamescopeVersion}" FontSize="14">
+                                        <Interaction.Behaviors>
+                                            <behavors:ComboBoxPopupScaler/>
+                                        </Interaction.Behaviors>
+                                    </ComboBox>
+                                </StackPanel>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="10">
                                 <Button Content="Install gamescope" Command="{Binding InstallGamescopeCommand}" IsVisible="{Binding !IsGamescopeInstalled}" IsEnabled="{Binding !GamescopeManager.IsBusy}" Padding="15,8"/>
+                                <Button Content="Install Selected Version" Command="{Binding InstallSpecificGamescopeVersionCommand}" IsEnabled="{Binding !GamescopeManager.IsBusy}" Padding="15,8" Background="Gold" Foreground="Black"/>
                                 <Button Content="Update" Command="{Binding UpdateGamescopeCommand}" IsVisible="{Binding IsGamescopeInstalled}" IsEnabled="{Binding !GamescopeManager.IsBusy}" Padding="15,8"/>
                                 <Button Content="Uninstall" Background="#F44336" Foreground="White" Command="{Binding UninstallGamescopeCommand}" IsVisible="{Binding IsGamescopeInstalled}" IsEnabled="{Binding !GamescopeManager.IsBusy}" Padding="15,8"/>
                                 <Button Content="Refresh gamescope Info" Command="{Binding RefreshGamescopeInfoCommand}" IsEnabled="{Binding !GamescopeManager.IsBusy}" Padding="15,8"/>
                             </StackPanel>
-                            <ProgressBar IsIndeterminate="True" IsVisible="{Binding GamescopeManager.IsBusy}" Margin="0,30,0,0" Height="2" Width="400" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                            <ProgressBar IsIndeterminate="True" IsVisible="{Binding GamescopeManager.IsBusy}" Margin="0,20,0,0" Height="8" Width="400" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                            <TextBlock Text="Installing gamescope — this may take several minutes..."
+                                       FontSize="13"
+                                       Foreground="Gold"
+                                       Margin="0,8,0,0"
+                                       IsVisible="{Binding GamescopeManager.IsBusy}"/>
+                            <TextBlock Text="{Binding GamescopeInstallLogPath, StringFormat='Install log: {0}'}"
+                                       FontSize="12"
+                                       Foreground="DarkGray"
+                                       Margin="0,4,0,0"
+                                       IsVisible="{Binding GamescopeManager.IsBusy}"/>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>

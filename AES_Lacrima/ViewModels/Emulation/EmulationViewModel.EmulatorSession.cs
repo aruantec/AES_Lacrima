@@ -236,7 +236,9 @@ namespace AES_Lacrima.ViewModels
                         height,
                         CancellationToken.None).ConfigureAwait(false);
                     process = _linuxCompositorSession.CompositorProcess;
-                    _linuxCompositorPid = LinuxCompositorProcessHelper.ResolveCompositorRootPid(process.Id);
+                    _linuxCompositorPid = await LinuxCompositorLaunchHelper.ResolveCompositorRootPidAsync(
+                        process.Id,
+                        CancellationToken.None).ConfigureAwait(false);
                     if (_linuxCompositorPid <= 0)
                         _linuxCompositorPid = process.Id;
                     SLog.Info($"Started fresh gamescope session pid={process.Id}, compositorRoot={_linuxCompositorPid}.");
@@ -766,9 +768,6 @@ namespace AES_Lacrima.ViewModels
             _activeEmulatorProcess = process;
             _activeEmulatorRomPath = romPath;
             _activeEmulatorGameTitle = gameTitle;
-            EmulatorTargetProcessId = OperatingSystem.IsLinux() && _linuxCompositorPid > 0
-                ? _linuxCompositorPid
-                : process?.Id ?? 0;
 
             if (OperatingSystem.IsWindows() && process != null)
             {
@@ -804,6 +803,10 @@ namespace AES_Lacrima.ViewModels
                     SLog.Debug("Failed to attach Linux emulator volume control.", ex);
                 }
             }
+
+            EmulatorTargetProcessId = OperatingSystem.IsLinux() && _linuxCompositorPid > 0
+                ? _linuxCompositorPid
+                : process?.Id ?? 0;
 
             if (_shadPs4IpcSession == null)
                 AttachShadPs4IpcSessionIfNeeded(handler, process);
@@ -870,6 +873,8 @@ namespace AES_Lacrima.ViewModels
                     RestoreAppTopMost();
                     RestoreHostWindowFocus();
                     ClearRetroArchErrorState();
+                    if (_linuxCompositorPid > 0)
+                        EmulatorTargetProcessId = _linuxCompositorPid;
                     SLog.Info(
                         $"Linux gamescope PipeWire capture handoff completed for '{romPath}'. compositorPid={_linuxCompositorPid}.");
                 }, DispatcherPriority.Background);

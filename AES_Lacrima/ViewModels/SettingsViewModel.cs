@@ -1209,6 +1209,26 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private string? _gamescopeVersion;
 
     /// <summary>
+    /// Available gamescope versions from distro packages and Valve git tags.
+    /// </summary>
+    [ObservableProperty]
+    private AvaloniaList<GamescopeReleaseInfo> _availableGamescopeVersions = new();
+
+    /// <summary>
+    /// The gamescope version selected for install or upgrade.
+    /// </summary>
+    [ObservableProperty]
+    private GamescopeReleaseInfo? _selectedGamescopeVersion;
+
+    /// <summary>
+    /// True while a gamescope install/upgrade command is running.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isGamescopeInstalling;
+
+    public string GamescopeInstallLogPath => GamescopeManager?.InstallLogPath ?? string.Empty;
+
+    /// <summary>
     /// Gets or sets the currently selected tab in the compact mini settings view.
     /// This is not persisted and only exists to guide the mini-mode UX.
     /// </summary>
@@ -1526,6 +1546,20 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             IsGamescopeInstalled = GamescopeManager.IsAvailable();
             GamescopeVersion = await GamescopeManager.GetCurrentVersionAsync();
+            var versions = await GamescopeManager.GetAvailableVersionsAsync();
+            AvailableGamescopeVersions.Clear();
+            foreach (var version in versions)
+                AvailableGamescopeVersions.Add(version);
+
+            if (SelectedGamescopeVersion == null && AvailableGamescopeVersions.Count > 0)
+                SelectedGamescopeVersion = AvailableGamescopeVersions[0];
+            else if (SelectedGamescopeVersion != null)
+            {
+                SelectedGamescopeVersion = AvailableGamescopeVersions.FirstOrDefault(v =>
+                    string.Equals(v.Tag, SelectedGamescopeVersion.Tag, StringComparison.Ordinal) &&
+                    v.InstallMethod == SelectedGamescopeVersion.InstallMethod)
+                    ?? AvailableGamescopeVersions.FirstOrDefault();
+            }
 
             if (!IsGamescopeInstalled)
             {
@@ -1534,9 +1568,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             }
             else
             {
+                var path = GamescopeManager.ResolveExecutablePath();
                 GamescopeManager.Status = string.IsNullOrWhiteSpace(GamescopeVersion)
-                    ? "gamescope is installed."
-                    : $"gamescope is installed ({GamescopeVersion}).";
+                    ? $"gamescope is installed ({path})."
+                    : $"gamescope is installed ({GamescopeVersion}) at {path}.";
             }
         }
         catch (Exception ex)
@@ -1553,19 +1588,55 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private async Task InstallGamescope()
     {
         if (GamescopeManager == null) return;
-        await GamescopeManager.InstallAsync();
-        await RefreshGamescopeInfo();
+        IsGamescopeInstalling = true;
+        try
+        {
+            await GamescopeManager.InstallVersionAsync(SelectedGamescopeVersion).ConfigureAwait(true);
+            await RefreshGamescopeInfo().ConfigureAwait(true);
+        }
+        finally
+        {
+            IsGamescopeInstalling = false;
+        }
     }
 
     /// <summary>
-    /// Updates gamescope using the system package manager.
+    /// Installs the selected gamescope version.
+    /// </summary>
+    [RelayCommand]
+    private async Task InstallSpecificGamescopeVersion()
+    {
+        if (GamescopeManager == null || SelectedGamescopeVersion == null) return;
+        IsGamescopeInstalling = true;
+        try
+        {
+            await GamescopeManager.InstallVersionAsync(SelectedGamescopeVersion).ConfigureAwait(true);
+            await RefreshGamescopeInfo().ConfigureAwait(true);
+        }
+        finally
+        {
+            IsGamescopeInstalling = false;
+        }
+    }
+
+    /// <summary>
+    /// Updates gamescope using the selected version.
     /// </summary>
     [RelayCommand]
     private async Task UpdateGamescope()
     {
         if (GamescopeManager == null) return;
-        await GamescopeManager.UpgradeAsync();
-        await RefreshGamescopeInfo();
+        IsGamescopeInstalling = true;
+        try
+        {
+            await GamescopeManager.InstallVersionAsync(SelectedGamescopeVersion ?? AvailableGamescopeVersions.FirstOrDefault())
+                .ConfigureAwait(true);
+            await RefreshGamescopeInfo().ConfigureAwait(true);
+        }
+        finally
+        {
+            IsGamescopeInstalling = false;
+        }
     }
 
     /// <summary>
@@ -1735,7 +1806,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private double _carouselStackSpacing = 39.0;
 
     [ObservableProperty]
-    private bool _carouselUseFullCoverSize = false;
+    private bool _carouselUseFullCoverSize = true;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(
@@ -2308,6 +2379,29 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             newValue.PropertyChanged += OnAppUpdateServicePropertyChanged;
             _ = RefreshAppReleaseHistory(forceRefresh: false);
         }
+    }
+
+    partial void OnGamescopeManagerChanged(GamescopeManager? oldValue, GamescopeManager? newValue)
+    {
+        if (oldValue != null)
+            oldValue.PropertyChanged -= OnGamescopeManagerPropertyChanged;
+
+        if (newValue != null)
+            newValue.PropertyChanged += OnGamescopeManagerPropertyChanged;
+
+        OnPropertyChanged(nameof(GamescopeInstallLogPath));
+    }
+
+    private void OnGamescopeManagerPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(GamescopeManager.IsBusy))
+        {
+            IsGamescopeInstalling = GamescopeManager?.IsBusy ?? false;
+            OnPropertyChanged(nameof(GamescopeManager.IsBusy));
+        }
+
+        if (e.PropertyName == nameof(GamescopeManager.Status))
+            OnPropertyChanged(nameof(GamescopeManager.Status));
     }
 
     partial void OnPreferAotAppUpdatesChanged(bool value)

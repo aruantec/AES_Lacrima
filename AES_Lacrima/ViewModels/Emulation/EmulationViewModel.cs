@@ -336,7 +336,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(CurrentCaptureStretch))]
-        private Stretch _selectedStretch = Stretch.Fill;
+        private Stretch _selectedStretch = Stretch.Uniform;
 
         [ObservableProperty]
         private bool _useHostWindowCapture;
