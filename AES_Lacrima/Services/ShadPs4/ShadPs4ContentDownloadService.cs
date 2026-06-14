@@ -5,11 +5,12 @@ using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using AES_Emulation.Linux;
 using AES_Lacrima.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Lacrima.Services.ShadPs4;
@@ -27,7 +28,7 @@ public static class ShadPs4ContentDownloadService
         if (string.IsNullOrWhiteSpace(emulatorDirectory))
             return string.Empty;
 
-        return Path.Combine(emulatorDirectory, "user", "patches");
+        return ShadPs4UserDirectoryHelper.GetUserSubdirectory(emulatorDirectory, "patches");
     }
 
     public static string GetPatchesRepositoryDirectory(string? emulatorDirectory, string repositoryId) =>

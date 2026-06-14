@@ -22,7 +22,7 @@ public static class LinuxCompositorLaunchHelper
     public static bool IsAvailable =>
         OperatingSystem.IsLinux() && !string.IsNullOrWhiteSpace(GamescopeManager.ResolveExecutablePath());
 
-    public static async Task<Process> LaunchInCompositorAsync(
+    public static async Task<(Process Process, LinuxCompositorProcessOutputPump OutputPump)> LaunchInCompositorAsync(
         ProcessStartInfo emulatorStartInfo,
         int width,
         int height,
@@ -55,6 +55,8 @@ public static class LinuxCompositorLaunchHelper
         foreach (System.Collections.Generic.KeyValuePair<string, string?> variable in emulatorStartInfo.Environment)
             compositorStartInfo.Environment[variable.Key] = variable.Value;
 
+        EnsureGamescopeBinDirectoryOnPath(compositorStartInfo);
+
         compositorStartInfo.ArgumentList.Add("--backend");
         compositorStartInfo.ArgumentList.Add("headless");
         compositorStartInfo.ArgumentList.Add("-W");
@@ -77,12 +79,18 @@ public static class LinuxCompositorLaunchHelper
         foreach (var argument in emulatorStartInfo.ArgumentList)
             compositorStartInfo.ArgumentList.Add(argument);
 
+        SLog.Debug(
+            $"gamescope child launch: FileName='{emulatorStartInfo.FileName}', " +
+            $"Arguments='{string.Join(' ', emulatorStartInfo.ArgumentList)}'");
+
         var process = new Process { StartInfo = compositorStartInfo, EnableRaisingEvents = true };
+        LinuxCompositorProcessOutputPump outputPump;
         try
         {
             if (!process.Start())
                 throw new LinuxCompositorLaunchException("Failed to start the gamescope compositor process.");
 
+            outputPump = LinuxCompositorProcessOutputPump.Start(process);
             readyPipe.DisposeLocalCopyOfClientHandle();
         }
         catch (LinuxCompositorLaunchException)
@@ -100,6 +108,7 @@ public static class LinuxCompositorLaunchHelper
             var details = await ReadProcessDiagnosticsAsync(process).ConfigureAwait(false);
             try
             {
+                outputPump.Dispose();
                 if (!process.HasExited)
                     process.Kill(entireProcessTree: true);
             }
@@ -115,7 +124,7 @@ public static class LinuxCompositorLaunchHelper
         }
 
         SLog.Info($"gamescope headless compositor ready at {width}x{height} (16:9, pid={process.Id}).");
-        return process;
+        return (process, outputPump);
     }
 
     public static async Task<Process> LaunchEmulatorInExistingCompositorAsync(
@@ -227,12 +236,21 @@ public static class LinuxCompositorLaunchHelper
 
         LinuxAudioEnvironmentHelper.Apply(startInfo);
 
+        EnsureGamescopeBinDirectoryOnPath(startInfo);
+
+        // gamescope launches the emulator as its immediate child. The generic AppImage env wrapper
+        // (env APPIMAGE_EXTRACT_AND_RUN=1 … --appimage-extract-and-run) breaks that chain and was
+        // leaving Vulkan/SDL clients off the compositor surface (black PipeWire capture).
+        LinuxAppImageLaunchHelper.PrepareDirectGamescopeLaunch(startInfo);
+
         startInfo.Environment["SDL_VIDEODRIVER"] = "x11";
         startInfo.Environment["GDK_BACKEND"] = "x11";
         startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
 
-        // Prefer gamescope's XWayland display over its private Wayland socket so GL/Vulkan
-        // emulators (RetroArch, etc.) create capturable X11 windows instead of wl_surface-only clients.
+        // Never forward the host session display into gamescope children. If DISPLAY=:0 leaks in,
+        // Vulkan/SDL clients render to the desktop instead of gamescope's XWayland surface and
+        // PipeWire capture stays black even though the stream is live.
+        startInfo.Environment.Remove("DISPLAY");
         startInfo.Environment.Remove("WAYLAND_DISPLAY");
     }
 
@@ -261,6 +279,34 @@ public static class LinuxCompositorLaunchHelper
         }
 
         return LinuxCompositorProcessHelper.ResolveCompositorRootPid(launchedPid);
+    }
+
+    internal static void EnsureGamescopeBinDirectoryOnPath(ProcessStartInfo startInfo)
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        var gamescopePath = GamescopeManager.ResolveExecutablePath();
+        if (string.IsNullOrWhiteSpace(gamescopePath))
+            return;
+
+        var gamescopeBinDirectory = Path.GetDirectoryName(gamescopePath);
+        if (string.IsNullOrWhiteSpace(gamescopeBinDirectory))
+            return;
+
+        startInfo.Environment.TryGetValue("PATH", out var existingPath);
+        if (!string.IsNullOrWhiteSpace(existingPath))
+        {
+            foreach (var entry in existingPath.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (string.Equals(entry, gamescopeBinDirectory, StringComparison.Ordinal))
+                    return;
+            }
+        }
+
+        startInfo.Environment["PATH"] = string.IsNullOrWhiteSpace(existingPath)
+            ? gamescopeBinDirectory
+            : gamescopeBinDirectory + Path.PathSeparator + existingPath;
     }
 
     private static async Task<bool> WaitForCompositorReadyAsync(

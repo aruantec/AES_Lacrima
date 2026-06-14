@@ -2904,6 +2904,70 @@ struct GamescopeRegistryData
     int      found;
 };
 
+static bool IsProcessAlive(int pid)
+{
+    if (pid <= 0)
+        return false;
+
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d", pid);
+    return access(path, F_OK) == 0;
+}
+
+static bool IsDescendantOf(int ancestorPid, int pid)
+{
+    if (ancestorPid <= 0 || pid <= 0)
+        return false;
+
+    if (ancestorPid == pid)
+        return true;
+
+    int current = pid;
+    for (int depth = 0; depth < 32 && current > 1; depth++)
+    {
+        char statusPath[64];
+        snprintf(statusPath, sizeof(statusPath), "/proc/%d/status", current);
+
+        FILE* f = fopen(statusPath, "r");
+        if (!f)
+            break;
+
+        int ppid = 0;
+        char line[256];
+        while (fgets(line, sizeof(line), f))
+        {
+            if (strncmp(line, "PPid:", 5) == 0)
+            {
+                ppid = atoi(line + 5);
+                break;
+            }
+        }
+        fclose(f);
+
+        if (ppid <= 0)
+            break;
+
+        if (ppid == ancestorPid)
+            return true;
+
+        current = ppid;
+    }
+
+    return false;
+}
+
+static bool GamescopeNodePidMatchesTarget(int targetPid, const char* procId)
+{
+    if (targetPid <= 0 || !procId || !procId[0])
+        return false;
+
+    const int nodePid = atoi(procId);
+    if (nodePid <= 0)
+        return false;
+
+    return nodePid == targetPid || IsDescendantOf(targetPid, nodePid);
+}
+
 static void GamescopeRegistryGlobal(void* userdata, uint32_t id, uint32_t permissions,
                                       const char* type, uint32_t version,
                                       const struct spa_dict* props)
@@ -2922,13 +2986,22 @@ static void GamescopeRegistryGlobal(void* userdata, uint32_t id, uint32_t permis
     const char* app_name  = spa_dict_lookup(props, PW_KEY_APP_NAME);
     const char* proc_id   = spa_dict_lookup(props, "application.process.id");
 
-    const bool pid_match = rd->target_pid > 0 && proc_id && atoi(proc_id) == rd->target_pid;
+    const bool pid_match = GamescopeNodePidMatchesTarget(rd->target_pid, proc_id);
     const bool name_match =
         (node_name && strcmp(node_name, "gamescope") == 0) ||
         (app_name && strstr(app_name, "gamescope") != nullptr);
 
     if (!pid_match && !name_match)
         return;
+
+    if (!pid_match && name_match && proc_id && proc_id[0] && !IsProcessAlive(atoi(proc_id)))
+    {
+        LogNative("PipeWire: ignoring stale gamescope node id=%u with dead pid %s (name=%s)",
+                  id,
+                  proc_id,
+                  node_name ? node_name : "");
+        return;
+    }
 
     LogNative("PipeWire: found gamescope node id=%u name=%s app=%s pid=%s",
               id,
@@ -3027,7 +3100,7 @@ static bool ConnectGamescopeDirectPipeWireStream(LinuxCapture* cap, uint32_t nod
             SPA_FORMAT_VIDEO_framerate,
                 SPA_POD_CHOICE_RANGE_Fraction(&defFps, &minFps, &maxFps)));
 
-    const uint32_t connect_id = PW_ID_ANY;
+    const uint32_t connect_id = registry_found ? node_id : PW_ID_ANY;
     const int r = pw_stream_connect(cap->pw_stream,
         PW_DIRECTION_INPUT,
         connect_id,
@@ -3100,7 +3173,7 @@ static bool ReconnectGamescopeDirectPipeWireStream(LinuxCapture* cap)
         cap->pw_stream = nullptr;
     }
 
-    for (int attempt = 0; attempt < 200 && !registry_data.found; ++attempt)
+    for (int attempt = 0; attempt < 300 && !registry_data.found; ++attempt)
     {
         pw_thread_loop_unlock(cap->pw_loop);
         usleep(50000);
@@ -3170,7 +3243,7 @@ static bool InitGamescopeDirectPipeWireBackend(LinuxCapture* cap)
     pw_thread_loop_lock(cap->pw_loop);
     pw_thread_loop_start(cap->pw_loop);
 
-    for (int attempt = 0; attempt < 200 && !registry_data.found; ++attempt)
+    for (int attempt = 0; attempt < 300 && !registry_data.found; ++attempt)
     {
         pw_thread_loop_unlock(cap->pw_loop);
         usleep(50000);

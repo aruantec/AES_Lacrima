@@ -8,6 +8,7 @@ using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Core.Logging;
+using AES_Emulation.Linux;
 using AES_Emulation.Windows.API;
 using log4net;
 
@@ -53,7 +54,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     public override bool HideUntilCaptured => true;
 
-    public override int CaptureStartupDelayMs => 0;
+    public override int CaptureStartupDelayMs => OperatingSystem.IsLinux() ? 5000 : 0;
 
     public override bool IsWindowEmbeddingSupported => true;
 
@@ -76,6 +77,9 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
     {
+        if (OperatingSystem.IsLinux())
+            return BuildLinuxStartInfo(launcherPath, romPath, startFullscreen);
+
         var resolvedExecutablePath = ResolveShadPs4ExecutablePath(launcherPath);
         var resolvedGamePath = ResolveShadPs4GamePath(romPath);
         var launchTranscriptPath = CreateLaunchTranscriptPath(resolvedExecutablePath);
@@ -92,6 +96,102 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         return BuildScriptStartInfo(resolvedExecutablePath, resolvedGamePath, launchTranscriptPath);
     }
 
+    private ProcessStartInfo BuildLinuxStartInfo(string launcherPath, string romPath, bool startFullscreen)
+    {
+        var resolvedExecutablePath = ResolveShadPs4ExecutablePath(launcherPath);
+        var resolvedGamePath = ResolveShadPs4GamePath(romPath);
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = resolvedExecutablePath,
+            UseShellExecute = false,
+            WorkingDirectory = ResolveShadPs4WorkingDirectory(resolvedExecutablePath),
+        };
+
+        ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath, ResolveShadPs4EmulatorDirectory(resolvedExecutablePath));
+        LinuxAudioEnvironmentHelper.Apply(startInfo);
+
+        startInfo.ArgumentList.Add("-g");
+        startInfo.ArgumentList.Add(resolvedGamePath);
+        startInfo.ArgumentList.Add("-f");
+        // Headless gamescope presents through XWayland; fullscreen requests often leave a blank capture.
+        startInfo.ArgumentList.Add("false");
+
+        Log.Debug(
+            $"shadPS4 Linux start info: FileName='{startInfo.FileName}', WorkingDirectory='{startInfo.WorkingDirectory}', " +
+            $"GamePath='{resolvedGamePath}', RequestedFullscreen={startFullscreen}, ForcedWindowed=true");
+        return startInfo;
+    }
+
+    private static async Task<Process?> ResolveLinuxRuntimeProcessAsync(Process compositorProcess, CancellationToken cancellationToken)
+    {
+        if (compositorProcess == null)
+            return null;
+
+        try
+        {
+            if (compositorProcess.HasExited)
+                return compositorProcess;
+        }
+        catch
+        {
+            return compositorProcess;
+        }
+
+        var compositorRoot = LinuxCompositorProcessHelper.ResolveCompositorRootPid(compositorProcess.Id);
+        const int maxAttempts = 40;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var emulatorPid = LinuxCompositorProcessHelper.FindPrimaryEmulatorPid(compositorRoot);
+            if (emulatorPid > 0)
+            {
+                try
+                {
+                    var emulatorProcess = Process.GetProcessById(emulatorPid);
+                    if (!emulatorProcess.HasExited)
+                        return emulatorProcess;
+                }
+                catch
+                {
+                    // Fall through and retry while the AppImage payload is still spawning.
+                }
+            }
+
+            foreach (var candidate in Process.GetProcesses())
+            {
+                try
+                {
+                    if (!IsLikelyLinuxProcessName(candidate.ProcessName))
+                        continue;
+
+                    if (!LinuxCompositorProcessHelper.IsDescendantOf(compositorRoot, candidate.Id))
+                        continue;
+
+                    if (!candidate.HasExited)
+                        return candidate;
+                }
+                catch
+                {
+                    // ignored
+                }
+                finally
+                {
+                    candidate.Dispose();
+                }
+            }
+
+            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+        }
+
+        Log.Warn(
+            $"Timed out resolving shadPS4 child inside gamescope compositor pid={compositorRoot}; " +
+            "continuing with compositor process for PipeWire capture.");
+        return compositorProcess;
+    }
+
     private ProcessStartInfo BuildScriptStartInfo(string resolvedExecutablePath, string resolvedGamePath, string launchTranscriptPath)
     {
         var launchScriptPath = CreateLaunchScriptPath(resolvedExecutablePath, resolvedGamePath, launchTranscriptPath);
@@ -105,7 +205,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             WorkingDirectory = ResolveShadPs4WorkingDirectory(resolvedExecutablePath)
         };
 
-        ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath);
+        ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath, ResolveShadPs4EmulatorDirectory(resolvedExecutablePath));
         startInfo.Arguments = $"/d /c call \"{launchScriptPath}\"";
 
         Log.Debug($"shadPS4 start info: FileName='{startInfo.FileName}', WorkingDirectory='{startInfo.WorkingDirectory}', Arguments='{startInfo.Arguments}', UseShellExecute={startInfo.UseShellExecute}, TranscriptPath='{launchTranscriptPath}', ScriptPath='{launchScriptPath}', IpcEnabled=false");
@@ -126,7 +226,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             WorkingDirectory = ResolveShadPs4WorkingDirectory(resolvedExecutablePath)
         };
 
-        ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath);
+        ApplyShadPs4UserEnvironment(startInfo, resolvedExecutablePath, ResolveShadPs4EmulatorDirectory(resolvedExecutablePath));
         startInfo.Environment["SHADPS4_ENABLE_IPC"] = "true";
 
         startInfo.ArgumentList.Add("-g");
@@ -138,17 +238,33 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         return startInfo;
     }
 
-    private static void ApplyShadPs4UserEnvironment(ProcessStartInfo startInfo, string resolvedExecutablePath)
+    private static void ApplyShadPs4UserEnvironment(ProcessStartInfo startInfo, string resolvedExecutablePath, string? emulatorDirectory)
     {
-        var userDirectory = ResolveShadPs4UserDirectory(resolvedExecutablePath);
+        var userDirectory = OperatingSystem.IsLinux()
+            ? ShadPs4UserDirectoryHelper.ResolveUserDirectory(emulatorDirectory)
+            : ResolvePortableUserDirectory(resolvedExecutablePath);
+
         if (string.IsNullOrWhiteSpace(userDirectory))
             return;
 
+        try
+        {
+            Directory.CreateDirectory(userDirectory);
+        }
+        catch
+        {
+            return;
+        }
+
         startInfo.Environment["SHADPS4_USER_DIR"] = userDirectory;
-        startInfo.Environment["APPDATA"] = userDirectory;
-        startInfo.Environment["LOCALAPPDATA"] = userDirectory;
-        startInfo.Environment["XDG_CONFIG_HOME"] = userDirectory;
-        startInfo.Environment["XDG_DATA_HOME"] = userDirectory;
+
+        if (OperatingSystem.IsWindows())
+        {
+            startInfo.Environment["APPDATA"] = userDirectory;
+            startInfo.Environment["LOCALAPPDATA"] = userDirectory;
+            startInfo.Environment["XDG_CONFIG_HOME"] = userDirectory;
+            startInfo.Environment["XDG_DATA_HOME"] = userDirectory;
+        }
     }
 
     private static void TerminateOtherShadPs4Instances()
@@ -157,7 +273,8 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         {
             try
             {
-                if (!IsLikelyCoreProcessName(process.ProcessName))
+                if (!IsLikelyCoreProcessName(process.ProcessName) &&
+                    !IsLikelyLinuxProcessName(process.ProcessName))
                     continue;
 
                 if (!process.HasExited)
@@ -231,6 +348,27 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         if (File.Exists(normalizedPath))
             return normalizedPath;
 
+        if (OperatingSystem.IsLinux())
+        {
+            if (normalizedPath.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                return normalizedPath;
+
+            if (Directory.Exists(normalizedPath))
+            {
+                try
+                {
+                    var appImage = Directory.EnumerateFiles(normalizedPath, "*.AppImage", SearchOption.AllDirectories)
+                        .FirstOrDefault(path =>
+                            Path.GetFileName(path).Contains("shad", StringComparison.OrdinalIgnoreCase));
+                    if (!string.IsNullOrWhiteSpace(appImage))
+                        return appImage;
+                }
+                catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+            }
+
+            return null;
+        }
+
         if (!Directory.Exists(normalizedPath))
             return null;
 
@@ -288,6 +426,9 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         if (string.IsNullOrWhiteSpace(resolvedLauncherPath))
             return launcherPath?.Trim() ?? string.Empty;
 
+        if (OperatingSystem.IsLinux())
+            return resolvedLauncherPath;
+
         var fileName = Path.GetFileNameWithoutExtension(resolvedLauncherPath);
         if (string.Equals(fileName, CoreProcessName, StringComparison.OrdinalIgnoreCase))
             return resolvedLauncherPath;
@@ -321,7 +462,7 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         }
     }
 
-    private static string ResolveShadPs4UserDirectory(string? executablePath)
+    private static string ResolvePortableUserDirectory(string? executablePath)
     {
         var workingDirectory = ResolveShadPs4WorkingDirectory(executablePath);
         if (string.IsNullOrWhiteSpace(workingDirectory))
@@ -338,6 +479,34 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             return string.Empty;
         }
     }
+
+    private static string? ResolveShadPs4EmulatorDirectory(string? executablePath)
+    {
+        if (string.IsNullOrWhiteSpace(executablePath))
+            return null;
+
+        try
+        {
+            var directory = Path.GetDirectoryName(Path.GetFullPath(executablePath.Trim()));
+            if (string.IsNullOrWhiteSpace(directory))
+                return null;
+
+            if (directory.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                return directory;
+
+            var parent = Directory.GetParent(directory);
+            return parent?.FullName ?? directory;
+        }
+        catch
+        {
+            return Path.GetDirectoryName(executablePath.Trim());
+        }
+    }
+
+    private static string ResolveShadPs4UserDirectory(string? executablePath)
+        => OperatingSystem.IsLinux()
+            ? ShadPs4UserDirectoryHelper.ResolveUserDirectory(ResolveShadPs4EmulatorDirectory(executablePath))
+            : ResolvePortableUserDirectory(executablePath);
 
     private static async Task WaitForCoreLinkerOutputAsync(Process process, string? transcriptPath, CancellationToken cancellationToken)
     {
@@ -496,11 +665,18 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
     public override bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle)
         => IsLikelyShadPs4RenderWindow(hwnd, mainWindowHandle);
 
+    public override TimeSpan LaunchTopmostRestoreTimeout =>
+        OperatingSystem.IsLinux() ? TimeSpan.FromSeconds(45) : base.LaunchTopmostRestoreTimeout;
+
     public override async Task<Process?> ResolveRuntimeProcessAsync(Process process, CancellationToken cancellationToken)
     {
+        if (OperatingSystem.IsLinux())
+            return await ResolveLinuxRuntimeProcessAsync(process, cancellationToken).ConfigureAwait(false);
+
         try
         {
-            if (!process.HasExited && IsLikelyCoreProcessName(process.ProcessName))
+            if (!process.HasExited &&
+                (IsLikelyCoreProcessName(process.ProcessName) || IsLikelyLinuxProcessName(process.ProcessName)))
                 return process;
         }
         catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
@@ -788,6 +964,14 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
         }
     }
 
+    private static bool IsLikelyLinuxProcessName(string? processName)
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(processName))
+            return false;
+
+        return processName.Contains("shadps4", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsLikelyCoreProcessName(string? processName)
     {
         if (string.IsNullOrWhiteSpace(processName))
@@ -829,6 +1013,13 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
             if (string.IsNullOrWhiteSpace(userDirectory))
                 return;
 
+            var configJsonPath = Path.Combine(userDirectory, "config.json");
+            if (File.Exists(configJsonPath))
+            {
+                EnsureBackgroundInputEnabledInJson(configJsonPath);
+                return;
+            }
+
             var configPath = Path.Combine(userDirectory, "config.toml");
             if (!File.Exists(configPath))
                 return;
@@ -852,6 +1043,63 @@ public sealed class ShadPs4Handler : EmulatorHandlerBase
 
             if (modified)
                 File.WriteAllLines(configPath, lines);
+        }
+        catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+    }
+
+    private static void EnsureBackgroundInputEnabledInJson(string configJsonPath)
+    {
+        try
+        {
+            var json = File.ReadAllText(configJsonPath);
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            using var stream = new MemoryStream();
+            using (var writer = new System.Text.Json.Utf8JsonWriter(stream, new System.Text.Json.JsonWriterOptions { Indented = true }))
+            {
+                writer.WriteStartObject();
+                foreach (var property in document.RootElement.EnumerateObject())
+                {
+                    if (string.Equals(property.Name, "Input", StringComparison.Ordinal))
+                    {
+                        writer.WritePropertyName("Input");
+                        writer.WriteStartObject();
+                        var wroteBackgroundInput = false;
+                        foreach (var inputProperty in property.Value.EnumerateObject())
+                        {
+                            if (string.Equals(inputProperty.Name, "background_controller_input", StringComparison.Ordinal))
+                            {
+                                writer.WriteBoolean("background_controller_input", true);
+                                wroteBackgroundInput = true;
+                                continue;
+                            }
+
+                            inputProperty.WriteTo(writer);
+                        }
+
+                        if (!wroteBackgroundInput)
+                            writer.WriteBoolean("background_controller_input", true);
+
+                        writer.WriteEndObject();
+                        continue;
+                    }
+
+                    property.WriteTo(writer);
+                }
+
+                if (!document.RootElement.TryGetProperty("Input", out _))
+                {
+                    writer.WritePropertyName("Input");
+                    writer.WriteStartObject();
+                    writer.WriteBoolean("background_controller_input", true);
+                    writer.WriteEndObject();
+                }
+
+                writer.WriteEndObject();
+            }
+
+            var updated = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+            if (!string.Equals(json, updated, StringComparison.Ordinal))
+                File.WriteAllText(configJsonPath, updated);
         }
         catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
     }

@@ -4,8 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using AES_Emulation.Linux;
 using AES_Lacrima.Serialization;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Lacrima.Services.ShadPs4;
@@ -67,7 +68,7 @@ public static class ShadPs4CustomConfigService
         if (string.IsNullOrWhiteSpace(emulatorDirectory))
             return string.Empty;
 
-        return Path.Combine(emulatorDirectory, "user", "custom_configs");
+        return ShadPs4UserDirectoryHelper.GetUserSubdirectory(emulatorDirectory, "custom_configs");
     }
 
     public static string GetConfigFilePath(string? emulatorDirectory, string titleId)
@@ -81,7 +82,7 @@ public static class ShadPs4CustomConfigService
         if (string.IsNullOrWhiteSpace(emulatorDirectory))
             return string.Empty;
 
-        return Path.Combine(emulatorDirectory, "user", "config.json");
+        return ShadPs4UserDirectoryHelper.GetUserSubdirectory(emulatorDirectory, "config.json");
     }
 
     public static ShadPs4CustomConfigDocument CreateDefault() => new();

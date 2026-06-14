@@ -15,10 +15,13 @@ public sealed class LinuxCompositorSession : IDisposable
     private static readonly ILog SLog = LogHelper.For<LinuxCompositorSession>();
 
     private Process? _compositorProcess;
+    private LinuxCompositorProcessOutputPump? _outputPump;
     private bool _disposed;
 
     public Process CompositorProcess => _compositorProcess
         ?? throw new InvalidOperationException("The gamescope compositor session is not active.");
+
+    public int PipeWireNodeId => _outputPump?.PipeWireNodeId ?? 0;
 
     public string? WaylandSocketName { get; private set; }
 
@@ -49,13 +52,17 @@ public sealed class LinuxCompositorSession : IDisposable
         if (!OperatingSystem.IsLinux())
             throw new PlatformNotSupportedException("gamescope sessions are only supported on Linux.");
 
-        var process = await LinuxCompositorLaunchHelper.LaunchInCompositorAsync(
+        var (process, outputPump) = await LinuxCompositorLaunchHelper.LaunchInCompositorAsync(
             emulatorStartInfo,
             width,
             height,
             cancellationToken).ConfigureAwait(false);
 
-        return new LinuxCompositorSession { _compositorProcess = process };
+        return new LinuxCompositorSession
+        {
+            _compositorProcess = process,
+            _outputPump = outputPump,
+        };
     }
 
     public async Task<Process> LaunchEmulatorAsync(
@@ -81,6 +88,9 @@ public sealed class LinuxCompositorSession : IDisposable
 
         var process = _compositorProcess;
         _compositorProcess = null;
+
+        try { _outputPump?.Dispose(); } catch { /* ignored */ }
+        _outputPump = null;
 
         try { process.Dispose(); } catch { /* already disposed */ }
     }
@@ -113,6 +123,9 @@ public sealed class LinuxCompositorSession : IDisposable
         }
 
         _compositorProcess = null;
+
+        try { _outputPump?.Dispose(); } catch { /* ignored */ }
+        _outputPump = null;
 
         try { process.Dispose(); } catch { /* already disposed */ }
 

@@ -179,7 +179,7 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 if (handler is ShadPs4Handler shadPs4LaunchHandler)
-                    shadPs4LaunchHandler.UseIpcForCheatsLaunch = true;
+                    shadPs4LaunchHandler.UseIpcForCheatsLaunch = OperatingSystem.IsWindows();
 
                 var startInfo = handler.BuildStartInfo(
                     handler.LauncherPath ?? string.Empty,
@@ -229,6 +229,7 @@ namespace AES_Lacrima.ViewModels
                     var (width, height) = LinuxCompositorLaunchHelper.ResolveOutputSize();
                     TeardownLinuxGamescopeSession();
                     LinuxCompositorKillHelper.KillOrphanedGamescopeSessions();
+                    await Task.Delay(350, CancellationToken.None).ConfigureAwait(false);
 
                     _linuxCompositorSession = await LinuxCompositorSession.StartAsync(
                         startInfo,

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using AES_Emulation.Linux;
 using AES_Lacrima.Serialization;
 
 namespace AES_Lacrima.Services.ShadPs4;
@@ -14,7 +15,7 @@ public static class ShadPs4CheatsService
         if (string.IsNullOrWhiteSpace(emulatorDirectory))
             return string.Empty;
 
-        return Path.Combine(emulatorDirectory, "user", "cheats");
+        return ShadPs4UserDirectoryHelper.GetUserSubdirectory(emulatorDirectory, "cheats");
     }
 
     public static string GetEnabledStateDirectory(string? emulatorDirectory)
@@ -22,7 +23,7 @@ public static class ShadPs4CheatsService
         if (string.IsNullOrWhiteSpace(emulatorDirectory))
             return string.Empty;
 
-        return Path.Combine(emulatorDirectory, "user", "cheats_enabled");
+        return ShadPs4UserDirectoryHelper.GetUserSubdirectory(emulatorDirectory, "cheats_enabled");
     }
 
     public static string GetEnabledStatePath(string? emulatorDirectory, string cheatFileName)
