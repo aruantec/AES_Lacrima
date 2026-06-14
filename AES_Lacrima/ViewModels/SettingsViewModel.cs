@@ -2864,7 +2864,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath, forceRefresh: true).ConfigureAwait(false);
         await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
 
-        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        if (info.IsUpdateAvailable || !handler.HasLauncherPath || string.IsNullOrWhiteSpace(info.ResolvedLauncherPath))
         {
             handlerItem.DownloadStatusMessage = "Downloading...";
             var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,

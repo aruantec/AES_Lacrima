@@ -311,6 +311,7 @@ namespace AES_Lacrima.ViewModels
             IsCurrentSectionXeniaBusy = true;
             IsCurrentSectionXeniaDownloading = true;
             CurrentSectionXeniaDownloadProgress = 5;
+            CurrentSectionXeniaStatus = "Starting Xenia download...";
             try
             {
                 var state = await updater.DownloadOrUpdateAsync(

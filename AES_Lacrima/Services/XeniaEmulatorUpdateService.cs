@@ -7,6 +7,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -37,9 +38,16 @@ public partial class XeniaEmulatorUpdateService
 {
     private const string Repository = "https://github.com/xenia-canary/xenia-canary";
     private const string ReleasesApiEndpoint = "https://api.github.com/repos/xenia-canary/xenia-canary/releases?per_page=20";
+    private const string OfficialAtomFeedUrl = "https://github.com/xenia-canary/xenia-canary/releases.atom";
+    private const string LinuxAppImageRepository = "pkgforge-dev/xenia-canary-AppImage";
+    private const string LinuxAppImageRepositoryUrl = "https://github.com/pkgforge-dev/xenia-canary-AppImage";
+    private const string LinuxAppImageReleasesApiEndpoint = "https://api.github.com/repos/pkgforge-dev/xenia-canary-AppImage/releases?per_page=10";
+    private const string LinuxAppImageAtomFeedUrl = "https://github.com/pkgforge-dev/xenia-canary-AppImage/releases.atom";
     private const string GamePatchesZipUrl = "https://github.com/xenia-canary/game-patches/releases/latest/download/game-patches.zip";
     private const string CacheKey = "github:xenia-canary/xenia-canary";
     private const string CacheFileName = "xenia-canary-releases-cache.json";
+    private const string LinuxAppImageCacheKey = "github:pkgforge-dev/xenia-canary-AppImage";
+    private const string LinuxAppImageCacheFileName = "xenia-canary-appimage-releases-cache.json";
     private const string InstalledVersionMarkerFileName = "xenia_version.txt";
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<XeniaEmulatorUpdateService>();
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(5) };
@@ -65,11 +73,13 @@ public partial class XeniaEmulatorUpdateService
         var (emulatorDirectory, updateDirectory) = EnsureDirectories(sectionKey, sectionTitle);
         var resolvedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
         var currentVersion = GetInstalledVersion(emulatorDirectory, resolvedLauncherPath);
+        var writableWarning = EmulatorInstallDirectoryHelper.GetWritableDirectoryWarning(emulatorDirectory);
+        var activeRepository = GetActiveRepositoryUrl();
 
         try
         {
             await EnsureGamePatchesAsync(emulatorDirectory, updateDirectory, resolvedLauncherPath, forceRefresh: false, cancellationToken).ConfigureAwait(false);
-            var releases = await GetReleasesAsync(forceRefresh, cancellationToken).ConfigureAwait(false);
+            var releases = await GetActiveReleasesAsync(forceRefresh, cancellationToken).ConfigureAwait(false);
             var latestRelease = releases.FirstOrDefault();
             var versions = releases
                 .Select(static r => r.Tag)
@@ -79,14 +89,25 @@ public partial class XeniaEmulatorUpdateService
                 .ToList();
             var latest = latestRelease?.Tag ?? versions.FirstOrDefault();
             var updateAvailable = IsUpdateAvailable(currentVersion, latest);
-            var status = updateAvailable
-                ? $"New Xenia Canary version available: {latest}"
+            if (string.IsNullOrWhiteSpace(currentVersion) && !string.IsNullOrWhiteSpace(latest))
+                updateAvailable = true;
+
+            var status = !string.IsNullOrWhiteSpace(writableWarning)
+                ? $"{writableWarning} Download is required before Xenia can be installed."
+                : updateAvailable
+                ? string.IsNullOrWhiteSpace(currentVersion)
+                    ? OperatingSystem.IsLinux()
+                        ? $"Xenia Canary Linux AppImage is not installed. Latest version: {latest}"
+                        : $"Xenia Canary is not installed. Latest version: {latest}"
+                    : $"New Xenia Canary version available: {latest}"
                 : string.IsNullOrWhiteSpace(currentVersion)
-                    ? "Xenia Canary is not installed in this section yet."
+                    ? OperatingSystem.IsLinux()
+                        ? "Xenia Canary Linux AppImage is not installed in this section yet."
+                        : "Xenia Canary is not installed in this section yet."
                     : $"Xenia Canary is up to date ({currentVersion}).";
 
             return new XeniaUpdateState(
-                Repository,
+                activeRepository,
                 currentVersion,
                 latest,
                 updateAvailable,
@@ -101,7 +122,7 @@ public partial class XeniaEmulatorUpdateService
         {
             Log.Warn("Failed to fetch Xenia Canary update info; returning local status only.", ex);
             return new XeniaUpdateState(
-                Repository,
+                activeRepository,
                 currentVersion,
                 null,
                 false,
@@ -123,28 +144,49 @@ public partial class XeniaEmulatorUpdateService
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            Log.Info("Starting Xenia Canary download/update.");
             var (emulatorDirectory, updateDirectory) = EnsureDirectories(sectionKey, sectionTitle);
-            var releases = await GetReleasesAsync(forceRefresh: true, cancellationToken).ConfigureAwait(false);
+            var (writable, writeError) = await EmulatorInstallDirectoryHelper
+                .EnsureWritableAsync(emulatorDirectory, cancellationToken)
+                .ConfigureAwait(false);
+            if (!writable)
+            {
+                Log.Warn($"Xenia download blocked because emulator directory is not writable: '{emulatorDirectory}'.");
+                var blockedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
+                return new XeniaUpdateState(
+                    GetActiveRepositoryUrl(),
+                    GetInstalledVersion(emulatorDirectory, blockedLauncherPath),
+                    null,
+                    false,
+                    Array.Empty<string>(),
+                    writeError ?? "Xenia emulator directory is not writable.",
+                    emulatorDirectory,
+                    updateDirectory,
+                    blockedLauncherPath);
+            }
+
+            var releases = await GetActiveReleasesAsync(forceRefresh: true, cancellationToken).ConfigureAwait(false);
             if (releases.Count == 0)
             {
                 var noReleaseLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
-                return new XeniaUpdateState(Repository, GetInstalledVersion(emulatorDirectory, noReleaseLauncherPath), null, false, Array.Empty<string>(), "No Xenia Canary releases found.", emulatorDirectory, updateDirectory, noReleaseLauncherPath);
+                return new XeniaUpdateState(GetActiveRepositoryUrl(), GetInstalledVersion(emulatorDirectory, noReleaseLauncherPath), null, false, Array.Empty<string>(), "No Xenia Canary releases found.", emulatorDirectory, updateDirectory, noReleaseLauncherPath);
             }
 
             var targetRelease = ResolveTargetRelease(releases, requestedVersion);
             if (targetRelease == null)
             {
                 var unresolvedVersionLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
-                return new XeniaUpdateState(Repository, GetInstalledVersion(emulatorDirectory, unresolvedVersionLauncherPath), releases[0].Tag, false, releases.Select(static r => r.Tag).Take(10).ToList(), $"Version '{requestedVersion}' was not found.", emulatorDirectory, updateDirectory, unresolvedVersionLauncherPath);
+                return new XeniaUpdateState(GetActiveRepositoryUrl(), GetInstalledVersion(emulatorDirectory, unresolvedVersionLauncherPath), releases[0].Tag, false, releases.Select(static r => r.Tag).Take(10).ToList(), $"Version '{requestedVersion}' was not found.", emulatorDirectory, updateDirectory, unresolvedVersionLauncherPath);
             }
 
             var selectedAsset = SelectAssetForPlatform(targetRelease.Assets);
             if (selectedAsset == null)
             {
                 var missingAssetLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
-                return new XeniaUpdateState(Repository, GetInstalledVersion(emulatorDirectory, missingAssetLauncherPath), releases[0].Tag, false, releases.Select(static r => r.Tag).Take(10).ToList(), "No compatible Xenia Canary asset found for this OS.", emulatorDirectory, updateDirectory, missingAssetLauncherPath);
+                return new XeniaUpdateState(GetActiveRepositoryUrl(), GetInstalledVersion(emulatorDirectory, missingAssetLauncherPath), releases[0].Tag, false, releases.Select(static r => r.Tag).Take(10).ToList(), "No compatible Xenia Canary asset found for this OS.", emulatorDirectory, updateDirectory, missingAssetLauncherPath);
             }
 
+            Log.Info($"Downloading Xenia asset '{selectedAsset.Name}' for release '{targetRelease.Tag}'.");
             PrepareUpdateDirectory(updateDirectory);
             var downloadedAssetPath = Path.Combine(updateDirectory, selectedAsset.Name);
             await DownloadAssetAsync(selectedAsset.DownloadUrl, downloadedAssetPath, cancellationToken).ConfigureAwait(false);
@@ -161,6 +203,7 @@ public partial class XeniaEmulatorUpdateService
             {
                 var destinationPath = Path.Combine(emulatorDirectory, Path.GetFileName(downloadedAssetPath));
                 File.Copy(downloadedAssetPath, destinationPath, overwrite: true);
+                TryMarkLinuxExecutable(destinationPath);
             }
 
             PrepareUpdateDirectory(updateDirectory);
@@ -180,7 +223,7 @@ public partial class XeniaEmulatorUpdateService
             var updateAvailable = IsUpdateAvailable(currentVersion, latest);
 
             return new XeniaUpdateState(
-                Repository,
+                GetActiveRepositoryUrl(),
                 currentVersion,
                 latest,
                 updateAvailable,
@@ -202,7 +245,7 @@ public partial class XeniaEmulatorUpdateService
 
             var resolvedLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
             return new XeniaUpdateState(
-                Repository,
+                GetActiveRepositoryUrl(),
                 GetInstalledVersion(emulatorDirectory, resolvedLauncherPath),
                 null,
                 false,
@@ -228,6 +271,132 @@ public partial class XeniaEmulatorUpdateService
         return (emulatorDirectory, updateDirectory);
     }
 
+    private static string GetActiveRepositoryUrl()
+        => OperatingSystem.IsLinux() ? LinuxAppImageRepositoryUrl : Repository;
+
+    private Task<IReadOnlyList<ReleaseInfo>> GetActiveReleasesAsync(bool forceRefresh, CancellationToken cancellationToken)
+        => OperatingSystem.IsLinux()
+            ? GetLinuxAppImageReleasesAsync(forceRefresh, cancellationToken)
+            : GetReleasesAsync(forceRefresh, cancellationToken);
+
+    private async Task<IReadOnlyList<ReleaseInfo>> GetLinuxAppImageReleasesAsync(bool forceRefresh, CancellationToken cancellationToken)
+    {
+        var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, LinuxAppImageCacheFileName);
+        var cache = LoadCache(cachePath) ?? new EmulatorReleaseCache();
+        if (!forceRefresh &&
+            cache.Repository != null &&
+            string.Equals(cache.Repository, LinuxAppImageCacheKey, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(cache.ReleasesJson) &&
+            (DateTimeOffset.UtcNow - cache.FetchedAtUtc) <= CacheTtl)
+        {
+            return ParseReleases(cache.ReleasesJson!);
+        }
+
+        Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
+        ConfigureGitHubClientHeaders("AES_Lacrima-XeniaLinuxUpdater/1.0");
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, LinuxAppImageReleasesApiEndpoint);
+        if (!string.IsNullOrWhiteSpace(cache.ETag) &&
+            string.Equals(cache.Repository, LinuxAppImageCacheKey, StringComparison.OrdinalIgnoreCase))
+        {
+            request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(cache.ETag));
+        }
+
+        string? json;
+        using var response = await Client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.NotModified && !string.IsNullOrWhiteSpace(cache?.ReleasesJson))
+        {
+            json = cache!.ReleasesJson;
+        }
+        else if (response.StatusCode == HttpStatusCode.Forbidden)
+        {
+            Log.Warn("Rate limit reached for Xenia Linux AppImage updates; using cached or atom feed releases.");
+            json = !string.IsNullOrWhiteSpace(cache?.ReleasesJson) ? cache!.ReleasesJson : null;
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                var atomReleases = await BuildLinuxAppImageReleasesFromAtomAsync(cancellationToken).ConfigureAwait(false);
+                return atomReleases;
+            }
+        }
+        else
+        {
+            response.EnsureSuccessStatusCode();
+            json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            cache = new EmulatorReleaseCache
+            {
+                Repository = LinuxAppImageCacheKey,
+                ETag = response.Headers.ETag?.Tag,
+                ReleasesJson = json,
+                FetchedAtUtc = DateTimeOffset.UtcNow
+            };
+            SaveCache(cachePath, cache);
+        }
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            var atomReleases = await BuildLinuxAppImageReleasesFromAtomAsync(cancellationToken).ConfigureAwait(false);
+            return atomReleases;
+        }
+
+        var parsed = ParseReleases(json);
+        if (parsed.Count == 0)
+        {
+            var atomReleases = await BuildLinuxAppImageReleasesFromAtomAsync(cancellationToken).ConfigureAwait(false);
+            return atomReleases;
+        }
+
+        return parsed;
+    }
+
+    private async Task<IReadOnlyList<ReleaseInfo>> BuildLinuxAppImageReleasesFromAtomAsync(CancellationToken cancellationToken)
+    {
+        var atomEntries = await GitHubAtomReleaseFeedReader.FetchReleasesAsync(
+            Client,
+            LinuxAppImageAtomFeedUrl,
+            maxEntries: 10,
+            cancellationToken).ConfigureAwait(false);
+
+        return BuildLinuxAppImageReleasesFromAtomEntries(atomEntries);
+    }
+
+    private static IReadOnlyList<ReleaseInfo> BuildLinuxAppImageReleasesFromAtomEntries(
+        IReadOnlyList<GitHubAtomReleaseFeedReader.AtomReleaseEntry> atomEntries)
+    {
+        var results = new List<ReleaseInfo>();
+        foreach (var entry in atomEntries)
+        {
+            var assetName = BuildPkgforgeLinuxAssetName(entry.Title);
+            if (string.IsNullOrWhiteSpace(assetName) || string.IsNullOrWhiteSpace(entry.Tag))
+                continue;
+
+            var downloadUrl =
+                $"https://github.com/{LinuxAppImageRepository}/releases/download/{entry.Tag}/{assetName}";
+            results.Add(new ReleaseInfo(
+                entry.Tag,
+                entry.PublishedAt,
+                new[] { new ReleaseAsset(assetName, downloadUrl) }));
+        }
+
+        return results;
+    }
+
+    internal static string? BuildPkgforgeLinuxAssetName(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return null;
+
+        var separatorIndex = title.IndexOf(':');
+        if (separatorIndex < 0 || separatorIndex >= title.Length - 1)
+            return null;
+
+        var hash = title[(separatorIndex + 1)..].Trim();
+        if (string.IsNullOrWhiteSpace(hash))
+            return null;
+
+        var arch = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "aarch64" : "x86_64";
+        return $"Xenia_Canary-{hash}-anylinux-{arch}.AppImage";
+    }
+
     private async Task<IReadOnlyList<ReleaseInfo>> GetReleasesAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
         var cachePath = Path.Combine(ApplicationPaths.CacheDirectory, CacheFileName);
@@ -243,8 +412,7 @@ public partial class XeniaEmulatorUpdateService
 
         Directory.CreateDirectory(ApplicationPaths.CacheDirectory);
 
-        Client.DefaultRequestHeaders.UserAgent.Clear();
-        Client.DefaultRequestHeaders.UserAgent.ParseAdd("AES_Lacrima-XeniaUpdater/1.0");
+        ConfigureGitHubClientHeaders("AES_Lacrima-XeniaUpdater/1.0");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, ReleasesApiEndpoint);
         if (!string.IsNullOrWhiteSpace(cache.ETag) &&
@@ -259,10 +427,15 @@ public partial class XeniaEmulatorUpdateService
         {
             json = cache!.ReleasesJson;
         }
-        else if (response.StatusCode == HttpStatusCode.Forbidden && !string.IsNullOrWhiteSpace(cache?.ReleasesJson))
+        else if (response.StatusCode == HttpStatusCode.Forbidden)
         {
-            Log.Warn("Rate limit reached for Xenia Canary updates; using cached releases.");
-            json = cache!.ReleasesJson;
+            Log.Warn("Rate limit reached for Xenia Canary updates; using cached or atom feed releases.");
+            json = !string.IsNullOrWhiteSpace(cache?.ReleasesJson) ? cache!.ReleasesJson : null;
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                var atomReleases = await BuildOfficialReleasesFromAtomAsync(cancellationToken).ConfigureAwait(false);
+                return atomReleases;
+            }
         }
         else
         {
@@ -279,9 +452,46 @@ public partial class XeniaEmulatorUpdateService
         }
 
         if (string.IsNullOrWhiteSpace(json))
-            return Array.Empty<ReleaseInfo>();
+        {
+            var atomReleases = await BuildOfficialReleasesFromAtomAsync(cancellationToken).ConfigureAwait(false);
+            return atomReleases;
+        }
 
         return ParseReleases(json);
+    }
+
+    private async Task<IReadOnlyList<ReleaseInfo>> BuildOfficialReleasesFromAtomAsync(CancellationToken cancellationToken)
+    {
+        var atomEntries = await GitHubAtomReleaseFeedReader.FetchReleasesAsync(
+            Client,
+            OfficialAtomFeedUrl,
+            maxEntries: 10,
+            cancellationToken).ConfigureAwait(false);
+
+        var results = new List<ReleaseInfo>();
+        foreach (var entry in atomEntries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Tag))
+                continue;
+
+            var assetName = "xenia_canary_windows.zip";
+            var downloadUrl = $"https://github.com/xenia-canary/xenia-canary/releases/download/{entry.Tag}/{assetName}";
+            results.Add(new ReleaseInfo(
+                entry.Title,
+                entry.PublishedAt,
+                new[] { new ReleaseAsset(assetName, downloadUrl) },
+                entry.Title));
+        }
+
+        return results;
+    }
+
+    private static void ConfigureGitHubClientHeaders(string userAgent)
+    {
+        Client.DefaultRequestHeaders.UserAgent.Clear();
+        Client.DefaultRequestHeaders.UserAgent.ParseAdd(userAgent);
+        Client.DefaultRequestHeaders.Accept.Clear();
+        Client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
     }
 
     private static IReadOnlyList<ReleaseInfo> ParseReleases(string json)
@@ -366,6 +576,12 @@ public partial class XeniaEmulatorUpdateService
         if (OperatingSystem.IsLinux())
         {
             return EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset =>
+                           asset.Name.Contains("anylinux", StringComparison.OrdinalIgnoreCase) &&
+                           asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
                        assets,
                        static asset => asset.Name,
                        static asset =>
@@ -541,6 +757,14 @@ public partial class XeniaEmulatorUpdateService
             }
         }
 
+        if (OperatingSystem.IsLinux())
+        {
+            var appImageCandidate = Directory.EnumerateFiles(emulatorDirectory, "*.AppImage", SearchOption.AllDirectories)
+                .FirstOrDefault(path => Path.GetFileName(path).Contains("xenia", StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(appImageCandidate))
+                return appImageCandidate;
+        }
+
         var candidates = Directory.EnumerateFiles(emulatorDirectory, "*", SearchOption.AllDirectories)
             .Where(static path =>
             {
@@ -628,14 +852,36 @@ public partial class XeniaEmulatorUpdateService
 
     private static bool IsUpdateAvailable(string? currentVersion, string? latestVersion)
     {
-        if (string.IsNullOrWhiteSpace(currentVersion) || string.IsNullOrWhiteSpace(latestVersion))
+        if (string.IsNullOrWhiteSpace(latestVersion))
             return false;
+
+        if (string.IsNullOrWhiteSpace(currentVersion))
+            return true;
 
         var compareResult = CompareVersionNumbers(currentVersion, latestVersion);
         if (compareResult.HasValue)
             return compareResult.Value < 0;
 
         return !VersionsEquivalent(currentVersion, latestVersion);
+    }
+
+    private static void TryMarkLinuxExecutable(string path)
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return;
+
+        try
+        {
+            File.SetUnixFileMode(
+                path,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"Failed to mark Xenia Linux file as executable: '{path}'.", ex);
+        }
     }
 
     private static int? CompareVersionNumbers(string left, string right)
