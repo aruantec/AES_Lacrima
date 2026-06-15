@@ -20,9 +20,26 @@ struct PSIn
     float2 uv : TEXCOORD;
 };
 
+float3 SrgbToLinear(float3 c)
+{
+    float3 lo = c / 12.92;
+    float3 hi = pow((c + 0.055) / 1.055, 2.4);
+    return lerp(lo, hi, step(0.04045, c));
+}
+
+float3 LinearToSrgb(float3 c)
+{
+    float3 lo = c * 12.92;
+    float3 hi = 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+    return lerp(lo, hi, step(0.0031308, c));
+}
+
 float3 SampleColor(float2 uv)
 {
-    return src.Sample(samp, saturate(uv)).rgb;
+    float3 c = src.Sample(samp, saturate(uv)).rgb;
+    if (sourceIsSrgb > 0.5)
+        c = SrgbToLinear(c);
+    return c;
 }
 
 float3 AcesTonemap(float3 x)
@@ -32,7 +49,8 @@ float3 AcesTonemap(float3 x)
     const float c = 2.43;
     const float d = 0.59;
     const float e = 0.14;
-    return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
+    float3 mapped = (x * (a * x + b)) / (x * (c * x + d) + e);
+    return min(max(mapped, 0.0), 1.0);
 }
 
 float3 ApplyVibrance(float3 color, float amount)
@@ -57,27 +75,31 @@ float4 main(PSIn input) : SV_TARGET
         SampleColor(uv - float2(0.0, texel.y));
     blur *= 0.25;
 
-    float3 highlights = max(center - 0.38, 0.0);
-    float3 glow = max(blur - 0.30, 0.0);
-    float3 color = center + highlights * 0.85 + glow * 0.55;
+    float3 highlights = max(center - 0.50, 0.0);
+    float3 glow = max(blur - 0.42, 0.0);
+    float3 color = center + highlights * 0.30 + glow * 0.20;
 
-    color = AcesTonemap(color * 1.12);
+    color = AcesTonemap(color * 1.04);
 
     float3 graded;
-    graded.r = dot(color, float3(1.08, 0.06, -0.02));
-    graded.g = dot(color, float3(-0.02, 1.04, 0.04));
-    graded.b = dot(color, float3(0.02, 0.06, 1.10));
-    color = lerp(color, graded, 0.72);
+    graded.r = dot(color, float3(1.04, 0.03, -0.01));
+    graded.g = dot(color, float3(-0.01, 1.02, 0.02));
+    graded.b = dot(color, float3(0.01, 0.03, 1.05));
+    color = lerp(color, graded, 0.48);
 
-    float shadowLift = smoothstep(0.0, 0.35, dot(color, float3(0.333, 0.333, 0.333)));
-    color += float3(0.02, 0.04, 0.06) * (1.0 - shadowLift);
-    color += float3(0.06, 0.03, 0.0) * smoothstep(0.55, 1.0, dot(color, float3(0.299, 0.587, 0.114)));
+    float shadowLift = smoothstep(0.0, 0.30, dot(color, float3(0.333, 0.333, 0.333)));
+    color += float3(0.010, 0.014, 0.020) * (1.0 - shadowLift);
+    color += float3(0.028, 0.014, 0.0) * smoothstep(0.65, 1.0, dot(color, float3(0.299, 0.587, 0.114)));
 
-    color = ApplyVibrance(color, 0.55 * saturation);
-    color = pow(saturate(color), 0.92);
+    color = ApplyVibrance(color, 0.35 * saturation);
+    color = pow(saturate(color), 0.97);
 
     float luma = dot(color, float3(0.299, 0.587, 0.114));
-    color = lerp(float3(luma, luma, luma), color, saturation * 1.18);
+    color = lerp(float3(luma, luma, luma), color, saturation);
+
+    if (sourceIsSrgb > 0.5)
+        color = LinearToSrgb(color);
+
     color *= brightness;
     color *= tint.rgb;
 
