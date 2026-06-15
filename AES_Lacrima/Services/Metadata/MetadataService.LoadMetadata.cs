@@ -507,26 +507,43 @@ namespace AES_Lacrima.Services
                     if (isWiiFromCache || isGameCubeFromCache)
                         NotifyNintendoDiscGameIdChanged();
 
-                    Title = metadata.Title;
-                    if (string.IsNullOrWhiteSpace(Artists))
+                    if (metadata.UserEdited)
+                    {
+                        Title = metadata.Title;
                         Artists = metadata.Artist;
-                    if (string.IsNullOrWhiteSpace(Album))
                         Album = metadata.Album;
-                    if (Track == 0)
                         Track = metadata.Track;
-                    if (Year == 0)
                         Year = metadata.Year;
-                    if (string.IsNullOrWhiteSpace(Lyrics))
                         Lyrics = metadata.Lyrics;
-                    if (string.IsNullOrWhiteSpace(Genres))
                         Genres = metadata.Genre;
-                    if (string.IsNullOrWhiteSpace(Comment))
                         Comment = metadata.Comment;
-                    VideoUrl = metadata.VideoUrl;
-                    if (ReplayGainTrackGain == 0)
+                        VideoUrl = metadata.VideoUrl;
                         ReplayGainTrackGain = metadata.ReplayGainTrackGain;
-                    if (ReplayGainAlbumGain == 0)
                         ReplayGainAlbumGain = metadata.ReplayGainAlbumGain;
+                    }
+                    else
+                    {
+                        Title = metadata.Title;
+                        if (string.IsNullOrWhiteSpace(Artists))
+                            Artists = metadata.Artist;
+                        if (string.IsNullOrWhiteSpace(Album))
+                            Album = metadata.Album;
+                        if (Track == 0)
+                            Track = metadata.Track;
+                        if (Year == 0)
+                            Year = metadata.Year;
+                        if (string.IsNullOrWhiteSpace(Lyrics))
+                            Lyrics = metadata.Lyrics;
+                        if (string.IsNullOrWhiteSpace(Genres))
+                            Genres = metadata.Genre;
+                        if (string.IsNullOrWhiteSpace(Comment))
+                            Comment = metadata.Comment;
+                        VideoUrl = metadata.VideoUrl;
+                        if (ReplayGainTrackGain == 0)
+                            ReplayGainTrackGain = metadata.ReplayGainTrackGain;
+                        if (ReplayGainAlbumGain == 0)
+                            ReplayGainAlbumGain = metadata.ReplayGainAlbumGain;
+                    }
                     item.VideoUrl = metadata.VideoUrl;
 
                     foreach (var model in cachedImages)

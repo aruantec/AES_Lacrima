@@ -59,6 +59,11 @@ namespace AES_Lacrima.ViewModels
                 if (item.FileName == null)
                     return;
 
+                var cacheId = BinaryMetadataHelper.GetCacheId(item.FileName);
+                var cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
+                if (System.IO.File.Exists(cachePath))
+                    return;
+
                 var info = await YtDlpMetadata.GetBasicMetadataAsync(item.FileName);
 
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
@@ -114,20 +119,10 @@ namespace AES_Lacrima.ViewModels
             {
                 if (item.FileName == null) return;
 
-                // Let metadata cache win only when it already contains a usable cover.
                 var cacheId = BinaryMetadataHelper.GetCacheId(item.FileName);
                 var cachePath = ApplicationPaths.GetCacheFile(cacheId + ".meta");
                 if (System.IO.File.Exists(cachePath))
-                {
-                    var cachedMetadata = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath));
-                    var hasCachedCover = cachedMetadata?.Images?.Any(image =>
-                        image is { Data.Length: > 0 } &&
-                        image.Kind != TagImageKind.Wallpaper &&
-                        image.Kind != TagImageKind.LiveWallpaper) == true;
-
-                    if (hasCachedCover)
-                        return;
-                }
+                    return;
 
                 // Do not replace a cover that was already restored from local metadata cache.
                 var shouldFetch = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>

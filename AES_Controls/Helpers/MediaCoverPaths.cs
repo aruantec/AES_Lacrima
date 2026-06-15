@@ -21,5 +21,22 @@ public static class MediaCoverPaths
         return !string.IsNullOrEmpty(extension) && AudioExtensions.Contains(extension);
     }
 
-    public static bool UsesEmulationCoverSidecar(string? path) => !IsAudioMediaFile(path);
+    /// <summary>
+    /// Online streams and other non-file paths keep artwork in the metadata sidecar.
+    /// </summary>
+    public static bool IsOnlineOrMissingMediaFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        if (path.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return !File.Exists(path);
+    }
+
+    public static bool UsesMetadataImageCache(string? path) =>
+        IsAudioMediaFile(path) || IsOnlineOrMissingMediaFile(path);
+
+    public static bool UsesEmulationCoverSidecar(string? path) => !UsesMetadataImageCache(path);
 }

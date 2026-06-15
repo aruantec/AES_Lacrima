@@ -87,6 +87,10 @@ public class CustomMetadata
     /// Online auto-cover lookup completed without finding a usable image.
     /// </summary>
     public bool CoverLookupExhausted { get; set; }
+    /// <summary>
+    /// User-edited metadata from the metadata editor should not be overwritten by scrapers.
+    /// </summary>
+    public bool UserEdited { get; set; }
     /// <summary>Gets or sets the list of associated images.</summary>
     public List<ImageData> Images { get; set; } = [];
     /// <summary>Gets or sets the list of associated video data.</summary>

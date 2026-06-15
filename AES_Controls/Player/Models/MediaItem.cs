@@ -259,6 +259,16 @@ public partial class MediaItem : ObservableObject, IDisposable
         set => SetProperty(ref _saveCoverBitmapAction, value);
     }
 
+    [XmlIgnore]
+    [JsonIgnore]
+    public Action<MediaItem>? DeclineCoverBitmapAction
+    {
+        get => _declineCoverBitmapAction;
+        set => SetProperty(ref _declineCoverBitmapAction, value);
+    }
+
+    private Action<MediaItem>? _declineCoverBitmapAction;
+
     /// <summary>
     /// Disposes runtime bitmap resources that are uniquely owned by this model.
     /// </summary>
@@ -280,12 +290,17 @@ public partial class MediaItem : ObservableObject, IDisposable
     private void SaveCoverBitmap()
     {
         SaveCoverBitmapAction?.Invoke(this);
+        SaveCoverBitmapAction = null;
+        DeclineCoverBitmapAction = null;
         CoverFound = false;
     }
 
     [RelayCommand]
     private void Cancel()
     {
+        DeclineCoverBitmapAction?.Invoke(this);
+        SaveCoverBitmapAction = null;
+        DeclineCoverBitmapAction = null;
         CoverFound = false;
     }
 }

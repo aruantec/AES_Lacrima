@@ -184,6 +184,7 @@ namespace AES_Lacrima.Services
                      ReplayGainTrackGain = ReplayGainTrackGain,
                     ReplayGainAlbumGain = ReplayGainAlbumGain,
                     Duration = _currentSelectedMedia?.Duration ?? 0.0,
+                    UserEdited = true,
                 };
 
                 if (existingCache != null)
@@ -208,10 +209,10 @@ namespace AES_Lacrima.Services
                 }
 
                 var coverImage = Images.FirstOrDefault(img => img.Kind == TagImageKind.Cover);
-                if (coverImage?.Data is { Length: > 0 } && !IsAudioMetadataFile(path))
+                if (coverImage?.Data is { Length: > 0 } && MediaCoverPaths.UsesEmulationCoverSidecar(path))
                     EmulationCoverCacheHelper.WriteCoverFromBytes(path, coverImage.Data);
 
-                var metadataImages = IsAudioMetadataFile(path)
+                var metadataImages = MediaCoverPaths.UsesMetadataImageCache(path)
                     ? ToMetadataImageEntries(Images)
                     : ToMetadataImageEntries(Images.Where(img => img.Kind != TagImageKind.Cover));
                 BinaryMetadataHelper.WriteMetadataImages(customMetadata, metadataImages);
@@ -229,7 +230,7 @@ namespace AES_Lacrima.Services
                 SetMediaItemCoverFromTags(
                     Images.FirstOrDefault(img => img.Kind == TagImageKind.Cover),
                     Images.FirstOrDefault(img => img.Kind == TagImageKind.Wallpaper),
-                    IsAudioMetadataFile(path) ? metaDataPath : EmulationCoverCacheHelper.GetCoverCachePath(path));
+                    MediaCoverPaths.UsesMetadataImageCache(path) ? metaDataPath : EmulationCoverCacheHelper.GetCoverCachePath(path));
             });
         }
 

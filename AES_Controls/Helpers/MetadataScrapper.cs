@@ -271,11 +271,7 @@ namespace AES_Controls.Helpers
                     if (meta != null)
                     {
                         await ApplyMetadataToItem(mi, meta, key).ConfigureAwait(false);
-
-                        var hasUsableSidecarCover = HasUsableCoverImage(meta.Images);
-                        var hasCustomCoverAssigned = mi.CoverBitmap != null && mi.CoverBitmap != _defaultCover;
-                        if (hasUsableSidecarCover && hasCustomCoverAssigned)
-                            return false;
+                        return false;
                     }
                 }
 
@@ -387,7 +383,7 @@ namespace AES_Controls.Helpers
                 if (localArtworkResult.HasArtwork)
                 {
                     Log.Debug($"MetadataScrapper: {key} - using local folder artwork at {localArtworkResult.ArtworkPath}; skipping online lookups");
-                    await UpdateLocalMetadataAsync(mi, localArtworkResult.CacheableCoverBytes, null).ConfigureAwait(false);
+                    await UpdateLocalMetadataAsync(mi, RequiresMusicCoverConfirmation(key) ? tagResult.pic : localArtworkResult.CacheableCoverBytes, tagResult.wall).ConfigureAwait(false);
                     return false;
                 }
 
@@ -404,7 +400,20 @@ namespace AES_Controls.Helpers
                     return false;
                 }
 
-                // No usable embedded pictures - fall back to online services
+                if (RequiresMusicCoverConfirmation(key) && !force)
+                {
+                    var cachedMeta = File.Exists(cachePath)
+                        ? await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath), token).ConfigureAwait(false)
+                        : null;
+
+                    if (cachedMeta?.UserEdited == true || cachedMeta?.CoverLookupExhausted == true)
+                    {
+                        await UpdateLocalMetadataAsync(mi, tagResult.pic, tagResult.wall).ConfigureAwait(false);
+                        return false;
+                    }
+                }
+
+                // No usable embedded pictures - fall back to online services for cover discovery only.
                 Log.Debug($"MetadataScrapper: {key} - no usable embedded images, performing online lookup");
                 bool didNetwork = false;
                 if (mi.CoverBitmap == null || mi.CoverBitmap == _defaultCover)
@@ -497,7 +506,10 @@ namespace AES_Controls.Helpers
                 {
                     mi.CoverBitmap = bmp;
                     mi.LocalCoverPath = artworkPath;
-                    mi.CoverFound = true;
+                    if (RequiresMusicCoverConfirmation(key) && cacheableBytes is { Length: > 0 })
+                        ArmMusicCoverConfirmation(mi, cacheableBytes);
+                    else
+                        mi.CoverFound = true;
                 });
 
                 return (true, artworkPath, cacheableBytes);
@@ -937,7 +949,10 @@ namespace AES_Controls.Helpers
 
                 if (!found)
                 {
-                    await Dispatcher.UIThread.InvokeAsync(() => mi.CoverFound = true); // Mark as processed
+                    if (RequiresMusicCoverConfirmation(key))
+                        MarkCoverLookupDeclined(mi);
+                    else
+                        await Dispatcher.UIThread.InvokeAsync(() => mi.CoverFound = true); // Mark as processed
                 }
             }
             catch (Exception ex) { Log.Error($"Error fetching Apple metadata for {key}", ex); }
@@ -972,15 +987,6 @@ namespace AES_Controls.Helpers
                 {
                     var first = results[0];
                     var artUrl = first.GetProperty("artworkUrl100").GetString()?.Replace("100x100bb", "600x600bb");
-                    var trackName = first.TryGetProperty("trackName", out var tn) ? tn.GetString() : null;
-                    var artistName = first.TryGetProperty("artistName", out var an) ? an.GetString() : null;
-                    var collectionName = first.TryGetProperty("collectionName", out var cn) ? cn.GetString() : null;
-                    var primaryGenreName = first.TryGetProperty("primaryGenreName", out var gn) ? gn.GetString() : null;
-                    var releaseDate = first.TryGetProperty("releaseDate", out var rd) ? rd.GetString() : null;
-                    var trackNumber = first.TryGetProperty("trackNumber", out var tnum) ? tnum.GetUInt32() : 0;
-                    double trackTimeMillis = 0.0;
-                    if (first.TryGetProperty("trackTimeMillis", out var ttm) && ttm.ValueKind == JsonValueKind.Number)
-                        ttm.TryGetDouble(out trackTimeMillis);
 
                     if (!string.IsNullOrEmpty(artUrl))
                     {
@@ -996,19 +1002,11 @@ namespace AES_Controls.Helpers
                             }, token);
 
                             AddToCoverCache(key, bmp);
-                            await Dispatcher.UIThread.InvokeAsync(() => {
-                                if (string.IsNullOrWhiteSpace(mi.Title) || mi.Title == mi.FileName) mi.Title = trackName;
-                                if (string.IsNullOrWhiteSpace(mi.Artist)) mi.Artist = artistName;
-                                if (string.IsNullOrWhiteSpace(mi.Album)) mi.Album = collectionName;
-                                if (string.IsNullOrWhiteSpace(mi.Genre)) mi.Genre = primaryGenreName;
-                                if (mi.Year == 0 && DateTime.TryParse(releaseDate, out var dt)) mi.Year = (uint)dt.Year;
-                                if (mi.Track == 0) mi.Track = trackNumber;
-                                if (mi.Duration <= 0 && trackTimeMillis > 0) mi.Duration = trackTimeMillis / 1000.0;
-
+                            await Dispatcher.UIThread.InvokeAsync(() =>
+                            {
                                 mi.CoverBitmap = bmp;
-                                mi.CoverFound = !string.IsNullOrEmpty(mi.FileName) && File.Exists(mi.FileName);
-                                var saveBytes = imgData.ToArray();
-                                mi.SaveCoverBitmapAction = item => TrySaveEmbeddedCover(item, saveBytes);
+                                if (RequiresMusicCoverConfirmation(key))
+                                    ArmMusicCoverConfirmation(mi, imgData);
                             });
                             return true;
                         }
@@ -1059,11 +1057,7 @@ namespace AES_Controls.Helpers
                     if (meta != null)
                     {
                         await ApplyMetadataToItem(mi, meta, url).ConfigureAwait(false);
-
-                        var hasUsableSidecarCover = HasUsableCoverImage(meta.Images);
-                        var hasCustomCoverAssigned = mi.CoverBitmap != null && mi.CoverBitmap != _defaultCover;
-                        if (mi.Duration > 0 && hasUsableSidecarCover && hasCustomCoverAssigned)
-                            return;
+                        return;
                     }
                 }
 
@@ -1120,12 +1114,7 @@ namespace AES_Controls.Helpers
                             // Assign decoded bitmap on UI thread
                             await Dispatcher.UIThread.InvokeAsync(() => {
                                 if (decoded != null)
-                                {
                                     mi.CoverBitmap = decoded;
-                                    mi.CoverFound = !string.IsNullOrEmpty(mi.FileName) && File.Exists(mi.FileName);
-                                    var saveBytes = data.ToArray();
-                                    mi.SaveCoverBitmapAction = item => TrySaveEmbeddedCover(item, saveBytes);
-                                }
                             });
                         }
                         else
@@ -1157,6 +1146,41 @@ namespace AES_Controls.Helpers
                 var cacheDir = Path.GetDirectoryName(cachePath);
                 if (!string.IsNullOrEmpty(cacheDir) && !Directory.Exists(cacheDir))
                     Directory.CreateDirectory(cacheDir);
+
+                var existing = File.Exists(cachePath)
+                    ? await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath)).ConfigureAwait(false)
+                    : null;
+
+                if (existing?.UserEdited == true)
+                {
+                    if (existing.Duration <= 0 && mi.Duration > 0)
+                        existing.Duration = mi.Duration;
+
+                    if (pic != null && !HasUsableCoverImage(existing.Images))
+                    {
+                        existing.Images ??= [];
+                        existing.Images.RemoveAll(x => x.Kind == TagImageKind.Cover);
+                        existing.Images.Insert(0, new ImageData
+                        {
+                            Data = pic,
+                            Kind = TagImageKind.Cover,
+                            MimeType = "image/png"
+                        });
+                    }
+
+                    if (wall != null && existing.Images.All(x => x.Kind != TagImageKind.Wallpaper))
+                    {
+                        existing.Images.Add(new ImageData
+                        {
+                            Data = wall,
+                            Kind = TagImageKind.Wallpaper,
+                            MimeType = "image/png"
+                        });
+                    }
+
+                    await Task.Run(() => BinaryMetadataHelper.SaveMetadata(cachePath, existing)).ConfigureAwait(false);
+                    return;
+                }
 
                 var metadata = new CustomMetadata
                 {
@@ -1300,6 +1324,54 @@ namespace AES_Controls.Helpers
             return "image/jpeg";
         }
 
+        private static bool RequiresMusicCoverConfirmation(string? path) =>
+            MediaCoverPaths.IsAudioMediaFile(path);
+
+        private void ArmMusicCoverConfirmation(MediaItem mi, byte[] bytes)
+        {
+            if (!RequiresMusicCoverConfirmation(mi.FileName))
+                return;
+
+            var saveBytes = bytes.ToArray();
+            mi.SaveCoverBitmapAction = item => TrySaveEmbeddedCover(item, saveBytes);
+            mi.DeclineCoverBitmapAction = MarkCoverLookupDeclined;
+            mi.CoverFound = true;
+        }
+
+        private static void MarkCoverLookupDeclined(MediaItem item)
+        {
+            if (string.IsNullOrWhiteSpace(item.FileName))
+                return;
+
+            try
+            {
+                var cachePath = ApplicationPaths.GetCacheFile(BinaryMetadataHelper.GetCacheId(item.FileName) + ".meta");
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                metadata.CoverLookupExhausted = true;
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Failed to mark cover lookup declined for {item.FileName}", ex);
+            }
+        }
+
+        private static void MarkCoverSavedInCache(string filePath)
+        {
+            try
+            {
+                var cachePath = ApplicationPaths.GetCacheFile(BinaryMetadataHelper.GetCacheId(filePath) + ".meta");
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                metadata.CoverScanned = true;
+                metadata.CoverLookupExhausted = false;
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Failed to mark cover saved for {filePath}", ex);
+            }
+        }
+
         /// <summary>
         /// Action callback to trigger background saving of cover art.
         /// </summary>
@@ -1379,6 +1451,7 @@ namespace AES_Controls.Helpers
                         Log.Error($"[MetadataScrapper] TagLib save error for {item.FileName}", ex);
                     }
                 });
+                MarkCoverSavedInCache(item.FileName);
                 // Resume playback if we suspended it
                 if (_player != null && _player.CurrentMediaItem?.FileName == item.FileName)
                 {

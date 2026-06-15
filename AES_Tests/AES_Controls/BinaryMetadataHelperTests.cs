@@ -118,6 +118,25 @@ public sealed class BinaryMetadataHelperTests : IDisposable
     }
 
     [Fact]
+    public void SaveMetadata_ThenLoadMetadata_RoundTripsUserEditedFlag()
+    {
+        var cachePath = Path.Combine(_tempDirectory, "user-edited.json");
+        var metadata = new CustomMetadata
+        {
+            Title = "Custom Title",
+            Artist = "Custom Artist",
+            UserEdited = true
+        };
+
+        BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+        var loaded = BinaryMetadataHelper.LoadMetadata(cachePath);
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded.UserEdited);
+        Assert.Equal("Custom Title", loaded.Title);
+    }
+
+    [Fact]
     public void GetCacheId_ReturnsStableHashAndUnknownForEmptyInput()
     {
         var first = BinaryMetadataHelper.GetCacheId("/music/track.mp3");
