@@ -63,7 +63,12 @@ public partial class MusicView : UserControl
         if (e.PropertyName == nameof(MusicViewModel.IsAlbumlistOpen))
             StartAlbumListTransitionMask();
         else if (e.PropertyName == nameof(MusicViewModel.LoadedAlbum))
+        {
             ApplyCoverLayoutMode();
+            this.FindControl<Navigation.MusicListView>("AlbumListView")?.RefreshAlbumTileCovers();
+        }
+        else if (e.PropertyName == nameof(MusicViewModel.IsActive) && _viewModel.IsActive)
+            this.FindControl<Navigation.MusicListView>("AlbumListView")?.RefreshAlbumTileCovers();
         else if (e.PropertyName == nameof(MusicViewModel.IsAddUrlPopupOpen) && _viewModel.IsAddUrlPopupOpen)
             FocusPopupTextBox(AddUrlTextBox);
         else if (e.PropertyName == nameof(MusicViewModel.IsAddPlaylistPopupOpen) && _viewModel.IsAddPlaylistPopupOpen)
@@ -82,6 +87,7 @@ public partial class MusicView : UserControl
                 return;
 
             IsAlbumListInteractive = true;
+            this.FindControl<Navigation.MusicListView>("AlbumListView")?.RefreshAlbumTileCovers();
         }, DispatcherPriority.Background);
     }
 

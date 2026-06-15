@@ -40,8 +40,19 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
     private readonly HashSet<INotifyPropertyChanged> _subscribedItems = new();
     private readonly HashSet<MediaItem> _subscribedPreviewItems = new();
     private readonly HashSet<MediaItem> _subscribedChildItems = new();
-    private readonly HashSet<int> _coversLoadedIndices = new();
+    private readonly Dictionary<int, TileCoverFingerprint> _tileCoverFingerprints = new();
     private readonly HashSet<int> _pendingTileCoverIndices = new();
+
+    private readonly record struct TileCoverFingerprint(
+        FolderMediaItem? Folder,
+        Bitmap? FolderCover,
+        Bitmap?[] PreviewCovers)
+    {
+        public bool Matches(FolderMediaItem folder, Bitmap? folderCover, Bitmap?[] previewCovers) =>
+            ReferenceEquals(Folder, folder) &&
+            ReferenceEquals(FolderCover, folderCover) &&
+            PreviewCovers.AsSpan().SequenceEqual(previewCovers);
+    }
     private DispatcherTimer? _tileCoverReloadDebounceTimer;
     private object?[] _itemsSnapshot = [];
     private double _lastCoverLoadScrollX = double.NaN;
@@ -292,7 +303,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         else if (change.Property == TileScaleProperty || change.Property == TileSpacingProperty)
         {
             SendLayoutMessage();
-            _coversLoadedIndices.Clear();
+            _tileCoverFingerprints.Clear();
             _lastCoverLoadScrollX = double.NaN;
             EnsureVisibleTileCoversLoaded();
         }
@@ -918,8 +929,8 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         {
             MoveItem(from, to);
             MoveSnapshotItem(from, to);
+            SwapTileCoverState(from, to);
             SendTitles();
-            _coversLoadedIndices.Clear();
             _lastCoverLoadScrollX = double.NaN;
             EnsureVisibleTileCoversLoaded();
 
@@ -1009,7 +1020,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         }
 
         _itemsSnapshot = ItemsSource?.Cast<object?>().ToArray() ?? [];
-        _coversLoadedIndices.Clear();
+        _tileCoverFingerprints.Clear();
         _lastCoverLoadScrollX = double.NaN;
         SendTitles();
         SubscribeAllItems();
@@ -1034,8 +1045,8 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
                 e.NewStartingIndex >= 0 && e.NewStartingIndex < _itemsSnapshot.Length)
             {
                 MoveSnapshotItem(e.OldStartingIndex, e.NewStartingIndex);
+                SwapTileCoverState(e.OldStartingIndex, e.NewStartingIndex);
                 SendTitles();
-                _coversLoadedIndices.Clear();
                 _lastCoverLoadScrollX = double.NaN;
                 EnsureVisibleTileCoversLoaded();
                 return;
@@ -1051,7 +1062,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
                 {
                     int index = e.NewStartingIndex + i;
                     SubscribeItemAt(index);
-                    _coversLoadedIndices.Remove(index);
+                    _tileCoverFingerprints.Remove(index);
                     PushTileCovers(index);
                 }
 
@@ -1082,7 +1093,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         foreach (var child in _subscribedChildItems)
             child.PropertyChanged -= ChildItem_PropertyChanged;
         _subscribedChildItems.Clear();
-        _coversLoadedIndices.Clear();
+        _tileCoverFingerprints.Clear();
     }
 
     private void SubscribeAllItems()
@@ -1236,7 +1247,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
     {
         PostToUi(() =>
         {
-            _coversLoadedIndices.Clear();
+            _tileCoverFingerprints.Clear();
             _lastCoverLoadScrollX = double.NaN;
             for (int i = 0; i < _itemsSnapshot.Length; i++)
                 SchedulePushTileCovers(i);
@@ -1258,6 +1269,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         if (index < 0)
             return;
 
+        _tileCoverFingerprints.Remove(index);
         _pendingTileCoverIndices.Add(index);
         _tileCoverReloadDebounceTimer ??= new DispatcherTimer
         {
@@ -1280,10 +1292,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         PostToUi(() =>
         {
             foreach (var index in indices)
-            {
-                _coversLoadedIndices.Remove(index);
                 PushTileCovers(index);
-            }
         });
     }
 
@@ -1350,11 +1359,49 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
 
         for (int i = start; i <= end; i++)
         {
-            if (!_coversLoadedIndices.Add(i))
+            if (_itemsSnapshot[i] is FolderMediaItem folder && IsTileCoverCurrent(i, folder))
                 continue;
 
             PushTileCovers(i);
         }
+    }
+
+    private static Bitmap?[] CapturePreviewCoverBitmaps(FolderMediaItem folder)
+    {
+        var preview = folder.PreviewItems;
+        if (preview == null || preview.Count == 0)
+            return [];
+
+        var covers = new Bitmap?[preview.Count];
+        for (int i = 0; i < preview.Count; i++)
+            covers[i] = preview[i].CoverBitmap;
+
+        return covers;
+    }
+
+    private bool IsTileCoverCurrent(int index, FolderMediaItem folder)
+    {
+        if (!_tileCoverFingerprints.TryGetValue(index, out var pushed))
+            return false;
+
+        var previewCovers = CapturePreviewCoverBitmaps(folder);
+        return pushed.Matches(folder, folder.CoverBitmap, previewCovers);
+    }
+
+    private void SwapTileCoverState(int from, int to)
+    {
+        if (from == to)
+            return;
+
+        _tileCoverFingerprints.Remove(from, out var fromFingerprint);
+        _tileCoverFingerprints.Remove(to, out var toFingerprint);
+
+        if (fromFingerprint.Folder != null)
+            _tileCoverFingerprints[to] = fromFingerprint;
+        if (toFingerprint.Folder != null)
+            _tileCoverFingerprints[from] = toFingerprint;
+
+        _visual?.SendHandlerMessage(new AlbumRowSwapTileCoversMessage(from, to));
     }
 
     private void PushTileCovers(int index)
@@ -1366,9 +1413,13 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
             return;
 
         folder.SyncAlbumTileTopCoverFromChildren();
+        var previewCovers = CapturePreviewCoverBitmaps(folder);
+        if (IsTileCoverCurrent(index, folder))
+            return;
+
         var snapshots = BuildSnapshots(folder);
         var defaultSk = CompositionBitmapHelper.ToSkImage(folder.CoverBitmap, CompositionBitmapHelper.FolderCoverMaxEdge);
-        _coversLoadedIndices.Add(index);
+        _tileCoverFingerprints[index] = new TileCoverFingerprint(folder, folder.CoverBitmap, previewCovers);
         _visual?.SendHandlerMessage(new AlbumRowTileCoversMessage(index, snapshots, defaultSk));
     }
 

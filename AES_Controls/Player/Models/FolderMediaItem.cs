@@ -41,6 +41,12 @@ namespace AES_Controls.Player.Models
         private int _totalChildCount;
 
         /// <summary>
+        /// When true, the front album-tile cover uses <see cref="Children"/>[0] and the fan shows the next tracks.
+        /// </summary>
+        [JsonIgnore]
+        public bool UseFirstItemCoverPreview { get; private set; }
+
+        /// <summary>
         /// Keeps the synthetic album-tile top cover in sync with loaded child covers.
         /// </summary>
         public void SyncAlbumTileTopCoverFromChildren()
@@ -52,7 +58,7 @@ namespace AES_Controls.Player.Models
             if (Children.Contains(topItem))
                 return;
 
-            topItem.CoverBitmap = ResolveAlbumTileTopCover(useFirstItemCover: false);
+            topItem.CoverBitmap = ResolveAlbumTileTopCover(UseFirstItemCoverPreview);
         }
 
         private Bitmap? ResolveAlbumTileTopCover(bool useFirstItemCover)
@@ -72,6 +78,7 @@ namespace AES_Controls.Player.Models
 
         public void RebuildPreviewItems(bool useFirstItemCover = false, bool rebuildStructure = true)
         {
+            UseFirstItemCoverPreview = useFirstItemCover;
             Bitmap? topCover = ResolveAlbumTileTopCover(useFirstItemCover);
             var firstChild = Children.FirstOrDefault();
 
@@ -94,6 +101,18 @@ namespace AES_Controls.Player.Models
                             break;
                         }
                     }
+                }
+
+                if (!structureStale && useFirstItemCover && PreviewItems.Count > 1 && Children.Count > 1 &&
+                    ReferenceEquals(PreviewItems[0], Children[0]))
+                {
+                    structureStale = true;
+                }
+
+                if (!structureStale && !useFirstItemCover && PreviewItems.Count > 1 && Children.Count > 0 &&
+                    !ReferenceEquals(PreviewItems[0], Children[0]))
+                {
+                    structureStale = true;
                 }
 
                 if (!structureStale)

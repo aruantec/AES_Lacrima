@@ -30,6 +30,17 @@ public partial class MusicListView : UserControl
         UpdateRenameOverlay();
     }
 
+    public void RefreshAlbumTileCovers()
+    {
+        if (_viewModel != null)
+        {
+            foreach (var folder in _viewModel.FilteredAlbumList)
+                folder.RebuildPreviewItems(useFirstItemCover: true);
+        }
+
+        this.FindControl<CompositionAlbumRowControl>("AlbumList")?.RefreshAllTileCovers();
+    }
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -38,6 +49,8 @@ public partial class MusicListView : UserControl
 
         if (_albumList != null)
             _albumList.LayoutUpdated += OnAlbumListLayoutUpdated;
+
+        RefreshAlbumTileCovers();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)

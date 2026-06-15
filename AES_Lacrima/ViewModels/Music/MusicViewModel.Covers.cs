@@ -97,7 +97,7 @@ namespace AES_Lacrima.ViewModels
                         folder.IsLoadingCover = folder.Children.Any(child =>
                             NeedsVisibleCoverLoad(child) && child.IsLoadingCover);
 
-                        folder.RebuildPreviewItems(rebuildStructure: false);
+                        folder.RebuildPreviewItems(useFirstItemCover: true, rebuildStructure: false);
                     });
 
                     EndAlbumCoverLoad(folder);
@@ -169,7 +169,7 @@ namespace AES_Lacrima.ViewModels
                 {
                     folder.IsLoadingCover = false;
                     SyncAlbumFolderCoverFromChildren(folder);
-                    folder.RebuildPreviewItems(rebuildStructure: false);
+                    folder.RebuildPreviewItems(useFirstItemCover: true, rebuildStructure: false);
 
                     if (folder.Children.Take(FolderPreviewCoverCount).Any(NeedsCoverLoad))
                         QueueAlbumPreviewCoverLoad(folder);

@@ -74,7 +74,7 @@ namespace AES_Lacrima.ViewModels
                 folder.PropertyChanged += Folder_PropertyChanged;
 
             AttachFolderChildren(folder, folder.Children);
-            folder.RebuildPreviewItems();
+            folder.RebuildPreviewItems(useFirstItemCover: true);
             QueueAlbumPreviewCoverLoad(folder);
         }
 
@@ -181,7 +181,7 @@ namespace AES_Lacrima.ViewModels
             {
                 if (ReferenceEquals(folder.Children, children))
                 {
-                    folder.RebuildPreviewItems();
+                    folder.RebuildPreviewItems(useFirstItemCover: true);
                     QueueAlbumPreviewCoverLoad(folder);
                     break;
                 }
@@ -200,7 +200,7 @@ namespace AES_Lacrima.ViewModels
                     if (folder.Children.Contains(item))
                     {
                         SyncAlbumFolderCoverFromChildren(folder, item);
-                        folder.RebuildPreviewItems(rebuildStructure: false);
+                        folder.RebuildPreviewItems(useFirstItemCover: true, rebuildStructure: false);
                         break;
                     }
                 }
@@ -312,7 +312,7 @@ namespace AES_Lacrima.ViewModels
             else if (e.PropertyName == nameof(FolderMediaItem.Children))
             {
                 AttachFolderChildren(folder, folder.Children);
-                folder.RebuildPreviewItems();
+                folder.RebuildPreviewItems(useFirstItemCover: true);
                 QueueAlbumPreviewCoverLoad(folder);
                 RefreshAlbumFilterIfNeeded();
                 if (ReferenceEquals(folder, LoadedAlbum))
@@ -320,7 +320,7 @@ namespace AES_Lacrima.ViewModels
             }
             else if (e.PropertyName == nameof(MediaItem.CoverBitmap))
             {
-                folder.RebuildPreviewItems(rebuildStructure: false);
+                folder.RebuildPreviewItems(useFirstItemCover: true, rebuildStructure: false);
             }
         }
 
@@ -428,7 +428,7 @@ namespace AES_Lacrima.ViewModels
 
         private List<MediaItem> GetAlbumPreviewCoverBatch(FolderMediaItem folder)
         {
-            return folder.GetPresentationCoverChildren()
+            return folder.GetPresentationCoverChildren(folder.UseFirstItemCoverPreview)
                 .Where(NeedsCoverLoad)
                 .ToList();
         }
@@ -554,7 +554,7 @@ namespace AES_Lacrima.ViewModels
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
                         SyncAlbumFolderCoverFromChildren(folder);
-                        folder.RebuildPreviewItems(rebuildStructure: false);
+                        folder.RebuildPreviewItems(useFirstItemCover: true, rebuildStructure: false);
                     });
                 }
             }
@@ -567,7 +567,7 @@ namespace AES_Lacrima.ViewModels
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     SyncAlbumFolderCoverFromChildren(folder);
-                    folder.RebuildPreviewItems(rebuildStructure: false);
+                    folder.RebuildPreviewItems(useFirstItemCover: true, rebuildStructure: false);
                     folder.IsLoadingCover = folder.Children
                         .Take(FolderPreviewCoverCount)
                         .Any(child => NeedsVisibleCoverLoad(child) && child.IsLoadingCover);

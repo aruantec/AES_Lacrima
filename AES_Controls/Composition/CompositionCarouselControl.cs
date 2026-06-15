@@ -576,7 +576,9 @@ namespace AES_Controls.Composition
                 if (item == null)
                     continue;
 
-                if (!forceAll && i < _images.Count && !IsPlaceholderImage(_images[i]))
+                if (!forceAll &&
+                    i < _images.Count &&
+                    IsDisplayedCoverCurrent(item, i, ResolveCoverSourceKey(item)))
                     continue;
 
                 if (forceAll && i < _images.Count && !IsPlaceholderImage(_images[i]))
@@ -619,7 +621,11 @@ namespace AES_Controls.Composition
         {
             for (int i = 0; i < _itemsSnapshot.Length; i++)
             {
-                if (i >= _images.Count || IsPlaceholderImage(_images[i]))
+                var item = _itemsSnapshot[i];
+                if (item == null)
+                    continue;
+
+                if (!IsDisplayedCoverCurrent(item, i, ResolveCoverSourceKey(item)))
                     return true;
             }
 
@@ -733,9 +739,7 @@ namespace AES_Controls.Composition
             if (!_itemIndices.TryGetValue(item, out var index))
                 return;
 
-            if (index < _images.Count &&
-                _images[index] != null &&
-                !IsPlaceholderImage(_images[index]))
+            if (IsDisplayedCoverCurrent(item, index, sourceKey))
                 return;
 
             SKImage adopted = image;
@@ -1189,6 +1193,46 @@ namespace AES_Controls.Composition
             sourceKey is Bitmap bmp &&
             CompositionCoverImageHelper.IsSectionPlaceholderBitmap(bmp, _sectionPlaceholderBitmap);
 
+        private string ResolvedBitmapProperty => ImageBitmapProperty ?? nameof(MediaItem.CoverBitmap);
+
+        private string ResolvedFileProperty => ImageFileNameProperty ?? nameof(MediaItem.LocalCoverPath);
+
+        private object? ResolveCoverSourceKey(object item)
+        {
+            CompositionCoverImageHelper.ReadCoverSources(
+                item,
+                ResolvedBitmapProperty,
+                ResolvedFileProperty,
+                GetBitmapValue,
+                ResolveCoverImagePath,
+                _sectionPlaceholderBitmap,
+                out var bitmapValue,
+                out var fileName);
+
+            return CompositionCoverImageHelper.ResolveImageSourceKey(
+                item as MediaItem, bitmapValue, fileName, _sectionPlaceholderBitmap);
+        }
+
+        private bool IsDisplayedCoverCurrent(object item, int index, object? sourceKey)
+        {
+            if (index < 0 || index >= _images.Count)
+                return false;
+
+            if (_images[index] == null || IsPlaceholderImage(_images[index]))
+                return false;
+
+            if (!_itemImageSourceKeys.TryGetValue(item, out var existingKey) || !Equals(existingKey, sourceKey))
+                return false;
+
+            lock (_imageCacheLock)
+            {
+                if (_imageCache.TryGetValue(item, out var cachedImage))
+                    return ReferenceEquals(_images[index], cachedImage);
+            }
+
+            return false;
+        }
+
         private bool TryRestoreDisplayImage(object item, string? bitmapProp, string? fileProp, out SKImage? image)
         {
             image = null;
@@ -1316,28 +1360,26 @@ namespace AES_Controls.Composition
             if (_itemsSnapshot.Length == 0)
                 return;
 
-            string? bitmapProp = ImageBitmapProperty;
-            string? fileProp = ImageFileNameProperty;
-
             for (int i = 0; i < _itemsSnapshot.Length; i++)
             {
                 var item = _itemsSnapshot[i];
                 if (item == null)
                     continue;
 
-                if (i < _images.Count && _images[i] != null && !IsPlaceholderImage(_images[i]))
+                var sourceKey = ResolveCoverSourceKey(item);
+                if (IsDisplayedCoverCurrent(item, i, sourceKey))
                     continue;
 
                 if (_imageCache.TryGetValue(item, out var cachedImage) &&
                     !IsPlaceholderImage(cachedImage) &&
-                    _itemImageSourceKeys.TryGetValue(item, out var sourceKey) &&
-                    !IsPlaceholderSourceKey(sourceKey))
+                    _itemImageSourceKeys.TryGetValue(item, out var cachedSourceKey) &&
+                    !IsPlaceholderSourceKey(cachedSourceKey))
                 {
-                    AssignItemImage(item, i, cachedImage, sourceKey);
+                    AssignItemImage(item, i, cachedImage, cachedSourceKey);
                     continue;
                 }
 
-                if (TryRestoreDisplayImage(item, bitmapProp, fileProp, out var restored) &&
+                if (TryRestoreDisplayImage(item, ResolvedBitmapProperty, ResolvedFileProperty, out var restored) &&
                     restored != null &&
                     !IsPlaceholderImage(restored))
                 {
@@ -2045,8 +2087,8 @@ namespace AES_Controls.Composition
                 return;
 
             var context = new CoverImageLoadContext(
-                ImageBitmapProperty ?? string.Empty,
-                ImageFileNameProperty ?? string.Empty,
+                ResolvedBitmapProperty,
+                ResolvedFileProperty,
                 _sectionPlaceholderBitmap,
                 centerIdx,
                 IsSelectionInMotion());
@@ -2570,8 +2612,8 @@ namespace AES_Controls.Composition
 
             CompositionCoverImageHelper.ReadCoverSources(
                 item,
-                ImageBitmapProperty,
-                ImageFileNameProperty,
+                ResolvedBitmapProperty,
+                ResolvedFileProperty,
                 GetBitmapValue,
                 ResolveCoverImagePath,
                 _sectionPlaceholderBitmap,
@@ -2587,13 +2629,7 @@ namespace AES_Controls.Composition
                 string.IsNullOrWhiteSpace(fileName))
                 return false;
 
-            if (sourceKey != null &&
-                _imageCache.TryGetValue(item, out _) &&
-                _itemImageSourceKeys.TryGetValue(item, out var existingKey) &&
-                Equals(existingKey, sourceKey) &&
-                index < _images.Count &&
-                _images[index] != null &&
-                !IsPlaceholderImage(_images[index]))
+            if (IsDisplayedCoverCurrent(item, index, sourceKey))
                 return false;
 
             if (bitmapValue != null &&
@@ -2610,7 +2646,11 @@ namespace AES_Controls.Composition
             if (index < 0 || index >= _itemsSnapshot.Length)
                 return false;
 
-            if (index < _images.Count && _images[index] != null && !IsPlaceholderImage(_images[index]))
+            var item = _itemsSnapshot[index];
+            if (item == null)
+                return false;
+
+            if (IsDisplayedCoverCurrent(item, index, ResolveCoverSourceKey(item)))
                 return false;
 
             if (_itemsSnapshot[index] is MediaItem { IsLoadingCover: true })
@@ -2993,14 +3033,8 @@ namespace AES_Controls.Composition
             if (cacheAction == CacheLookupAction.Release)
                 await Dispatcher.UIThread.InvokeAsync(() => ReleaseItemImage(item), DispatcherPriority.Background);
 
-            if (index < _images.Count &&
-                _images[index] != null &&
-                !IsPlaceholderImage(_images[index]) &&
-                _itemImageSourceKeys.TryGetValue(item, out var displayedKey) &&
-                Equals(displayedKey, sourceKey))
-            {
+            if (IsDisplayedCoverCurrent(item, index, sourceKey))
                 return false;
-            }
 
             SetLoading(index, true);
 
@@ -3097,8 +3131,8 @@ namespace AES_Controls.Composition
                 if (!_coverLoadingActive)
                     return;
 
-                string? bitmapProp = ImageBitmapProperty;
-                string? fileProp = ImageFileNameProperty;
+                string? bitmapProp = ResolvedBitmapProperty;
+                string? fileProp = ResolvedFileProperty;
 
                 if (sender == null)
                     return;
@@ -3164,8 +3198,8 @@ namespace AES_Controls.Composition
 
         private async Task ReloadCoverImagesBatchAsync(KeyValuePair<object, int>[] pending)
         {
-            string? bitmapProp = ImageBitmapProperty;
-            string? fileProp = ImageFileNameProperty;
+            string? bitmapProp = ResolvedBitmapProperty;
+            string? fileProp = ResolvedFileProperty;
             bool visualsChanged = false;
 
             foreach (var (sender, idx) in pending)
@@ -3192,7 +3226,7 @@ namespace AES_Controls.Composition
                     {
                         ReleaseItemImage(sender);
                     }
-                    else if (idx < _images.Count && _images[idx] != null && !IsPlaceholderImage(_images[idx]))
+                    else if (IsDisplayedCoverCurrent(sender, idx, sourceKey))
                     {
                         TouchCacheItem(sender);
                         continue;

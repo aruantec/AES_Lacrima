@@ -23,6 +23,7 @@ internal record AlbumRowScrollbarHoverMessage(bool IsHovered);
 internal record AlbumRowResetScrollbarMessage();
 internal record AlbumRowAttachSyncMessage(AlbumRowAnimationSyncState State);
 internal record AlbumRowTileCoversMessage(int Index, IReadOnlyList<FolderItemSnapshot> Snapshots, SKImage? DefaultCover);
+internal record AlbumRowSwapTileCoversMessage(int FromIndex, int ToIndex);
 internal record AlbumRowDragStateMessage(int Index, bool IsDragging);
 internal record AlbumRowDragPositionMessage(Vector2 Position);
 internal record AlbumRowDropTargetMessage(int Index);
@@ -366,6 +367,18 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
                 _loadingFlags = titles.LoadingFlags;
                 EnsureTileCount(_titles.Length);
                 Invalidate();
+                return;
+            case AlbumRowSwapTileCoversMessage swap:
+                if (swap.FromIndex >= 0 &&
+                    swap.ToIndex >= 0 &&
+                    swap.FromIndex < _tiles.Count &&
+                    swap.ToIndex < _tiles.Count &&
+                    swap.FromIndex != swap.ToIndex)
+                {
+                    (_tiles[swap.FromIndex], _tiles[swap.ToIndex]) = (_tiles[swap.ToIndex], _tiles[swap.FromIndex]);
+                    Invalidate();
+                }
+
                 return;
             case AlbumRowTileCoversMessage covers:
                 EnsureTileCount(Math.Max(_tiles.Count, covers.Index + 1));
