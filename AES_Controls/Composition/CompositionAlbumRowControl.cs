@@ -30,6 +30,11 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
     private const int AnimationHeartbeatMs = 16;
     private const int ScrollIdleMs = 180;
     private const double WheelScrollPixels = 165.0;
+    private const double WheelVelocityScale = 3.5;
+    private const double WheelSmoothBoostWindowMs = 95.0;
+    private const double WheelSmoothBoostMax = 1.45;
+    private const double WheelMaxVelocity = 2400.0;
+    private const double DragReleaseVelocityScale = 0.68;
     private const double DragStartThreshold = 4.0;
     private const int DragAutoScrollMs = 16;
     private const int DragCommitMs = 300;
@@ -60,6 +65,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
     private double _knownScrollX;
     private double _targetScrollX;
     private double _velocityX;
+    private ulong _lastWheelTimestamp;
     private bool _isPressed;
     private bool _isPointerScrolling;
     private bool _isScrollbarPressed;
@@ -440,7 +446,10 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
 
         ulong dt = e.Timestamp - _prevTime;
         if (dt > 0)
-            _velocityX = -(pos.X - _prevPoint.X) / (dt / 1000.0);
+        {
+            double instantVelocity = -(pos.X - _prevPoint.X) / (dt / 1000.0);
+            _velocityX = _velocityX * 0.5 + instantVelocity * 0.5;
+        }
 
         _prevTime = e.Timestamp;
         UpdateHoverState(pos);
@@ -492,7 +501,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
                 _targetScrollX = Math.Clamp(_knownScrollX, 0, GetMaxScrollX());
                 SyncKnownScrollX(_targetScrollX);
                 _visual?.SendHandlerMessage(new AlbumRowScrollMessage(_targetScrollX));
-                _visual?.SendHandlerMessage(new AlbumRowScrollVelocityMessage(_velocityX * 0.85));
+                _visual?.SendHandlerMessage(new AlbumRowScrollVelocityMessage(_velocityX * DragReleaseVelocityScale));
             }
         }
 
@@ -502,12 +511,31 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
         base.OnPointerWheelChanged(e);
-        double wheelDelta = (Math.Abs(e.Delta.X) > Math.Abs(e.Delta.Y) ? e.Delta.X : e.Delta.Y) * WheelScrollPixels;
+        double rawDelta = Math.Abs(e.Delta.X) > Math.Abs(e.Delta.Y) ? e.Delta.X : e.Delta.Y;
+        if (Math.Abs(rawDelta) < 0.0001)
+            return;
+
+        // Windows ListBox-style: each wheel step primarily moves the scroll target directly.
+        double wheelDelta = rawDelta * WheelScrollPixels;
         _targetScrollX = Math.Clamp(_animationSync.TargetScrollX - wheelDelta, 0, GetMaxScrollX());
         _knownScrollX = _targetScrollX;
 
-        double impulse = -wheelDelta * 11.0;
-        double newVelocity = Math.Clamp(_animationSync.VelocityX + impulse, -5500, 5500);
+        // Keep only a small smoothing tail for rapid trackpad micro-deltas.
+        ulong now = e.Timestamp;
+        double sinceLastMs = _lastWheelTimestamp == 0
+            ? double.MaxValue
+            : now - _lastWheelTimestamp;
+        _lastWheelTimestamp = now;
+
+        double smoothFactor = 1.0;
+        if (sinceLastMs < WheelSmoothBoostWindowMs && Math.Abs(rawDelta) < 0.6)
+        {
+            double smoothT = 1.0 - Math.Clamp(sinceLastMs / WheelSmoothBoostWindowMs, 0.0, 1.0);
+            smoothFactor = 1.0 + smoothT * (WheelSmoothBoostMax - 1.0);
+        }
+
+        double impulse = -wheelDelta * WheelVelocityScale * smoothFactor;
+        double newVelocity = Math.Clamp((_animationSync.VelocityX * 0.42) + impulse, -WheelMaxVelocity, WheelMaxVelocity);
         _visual?.SendHandlerMessage(new AlbumRowScrollMessage(_targetScrollX));
         _visual?.SendHandlerMessage(new AlbumRowScrollVelocityMessage(newVelocity));
         EnsureVisibleTileCoversLoadedIfNeeded();
