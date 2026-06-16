@@ -1830,9 +1830,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     private Color _cardGridBackgroundColor = Color.Parse("#101010");
 
     [ObservableProperty]
-    private bool _cardGridTitleMarquee = true;
-
-    [ObservableProperty]
     [NotifyPropertyChangedFor(
         nameof(IsMusicSpectrumAvailable),
         nameof(IsMusicSpectrumVisible),
@@ -2021,7 +2018,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         nameof(CardGridSpacing),
         nameof(CardGridOpacity),
         nameof(CardGridBackgroundColor),
-        nameof(CardGridTitleMarquee),
         nameof(CardGridHorizontalScroll),
         nameof(ReplayGainEnabled),
         nameof(SmoothVolumeChange),
@@ -4026,7 +4022,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         CardGridSpacing = ReadDoubleSetting(section, nameof(CardGridSpacing), CardGridSpacing);
         CardGridOpacity = ReadDoubleSetting(section, nameof(CardGridOpacity), CardGridOpacity);
         CardGridBackgroundColor = Color.Parse(ReadStringSetting(section, nameof(CardGridBackgroundColor), "#101010")!);
-        CardGridTitleMarquee = ReadBoolSetting(section, nameof(CardGridTitleMarquee), CardGridTitleMarquee);
         CardGridHorizontalScroll = ReadBoolSetting(section, nameof(CardGridHorizontalScroll), CardGridHorizontalScroll);
 
         // ReplayGain settings
@@ -4140,7 +4135,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(CardGridSpacing), CardGridSpacing);
         WriteSetting(section, nameof(CardGridOpacity), CardGridOpacity);
         WriteSetting(section, nameof(CardGridBackgroundColor), CardGridBackgroundColor.ToString());
-        WriteSetting(section, nameof(CardGridTitleMarquee), CardGridTitleMarquee);
         WriteSetting(section, nameof(CardGridHorizontalScroll), CardGridHorizontalScroll);
         // ReplayGain settings
         WriteSetting(section, nameof(ReplayGainEnabled), ReplayGainEnabled);

@@ -1764,13 +1764,13 @@ private bool _isShadPs4PatchesOverlayOpen;
             ApplyFilter();
             RefreshActiveAlbumState();
 
-            if (value != null)
-                PrepareAlbumItemsForCoverDisplay(value);
-
             Dispatcher.UIThread.Post(() =>
             {
                 if (value != null && !ReferenceEquals(LoadedAlbum, value))
                     return;
+
+                if (value != null)
+                    PrepareAlbumItemsForCoverDisplay(value);
 
                 SyncCurrentSectionEmulatorContext();
                 OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));

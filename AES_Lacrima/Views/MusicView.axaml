@@ -24,7 +24,7 @@
     </Design.DataContext>
 
     <Grid RowDefinitions="*,Auto,Auto,Auto" ClipToBounds="False">
-        <Border Background="#0F0F0F" Grid.RowSpan="2"/>
+        <Border Background="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}" Grid.RowSpan="2"/>
 
         <Panel>
             <composition:CompositionCoverControl x:Name="CoverControl"
@@ -46,7 +46,6 @@
                                                     UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
                                                     CardSpacing="{Binding SettingsViewModel.CardGridSpacing}"
                                                     GridBackground="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
-                                                    TitleMarqueeEnabled="{Binding SettingsViewModel.CardGridTitleMarquee}"
                                                     GlobalOpacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
                                                     GridOpacityMultiplier="{Binding SettingsViewModel.CardGridOpacity}"
                                                     ClipToBounds="False">

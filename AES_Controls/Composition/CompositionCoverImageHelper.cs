@@ -103,11 +103,17 @@ internal static class CompositionCoverImageHelper
         return null;
     }
 
-    public static Bitmap? DetectSectionPlaceholder(IReadOnlyList<object?> items, string? bitmapProp, Func<object, string?, Bitmap?> getBitmap)
+    public static Bitmap? DetectSectionPlaceholder(
+        IReadOnlyList<object?> items,
+        string? bitmapProp,
+        Func<object, string?, Bitmap?> getBitmap,
+        int scanLimit = int.MaxValue)
     {
         var counts = new Dictionary<Bitmap, int>(ReferenceEqualityComparer.Instance);
-        foreach (var item in items)
+        int limit = scanLimit <= 0 ? items.Count : Math.Min(items.Count, scanLimit);
+        for (int i = 0; i < limit; i++)
         {
+            var item = items[i];
             if (item == null)
                 continue;
 

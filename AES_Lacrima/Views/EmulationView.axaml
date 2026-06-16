@@ -78,7 +78,6 @@
                                                     UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
                                                     CardSpacing="{Binding SettingsViewModel.CardGridSpacing}"
                                                     GridBackground="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
-                                                    TitleMarqueeEnabled="{Binding SettingsViewModel.CardGridTitleMarquee}"
                                                     GlobalOpacity="{Binding ElementName=RootView, Path=CarouselOpacity}"
                                                     GridOpacityMultiplier="{Binding SettingsViewModel.CardGridOpacity}"
                                                     ClipToBounds="False">

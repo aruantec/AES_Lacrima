@@ -339,11 +339,18 @@ namespace AES_Lacrima.ViewModels
             if (album.Children.Count == 0)
                 return;
 
-            foreach (var item in album.Children)
+            int focus = GetCoverLoadFocusIndex(album);
+            int radius = InitialCoverLoadingRadius;
+
+            for (int i = 0; i < album.Children.Count; i++)
             {
+                var item = album.Children[i];
                 item.CoverBitmap ??= album.CoverBitmap;
                 if (HasLocalCoverFile(item.FileName))
                     item.LocalCoverPath = EmulationCoverCacheHelper.GetCoverCachePath(item.FileName);
+
+                if (Math.Abs(i - focus) > radius)
+                    continue;
 
                 if (NeedsCoverLookup(item, album))
                     item.IsLoadingCover = true;

@@ -4,6 +4,8 @@
     <LinkIncremental>true</LinkIncremental>
     <!-- Ignore missing optional machine-local NuGet feeds during restore. -->
     <RestoreIgnoreFailedSources>true</RestoreIgnoreFailedSources>
+    <!-- Avoid intermittent csc exit 139 (compiler-server segfault) on Linux Debug builds. -->
+    <UseSharedCompilation Condition="'$(Configuration)' == 'Debug'">false</UseSharedCompilation>
   </PropertyGroup>
 
   <ItemDefinitionGroup Condition="'$(Configuration)' == 'Debug'">

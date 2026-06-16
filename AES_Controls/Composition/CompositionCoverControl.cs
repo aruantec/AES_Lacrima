@@ -20,6 +20,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     private readonly CompositionCarouselControl _carousel;
     private readonly CompositionCardGridControl _cardGrid;
     private readonly CompositionSharedCoverCache _sharedCoverCache = new();
+    private readonly CompositionSharedCoverCache _cardDisplayCache = new();
     private CancellationTokenSource? _transitionCts;
     private DispatcherTimer? _coverVisualSyncTimer;
     private CoverLayoutMode _appliedLayoutMode = CoverLayoutMode.Carousel;
@@ -111,9 +112,6 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     public static readonly StyledProperty<IBrush?> GridBackgroundProperty =
         AvaloniaProperty.Register<CompositionCoverControl, IBrush?>(nameof(GridBackground));
 
-    public static readonly StyledProperty<bool> TitleMarqueeEnabledProperty =
-        AvaloniaProperty.Register<CompositionCoverControl, bool>(nameof(TitleMarqueeEnabled), true);
-
     public static readonly DirectProperty<CompositionCoverControl, Rect> SelectedItemBoundsProperty =
         AvaloniaProperty.RegisterDirect<CompositionCoverControl, Rect>(
             nameof(SelectedItemBounds),
@@ -192,9 +190,6 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
 
         GridBackgroundProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
             control.SyncGridProperties());
-
-        TitleMarqueeEnabledProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
-            control.SyncGridProperties());
     }
 
     public CompositionCoverControl()
@@ -216,6 +211,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         _cardGrid.PropertyChanged += OnCardGridPropertyChanged;
         _carousel.BindSharedCoverCache(_sharedCoverCache);
         _cardGrid.BindSharedCoverCache(_sharedCoverCache);
+        _cardGrid.BindCardDisplayCache(_cardDisplayCache);
         _carousel.CoverVisualSyncRequested = ScheduleSiblingCoverHydrate;
 
         Children.Add(_carousel);
@@ -378,12 +374,6 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         set => SetValue(GridBackgroundProperty, value);
     }
 
-    public bool TitleMarqueeEnabled
-    {
-        get => GetValue(TitleMarqueeEnabledProperty);
-        set => SetValue(TitleMarqueeEnabledProperty, value);
-    }
-
     public Rect SelectedItemBounds
     {
         get => _selectedItemBounds;
@@ -468,6 +458,8 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             _carousel.SetCoverLoadingActive(true);
             if (!ReferenceEquals(_carousel.ItemsSource, source))
                 _carousel.ItemsSource = source;
+            else if (source != null)
+                _carousel.RefreshItemsFromCurrentSource();
             _cardGrid.SyncItemsSourceLightweight(source);
             _carousel.HydrateCoverImagesFrom(_cardGrid);
         }
@@ -475,8 +467,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         {
             _carousel.SetCoverLoadingActive(false);
             _cardGrid.SetCoverLoadingActive(true);
-            if (!ReferenceEquals(_cardGrid.ItemsSource, source))
-                _cardGrid.ItemsSource = source;
+            _cardGrid.SyncItemsSourceLightweight(source);
             _carousel.SyncItemsSourceLightweight(source);
             _cardGrid.HydrateCoverImagesFrom(_carousel);
         }
@@ -506,9 +497,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         {
             _cardGrid.SetCoverLoadingActive(true);
             _carousel.SetCoverLoadingActive(false);
-            if (!ReferenceEquals(_cardGrid.ItemsSource, source))
-                _cardGrid.ItemsSource = source;
-            else if (source != null)
+            if (!_cardGrid.SyncItemsSourceLightweight(source) && source != null)
                 _cardGrid.RefreshItemsFromCurrentSource();
             _carousel.SyncItemsSourceLightweight(source);
             _cardGrid.HydrateCoverImagesFrom(_carousel);
@@ -531,6 +520,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         _cardGrid.IsHitTestVisible = !useCarousel;
         _cardGrid.ClipToBounds = true;
         _cardGrid.HorizontalScrollEnabled = mode == CoverLayoutMode.HorizontalGrid;
+        Background = useCarousel ? null : GridBackground;
     }
 
     private async void StartLayoutTransition(CoverLayoutMode targetMode)
@@ -588,6 +578,8 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
                 _cardGrid.SetCoverLoadingActive(false);
                 if (!ReferenceEquals(_carousel.ItemsSource, ItemsSource))
                     _carousel.ItemsSource = ItemsSource;
+                else if (ItemsSource != null)
+                    _carousel.RefreshItemsFromCurrentSource();
                 _cardGrid.SyncItemsSourceLightweight(ItemsSource);
                 _carousel.HydrateCoverImagesFrom(_cardGrid);
             }
@@ -595,8 +587,8 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             {
                 _cardGrid.SetCoverLoadingActive(true);
                 _carousel.SetCoverLoadingActive(false);
-                if (!ReferenceEquals(_cardGrid.ItemsSource, ItemsSource))
-                    _cardGrid.ItemsSource = ItemsSource;
+                if (!_cardGrid.SyncItemsSourceLightweight(ItemsSource) && ItemsSource != null)
+                    _cardGrid.RefreshItemsFromCurrentSource();
                 _carousel.SyncItemsSourceLightweight(ItemsSource);
                 _cardGrid.HydrateCoverImagesFrom(_carousel);
             }
@@ -628,7 +620,6 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         if (_appliedLayoutMode != CoverLayoutMode.Carousel)
             return;
 
-        _cardGrid.RefreshMissingCoverSlots(forceFullRescan: false);
         _carousel.HydrateCoverImagesFrom(_cardGrid);
     }
 
@@ -680,7 +671,8 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     {
         _cardGrid.CardSpacing = CardSpacing;
         _cardGrid.Background = GridBackground;
-        _cardGrid.TitleMarqueeEnabled = TitleMarqueeEnabled;
+        if (_appliedLayoutMode != CoverLayoutMode.Carousel)
+            Background = GridBackground;
     }
 
     private void SyncLayoutScaleProperties()
@@ -708,14 +700,20 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
 
         var useCarousel = _appliedLayoutMode == CoverLayoutMode.Carousel;
 
-        _carousel.SetCoverLoadingActive(true);
-        _cardGrid.SetCoverLoadingActive(true);
-
-        _carousel.RefreshMissingCoverSlots(forceFullRescan: true);
-        _cardGrid.RefreshMissingCoverSlots(forceFullRescan: true);
-
-        _carousel.SetCoverLoadingActive(useCarousel);
-        _cardGrid.SetCoverLoadingActive(!useCarousel);
+        if (useCarousel)
+        {
+            _carousel.SetCoverLoadingActive(true);
+            _cardGrid.SetCoverLoadingActive(false);
+            _carousel.RefreshMissingCoverSlots(forceFullRescan: true);
+            _carousel.HydrateCoverImagesFrom(_cardGrid);
+        }
+        else
+        {
+            _carousel.SetCoverLoadingActive(false);
+            _cardGrid.SetCoverLoadingActive(true);
+            _cardGrid.RefreshMissingCoverSlots(forceFullRescan: true);
+            _cardGrid.HydrateCoverImagesFrom(_carousel);
+        }
     }
 
     private void ApplyPublishSelectedItemBounds()
