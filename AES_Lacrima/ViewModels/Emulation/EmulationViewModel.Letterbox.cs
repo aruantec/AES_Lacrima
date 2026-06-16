@@ -76,6 +76,8 @@ public partial class EmulationViewModel
 
     private void OnMetadataCacheSaved(string? savedPath)
     {
+        RefreshAlbumCoverAfterMetadataSave(savedPath);
+
         if (!ShouldRefreshLetterboxForMetadataPath(savedPath))
             return;
 

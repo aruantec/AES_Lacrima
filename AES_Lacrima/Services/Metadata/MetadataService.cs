@@ -80,6 +80,7 @@ namespace AES_Lacrima.Services
         ];
 
         private MediaItem? _currentSelectedMedia;
+        private bool _coverRemovedInEditor;
         private MetadataSearchMode _searchMode = MetadataSearchMode.Images;
         private static readonly Regex YouTubeVideoIdRegex = new(@"""videoId"":""(?<id>[A-Za-z0-9_-]{11})""", RegexOptions.Compiled);
 
@@ -153,6 +154,7 @@ namespace AES_Lacrima.Services
         public IReadOnlyList<TagImageKind> MetadataImageKinds { get; } =
         [
             TagImageKind.Cover,
+            TagImageKind.BoxArt,
             TagImageKind.BackCover,
             TagImageKind.Wallpaper,
             TagImageKind.LiveWallpaper,

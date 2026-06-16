@@ -74,6 +74,40 @@ public sealed class EmulationCoverCacheHelperTests : IDisposable
         Assert.DoesNotContain(reloaded!.Images, image => image.Kind == TagImageKind.Cover && image.Data.Length > 0);
     }
 
+    [Fact]
+    public void CoverCachePath_IsStable_ForEquivalentPaths()
+    {
+        var romPath = Path.Combine(_tempDirectory, "nested", "game.iso");
+        Directory.CreateDirectory(Path.GetDirectoryName(romPath)!);
+        File.WriteAllText(romPath, "rom");
+
+        var png = CreateSolidPng(256, 256);
+        Assert.True(EmulationCoverCacheHelper.WriteCoverFromBytes(romPath, png));
+
+        var relativePath = Path.GetRelativePath(_tempDirectory, romPath);
+        Assert.True(EmulationCoverCacheHelper.HasCover(relativePath));
+        Assert.Equal(
+            EmulationCoverCacheHelper.GetCoverCachePath(romPath),
+            EmulationCoverCacheHelper.GetCoverCachePath(relativePath));
+    }
+
+    [Fact]
+    public void ResolveRomPathForCache_MatchesBracketSpacingVariants()
+    {
+        var compactPath = Path.Combine(_tempDirectory, "Blue Dragon [RF][DVD1].iso");
+        var spacedPath = Path.Combine(_tempDirectory, "Blue Dragon [RF] [DVD1].iso");
+        File.WriteAllText(compactPath, "rom");
+
+        var png = CreateSolidPng(128, 128);
+        Assert.True(EmulationCoverCacheHelper.WriteCoverFromBytes(compactPath, png));
+
+        var resolvedFromSpaced = EmulationCoverCacheHelper.ResolveRomPathForCache(spacedPath);
+        Assert.Equal(
+            EmulationCoverCacheHelper.GetCoverCachePath(compactPath),
+            EmulationCoverCacheHelper.GetCoverCachePath(resolvedFromSpaced));
+        Assert.True(EmulationCoverCacheHelper.RomPathsShareCache(compactPath, spacedPath));
+    }
+
     private static byte[] CreateSolidPng(int width, int height)
     {
         using var bitmap = new SkiaSharp.SKBitmap(width, height);

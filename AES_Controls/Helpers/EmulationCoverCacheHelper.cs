@@ -21,6 +21,43 @@ public static class EmulationCoverCacheHelper
 
     public static string GetCacheId(string? filePath) => BinaryMetadataHelper.GetCacheId(NormalizeRomPath(filePath));
 
+    /// <summary>
+    /// Resolves the ROM path that owns an existing emulation cache entry when spelling differs
+    /// (e.g. <c>[RF][DVD1]</c> vs <c>[RF] [DVD1]</c>).
+    /// </summary>
+    public static string ResolveRomPathForCache(string? romPath)
+    {
+        if (string.IsNullOrWhiteSpace(romPath))
+            return string.Empty;
+
+        string? metadataOnly = null;
+        foreach (var candidate in EnumerateRomPathCandidates(romPath))
+        {
+            var normalized = NormalizeRomPath(candidate);
+            if (string.IsNullOrWhiteSpace(normalized))
+                continue;
+
+            if (HasCoverAtNormalizedPath(normalized))
+                return normalized;
+
+            if (File.Exists(GetMetadataCachePath(normalized)))
+                metadataOnly ??= normalized;
+        }
+
+        return metadataOnly ?? NormalizeRomPath(romPath);
+    }
+
+    public static bool RomPathsShareCache(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+
+        return string.Equals(
+            ResolveRomPathForCache(left),
+            ResolveRomPathForCache(right),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     public static string GetCoverCachePath(string? filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath))
@@ -37,8 +74,14 @@ public static class EmulationCoverCacheHelper
         return ApplicationPaths.GetCacheFile(GetCacheId(filePath) + ".meta");
     }
 
-    public static bool HasCover(string? filePath) =>
-        !string.IsNullOrWhiteSpace(filePath) && File.Exists(GetCoverCachePath(filePath));
+    public static bool HasCover(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+            return false;
+
+        var resolved = ResolveRomPathForCache(filePath);
+        return HasCoverAtNormalizedPath(resolved);
+    }
 
     public static bool IsCoverCachePath(string? path) =>
         !string.IsNullOrWhiteSpace(path) &&
@@ -46,12 +89,17 @@ public static class EmulationCoverCacheHelper
 
     public static byte[]? TryReadCoverBytes(string? filePath)
     {
-        if (!HasCover(filePath))
+        filePath = ResolveRomPathForCache(filePath);
+        if (string.IsNullOrWhiteSpace(filePath))
+            return null;
+
+        var coverPath = GetCoverCachePath(filePath);
+        if (!File.Exists(coverPath))
             return null;
 
         try
         {
-            return File.ReadAllBytes(GetCoverCachePath(filePath));
+            return File.ReadAllBytes(coverPath);
         }
         catch
         {
@@ -143,6 +191,7 @@ public static class EmulationCoverCacheHelper
     /// </summary>
     public static bool WriteCoverFromBytes(string? filePath, ReadOnlySpan<byte> sourceBytes)
     {
+        filePath = ResolveRomPathForCache(filePath);
         if (string.IsNullOrWhiteSpace(filePath) || sourceBytes.Length == 0)
             return false;
 
@@ -169,6 +218,8 @@ public static class EmulationCoverCacheHelper
         var metadata = BinaryMetadataHelper.LoadMetadata(metaPath);
         var cover = metadata?.Images?.FirstOrDefault(image =>
             image.Kind == TagImageKind.Cover && image.Data is { Length: > 0 });
+        cover ??= metadata?.Images?.FirstOrDefault(image =>
+            image.Kind == TagImageKind.BoxArt && image.Data is { Length: > 0 });
         if (cover == null)
             return false;
 
@@ -176,7 +227,7 @@ public static class EmulationCoverCacheHelper
             return false;
 
         metadata!.Images = metadata.Images
-            .Where(image => image.Kind != TagImageKind.Cover)
+            .Where(image => image.Kind is not (TagImageKind.Cover or TagImageKind.BoxArt))
             .ToList();
         metadata.CoverScanned = true;
         metadata.CoverLookupExhausted = false;
@@ -285,6 +336,10 @@ public static class EmulationCoverCacheHelper
         }
     }
 
+    private static bool HasCoverAtNormalizedPath(string? normalizedPath) =>
+        !string.IsNullOrWhiteSpace(normalizedPath) &&
+        File.Exists(GetCoverCachePath(normalizedPath));
+
     private static string NormalizeRomPath(string? romPath)
     {
         if (string.IsNullOrWhiteSpace(romPath))
@@ -297,6 +352,38 @@ public static class EmulationCoverCacheHelper
         catch
         {
             return romPath.Trim();
+        }
+    }
+
+    private static IEnumerable<string> EnumerateRomPathCandidates(string? romPath)
+    {
+        if (string.IsNullOrWhiteSpace(romPath))
+            yield break;
+
+        var pending = new List<string> { romPath.Trim() };
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        for (var i = 0; i < pending.Count; i++)
+        {
+            var current = pending[i];
+            if (!seen.Add(current))
+                continue;
+
+            yield return current;
+
+            if (current.Contains("][", StringComparison.Ordinal))
+            {
+                var spaced = current.Replace("][", "] [", StringComparison.Ordinal);
+                if (!seen.Contains(spaced))
+                    pending.Add(spaced);
+            }
+
+            if (current.Contains("] [", StringComparison.Ordinal))
+            {
+                var compact = current.Replace("] [", "][", StringComparison.Ordinal);
+                if (!seen.Contains(compact))
+                    pending.Add(compact);
+            }
         }
     }
 }

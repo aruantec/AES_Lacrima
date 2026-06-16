@@ -381,8 +381,13 @@ namespace AES_Lacrima.Services
         private void OpenMetadataEditorShell(MediaItem item, string? albumContext)
         {
             _currentSelectedMedia = item;
-            var romPath = NintendoDiscMetadataHelper.NormalizeRomPath(item.FileName);
-            FilePath = romPath ?? item.FileName;
+            _coverRemovedInEditor = false;
+            var romPath = MediaCoverPaths.UsesEmulationCoverSidecar(item.FileName)
+                ? EmulationCoverCacheHelper.ResolveRomPathForCache(item.FileName)
+                : NintendoDiscMetadataHelper.NormalizeRomPath(item.FileName) ?? item.FileName;
+            FilePath = romPath;
+            if (!string.IsNullOrWhiteSpace(romPath) && !string.Equals(item.FileName, romPath, StringComparison.Ordinal))
+                item.FileName = romPath;
             var nintendoAlbumTitle = NintendoDiscMetadataHelper.ResolveAlbumTitle(item.Album, albumContext);
             IsXbox360Metadata = string.Equals(item.Album, "Xbox 360", StringComparison.OrdinalIgnoreCase);
             Xbox360TitleId = null;
@@ -455,12 +460,32 @@ namespace AES_Lacrima.Services
             await TryApplyTitleFromPs4InstalledGameAsync(item, CancellationToken.None).ConfigureAwait(false);
             await TryApplyTitleFromPsxGameAsync(item, CancellationToken.None).ConfigureAwait(false);
 
-            var cachePath = GetMetadataCachePath(FilePath ?? item.FileName);
+            var romPathInput = FilePath ?? item.FileName;
+            var resolvedRomPath = MediaCoverPaths.UsesEmulationCoverSidecar(romPathInput)
+                ? EmulationCoverCacheHelper.ResolveRomPathForCache(romPathInput)
+                : romPathInput;
+            if (string.IsNullOrWhiteSpace(resolvedRomPath))
+                resolvedRomPath = romPathInput;
+
+            if (MediaCoverPaths.UsesEmulationCoverSidecar(resolvedRomPath))
+            {
+                FilePath = resolvedRomPath;
+                if (!string.Equals(item.FileName, resolvedRomPath, StringComparison.Ordinal))
+                    item.FileName = resolvedRomPath;
+            }
+
+            var cachePath = MediaCoverPaths.UsesEmulationCoverSidecar(resolvedRomPath)
+                ? EmulationCoverCacheHelper.GetMetadataCachePath(resolvedRomPath)
+                : GetMetadataCachePath(resolvedRomPath);
             var metadata = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath)).ConfigureAwait(false);
+            IReadOnlyList<TagImageModel> cachedImages = Array.Empty<TagImageModel>();
+            var preferCachedActiveCover = metadata?.UserEdited == true &&
+                metadata.Images?.Any(image =>
+                    image.Kind == TagImageKind.Cover && image.Data is { Length: > 0 }) == true;
 
             if (metadata != null)
             {
-                var cachedImages = CreateTagImageModelsFromMetadata(metadata, OnDeleteImage);
+                cachedImages = CreateTagImageModelsFromMetadata(metadata, OnDeleteImage);
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     if (string.IsNullOrWhiteSpace(Xbox360TitleId))
@@ -548,6 +573,9 @@ namespace AES_Lacrima.Services
 
                     foreach (var model in cachedImages)
                         Images.Add(model);
+
+                    AttachEditorImageHandlers(cachedImages);
+                    NotifyFrontCoverSelectionChanged();
                 });
 
                 foreach (var model in cachedImages)
@@ -555,6 +583,17 @@ namespace AES_Lacrima.Services
                     if (model.Kind == TagImageKind.LiveWallpaper)
                         await LoadImageAsync(model).ConfigureAwait(false);
                 }
+            }
+
+            if (!preferCachedActiveCover)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                    TryAddEmulationCoverSidecarToImages(resolvedRomPath));
+            }
+            else
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                    TryPersistActiveCoverSidecar(resolvedRomPath));
             }
 
             if (Images.Count == 0 && item.CoverBitmap != null)
@@ -566,7 +605,7 @@ namespace AES_Lacrima.Services
                         using var ms = new MemoryStream();
                         item.CoverBitmap!.Save(ms);
                         var content = ms.ToArray();
-                        Images.Add(new TagImageModel(TagImageKind.Cover, content, "image/png", "Cover from album item")
+                        AddFrontCoverCandidateImage(new TagImageModel(TagImageKind.Cover, content, "image/png", BuildFrontCoverImageDescription("Cover from album item"))
                         {
                             OnDeleteImage = OnDeleteImage
                         });
@@ -714,6 +753,46 @@ namespace AES_Lacrima.Services
             {
                 await LoadSwitchMetadataAsync(item).ConfigureAwait(false);
             }
+        }
+
+        private void TryAddEmulationCoverSidecarToImages(string? romPath)
+        {
+            var resolvedPath = EmulationCoverCacheHelper.ResolveRomPathForCache(romPath ?? FilePath ?? string.Empty);
+            if (string.IsNullOrWhiteSpace(resolvedPath) || !MediaCoverPaths.UsesEmulationCoverSidecar(resolvedPath))
+                return;
+
+            var bytes = EmulationCoverCacheHelper.TryReadCoverBytes(resolvedPath);
+            if (bytes is not { Length: > 0 })
+                return;
+
+            foreach (var staleCover in Images.Where(img => img.Kind == TagImageKind.Cover).ToList())
+            {
+                staleCover.Kind = TagImageKind.BoxArt;
+                staleCover.Description = BuildFrontCoverImageDescription("Cover alternate");
+            }
+
+            AddFrontCoverCandidateImage(new TagImageModel(
+                TagImageKind.Cover,
+                bytes,
+                GuessMimeTypeFromBytes(bytes),
+                BuildFrontCoverImageDescription("Active cover"))
+            {
+                OnDeleteImage = OnDeleteImage
+            });
+        }
+
+        private void TryPersistActiveCoverSidecar(string? romPath)
+        {
+            if (string.IsNullOrWhiteSpace(romPath) || !MediaCoverPaths.UsesEmulationCoverSidecar(romPath))
+                return;
+
+            var activeCover = Images.FirstOrDefault(img =>
+                img.Kind == TagImageKind.Cover && img.Data is { Length: > 0 });
+            if (activeCover == null)
+                return;
+
+            if (!EmulationCoverCacheHelper.WriteCoverFromBytes(romPath, activeCover.Data.ToArray()))
+                SLog.Warn($"Failed to repair emulation cover sidecar for '{romPath}'.");
         }
     }
 }

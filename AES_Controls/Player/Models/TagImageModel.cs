@@ -146,7 +146,19 @@ public partial class TagImageModel : ObservableObject, IDisposable
         _cachedImage = null;
         _cachedPreview?.Dispose();
         _cachedPreview = null;
+        OnPropertyChanged(nameof(IsActiveFrontCover));
+        OnPropertyChanged(nameof(CanPromoteToFrontCover));
     }
+
+    /// <summary>
+    /// True when this image is the active front cover shown in emulation.
+    /// </summary>
+    public bool IsActiveFrontCover => Kind == TagImageKind.Cover;
+
+    /// <summary>
+    /// True when this alternate can be promoted to the active front cover.
+    /// </summary>
+    public bool CanPromoteToFrontCover => Kind == TagImageKind.BoxArt;
 
     /// <summary>
     /// Gets or sets the MIME type (e.g., image/jpeg).

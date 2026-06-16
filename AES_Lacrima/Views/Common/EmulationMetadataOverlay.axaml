@@ -263,6 +263,24 @@
                                                 <Image Source="{Binding PreviewImage}"
                                                        Stretch="UniformToFill"
                                                        Height="160" />
+                                                <TextBlock Text="{Binding Description}"
+                                                           Foreground="#B0B0B0"
+                                                           FontSize="13"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           MaxLines="2"
+                                                           TextWrapping="Wrap"
+                                                           IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                <TextBlock Text="Active cover"
+                                                           Foreground="#8FE3A1"
+                                                           FontSize="13"
+                                                           FontWeight="SemiBold"
+                                                           IsVisible="{Binding IsActiveFrontCover}" />
+                                                <Button Content="Use as Cover"
+                                                        Command="{Binding #Root.DataContext.SetActiveFrontCoverCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        HorizontalAlignment="Stretch"
+                                                        Padding="12,6"
+                                                        IsVisible="{Binding CanPromoteToFrontCover}" />
                                                 <Button Content="Remove"
                                                         Command="{Binding DeleteImageCommand}"
                                                         HorizontalAlignment="Right"

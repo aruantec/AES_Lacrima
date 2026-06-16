@@ -1783,6 +1783,47 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(AlbumCoverDisplayRevision));
         }
 
+        private void RefreshAlbumCoverAfterMetadataSave(string? savedPath)
+        {
+            if (string.IsNullOrWhiteSpace(savedPath) || MediaCoverPaths.UsesMetadataImageCache(savedPath))
+                return;
+
+            var romPath = EmulationCoverCacheHelper.ResolveRomPathForCache(savedPath);
+            if (string.IsNullOrWhiteSpace(romPath))
+                return;
+
+            var album = GetBrowseAlbum();
+            if (album is not { Children.Count: > 0 })
+                return;
+
+            _ = Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var target = album.Children.FirstOrDefault(item =>
+                    EmulationCoverCacheHelper.RomPathsShareCache(item.FileName, romPath));
+                if (target == null)
+                    return;
+
+                target.CoverBitmap = null;
+                if (EmulationCoverCacheHelper.HasCover(romPath))
+                {
+                    target.LocalCoverPath = EmulationCoverCacheHelper.GetCoverCachePath(romPath);
+                    target.CoverFound = true;
+
+                    var bytes = EmulationCoverCacheHelper.TryReadCoverBytes(romPath);
+                    if (bytes is { Length: > 0 })
+                    {
+                        using var ms = new MemoryStream(bytes);
+                        target.CoverBitmap = Bitmap.DecodeToWidth(ms, 384);
+                    }
+                }
+
+                if (!string.Equals(target.FileName, romPath, StringComparison.Ordinal))
+                    target.FileName = romPath;
+
+                NotifyAlbumCoverDisplayChanged(album);
+            }, DispatcherPriority.Normal);
+        }
+
         private MediaItem CreateRomItem(string filePath, FolderMediaItem album)
         {
             var title = TryReadCachedMetadataTitle(filePath);

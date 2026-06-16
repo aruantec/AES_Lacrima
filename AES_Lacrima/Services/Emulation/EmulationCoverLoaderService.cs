@@ -111,7 +111,20 @@ public sealed partial class EmulationCoverLoaderService : ViewModelBase
         if (IsCoverAppliedToItem(item))
             return true;
 
-        var romPath = item.FileName!;
+        var romPath = EmulationCoverCacheHelper.ResolveRomPathForCache(item.FileName);
+        if (!string.Equals(item.FileName, romPath, StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                await Dispatcher.UIThread.InvokeAsync(
+                    () => item.FileName = romPath,
+                    DispatcherPriority.Normal);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to normalize emulation ROM path for '{item.FileName}'.", ex);
+            }
+        }
 
         if (EmulationCoverCacheHelper.TryEnsureCoverSidecar(romPath))
         {
