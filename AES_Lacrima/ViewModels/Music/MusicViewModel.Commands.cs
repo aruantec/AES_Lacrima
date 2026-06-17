@@ -507,6 +507,7 @@ namespace AES_Lacrima.ViewModels
                 }
                 else
                 {
+                    ClaimExclusivePlaybackSession();
                     AudioPlayer.Play();
                 }
             }

@@ -56,8 +56,8 @@
                                     ShaderSource="{Binding SettingsViewModel.SelectedShadertoy.Path}"
                                     IsRenderingPaused="{Binding IsShaderToyRenderingPaused}"
                                     IsVisible="{Binding SettingsViewModel.ShowShaderToy}"
-                                    Spectrum="{Binding Spectrum}"
-                                    CoverBitmap="{Binding MusicViewModel.AudioPlayer.CurrentMediaItem.CoverBitmap}"
+                                    Spectrum="{Binding PlaybackCoordinator.ActivePlayer.Spectrum}"
+                                    CoverBitmap="{Binding PlaybackCoordinator.ActiveCoverBitmap}"
                                     SpectrumGradient="{Binding SettingsViewModel.SpectrumGradient}">
                 </gl:GlShaderToyControl>
                 

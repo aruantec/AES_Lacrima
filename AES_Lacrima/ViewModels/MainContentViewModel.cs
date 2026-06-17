@@ -108,14 +108,62 @@ namespace AES_Lacrima.ViewModels
 
         [AutoResolve]
         [ObservableProperty]
+        private VideoViewModel? _videoViewModel;
+
+        [AutoResolve]
+        private MediaPlaybackCoordinator? _mediaPlaybackCoordinator;
+
+        [AutoResolve]
+        [ObservableProperty]
         private SettingsViewModel? _settingsViewModel;
 
         [AutoResolve]
         private MainWindowViewModel? _mainWindowViewModel;
 
+        /// <summary>
+        /// The music or video view model that currently owns playback for the main player widget.
+        /// </summary>
+        public MusicViewModel? PlaybackViewModel => _mediaPlaybackCoordinator?.PlaybackViewModel;
+
+        public MediaPlaybackCoordinator? PlaybackCoordinator => _mediaPlaybackCoordinator;
+
         public MainContentViewModel()
         {
             PropertyChanged += OnPropertyChanged;
+        }
+
+        partial void OnMusicViewModelChanged(MusicViewModel? value) => SubscribePlaybackCoordinator();
+
+        partial void OnVideoViewModelChanged(VideoViewModel? value) => SubscribePlaybackCoordinator();
+
+        private bool _playbackCoordinatorSubscribed;
+
+        private void SubscribePlaybackCoordinator()
+        {
+            if (_mediaPlaybackCoordinator == null)
+                return;
+
+            if (!_playbackCoordinatorSubscribed)
+            {
+                _mediaPlaybackCoordinator.PropertyChanged += OnPlaybackCoordinatorPropertyChanged;
+                _playbackCoordinatorSubscribed = true;
+            }
+
+            OnPropertyChanged(nameof(PlaybackViewModel));
+            OnPropertyChanged(nameof(PlaybackCoordinator));
+        }
+
+        private void OnPlaybackCoordinatorPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(MediaPlaybackCoordinator.PlaybackViewModel)
+                or nameof(MediaPlaybackCoordinator.ActivePlayer)
+                or nameof(MediaPlaybackCoordinator.ActiveCoverBitmap)
+                or nameof(MediaPlaybackCoordinator.ActiveSelectedMediaItem)
+                or nameof(MediaPlaybackCoordinator.ActiveViewModel))
+            {
+                OnPropertyChanged(nameof(PlaybackViewModel));
+                OnPropertyChanged(nameof(PlaybackCoordinator));
+            }
         }
 
         private void OnPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -170,6 +218,7 @@ namespace AES_Lacrima.ViewModels
                 IsActive = SettingsViewModel.ShowShaderToy;
             //Load settings
             LoadSettings();
+            SubscribePlaybackCoordinator();
         }
 
         public override void OnViewFullyVisible()

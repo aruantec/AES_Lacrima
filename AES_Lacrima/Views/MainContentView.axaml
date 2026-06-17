@@ -183,16 +183,16 @@
                 <Interaction.Behaviors>
                     <behaviors:PreventFocusOnRightClickBehavior />
                 </Interaction.Behaviors>
-                <composition:PlayerCompositionControl CircleBackgroundBitmap="{Binding MusicViewModel.AudioPlayer.CurrentMediaItem.CoverBitmap}"
+                <composition:PlayerCompositionControl CircleBackgroundBitmap="{Binding PlaybackCoordinator.ActiveCoverBitmap}"
                                                       CircleBackgroundOpacity="0.9"
                                                       Opacity="{Binding ViewTransitionOpacity}"
-                                                      Position="{Binding MusicViewModel.AudioPlayer.Position, Mode=TwoWay}"
-                                                      Duration="{Binding MusicViewModel.AudioPlayer.Duration}"
-                                                      SetPositionCommand="{Binding MusicViewModel.SetPositionCommand}"
+                                                      Position="{Binding PlaybackCoordinator.ActivePlayer.Position, Mode=TwoWay}"
+                                                      Duration="{Binding PlaybackCoordinator.ActivePlayer.Duration}"
+                                                      SetPositionCommand="{Binding PlaybackViewModel.SetPositionCommand}"
                                                       ShowTime="False"
                                                       ShowPlayPause="False"
-                                                      IsPlaying="{Binding MusicViewModel.AudioPlayer.IsPlaying}"
-                                                      TogglePlayCommand="{Binding MusicViewModel.TogglePlayCommand}"
+                                                      IsPlaying="{Binding PlaybackCoordinator.ActivePlayer.IsPlaying}"
+                                                      TogglePlayCommand="{Binding PlaybackViewModel.TogglePlayCommand}"
                                                       PlayPauseOpacity="0.8"
                                                       Rotate="True"
                                                       ShowDiscCenter="True"/>
@@ -216,32 +216,32 @@
 				<!--Title, artist and album-->
                     <StackPanel Margin="22,0,20,0" VerticalAlignment="Center" HorizontalAlignment="Center">
     
-                        <TextBlock Text="{Binding MusicViewModel.SelectedMediaItem.Title}"
-                                   IsVisible="{Binding MusicViewModel.SelectedMediaItem.Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                        <TextBlock Text="{Binding PlaybackCoordinator.ActiveSelectedMediaItem.Title}"
+                                   IsVisible="{Binding PlaybackCoordinator.ActiveSelectedMediaItem.Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                    FontSize="32" FontWeight="Bold" Foreground="White" TextWrapping="Wrap"
                                    HorizontalAlignment="Center" TextAlignment="Left"
                                    MaxWidth="{Binding Bounds.Width, ElementName=PlayerInfo}"/>
 
-                        <TextBlock Text="{Binding MusicViewModel.SelectedMediaItem.Artist}"
-                                   IsVisible="{Binding MusicViewModel.SelectedMediaItem.Artist, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                        <TextBlock Text="{Binding PlaybackCoordinator.ActiveSelectedMediaItem.Artist}"
+                                   IsVisible="{Binding PlaybackCoordinator.ActiveSelectedMediaItem.Artist, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                    FontSize="24" Foreground="White" Margin="2,0,0,0" TextWrapping="Wrap"
                                    HorizontalAlignment="Center" TextAlignment="Left"
                                    MaxWidth="{Binding Bounds.Width, ElementName=PlayerInfo}"/>
 
-                        <TextBlock Text="{Binding MusicViewModel.SelectedMediaItem.Album}"
-                                   IsVisible="{Binding MusicViewModel.SelectedMediaItem.Album, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                        <TextBlock Text="{Binding PlaybackCoordinator.ActiveSelectedMediaItem.Album}"
+                                   IsVisible="{Binding PlaybackCoordinator.ActiveSelectedMediaItem.Album, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                    FontSize="24" Foreground="DarkGray" TextWrapping="Wrap"
                                    HorizontalAlignment="Center" TextAlignment="Left"
                                    MaxWidth="{Binding Bounds.Width, ElementName=PlayerInfo}"/>
 
-                        <TextBlock IsVisible="{Binding MusicViewModel.AudioPlayer.Duration, Converter={x:Static ObjectConverters.IsNotNull}}"
+                        <TextBlock IsVisible="{Binding PlaybackCoordinator.ActivePlayer.Duration, Converter={x:Static ObjectConverters.IsNotNull}}"
                                    FontSize="40" Foreground="White" Margin="2,10,0,0" TextWrapping="Wrap"
                                    HorizontalAlignment="Center" TextAlignment="Left"
                                    MaxWidth="{Binding Bounds.Width, ElementName=PlayerInfo}">
                             <TextBlock.Text>
                                 <MultiBinding StringFormat="{}{0} / {1}">
-                                    <Binding Path="MusicViewModel.AudioPlayer.Position" Converter="{StaticResource TimeSpanConverter}" />
-                                    <Binding Path="MusicViewModel.AudioPlayer.Duration" Converter="{StaticResource TimeSpanConverter}" />
+                                    <Binding Path="PlaybackCoordinator.ActivePlayer.Position" Converter="{StaticResource TimeSpanConverter}" />
+                                    <Binding Path="PlaybackCoordinator.ActivePlayer.Duration" Converter="{StaticResource TimeSpanConverter}" />
                                 </MultiBinding>
                             </TextBlock.Text>
                         </TextBlock>

@@ -125,6 +125,19 @@ namespace AES_Lacrima.ViewModels
         private MusicViewModel? _musicViewModel;
 
         [AutoResolve]
+        private VideoViewModel? _videoViewModel;
+
+        [AutoResolve]
+        private MediaPlaybackCoordinator? _mediaPlaybackCoordinator;
+
+        /// <summary>
+        /// The music or video view model that currently owns playback for shared visuals.
+        /// </summary>
+        public MusicViewModel? PlaybackViewModel => _mediaPlaybackCoordinator?.PlaybackViewModel;
+
+        public MediaPlaybackCoordinator? PlaybackCoordinator => _mediaPlaybackCoordinator;
+
+        [AutoResolve]
         [ObservableProperty]
         private EmulationViewModel? _emulationViewModel;
 
@@ -193,6 +206,39 @@ namespace AES_Lacrima.ViewModels
             }
 
             WarmedViewModels = BuildWarmedViewModels();
+            SubscribePlaybackCoordinator();
+        }
+
+        partial void OnMusicViewModelChanged(MusicViewModel? value) => SubscribePlaybackCoordinator();
+
+        private bool _playbackCoordinatorSubscribed;
+
+        private void SubscribePlaybackCoordinator()
+        {
+            if (_mediaPlaybackCoordinator == null)
+                return;
+
+            if (!_playbackCoordinatorSubscribed)
+            {
+                _mediaPlaybackCoordinator.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName is nameof(MediaPlaybackCoordinator.PlaybackViewModel)
+                        or nameof(MediaPlaybackCoordinator.ActivePlayer)
+                        or nameof(MediaPlaybackCoordinator.ActiveCoverBitmap)
+                        or nameof(MediaPlaybackCoordinator.ActiveSelectedMediaItem)
+                        or nameof(MediaPlaybackCoordinator.ActiveViewModel))
+                    {
+                        OnPropertyChanged(nameof(PlaybackViewModel));
+                        OnPropertyChanged(nameof(PlaybackCoordinator));
+                        Spectrum = PlaybackViewModel?.AudioPlayer?.Spectrum;
+                    }
+                };
+                _playbackCoordinatorSubscribed = true;
+            }
+
+            OnPropertyChanged(nameof(PlaybackViewModel));
+            OnPropertyChanged(nameof(PlaybackCoordinator));
+            Spectrum = PlaybackViewModel?.AudioPlayer?.Spectrum;
         }
 
         private List<IViewModelBase> BuildWarmedViewModels()

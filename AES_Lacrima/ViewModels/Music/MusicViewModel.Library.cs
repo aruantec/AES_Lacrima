@@ -263,6 +263,8 @@ namespace AES_Lacrima.ViewModels
 
             if (IsVideoMode && isRequestedTrackCurrent)
             {
+                ClaimExclusivePlaybackSession();
+
                 if (!PreferHighQualityOnlineStream)
                 {
                     IsVideoViewportDismissed = false;
@@ -285,6 +287,9 @@ namespace AES_Lacrima.ViewModels
             IsTrackLoadPending = true;
             EnsureMediaItemCoverIsLoaded(item);
 
+            if (IsOnlineMediaUrl(item.FileName))
+                _ = TryLoadYouTubeThumbnailFastAsync(item);
+
             if (!await TryPlayMediaItemAsync(item).ConfigureAwait(false))
             {
                 await SkipInvalidItemsAsync(item).ConfigureAwait(false);
@@ -295,6 +300,8 @@ namespace AES_Lacrima.ViewModels
         {
             if (AudioPlayer == null || item.FileName == null)
                 return false;
+
+            ClaimExclusivePlaybackSession();
 
             if (item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase) ||
                 item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase) ||

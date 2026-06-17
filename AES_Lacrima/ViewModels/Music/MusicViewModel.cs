@@ -319,6 +319,11 @@ namespace AES_Lacrima.ViewModels
             return IntPtr.Zero;
         }
 
+        private void ClaimExclusivePlaybackSession()
+        {
+            DiLocator.ResolveViewModel<MediaPlaybackCoordinator>()?.ClaimPlaybackSession(this);
+        }
+
         private void AudioPlayer_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(AudioPlayer.RepeatMode))
