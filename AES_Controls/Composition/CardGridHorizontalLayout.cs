@@ -50,22 +50,52 @@ internal static class CardGridHorizontalLayout
 
         float spacing = Math.Max(4f, cardSpacing);
         float availH = Math.Max(120f, viewportHeight - topPadding - BottomPadding);
+        float availW = Math.Max(80f, viewportWidth - PaddingLeft - PaddingRight);
+        float minCardW = BaseCardWidth * cardScale * 0.75f;
         float targetCardH = BaseCardHeight * cardScale;
         float minCardH = targetCardH * MinCardHeightRatio;
 
-        int rows = 1;
+        int maxRows = 1;
         for (int candidate = 1; candidate <= 24; candidate++)
         {
             float candidateH = (availH - (candidate - 1) * spacing) / candidate;
             if (candidateH >= minCardH)
-                rows = candidate;
+                maxRows = candidate;
             else
                 break;
         }
 
-        float cardH = (availH - (rows - 1) * spacing) / rows;
-        float cardW = cardH * (BaseCardWidth / BaseCardHeight);
-        int columns = Math.Max(1, (itemCount + rows - 1) / rows);
+        // Fill left-to-right by row. Wrap only when another card cannot fit at min width.
+        int maxColsInViewport = Math.Max(1, (int)((availW + spacing) / (minCardW + spacing)));
+        int rows = itemCount <= 0
+            ? 1
+            : itemCount <= maxColsInViewport
+                ? 1
+                : Math.Clamp((itemCount + maxColsInViewport - 1) / maxColsInViewport, 1, Math.Min(maxRows, itemCount));
+
+        int columns = itemCount <= 0 ? 1 : Math.Max(1, (itemCount + rows - 1) / rows);
+
+        float maxCardH = Math.Min(availH, targetCardH);
+        float maxCardW = maxCardH * (BaseCardWidth / BaseCardHeight);
+
+        float cardW;
+        float cardH;
+        if (rows == 1 && itemCount > 0)
+        {
+            float distributedW = (availW - (columns - 1) * spacing) / columns;
+            cardW = Math.Min(maxCardW, distributedW);
+            cardH = cardW * (BaseCardHeight / BaseCardWidth);
+            if (cardH > maxCardH)
+            {
+                cardH = maxCardH;
+                cardW = maxCardW;
+            }
+        }
+        else
+        {
+            cardH = Math.Min(maxCardH, (availH - (rows - 1) * spacing) / rows);
+            cardW = cardH * (BaseCardWidth / BaseCardHeight);
+        }
         float pitch = cardW + spacing;
         float contentWidth = PaddingLeft + PaddingRight + columns * cardW + Math.Max(0, columns - 1) * spacing;
         float maxScroll = Math.Max(0f, contentWidth - viewportWidth);
