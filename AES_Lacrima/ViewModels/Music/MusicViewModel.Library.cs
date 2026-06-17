@@ -270,13 +270,12 @@ namespace AES_Lacrima.ViewModels
                     IsTrackLoadPending = false;
                     return;
                 }
-
-                item.OnlineUrls = null;
             }
-            else if (IsVideoMode && item.OnlineUrls != null)
+
+            if (IsVideoMode && IsOnlineMediaUrl(item.FileName))
             {
-                // Force re-resolve when switching to a different online video.
                 item.OnlineUrls = null;
+                item.MuxedStreamFallbackUrl = null;
             }
 
             if (IsVideoMode)
@@ -633,5 +632,10 @@ namespace AES_Lacrima.ViewModels
         }
 
         private int GetAlbumItemCount() => AlbumList.Sum(folder => folder.Children?.Count ?? 0);
+
+        private static bool IsOnlineMediaUrl(string fileName) =>
+            fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains("http", StringComparison.OrdinalIgnoreCase)
+            || MetadataPathHelper.IsOnlineMediaPath(fileName);
     }
 }

@@ -1471,14 +1471,20 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             HorizontalScrollEnabled);
     }
 
+    private IList? GetBoundItemsList()
+    {
+        var source = _subscribedItemsSource ?? ItemsSource;
+        return source as IList;
+    }
+
     private void MoveItem(int from, int to)
     {
-        if (ItemsSource is IList list && from >= 0 && to >= 0 && from < list.Count && to < list.Count)
-        {
-            var item = list[from];
-            list.RemoveAt(from);
-            list.Insert(to, item);
-        }
+        if (GetBoundItemsList() is not IList list || from < 0 || to < 0 || from >= list.Count || to >= list.Count)
+            return;
+
+        var item = list[from]!;
+        list.RemoveAt(from);
+        list.Insert(to, item);
     }
 
     private void MoveSnapshotItem(int from, int to)

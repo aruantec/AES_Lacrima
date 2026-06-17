@@ -18,6 +18,7 @@ public partial class MediaItem : ObservableObject, IDisposable
     private Bitmap? _wallpaperBitmap;
     private Bitmap? _screenshotBitmap;
     private (string, string)? _onlineUrls;
+    private string? _muxedStreamFallbackUrl;
 
     // Persisted metadata
     private string? _fileName;
@@ -181,6 +182,14 @@ public partial class MediaItem : ObservableObject, IDisposable
     {
         get => _onlineUrls;
         set => SetProperty(ref _onlineUrls, value);
+    }
+
+    [XmlIgnore]
+    [JsonIgnore]
+    public string? MuxedStreamFallbackUrl
+    {
+        get => _muxedStreamFallbackUrl;
+        set => SetProperty(ref _muxedStreamFallbackUrl, value);
     }
 
     [XmlIgnore]

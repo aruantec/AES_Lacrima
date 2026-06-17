@@ -499,6 +499,84 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
            && !_disposed
            && version == Volatile.Read(ref _playbackLoadVersion);
 
+    private async Task ResetExternalPlaybackAudioAsync(int loadVersion, CancellationToken loadToken)
+    {
+        if (!IsPlaybackLoadCurrent(loadVersion, loadToken))
+            return;
+
+        try
+        {
+            await RunCommandAsync(["change-list", "audio-files", "clr", ""], loadToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // Ignore if no external audio-files were configured.
+        }
+
+        for (var attempt = 0; attempt < 8 && IsPlaybackLoadCurrent(loadVersion, loadToken); attempt++)
+        {
+            try
+            {
+                await RunCommandAsync(["audio-remove", "current"], loadToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                break;
+            }
+        }
+    }
+
+    private bool HasActiveAudioTrack()
+    {
+        try
+        {
+            return GetDoubleProperty("aid") >= 1;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<bool> TryAttachExternalAudioAsync(
+        string externalAudioUrl,
+        int loadVersion,
+        CancellationToken loadToken)
+    {
+        var audioTarget = ToMpvLoadTarget(externalAudioUrl);
+        await Task.Delay(100, loadToken).ConfigureAwait(false);
+
+        for (var attempt = 1; attempt <= 5 && IsPlaybackLoadCurrent(loadVersion, loadToken); attempt++)
+        {
+            try
+            {
+                await RunCommandAsync(["audio-add", audioTarget, "select"], loadToken).ConfigureAwait(false);
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception audioEx)
+            {
+                if (attempt == 5)
+                    Log.Warn("audio-add failed for external audio stream", audioEx);
+                else
+                    await Task.Delay(150, loadToken).ConfigureAwait(false);
+            }
+        }
+
+        return false;
+    }
+
         private void ApplyNetworkPlaybackProfile(bool isRemote)
         {
         var demuxerMaxBytes = isRemote ? Math.Max(CacheSize, 128) : CacheSize;
@@ -1626,37 +1704,41 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         {
             try
             {
-                await RunCommandAsync(["loadfile", mpvLoadTarget], loadToken).ConfigureAwait(false);
+                var willUseExternalAudio = video && !string.IsNullOrWhiteSpace(externalAudioUrl);
+                await ResetExternalPlaybackAudioAsync(loadVersion, loadToken).ConfigureAwait(false);
                 if (!IsPlaybackLoadCurrent(loadVersion, loadToken))
                     return;
 
-                if (video && !string.IsNullOrWhiteSpace(externalAudioUrl))
+                if (willUseExternalAudio)
                 {
-                    var audioTarget = ToMpvLoadTarget(externalAudioUrl);
-                    var attached = false;
+                    var audioTarget = ToMpvLoadTarget(externalAudioUrl!);
+                    await RunCommandAsync(["change-list", "audio-files", "append", audioTarget], loadToken)
+                        .ConfigureAwait(false);
+                }
 
-                    for (int attempt = 1; attempt <= 5 && !attached && IsPlaybackLoadCurrent(loadVersion, loadToken); attempt++)
+                await RunCommandAsync(["loadfile", mpvLoadTarget, "replace"], loadToken).ConfigureAwait(false);
+                if (!IsPlaybackLoadCurrent(loadVersion, loadToken))
+                    return;
+
+                if (willUseExternalAudio)
+                {
+                    var hasAudio = InvokeOnMpvThread(HasActiveAudioTrack);
+                    if (!hasAudio)
                     {
-                        try
-                        {
-                            await RunCommandAsync(["audio-add", audioTarget, "select"], loadToken).ConfigureAwait(false);
-                            attached = true;
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            return;
-                        }
-                        catch (Exception audioEx)
-                        {
-                            if (attempt == 5)
-                                Log.Warn("audio-add failed for external audio stream", audioEx);
-                            else
-                                await Task.Delay(150, loadToken).ConfigureAwait(false);
-                        }
+                        var attached = await TryAttachExternalAudioAsync(externalAudioUrl!, loadVersion, loadToken)
+                            .ConfigureAwait(false);
+                        hasAudio = attached || InvokeOnMpvThread(HasActiveAudioTrack);
                     }
 
-                    if (IsPlaybackLoadCurrent(loadVersion, loadToken))
-                        InvokeOnMpvThread(() => { SetProperty("aid", "auto"); return true; });
+                    if (!hasAudio
+                        && !string.IsNullOrWhiteSpace(item.MuxedStreamFallbackUrl)
+                        && IsPlaybackLoadCurrent(loadVersion, loadToken))
+                    {
+                        Log.Warn($"Falling back to muxed stream for '{item.FileName ?? fileToPlay}'.");
+                        await ResetExternalPlaybackAudioAsync(loadVersion, loadToken).ConfigureAwait(false);
+                        var muxedTarget = ToMpvLoadTarget(item.MuxedStreamFallbackUrl);
+                        await RunCommandAsync(["loadfile", muxedTarget, "replace"], loadToken).ConfigureAwait(false);
+                    }
                 }
 
                 if (!IsPlaybackLoadCurrent(loadVersion, loadToken))
@@ -2414,7 +2496,19 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         CancelPendingPlaybackLoad();
         if (!_disposed)
         {
-            PostToMpvThread(() => _ = RunCommandAsync(new[] { "stop" }));
+            PostToMpvThread(() =>
+            {
+                try { RunCommand(["change-list", "audio-files", "clr", ""]); }
+                catch { /* ignore */ }
+
+                for (var attempt = 0; attempt < 8; attempt++)
+                {
+                    try { RunCommand(["audio-remove", "current"]); }
+                    catch { break; }
+                }
+
+                _ = RunCommandAsync(new[] { "stop" });
+            });
         }
 
         // make sure the spectrum analyzer is halted when playback is stopped so

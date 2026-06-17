@@ -10,7 +10,7 @@ namespace AES_Lacrima.Services
 {
     public interface IMediaUrlService;
 
-    internal sealed record ResolvedMediaSource(string VideoUrl, string AudioUrl, double? AspectRatio)
+    internal sealed record ResolvedMediaSource(string VideoUrl, string AudioUrl, double? AspectRatio, string? MuxedFallbackUrl = null)
     {
         public (string, string) OnlineUrls => (VideoUrl, AudioUrl);
 
@@ -43,6 +43,16 @@ namespace AES_Lacrima.Services
             }
 
             item.OnlineUrls = resolvedSource.OnlineUrls;
+            item.MuxedStreamFallbackUrl = resolvedSource.MuxedFallbackUrl;
+            if (resolvedSource.UsesSeparateStreams
+                && string.IsNullOrWhiteSpace(item.MuxedStreamFallbackUrl)
+                && item.FileName != null)
+            {
+                var currentUrl = YouTubeThumbnail.GetCleanVideoLink(item.FileName);
+                var muxed = await OnlineStreamSelector.ResolveStandardMuxedStreamAsync(currentUrl, item.FileName)
+                    .ConfigureAwait(false);
+                item.MuxedStreamFallbackUrl = muxed?.VideoUrl;
+            }
 
             var videoItag = OnlineStreamUrlHelper.TryGetItag(resolvedSource.VideoUrl);
             var audioItag = OnlineStreamUrlHelper.TryGetItag(resolvedSource.AudioUrl);

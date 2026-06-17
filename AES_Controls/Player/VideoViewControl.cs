@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
+using AES_Controls;
 using AES_Mpv.Player;
 using System.Diagnostics;
 using System.Globalization;
@@ -24,7 +25,11 @@ public class VideoViewControl : OpenGlControlBase
 
     private bool _initialized;
     private bool _hasRenderedOnceSincePause;
+    private bool _renderSizeLocked;
+    private int _lockedRenderWidth = MpvOffscreenPresenter.DefaultRenderWidth;
+    private int _lockedRenderHeight = MpvOffscreenPresenter.DefaultRenderHeight;
     private GlInterface? _glInterface;
+    private readonly MpvOffscreenPresenter _presenter = new();
     private double _videoAspectRatio;
     private double _expandedViewportWidth;
     private long _viewportExpansionHoldUntilTicks;
@@ -132,6 +137,9 @@ public class VideoViewControl : OpenGlControlBase
 
     public VideoViewControl()
     {
+        ScalableDecorator.SetExcludeFromScale(this, true);
+        ScalableDecorator.SetExcludeFromScaleCompensation(this, false);
+        ClipToBounds = true;
     }
 
     private static double GetEffectiveHeartbeatFps(double heartbeatFps)
@@ -145,6 +153,30 @@ public class VideoViewControl : OpenGlControlBase
         _videoAspectRatio = 0;
         _viewportExpansionHoldUntilTicks = 0;
         UpdateExpandedViewportWidth();
+    }
+
+    private void LockRenderSizeIfNeeded(double renderScale)
+    {
+        if (_renderSizeLocked)
+            return;
+
+        int width = MpvOffscreenPresenter.DefaultRenderWidth;
+        int height = MpvOffscreenPresenter.DefaultRenderHeight;
+
+        if (ReferenceViewportWidth > 0 && ReferenceViewportHeight > 0)
+        {
+            width = Math.Clamp((int)Math.Round(ReferenceViewportWidth * renderScale), 320, width);
+            height = Math.Clamp((int)Math.Round(ReferenceViewportHeight * renderScale), 180, height);
+        }
+        else if (Bounds.Width > 0 && Bounds.Height > 0)
+        {
+            width = Math.Clamp((int)Math.Round(Bounds.Width * renderScale), 320, width);
+            height = Math.Clamp((int)Math.Round(Bounds.Height * renderScale), 180, height);
+        }
+
+        _lockedRenderWidth = width;
+        _lockedRenderHeight = height;
+        _renderSizeLocked = true;
     }
 
     private void HoldViewportExpansion()
@@ -336,20 +368,24 @@ public class VideoViewControl : OpenGlControlBase
         if (!_initialized) InitializeMpvInternal();
         if (Player == null || !_initialized) return;
 
-        var scale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-        var width = (int)(Bounds.Width * scale);
-        var height = (int)(Bounds.Height * scale);
+        var renderScale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+        var viewWidth = (int)Math.Max(1, Bounds.Width * renderScale);
+        var viewHeight = (int)Math.Max(1, Bounds.Height * renderScale);
 
-        if (width > 0 && height > 0)
-        {
-            gl.BindFramebuffer(0x8D40, fb);
-            gl.Viewport(0, 0, width, height);
-            Player.RenderToOpenGl(width, height, fb, flipY: 1);
-            RefreshVideoAspectRatio();
-            UpdateExpandedViewportWidth();
+        if (viewWidth <= 0 || viewHeight <= 0)
+            return;
 
-            if (IsRenderingPaused) _hasRenderedOnceSincePause = true;
-        }
+        LockRenderSizeIfNeeded(renderScale);
+        _presenter.EnsureInitialized(gl, _lockedRenderWidth, _lockedRenderHeight);
+
+        _presenter.RenderMpvToOffscreen(gl, (renderWidth, renderHeight, offscreenFb, internalFormat) =>
+            Player.RenderToOpenGl(renderWidth, renderHeight, offscreenFb, internalFormat, flipY: 0));
+
+        _presenter.BlitToTarget(gl, fb, viewWidth, viewHeight, Stretch);
+        RefreshVideoAspectRatio();
+        UpdateExpandedViewportWidth();
+
+        if (IsRenderingPaused) _hasRenderedOnceSincePause = true;
 
         if (!IsRenderingPaused && IsVisible)
             RequestNextFrameRendering();
@@ -411,18 +447,26 @@ public class VideoViewControl : OpenGlControlBase
         else if (change.Property == BoundsProperty)
         {
             UpdateExpandedViewportWidth();
-            RequestNextFrameRendering();
+            if (IsVisible && (!IsRenderingPaused || !_hasRenderedOnceSincePause))
+                RequestNextFrameRendering();
         }
         else if (change.Property == ReferenceViewportWidthProperty || change.Property == ReferenceViewportHeightProperty)
         {
-            ResetViewportSizing();
-            HoldViewportExpansion();
-            RequestNextFrameRendering();
+            if (!_renderSizeLocked)
+            {
+                ResetViewportSizing();
+                HoldViewportExpansion();
+            }
+
+            UpdateExpandedViewportWidth();
+            if (IsVisible && (!IsRenderingPaused || !_hasRenderedOnceSincePause))
+                RequestNextFrameRendering();
         }
         else if (change.Property == UseCustomHeartbeatProperty || change.Property == PlayerProperty)
         {
             _initialized = false;
             _hasRenderedOnceSincePause = false;
+            _renderSizeLocked = false;
             ResetViewportSizing();
             HoldViewportExpansion();
             RequestNextFrameRendering();
@@ -439,7 +483,9 @@ public class VideoViewControl : OpenGlControlBase
     {
         _initialized = false;
         _hasRenderedOnceSincePause = false;
+        _renderSizeLocked = false;
         _glInterface = null;
+        _presenter.DisposeGl(gl);
         ResetViewportSizing();
         base.OnOpenGlDeinit(gl);
     }

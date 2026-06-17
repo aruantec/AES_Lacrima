@@ -19,7 +19,7 @@ internal static class OnlineStreamSelector
 
     private static readonly string[] HighQualityStreamFormats =
     [
-        "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<=1080]+bestaudio[acodec^=mp4a]/bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
         HighQualityStreamFormat
     ];
 
@@ -96,7 +96,7 @@ internal static class OnlineStreamSelector
             ? Math.Round(bestVideo.Width.Value / (double)bestVideo.Height.Value, 4)
             : null;
 
-        return new ResolvedMediaSource(bestVideo.Url, bestAudio.Url, aspectRatio);
+        return new ResolvedMediaSource(bestVideo.Url, bestAudio.Url, aspectRatio, SelectBestMuxed(info.MuxedFormats, targetHeight)?.Url);
     }
 
     internal static async Task<ResolvedMediaSource?> ResolveHighQualityStreamsAsync(string url)
@@ -180,7 +180,11 @@ internal static class OnlineStreamSelector
         AES_Core.Logging.LogHelper.For<MediaUrlService>().Info(
             $"Resolved HQ stream for '{url}': profile={resolvedProfile}, format='{resolvedFormat}', videoItag={videoItag}, audioItag={audioItag}.");
 
-        return new ResolvedMediaSource(videoUrl, audioUrl, aspectRatio);
+        string? muxedFallback = info != null
+            ? SelectBestMuxed(info.MuxedFormats, DefaultTargetHeight)?.Url
+            : null;
+
+        return new ResolvedMediaSource(videoUrl, audioUrl, aspectRatio, muxedFallback);
     }
 
     private static async Task<IReadOnlyList<string>> GetStreamUrlsAsync(
@@ -252,7 +256,7 @@ internal static class OnlineStreamSelector
             ? Math.Round(width.Value / (double)height.Value, 4)
             : null;
 
-        return new ResolvedMediaSource(videoUrl, audioUrl, aspectRatio);
+        return new ResolvedMediaSource(videoUrl, audioUrl, aspectRatio, bestMuxed?.Url);
     }
 
     internal static VideoFormat? SelectBestVideo(IReadOnlyList<VideoFormat> formats, int targetHeight)
@@ -279,8 +283,13 @@ internal static class OnlineStreamSelector
     internal static AudioFormat? SelectBestAudio(IReadOnlyList<AudioFormat> formats) =>
         formats
             .Where(a => !string.IsNullOrWhiteSpace(a.Url))
-            .OrderByDescending(a => a.Bitrate ?? 0)
+            .OrderByDescending(a => PrefersM4aAudio(a))
+            .ThenByDescending(a => a.Bitrate ?? 0)
             .FirstOrDefault();
+
+    private static bool PrefersM4aAudio(AudioFormat format) =>
+        format.Codec.Contains("mp4a", StringComparison.OrdinalIgnoreCase)
+        || format.Url.Contains("mime=audio%2Fmp4", StringComparison.OrdinalIgnoreCase);
 
     internal static MuxedFormat? SelectBestMuxed(IReadOnlyList<MuxedFormat> formats, int targetHeight) =>
         formats
