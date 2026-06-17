@@ -321,7 +321,7 @@ namespace AES_Lacrima.ViewModels
 
         private void ClaimExclusivePlaybackSession()
         {
-            DiLocator.ResolveViewModel<MediaPlaybackCoordinator>()?.ClaimPlaybackSession(this);
+            _mediaPlaybackCoordinator?.ClaimPlaybackSession(this);
         }
 
         private void AudioPlayer_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -644,6 +644,9 @@ namespace AES_Lacrima.ViewModels
         [AutoResolve]
         [ObservableProperty]
         private MetadataService? _metadataService;
+
+        [AutoResolve]
+        private MediaPlaybackCoordinator? _mediaPlaybackCoordinator;
 
         [AutoResolve]
         private MediaUrlService? _mediaUrlService;

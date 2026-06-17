@@ -75,6 +75,15 @@ namespace AES_Lacrima.ViewModels
             EqualizerService ??= DiLocator.ResolveViewModel<EqualizerService>();
             MetadataService ??= DiLocator.ResolveViewModel<MetadataService>();
             _mediaUrlService ??= DiLocator.ResolveViewModel<MediaUrlService>();
+            _mediaPlaybackCoordinator ??= DiLocator.ResolveViewModel<MediaPlaybackCoordinator>();
+
+            if (_mediaPlaybackCoordinator != null)
+            {
+                if (IsVideoMode && this is VideoViewModel videoViewModel)
+                    _mediaPlaybackCoordinator.RegisterVideoViewModel(videoViewModel);
+                else
+                    _mediaPlaybackCoordinator.RegisterMusicViewModel(this);
+            }
 
             // Manual initialization of the AudioPlayer to control its lifecycle and avoid early DLL locking
             var audioPlayerInitStopwatch = Stopwatch.StartNew();

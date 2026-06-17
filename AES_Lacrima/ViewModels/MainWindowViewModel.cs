@@ -222,11 +222,11 @@ namespace AES_Lacrima.ViewModels
             {
                 _mediaPlaybackCoordinator.PropertyChanged += (_, e) =>
                 {
-                    if (e.PropertyName is nameof(MediaPlaybackCoordinator.PlaybackViewModel)
-                        or nameof(MediaPlaybackCoordinator.ActivePlayer)
-                        or nameof(MediaPlaybackCoordinator.ActiveCoverBitmap)
-                        or nameof(MediaPlaybackCoordinator.ActiveSelectedMediaItem)
-                        or nameof(MediaPlaybackCoordinator.ActiveViewModel))
+                    if (e.PropertyName is MediaPlaybackCoordinator.BindingPropertyNames.PlaybackViewModel
+                        or MediaPlaybackCoordinator.BindingPropertyNames.ActivePlayer
+                        or MediaPlaybackCoordinator.BindingPropertyNames.ActiveCoverBitmap
+                        or MediaPlaybackCoordinator.BindingPropertyNames.ActiveSelectedMediaItem
+                        or MediaPlaybackCoordinator.BindingPropertyNames.ActiveViewModel)
                     {
                         OnPropertyChanged(nameof(PlaybackViewModel));
                         OnPropertyChanged(nameof(PlaybackCoordinator));

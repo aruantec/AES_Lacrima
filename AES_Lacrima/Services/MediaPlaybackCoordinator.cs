@@ -21,6 +21,9 @@ public partial class MediaPlaybackCoordinator : ObservableObject, IMediaPlayback
     private AudioPlayer? _subscribedPlayer;
     private MediaItem? _subscribedMediaItem;
 
+    private MusicViewModel? _musicViewModel;
+    private VideoViewModel? _videoViewModel;
+
     [ObservableProperty]
     private MusicViewModel? _activeViewModel;
 
@@ -38,18 +41,31 @@ public partial class MediaPlaybackCoordinator : ObservableObject, IMediaPlayback
         ActivePlayer?.CurrentMediaItem?.CoverBitmap
         ?? PlaybackViewModel?.SelectedMediaItem?.CoverBitmap;
 
-    /// <summary>
-    /// The view model whose player should drive shared UI when no explicit active session exists.
-    /// </summary>
-    public MusicViewModel? ResolvePlaybackViewModel()
+    private MusicViewModel? ResolvePlaybackViewModel()
     {
         if (ActiveViewModel != null)
             return ActiveViewModel;
 
-        if (DiLocator.ResolveViewModel<VideoViewModel>() is { AudioPlayer.CurrentMediaItem: not null } video)
-            return video;
+        if (_videoViewModel?.AudioPlayer?.CurrentMediaItem != null)
+            return _videoViewModel;
 
-        return DiLocator.ResolveViewModel<MusicViewModel>();
+        return _musicViewModel;
+    }
+
+    /// <summary>
+    /// Registers the music view model used for shared playback UI resolution.
+    /// </summary>
+    internal void RegisterMusicViewModel(MusicViewModel musicViewModel)
+    {
+        _musicViewModel = musicViewModel;
+    }
+
+    /// <summary>
+    /// Registers the video view model used for shared playback UI resolution.
+    /// </summary>
+    internal void RegisterVideoViewModel(VideoViewModel videoViewModel)
+    {
+        _videoViewModel = videoViewModel;
     }
 
     /// <summary>
@@ -60,7 +76,7 @@ public partial class MediaPlaybackCoordinator : ObservableObject, IMediaPlayback
         if (owner == null)
             return;
 
-        StopOtherPlayers(owner);
+        StopOtherPlayers(owner, _musicViewModel, _videoViewModel);
 
         if (!ReferenceEquals(ActiveViewModel, owner))
             ActiveViewModel = owner;
@@ -115,10 +131,10 @@ public partial class MediaPlaybackCoordinator : ObservableObject, IMediaPlayback
 
     private void OnActiveViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(MusicViewModel.SelectedMediaItem)
-            || e.PropertyName == nameof(MusicViewModel.AudioPlayer))
+        if (e.PropertyName == PlaybackPropertyNames.SelectedMediaItem
+            || e.PropertyName == PlaybackPropertyNames.ViewModelAudioPlayer)
         {
-            if (e.PropertyName == nameof(MusicViewModel.AudioPlayer)
+            if (e.PropertyName == PlaybackPropertyNames.ViewModelAudioPlayer
                 && sender is MusicViewModel vm)
             {
                 if (_subscribedPlayer is INotifyPropertyChanged oldPlayer)
@@ -137,14 +153,14 @@ public partial class MediaPlaybackCoordinator : ObservableObject, IMediaPlayback
 
     private void OnActivePlayerPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(AudioPlayer.CurrentMediaItem))
+        if (e.PropertyName == PlaybackPropertyNames.CurrentMediaItem)
             AttachMediaItemListener(_subscribedPlayer?.CurrentMediaItem);
 
-        if (e.PropertyName is nameof(AudioPlayer.CurrentMediaItem)
-            or nameof(AudioPlayer.Position)
-            or nameof(AudioPlayer.Duration)
-            or nameof(AudioPlayer.IsPlaying)
-            or nameof(AudioPlayer.IsLoadingMedia))
+        if (e.PropertyName is PlaybackPropertyNames.CurrentMediaItem
+            or PlaybackPropertyNames.Position
+            or PlaybackPropertyNames.Duration
+            or PlaybackPropertyNames.IsPlaying
+            or PlaybackPropertyNames.IsLoadingMedia)
         {
             NotifyPlaybackBindingProperties();
         }
@@ -152,21 +168,24 @@ public partial class MediaPlaybackCoordinator : ObservableObject, IMediaPlayback
 
     private void OnActiveMediaItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(MediaItem.CoverBitmap))
+        if (e.PropertyName == PlaybackPropertyNames.CoverBitmap)
             NotifyPlaybackBindingProperties();
     }
 
     private void NotifyPlaybackBindingProperties()
     {
-        OnPropertyChanged(nameof(PlaybackViewModel));
-        OnPropertyChanged(nameof(ActivePlayer));
-        OnPropertyChanged(nameof(ActiveSelectedMediaItem));
-        OnPropertyChanged(nameof(ActiveCoverBitmap));
+        OnPropertyChanged(BindingPropertyNames.PlaybackViewModel);
+        OnPropertyChanged(BindingPropertyNames.ActivePlayer);
+        OnPropertyChanged(BindingPropertyNames.ActiveSelectedMediaItem);
+        OnPropertyChanged(BindingPropertyNames.ActiveCoverBitmap);
     }
 
-    private static void StopOtherPlayers(MusicViewModel except)
+    private static void StopOtherPlayers(
+        MusicViewModel except,
+        MusicViewModel? musicViewModel,
+        VideoViewModel? videoViewModel)
     {
-        foreach (var viewModel in EnumerateMediaViewModels())
+        foreach (var viewModel in EnumerateMediaViewModels(musicViewModel, videoViewModel))
         {
             if (ReferenceEquals(viewModel, except))
                 continue;
@@ -185,16 +204,38 @@ public partial class MediaPlaybackCoordinator : ObservableObject, IMediaPlayback
         }
     }
 
-    private static IEnumerable<MusicViewModel> EnumerateMediaViewModels()
+    private static IEnumerable<MusicViewModel> EnumerateMediaViewModels(
+        MusicViewModel? musicViewModel,
+        VideoViewModel? videoViewModel)
     {
-        MusicViewModel? music = DiLocator.ResolveViewModel<MusicViewModel>();
-        if (music != null)
-            yield return music;
+        if (musicViewModel != null)
+            yield return musicViewModel;
 
-        if (DiLocator.ResolveViewModel<VideoViewModel>() is MusicViewModel video
-            && !ReferenceEquals(video, music))
-        {
-            yield return video;
-        }
+        if (videoViewModel != null && !ReferenceEquals(videoViewModel, musicViewModel))
+            yield return videoViewModel;
+    }
+
+    private static class PlaybackPropertyNames
+    {
+        public const string SelectedMediaItem = nameof(MusicViewModel.SelectedMediaItem);
+        public const string ViewModelAudioPlayer = nameof(MusicViewModel.AudioPlayer);
+        public const string CurrentMediaItem = nameof(AudioPlayer.CurrentMediaItem);
+        public const string Position = nameof(AudioPlayer.Position);
+        public const string Duration = nameof(AudioPlayer.Duration);
+        public const string IsPlaying = nameof(AudioPlayer.IsPlaying);
+        public const string IsLoadingMedia = nameof(AudioPlayer.IsLoadingMedia);
+        public const string CoverBitmap = nameof(MediaItem.CoverBitmap);
+    }
+
+    /// <summary>
+    /// Compile-time property names raised by <see cref="NotifyPlaybackBindingProperties"/>.
+    /// </summary>
+    internal static class BindingPropertyNames
+    {
+        public const string PlaybackViewModel = nameof(MediaPlaybackCoordinator.PlaybackViewModel);
+        public const string ActivePlayer = nameof(MediaPlaybackCoordinator.ActivePlayer);
+        public const string ActiveCoverBitmap = nameof(MediaPlaybackCoordinator.ActiveCoverBitmap);
+        public const string ActiveSelectedMediaItem = nameof(MediaPlaybackCoordinator.ActiveSelectedMediaItem);
+        public const string ActiveViewModel = nameof(MediaPlaybackCoordinator.ActiveViewModel);
     }
 }
