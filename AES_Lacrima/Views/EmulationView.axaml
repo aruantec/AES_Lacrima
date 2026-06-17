@@ -2797,7 +2797,9 @@
 
         <common:MetadataImageSearchOverlay Grid.RowSpan="3"
                                            ZIndex="2107"
-                                           DataContext="{Binding MetadataService}" />
+                                           DataContext="{Binding MetadataService}"
+                                           CoverLayoutMode="{Binding #RootView.DataContext.SettingsViewModel.CoverLayoutMode}"
+                                           PreviewTitle="{Binding Title}" />
 
         <common:ShadPs4CustomConfigOverlay Grid.RowSpan="3"
                                            ZIndex="2103"

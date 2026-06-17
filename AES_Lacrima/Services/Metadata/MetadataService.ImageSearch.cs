@@ -254,7 +254,16 @@ namespace AES_Lacrima.Services
         private void NotifyImageSearchOverlayPresentationChanged()
         {
             OnPropertyChanged(nameof(ImageSearchOverlayHeader));
+            OnPropertyChanged(nameof(IsCoverImageSearchMode));
+            OnPropertyChanged(nameof(CoverPreviewLayoutLabel));
         }
+
+        internal void SetImageSearchPreview(WebImageSearchResult? result)
+        {
+            ImageSearchPreviewUrl = result?.FullImageUrl;
+        }
+
+        internal void ClearImageSearchPreview() => ImageSearchPreviewUrl = null;
 
         private async Task SearchImagesCoreAsync(string activeQuery, IReadOnlyList<string> searchQueries, bool isRomSearch = false)
         {
@@ -287,6 +296,7 @@ namespace AES_Lacrima.Services
         private void CloseImageSearchOverlay()
         {
             IsImageSearchOverlayOpen = false;
+            ClearImageSearchPreview();
         }
 
         [RelayCommand]

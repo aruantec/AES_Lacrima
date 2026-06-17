@@ -1,4 +1,5 @@
 using AES_Code.Models;
+using AES_Controls.Composition;
 using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
@@ -144,6 +145,24 @@ namespace AES_Lacrima.Services
             _searchMode == MetadataSearchMode.GameplayVideo
                 ? "Select Gameplay Video"
                 : "Select Cover Image";
+
+        public bool IsCoverImageSearchMode => _searchMode == MetadataSearchMode.Images;
+
+        public string CoverPreviewLayoutLabel => CoverPreviewLayoutMode switch
+        {
+            CoverLayoutMode.Carousel => "Carousel item preview",
+            CoverLayoutMode.HorizontalGrid => "Horizontal grid item preview",
+            _ => "Grid item preview"
+        };
+
+        [ObservableProperty] private CoverLayoutMode _coverPreviewLayoutMode = CoverLayoutMode.Carousel;
+
+        [ObservableProperty] private string? _imageSearchPreviewUrl;
+
+        [ObservableProperty] private string? _imageSearchPreviewTitle;
+
+        partial void OnCoverPreviewLayoutModeChanged(CoverLayoutMode value) =>
+            OnPropertyChanged(nameof(CoverPreviewLayoutLabel));
 
         [AutoResolve]
         private MusicViewModel? _musicViewModel;
