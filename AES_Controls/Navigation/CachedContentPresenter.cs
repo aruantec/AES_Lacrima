@@ -5,16 +5,18 @@ using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using System.Collections;
+using System.Diagnostics;
 using System.Windows.Input;
-
+
 using log4net;
 using AES_Core.Logging;
+
 namespace AES_Controls.Navigation;
 
 /// <summary>
 /// A content presenter that caches generated view hosts for view-models and
-/// re-uses them to avoid expensive re-creation. Supports optional cross-fade
-/// transitions between cached views and a warm-up API to pre-create views.
+/// re-uses them to avoid expensive re-creation. Supports optional sequential
+/// fade-out-then-fade-in transitions between cached views and a warm-up API to pre-create views.
 /// </summary>
 /// <remarks>
 /// The presenter stores a mapping from view-model objects to their
@@ -26,6 +28,9 @@ namespace AES_Controls.Navigation;
 public class CachedContentPresenter : Control
 {
     private static readonly ILog Log = LogHelper.For<CachedContentPresenter>();
+    private static readonly TimeSpan BlackHoldDuration = TimeSpan.FromMilliseconds(100);
+    private static readonly Easing FadeOutEasing = new SineEaseIn();
+    private static readonly Easing FadeInEasing = new SineEaseOut();
     private readonly Dictionary<object, ContentControl> _cache = [];
     private readonly Panel _hostPanel = new();
     private CancellationTokenSource? _transitionCts;
@@ -54,16 +59,16 @@ public class CachedContentPresenter : Control
         AvaloniaProperty.Register<CachedContentPresenter, ICommand?>(nameof(TransitionCompletedCommand));
 
     /// <summary>
-    /// Whether transitions (cross-fade) are enabled when switching views.
+    /// Whether transitions (fade-out then fade-in) are enabled when switching views.
     /// </summary>
     public static readonly StyledProperty<bool> TransitionsEnabledProperty =
         AvaloniaProperty.Register<CachedContentPresenter, bool>(nameof(TransitionsEnabled), true);
 
     /// <summary>
-    /// Duration of the cross-fade transition.
+    /// Duration of the view transition (split evenly between fade-out and fade-in).
     /// </summary>
     public static readonly StyledProperty<TimeSpan> DurationProperty =
-        AvaloniaProperty.Register<CachedContentPresenter, TimeSpan>(nameof(Duration), TimeSpan.FromMilliseconds(500));
+        AvaloniaProperty.Register<CachedContentPresenter, TimeSpan>(nameof(Duration), TimeSpan.FromMilliseconds(900));
 
     /// <summary>
     /// Easing used for the transition animation.
@@ -94,7 +99,7 @@ public class CachedContentPresenter : Control
     public bool TransitionsEnabled { get => GetValue(TransitionsEnabledProperty); set => SetValue(TransitionsEnabledProperty, value); }
 
     /// <summary>
-    /// The duration of the cross-fade animation used when transitions are
+    /// The duration of the view transition animation used when transitions are
     /// enabled.
     /// </summary>
     public TimeSpan Duration { get => GetValue(DurationProperty); set => SetValue(DurationProperty, value); }
@@ -139,7 +144,7 @@ public class CachedContentPresenter : Control
     /// <summary>
     /// Invoked when the <see cref="CurrentViewModel"/> property changes.
     /// Ensures a cached host exists for the new view-model and either
-    /// performs a cross-fade transition from the previous view or switches
+    /// performs a sequential fade-out-then-fade-in transition from the previous view or switches
     /// immediately if transitions are disabled.
     /// </summary>
     private async void OnViewModelChanged(AvaloniaPropertyChangedEventArgs e)
@@ -196,6 +201,8 @@ public class CachedContentPresenter : Control
             }
             newViewHost.IsVisible = true;
             newViewHost.Opacity = 1.0;
+            SetViewTransitionOpacity(oldViewModel, 0.0);
+            SetViewTransitionOpacity(newViewModel, 1.0);
             // Call lifecycle hooks synchronously for immediate switch
             try { (oldViewModel as IViewModelBase)?.OnLeaveViewModel(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             try { (newViewModel as IViewModelBase)?.OnShowViewModel(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
@@ -208,55 +215,109 @@ public class CachedContentPresenter : Control
     }
 
     /// <summary>
-    /// Runs a cross-fade transition between two content hosts. This method
-    /// prepares the target view, assigns transitions, and awaits the
-    /// completion of the animation or cancellation via the provided token.
+    /// Runs a sequential view transition: fade the outgoing view to black,
+    /// then fade the incoming view in from black.
     /// </summary>
     private async Task RunCrossFade(ContentControl from, ContentControl to, CancellationToken token)
     {
-        var duration = Duration;
+        var phaseDurationMs = Math.Max(Duration.TotalMilliseconds / 2.0, 1.0);
+        var oldViewModel = from.Content;
+        var newViewModel = to.Content;
+        var topLevel = TopLevel.GetTopLevel(this);
 
-        // Prepare the destination view to avoid a one-frame flash.
+        from.Opacity = 1.0;
+        from.IsVisible = true;
+        to.Opacity = 0;
+        to.IsVisible = false;
+        SetViewTransitionOpacity(oldViewModel, 1.0);
+        SetViewTransitionOpacity(newViewModel, 0.0);
+
+        await WaitForRenderFrameAsync(topLevel, token).ConfigureAwait(true);
+
+        await AnimateHostOpacity(from, oldViewModel, 1.0, 0.0, phaseDurationMs, FadeOutEasing, topLevel, token)
+            .ConfigureAwait(true);
+
+        from.Opacity = 0;
+        from.IsVisible = false;
+        SetViewTransitionOpacity(oldViewModel, 0.0);
+
+        if (BlackHoldDuration > TimeSpan.Zero)
+        {
+            await Task.Delay(BlackHoldDuration, token).ConfigureAwait(true);
+        }
+
         to.Opacity = 0;
         to.IsVisible = true;
+        SetViewTransitionOpacity(newViewModel, 0.0);
 
-        // Wait one frame for layout to recognize visibility and prepare the view
-        try
-        {
-            await Task.Delay(16, token);
-        }
-        catch (TaskCanceledException)
-        {
-            from.IsVisible = false;
-            from.Transitions = null;
-            throw;
-        }
+        await WaitForRenderFrameAsync(topLevel, token).ConfigureAwait(true);
 
-        // Setup transitions
-        var transition = new Transitions { new DoubleTransition { Property = OpacityProperty, Duration = duration, Easing = Easing } };
-        from.Transitions = transition;
-        to.Transitions = transition;
+        await AnimateHostOpacity(to, newViewModel, 0.0, 1.0, phaseDurationMs, FadeInEasing, topLevel, token)
+            .ConfigureAwait(true);
 
-        // Start animations by changing the target properties. The transitions
-        // assigned above will animate the property changes.
-        from.Opacity = 0;
         to.Opacity = 1.0;
+        SetViewTransitionOpacity(newViewModel, 1.0);
+    }
 
-        try
+    private async Task AnimateHostOpacity(
+        ContentControl host,
+        object? viewModel,
+        double fromOpacity,
+        double toOpacity,
+        double durationMs,
+        Easing easing,
+        TopLevel? topLevel,
+        CancellationToken token)
+    {
+        var durationSeconds = durationMs / 1000.0;
+        var startTicks = Stopwatch.GetTimestamp();
+
+        while (true)
         {
-            await Task.Delay(duration, token);
-        }
-        catch (TaskCanceledException)
-        {
-            from.IsVisible = false;
-            from.Transitions = null;
-            to.Transitions = null;
-            throw;
+            token.ThrowIfCancellationRequested();
+
+            var elapsedSeconds = (Stopwatch.GetTimestamp() - startTicks) / (double)Stopwatch.Frequency;
+            var linearProgress = Math.Clamp(elapsedSeconds / durationSeconds, 0.0, 1.0);
+            var eased = easing.Ease(linearProgress);
+            var opacity = fromOpacity + (toOpacity - fromOpacity) * eased;
+
+            host.Opacity = opacity;
+            SetViewTransitionOpacity(viewModel, opacity);
+
+            if (linearProgress >= 1.0)
+                break;
+
+            await WaitForRenderFrameAsync(topLevel, token).ConfigureAwait(true);
         }
 
-        from.IsVisible = false;
-        from.Transitions = null;
-        to.Transitions = null;
+        host.Opacity = toOpacity;
+        SetViewTransitionOpacity(viewModel, toOpacity);
+    }
+
+    private static Task WaitForRenderFrameAsync(TopLevel? topLevel, CancellationToken token)
+    {
+        if (topLevel == null)
+            return Task.Delay(8, token);
+
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnFrame(TimeSpan _)
+        {
+            tcs.TrySetResult();
+        }
+
+        topLevel.RequestAnimationFrame(OnFrame);
+        if (token.CanBeCanceled)
+        {
+            return tcs.Task.WaitAsync(token);
+        }
+
+        return tcs.Task;
+    }
+
+    private static void SetViewTransitionOpacity(object? viewModel, double opacity)
+    {
+        if (viewModel is IViewModelBase vm)
+            vm.ViewTransitionOpacity = Math.Clamp(opacity, 0.0, 1.0);
     }
 
     /// <summary>

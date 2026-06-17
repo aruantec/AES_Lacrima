@@ -186,6 +186,7 @@ public class CompositionWaveformProgressBar : UserControl
             UpdateVisualLayout();
             SendVisualConfiguration();
             SendProgressToVisual(NormalizeValue(Value), IsDragging);
+            _visual.SendHandlerMessage(new GlobalOpacityMessage(Opacity));
         }
 
         _loadingTimer.Start();
@@ -274,6 +275,8 @@ public class CompositionWaveformProgressBar : UserControl
         {
             SendVisualConfiguration();
         }
+        else if (change.Property == OpacityProperty)
+            _visual.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)

@@ -32,7 +32,7 @@
 												Margin="0,8,0,10">
 			<composition:CompositionAlbumRowControl.Opacity>
 				<MultiBinding Converter="{StaticResource MultiplyDoubleConverter}">
-					<Binding Path="IsActive" Converter="{StaticResource BoolToOpacityConverter}"/>
+					<Binding Path="ViewTransitionOpacity"/>
 					<Binding Path="SettingsViewModel.CardGridOpacity"/>
 				</MultiBinding>
 			</composition:CompositionAlbumRowControl.Opacity>

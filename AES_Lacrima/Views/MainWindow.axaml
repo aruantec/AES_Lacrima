@@ -70,7 +70,7 @@
                         <nav:CachedContentPresenter Grid.Row="1"
                                                     Grid.ColumnSpan="2" Grid.Column="0"
                                                     TransitionsEnabled="True"
-                                                    Duration="0:0:0.500"
+                                                    Duration="0:0:0.900"
                                                     Easing="SineEaseInOut"
                                                     WarmedViewModels="{Binding WarmedViewModels}"
                                                     CurrentViewModel="{Binding NavigationService.View}"

@@ -78,8 +78,6 @@ namespace AES_Controls.Composition
         private float _dropAlpha = 1.0f;
         private float _globalTransitionAlpha = 1.0f;
         private float _currentGlobalOpacity = 1.0f;
-        private float _targetGlobalOpacity = 1.0f;
-        private float _currentGlobalOpacityVelocity;
         private bool _directIndexFollow;
         private bool _useFullCoverSize;
         private bool _pauseLoadingSpinnerAnimation;
@@ -275,9 +273,11 @@ namespace AES_Controls.Composition
             else if (message is BackgroundMessage bg) { _backgroundColor = bg.Color; Invalidate(); }
             else if (message is GlobalOpacityMessage gom)
             {
-                _targetGlobalOpacity = (float)Math.Clamp(gom.Value, 0.0, 1.0);
-                if (_lastTicks == 0) _lastTicks = Stopwatch.GetTimestamp();
-                RegisterForNextAnimationFrameUpdate();
+                var clamped = (float)Math.Clamp(gom.Value, 0.0, 1.0);
+                if (Math.Abs(_currentGlobalOpacity - clamped) < 0.0001f)
+                    return;
+                _currentGlobalOpacity = clamped;
+                Invalidate();
             }
             else if (message is DirectIndexFollowMessage dif) { _directIndexFollow = dif.Enabled; Invalidate(); }
             else if (message is SnapIndexMessage snap)
@@ -414,22 +414,6 @@ namespace AES_Controls.Composition
                 Invalidate();
             }
 
-            // Smoothly animate global opacity target (for fade in/out) using a second-order spring
-            // This produces a smoother, buttery fade compared to simple linear easing.
-            if (Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.0005f || Math.Abs(_currentGlobalOpacityVelocity) > 0.0005f)
-            {
-                // Tuned spring parameters for opacity
-                double opStiffness = 30.0; // higher -> snappier
-                double opDamping = 2.0 * Math.Sqrt(opStiffness) * 1.0; // critical-ish damping multiplier
-
-                _currentGlobalOpacityVelocity += (float)((_targetGlobalOpacity - _currentGlobalOpacity) * opStiffness - _currentGlobalOpacityVelocity * opDamping) * (float)dt;
-                _currentGlobalOpacity += _currentGlobalOpacityVelocity * (float)dt;
-                // clamp to valid range
-                if (_currentGlobalOpacity < 0f) _currentGlobalOpacity = 0f;
-                else if (_currentGlobalOpacity > 1f) _currentGlobalOpacity = 1f;
-                Invalidate();
-            }
-
             // Smoothly animate full cover size factor
             float targetFactor = _useFullCoverSize ? 1.0f : 0.0f;
             if (Math.Abs(_fullCoverSizeFactor - targetFactor) > 0.0005f || Math.Abs(_fullCoverSizeVelocity) > 0.0005f)
@@ -448,7 +432,6 @@ namespace AES_Controls.Composition
                 Math.Abs(distance) > 0.0001 ||
                 Math.Abs(_currentVelocity) > 0.0001 ||
                 _globalTransitionAlpha < 1.0f ||
-                Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.001f ||
                 Math.Abs(_fullCoverSizeFactor - targetFactor) > 0.001f ||
                 _isDropping;
             bool animateLoadingSpinners = !_pauseLoadingSpinnerAnimation && _loadingIndices.Count > 0;

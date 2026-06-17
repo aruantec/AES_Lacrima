@@ -321,12 +321,12 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         {
             _visual?.SendHandlerMessage(new AlbumRowBackgroundColorMessage(GetSkColor(change.GetNewValue<IBrush?>())));
         }
+        else if (change.Property == RenamingIndexProperty)
+            _visual?.SendHandlerMessage(new AlbumRowRenamingIndexMessage(change.GetNewValue<int>()));
         else if (change.Property == OpacityProperty)
             _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
         else if (change.Property == GlobalOpacityProperty)
             _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
-        else if (change.Property == RenamingIndexProperty)
-            _visual?.SendHandlerMessage(new AlbumRowRenamingIndexMessage(change.GetNewValue<int>()));
     }
 
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)

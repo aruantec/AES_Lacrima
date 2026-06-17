@@ -88,8 +88,6 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
 
     private SKColor _backgroundColor = DefaultBackgroundColor;
     private float _currentGlobalOpacity = 1f;
-    private float _targetGlobalOpacity = 1f;
-    private float _currentGlobalOpacityVelocity;
     private readonly SKPaint _paint = new() { IsAntialias = true, FilterQuality = SKFilterQuality.Medium };
     private readonly SKPaint _titlePaint = CreateTitlePaint(SKColors.White);
     private readonly SKPaint _badgePaint = CreateTitlePaint(SKColors.White);
@@ -468,11 +466,14 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
                 Invalidate();
                 return;
             case GlobalOpacityMessage opacity:
-                _targetGlobalOpacity = (float)Math.Clamp(opacity.Value, 0.0, 1.0);
-                if (_lastTicks == 0)
-                    _lastTicks = Stopwatch.GetTimestamp();
-                EnsureAnimationLoop();
+            {
+                var clamped = (float)Math.Clamp(opacity.Value, 0.0, 1.0);
+                if (Math.Abs(_currentGlobalOpacity - clamped) < 0.0001f)
+                    return;
+                _currentGlobalOpacity = clamped;
+                Invalidate();
                 return;
+            }
             case AlbumRowScrollFrozenMessage frozen:
                 _scrollFrozen = frozen.Frozen;
                 if (_scrollFrozen)
@@ -652,15 +653,6 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
         if (selectionPulsing)
             _selectionPulsePhase += (float)dt * 3.1f;
 
-        if (Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.0005f || Math.Abs(_currentGlobalOpacityVelocity) > 0.0005f)
-        {
-            double opStiffness = 30.0;
-            double opDamping = 2.0 * Math.Sqrt(opStiffness);
-            _currentGlobalOpacityVelocity += (float)((_targetGlobalOpacity - _currentGlobalOpacity) * opStiffness - _currentGlobalOpacityVelocity * opDamping) * (float)dt;
-            _currentGlobalOpacity += _currentGlobalOpacityVelocity * (float)dt;
-            _currentGlobalOpacity = Math.Clamp(_currentGlobalOpacity, 0f, 1f);
-        }
-
         bool dragAnimating = AnimateSwapOffsets((float)dt);
         if (_isDragCommitting && _dragCommitProgress < 1f)
         {
@@ -701,7 +693,6 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
                            Math.Abs(_scrollVelocity) > 0.5 ||
                            Math.Abs(_scrollSpringVelocity) > 0.01 ||
                            Math.Abs(_scrollbarOpacity - desiredScrollbarOpacity) > 0.01 ||
-                           Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.001f ||
                            selectionFading ||
                            selectionPulsing ||
                            folderAnimating ||

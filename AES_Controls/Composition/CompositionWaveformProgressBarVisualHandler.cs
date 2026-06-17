@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia.Media;
 using Avalonia.Rendering.Composition;
 using Avalonia.Skia;
@@ -53,6 +54,8 @@ public class CompositionWaveformProgressBarVisualHandler : CompositionCustomVisu
     private bool _isLoading;
     private double _loadingAngle;
     private float _topExtension;
+
+    private float _currentGlobalOpacity = 1f;
 
     private SKBitmap? _unplayedCache;
     private SKBitmap? _playedCache;
@@ -148,6 +151,15 @@ public class CompositionWaveformProgressBarVisualHandler : CompositionCustomVisu
                 _loadingAngle = loading.Angle;
                 Invalidate();
                 break;
+            case GlobalOpacityMessage opacity:
+            {
+                var clamped = (float)Math.Clamp(opacity.Value, 0.0, 1.0);
+                if (Math.Abs(_currentGlobalOpacity - clamped) < 0.0001f)
+                    break;
+                _currentGlobalOpacity = clamped;
+                Invalidate();
+                break;
+            }
         }
     }
 
@@ -226,8 +238,15 @@ public class CompositionWaveformProgressBarVisualHandler : CompositionCustomVisu
         if (_visualSize.X <= 1f || _visualSize.Y <= 1f)
             return;
 
+        float g = Math.Clamp(_currentGlobalOpacity, 0f, 1f);
+        if (g <= 0f)
+            return;
+
         float width = _visualSize.X;
         float height = _visualSize.Y;
+
+        canvas.Save();
+        canvas.SaveLayer(new SKPaint { Color = SKColors.White.WithAlpha((byte)(g * 255)) });
 
         canvas.Save();
         canvas.Translate(0, _topExtension);
@@ -283,6 +302,9 @@ public class CompositionWaveformProgressBarVisualHandler : CompositionCustomVisu
         canvas.Restore();
 
         DrawTriangle(canvas, indicatorX, height);
+
+        canvas.Restore();
+        canvas.Restore();
     }
 
     private static float ComputeTopExtension(bool isTriangleUpwards, float triangleOffset, float triangleHeight)

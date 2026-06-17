@@ -46,7 +46,7 @@
                                                     UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
                                                     CardSpacing="{Binding SettingsViewModel.CardGridSpacing}"
                                                     GridBackground="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
-                                                    GlobalOpacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
+                                                    GlobalOpacity="{Binding ViewTransitionOpacity}"
                                                     GridOpacityMultiplier="{Binding SettingsViewModel.CardGridOpacity}"
                                                     ClipToBounds="False">
         <composition:CompositionCoverControl.ContextMenu>
@@ -855,8 +855,7 @@
 
         <Grid Grid.Row="2"
               Background="#FF000000">
-            <composition:PillProgressSlider Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
-                                            Height="70"
+            <composition:PillProgressSlider Height="70"
                                             Margin="24,5,24,15"
                                             Minimum="0"
                                             Maximum="{Binding AudioPlayer.Duration, FallbackValue=1}"
@@ -867,7 +866,8 @@
                                             LabelFontSize="22"
                                             ShowPositionLabel="True"
                                             TrackBorderBrush="#CCCCCC"
-                                            FillBrush="#99F5F5F5">
+                                            FillBrush="#99F5F5F5"
+                                            Opacity="{Binding ViewTransitionOpacity}">
                 <composition:PillProgressSlider.LabelText>
                     <MultiBinding StringFormat="{}{0} / {1}">
                         <Binding Path="AudioPlayer.Position" Converter="{StaticResource TimeSpanConverter}" />

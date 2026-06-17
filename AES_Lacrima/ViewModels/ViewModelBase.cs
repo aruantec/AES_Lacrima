@@ -18,6 +18,12 @@ namespace AES_Lacrima.ViewModels
         private bool _isActive;
 
         /// <summary>
+        /// Opacity multiplier animated during view navigation transitions.
+        /// </summary>
+        [ObservableProperty]
+        private double _viewTransitionOpacity = 1.0;
+
+        /// <summary>
         /// Indicates whether the view-model has been prepared (initialized).
         /// Implementations should set this to <c>true</c> once one-time
         /// initialization has completed.

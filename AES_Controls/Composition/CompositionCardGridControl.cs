@@ -121,7 +121,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
     private const float ScrollbarMargin = 10f;
     private const double DragStartThreshold = 4.0;
     private const int DragAutoScrollMs = 16;
-    private const int DragCommitMs = 200;
+    private const int DragCommitMs = 300;
 
     private CompositionCustomVisual? _visual;
     private List<SKImage?> _images = new();
@@ -734,6 +734,9 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         }
     }
 
+    internal void SetImageRevealHold(bool hold) =>
+        _visual?.SendHandlerMessage(new CardGridImageRevealHoldMessage(hold));
+
     internal void HydrateCoverImagesFrom(CompositionCarouselControl? source)
     {
         ImportCoverImagesFrom(source);
@@ -864,16 +867,16 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             EnsureIndexVisible((int)Math.Round(SelectedIndex), animate: false);
             UpdateSelectedItemBounds();
         }
-        else if (change.Property == OpacityProperty)
-            _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
-        else if (change.Property == GlobalOpacityProperty)
-            _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
         else if (change.Property == ImageCacheSizeProperty)
             _maxImageCacheEntries = Math.Max(1, change.GetNewValue<int>());
         else if (change.Property == PauseLoadingSpinnerAnimationProperty)
             _visual?.SendHandlerMessage(new PauseLoadingSpinnerAnimationMessage(change.GetNewValue<bool>()));
         else if (change.Property == IsContentLoadingProperty)
             _visual?.SendHandlerMessage(new CardGridContentLoadingMessage(change.GetNewValue<bool>()));
+        else if (change.Property == OpacityProperty)
+            _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
+        else if (change.Property == GlobalOpacityProperty)
+            _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
         else if (change.Property == ItemsSourceProperty)
         {
             SyncItemsSourceLightweight(change.GetNewValue<IEnumerable?>());
@@ -1650,7 +1653,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             _images.Insert(to, img);
             MoveSnapshotItem(from, to);
             MoveItem(from, to);
-            _visual?.SendHandlerMessage(_images);
+            _visual?.SendHandlerMessage(new CardGridMoveImageMessage(from, to));
 
             SyncKnownScrollY(_savedScrollYOnDragFinish);
             _visual?.SendHandlerMessage(new CardGridSnapScrollMessage(_savedScrollYOnDragFinish));
@@ -2118,10 +2121,8 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         if (_visual == null || !_coverLoadingActive)
             return;
 
-        _visual.SendHandlerMessage(new CardGridSlotCountMessage(count));
         _visual.SendHandlerMessage(new CardGridResetScrollbarMessage());
         _visual.SendHandlerMessage(new CardGridSelectedIndexMessage((int)Math.Clamp(Math.Round(SelectedIndex), 0, Math.Max(0, count - 1))));
-        SyncVisibleLoadingIndicators();
     }
 
     private void CompleteItemsUpdate(object?[] items, int generation, bool scheduleLoads)
@@ -2146,7 +2147,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             .ToList();
 
         SeedCachedVisibleDisplaySlots(bitmapProp, fileProp);
-        PushSeededImagesToVisual();
+        SyncVisualImageSlots();
         EnsureItemSubscriptions(ItemsSource, items);
 
         foreach (var key in staleCacheKeys)
@@ -2660,7 +2661,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
                 _images.RemoveAt(e.OldStartingIndex);
                 _images.Insert(e.NewStartingIndex, img);
                 MoveSnapshotItem(e.OldStartingIndex, e.NewStartingIndex);
-                _visual.SendHandlerMessage(_images);
+                _visual.SendHandlerMessage(new CardGridMoveImageMessage(e.OldStartingIndex, e.NewStartingIndex));
                 return;
             }
 
@@ -4115,13 +4116,10 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             return;
         }
 
-        _visual.SendHandlerMessage(new CardGridSlotCountMessage(count));
+        var snapshot = new SKImage?[count];
         for (int i = 0; i < count; i++)
-        {
-            if (_images[i] != null)
-                _visual.SendHandlerMessage(new UpdateImageMessage(i, _images[i]));
-        }
-
+            snapshot[i] = _images[i];
+        _visual.SendHandlerMessage(new CardGridSyncSlotsMessage(snapshot));
         SyncVisibleLoadingIndicators();
     }
 

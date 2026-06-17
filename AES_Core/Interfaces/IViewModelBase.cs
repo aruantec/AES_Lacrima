@@ -8,6 +8,12 @@ namespace AES_Core.Interfaces;
 public interface IViewModelBase
 {
     /// <summary>
+    /// Opacity multiplier used during view navigation transitions. Composition
+    /// controls bind to this so they fade in sync with the cached view host.
+    /// </summary>
+    double ViewTransitionOpacity { get; set; }
+
+    /// <summary>
     /// Perform any initialization or preparation required after the
     /// view-model instance has been created. Called once prior to use.
     /// </summary>

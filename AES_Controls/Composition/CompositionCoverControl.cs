@@ -162,7 +162,10 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             control.SyncSharedProperties());
 
         GlobalOpacityProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
-            control.SyncSharedProperties());
+        {
+            control.SyncSharedProperties();
+            control.SyncGridOpacity();
+        });
 
         GridOpacityMultiplierProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
             control.SyncGridOpacity());
@@ -545,8 +548,13 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         incoming.Opacity = 0;
 
         if (incoming == _cardGrid)
+        {
             _cardGrid.HorizontalScrollEnabled = targetMode == CoverLayoutMode.HorizontalGrid;
+            _cardGrid.SetImageRevealHold(true);
+        }
 
+        PrepareIncomingLayoutLight(targetMode);
+        Dispatcher.UIThread.Post(() => PrepareIncomingLayoutHeavy(targetMode), DispatcherPriority.Background);
         ApplyPublishSelectedItemBounds();
 
         const int steps = 14;
@@ -557,9 +565,9 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             for (var i = 1; i <= steps; i++)
             {
                 token.ThrowIfCancellationRequested();
-                var t = i / (double)steps;
-                outgoing.Opacity = 1 - t;
-                incoming.Opacity = t;
+                var eased = Math.Sin((i / (double)steps) * Math.PI * 0.5);
+                outgoing.Opacity = 1 - eased;
+                incoming.Opacity = eased;
                 await Task.Delay(stepDelay).ConfigureAwait(true);
             }
 
@@ -571,35 +579,64 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
 
             ApplyPublishSelectedItemBounds();
             RefreshSelectedItemBoundsFromActiveChild();
-
-            if (toCarousel)
-            {
-                _carousel.SetCoverLoadingActive(true);
-                _cardGrid.SetCoverLoadingActive(false);
-                if (!ReferenceEquals(_carousel.ItemsSource, ItemsSource))
-                    _carousel.ItemsSource = ItemsSource;
-                else if (ItemsSource != null)
-                    _carousel.RefreshItemsFromCurrentSource();
-                _cardGrid.SyncItemsSourceLightweight(ItemsSource);
-                _carousel.HydrateCoverImagesFrom(_cardGrid);
-            }
-            else
-            {
-                _cardGrid.SetCoverLoadingActive(true);
-                _carousel.SetCoverLoadingActive(false);
-                if (!_cardGrid.SyncItemsSourceLightweight(ItemsSource) && ItemsSource != null)
-                    _cardGrid.RefreshItemsFromCurrentSource();
-                _carousel.SyncItemsSourceLightweight(ItemsSource);
-                _cardGrid.HydrateCoverImagesFrom(_carousel);
-            }
+            FinalizeIncomingLayout(targetMode);
         }
         catch (OperationCanceledException)
         {
             if (token.IsCancellationRequested)
+            {
+                if (targetMode != CoverLayoutMode.Carousel)
+                    _cardGrid.SetImageRevealHold(false);
                 return;
+            }
 
             throw;
         }
+    }
+
+    private void PrepareIncomingLayoutLight(CoverLayoutMode targetMode)
+    {
+        var source = ItemsSource;
+        if (targetMode == CoverLayoutMode.Carousel)
+        {
+            _carousel.SetCoverLoadingActive(true);
+            _cardGrid.SetCoverLoadingActive(false);
+            if (!ReferenceEquals(_carousel.ItemsSource, source))
+                _carousel.ItemsSource = source;
+            else if (source != null)
+                _carousel.RefreshItemsFromCurrentSource();
+            _cardGrid.SyncItemsSourceLightweight(source);
+        }
+        else
+        {
+            _cardGrid.SetCoverLoadingActive(true);
+            _carousel.SetCoverLoadingActive(false);
+            if (!_cardGrid.SyncItemsSourceLightweight(source) && source != null)
+                _cardGrid.RefreshItemsFromCurrentSource();
+            _carousel.SyncItemsSourceLightweight(source);
+        }
+    }
+
+    private void PrepareIncomingLayoutHeavy(CoverLayoutMode targetMode)
+    {
+        if (targetMode == CoverLayoutMode.Carousel)
+        {
+            _carousel.HydrateCoverImagesFrom(_cardGrid);
+            _carousel.SnapToSelectedIndex();
+        }
+        else
+        {
+            _cardGrid.HydrateCoverImagesFrom(_carousel);
+            _cardGrid.SnapToSelectedIndex();
+        }
+    }
+
+    private void FinalizeIncomingLayout(CoverLayoutMode targetMode)
+    {
+        ApplyVisibilityForLayoutMode(targetMode);
+        SyncGridOpacity();
+        if (targetMode != CoverLayoutMode.Carousel)
+            _cardGrid.SetImageRevealHold(false);
     }
 
     private void ScheduleSiblingCoverHydrate()

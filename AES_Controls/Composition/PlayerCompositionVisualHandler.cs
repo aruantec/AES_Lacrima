@@ -41,6 +41,8 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
     private float _armAngleDegrees = (float)PlayerCompositionArmMetrics.RestAngleDegrees;
     private long _lastAnimationTicks = 0;
 
+    private float _currentGlobalOpacity = 1f;
+
     // Paints
     private SKPaint? _ringBackgroundPaint = new()
     {
@@ -220,67 +222,81 @@ public class PlayerCompositionVisualHandler : CompositionCustomVisualHandler
                 _showDiscCenter = showDC.Show;
                 Invalidate();
                 return;
+            case GlobalOpacityMessage opacity:
+            {
+                var clamped = (float)Math.Clamp(opacity.Value, 0.0, 1.0);
+                if (Math.Abs(_currentGlobalOpacity - clamped) < 0.0001f)
+                    return;
+                _currentGlobalOpacity = clamped;
+                Invalidate();
+                return;
+            }
         }
     }
 
     public override void OnRender(ImmediateDrawingContext context)
     {
-        if (_visualSize.X <= 0 || _visualSize.Y <= 0) return;
+        if (_visualSize.X <= 0 || _visualSize.Y <= 0)
+            return;
 
-        var leaseFeature = context.TryGetFeature(typeof(ISkiaSharpApiLeaseFeature)) as ISkiaSharpApiLeaseFeature;
-        if (leaseFeature == null) return;
-
-        using var lease = leaseFeature.Lease();
-        var canvas = lease.SkCanvas;
-        var discLayout = PlayerCompositionArmMetrics.GetDiscLayout(new Size(_visualSize.X, _visualSize.Y));
-        var centerX = (float)discLayout.Center.X;
-        var centerY = (float)discLayout.Center.Y;
-        var size = (float)discLayout.DiscDiameter;
-        var ringRadius = (float)discLayout.RingRadius;
         var nowTicks = DateTime.UtcNow.Ticks;
         var shouldContinueAnimating = UpdateAnimations(nowTicks);
 
-        // Draw circle background (color or bitmap)
-        DrawCircleBackground(canvas, centerX, centerY, ringRadius);
-
-        // Draw the progress ring - EXACTLY like clock's seconds ring
-        DrawProgressRing(canvas, centerX, centerY, ringRadius);
-
-        if (_showTime)
+        float g = Math.Clamp(_currentGlobalOpacity, 0f, 1f);
+        if (g > 0f)
         {
-            // Draw position time - HIGHER UP
-            var positionText = FormatTime(_position);
-            var timeY = centerY - 20f;
-
-            if (_timePaint != null)
+            var leaseFeature = context.TryGetFeature(typeof(ISkiaSharpApiLeaseFeature)) as ISkiaSharpApiLeaseFeature;
+            if (leaseFeature != null)
             {
-                _timePaint.TextSize = Math.Max(48f, size / 4.5f);
-                canvas.DrawText(positionText, centerX, timeY, _timePaint);
+                using var lease = leaseFeature.Lease();
+                var canvas = lease.SkCanvas;
+
+                canvas.Save();
+                canvas.SaveLayer(new SKPaint { Color = SKColors.White.WithAlpha((byte)(g * 255)) });
+
+                var discLayout = PlayerCompositionArmMetrics.GetDiscLayout(new Size(_visualSize.X, _visualSize.Y));
+                var centerX = (float)discLayout.Center.X;
+                var centerY = (float)discLayout.Center.Y;
+                var size = (float)discLayout.DiscDiameter;
+                var ringRadius = (float)discLayout.RingRadius;
+
+                DrawCircleBackground(canvas, centerX, centerY, ringRadius);
+                DrawProgressRing(canvas, centerX, centerY, ringRadius);
+
+                if (_showTime)
+                {
+                    var positionText = FormatTime(_position);
+                    var timeY = centerY - 20f;
+
+                    if (_timePaint != null)
+                    {
+                        _timePaint.TextSize = Math.Max(48f, size / 4.5f);
+                        canvas.DrawText(positionText, centerX, timeY, _timePaint);
+                    }
+
+                    var durationText = FormatTime(_duration);
+                    var durationY = centerY + 100f;
+
+                    if (_durationPaint != null)
+                    {
+                        _durationPaint.TextSize = Math.Max(28f, size / 9f);
+                        _durationPaint.Color = new SKColor(225, 225, 225);
+                        canvas.DrawText(durationText, centerX, durationY, _durationPaint);
+                    }
+                }
+
+                if (_showPlayPause)
+                    DrawPlayPauseIcon(canvas, centerX, centerY, size / 4f);
+
+                if (_showDiscCenter)
+                    DrawDiscCenter(canvas, centerX, centerY, ringRadius);
+
+                DrawArm(canvas);
+
+                canvas.Restore();
+                canvas.Restore();
             }
-
-            // Draw duration - MASSIVE MARGIN (80px gap from center area!)
-            var durationText = FormatTime(_duration);
-            var durationY = centerY + 100f; // Increased for more margin
-
-            if (_durationPaint != null)
-            {
-                _durationPaint.TextSize = Math.Max(28f, size / 9f); // Bigger duration
-                _durationPaint.Color = new SKColor(225, 225, 225);
-                canvas.DrawText(durationText, centerX, durationY, _durationPaint);
-            }
         }
-
-        if (_showPlayPause)
-        {
-            DrawPlayPauseIcon(canvas, centerX, centerY, size / 4f);
-        }
-
-        if (_showDiscCenter)
-        {
-            DrawDiscCenter(canvas, centerX, centerY, ringRadius);
-        }
-
-        DrawArm(canvas);
 
         if (shouldContinueAnimating)
             Invalidate();

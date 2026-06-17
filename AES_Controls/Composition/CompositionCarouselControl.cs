@@ -2288,11 +2288,6 @@ namespace AES_Controls.Composition
                 _visual?.SendHandlerMessage(new StackSpacingMessage(change.GetNewValue<double>()));
             else if (change.Property == BackgroundProperty)
                 _visual?.SendHandlerMessage(new BackgroundMessage(GetSkColor(change.GetNewValue<IBrush>())));
-            else if (change.Property == OpacityProperty)
-            {
-                // Forward opacity changes to visuals that support global opacity messaging
-                _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
-            }
             else if (change.Property == GlobalOpacityProperty)
                 _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
             else if (change.Property == UseFullCoverSizeProperty)

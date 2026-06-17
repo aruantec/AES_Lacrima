@@ -1,4 +1,7 @@
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Numerics;
 using Avalonia;
 using Avalonia.Media;
@@ -29,7 +32,10 @@ internal record CardGridDropTargetMessage(int Index);
 internal record CardGridDragCancelMessage();
 internal record CardGridDragCommitMessage(int TargetIndex);
 internal record CardGridDragFinalizeMessage();
+internal record CardGridMoveImageMessage(int FromIndex, int ToIndex);
 internal record CardGridContentLoadingMessage(bool IsLoading);
+internal record CardGridSyncSlotsMessage(SKImage?[] Images);
+internal record CardGridImageRevealHoldMessage(bool Hold);
 
 public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 {
@@ -69,12 +75,9 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private SKColor _backgroundColor = DefaultBackgroundColor;
     private const float SelectionFadeInRate = 18f;
     private const float SelectionFadeOutRate = 22f;
-    private const float ImageRevealStaggerSeconds = 0.011f;
-    private const float ImageRevealMaxStaggerSeconds = 0.14f;
-    private const float ImageRevealScaleLift = 0.05f;
+    private const float ImageRevealStaggerSeconds = 0.008f;
+    private const float ImageRevealMaxStaggerSeconds = 0.08f;
     private float _currentGlobalOpacity = 1f;
-    private float _targetGlobalOpacity = 1f;
-    private float _currentGlobalOpacityVelocity;
     private bool _pauseLoadingSpinnerAnimation;
     private bool _horizontalScrollEnabled;
     private bool _interactionSuspended;
@@ -84,11 +87,16 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private Vector2 _dragPosition;
     private bool _isDragCommitting;
     private float _dragCommitProgress;
+    private Vector2 _dragCommitStartPosition;
+    private SKImage? _draggedImage;
     private const float SwapAnimationSeconds = 0.2f;
+    private const float DragCommitSeconds = 0.3f;
     private const float DragLiftScale = 1.04f;
     private readonly Dictionary<int, Vector2> _swapOffsets = new();
     private readonly Dictionary<int, Vector2> _swapOffsetTargets = new();
     private readonly Dictionary<int, ImageRevealState> _imageReveal = new();
+    private bool _imageRevealHold;
+    private readonly HashSet<int> _pendingImageReveals = new();
 
     private readonly struct ImageRevealState(float opacity, float velocity, float delayRemaining)
     {
@@ -168,7 +176,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                     if (img != null)
                     {
                         CacheImageDimensions(img);
-                        if (i >= previous.Length || previous[i] == null || !ReferenceEquals(previous[i], img))
+                        if (i >= previous.Length || previous[i] == null)
                             BeginImageReveal(i);
                     }
                 }
@@ -183,10 +191,11 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                     var oldImg = _images[update.Index];
                     if (update.Image != null)
                     {
+                        bool isFirstShow = oldImg == null;
                         _images[update.Index] = update.Image;
                         CacheImageDimensions(update.Image);
                         _loadingIndices.Remove(update.Index);
-                        if (oldImg == null || !ReferenceEquals(oldImg, update.Image))
+                        if (isFirstShow)
                             BeginImageReveal(update.Index);
                     }
                     else if (update.IsLoading)
@@ -245,17 +254,43 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 break;
             case CardGridSlotCountMessage slotCount:
             {
-                int count = Math.Max(0, slotCount.Count);
-                while (_images.Count < count)
-                    _images.Add(null);
-                while (_images.Count > count)
-                    _images.RemoveAt(_images.Count - 1);
+                ResizeImageSlots(slotCount.Count);
+                break;
+            }
+            case CardGridSyncSlotsMessage sync:
+            {
+                var imgs = sync.Images ?? Array.Empty<SKImage?>();
+                var previous = _images.ToArray();
+                var previousImages = previous.ToList();
+                _images = [.. imgs];
 
-                _loadingIndices.RemoveWhere(index => index >= count);
-                PruneImageRevealStates(count);
+                foreach (var img in previousImages)
+                {
+                    if (img != null && !_images.Contains(img))
+                        RemoveImageCaches(img);
+                }
+
+                for (int i = 0; i < _images.Count; i++)
+                {
+                    var img = _images[i];
+                    if (img != null)
+                    {
+                        CacheImageDimensions(img);
+                        if (i >= previous.Length || previous[i] == null)
+                            BeginImageReveal(i);
+                    }
+                }
+
+                _loadingIndices.RemoveWhere(index => index >= _images.Count);
+                PruneImageRevealStates(_images.Count);
                 Invalidate();
                 break;
             }
+            case CardGridImageRevealHoldMessage hold:
+                _imageRevealHold = hold.Hold;
+                if (!hold.Hold)
+                    FlushPendingImageReveals();
+                break;
             case CardGridSelectedIndexMessage selected:
                 _selectedIndex = selected.Index;
                 if (_selectedIndex < 0)
@@ -307,11 +342,14 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 RequestScrollbarAnimationFrame();
                 break;
             case GlobalOpacityMessage opacity:
-                _targetGlobalOpacity = (float)Math.Clamp(opacity.Value, 0.0, 1.0);
-                _currentGlobalOpacity = _targetGlobalOpacity;
-                _currentGlobalOpacityVelocity = 0;
+            {
+                var clamped = (float)Math.Clamp(opacity.Value, 0.0, 1.0);
+                if (Math.Abs(_currentGlobalOpacity - clamped) < 0.0001f)
+                    break;
+                _currentGlobalOpacity = clamped;
                 Invalidate();
                 break;
+            }
             case PauseLoadingSpinnerAnimationMessage pause:
                 _pauseLoadingSpinnerAnimation = pause.IsPaused;
                 if (!_pauseLoadingSpinnerAnimation && (_loadingIndices.Count > 0 || _isContentLoading))
@@ -347,6 +385,9 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                     _dropTargetIndex = dragState.Index;
                     _isDragCommitting = false;
                     _dragCommitProgress = 0f;
+                    _draggedImage = _draggingIndex >= 0 && _draggingIndex < _images.Count
+                        ? _images[_draggingIndex]
+                        : null;
                     _swapOffsets.Clear();
                     _swapOffsetTargets.Clear();
                 }
@@ -378,10 +419,15 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 break;
             case CardGridDragCommitMessage commit:
                 _dropTargetIndex = commit.TargetIndex;
+                _dragCommitStartPosition = _dragPosition;
                 UpdateSwapOffsetTargets();
                 _isDragCommitting = true;
                 _dragCommitProgress = 0f;
                 RequestScrollbarAnimationFrame();
+                break;
+            case CardGridMoveImageMessage move:
+                MoveImageSlot(move.FromIndex, move.ToIndex);
+                Invalidate();
                 break;
             case CardGridDragFinalizeMessage:
                 ClearDragVisualState();
@@ -471,15 +517,6 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             _scrollbarOpacityVelocity = 0;
         }
 
-        if (Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.0005f || Math.Abs(_currentGlobalOpacityVelocity) > 0.0005f)
-        {
-            double opStiffness = 30.0;
-            double opDamping = 2.0 * Math.Sqrt(opStiffness);
-            _currentGlobalOpacityVelocity += (float)((_targetGlobalOpacity - _currentGlobalOpacity) * opStiffness - _currentGlobalOpacityVelocity * opDamping) * (float)dt;
-            _currentGlobalOpacity += _currentGlobalOpacityVelocity * (float)dt;
-            _currentGlobalOpacity = Math.Clamp(_currentGlobalOpacity, 0f, 1f);
-        }
-
         float fadeTarget = _selectedIndex >= 0 ? 1f : 0f;
         bool selectionFading = Math.Abs(_selectionBorderFade - fadeTarget) > 0.001f;
         if (selectionFading)
@@ -500,7 +537,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         bool dragAnimating = AnimateSwapOffsets((float)dt);
         if (_isDragCommitting && _dragCommitProgress < 1f)
         {
-            _dragCommitProgress += (float)(dt / SwapAnimationSeconds);
+            _dragCommitProgress += (float)(dt / DragCommitSeconds);
             if (_dragCommitProgress > 1f)
                 _dragCommitProgress = 1f;
             dragAnimating = true;
@@ -542,7 +579,6 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                            Math.Abs(_targetScrollY - _currentScrollY) > 0.01 ||
                            Math.Abs(_scrollVelocity) > 0.5 ||
                            Math.Abs(_scrollSpringVelocity) > 0.01 ||
-                           Math.Abs(_currentGlobalOpacity - _targetGlobalOpacity) > 0.001f ||
                            Math.Abs(_scrollbarOpacity - desiredScrollbarOpacity) > 0.01 ||
                            selectionFading ||
                            selectionPulsing ||
@@ -812,8 +848,86 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         _dropTargetIndex = -1;
         _isDragCommitting = false;
         _dragCommitProgress = 0f;
+        _draggedImage = null;
         _swapOffsets.Clear();
         _swapOffsetTargets.Clear();
+    }
+
+    private void MoveImageSlot(int from, int to)
+    {
+        if (from == to ||
+            from < 0 || to < 0 ||
+            from >= _images.Count || to >= _images.Count)
+            return;
+
+        var image = _images[from];
+        _images.RemoveAt(from);
+        _images.Insert(to, image);
+
+        bool wasLoading = _loadingIndices.Remove(from);
+        ShiftIndexedSet(_loadingIndices, from, to);
+        if (wasLoading)
+            _loadingIndices.Add(to);
+
+        ShiftIndexedDictionary(_hoverLift, from, to);
+        ShiftImageRevealStates(from, to);
+    }
+
+    private static void ShiftIndexedSet(HashSet<int> indices, int from, int to)
+    {
+        if (indices.Count == 0)
+            return;
+
+        var shifted = new HashSet<int>();
+        foreach (int index in indices)
+            shifted.Add(ShiftIndex(index, from, to));
+        indices.Clear();
+        foreach (int index in shifted)
+            indices.Add(index);
+    }
+
+    private static void ShiftIndexedDictionary<T>(Dictionary<int, T> values, int from, int to)
+    {
+        if (values.Count == 0)
+            return;
+
+        var shifted = new Dictionary<int, T>();
+        foreach (var (index, value) in values)
+            shifted[ShiftIndex(index, from, to)] = value;
+        values.Clear();
+        foreach (var (index, value) in shifted)
+            values[index] = value;
+    }
+
+    private void ShiftImageRevealStates(int from, int to)
+    {
+        if (_imageReveal.Count == 0)
+            return;
+
+        var shifted = new Dictionary<int, ImageRevealState>();
+        foreach (var (index, state) in _imageReveal)
+            shifted[ShiftIndex(index, from, to)] = state;
+        _imageReveal.Clear();
+        foreach (var (index, state) in shifted)
+            _imageReveal[index] = state;
+    }
+
+    private static int ShiftIndex(int index, int from, int to)
+    {
+        if (index == from)
+            return to;
+
+        if (from < to)
+        {
+            if (index > from && index <= to)
+                return index - 1;
+        }
+        else if (index >= to && index < from)
+        {
+            return index + 1;
+        }
+
+        return index;
     }
 
     private void UpdateSwapOffsetTargets()
@@ -847,7 +961,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
     private bool AnimateSwapOffsets(float dt)
     {
-        if (_draggingIndex < 0)
+        if (_draggingIndex < 0 || _isDragCommitting)
             return false;
 
         bool animating = _isDragCommitting;
@@ -906,11 +1020,11 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
         if (_isDragCommitting && TryGetCardPosition(_dropTargetIndex, metrics, out float targetX, out float targetY))
         {
-            float eased = MathF.Sin(_dragCommitProgress * MathF.PI * 0.5f);
+            float eased = EaseOutCubic(_dragCommitProgress);
             float targetCx = targetX + w * 0.5f;
             float targetCy = targetY + h * 0.5f;
-            cx = _dragPosition.X + (targetCx - _dragPosition.X) * eased;
-            cy = _dragPosition.Y + (targetCy - _dragPosition.Y) * eased;
+            cx = _dragCommitStartPosition.X + (targetCx - _dragCommitStartPosition.X) * eased;
+            cy = _dragCommitStartPosition.Y + (targetCy - _dragCommitStartPosition.Y) * eased;
             scale = DragLiftScale + (1f - DragLiftScale) * eased;
         }
 
@@ -925,7 +1039,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             canvas.Translate(-cx, -cy);
         }
 
-        DrawCard(canvas, index, x, y, metrics, globalOpacity);
+        DrawCardCore(canvas, index, x, y, metrics, globalOpacity, _draggedImage);
         canvas.Restore();
     }
 
@@ -937,10 +1051,17 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private void DrawCard(SKCanvas canvas, int index, float x, float y, GridMetrics metrics, float globalOpacity) =>
         DrawCardCore(canvas, index, x, y, metrics, globalOpacity);
 
-    private void DrawCardCore(SKCanvas canvas, int index, float x, float y, GridMetrics metrics, float globalOpacity)
+    private void DrawCardCore(
+        SKCanvas canvas,
+        int index,
+        float x,
+        float y,
+        GridMetrics metrics,
+        float globalOpacity,
+        SKImage? imageOverride = null)
     {
         var rect = new SKRect(x, y, x + metrics.CardWidth, y + metrics.CardHeight);
-        var img = index < _images.Count ? _images[index] : null;
+        var img = imageOverride ?? (index < _images.Count ? _images[index] : null);
 
         if (_interactionSuspended)
         {
@@ -979,15 +1100,6 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         if (img != null)
         {
             float reveal = GetImageRevealOpacity(index);
-            float revealScale = 1f - ImageRevealScaleLift * (1f - reveal);
-            if (Math.Abs(revealScale - 1f) > 0.001f)
-            {
-                float cx = rect.MidX;
-                float cy = rect.MidY;
-                canvas.Translate(cx, cy);
-                canvas.Scale(revealScale, revealScale);
-                canvas.Translate(-cx, -cy);
-            }
 
             _cardPaint.Style = SKPaintStyle.Fill;
             _cardPaint.Shader = null;
@@ -1038,7 +1150,46 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
     private static float EaseOutCubic(float t) => 1f - MathF.Pow(1f - Math.Clamp(t, 0f, 1f), 3f);
 
+    private void ResizeImageSlots(int count)
+    {
+        count = Math.Max(0, count);
+        while (_images.Count < count)
+            _images.Add(null);
+        while (_images.Count > count)
+            _images.RemoveAt(_images.Count - 1);
+
+        _loadingIndices.RemoveWhere(index => index >= count);
+        PruneImageRevealStates(count);
+        _pendingImageReveals.RemoveWhere(index => index >= count);
+        Invalidate();
+    }
+
     private void BeginImageReveal(int index)
+    {
+        if (index < 0)
+            return;
+
+        if (_imageRevealHold)
+        {
+            _pendingImageReveals.Add(index);
+            return;
+        }
+
+        BeginImageRevealCore(index);
+    }
+
+    private void FlushPendingImageReveals()
+    {
+        if (_pendingImageReveals.Count == 0)
+            return;
+
+        int center = EstimateViewportCenterIndex();
+        foreach (var index in _pendingImageReveals.OrderBy(i => Math.Abs(i - center)))
+            BeginImageRevealCore(index);
+        _pendingImageReveals.Clear();
+    }
+
+    private void BeginImageRevealCore(int index)
     {
         if (index < 0)
             return;

@@ -46,7 +46,7 @@
                                                     UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
                                                     CardSpacing="{Binding SettingsViewModel.CardGridSpacing}"
                                                     GridBackground="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
-                                                    GlobalOpacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
+                                                    GlobalOpacity="{Binding ViewTransitionOpacity}"
                                                     GridOpacityMultiplier="{Binding SettingsViewModel.CardGridOpacity}"
                                                     ClipToBounds="False">
         <composition:CompositionCoverControl.ContextMenu>
@@ -241,7 +241,6 @@
             <spectrum:GlSpectrumControl Spectrum="{Binding AudioPlayer.Spectrum}"
                                         Grid.Row="0"
                                         Height="{Binding SettingsViewModel.SpectrumHeight}"
-                                        Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}"
                                         VerticalAlignment="Bottom"
                                         BarWidth="{Binding SettingsViewModel.BarWidth}"
                                         BarSpacing="{Binding SettingsViewModel.BarSpacing}"
@@ -249,12 +248,8 @@
                                         UseDeltaTime="True"
                                         IsHitTestVisible="False"
                                         BarGradient="{Binding SpectrumGradientBrush}"
-                                        IsVisible="{Binding SettingsViewModel.IsMusicSpectrumVisible}">
-                <spectrum:GlSpectrumControl.Transitions>
-                    <Transitions>
-                        <DoubleTransition Property="Opacity" Duration="0:0:0.500" Easing="SineEaseInOut"/>
-                    </Transitions>
-                </spectrum:GlSpectrumControl.Transitions>
+                                        IsVisible="{Binding SettingsViewModel.IsMusicSpectrumVisible}"
+                                        Opacity="{Binding ViewTransitionOpacity}">
             </spectrum:GlSpectrumControl>
         </Grid>
 
@@ -859,12 +854,7 @@
                                         TextForegroundColor="LightGray"
                                         TextSize="16"
                                         TriangleOffset="-14"
-                                        Opacity="{Binding IsActive, Converter={StaticResource BoolToOpacityConverter}}">
-                <composition:CompositionWaveformProgressBar.Transitions>
-                    <Transitions>
-                        <DoubleTransition Property="Opacity" Duration="0:0:0.500" Easing="SineEaseInOut"/>
-                    </Transitions>
-                </composition:CompositionWaveformProgressBar.Transitions>
+                                        Opacity="{Binding ViewTransitionOpacity}">
             </composition:CompositionWaveformProgressBar>
             <Separator Margin="0" VerticalAlignment="Bottom"/>
         </Grid>

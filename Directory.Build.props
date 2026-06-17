@@ -4,8 +4,13 @@
     <LinkIncremental>true</LinkIncremental>
     <!-- Ignore missing optional machine-local NuGet feeds during restore. -->
     <RestoreIgnoreFailedSources>true</RestoreIgnoreFailedSources>
-    <!-- Avoid intermittent csc exit 139 (compiler-server segfault) on Linux Debug builds. -->
-    <UseSharedCompilation Condition="'$(Configuration)' == 'Debug'">false</UseSharedCompilation>
+    <!-- Avoid intermittent csc exit 139 (compiler-server segfault) on Linux. -->
+    <UseSharedCompilation>false</UseSharedCompilation>
+    <DisableBuildServer>true</DisableBuildServer>
+    <!-- DATAS GC mode is linked to intermittent Roslyn crashes on Linux (dotnet/runtime#104123). -->
+    <GarbageCollectionAdaptationMode Condition="'$(OS)' != 'Windows_NT'">0</GarbageCollectionAdaptationMode>
+    <!-- Serialize project builds on Linux to reduce parallel csc pressure. -->
+    <BuildInParallel Condition="'$(OS)' != 'Windows_NT' and '$(Configuration)' == 'Debug'">false</BuildInParallel>
   </PropertyGroup>
 
   <ItemDefinitionGroup Condition="'$(Configuration)' == 'Debug'">

@@ -1067,10 +1067,6 @@ public partial class EmulationView : UserControl
         if (DataContext is EmulationViewModel vm)
             UpdateInlineCaptureHostVisibility(vm);
 
-        CapturePresentationOpacity = 0;
-        CarouselOpacity = 0;
-        AlbumRowOpacity = 0;
-
         try
         {
             await Task.Delay(Math.Max(CarouselTransitionMs, CaptureTransitionMs), cancellationToken);
@@ -1156,7 +1152,11 @@ public partial class EmulationView : UserControl
         if (UseInlineCaptureHost)
         {
             if (_inlinePortalPresentationActive && CapturePresentationOpacity > 0.95)
+            {
+                if (AlbumRowOpacity < 0.95)
+                    AlbumRowOpacity = 1;
                 return;
+            }
 
             EnsureInlineCaptureHost();
             if (_inlineCaptureHost == null)
@@ -1193,6 +1193,7 @@ public partial class EmulationView : UserControl
                 return;
 
             CapturePresentationOpacity = 1;
+            AlbumRowOpacity = 1;
             ResetPortalCaptureBrightness();
             StartPortalBrightnessFade();
             return;
@@ -1232,7 +1233,11 @@ public partial class EmulationView : UserControl
             }
 
             if (restoreCarousel && DataContext is EmulationViewModel { IsActive: true })
+            {
                 CarouselOpacity = 1;
+                if (AlbumRowOpacity < 0.95)
+                    AlbumRowOpacity = 1;
+            }
 
             return;
         }
@@ -1283,6 +1288,7 @@ public partial class EmulationView : UserControl
             return;
 
         CapturePresentationOpacity = 1;
+        AlbumRowOpacity = 1;
     }
 
     private async Task HidePortalWindowAsync(CancellationToken cancellationToken, bool restoreCarousel)
@@ -1312,7 +1318,11 @@ public partial class EmulationView : UserControl
             return;
 
         if (restoreCarousel && DataContext is EmulationViewModel { IsActive: true })
+        {
             CarouselOpacity = 1;
+            if (AlbumRowOpacity < 0.95)
+                AlbumRowOpacity = 1;
+        }
     }
 
     private async Task CompletePortalHideAfterFadeAsync(CancellationToken cancellationToken)

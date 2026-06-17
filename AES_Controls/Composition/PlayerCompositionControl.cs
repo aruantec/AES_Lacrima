@@ -354,6 +354,12 @@ public class PlayerCompositionControl : UserControl, IScaleExclusionRenderTarget
         {
             control._visual?.SendHandlerMessage(new PlayerShowDiscCenterMessage((bool)(args.NewValue ?? false)));
         });
+
+        OpacityProperty.Changed.AddClassHandler<PlayerCompositionControl>((control, args) =>
+        {
+            var opacity = (double)(args.NewValue ?? 1.0);
+            control._visual?.SendHandlerMessage(new GlobalOpacityMessage(opacity));
+        });
     }
 
     public PlayerCompositionControl()
@@ -566,6 +572,7 @@ public class PlayerCompositionControl : UserControl, IScaleExclusionRenderTarget
         _visual.SendHandlerMessage(new PlayerPlayPauseOpacityMessage((float)PlayPauseOpacity));
         _visual.SendHandlerMessage(new PlayerRotateMessage(Rotate));
         _visual.SendHandlerMessage(new PlayerShowDiscCenterMessage(ShowDiscCenter));
+        _visual.SendHandlerMessage(new GlobalOpacityMessage(Opacity));
     }
 
     private SKColor GetSKColor(IBrush? brush)

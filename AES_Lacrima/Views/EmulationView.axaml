@@ -78,9 +78,14 @@
                                                     UseFullCoverSize="{Binding SettingsViewModel.CarouselUseFullCoverSize}"
                                                     CardSpacing="{Binding SettingsViewModel.CardGridSpacing}"
                                                     GridBackground="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"
-                                                    GlobalOpacity="{Binding ElementName=RootView, Path=CarouselOpacity}"
                                                     GridOpacityMultiplier="{Binding SettingsViewModel.CardGridOpacity}"
                                                     ClipToBounds="False">
+            <composition:CompositionCoverControl.GlobalOpacity>
+                <MultiBinding Converter="{StaticResource MultiplyDoubleConverter}">
+                    <Binding Path="ViewTransitionOpacity"/>
+                    <Binding Path="CarouselOpacity" ElementName="RootView"/>
+                </MultiBinding>
+            </composition:CompositionCoverControl.GlobalOpacity>
             <composition:CompositionCoverControl.Transitions>
                 <Transitions>
                     <DoubleTransition Property="Opacity" Duration="0:0:0.30" Easing="CubicEaseInOut" />
