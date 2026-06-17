@@ -1,5 +1,6 @@
 ﻿using AES_Core.DI;
 using AES_Lacrima.Services;
+using AES_Controls.Navigation;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -8,6 +9,7 @@ using log4net;
 using Avalonia.Media;
 using Avalonia.Threading;
 using System;
+using System.Threading.Tasks;
 
 namespace AES_Lacrima.Views
 {
@@ -80,6 +82,44 @@ namespace AES_Lacrima.Views
             // Allow size change tracking after initial layout settles.
             _ignoreSizeChange = true;
             Dispatcher.UIThread.Post(() => _ignoreSizeChange = false, DispatcherPriority.Background);
+
+            ScheduleMediaViewWarmup();
+        }
+
+        private void ScheduleMediaViewWarmup()
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (DataContext is not ViewModels.MainWindowViewModel vm || ContentPresenter == null)
+                    return;
+
+                var views = vm.WarmedViewModels;
+                if (views == null || views.Count == 0)
+                    return;
+
+                // Pay the Emulation XAML cost immediately so navigation cannot beat warmup.
+                var emulation = views.Find(v => v is ViewModels.EmulationViewModel);
+                if (emulation != null)
+                    ContentPresenter.PrewarmBuild(emulation);
+
+                _ = FinishMediaViewWarmupAsync(views);
+            }, DispatcherPriority.Loaded);
+        }
+
+        private async Task FinishMediaViewWarmupAsync(System.Collections.Generic.List<AES_Core.Interfaces.IViewModelBase> views)
+        {
+            if (ContentPresenter == null)
+                return;
+
+            for (var attempt = 0; attempt < 120; attempt++)
+            {
+                if (ContentPresenter.Bounds.Width > 0 && ContentPresenter.Bounds.Height > 0)
+                    break;
+
+                await Task.Delay(16).ConfigureAwait(true);
+            }
+
+            await ContentPresenter.WarmupAsync(views).ConfigureAwait(true);
         }
 
         private void OnSizeChanged(object? sender, SizeChangedEventArgs e)

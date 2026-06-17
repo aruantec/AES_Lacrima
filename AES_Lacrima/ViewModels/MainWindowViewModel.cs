@@ -197,11 +197,17 @@ namespace AES_Lacrima.ViewModels
 
         private List<IViewModelBase> BuildWarmedViewModels()
         {
-            var warmed = new List<IViewModelBase>(2);
-            if (MusicViewModel != null)
-                warmed.Add(MusicViewModel);
+            // Emulation is the heaviest shell; warm it first.
+            var warmed = new List<IViewModelBase>(3);
             if (EmulationViewModel != null)
                 warmed.Add(EmulationViewModel);
+            if (MusicViewModel != null)
+                warmed.Add(MusicViewModel);
+
+            var videoViewModel = DiLocator.ResolveViewModel<VideoViewModel>();
+            if (videoViewModel != null)
+                warmed.Add(videoViewModel);
+
             return warmed;
         }
 

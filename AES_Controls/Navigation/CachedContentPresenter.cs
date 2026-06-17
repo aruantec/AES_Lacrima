@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using System.Collections;
 using System.Diagnostics;
@@ -32,8 +33,11 @@ public class CachedContentPresenter : Control
     private static readonly Easing FadeOutEasing = new SineEaseIn();
     private static readonly Easing FadeInEasing = new SineEaseOut();
     private readonly Dictionary<object, ContentControl> _cache = [];
+    private readonly Dictionary<object, Control> _views = [];
+    private readonly Dictionary<ContentControl, object> _hostViewModels = [];
     private readonly Panel _hostPanel = new();
     private CancellationTokenSource? _transitionCts;
+    private bool _warmupInProgress;
 
     /// <summary>
     /// Backing styled property for the current view-model. When changed the
@@ -164,9 +168,8 @@ public class CachedContentPresenter : Control
         // Get or Create the new view
         if (!_cache.TryGetValue(newViewModel, out var newViewHost))
         {
-            newViewHost = CreateViewHost(newViewModel);
-            _hostPanel.Children.Add(newViewHost);
-            _cache[newViewModel] = newViewHost;
+            Warmup(newViewModel);
+            newViewHost = _cache[newViewModel];
         }
 
         if (TransitionsEnabled && oldViewModel != null && _cache.TryGetValue(oldViewModel, out var oldViewHost))
@@ -221,8 +224,8 @@ public class CachedContentPresenter : Control
     private async Task RunCrossFade(ContentControl from, ContentControl to, CancellationToken token)
     {
         var phaseDurationMs = Math.Max(Duration.TotalMilliseconds / 2.0, 1.0);
-        var oldViewModel = from.Content;
-        var newViewModel = to.Content;
+        var oldViewModel = GetViewModelForHost(from);
+        var newViewModel = GetViewModelForHost(to);
         var topLevel = TopLevel.GetTopLevel(this);
 
         from.Opacity = 1.0;
@@ -321,17 +324,46 @@ public class CachedContentPresenter : Control
     }
 
     /// <summary>
+    /// Builds the view control for a view-model without creating a host.
+    /// Use this to pay the XAML/materialization cost as early as possible.
+    /// </summary>
+    public void PrewarmBuild(object viewModel)
+    {
+        if (viewModel == null)
+            return;
+
+        EnsureViewBuilt(viewModel);
+    }
+
+    /// <summary>
     /// Asynchronously warms a collection of view-models by creating their
     /// associated view hosts and measuring them. This helps reduce latency
     /// when switching to those views at runtime.
     /// </summary>
     public async Task WarmupAsync(List<IViewModelBase> viewModels)
     {
-        foreach (var vm in viewModels)
+        if (_warmupInProgress)
+            return;
+
+        _warmupInProgress = true;
+        var topLevel = TopLevel.GetTopLevel(this);
+        try
         {
-            if (vm == null || _cache.ContainsKey(vm)) continue;
-            Warmup(vm);
-            await Task.Delay(16); // allow UI to breathe between warmups
+            foreach (var vm in viewModels)
+            {
+                if (vm == null || _cache.ContainsKey(vm))
+                    continue;
+
+                Warmup(vm);
+                await PrerenderHostAsync(vm, topLevel, CancellationToken.None).ConfigureAwait(true);
+                await WaitForRenderFrameAsync(topLevel, CancellationToken.None).ConfigureAwait(true);
+            }
+
+            Log.Info($"View warmup completed for {viewModels.Count} view-model(s).");
+        }
+        finally
+        {
+            _warmupInProgress = false;
         }
     }
 
@@ -341,17 +373,86 @@ public class CachedContentPresenter : Control
     /// </summary>
     public void Warmup(object viewModel)
     {
-        if (_cache.ContainsKey(viewModel)) return;
+        if (_cache.ContainsKey(viewModel))
+            return;
+
+        var view = EnsureViewBuilt(viewModel);
+        var size = GetWarmupSize();
+        var rect = new Rect(size);
+
+        view.Measure(size);
+        view.Arrange(rect);
 
         var viewHost = CreateViewHost(viewModel);
         _cache[viewModel] = viewHost;
         _hostPanel.Children.Add(viewHost);
 
-        // Force templates and measure to ensure the view is ready for layout
-        viewHost.ApplyTemplate();
-        var size = Bounds.Size;
-        if (size.Width <= 0 || size.Height <= 0) size = new Size(1920, 1080);
         viewHost.Measure(size);
+        viewHost.Arrange(rect);
+    }
+
+    private async Task PrerenderHostAsync(object viewModel, TopLevel? topLevel, CancellationToken token)
+    {
+        if (!_cache.TryGetValue(viewModel, out var host))
+            return;
+
+        SetViewTransitionOpacity(viewModel, 0.0);
+        host.IsVisible = true;
+        host.Opacity = 0;
+
+        await WaitForRenderFrameAsync(topLevel, token).ConfigureAwait(true);
+        await WaitForRenderFrameAsync(topLevel, token).ConfigureAwait(true);
+
+        host.IsVisible = false;
+        host.Opacity = 0;
+        SetViewTransitionOpacity(viewModel, 0.0);
+    }
+
+    private Control EnsureViewBuilt(object viewModel)
+    {
+        if (_views.TryGetValue(viewModel, out var existing))
+            return existing;
+
+        var templates = Application.Current?.DataTemplates;
+        if (templates == null)
+            throw new InvalidOperationException("Application data templates are not available.");
+
+        foreach (var template in templates)
+        {
+            if (!template.Match(viewModel))
+                continue;
+
+            var built = template.Build(viewModel);
+            if (built == null)
+                continue;
+
+            built.DataContext = viewModel;
+            _views[viewModel] = built;
+            Log.Info($"Built view '{built.GetType().Name}' for '{viewModel.GetType().Name}'.");
+            return built;
+        }
+
+        throw new InvalidOperationException($"No view template found for {viewModel.GetType().FullName}.");
+    }
+
+    private object? GetViewModelForHost(ContentControl host) =>
+        _hostViewModels.TryGetValue(host, out var viewModel) ? viewModel : host.Content;
+
+    private Size GetWarmupSize()
+    {
+        var size = Bounds.Size;
+        if (size.Width > 0 && size.Height > 0)
+            return size;
+
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel != null)
+        {
+            size = topLevel.Bounds.Size;
+            if (size.Width > 0 && size.Height > 0)
+                return size;
+        }
+
+        return new Size(1920, 1080);
     }
 
     /// <summary>
@@ -361,15 +462,17 @@ public class CachedContentPresenter : Control
     /// </summary>
     private ContentControl CreateViewHost(object viewModel)
     {
-        return new ContentControl
+        var host = new ContentControl
         {
-            Content = viewModel,
+            Content = EnsureViewBuilt(viewModel),
             IsVisible = false,
             Opacity = 0,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Stretch,
             ClipToBounds = false
         };
+        _hostViewModels[host] = viewModel;
+        return host;
     }
 
     /// <summary>
