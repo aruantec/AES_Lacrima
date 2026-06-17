@@ -804,6 +804,39 @@
                     </Panel>
                 </Button>
 
+                <!-- High quality online stream toggle -->
+                <Button Height="60"
+                        Width="60"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        Command="{Binding ToggleHighQualityStreamCommand}"
+                        ToolTip.Tip="High Quality Stream (separate 1080p video + audio)">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" BorderThickness="0">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="100" Height="100">
+                            <Rectangle Canvas.Left="10" Canvas.Top="18" Width="80" Height="64" RadiusX="10" RadiusY="10"
+                                       StrokeThickness="7.5"
+                                       Stroke="{Binding UseHighQualityStream, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                       Fill="Transparent"/>
+                            <TextBlock Canvas.Left="0" Canvas.Top="34" Width="100"
+                                       Text="HQ"
+                                       FontSize="28"
+                                       FontWeight="Bold"
+                                       Foreground="{Binding UseHighQualityStream, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#F0F0F0,DimGray'}"
+                                       TextAlignment="Center"/>
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+
                 <!-- Equalizer button -->
                 <Button Height="60"
                         Width="60"

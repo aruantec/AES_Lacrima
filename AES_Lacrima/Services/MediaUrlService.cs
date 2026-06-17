@@ -4,43 +4,38 @@ using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Lacrima.ViewModels;
 using System;
-using System.Diagnostics;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace AES_Lacrima.Services
 {
-    /// <summary>
-    /// Service for handling media URLs, specifically for online streaming content.
-    /// </summary>
     public interface IMediaUrlService;
 
     internal sealed record ResolvedMediaSource(string VideoUrl, string AudioUrl, double? AspectRatio)
     {
         public (string, string) OnlineUrls => (VideoUrl, AudioUrl);
+
+        public bool UsesSeparateStreams =>
+            !string.IsNullOrWhiteSpace(VideoUrl)
+            && !string.IsNullOrWhiteSpace(AudioUrl)
+            && !string.Equals(VideoUrl, AudioUrl, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Implementation of <see cref="IMediaUrlService"/> that uses yt-dlp to resolve streaming URLs.
-    /// </summary>
     [AutoRegister]
     internal partial class MediaUrlService : ViewModelBase, IMediaUrlService
     {
-        /// <summary>
-        /// Opens a media item, resolving its online stream URLs if necessary, and starts playback.
-        /// </summary>
-        /// <param name="audioPlayer">The audio player instance to use for playback.</param>
-        /// <param name="item">The media item to open and play.</param>
-        /// <param name="preferVideo">When true, uses the resolved video stream for playback.</param>
-        public async Task<bool> OpenMediaItemAsync(AudioPlayer audioPlayer, MediaItem item, bool preferVideo = false)
+        public async Task<bool> OpenMediaItemAsync(
+            AudioPlayer audioPlayer,
+            MediaItem item,
+            bool preferVideo = false,
+            bool useHighQualityStream = false)
         {
             if (item.FileName == null)
                 return false;
 
-            // Notify the UI instantly that media loading has started
             audioPlayer.IsLoadingMedia = true;
 
-            var resolvedSource = await ResolveMediaSourceAsync(item.FileName, preferVideo).ConfigureAwait(false);
+            var resolvedSource = await ResolveMediaSourceAsync(item.FileName, preferVideo, useHighQualityStream)
+                .ConfigureAwait(false);
             if (resolvedSource == null)
             {
                 audioPlayer.IsLoadingMedia = false;
@@ -48,6 +43,13 @@ namespace AES_Lacrima.Services
             }
 
             item.OnlineUrls = resolvedSource.OnlineUrls;
+
+            var videoItag = OnlineStreamUrlHelper.TryGetItag(resolvedSource.VideoUrl);
+            var audioItag = OnlineStreamUrlHelper.TryGetItag(resolvedSource.AudioUrl);
+            AES_Core.Logging.LogHelper.For<MediaUrlService>().Info(
+                $"Resolved online stream for '{item.FileName}': hq={useHighQualityStream}, " +
+                $"separate={resolvedSource.UsesSeparateStreams}, videoItag={videoItag}, audioItag={audioItag}.");
+
             try
             {
                 await audioPlayer.PlayFile(item, preferVideo).ConfigureAwait(false);
@@ -55,104 +57,83 @@ namespace AES_Lacrima.Services
             }
             catch (Exception ex)
             {
-                AES_Core.Logging.LogHelper.For<MediaUrlService>().Warn($"Failed to play resolved online media for '{item.FileName}'", ex);
+                AES_Core.Logging.LogHelper.For<MediaUrlService>().Warn(
+                    $"Failed to play resolved online media for '{item.FileName}'",
+                    ex);
                 audioPlayer.IsLoadingMedia = false;
                 return false;
             }
         }
 
-        internal async Task<ResolvedMediaSource?> ResolveMediaSourceAsync(string url, bool preferVideo)
+        internal async Task<ResolvedMediaSource?> ResolveMediaSourceAsync(
+            string url,
+            bool preferVideo,
+            bool useHighQualityStream = false)
         {
             try
             {
-                const int targetHeight = 1080;
-
                 var currentUrl = YouTubeThumbnail.GetCleanVideoLink(url);
+
+                if (preferVideo && useHighQualityStream)
+                {
+                    var hq = await OnlineStreamSelector.ResolveHighQualityStreamsAsync(url).ConfigureAwait(false);
+                    if (hq != null)
+                        return hq;
+
+                    MediaInfo hqInfo;
+                    try
+                    {
+                        hqInfo = await YtDlpMetadata.GetMetaDataAsync(currentUrl, YtDlpExtractorProfile.HighQualityStreams)
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception cleanedUrlError) when (!string.Equals(currentUrl, url, StringComparison.Ordinal))
+                    {
+                        AES_Core.Logging.LogHelper.For<MediaUrlService>().Warn(
+                            $"HQ metadata failed for normalized URL. Retrying with original URL. Normalized='{currentUrl}', Original='{url}'",
+                            cleanedUrlError);
+                        hqInfo = await YtDlpMetadata.GetMetaDataAsync(url, YtDlpExtractorProfile.HighQualityStreams)
+                            .ConfigureAwait(false);
+                    }
+
+                    var separate = OnlineStreamSelector.SelectSeparateHighQuality(hqInfo);
+                    if (separate != null)
+                        return separate;
+
+                    AES_Core.Logging.LogHelper.For<MediaUrlService>().Warn(
+                        $"HQ separate streams unavailable for '{url}'; falling back to standard muxed stream.");
+                }
+
+                var profile = YtDlpExtractorProfile.Default;
+                var useHighQualityStreamForSelect = false;
+
                 MediaInfo info;
                 try
                 {
-                    info = await YtDlpMetadata.GetMetaDataAsync(currentUrl).ConfigureAwait(false);
+                    info = await YtDlpMetadata.GetMetaDataAsync(currentUrl, profile).ConfigureAwait(false);
                 }
                 catch (Exception cleanedUrlError) when (!string.Equals(currentUrl, url, StringComparison.Ordinal))
                 {
                     AES_Core.Logging.LogHelper.For<MediaUrlService>().Warn(
                         $"yt-dlp metadata failed for normalized URL. Retrying with original URL. Normalized='{currentUrl}', Original='{url}'",
                         cleanedUrlError);
-                    info = await YtDlpMetadata.GetMetaDataAsync(url).ConfigureAwait(false);
+                    info = await YtDlpMetadata.GetMetaDataAsync(url, profile).ConfigureAwait(false);
                 }
 
-                var bestMuxed = info.MuxedFormats
-                    .Where(m => !string.IsNullOrWhiteSpace(m.Url) && (m.Height ?? 0) > 0)
-                    .OrderBy(m => m.Height == targetHeight ? 0 : 1)
-                    .ThenBy(m => (m.Height ?? 0) < targetHeight ? 1 : 0)
-                    .ThenBy(m => Math.Abs((m.Height ?? targetHeight) - targetHeight))
-                    .ThenByDescending(m => m.Height ?? 0)
-                    .ThenByDescending(m => m.Fps ?? 0)
-                    .FirstOrDefault();
-
-                var bestVideo = info.VideoFormats
-                    .Where(v => !string.IsNullOrWhiteSpace(v.Url) && (v.Height ?? 0) > 0)
-                    .OrderBy(v => v.Height == targetHeight ? 0 : 1)
-                    .ThenBy(v => (v.Height ?? 0) < targetHeight ? 1 : 0)
-                    .ThenBy(v => Math.Abs((v.Height ?? targetHeight) - targetHeight))
-                    .ThenByDescending(v => v.Height ?? 0)
-                    .ThenByDescending(v => v.Fps ?? 0)
-                    .FirstOrDefault();
-
-                var bestAudio = info.AudioFormats
-                    .Where(a => !string.IsNullOrWhiteSpace(a.Url))
-                    .OrderByDescending(a => a.Bitrate ?? 0)
-                    .FirstOrDefault();
-
-                string videoUrl = bestVideo?.Url ?? bestMuxed?.Url ?? string.Empty;
-                string audioUrl = bestAudio?.Url ?? bestMuxed?.Url ?? string.Empty;
-
-                int? width = bestVideo?.Width ?? bestMuxed?.Width;
-                int? height = bestVideo?.Height ?? bestMuxed?.Height;
-
-                if (preferVideo && !string.IsNullOrWhiteSpace(bestMuxed?.Url))
-                {
-                    videoUrl = bestMuxed.Url;
-                    audioUrl = bestMuxed.Url;
-                    width = bestMuxed.Width;
-                    height = bestMuxed.Height;
-                }
-                else if (string.IsNullOrWhiteSpace(bestVideo?.Url) && !string.IsNullOrWhiteSpace(bestMuxed?.Url))
-                {
-                    audioUrl = bestMuxed.Url;
-                    width = bestMuxed.Width;
-                    height = bestMuxed.Height;
-                }
-
-                if (string.IsNullOrWhiteSpace(videoUrl) && string.IsNullOrWhiteSpace(audioUrl))
+                var selected = OnlineStreamSelector.Select(info, preferVideo, useHighQualityStreamForSelect);
+                if (selected == null)
                 {
                     AES_Core.Logging.LogHelper.For<MediaUrlService>().Warn(
-                        $"yt-dlp returned no usable media formats for URL '{url}'. VideoFormats={info.VideoFormats.Count}, AudioFormats={info.AudioFormats.Count}, MuxedFormats={info.MuxedFormats.Count}");
-                    return null;
+                        $"yt-dlp returned no usable media formats for URL '{url}'. " +
+                        $"VideoFormats={info.VideoFormats.Count}, AudioFormats={info.AudioFormats.Count}, MuxedFormats={info.MuxedFormats.Count}");
                 }
 
-                double? aspectRatio = width > 0 && height > 0
-                    ? Math.Round(width.Value / (double)height.Value, 4)
-                    : null;
-
-                return new ResolvedMediaSource(videoUrl, audioUrl, aspectRatio);
+                return selected;
             }
             catch (Exception ex)
             {
                 AES_Core.Logging.LogHelper.For<MediaUrlService>().Error($"Fetch failed after retries: {ex.Message}", ex);
                 return null;
             }
-        }
-
-        /// <summary>
-        /// Resolves the best available video and audio stream URLs for a given source URL using yt-dlp.
-        /// </summary>
-        /// <param name="url">The source URL to process.</param>
-        /// <returns>A tuple containing the video URL and audio URL.</returns>
-        private async Task<(string, string)> HandleStreamFile(string url, bool preferVideo)
-        {
-            var resolved = await ResolveMediaSourceAsync(url, preferVideo).ConfigureAwait(false);
-            return resolved?.OnlineUrls ?? (string.Empty, string.Empty);
         }
     }
 }

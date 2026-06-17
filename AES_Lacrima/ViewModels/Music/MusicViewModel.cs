@@ -232,6 +232,8 @@ namespace AES_Lacrima.ViewModels
 
         protected virtual bool AllowOnlineCoverLookup => true;
 
+        protected virtual bool PreferHighQualityOnlineStream => false;
+
         protected virtual bool ShouldScanLocalMediaMetadata => true;
 
         protected virtual string FilePickerTitle => "Add Audio Files";

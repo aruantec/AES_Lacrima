@@ -1,12 +1,32 @@
 using AES_Core.IO;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Runtime.InteropServices;
 using System.Text;
-
+using System.Linq;
 using log4net;
 using AES_Core.Logging;
+
 namespace AES_Controls.Helpers;
+
+public enum YtDlpExtractorProfile
+{
+    /// <summary>
+    /// Reliable metadata extraction; default client often exposes only low-quality muxed URLs.
+    /// </summary>
+    Default,
+
+    /// <summary>
+    /// Resolves separate DASH video/audio stream URLs up to 1080p.
+    /// </summary>
+    HighQualityStreams,
+
+    /// <summary>
+    /// Uses yt-dlp default extractor clients without overrides.
+    /// </summary>
+    Unrestricted
+}
 
 public static class JsonExtensions
 {
@@ -184,7 +204,33 @@ public static class YtDlpMetadata
         };
     }
 
+    public static bool IsYtdlSourcePageUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return false;
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+
+        if (!uri.Scheme.Equals("http", StringComparison.OrdinalIgnoreCase)
+            && !uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (uri.Host.Contains("googlevideo.com", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return uri.Host.Contains("youtube.com", StringComparison.OrdinalIgnoreCase)
+               || uri.Host.Equals("youtu.be", StringComparison.OrdinalIgnoreCase)
+               || uri.Host.Contains("youtube-nocookie.com", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static async Task<MediaInfo> GetMetaDataAsync(string videoUrl, CancellationToken cancellationToken = default)
+        => await GetMetaDataAsync(videoUrl, YtDlpExtractorProfile.Default, cancellationToken).ConfigureAwait(false);
+
+    public static async Task<MediaInfo> GetMetaDataAsync(
+        string videoUrl,
+        YtDlpExtractorProfile profile,
+        CancellationToken cancellationToken = default)
     {
         var exePath = await RequireYtDlpPathAsync().ConfigureAwait(false);
 
@@ -200,7 +246,7 @@ public static class YtDlpMetadata
         // Prefer safe argument passing when supported
         try
         {
-            AddCommonYtDlpArgs(psi);
+            AddCommonYtDlpArgs(psi, profile);
             psi.ArgumentList.Add("--no-playlist");
             psi.ArgumentList.Add("-J");
             psi.ArgumentList.Add(videoUrl);
@@ -208,7 +254,7 @@ public static class YtDlpMetadata
         catch
         {
             // Fall back to quoted arguments for runtimes that don't support ArgumentList
-            psi.Arguments = BuildCommonYtDlpArgsForCommandLine() + " --no-playlist -J \"" + videoUrl.Replace("\"", "\\\"") + "\"";
+            psi.Arguments = BuildCommonYtDlpArgsForCommandLine(profile) + " --no-playlist -J \"" + videoUrl.Replace("\"", "\\\"") + "\"";
         }
 
         var json = await RunAndCollectOutputAsync(psi, exePath, cancellationToken).ConfigureAwait(false);
@@ -307,6 +353,51 @@ public static class YtDlpMetadata
         };
     }
 
+    /// <summary>
+    /// Resolves direct stream URLs using yt-dlp format selection.
+    /// Returns one URL for muxed streams or video+audio URLs for merged format selectors.
+    /// </summary>
+    public static async Task<IReadOnlyList<string>> GetStreamUrlsAsync(
+        string videoUrl,
+        string formatSelector,
+        YtDlpExtractorProfile profile = YtDlpExtractorProfile.Default,
+        CancellationToken cancellationToken = default)
+    {
+        var exePath = await RequireYtDlpPathAsync().ConfigureAwait(false);
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = exePath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        try
+        {
+            AddCommonYtDlpArgs(psi, profile);
+            psi.ArgumentList.Add("--no-playlist");
+            psi.ArgumentList.Add("-g");
+            psi.ArgumentList.Add("-f");
+            psi.ArgumentList.Add(formatSelector);
+            psi.ArgumentList.Add(videoUrl);
+        }
+        catch
+        {
+            psi.Arguments =
+                BuildCommonYtDlpArgsForCommandLine(profile) + " --no-playlist -g -f " +
+                QuoteArg(formatSelector) + " \"" + videoUrl.Replace("\"", "\\\"") + "\"";
+        }
+
+        var lines = await RunAndCollectOutputLinesAsync(psi, exePath, cancellationToken).ConfigureAwait(false);
+        return lines
+            .Where(line => !string.IsNullOrWhiteSpace(line)
+                           && (line.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                               || line.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+    }
+
     private static async Task<string> RunAndCollectOutputAsync(ProcessStartInfo psi, string exePath, CancellationToken cancellationToken)
     {
         Process? process;
@@ -376,11 +467,17 @@ public static class YtDlpMetadata
         return fallback;
     }
 
-    private static void AddCommonYtDlpArgs(ProcessStartInfo psi)
+    private static void AddCommonYtDlpArgs(ProcessStartInfo psi, YtDlpExtractorProfile profile = YtDlpExtractorProfile.Default)
     {
-        // Reduce YouTube extraction failures in headless/Linux environments.
-        psi.ArgumentList.Add("--extractor-args");
-        psi.ArgumentList.Add("youtube:player_client=android,web_safari,tv;player_skip=webpage,configs");
+        if (profile != YtDlpExtractorProfile.Unrestricted)
+        {
+            psi.ArgumentList.Add("--extractor-args");
+            psi.ArgumentList.Add(profile switch
+            {
+                YtDlpExtractorProfile.HighQualityStreams => "youtube:player_client=android_sdkless",
+                _ => "youtube:player_client=android,web_safari,tv;player_skip=webpage,configs"
+            });
+        }
 
         var runtimeList = GetJsRuntimeList();
         if (!string.IsNullOrWhiteSpace(runtimeList))
@@ -405,10 +502,18 @@ public static class YtDlpMetadata
         }
     }
 
-    private static string BuildCommonYtDlpArgsForCommandLine()
+    private static string BuildCommonYtDlpArgsForCommandLine(YtDlpExtractorProfile profile = YtDlpExtractorProfile.Default)
     {
         var args = new StringBuilder();
-        args.Append("--extractor-args \"youtube:player_client=android,web_safari,tv;player_skip=webpage,configs\"");
+        if (profile != YtDlpExtractorProfile.Unrestricted)
+        {
+            var extractorArgs = profile switch
+            {
+                YtDlpExtractorProfile.HighQualityStreams => "youtube:player_client=android_sdkless",
+                _ => "youtube:player_client=android,web_safari,tv;player_skip=webpage,configs"
+            };
+            args.Append("--extractor-args ").Append(QuoteArg(extractorArgs));
+        }
 
         var runtimeList = GetJsRuntimeList();
         if (!string.IsNullOrWhiteSpace(runtimeList))

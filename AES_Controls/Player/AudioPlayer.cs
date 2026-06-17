@@ -499,8 +499,8 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
            && !_disposed
            && version == Volatile.Read(ref _playbackLoadVersion);
 
-    private void ApplyNetworkPlaybackProfile(bool isRemote)
-    {
+        private void ApplyNetworkPlaybackProfile(bool isRemote)
+        {
         var demuxerMaxBytes = isRemote ? Math.Max(CacheSize, 128) : CacheSize;
         SetProperty("cache", "yes");
         SetProperty("demuxer-max-bytes", $"{demuxerMaxBytes}M");
@@ -1542,15 +1542,14 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             return;
         }
 
-        // Check if the file is a URL and if OnlineUrls are available for selection.
-        // For video playback we may use separate video/audio DASH streams.
+        // Use stream URLs resolved by MediaUrlService when present.
         string? resolvedUrl = null;
         string? externalAudioUrl = null;
 
-        if (item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase) && item.OnlineUrls != null && item.OnlineUrls.HasValue)
+        if (item.OnlineUrls is { } onlineUrls)
         {
-            var streamVideoUrl = item.OnlineUrls.Value.Item1;
-            var streamAudioUrl = item.OnlineUrls.Value.Item2;
+            var streamVideoUrl = onlineUrls.Item1;
+            var streamAudioUrl = onlineUrls.Item2;
 
             if (video)
             {
@@ -1565,7 +1564,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             }
             else
             {
-                resolvedUrl = streamAudioUrl;
+                resolvedUrl = !string.IsNullOrWhiteSpace(streamAudioUrl) ? streamAudioUrl : streamVideoUrl;
             }
         }
 
@@ -1617,11 +1616,8 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         _syncContext?.Post(_ => { Waveform.Clear(); Spectrum.Clear(); Position = 0; }, null);
         PostToMpvThread(() =>
         {
-            // Mute the old item immediately on the mpv thread before swapping sources.
             SetProperty("pause", true);
             ApplyNetworkPlaybackProfile(isRemotePlayback);
-            // IMPORTANT: when rendering through VideoViewControl/OpenGL, mpv must stay on "libmpv".
-            // Using "auto" creates a standalone VO path and results in audio-only + black render target.
             SetProperty("vo", video ? "libmpv" : "null");
             SetProperty("vid", video ? "auto" : "no");
             SetProperty("audio-display", video ? "auto" : "no");
@@ -1639,8 +1635,6 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                     var audioTarget = ToMpvLoadTarget(externalAudioUrl);
                     var attached = false;
 
-                    // Some source switches (e.g. local file -> DASH stream) can race with demuxer setup.
-                    // Retry a few times so external audio reliably attaches, but only for the active load.
                     for (int attempt = 1; attempt <= 5 && !attached && IsPlaybackLoadCurrent(loadVersion, loadToken); attempt++)
                     {
                         try
@@ -1655,14 +1649,9 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                         catch (Exception audioEx)
                         {
                             if (attempt == 5)
-                            {
-                                // Non-fatal: log and continue — video will still play (without separate audio track).
                                 Log.Warn("audio-add failed for external audio stream", audioEx);
-                            }
                             else
-                            {
                                 await Task.Delay(150, loadToken).ConfigureAwait(false);
-                            }
                         }
                     }
 

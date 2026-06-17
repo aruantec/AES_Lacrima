@@ -263,11 +263,20 @@ namespace AES_Lacrima.ViewModels
 
             if (IsVideoMode && isRequestedTrackCurrent)
             {
-                // Do not reload the same playing video; just bring the viewport back.
-                IsVideoViewportDismissed = false;
-                _pendingTrackLoadItem = null;
-                IsTrackLoadPending = false;
-                return;
+                if (!PreferHighQualityOnlineStream)
+                {
+                    IsVideoViewportDismissed = false;
+                    _pendingTrackLoadItem = null;
+                    IsTrackLoadPending = false;
+                    return;
+                }
+
+                item.OnlineUrls = null;
+            }
+            else if (IsVideoMode && item.OnlineUrls != null)
+            {
+                // Force re-resolve when switching to a different online video.
+                item.OnlineUrls = null;
             }
 
             if (IsVideoMode)
@@ -283,20 +292,25 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private async Task<bool> TryPlayMediaItemAsync(MediaItem item)
+        protected async Task<bool> TryPlayMediaItemAsync(MediaItem item)
         {
             if (AudioPlayer == null || item.FileName == null)
                 return false;
 
             if (item.FileName.StartsWith("http", StringComparison.OrdinalIgnoreCase) ||
-                item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase))
+                item.FileName.Contains("http", StringComparison.OrdinalIgnoreCase) ||
+                MetadataPathHelper.IsOnlineMediaPath(item.FileName))
             {
                 if (_mediaUrlService == null)
                     return false;
 
                 try
                 {
-                    return await _mediaUrlService.OpenMediaItemAsync(AudioPlayer, item, IsVideoMode).ConfigureAwait(false);
+                    return await _mediaUrlService.OpenMediaItemAsync(
+                        AudioPlayer,
+                        item,
+                        IsVideoMode,
+                        PreferHighQualityOnlineStream).ConfigureAwait(false);
                 }
                 catch
                 {
